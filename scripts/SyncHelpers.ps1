@@ -250,11 +250,12 @@ function Resolve-LinkedRepoPath {
 }
 
 function Find-LinkedPaths {
-    # Scans file content for directory paths that exist on disk.
+    # Scans file content for directory paths.
     # Returns an array of unique Unix-style or Windows-style paths found.
     # Detects: /c/Folder, /d/Some/Path, C:\Folder, D:\Some\Path
     # Excludes system dirs, user profile, temp, Windows, Program Files, etc.
-    param([string]$Content)
+    # Use -SkipExistenceCheck during import (target dirs may not exist yet).
+    param([string]$Content, [switch]$SkipExistenceCheck)
 
     $results = @{}
 
@@ -295,8 +296,8 @@ function Find-LinkedPaths {
         # Skip user profile paths (those are handled by localPath with ~)
         if ($winPath -like "$env:USERPROFILE*") { continue }
 
-        # Only keep if it actually exists as a directory
-        if (Test-Path $winPath -PathType Container) {
+        # Only keep if it actually exists as a directory (or skip check for import)
+        if ($SkipExistenceCheck -or (Test-Path $winPath -PathType Container)) {
             $detected += $results[$winPath]
         }
     }

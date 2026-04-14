@@ -251,7 +251,7 @@ try {
                         # that references this folder name
                         $linkLocal = $null
                         $repoContent = [IO.File]::ReadAllText($repoFile)
-                        $detectedPaths = Find-LinkedPaths -Content $repoContent
+                        $detectedPaths = Find-LinkedPaths -Content $repoContent -SkipExistenceCheck
                         foreach ($dp in $detectedPaths) {
                             $resolved = Resolve-UnixPath -Path $dp
                             if ((Split-Path $resolved -Leaf) -eq $dir.Name) {
