@@ -1,0 +1,22 @@
+# Never sync sensitive files
+*.pem
+*.key
+*.pfx
+*.p12
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.credential*
+credentials
+credentials.json
+.env
+.env.*
+*.secret*
+*.token*
+
+# Backup files created by import
+*.bak
+
+# OS noise
+Thumbs.db
+desktop.ini

@@ -1,0 +1,97 @@
+# ===== IDENTITY =====
+[user]
+	name = Kiefer Fernandez Valladolid
+	email = Kiefer.Fernandez@tranzact.net
+
+# ===== CORE =====
+[core]
+	editor = code --wait
+	autocrlf = input
+
+# ===== REMOTES =====
+[remote "origin"]
+	prune = true
+
+# ===== DIFF =====
+[diff]
+	tool = default-difftool
+[difftool "default-difftool"]
+    cmd = code --wait --diff $LOCAL $REMOTE
+
+# ===== MERGE =====
+[merge]
+  	tool = vscode
+[mergetool "vscode"]
+  	cmd = code --wait $MERGED
+
+# ===== ALIASES =====
+[alias]
+	# --- Basic shortcuts ---
+	cp = cherry-pick
+	st = status -s
+	cl = clone
+	co = commit
+	ch = checkout
+	br = branch
+
+	# --- Diff ---
+	diff = diff --word-diff
+	dc = diff --cached
+
+	# --- Reset ---
+	r = reset
+	r1 = reset HEAD^
+	r2 = reset HEAD^^
+	rh = reset --hard
+	rh1 = reset HEAD^ --hard
+	rh2 = reset HEAD^^ --hard
+
+	# --- Stash ---
+	sl = stash list
+	sa = stash apply
+	ss = stash save
+
+	# --- Log (https://devhints.io/git-log-format) ---
+	lg1 = log --graph --abbrev-commit --decorate --format=format:'%C(bold blue)%h%C(reset) - %C(bold green)(%ar)%C(reset) %C(white)%s%C(reset) %C(dim white)- %an%C(reset)%C(auto)%d%C(reset)'
+	lg2 = log --graph --abbrev-commit --decorate --format=format:'%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset)%C(auto)%d%C(reset)%n''          %C(white)%s%C(reset) %C(dim white)- %an%C(reset)'
+	lg = lg1
+
+	# --- Branch management ---
+	; Deletes branches merged into develop.
+	; Pass -f to delete branches merged into the current branch instead.
+	; ref: https://stackoverflow.com/a/6135292
+	clbranchs = !git branch --merged $([[ $1 != \"-f\" ]] \\\n&& git rev-parse develop) | egrep -v \"(^\\*|^\\s*(main|master|develop)$)\" \\\n| xargs git branch -d
+	updPl = !git checkout develop&&git pull origin develop&&git fetch --all
+
+	# --- File search ---
+	f = !git ls-files | grep -i
+	gr = grep -Ii
+	grf = grep -rIi
+
+	# --- Merge conflict helpers ---
+	; Usage: git ours <file>  |  git theirs <file>
+	ours = "!f() { git checkout --ours $@ && git add $@; }; f"
+	theirs = "!f() { git checkout --theirs $@ && git add $@; }; f"
+	
+	# --- Tags ---
+	lasttag = describe --tags --abbrev=0
+	lt = describe --tags --abbrev=0
+
+	# --- Self-documentation ---	
+	la = !git config -l | grep alias | cut -c 7-
+	
+# ===== CREDENTIALS =====
+# Note: the empty "helper =" before the gh.exe line resets the default
+# credential helper so only gh.exe is used for that host (precedence reset).
+[credential]
+	helper = manager
+	username = KieferFernandez
+[credential "https://github.com"]
+	username = KieferFernandez
+	helper = 
+	helper = !'C:\\Program Files\\GitHub CLI\\gh.exe' auth git-credential
+[credential "https://github.com/TRANZACT"]
+	username = KieferFernandez
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !'C:\\Program Files\\GitHub CLI\\gh.exe' auth git-credential
