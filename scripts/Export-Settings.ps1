@@ -51,12 +51,20 @@ try {
     $userValues   = Get-UserValues -RepoRoot $repoRoot
     $valuesDirty  = $false
     $changed      = 0
+    $skipped      = 0
 
     # -- Collect all sanitize rules and prompt once upfront ----------------
+    # Only collect rules for entries whose local file actually exists —
+    # no point prompting for values when the file isn't on this machine yet.
     $allRules = @()
     foreach ($entry in $config.files) {
         $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
-        if ($hasSanitize) { $allRules += $entry.sanitizeRules }
+        if ($hasSanitize) {
+            $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
+            if (Test-Path $localFile) {
+                $allRules += $entry.sanitizeRules
+            }
+        }
     }
     if ($allRules.Count -gt 0) {
         # Deduplicate rules by placeholder name
@@ -95,6 +103,7 @@ try {
                 } else {
                     Write-StatusLine 'SKIPPED' $label "WARNING: local file not found: $localFile"
                 }
+                $skipped++
                 continue
             }
 
@@ -181,6 +190,11 @@ try {
         Write-Host '  Review the changes, then run  commit.bat  to commit and push.' -ForegroundColor Cyan
     } else {
         Write-Host '  Repo is up to date. No changes detected.' -ForegroundColor Green
+        if ($skipped -gt 0) {
+            Write-Host
+            Write-Host "  Note: $skipped file(s) skipped because they don't exist locally." -ForegroundColor DarkYellow
+            Write-Host '  If this is a new machine, run  import.bat  to apply repo settings first.' -ForegroundColor DarkYellow
+        }
     }
 
     Write-Host ('-' * 50) -ForegroundColor DarkGray
