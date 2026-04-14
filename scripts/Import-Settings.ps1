@@ -1,93 +1,39 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Imports repo config files to the local machine's user profile.
 .DESCRIPTION
     Copies files from dotfiles/ to the target user's profile directories.
+    Files with sanitizeRules have their placeholders filled with actual values
+    (prompted or cached) before writing to disk.
     Creates .bak backups before overwriting existing files.
     Requests UAC elevation automatically when targeting another user's profile.
 .PARAMETER User
     Target Windows username. Defaults to the current user.
 .PARAMETER Force
     Skip per-file confirmation prompts and overwrite without asking.
+.PARAMETER ResetValues
+    Force re-prompting for all sanitized placeholder values, even if cached.
 .EXAMPLE
     .\Import-Settings.ps1
     .\Import-Settings.ps1 -Force
     .\Import-Settings.ps1 -User johndoe
-    .\Import-Settings.ps1 -User johndoe -Force
+    .\Import-Settings.ps1 -ResetValues
 #>
 param(
-    [string]$User  = $env:USERNAME,
-    [switch]$Force
+    [string]$User = $env:USERNAME,
+    [switch]$Force,
+    [switch]$ResetValues
 )
 
 $ErrorActionPreference = 'Stop'
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+. "$PSScriptRoot\SyncHelpers.ps1"
 
-function Test-IsAdmin {
-    $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]$identity
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function Resolve-UserProfile {
-    param([string]$Username)
-    if ($Username -eq $env:USERNAME) { return $env:USERPROFILE }
-    $path = Join-Path 'C:\Users' $Username
-    if (Test-Path $path) { return $path }
-    try {
-        $sid = (New-Object System.Security.Principal.NTAccount($Username)).Translate(
-            [System.Security.Principal.SecurityIdentifier]).Value
-        $reg = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid"
-        if (Test-Path $reg) { return (Get-ItemProperty $reg).ProfileImagePath }
-    } catch {}
-    throw "Cannot resolve profile directory for user '$Username'. Make sure the user exists and has logged in at least once."
-}
-
-function Resolve-LocalPath {
-    param([string]$Template, [string]$ProfileRoot)
-    $Template -replace '^~', $ProfileRoot
-}
-
-function Test-Excluded {
-    param([string]$FilePath, [string[]]$Patterns)
-    $leaf = Split-Path $FilePath -Leaf
-    foreach ($p in $Patterns) {
-        if ($leaf -like $p -or $FilePath -like "*\$p") { return $true }
-    }
-    return $false
-}
-
-function Compare-ByHash {
-    param([string]$PathA, [string]$PathB)
-    if (-not (Test-Path $PathA) -or -not (Test-Path $PathB)) { return $false }
-    $a = (Get-FileHash -Path $PathA -Algorithm SHA256).Hash
-    $b = (Get-FileHash -Path $PathB -Algorithm SHA256).Hash
-    return $a -eq $b
-}
-
-function Write-StatusLine {
-    param([string]$Status, [string]$File, [string]$Note = '')
-    $color = switch ($Status) {
-        'CREATED'   { 'Green' }
-        'UPDATED'   { 'Yellow' }
-        'UNCHANGED' { 'DarkGray' }
-        'SKIPPED'   { 'DarkYellow' }
-        'ERROR'     { 'Red' }
-        default     { 'White' }
-    }
-    $label = $Status.PadRight(10)
-    Write-Host "  [$label] " -ForegroundColor $color -NoNewline
-    Write-Host $File -NoNewline
-    if ($Note) { Write-Host "  ($Note)" -ForegroundColor DarkGray } else { Write-Host }
-}
-
-# ── Elevation check ───────────────────────────────────────────────────────────
+# -- Elevation check ----------------------------------------------------------
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
 
-# Resolve profile before elevation check (need to know if it's "other user")
 try { $profileRoot = Resolve-UserProfile -Username $User } catch {
     Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
@@ -98,21 +44,22 @@ $isOtherUser = ($profileRoot -ne $env:USERPROFILE)
 if ($isOtherUser -and -not (Test-IsAdmin)) {
     Write-Host
     Write-Host "  Targeting another user's profile requires administrator rights." -ForegroundColor Yellow
-    Write-Host '  Requesting elevation — please approve the UAC prompt...' -ForegroundColor Yellow
+    Write-Host '  Requesting elevation -- please approve the UAC prompt...' -ForegroundColor Yellow
     Write-Host
 
-    $forceArg = if ($Force) { '-Force' } else { '' }
-    $args = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" -User `"$User`" $forceArg"
-    Start-Process powershell.exe -ArgumentList $args -Verb RunAs -Wait
+    $argParts = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($MyInvocation.MyCommand.Path)`"", "-User `"$User`"")
+    if ($Force)       { $argParts += '-Force' }
+    if ($ResetValues) { $argParts += '-ResetValues' }
+    Start-Process powershell.exe -ArgumentList ($argParts -join ' ') -Verb RunAs -Wait
     exit 0
 }
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# -- Main ---------------------------------------------------------------------
 
 Write-Host
-Write-Host '╔══════════════════════════════════════════╗' -ForegroundColor Cyan
-Write-Host '║        SyncSettings — IMPORT             ║' -ForegroundColor Cyan
-Write-Host '╚══════════════════════════════════════════╝' -ForegroundColor Cyan
+Write-Host '+==========================================+' -ForegroundColor Cyan
+Write-Host '|        SyncSettings -- IMPORT             |' -ForegroundColor Cyan
+Write-Host '+==========================================+' -ForegroundColor Cyan
 Write-Host
 
 try {
@@ -122,12 +69,81 @@ try {
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
-    Write-Host "Target user   : $User" -ForegroundColor White
-    Write-Host "Profile path  : $profileRoot" -ForegroundColor White
-    Write-Host "Repo root     : $repoRoot" -ForegroundColor White
+    Write-Host "  Target user   : $User" -ForegroundColor White
+    Write-Host "  Profile path  : $profileRoot" -ForegroundColor White
+    Write-Host "  Repo root     : $repoRoot" -ForegroundColor White
     if ($Force) { Write-Host '  (--Force: skipping confirmation prompts)' -ForegroundColor DarkYellow }
     Write-Host
 
+    # Load cached user values
+    $userValues   = Get-UserValues -RepoRoot $repoRoot
+    $valuesDirty  = $false
+
+    # -- Collect all sanitize rules and prompt once upfront ----------------
+    $allRules = @()
+    foreach ($entry in $config.files) {
+        $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
+        if ($hasSanitize) {
+            $repoFile = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
+            if (Test-Path $repoFile) { $allRules += $entry.sanitizeRules }
+        }
+    }
+    if ($allRules.Count -gt 0) {
+        $seen  = @{}
+        $unique = @()
+        foreach ($r in $allRules) {
+            if (-not $seen.ContainsKey($r.placeholder)) {
+                $seen[$r.placeholder] = $true
+                $unique += $r
+            }
+        }
+
+        # Try to pre-populate from existing local files if no cache exists
+        if (-not $ResetValues) {
+            foreach ($entry in $config.files) {
+                $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
+                if (-not $hasSanitize) { continue }
+                $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
+                $repoFile  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
+                if ((Test-Path $localFile) -and (Test-Path $repoFile)) {
+                    $localContent = [IO.File]::ReadAllText($localFile)
+                    $repoContent  = [IO.File]::ReadAllText($repoFile)
+                    # For each rule, try to infer the value by comparing local vs repo line by line
+                    $localLines = $localContent -split "`n"
+                    $repoLines  = $repoContent -split "`n"
+                    for ($i = 0; $i -lt [Math]::Min($localLines.Count, $repoLines.Count); $i++) {
+                        foreach ($rule in $entry.sanitizeRules) {
+                            $ph = $rule.placeholder
+                            if ($repoLines[$i].Contains($ph) -and -not $localLines[$i].Contains($ph)) {
+                                # Extract the actual value by comparing the two lines
+                                $repoTrim  = $repoLines[$i].TrimEnd("`r")
+                                $localTrim = $localLines[$i].TrimEnd("`r")
+                                # Simple extraction: replace everything except the placeholder part
+                                $before = $repoTrim.IndexOf($ph)
+                                $after  = $before + $ph.Length
+                                $prefix = $repoTrim.Substring(0, $before)
+                                $suffix = $repoTrim.Substring($after)
+                                if ($localTrim.StartsWith($prefix) -and $localTrim.EndsWith($suffix)) {
+                                    $extracted = $localTrim.Substring($prefix.Length, $localTrim.Length - $prefix.Length - $suffix.Length)
+                                    if ($extracted.Length -gt 0 -and (-not $userValues.ContainsKey($ph) -or $userValues[$ph].Length -eq 0)) {
+                                        $userValues[$ph] = $extracted
+                                        $valuesDirty = $true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        $rvParams = @{ Rules = $unique; UserValues = $userValues; Direction = 'import' }
+        if ($ResetValues) { $rvParams.ForceAll = $true }
+        Request-MissingValues @rvParams
+        $valuesDirty = $true
+    }
+
+    # -- Process each file ------------------------------------------------
     $applied = 0
 
     foreach ($entry in $config.files) {
@@ -136,7 +152,7 @@ try {
         $label     = $entry.repoPath
 
         try {
-            # Safety: check exclude patterns
+            # Exclude-pattern safety check
             if (Test-Excluded -FilePath $localFile -Patterns $config.excludePatterns) {
                 Write-StatusLine 'SKIPPED' $label 'matches exclude pattern'
                 continue
@@ -144,51 +160,93 @@ try {
 
             # Repo file must exist
             if (-not (Test-Path $repoFile)) {
-                Write-StatusLine 'SKIPPED' $label "not found in repo: $($entry.repoPath)"
+                Write-StatusLine 'SKIPPED' $label 'not found in repo'
                 continue
             }
 
-            # Ensure local destination folder exists
+            $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
+
+            # Warn if the target folder structure doesn't exist (app may not be installed)
             $localDir = Split-Path $localFile -Parent
             if (-not (Test-Path $localDir)) {
-                New-Item -ItemType Directory -Path $localDir -Force | Out-Null
+                Write-StatusLine 'SKIPPED' $label "WARNING: target folder not found: $localDir"
+                continue
             }
 
-            if (-not (Test-Path $localFile)) {
-                # Destination doesn't exist — just create it
-                Copy-Item -Path $repoFile -Destination $localFile -Force
-                Write-StatusLine 'CREATED' $label
-                $applied++
-            } elseif (Compare-ByHash -PathA $repoFile -PathB $localFile) {
-                Write-StatusLine 'UNCHANGED' $label
-            } else {
-                # Files differ — confirm unless -Force
-                if (-not $Force) {
-                    Write-Host
-                    Write-Host "  File differs: $localFile" -ForegroundColor Yellow
-                    $answer = Read-Host '  Overwrite? [Y/n]'
-                    if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
-                        Write-StatusLine 'SKIPPED' $label 'user skipped'
-                        Write-Host
+            if ($hasSanitize) {
+                # -- Hydrate placeholders -----------------------------
+                $repoContent = [IO.File]::ReadAllText($repoFile)
+                $hydParams = @{ Content = $repoContent; Rules = $entry.sanitizeRules; UserValues = $userValues }
+                $hydrated  = ConvertFrom-Sanitized @hydParams
+
+                if (Test-Path $localFile) {
+                    $localContent = [IO.File]::ReadAllText($localFile)
+                    if (Compare-NormalizedContent $hydrated $localContent) {
+                        Write-StatusLine 'UNCHANGED' $label
                         continue
                     }
-                    Write-Host
-                }
 
-                # Backup existing file
-                $backupPath = "$localFile.bak"
-                Copy-Item -Path $localFile -Destination $backupPath -Force
-                Copy-Item -Path $repoFile  -Destination $localFile  -Force
-                Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path $backupPath -Leaf)"
-                $applied++
+                    # Files differ -- confirm unless -Force
+                    if (-not $Force) {
+                        Write-Host
+                        Write-Host "  File differs: $localFile" -ForegroundColor Yellow
+                        $answer = Read-Host '  Overwrite? [Y/n]'
+                        if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
+                            Write-StatusLine 'SKIPPED' $label 'user skipped'
+                            Write-Host
+                            continue
+                        }
+                        Write-Host
+                    }
+
+                    # Backup existing file
+                    Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
+                    Write-Utf8File -Path $localFile -Content $hydrated
+                    Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
+                    $applied++
+                } else {
+                    Write-Utf8File -Path $localFile -Content $hydrated
+                    Write-StatusLine 'CREATED' $label
+                    $applied++
+                }
+            } else {
+                # -- Direct copy --------------------------------------
+                if (-not (Test-Path $localFile)) {
+                    Copy-Item -Path $repoFile -Destination $localFile -Force
+                    Write-StatusLine 'CREATED' $label
+                    $applied++
+                } elseif (Compare-FilesByHash -PathA $repoFile -PathB $localFile) {
+                    Write-StatusLine 'UNCHANGED' $label
+                } else {
+                    if (-not $Force) {
+                        Write-Host
+                        Write-Host "  File differs: $localFile" -ForegroundColor Yellow
+                        $answer = Read-Host '  Overwrite? [Y/n]'
+                        if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
+                            Write-StatusLine 'SKIPPED' $label 'user skipped'
+                            Write-Host
+                            continue
+                        }
+                        Write-Host
+                    }
+                    Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
+                    Copy-Item -Path $repoFile  -Destination $localFile      -Force
+                    Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
+                    $applied++
+                }
             }
         } catch {
             Write-StatusLine 'ERROR' $label $_.Exception.Message
         }
     }
 
+    # Save user values cache
+    if ($valuesDirty) {
+        Save-UserValues -RepoRoot $repoRoot -Values $userValues
+    }
+
     Write-Host
-    Write-Host ('─' * 50) -ForegroundColor DarkGray
+    Write-Host ('-' * 50) -ForegroundColor DarkGray
 
     if ($applied -gt 0) {
         Write-Host "  $applied file(s) applied to $profileRoot" -ForegroundColor Green
@@ -196,7 +254,7 @@ try {
         Write-Host '  No files were changed. Machine is already up to date.' -ForegroundColor Green
     }
 
-    Write-Host ('─' * 50) -ForegroundColor DarkGray
+    Write-Host ('-' * 50) -ForegroundColor DarkGray
     Write-Host
 
 } catch {

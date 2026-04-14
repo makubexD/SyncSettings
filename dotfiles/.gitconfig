@@ -1,7 +1,7 @@
 # ===== IDENTITY =====
 [user]
-	name = Kiefer Fernandez Valladolid
-	email = Kiefer.Fernandez@tranzact.net
+	name = <YOUR_NAME>
+	email = <YOUR_EMAIL>	
 
 # ===== CORE =====
 [core]
@@ -85,13 +85,13 @@
 # credential helper so only gh.exe is used for that host (precedence reset).
 [credential]
 	helper = manager
-	username = KieferFernandez
+	username = <YOUR_GH_USERNAME>
 [credential "https://github.com"]
-	username = KieferFernandez
+	username = <YOUR_GH_USERNAME>
 	helper = 
-	helper = !'C:\\Program Files\\GitHub CLI\\gh.exe' auth git-credential
-[credential "https://github.com/TRANZACT"]
-	username = KieferFernandez
+	helper = !'<GH_CLI_PATH>' auth git-credential
+[credential "https://github.com/<YOUR_GH_ORG>"]
+	username = <YOUR_GH_USERNAME>
 [credential "https://gist.github.com"]
 	helper = 
-	helper = !'C:\\Program Files\\GitHub CLI\\gh.exe' auth git-credential
+	helper = !'<GH_CLI_PATH>' auth git-credential

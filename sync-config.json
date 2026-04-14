@@ -5,7 +5,30 @@
     {
       "repoPath": "dotfiles/.gitconfig",
       "localPath": "~\\.gitconfig",
-      "description": "Git global configuration"
+      "description": "Git global configuration",
+      "sanitizeRules": [
+        {
+          "placeholder": "<YOUR_NAME>",
+          "prompt": "Full name for git commits"
+        },
+        {
+          "placeholder": "<YOUR_EMAIL>",
+          "prompt": "Email for git commits"
+        },
+        {
+          "placeholder": "<YOUR_GH_USERNAME>",
+          "prompt": "GitHub username"
+        },
+        {
+          "placeholder": "<YOUR_GH_ORG>",
+          "prompt": "GitHub organization (e.g., MAKUSOFT)"
+        },
+        {
+          "placeholder": "<GH_CLI_PATH>",
+          "prompt": "Path to GitHub CLI executable",
+          "default": "C:\\Program Files\\GitHub CLI\\gh.exe"
+        }
+      ]
     },
     {
       "repoPath": "dotfiles/.bashrc",
@@ -16,16 +39,6 @@
       "repoPath": "dotfiles/.bash_profile",
       "localPath": "~\\.bash_profile",
       "description": "Bash login profile"
-    },
-    {
-      "repoPath": "dotfiles/.nuxtrc",
-      "localPath": "~\\.nuxtrc",
-      "description": "Nuxt.js runtime config"
-    },
-    {
-      "repoPath": "dotfiles/.angular-config.json",
-      "localPath": "~\\.angular-config.json",
-      "description": "Angular CLI global config"
     },
     {
       "repoPath": "dotfiles/WindowsTerminal/settings.json",

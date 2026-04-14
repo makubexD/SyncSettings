@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Commits and optionally pushes changes in dotfiles/ to the remote repo.
@@ -21,7 +21,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 
 function Build-CommitMessage {
     param([string[]]$StatusLines)
@@ -62,12 +62,12 @@ function Build-CommitMessage {
     return $msg
 }
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# -- Main ---------------------------------------------------------------------
 
 Write-Host
-Write-Host '╔══════════════════════════════════════════╗' -ForegroundColor Cyan
-Write-Host '║        SyncSettings — COMMIT             ║' -ForegroundColor Cyan
-Write-Host '╚══════════════════════════════════════════╝' -ForegroundColor Cyan
+Write-Host '+==========================================+' -ForegroundColor Cyan
+Write-Host '|        SyncSettings -- COMMIT             |' -ForegroundColor Cyan
+Write-Host '+==========================================+' -ForegroundColor Cyan
 Write-Host
 
 try {
@@ -86,7 +86,7 @@ try {
     $statusLines = @($statusLines | Where-Object { $_ -match '\S' })
 
     if ($statusLines.Count -eq 0) {
-        Write-Host '  Nothing to commit — dotfiles/ is clean.' -ForegroundColor Green
+        Write-Host '  Nothing to commit -- dotfiles/ is clean.' -ForegroundColor Green
         Write-Host
         exit 0
     }
