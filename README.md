@@ -99,6 +99,43 @@ If the target user is different from the current session, PowerShell will reques
 
 ---
 
+## Linked Paths — Auto-Sync Referenced Directories
+
+Some config files reference external directories that hold important content. For example, `.bashrc` adds `/c/MakuCustomAlias` to `PATH` and auto-aliases every `.bat` file inside it. Without that folder, the settings are useless on a new machine.
+
+Set `"detectLinkedPaths": true` on any file entry in `sync-config.json` to enable automatic directory detection and sync:
+
+```json
+{
+  "repoPath": "dotfiles/.bashrc",
+  "localPath": "~\\.bashrc",
+  "detectLinkedPaths": true
+}
+```
+
+The script reads the file content, finds all directory paths (both Unix-style `/c/...` and Windows-style `C:\...`), verifies they exist on disk, and syncs their contents automatically — no manual path listing needed.
+
+**Export** backs up detected directories into the repo:
+```
+dotfiles/
+├── .bashrc
+└── .bashrc.linked/
+    └── MakuCustomAlias/   <- backed up from C:\MakuCustomAlias
+        └── vs.bat
+```
+
+**Import** on a new machine creates the directory if it doesn't exist and copies files into it.
+
+If you have multiple referenced directories, all of them are detected and grouped under `<filename>.linked/`:
+```
+dotfiles/.bashrc.linked/
+    MakuCustomAlias/
+    AnotherFolder/
+    YetAnotherPath/
+```
+
+---
+
 ## Sanitization — How it Works
 
 Files with `sanitizeRules` in `sync-config.json` are never stored raw in the repo. Instead:
@@ -124,8 +161,20 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
       "description": "Git global configuration",
       "sanitizeRules": [                        // optional — omit for plain files
         { "placeholder": "<YOUR_NAME>", "prompt": "Full name for git commits" },
-        { "placeholder": "<YOUR_EMAIL>", "prompt": "Email for git commits" }
+        { "placeholder": "<YOUR_EMAIL>", "prompt": "Email for git commits" },
+        {
+          "placeholder": "<GH_CLI_PATH>",
+          "prompt": "Path to GitHub CLI executable",
+          "default": "C:\\Program Files\\GitHub CLI\\gh.exe",
+          "escapeBackslashes": true             // double backslashes when hydrating (for .gitconfig syntax)
+        }
       ]
+    },
+    {
+      "repoPath": "dotfiles/.bashrc",
+      "localPath": "~\\.bashrc",
+      "description": "Bash run commands",
+      "detectLinkedPaths": true                 // auto-detect and sync referenced directories
     }
   ],
   "excludePatterns": ["*.pem", "*.key", "id_rsa*", ".env", ...]
@@ -135,6 +184,8 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
 - `~` in `localPath` resolves to `C:\Users\<username>` at runtime
 - Files matching `excludePatterns` are **never copied** in either direction
 - `sanitizeRules` is optional — files without it are compared/copied as-is
+- `escapeBackslashes: true` on a sanitize rule doubles backslashes when hydrating (needed for `.gitconfig` where paths use `\\` escaping)
+- `detectLinkedPaths: true` — scans the file's content for directory references and automatically syncs them; no manual path listing required
 
 ---
 
@@ -147,12 +198,16 @@ SyncSettings/
 ├── commit.bat              Run to commit and push
 ├── import.bat              Run to apply repo files → machine
 ├── scripts/
-│   ├── SyncHelpers.ps1     Shared functions (sanitization, hashing, etc.)
+│   ├── SyncHelpers.ps1     Shared functions (sanitization, hashing, linked paths, etc.)
 │   ├── Export-Settings.ps1
 │   ├── Commit-Settings.ps1
 │   └── Import-Settings.ps1
 └── dotfiles/               Repo copies of all synced files
     ├── .gitconfig
     ├── .bashrc
-    └── ...
+    ├── .bashrc.linked/     Auto-generated: directories referenced inside .bashrc
+    │   └── MakuCustomAlias/
+    │       └── vs.bat
+    └── WindowsTerminal/
+        └── settings.json
 ```

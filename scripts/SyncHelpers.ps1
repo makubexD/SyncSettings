@@ -115,21 +115,13 @@ function ConvertFrom-Sanitized {
     foreach ($rule in $Rules) {
         $actual = $UserValues[$rule.placeholder]
         if ($actual -and $actual.Length -gt 0 -and $Content.Contains($rule.placeholder)) {
-            # Detect if the line containing the placeholder uses \\ escaping.
-            # If so, double the backslashes in the replacement value so the
-            # resulting file keeps the same escaping convention (e.g., .gitconfig).
             $replacement = $actual
-            if ($actual.Contains('\')) {
-                $phIdx = $Content.IndexOf($rule.placeholder)
-                $lineStart = $Content.LastIndexOf("`n", $phIdx) + 1
-                $lineEnd   = $Content.IndexOf("`n", $phIdx)
-                if ($lineEnd -lt 0) { $lineEnd = $Content.Length }
-                $line = $Content.Substring($lineStart, $lineEnd - $lineStart)
-                # Remove the placeholder itself before checking for \\
-                $lineWithout = $line.Replace($rule.placeholder, '')
-                if ($lineWithout.Contains('\\')) {
-                    $replacement = $actual.Replace('\', '\\')
-                }
+            # If the rule has escapeBackslashes=true, always double backslashes.
+            # This handles cases like .gitconfig where paths must use \\ escaping
+            # but the surrounding context has no \\ left to detect after sanitization.
+            $forceEscape = $rule.PSObject.Properties['escapeBackslashes'] -and $rule.escapeBackslashes -eq $true
+            if ($forceEscape -and $actual.Contains('\')) {
+                $replacement = $actual.Replace('\', '\\')
             }
             $Content = $Content.Replace($rule.placeholder, $replacement)
         }
@@ -233,6 +225,156 @@ function Request-MissingValues {
     }
 
     if ($prompted) { Write-Host }
+}
+
+# -- Linked path helpers -------------------------------------------------------
+
+function Resolve-UnixPath {
+    # Converts /c/MakuCustomAlias -> C:\MakuCustomAlias. Windows paths pass through.
+    param([string]$Path)
+    if ($Path -match '^[A-Za-z]:\\') { return $Path }
+    if ($Path -match '^/([A-Za-z])/(.*)$') {
+        $drive = $Matches[1].ToUpper()
+        $rest  = $Matches[2] -replace '/', '\'
+        return "${drive}:\$rest"
+    }
+    return $Path -replace '/', '\'
+}
+
+function Resolve-LinkedRepoPath {
+    # Derives: "dotfiles/.bashrc" + "/c/MakuCustomAlias" -> "dotfiles/.bashrc.linked/MakuCustomAlias"
+    param([string]$ParentRepoPath, [string]$LinkedLocalPath)
+    $resolvedLocal = Resolve-UnixPath -Path $LinkedLocalPath
+    $folderName    = Split-Path $resolvedLocal -Leaf
+    return "$ParentRepoPath.linked/$folderName"
+}
+
+function Find-LinkedPaths {
+    # Scans file content for directory paths that exist on disk.
+    # Returns an array of unique Unix-style or Windows-style paths found.
+    # Detects: /c/Folder, /d/Some/Path, C:\Folder, D:\Some\Path
+    # Excludes system dirs, user profile, temp, Windows, Program Files, etc.
+    param([string]$Content)
+
+    $results = @{}
+
+    # Pattern 1: Unix-style paths like /c/MakuCustomAlias or /d/Tools/Bin
+    $unixMatches = [regex]::Matches($Content, '/([a-zA-Z])/([\w./-]+)')
+    foreach ($m in $unixMatches) {
+        $fullPath = $m.Value
+        # Strip trailing filename patterns (e.g., /*.bat, /file.txt)
+        $cleaned = $fullPath -replace '/\*\.[^/]*$', ''
+        $cleaned = $cleaned.TrimEnd('/')
+        $winPath = Resolve-UnixPath -Path $cleaned
+        if (-not $results.ContainsKey($winPath)) { $results[$winPath] = $cleaned }
+    }
+
+    # Pattern 2: Windows-style paths like C:\MakuCustomAlias or D:\Tools
+    $winMatches = [regex]::Matches($Content, '([A-Z]):\\([\w.\\-]+)')
+    foreach ($m in $winMatches) {
+        $winPath = $m.Value.TrimEnd('\')
+        if (-not $results.ContainsKey($winPath)) { $results[$winPath] = $winPath }
+    }
+
+    # Filter: only keep paths that exist as directories on disk
+    # and are not system/common directories we should never sync
+    $skipPatterns = @(
+        'C:\Windows', 'C:\Program Files', 'C:\Program Files (x86)',
+        'C:\ProgramData', 'C:\Users', 'C:\Temp', 'C:\tmp'
+    )
+
+    $detected = @()
+    foreach ($winPath in $results.Keys) {
+        # Skip system directories
+        $isSystem = $false
+        foreach ($skip in $skipPatterns) {
+            if ($winPath -like "$skip*") { $isSystem = $true; break }
+        }
+        if ($isSystem) { continue }
+
+        # Skip user profile paths (those are handled by localPath with ~)
+        if ($winPath -like "$env:USERPROFILE*") { continue }
+
+        # Only keep if it actually exists as a directory
+        if (Test-Path $winPath -PathType Container) {
+            $detected += $results[$winPath]
+        }
+    }
+
+    return $detected
+}
+
+function Sync-LinkedDirectory {
+    # Copies files from SourceDir to DestDir, comparing by hash. Direction-agnostic.
+    # Returns hashtable: { added, modified, unchanged, skipped }
+    param(
+        [string]$SourceDir,
+        [string]$DestDir,
+        [string]$Label,
+        [string[]]$ExcludePatterns,
+        [bool]$Recursive = $false
+    )
+
+    $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0 }
+
+    if (-not (Test-Path $SourceDir)) {
+        Write-StatusLine 'SKIPPED' "$Label/" "WARNING: source directory not found: $SourceDir"
+        return $stats
+    }
+
+    if (-not (Test-Path $DestDir)) {
+        New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+    }
+
+    $gciParams = @{ Path = $SourceDir; File = $true }
+    if ($Recursive) { $gciParams['Recurse'] = $true }
+    $sourceFiles = Get-ChildItem @gciParams
+
+    foreach ($file in $sourceFiles) {
+        $relPath  = $file.FullName.Substring($SourceDir.TrimEnd('\').Length + 1)
+        $destFile = Join-Path $DestDir $relPath
+
+        if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
+            Write-StatusLine 'SKIPPED' "$Label/$relPath" 'matches exclude pattern'
+            $stats.skipped++
+            continue
+        }
+
+        $destDir2 = Split-Path $destFile -Parent
+        if (-not (Test-Path $destDir2)) {
+            New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null
+        }
+
+        if (-not (Test-Path $destFile)) {
+            Copy-Item -Path $file.FullName -Destination $destFile -Force
+            Write-StatusLine 'ADDED' "$Label/$relPath"
+            $stats.added++
+        } elseif (Compare-FilesByHash -PathA $file.FullName -PathB $destFile) {
+            Write-StatusLine 'UNCHANGED' "$Label/$relPath"
+            $stats.unchanged++
+        } else {
+            Copy-Item -Path $file.FullName -Destination $destFile -Force
+            Write-StatusLine 'MODIFIED' "$Label/$relPath"
+            $stats.modified++
+        }
+    }
+
+    # Remove orphans: files in dest that no longer exist in source
+    if (Test-Path $DestDir) {
+        $destGciParams = @{ Path = $DestDir; File = $true }
+        if ($Recursive) { $destGciParams['Recurse'] = $true }
+        $destFiles = Get-ChildItem @destGciParams
+        foreach ($df in $destFiles) {
+            $relPath    = $df.FullName.Substring($DestDir.TrimEnd('\').Length + 1)
+            $sourceFile = Join-Path $SourceDir $relPath
+            if (-not (Test-Path $sourceFile)) {
+                Remove-Item $df.FullName -Force
+                Write-StatusLine 'REMOVED' "$Label/$relPath" 'no longer in source'
+            }
+        }
+    }
+
+    return $stats
 }
 
 # -- Status output -------------------------------------------------------------

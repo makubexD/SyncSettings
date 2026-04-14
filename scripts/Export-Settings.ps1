@@ -140,6 +140,28 @@ try {
                     $changed++
                 }
             }
+
+            # -- Auto-detect linked paths (export: local -> repo) --------
+            $detectLinked = $entry.PSObject.Properties['detectLinkedPaths'] -and $entry.detectLinkedPaths -eq $true
+            if ($detectLinked -and (Test-Path $localFile)) {
+                $fileContent = [IO.File]::ReadAllText($localFile)
+                $detectedPaths = Find-LinkedPaths -Content $fileContent
+                foreach ($detectedPath in $detectedPaths) {
+                    $linkLocal    = Resolve-UnixPath -Path $detectedPath
+                    $linkRepo     = Resolve-LinkedRepoPath -ParentRepoPath $entry.repoPath -LinkedLocalPath $detectedPath
+                    $linkRepoFull = Join-Path $repoRoot ($linkRepo -replace '/', '\')
+                    $linkLabel    = $linkRepo
+                    $syncParams = @{
+                        SourceDir       = $linkLocal
+                        DestDir         = $linkRepoFull
+                        Label           = $linkLabel
+                        ExcludePatterns = $config.excludePatterns
+                        Recursive       = $false
+                    }
+                    $linkStats = Sync-LinkedDirectory @syncParams
+                    $changed += ($linkStats.added + $linkStats.modified)
+                }
+            }
         } catch {
             Write-StatusLine 'ERROR' $label $_.Exception.Message
         }

@@ -26,14 +26,16 @@
         {
           "placeholder": "<GH_CLI_PATH>",
           "prompt": "Path to GitHub CLI executable",
-          "default": "C:\\Program Files\\GitHub CLI\\gh.exe"
+          "default": "C:\\Program Files\\GitHub CLI\\gh.exe",
+          "escapeBackslashes": true
         }
       ]
     },
     {
       "repoPath": "dotfiles/.bashrc",
       "localPath": "~\\.bashrc",
-      "description": "Bash run commands"
+      "description": "Bash run commands",
+      "detectLinkedPaths": true
     },
     {
       "repoPath": "dotfiles/.bash_profile",

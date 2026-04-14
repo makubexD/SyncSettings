@@ -235,6 +235,53 @@ try {
                     $applied++
                 }
             }
+
+            # -- Auto-detect linked paths (import: repo -> local) --------
+            $detectLinked = $entry.PSObject.Properties['detectLinkedPaths'] -and $entry.detectLinkedPaths -eq $true
+            if ($detectLinked) {
+                # Find the .linked/ folder in the repo for this entry
+                $linkedBase = Join-Path $repoRoot (($entry.repoPath + '.linked') -replace '/', '\')
+                if (Test-Path $linkedBase -PathType Container) {
+                    $linkedDirs = Get-ChildItem -Path $linkedBase -Directory
+                    foreach ($dir in $linkedDirs) {
+                        $linkRepoFull = $dir.FullName
+                        $linkLabel    = "$($entry.repoPath).linked/$($dir.Name)"
+
+                        # Resolve local path: read the config file to find the original path
+                        # that references this folder name
+                        $linkLocal = $null
+                        $repoContent = [IO.File]::ReadAllText($repoFile)
+                        $detectedPaths = Find-LinkedPaths -Content $repoContent
+                        foreach ($dp in $detectedPaths) {
+                            $resolved = Resolve-UnixPath -Path $dp
+                            if ((Split-Path $resolved -Leaf) -eq $dir.Name) {
+                                $linkLocal = $resolved
+                                break
+                            }
+                        }
+
+                        if (-not $linkLocal) {
+                            # Fallback: couldn't find the path in the file, skip
+                            Write-StatusLine 'SKIPPED' "$linkLabel/" 'could not resolve local path from file content'
+                            continue
+                        }
+
+                        if (-not (Test-Path $linkLocal)) {
+                            Write-Host "  Creating linked directory: $linkLocal" -ForegroundColor Cyan
+                        }
+
+                        $syncParams = @{
+                            SourceDir       = $linkRepoFull
+                            DestDir         = $linkLocal
+                            Label           = $linkLabel
+                            ExcludePatterns = $config.excludePatterns
+                            Recursive       = $false
+                        }
+                        $linkStats = Sync-LinkedDirectory @syncParams
+                        $applied += ($linkStats.added + $linkStats.modified)
+                    }
+                }
+            }
         } catch {
             Write-StatusLine 'ERROR' $label $_.Exception.Message
         }

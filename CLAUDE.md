@@ -32,6 +32,29 @@ Sync user dotfiles and config files between a Windows machine and this git repos
 - **Exclude patterns:** Checked via `-like` before every copy. Never copy files matching patterns in `sync-config.json > excludePatterns`.
 - **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
 
+## Linked Paths (Auto-Detection)
+
+Set `"detectLinkedPaths": true` on any file entry. The script automatically parses the file content for directory paths (Unix `/c/...` or Windows `C:\...`), verifies they exist on disk, and syncs their contents.
+
+```json
+{
+  "repoPath": "dotfiles/.bashrc",
+  "localPath": "~\\.bashrc",
+  "detectLinkedPaths": true
+}
+```
+
+Detected directories are stored under `<repoPath>.linked/<foldername>/`:
+```
+dotfiles/.bashrc.linked/MakuCustomAlias/vs.bat
+```
+
+- `Find-LinkedPaths` in `SyncHelpers.ps1` does the parsing — filters out system dirs, user profile, temp
+- **Export**: reads local file, detects paths, syncs each dir -> repo `.linked/` folder
+- **Import**: scans repo `.linked/` folders, resolves local paths from file content, syncs back
+- Files inside linked dirs are subject to `excludePatterns`
+- Orphaned files (deleted from source) are removed from destination
+
 ## Adding New Files to Sync
 
 Add an entry to the `files` array in `sync-config.json`:
