@@ -344,13 +344,14 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
         <h3>Ask Opus for a written plan</h3>
         <span class="who">Opus · spends usage, worth it</span>
         <div><p>This is the expensive thinking, and it happens once. Ask for exact files, exact changes and a test command, because that is what makes the work cheap to hand off.</p>
-<div class="prompt">Plan adding pagination to the GET /users endpoint. Write the plan to docs/plan-pagination.md with small numbered steps. For each step list the files to change, the exact change, and the test command that proves it's done. Don't implement anything yet.<button class="copy" type="button">Copy</button></div></div>
+<div class="prompt">Plan adding pagination to the GET /users endpoint. Write the plan to docs/plan-pagination.md with small numbered steps. For each step list the files to change, the exact change, and the test command that proves it's done. Tag each step [worker] or [inline: reason], and list every test case with its expected result. Don't implement anything yet.<button class="copy" type="button">Copy</button></div></div>
       </li>
       <li>
         <h3>Read the plan yourself</h3>
         <span class="who">You</span>
-        <div><p>Fix anything wrong now. A mistake in the plan is cheap to fix here and costly once code exists.</p>
-<div class="prompt">Step 3 should use cursor pagination, not offset. Update the plan.<button class="copy" type="button">Copy</button></div></div>
+        <div><p>Fix anything wrong now. A mistake in the plan is cheap to fix here and costly once code exists. Check the tags too: a test step whose cases are all listed can go to the worker. When it looks right, commit the plan and clear, so execution doesn't carry the planning context.</p>
+<div class="prompt">Step 3 should use cursor pagination, not offset. Step 1 lists every test case, so tag it [worker]. Update the plan and commit it.<button class="copy" type="button">Copy</button></div>
+<div class="prompt">/clear<button class="copy" type="button">Copy</button></div></div>
       </li>
       <li>
         <h3>Hand a step to the free worker</h3>

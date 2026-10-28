@@ -11,10 +11,12 @@ Task from the user: $ARGUMENTS
 
 1. **Check the task.** If it is empty, ask what to delegate and stop. If it names a plan step
    ("step 2 of docs/plan-x.md"), read that step and use its files, change and test command as the spec.
+   If the step is tagged `[inline: …]`, stop and say the main session should do it, quoting the reason.
    If it is judgment work (design, debugging, user-facing copy), say so in one line and ask whether to
    do it in the main session instead.
 2. **Check the repo.** Run `git rev-parse --show-toplevel` and `git status --short`. Not a git repo, or
-   a dirty tree: stop and tell the user to commit or stash first.
+   a dirty tree: stop and tell the user to commit or stash first. An uncommitted plan file counts as
+   dirty too: offer to commit it (`docs: plan <feature>`) before delegating.
 3. **Write the spec** in a few lines: the exact change, the files allowed to change, and the test command
    that proves it's done. Never include secrets, `.env` contents or private data.
 4. **Delegate.** Print the report line, then spawn the `mk-worker` agent with the repo path and the spec:

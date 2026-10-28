@@ -77,8 +77,10 @@ Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJs
 `~/.claude/docs/token-routing-map.html`, so edit that file and republish it to the same URL):
 1. Start clean: `/clear`, confirm a clean git tree (commit or stash first).
 2. Write a plan file (`docs/plan-<feature>.md`): small numbered steps, each with the files, the exact change,
-   and a test command. Don't implement yet.
-3. The user reviews and edits the plan.
+   and a test command. Tag each step `[worker]` or `[inline: <reason>]`; test steps list every case with its
+   expected result. Don't implement yet.
+3. The user reviews and edits the plan, tags included. Then commit it (`docs: plan <feature>`) and `/clear`;
+   execution starts from the file with "execute step N of docs/plan-<feature>.md".
 4. Send one step at a time to `mk-worker`, limited to that step's files.
 5. Review: `git diff`, rerun the tests, check the scope; show the evidence when asked.
 6. Accept and commit, then send the next step. Reject with a concrete reason and resend once; after two
@@ -91,7 +93,10 @@ tasks inline and delegate meaningful mechanical steps.
 Execution rule (any main model, including `opusplan` after a plan is approved): the main session does not
 write the code for a mechanical plan step itself. It sends that step to `mk-worker` and reviews the result.
 It works inline only for tiny edits, judgment work (design, debugging, user-facing copy), or after two
-rejections. Before working inline on a planned step, say so in one line with the reason.
+rejections. Before working inline on a planned step, say so in one line with the reason. Follow the plan's
+tags; an untagged step that is fully specified counts as `[worker]`. A test-writing step is mechanical when the
+plan lists every case with its expected result: delegate it, then check that the tests fail for the right
+reason. Keep it inline only when the cases still need design.
 
 Worker mode (`worker-mode on|off|status`, flag `~/.claude/state/worker-mode`, status line shows WORKER): while
 it is on, a PreToolUse hook (`~/.claude/hooks/worker-mode-guard.sh`) denies Edit/Write outside plan files and
