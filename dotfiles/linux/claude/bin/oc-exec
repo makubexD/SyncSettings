@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Run OpenCode as the cheap executor on a free, zero-retention Zen model only.
+# Usage: oc-exec [--fallback] <repo-dir> <task text>
+set -euo pipefail
+model="opencode/deepseek-v4.1-flash-free"
+if [[ "${1:-}" == "--fallback" ]]; then model="opencode/glm-5.3-flash-free"; shift; fi
+if [[ $# -lt 2 ]]; then echo "usage: oc-exec [--fallback] <repo-dir> <task text>" >&2; exit 2; fi
+dir="$1"; shift
+git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "oc-exec: $dir is not a git repo" >&2; exit 2; }
+source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
+echo "oc-exec: model=$model dir=$dir" >&2
+# stdin from /dev/null: `opencode run` reads any stdin it is given, so an inherited open pipe
+# (background runs, subagents) makes it wait forever and time out with no output.
+exec timeout 900 opencode run -m "$model" --auto --dir "$dir" "$*" < /dev/null

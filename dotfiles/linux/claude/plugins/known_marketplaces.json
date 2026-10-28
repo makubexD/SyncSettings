@@ -1,0 +1,27 @@
+{
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "<HOME>/.claude/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-10-27T23:35:18.531Z"
+  },
+  "context-mode": {
+    "source": {
+      "source": "github",
+      "repo": "mksglu/context-mode"
+    },
+    "installLocation": "<HOME>/.claude/plugins/marketplaces/context-mode",
+    "lastUpdated": "2026-10-27T23:35:20.639Z",
+    "autoUpdate": true
+  },
+  "addy-agent-skills": {
+    "source": {
+      "source": "github",
+      "repo": "addyosmani/agent-skills"
+    },
+    "installLocation": "<HOME>/.claude/plugins/marketplaces/addy-agent-skills",
+    "lastUpdated": "2026-10-27T22:32:58.800Z"
+  }
+}

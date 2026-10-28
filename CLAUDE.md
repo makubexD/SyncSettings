@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Sync user dotfiles and config files between a Windows machine and this git repository. Works on Windows 10/11 with PowerShell 5.1+ and Git.
+Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4+, `jq`, `git`, `cmp`. The Linux side currently syncs the Claude Code setup in `~/.claude`.
 
 ## Architecture
 
-- `.bat` files are the only user-facing entry points — they set the working directory and invoke the corresponding PowerShell script
-- All logic lives in `scripts/*.ps1`
+- `.bat` files are the Windows entry points — they set the working directory and invoke the corresponding PowerShell script
+- `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/sync.sh`
+- Windows logic lives in `scripts/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
+- Each entry's `platform` field picks its side: `"linux"` entries are bash-only, and entries without it are Windows-only (`Test-WindowsEntry` filters right after the config loads)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
 - `dotfiles/` is the staging area inside the repo; it mirrors the logical file set
 
@@ -20,6 +22,9 @@ Sync user dotfiles and config files between a Windows machine and this git repos
 | `export.bat` | `scripts/Export-Settings.ps1` | Copy changed local files → repo |
 | `commit.bat` | `scripts/Commit-Settings.ps1` | Stage, commit, push `dotfiles/` |
 | `import.bat` | `scripts/Import-Settings.ps1` | Copy repo files → local machine |
+| `./export.sh` | `scripts/sync.sh` | Linux: copy changed local files → repo |
+| `./commit.sh` | (self-contained) | Linux: stage, commit, push `dotfiles/` |
+| `./import.sh` | `scripts/sync.sh` | Linux: copy repo files → local machine |
 
 ## Key Patterns
 
@@ -31,6 +36,15 @@ Sync user dotfiles and config files between a Windows machine and this git repos
 - **Error handling:** `$ErrorActionPreference = 'Stop'` at script level; per-file `try/catch` so one failure doesn't abort the rest.
 - **Exclude patterns:** Checked via `-like` before every copy. Never copy files matching patterns in `sync-config.json > excludePatterns`.
 - **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
+
+### Bash scripts (Linux)
+
+- **Byte-exact text:** read with `read_text` (keeps trailing newlines) and write with `write_text`. Never use plain `$(cat f)`.
+- **No `@tsv` for values:** jq's `@tsv` escapes backslashes and `read` with `IFS=$'\t'` collapses empty fields. Parse values and rules NUL-separated (`jq -j … "\u0000"`, `read -d ''`) and replace text literally (`${c//"$from"/"$to"}`).
+- **Prompts inside loops:** a loop that reads from a pipe must use another fd (`read … <&3` with `done 3< <(…)`), or `read` takes the next loop line as the user's answer.
+- **Modes:** `cp -p` for plain copies, `chmod --reference` for files written from text. `bin/` scripts must stay executable.
+- **Non-interactive runs:** with no terminal and a placeholder value missing, `request_values` fails rather than writing an unfilled placeholder.
+- **Testing:** use a throwaway `HOME` (`HOME=$(mktemp -d) ./import.sh --force < /dev/null`) and a throwaway `git clone` for `commit.sh`. Don't test in the real repo.
 
 ## Linked Paths (Auto-Detection)
 
@@ -82,3 +96,19 @@ For files containing sensitive data, add `sanitizeRules`:
 ```
 
 Then run `export.bat` to pull it into the repo for the first time.
+
+For a Linux file, add `"platform": "linux"`, put it under `dotfiles/linux/`, and use a `~/` path:
+
+```json
+{
+  "repoPath": "dotfiles/linux/claude/settings.json",
+  "localPath": "~/.claude/settings.json",
+  "platform": "linux",
+  "description": "Claude Code user settings",
+  "sanitizeRules": [
+    { "placeholder": "<HOME>", "prompt": "Home directory", "defaultEnv": "HOME" }
+  ]
+}
+```
+
+Then run `./export.sh`. Check `grep -rl "$HOME" dotfiles/linux` prints nothing before committing.

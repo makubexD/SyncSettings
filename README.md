@@ -1,8 +1,11 @@
 # SyncSettings
 
-Keep your Windows dotfiles and config files in sync across machines via a git repository.
+Keep your dotfiles and config files in sync across machines via a git repository. Windows uses the
+PowerShell scripts (`.bat` entry points). Linux uses the bash scripts (`.sh` entry points), see [Linux](#linux).
 
 ## What gets synced
+
+**Windows**
 
 | File | Description |
 |---|---|
@@ -11,15 +14,30 @@ Keep your Windows dotfiles and config files in sync across machines via a git re
 | `~\.bash_profile` | Bash login profile |
 | `~\AppData\Local\...\WindowsTerminal\settings.json` | Windows Terminal settings |
 
+**Linux: Claude Code setup (`~/.claude`)**
+
+| File | Description |
+|---|---|
+| `CLAUDE.md`, `RTK.md` | Global instructions for Claude Code |
+| `settings.json` | Hooks, plugins, permissions (home path and GitHub username sanitized) |
+| `statusline.sh` | Status line script |
+| `agents/mk-worker.md` | Agent that hands mechanical tasks to OpenCode on a free model |
+| `skills/mk-delegate/`, `skills/mk-check/` | `/mk-delegate` and `/mk-check` slash commands |
+| `hooks/` | context-mode hook and the worker-mode guard |
+| `bin/oc-exec`, `bin/worker-mode` | OpenCode wrapper pinned to the free models, worker-mode switch |
+| `plugins/installed_plugins.json`, `known_marketplaces.json` | Which plugins are installed (home path sanitized) |
+| `docs/token-routing-map.html`, `sampleGrok.md` | Workflow guide page, old Windows Grok setup for reference |
+
+Never synced: `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, caches.
+
 Add or remove files by editing `sync-config.json`.
 
 ---
 
 ## Requirements
 
-- Windows 10 or 11
-- PowerShell 5.1+
-- Git (in PATH)
+- **Windows:** Windows 10 or 11, PowerShell 5.1+, Git (in PATH)
+- **Linux:** bash 4+, `jq`, `git`, `cmp` (diffutils)
 
 ---
 
@@ -99,6 +117,36 @@ If the target user is different from the current session, PowerShell will reques
 
 ---
 
+## Linux
+
+The bash scripts handle only entries marked `"platform": "linux"`. The PowerShell scripts skip those
+entries, so one repo serves both systems.
+
+| Command | Does |
+|---|---|
+| `./export.sh` | Copy changed local files → repo (sanitized). `--reset-values` re-asks for placeholder values |
+| `./commit.sh` | Commit `dotfiles/` with a generated message, then ask before pushing. `-m "<msg>"` sets the message, `--push` pushes without asking |
+| `./import.sh` | Copy repo files → this machine, asking before each overwrite and saving `<file>.bak` first. `--force` skips the questions |
+
+Export and import ask once for each placeholder value and cache the answers in `.user-values.json`
+(gitignored). `<HOME>` defaults to your `$HOME`, so pressing Enter is usually enough. Without a terminal,
+a missing value is an error: nothing is written with a placeholder left unfilled.
+
+### New Linux machine: restore the Claude Code setup
+
+1. Install the tools: `git`, `jq`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node, OpenCode
+   (`npm i -g opencode-ai`) and [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`.
+2. Open Claude Code once so `~/.claude` exists, then install the plugins with `/plugin`
+   (`context-mode`, `agent-skills`).
+3. Clone this repo and run `./import.sh`.
+4. Link the scripts onto your PATH:
+   `ln -sf ~/.claude/bin/oc-exec ~/.claude/bin/worker-mode ~/.local/bin/`
+5. In Claude Code, run `/mk-check`. All checks should pass and the live job should finish on DeepSeek.
+
+Not supported on Linux: `detectLinkedPaths` and importing into another user's profile.
+
+---
+
 ## Linked Paths — Auto-Sync Referenced Directories
 
 Some config files reference external directories that hold important content. For example, `.bashrc` adds `/c/MakuCustomAlias` to `PATH` and auto-aliases every `.bat` file inside it. Without that folder, the settings are useless on a new machine.
@@ -142,7 +190,7 @@ Files with `sanitizeRules` in `sync-config.json` are never stored raw in the rep
 
 | Direction | What happens |
 |---|---|
-| **Export** | Reads your local `.gitconfig`, replaces `Kiefer Fernandez Valladolid` → `<YOUR_NAME>`, `Kiefer.Fernandez@tranzact.net` → `<YOUR_EMAIL>`, etc., then saves the sanitized version to `dotfiles/` |
+| **Export** | Reads your local `.gitconfig`, replaces `Jane Doe` → `<YOUR_NAME>`, `jane@example.com` → `<YOUR_EMAIL>`, etc., then saves the sanitized version to `dotfiles/` |
 | **Import** | Reads the sanitized `dotfiles/.gitconfig`, prompts you for each `<PLACEHOLDER>` value, writes the hydrated file to your profile |
 | **Change detection** | Only structural/non-sensitive changes are detected. Adding a new alias = change. Changing your email = no change (it's sanitized away) |
 
@@ -186,6 +234,8 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
 - `sanitizeRules` is optional — files without it are compared/copied as-is
 - `escapeBackslashes: true` on a sanitize rule doubles backslashes when hydrating (needed for `.gitconfig` where paths use `\\` escaping)
 - `detectLinkedPaths: true` — scans the file's content for directory references and automatically syncs them; no manual path listing required
+- `platform: "linux"` — the entry belongs to the bash scripts. `localPath` then uses `~/` and forward slashes (`~/.claude/settings.json`). Entries without `platform` are Windows entries
+- `defaultEnv: "HOME"` on a sanitize rule — the prompt's default is that environment variable's value (bash scripts only)
 
 ---
 
@@ -197,12 +247,19 @@ SyncSettings/
 ├── export.bat              Run to copy local changes → repo
 ├── commit.bat              Run to commit and push
 ├── import.bat              Run to apply repo files → machine
+├── export.sh               Linux: copy local changes → repo
+├── commit.sh               Linux: commit and push
+├── import.sh               Linux: apply repo files → machine
+├── docs/
+│   └── plan-linux.md       Spec the Linux scripts were built from
 ├── scripts/
 │   ├── SyncHelpers.ps1     Shared functions (sanitization, hashing, linked paths, etc.)
 │   ├── Export-Settings.ps1
 │   ├── Commit-Settings.ps1
-│   └── Import-Settings.ps1
+│   ├── Import-Settings.ps1
+│   └── sync.sh             Linux: shared bash helpers
 └── dotfiles/               Repo copies of all synced files
+    ├── linux/claude/       Linux: the ~/.claude setup (see "What gets synced")
     ├── .gitconfig
     ├── .bashrc
     ├── .bashrc.linked/     Auto-generated: directories referenced inside .bashrc
