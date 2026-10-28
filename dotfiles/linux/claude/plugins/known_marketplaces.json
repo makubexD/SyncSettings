@@ -5,7 +5,7 @@
       "repo": "anthropics/claude-plugins-official"
     },
     "installLocation": "<HOME>/.claude/plugins/marketplaces/claude-plugins-official",
-    "lastUpdated": "2026-10-28T17:02:53.647Z"
+    "lastUpdated": "2026-10-28T17:19:46.755Z"
   },
   "context-mode": {
     "source": {
@@ -13,7 +13,7 @@
       "repo": "mksglu/context-mode"
     },
     "installLocation": "<HOME>/.claude/plugins/marketplaces/context-mode",
-    "lastUpdated": "2026-10-28T17:02:54.670Z",
+    "lastUpdated": "2026-10-28T17:19:48.068Z",
     "autoUpdate": true
   },
   "addy-agent-skills": {
