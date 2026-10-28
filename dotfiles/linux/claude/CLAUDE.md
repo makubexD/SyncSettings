@@ -86,6 +86,8 @@ Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJs
    bigger ones. Don't implement yet. Plan mode (any model, `opusplan` included): if the
    approved plan has `[worker]` steps, write it to `docs/plan-<feature>.md` and stop for review in that turn;
    don't execute from `~/.claude/plans/`. If every step is small and `[inline]`, the approval is the review: go ahead.
+   An approval that amends a repo plan (new or changed steps, review follow-ups) writes the amendment into that
+   plan file first, so it survives `/clear`.
    Multi-phase work (several PRs, or phases gated on research): commit the roadmap as `docs/plan-<topic>.md`
    with phases, not steps, then write a step-level `docs/plan-<topic>-<phase>.md` when each phase starts.
 3. The user reviews and edits the plan, tags included. Then commit it (`docs: plan <feature>`) and `/clear`;
