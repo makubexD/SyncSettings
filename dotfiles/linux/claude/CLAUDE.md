@@ -102,7 +102,7 @@ Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJs
 6. Accept and commit, then send the next step without asking: the committed plan is the approval. Stop and ask
    only at an `[inline]` judgment step, a rejection or failure (exit 75, 124, max turns), or the end of the phase
    or plan. Reject with a concrete reason and resend once; after two rejections, do the step in the main session.
-7. Run `workflow-report <repo>` to see delegated vs inline steps, worker runs and errors, then
+7. Run `workflow-report .` (or a repo path) to see delegated vs inline steps, worker runs and errors, then
    `/agent-skills:review` of the whole feature, then `/clear` before the next one.
 
 Execution rule (any main model, including `opusplan` after a plan is approved): the main session does not
@@ -122,7 +122,7 @@ summary and the review. Exit codes: 0 review; 75 key/balance/rate problem, stop 
 
 Logs: every run writes `~/.claude/state/mk-worker-logs/<ts>-<repo>/` with `stream.jsonl` (full transcript),
 `meta.json` (model, effort, exit, tokens, cost estimate, balance), `diff.patch` and `summary.txt`.
-`workflow-report <repo> [--since DATE]` joins those with the orchestrator transcripts and git log.
+`workflow-report [repo path, default .] [--since DATE]` joins those with the orchestrator transcripts and git log.
 
 Worker mode (`worker-mode on|off|status`, flag `~/.claude/state/worker-mode`, status line shows WORKER): while
 it is on, a PreToolUse hook (`~/.claude/hooks/worker-mode-guard.sh`) denies Edit/Write outside plan files and
