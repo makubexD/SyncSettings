@@ -94,8 +94,9 @@ Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJs
    execution starts from the file with "execute step N of docs/plan-<feature>.md".
 4. Send one step at a time with `/mk-delegate`, limited to that step's files.
 5. Review: `git diff`, rerun the tests, check the scope; show the evidence when asked.
-6. Accept and commit, then send the next step. Reject with a concrete reason and resend once; after two
-   rejections, do the step in the main session.
+6. Accept and commit, then send the next step without asking: the committed plan is the approval. Stop and ask
+   only at an `[inline]` judgment step, a rejection or failure (exit 75, 124, max turns), or the end of the phase
+   or plan. Reject with a concrete reason and resend once; after two rejections, do the step in the main session.
 7. Run `workflow-report <repo>` to see delegated vs inline steps, worker runs and errors, then
    `/agent-skills:review` of the whole feature, then `/clear` before the next one.
 
