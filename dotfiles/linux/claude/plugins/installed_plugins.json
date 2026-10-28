@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "plugins": {
+    "context-mode@context-mode": [
+      {
+        "scope": "user",
+        "installPath": "<HOME>/.claude/plugins/cache/context-mode/context-mode/1.0.169",
+        "version": "1.0.169",
+        "installedAt": "2026-10-27T21:56:42.584Z",
+        "lastUpdated": "2026-10-27T22:12:39.680Z",
+        "gitCommitSha": "b77ba447f51ff193962d6f0fb78c061c76ae871c"
+      }
+    ],
+    "agent-skills@addy-agent-skills": [
+      {
+        "scope": "user",
+        "installPath": "<HOME>/.claude/plugins/cache/addy-agent-skills/agent-skills/0.6.13",
+        "version": "0.6.13",
+        "installedAt": "2026-10-27T22:33:02.307Z",
+        "lastUpdated": "2026-10-27T22:33:02.307Z",
+        "gitCommitSha": "aeac41d4d005999432bb7312f7ff06383a91d59d"
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "context-mode@context-mode": true
+  }
+}

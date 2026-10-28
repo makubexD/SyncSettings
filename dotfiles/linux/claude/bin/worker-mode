@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Toggle worker mode: while on, the worker-mode-guard hook blocks Claude's own file edits,
+# so code changes must go through mk-worker (OpenCode + free DeepSeek).
+# Usage: worker-mode on|off|status
+set -euo pipefail
+flag="$HOME/.claude/state/worker-mode"
+case "${1:-status}" in
+    on)     mkdir -p "${flag%/*}" && touch "$flag" && echo "worker mode: ON (Claude edits blocked; code goes through mk-worker)" ;;
+    off)    rm -f "$flag" && echo "worker mode: OFF" ;;
+    status) [[ -e $flag ]] && echo "worker mode: ON" || echo "worker mode: OFF" ;;
+    *)      echo "usage: worker-mode on|off|status" >&2; exit 2 ;;
+esac
