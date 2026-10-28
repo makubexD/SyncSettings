@@ -67,124 +67,64 @@ Workflow format (per phase, not per agent; a 30-agent fan-out is 2-4 lines):
 - Use `~N` for dynamic counts. If a phase mixes models/efforts, list the dominant one and note
   exceptions inline. These lines are the greppable audit trail; keep the templates exact.
 
-## Free worker: mk-worker (ACTIVE: OpenCode + free DeepSeek)
+## Worker: mk-exec (ACTIVE: headless Claude Code on paid DeepSeek)
 
-Claude plans and reviews; the `mk-worker` subagent (`~/.claude/agents/mk-worker.md`) runs mechanical
-work through OpenCode on `opencode/deepseek-v4.1-flash-free`, falling back to `opencode/glm-5.3-flash-free`.
-Both are free on OpenCode Zen for a limited time, zero-retention, and need no credentials (verified 2026-10-27).
+Claude plans and reviews; `mk-exec` (`~/.local/bin/mk-exec`) runs mechanical work as a separate `claude -p`
+process on the paid DeepSeek API, with its own config dir `~/.claude-worker` (worker rules, permissions, no
+OAuth credentials, no user hooks or plugins). The key is in `~/.config/claude-workers/env`; never print it.
+Switched from OpenCode + Zen free models on 2026-10-28 after the free quota ran out mid-feature.
+
+Effort: `mk-exec --effort low|medium|high` (default **medium**). low = `deepseek-flash`/low,
+medium = `deepseek-flash`/high, high = `deepseek-v4-pro`/high. Pick per step; a plan step may say `[worker:<level>]`.
 
 Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJsn; source
 `~/.claude/docs/token-routing-map.html`, so edit that file and republish it to the same URL):
 1. Start clean: `/clear`, confirm a clean git tree (commit or stash first).
 2. Write a plan file (`docs/plan-<feature>.md`): small numbered steps, each with the files, the exact change,
-   and a test command. Tag each step `[worker]` or `[inline: <reason>]`; test steps list every case with its
-   expected result. Don't implement yet.
+   and a test command. Tag each step `[worker]`, `[worker:<effort>]` or `[inline: <reason>]`; test steps list
+   every case with its expected result. Don't implement yet.
 3. The user reviews and edits the plan, tags included. Then commit it (`docs: plan <feature>`) and `/clear`;
    execution starts from the file with "execute step N of docs/plan-<feature>.md".
-4. Send one step at a time to `mk-worker`, limited to that step's files.
+4. Send one step at a time with `/mk-delegate`, limited to that step's files.
 5. Review: `git diff`, rerun the tests, check the scope; show the evidence when asked.
 6. Accept and commit, then send the next step. Reject with a concrete reason and resend once; after two
    rejections, do the step in the main session.
-7. Finish with `/agent-skills:review` of the whole feature, then `/clear` before the next one.
-
-Each spawn costs about 11.7k tokens of plan usage for the Haiku dispatcher (measured 2026-10-27), so do tiny
-tasks inline and delegate meaningful mechanical steps.
+7. Run `workflow-report <repo>` to see delegated vs inline steps, worker runs and errors, then
+   `/agent-skills:review` of the whole feature, then `/clear` before the next one.
 
 Execution rule (any main model, including `opusplan` after a plan is approved): the main session does not
-write the code for a mechanical plan step itself. It sends that step to `mk-worker` and reviews the result.
+write the code for a mechanical plan step itself. It sends that step to `mk-exec` and reviews the result.
 It works inline only for tiny edits, judgment work (design, debugging, user-facing copy), or after two
 rejections. Before working inline on a planned step, say so in one line with the reason. Follow the plan's
 tags; an untagged step that is fully specified counts as `[worker]`. A test-writing step is mechanical when the
 plan lists every case with its expected result: delegate it, then check that the tests fail for the right
 reason. Keep it inline only when the cases still need design.
 
+How to run it: Bash with `run_in_background: true`, `mk-exec --effort <level> <repo> '<spec>'`, then wait for
+the notification and read only its summary (≤40 lines). No subagent is involved, so a step costs only the
+summary and the review. Exit codes: 0 review; 75 key/balance/rate problem, stop and report, no retry;
+2 setup (dirty tree, missing key); 124 timeout after 15 min, counts as a rejection.
+
+Logs: every run writes `~/.claude/state/mk-worker-logs/<ts>-<repo>/` with `stream.jsonl` (full transcript),
+`meta.json` (model, effort, exit, tokens, balance), `diff.patch` and `summary.txt`.
+`workflow-report <repo> [--since DATE]` joins those with the orchestrator transcripts and git log.
+
 Worker mode (`worker-mode on|off|status`, flag `~/.claude/state/worker-mode`, status line shows WORKER): while
 it is on, a PreToolUse hook (`~/.claude/hooks/worker-mode-guard.sh`) denies Edit/Write outside plan files and
 `~/.claude`. Don't route around it: no writing project files through Bash (sed -i, heredocs, redirects) either.
-Send the change to `mk-worker`, or ask the user to run `! worker-mode off`.
+Send the change to `mk-exec`, or ask the user to run `! worker-mode off`.
 
-Slash commands: `/mk-delegate <task | step N of plan>` hands a task to `mk-worker` and reviews the result;
-`/mk-check [--fallback]` verifies the install, the pinned models and worker mode, and runs a live test job.
+Slash commands: `/mk-delegate [--effort L] <task | step N of plan>` runs a task through `mk-exec` and reviews
+the result; `/mk-check` verifies the key, isolation, worker mode and logs with a live test job.
 
-- Delegate low-effort-tier tasks that already have a written plan or exact spec, in a git repo with a clean tree.
-- Review every result: read `git diff`, rerun the tests, and check the scope. Its report is a claim, not a fact.
-  After two rejected attempts, do the task in the main session.
-- Never send secrets, `.env` files or private data through it, and never point it at other free Zen models,
-  which may keep data for training.
-- Report line: `⏵ mk-worker (haiku + opencode/deepseek-v4.1-flash-free, low effort): <task>`.
-- If Zen ends the free period, enable the paid DeepSeek worker in the dormant section below.
+- Delegate tasks that already have a written plan or exact spec, in a git repo with a clean tree.
+- Review every result: read `git diff`, rerun the tests, and check the scope. Its summary is a claim, not a fact.
+- Never send secrets, `.env` files or private data: the paid DeepSeek API is not zero-retention.
+- Report line: `⏵ mk-exec (deepseek <model>, <level> effort): <task>`.
+- The old OpenCode setup (`oc-exec`, `mk-worker` agent) is in `~/.claude/attic/`; OpenCode stays installed, unused.
 
 Ban guardrails (Anthropic consumer terms allow subscription OAuth only in Claude Code and Claude.ai):
 - Never connect Anthropic or Claude in OpenCode (`/connect`, `opencode-anthropic-auth`) or OmniRoute (`cc/*`,
   `omniroute run claude`).
-- Never set `ANTHROPIC_BASE_URL` on the main subscription session. A separate worker process that has its own
-  third-party key is fine.
-
-<!--
-## External workers (DORMANT: Grok / DeepSeek)
-
-Claude stays the planner, orchestrator and reviewer. Heavy mechanical work (bulk edits, boilerplate,
-large migrations, test scaffolding) goes to an external model, and Claude reviews every result
-before keeping it.
-
-HOW TO ENABLE: complete the setup steps for ONE scenario below, then move that scenario's
-"Rule for Claude" block (and the shared rules) above this comment, outside the <!- - - -> markers.
-Restart Claude Code afterwards. Endpoint URLs and model names were current on 2026-10-27, so check them
-against the provider docs when you enable a scenario, because providers change them.
-
-### Shared setup (any scenario)
-1. mkdir -p ~/.config/claude-workers && touch ~/.config/claude-workers/env && chmod 600 ~/.config/claude-workers/env
-2. Put API keys there as `export NAME=value` lines (DEEPSEEK_API_KEY, XAI_API_KEY).
-
-### Shared rules for Claude (copy with any scenario)
-- Before delegating, write a precise spec: target files, the change, acceptance criteria, how to verify.
-- The worker runs in a git worktree or on a clean tree, so its diff is isolated.
-- Review the diff (`git diff`) and run the tests before accepting. Worker output is a claim, not a fact.
-- Report every delegation with the same audit-trail format:
-  ⏵ delegate-<worker> (<model>): <task in ≤10 words>
-- Use the low-effort tier from the routing table. Keep design, debugging and review on Claude.
-
-### Scenario A: DeepSeek as a headless Claude Code worker (closest to native)
-DeepSeek has an Anthropic-compatible endpoint, so a second `claude -p` process can run on it
-with the same tools and the same CLAUDE.md.
-Setup:
-1. Create ~/.local/bin/delegate-deepseek (chmod +x):
-     #!/usr/bin/env bash
-     set -euo pipefail
-     source ~/.config/claude-workers/env
-     ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
-     ANTHROPIC_AUTH_TOKEN="$DEEPSEEK_API_KEY" \
-     ANTHROPIC_MODEL=deepseek-chat \
-     ANTHROPIC_SMALL_FAST_MODEL=deepseek-chat \
-       claude -p "$1" --output-format json --permission-mode acceptEdits
-2. Verify: cd into a scratch git repo and run `delegate-deepseek 'create hello.txt containing hi'`.
-   The JSON result should report success and hello.txt should exist.
-Rule for Claude:
-- For low-effort tier tasks, run `delegate-deepseek '<spec>'` via Bash from the target directory,
-  then review the diff.
-
-### Scenario B: Grok (xAI) worker
-xAI's API is OpenAI-compatible (https://api.x.ai/v1). Before setting this up, check whether xAI
-now offers an Anthropic-compatible endpoint. If it does, copy Scenario A with the xAI URL, key and model.
-Setup (OpenAI-compatible path):
-1. Pick a coding-agent CLI that accepts an OpenAI-compatible base URL (for example opencode or aider),
-   install it, and point it at https://api.x.ai/v1 with XAI_API_KEY and a current Grok model.
-2. Create ~/.local/bin/delegate-grok (chmod +x) that sources the env file and runs that CLI
-   non-interactively with "$1" as the task, in the current directory.
-   For one-shot text generation only (no file edits), a curl + jq call to /chat/completions is enough.
-3. Verify the same way as Scenario A.
-Rule for Claude:
-- For low-effort tier tasks, run `delegate-grok '<spec>'` via Bash from the target directory,
-  then review the diff.
-
-### Scenario C: Both, routed by task
-Setup:
-1. Do the setup for A and B.
-2. Create ~/.local/bin/delegate (chmod +x) that runs `delegate-$1 "$2"` (worker name first, spec second).
-Rule for Claude: pick the worker with this table (adjust it once you know how each model performs):
-| task                                          | worker   |
-|---                                            |---       |
-| code edits, refactors, test scaffolding       | deepseek |
-| long-context reading, bulk text/boilerplate   | grok     |
-Run `delegate <worker> '<spec>'`, then review the diff as usual.
--->
+- Never set `ANTHROPIC_BASE_URL` on the main subscription session. Only the `mk-exec` child process gets the
+  DeepSeek endpoint and key, with `CLAUDE_CONFIG_DIR=~/.claude-worker`.

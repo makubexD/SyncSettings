@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": ["Read", "Glob", "Grep", "Edit", "Write", "Bash"],
+    "deny": [
+      "Bash(git commit:*)", "Bash(git push:*)", "Bash(git reset:*)", "Bash(git checkout:*)",
+      "Bash(git stash:*)", "Bash(git branch -D:*)", "Bash(rm -rf:*)",
+      "Read(**/.env)", "Read(**/.env.*)"
+    ]
+  },
+  "env": { "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1" },
+  "includeCoAuthoredBy": false
+}

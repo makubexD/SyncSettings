@@ -161,7 +161,7 @@ mem=$(awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { if (t) prin
 # Output style (only if not default)
 [[ -n $style && $style != default ]] && parts+=("${blue}${style}${reset}")
 
-# Worker mode (Claude edits blocked, code goes through mk-worker)
+# Worker mode (Claude edits blocked, code goes through mk-exec)
 [[ -e $HOME/.claude/state/worker-mode ]] && parts+=("${green}WORKER${reset}")
 
 sep=" ${gray}|${reset} "
