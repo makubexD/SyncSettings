@@ -124,6 +124,13 @@ def main():
     if len(args) > 1 or args[:1] in (["-h"], ["--help"]) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since_s):
         sys.exit(__doc__.strip())
     repo_arg = args[0] if args else "."
+    if not os.path.isdir(repo_arg):
+        # A bare repo name ("sigil") typed from inside that repo means the current repo.
+        here = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+        if here and os.path.basename(here) == repo_arg:
+            repo_arg = here
+        else:
+            sys.exit(f"workflow-report: {repo_arg} is not a directory; pass a repo path, or . for the current repo")
     repo = subprocess.run(["git", "-C", repo_arg, "rev-parse", "--show-toplevel"], capture_output=True,
                           text=True).stdout.strip() or os.path.abspath(repo_arg)
     since = dt.datetime.fromisoformat(since_s).astimezone()
