@@ -20,7 +20,7 @@ Arguments from the user: $ARGUMENTS
    stop: the worker would measure DeepSeek, not the model under test. Delegating the eval files is fine.
 3. **Check the repo.** Run `git rev-parse --show-toplevel` and `git status --short`. Not a git repo, or
    a dirty tree: stop and tell the user to commit or stash first. An uncommitted plan file counts as
-   dirty too: offer to commit it (`docs: plan <feature>`) before delegating.
+   dirty too: offer to format it with the repo's formatter and commit it (`docs: plan <feature>`) before delegating.
 4. **Size it.** A worker step is one concern touching at most about 3 files. If the step is bigger (several
    separate changes, a long file-by-file list), split it into sub-steps and send them one at a time, each
    reviewed before the next. The effort level is unaffected: keep the one chosen.

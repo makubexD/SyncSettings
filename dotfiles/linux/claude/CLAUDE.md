@@ -94,7 +94,8 @@ Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJs
    plan file first, so it survives `/clear`.
    Multi-phase work (several PRs, or phases gated on research): commit the roadmap as `docs/plan-<topic>.md`
    with phases, not steps, then write a step-level `docs/plan-<topic>-<phase>.md` when each phase starts.
-3. The user reviews and edits the plan, tags included. Then commit it (`docs: plan <feature>`) and `/clear`;
+3. The user reviews and edits the plan, tags included. Then run the repo's formatter on it if the repo has one
+   (e.g. `npx prettier --write`), commit it (`docs: plan <feature>`) and `/clear`;
    execution starts from the file with "execute step N of docs/plan-<feature>.md".
 4. Send one step at a time with `/mk-delegate`, limited to that step's files.
 5. Review: `git diff`, rerun the tests, check the scope; show the evidence when asked.
