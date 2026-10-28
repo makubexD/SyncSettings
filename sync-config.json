@@ -46,6 +46,127 @@
       "repoPath": "dotfiles/WindowsTerminal/settings.json",
       "localPath": "~\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
       "description": "Windows Terminal settings"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/CLAUDE.md",
+      "localPath": "~/.claude/CLAUDE.md",
+      "platform": "linux",
+      "description": "Claude Code global instructions"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/RTK.md",
+      "localPath": "~/.claude/RTK.md",
+      "platform": "linux",
+      "description": "RTK command-output notes (imported by CLAUDE.md)"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/settings.json",
+      "localPath": "~/.claude/settings.json",
+      "platform": "linux",
+      "description": "Claude Code user settings (hooks, plugins, permissions)",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        },
+        {
+          "placeholder": "<YOUR_GH_USERNAME>",
+          "prompt": "GitHub username"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/statusline.sh",
+      "localPath": "~/.claude/statusline.sh",
+      "platform": "linux",
+      "description": "Claude Code status line script"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/sampleGrok.md",
+      "localPath": "~/.claude/sampleGrok.md",
+      "platform": "linux",
+      "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/agents/mk-worker.md",
+      "localPath": "~/.claude/agents/mk-worker.md",
+      "platform": "linux",
+      "description": "mk-worker agent: hands tasks to OpenCode + free DeepSeek"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/hooks/context-mode-cache-heal.mjs",
+      "localPath": "~/.claude/hooks/context-mode-cache-heal.mjs",
+      "platform": "linux",
+      "description": "context-mode SessionStart hook"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/hooks/node.sh",
+      "localPath": "~/.claude/hooks/node.sh",
+      "platform": "linux",
+      "description": "Runs hook scripts with the nvm Node"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/hooks/worker-mode-guard.sh",
+      "localPath": "~/.claude/hooks/worker-mode-guard.sh",
+      "platform": "linux",
+      "description": "Blocks Claude edits while worker mode is on"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/skills/mk-delegate/SKILL.md",
+      "localPath": "~/.claude/skills/mk-delegate/SKILL.md",
+      "platform": "linux",
+      "description": "/mk-delegate slash command"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/skills/mk-check/SKILL.md",
+      "localPath": "~/.claude/skills/mk-check/SKILL.md",
+      "platform": "linux",
+      "description": "/mk-check slash command"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/docs/token-routing-map.html",
+      "localPath": "~/.claude/docs/token-routing-map.html",
+      "platform": "linux",
+      "description": "Workflow guide page source"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/bin/oc-exec",
+      "localPath": "~/.claude/bin/oc-exec",
+      "platform": "linux",
+      "description": "OpenCode wrapper pinned to the free models"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/bin/worker-mode",
+      "localPath": "~/.claude/bin/worker-mode",
+      "platform": "linux",
+      "description": "worker-mode on|off|status switch"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/plugins/installed_plugins.json",
+      "localPath": "~/.claude/plugins/installed_plugins.json",
+      "platform": "linux",
+      "description": "Installed Claude Code plugins",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/plugins/known_marketplaces.json",
+      "localPath": "~/.claude/plugins/known_marketplaces.json",
+      "platform": "linux",
+      "description": "Known plugin marketplaces",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ]
     }
   ],
   "excludePatterns": [

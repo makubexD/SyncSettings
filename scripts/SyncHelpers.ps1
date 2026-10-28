@@ -23,6 +23,13 @@ function Resolve-UserProfile {
     throw "Cannot resolve profile directory for user '$Username'. Make sure the user exists and has logged in at least once."
 }
 
+function Test-WindowsEntry {
+    # Entries without "platform" are Windows entries. "linux" entries belong to the bash scripts.
+    param($Entry)
+    $hasPlatform = $Entry.PSObject.Properties['platform'] -and $Entry.platform
+    return (-not $hasPlatform) -or ($Entry.platform -eq 'windows')
+}
+
 function Resolve-LocalPath {
     param([string]$Template, [string]$ProfileRoot)
     $Template -replace '^~', $ProfileRoot

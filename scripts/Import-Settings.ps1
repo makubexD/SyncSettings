@@ -68,6 +68,7 @@ try {
         throw "sync-config.json not found at: $configPath"
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
+    $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
     Write-Host "  Target user   : $User" -ForegroundColor White
     Write-Host "  Profile path  : $profileRoot" -ForegroundColor White
