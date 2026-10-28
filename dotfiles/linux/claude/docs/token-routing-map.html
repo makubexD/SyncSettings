@@ -236,7 +236,7 @@ footer { color: var(--muted); font-size: 0.85rem; }
   <section aria-labelledby="oc-h">
     <div class="eyebrow">Zoom on the teal box</div>
     <h2 id="oc-h">The worker: headless Claude Code on DeepSeek</h2>
-    <p>Opus writes the spec, then hands the typing to a second Claude Code process that talks to the paid DeepSeek API with your DeepSeek key. It has its own config folder, so it never sees your Claude login, hooks or plugins. Only the spec and the review use your Claude plan; the typing costs cents on DeepSeek.</p>
+    <p>Opus writes the spec, then hands the typing to a second Claude Code process that talks to the paid DeepSeek API with your DeepSeek key. It has its own config folder, so it never sees your Claude login or your personal hooks, plugins and skills in <code>~/.claude</code>. It does read the repo's own <code>CLAUDE.md</code>, rules, skills, agents and project hooks, like any session in that repo, and each run's summary lists what it loaded. Only the spec and the review use your Claude plan; the typing costs cents on DeepSeek.</p>
     <div class="built"><span>✓ ~/.local/bin/mk-exec</span><span>✓ ~/.claude-worker</span><span>✓ deepseek-flash</span><span>✓ deepseek-v4-pro (high)</span><span>✓ workflow-report</span><span>✓ /mk-delegate</span><span>✓ /mk-check</span><span>✓ worker mode</span></div>
     <div class="diagram">
       <svg viewBox="0 0 900 262" role="img" aria-label="Worker chain: Opus runs the mk-exec wrapper in the background, which starts headless Claude Code with its own config, which calls the paid DeepSeek model, then a short summary and full logs go back to Opus. Opus reviews; a rejection loops back for one more try, and a second rejection means Opus does the task.">
@@ -312,7 +312,7 @@ footer { color: var(--muted); font-size: 0.85rem; }
     <p>Type these at the Claude Code prompt in any project. The <code>!</code> commands run in your shell.</p>
     <div class="panel cmds">
       <div class="cmd"><code>/mk-delegate [--effort low|medium|high] &lt;task&gt;</code><span>Hands a task to the DeepSeek worker (default effort medium). Opus writes the spec, then reads the diff and reruns the tests before accepting. Works with a plan step too: <code>/mk-delegate step 2 of docs/plan-x.md</code>.</span></div>
-      <div class="cmd"><code>/mk-check</code><span>Checks the key (without showing it), the isolation from your Claude login and worker mode, then runs a 6-second live job on DeepSeek. The job itself uses no Claude tokens.</span></div>
+      <div class="cmd"><code>/mk-check</code><span>Checks the key (without showing it), the isolation from your Claude login and worker mode, then runs a 6-second live job on DeepSeek that also proves the worker follows the repo's own <code>CLAUDE.md</code>. The job itself uses no Claude tokens.</span></div>
       <div class="cmd"><code>! workflow-report .</code><span>After a feature: which steps went to the worker and which were done inline, every worker run with model, effort, exit, tokens and errors, and the commits.</span></div>
       <div class="cmd"><code>! worker-mode on</code><span>Blocks Claude from editing your code files, so every change goes through mk-exec. A green WORKER badge shows in the status line. Plan files and <code>~/.claude</code> stay editable.</span></div>
       <div class="cmd"><code>! worker-mode off</code><span>Lets Claude edit normally again. Use it for tiny fixes or judgment work.</span></div>

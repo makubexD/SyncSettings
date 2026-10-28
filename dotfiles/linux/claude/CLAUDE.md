@@ -72,6 +72,10 @@ Workflow format (per phase, not per agent; a 30-agent fan-out is 2-4 lines):
 Claude plans and reviews; `mk-exec` (`~/.local/bin/mk-exec`) runs mechanical work as a separate `claude -p`
 process on the paid DeepSeek API, with its own config dir `~/.claude-worker` (worker rules, permissions, no
 OAuth credentials, no user hooks or plugins). The key is in `~/.config/claude-workers/env`; never print it.
+It loads the repo's own config like a normal session: `CLAUDE.md`, `.claude/rules`, skills, agents, commands and
+project hooks, but nothing from `~/.claude` and no MCP. A repo whose `.claude/settings.json` sets `ANTHROPIC_*` env
+or `apiKeyHelper` is refused (exit 2), since that could send the key elsewhere. Hooks shared with the main
+session see `MK_WORKER=1`; `worker-mode-guard` lets the worker edit.
 Switched from OpenCode + Zen free models on 2026-10-28 after the free quota ran out mid-feature.
 
 Effort: `mk-exec --effort low|medium|high` (default **medium**). low = `deepseek-flash`/low,

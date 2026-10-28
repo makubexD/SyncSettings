@@ -27,7 +27,8 @@ Arguments from the user: $ARGUMENTS
 5. **Write the spec** in a few lines: the exact change, the files allowed to change, the test command
    that proves it's done, and any setup it needs (e.g. `source ~/.nvm/nvm.sh` before npm). Name callers
    outside the allowed files that the change could break, so the worker stops instead of leaving them
-   broken. Never include secrets, `.env` contents or private data: the paid API is not zero-retention.
+   broken. The worker reads the repo's `CLAUDE.md`, rules and project hooks itself, so don't restate them;
+   the summary's `project config:` line shows what it loaded. Never include secrets, `.env` contents or private data: the paid API is not zero-retention.
 6. **Delegate.** Print the report line, then run with Bash `run_in_background: true`:
    `⏵ mk-exec (deepseek <model>, <level> effort): <task in ≤10 words>`
    `mk-exec --effort <level> <repo> '<spec>'`

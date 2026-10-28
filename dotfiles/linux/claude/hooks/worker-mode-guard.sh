@@ -3,7 +3,8 @@
 # (flag: ~/.claude/state/worker-mode, toggled with `worker-mode on|off`).
 # While on, it denies file edits by Claude so code changes go through mk-exec.
 # Still allowed: plan files (docs/plan-*.md, plans/), and anything under ~/.claude (config, memory).
-[[ -e $HOME/.claude/state/worker-mode ]] || exit 0
+# The mk-exec worker (MK_WORKER=1) is the one meant to edit, so it is never blocked.
+[[ -z ${MK_WORKER:-} && -e $HOME/.claude/state/worker-mode ]] || exit 0
 
 input=$(cat)
 path=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' <<<"$input" 2>/dev/null)
