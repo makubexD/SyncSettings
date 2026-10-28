@@ -106,7 +106,7 @@ summary and the review. Exit codes: 0 review; 75 key/balance/rate problem, stop 
 2 setup (dirty tree, missing key); 124 timeout after 15 min, counts as a rejection.
 
 Logs: every run writes `~/.claude/state/mk-worker-logs/<ts>-<repo>/` with `stream.jsonl` (full transcript),
-`meta.json` (model, effort, exit, tokens, balance), `diff.patch` and `summary.txt`.
+`meta.json` (model, effort, exit, tokens, cost estimate, balance), `diff.patch` and `summary.txt`.
 `workflow-report <repo> [--since DATE]` joins those with the orchestrator transcripts and git log.
 
 Worker mode (`worker-mode on|off|status`, flag `~/.claude/state/worker-mode`, status line shows WORKER): while
