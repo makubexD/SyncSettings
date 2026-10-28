@@ -82,9 +82,9 @@ Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJs
 1. Start clean: `/clear`, confirm a clean git tree (commit or stash first).
 2. Write a plan file (`docs/plan-<feature>.md`): small numbered steps, each with the files, the exact change,
    and a test command. Tag each step `[worker]`, `[worker:<effort>]` or `[inline: <reason>]`; test steps list
-   every case with its expected result. Don't implement yet. Plan mode only drafts: after the user approves a
-   plan there (any model, `opusplan` included), write it to `docs/plan-<feature>.md` and stop for review in that
-   turn. Don't start executing from `~/.claude/plans/`.
+   every case with its expected result. Don't implement yet. Plan mode (any model, `opusplan` included): if the
+   approved plan has `[worker]` steps, write it to `docs/plan-<feature>.md` and stop for review in that turn;
+   don't execute from `~/.claude/plans/`. If every step is small and `[inline]`, the approval is the review: go ahead.
    Multi-phase work (several PRs, or phases gated on research): commit the roadmap as `docs/plan-<topic>.md`
    with phases, not steps, then write a step-level `docs/plan-<topic>-<phase>.md` when each phase starts.
 3. The user reviews and edits the plan, tags included. Then commit it (`docs: plan <feature>`) and `/clear`;
