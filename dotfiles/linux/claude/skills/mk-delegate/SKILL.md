@@ -16,7 +16,8 @@ Arguments from the user: $ARGUMENTS
    ("step 2 of docs/plan-x.md"), read that step and use its files, change and test command as the spec.
    If the step is tagged `[inline: …]`, stop and say the main session should do it, quoting the reason.
    If it is judgment work (design, debugging, user-facing copy), say so in one line and ask whether to
-   do it in the main session instead.
+   do it in the main session instead. If its result is a model's own behavior (an eval or probe run),
+   stop: the worker would measure DeepSeek, not the model under test. Delegating the eval files is fine.
 3. **Check the repo.** Run `git rev-parse --show-toplevel` and `git status --short`. Not a git repo, or
    a dirty tree: stop and tell the user to commit or stash first. An uncommitted plan file counts as
    dirty too: offer to commit it (`docs: plan <feature>`) before delegating.
