@@ -1,4 +1,27 @@
 {
+  "permissions": {
+    "allow": [
+      "Agent",
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Task(*)",
+      "Skill(*)",
+      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+      "mcp__plugin_context-mode_context-mode__ctx_stats",
+      "mcp__plugin_context-mode_context-mode__ctx_doctor",
+      "mcp__plugin_context-mode_context-mode__ctx_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+      "mcp__plugin_context-mode_context-mode__ctx_search"
+    ],
+    "defaultMode": "auto"
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -31,6 +54,10 @@
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "<HOME>/.claude/statusline.sh"
+  },
   "enabledPlugins": {
     "context-mode@context-mode": true,
     "agent-skills@addy-agent-skills": true
@@ -50,11 +77,6 @@
       }
     }
   },
-  "theme": "dark",
-  "statusLine": {
-    "type": "command",
-    "command": "<HOME>/.claude/statusline.sh"
-  },
   "effortLevel": "medium",
   "modelSettings": {
     "claude-opus-5-5": {
@@ -63,6 +85,8 @@
   },
   "autoUpdatesChannel": "latest",
   "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "autoMode": {
@@ -72,29 +96,6 @@
       "**Package registry**: npm publish targets the public npm registry (e.g. the user's own `repown` CLI). Publishing is a public release.",
       "**Data**: no regulated or employer data on this machine. The user permits reading local config, .env and credential files when a task needs them.",
       "**Tooling**: node via nvm, rtk (command-output proxy hook), context-mode plugin, jq, git, gh."
-    ]
-  },
-  "permissions": {
-    "defaultMode": "bypassPermissions",
-    "allow": [
-      "Agent",
-      "Bash(*)",
-      "Read(*)",
-      "Write(*)",
-      "Edit(*)",
-      "Glob(*)",
-      "Grep(*)",
-      "WebFetch(*)",
-      "WebSearch(*)",
-      "Task(*)",
-      "Skill(*)",
-      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
-      "mcp__plugin_context-mode_context-mode__ctx_stats",
-      "mcp__plugin_context-mode_context-mode__ctx_doctor",
-      "mcp__plugin_context-mode_context-mode__ctx_execute",
-      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
-      "mcp__plugin_context-mode_context-mode__ctx_execute_file",
-      "mcp__plugin_context-mode_context-mode__ctx_search"
     ]
   }
 }
