@@ -10,4 +10,6 @@ git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "oc-exec
 source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
 export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 echo "oc-exec: model=$model dir=$dir" >&2
-exec timeout 900 opencode run -m "$model" --auto --dir "$dir" "$*"
+# stdin from /dev/null: `opencode run` reads any stdin it is given, so an inherited open pipe
+# (background runs, subagents) makes it wait forever and time out with no output.
+exec timeout 900 opencode run -m "$model" --auto --dir "$dir" "$*" < /dev/null
