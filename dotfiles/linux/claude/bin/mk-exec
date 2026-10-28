@@ -66,7 +66,7 @@ started="$(date -Is)"
   # Claude Code sends no effort for models it doesn't know, so pass DeepSeek's effort field directly.
   export CLAUDE_CODE_EXTRA_BODY="{\"output_config\":{\"effort\":\"$api_effort\"}}"
   exec timeout 900 claude -p "$task" --model "$model[1m]" \
-    --output-format stream-json --verbose --max-turns 60 \
+    --output-format stream-json --verbose --max-turns 90 \
     --permission-mode acceptEdits --setting-sources user --strict-mcp-config
 ) < /dev/null > "$logdir/stream.jsonl" 2> "$logdir/stderr.log"
 code=$?
@@ -132,7 +132,9 @@ meta = {
 json.dump(meta, open(f"{log}/meta.json", "w"), indent=2)
 stat = subprocess.run(["git", "-C", e["MK_REPO"], "status", "--short"], capture_output=True, text=True).stdout.strip()
 final = (result.get("result") or "(no final message)").strip().splitlines()[-12:]
-lines = [f"EXIT={code}" + (" (quota/auth/balance)" if code == 75 else " (timeout)" if code == 124 else ""),
+maxed = result.get("subtype") == "error_max_turns"
+lines = [f"EXIT={code}" + (" (quota/auth/balance)" if code == 75 else " (timeout)" if code == 124 else
+         " (max turns: ran out after 90; the diff may be partial; split the step)" if maxed else ""),
          f"model={e['MK_MODEL']} effort={e['MK_EFFORT']} turns={meta['num_turns']} tools={tools} "
          f"tokens in/out={usage.get('input_tokens')}/{usage.get('output_tokens')} "
          f"cost≈${est} ({meta['price_period']}, from tokens)",
