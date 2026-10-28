@@ -363,7 +363,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
       <li>
         <h3>Accept or reject</h3>
         <span class="who">You decide</span>
-        <div><p>Accepted work gets committed. A rejection with a concrete reason goes back to the worker once. A second failure means Opus does it directly.</p>
+        <div><p>Accepted work gets committed, and Claude sends the next step on its own: your committed plan is the approval. It stops to ask only at an inline judgment step, after a rejection or failure, or when the phase ends. A rejection with a concrete reason goes back to the worker once. A second failure means Opus does it directly.</p>
 <div class="prompt">Looks good. Commit it with a short message.
 /mk-delegate step 2 of docs/plan-pagination.md<button class="copy" type="button">Copy</button></div>
 <div class="prompt">Reject: it changed the response shape of /users. Resend step 1 to the worker and say the JSON fields must stay the same.<button class="copy" type="button">Copy</button></div></div>
