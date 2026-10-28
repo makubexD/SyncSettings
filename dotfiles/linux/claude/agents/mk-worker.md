@@ -22,7 +22,7 @@ oc-exec "<repo>" "<task>. Follow the plan at <plan path> if given. Run the proje
 When notified, read the result with `tail -40 "$log"`. The `EXIT=` line is the real exit code.
 
 - Pass the caller's task text verbatim, plus the plan path if given.
-- Only one OpenCode run at a time. Before any retry, `pgrep -f 'opencode run'` must print nothing. If a run is
+- Only one OpenCode run at a time. Before any retry, `pgrep -f '[o]pencode run'` must print nothing. If a run is
   still alive, wait for it. Never start a second run beside it: two agents editing one repo corrupt each other.
 - Retry once with `oc-exec --fallback` (same task, new log) only when the log's `EXIT=` is non-zero or it shows
   a rate limit or quota error. A missing or odd exit code from the Bash tool alone is not a failure: check
