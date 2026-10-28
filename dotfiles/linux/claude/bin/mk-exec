@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Run a mechanical task as a headless Claude Code worker on the paid DeepSeek API.
+# Usage: mk-exec [--effort low|medium|high] <repo-dir> <task text>
+# Exit: worker's exit code; 2 = bad usage/setup; 75 = API quota/auth/balance error; 124 = timeout.
+# Logs: ~/.claude/state/mk-worker-logs/<ts>-<repo>/{stream.jsonl,stderr.log,meta.json,diff.patch,summary.txt}
+set -uo pipefail
+
+effort=medium
+if [[ "${1:-}" == "--effort" ]]; then effort="${2:-}"; shift 2; fi
+case "$effort" in
+  low)    model=deepseek-flash;  api_effort=low ;;
+  medium) model=deepseek-flash;  api_effort=high ;;
+  high)   model=deepseek-v4-pro; api_effort=high ;;
+  *) echo "mk-exec: --effort must be low, medium or high" >&2; exit 2 ;;
+esac
+if [[ $# -lt 2 ]]; then echo "usage: mk-exec [--effort low|medium|high] <repo-dir> <task text>" >&2; exit 2; fi
+repo="$(cd "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || { echo "mk-exec: $1 is not a git repo" >&2; exit 2; }
+shift; task="$*"
+
+if [[ -n "$(git -C "$repo" status --porcelain)" ]]; then echo "mk-exec: $repo has uncommitted changes; commit or stash first" >&2; exit 2; fi
+[[ -r "$HOME/.config/claude-workers/env" ]] && source "$HOME/.config/claude-workers/env"
+if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then echo "mk-exec: DEEPSEEK_API_KEY missing in ~/.config/claude-workers/env" >&2; exit 2; fi
+
+# Preflight: a bad key or empty balance fails here in a second instead of after Claude Code's retries.
+balance() {
+  python3 -I -c '
+import json, os, sys, urllib.request, urllib.error
+req = urllib.request.Request("https://api.deepseek.com/user/balance",
+                             headers={"Authorization": "Bearer " + os.environ["DEEPSEEK_API_KEY"]})
+try:
+    d = json.load(urllib.request.urlopen(req, timeout=15))
+except urllib.error.HTTPError as e:
+    print(f"HTTP {e.code}"); sys.exit(75)
+except Exception as e:
+    print(f"unreachable: {e}"); sys.exit(1)
+b = d["balance_infos"][0]
+print(b["total_balance"])
+sys.exit(0 if d.get("is_available") and float(b["total_balance"]) > 0 else 75)'
+}
+balance_before="$(DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" balance)"
+case $? in
+  0) ;;
+  75) echo "mk-exec: EXIT=75 DeepSeek key or balance problem: $balance_before" >&2; exit 75 ;;
+  *) echo "mk-exec: DeepSeek balance check failed ($balance_before); continuing" >&2; balance_before="" ;;
+esac
+
+logdir="$HOME/.claude/state/mk-worker-logs/$(date +%F-%H%M%S)-$(basename "$repo")"
+mkdir -p "$logdir"
+echo "mk-exec: log=$logdir model=$model effort=$effort balance=\$${balance_before:-?}"
+head_before="$(git -C "$repo" rev-parse HEAD)"
+started="$(date -Is)"
+
+# The worker gets the DeepSeek endpoint and its own config dir (no OAuth credentials, no user hooks/plugins).
+# Only this child process sees these variables; the orchestrator's environment is untouched.
+(
+  cd "$repo" || exit 2
+  unset ANTHROPIC_API_KEY
+  export CLAUDE_CONFIG_DIR="$HOME/.claude-worker"
+  export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
+  export ANTHROPIC_AUTH_TOKEN="$DEEPSEEK_API_KEY"
+  # Model variables follow DeepSeek's Claude Code guide (api-docs.deepseek.com/quick_start/agent_integrations/claude_code).
+  export ANTHROPIC_MODEL="$model[1m]" ANTHROPIC_DEFAULT_OPUS_MODEL="$model[1m]" ANTHROPIC_DEFAULT_SONNET_MODEL="$model[1m]"
+  export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-flash ANTHROPIC_SMALL_FAST_MODEL=deepseek-flash CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash
+  export CLAUDE_CODE_AUTO_COMPACT_WINDOW=786432 CLAUDE_CODE_EFFORT_LEVEL="$api_effort"
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_MAX_RETRIES=3
+  # Claude Code sends no effort for models it doesn't know, so pass DeepSeek's effort field directly.
+  export CLAUDE_CODE_EXTRA_BODY="{\"output_config\":{\"effort\":\"$api_effort\"}}"
+  exec timeout 900 claude -p "$task" --model "$model[1m]" \
+    --output-format stream-json --verbose --max-turns 60 \
+    --permission-mode acceptEdits --setting-sources user --strict-mcp-config
+) < /dev/null > "$logdir/stream.jsonl" 2> "$logdir/stderr.log"
+code=$?
+
+# Diff of tracked changes plus new untracked files, without touching the index.
+{
+  git -C "$repo" diff
+  git -C "$repo" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+    git -C "$repo" diff --no-index -- /dev/null "$f"
+  done
+} > "$logdir/diff.patch" 2>/dev/null
+
+balance_after="$(DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" balance 2>/dev/null)" || balance_after=""
+
+MK_BAL0="$balance_before" MK_BAL1="$balance_after" MK_CODE="$code" MK_LOG="$logdir" MK_REPO="$repo" MK_MODEL="$model" MK_EFFORT="$effort" MK_API_EFFORT="$api_effort" \
+MK_TASK="$task" MK_HEAD="$head_before" MK_START="$started" python3 -I - <<'PY'
+import json, os, re, subprocess, datetime
+e = os.environ; log = e["MK_LOG"]; code = int(e["MK_CODE"])
+result, errors, tools = {}, [], 0
+for line in open(f"{log}/stream.jsonl", errors="replace"):
+    try: ev = json.loads(line)
+    except ValueError: continue
+    if ev.get("type") == "result": result = ev
+    elif ev.get("type") == "assistant":
+        for b in ev.get("message", {}).get("content", []):
+            if b.get("type") == "tool_use": tools += 1
+    if ev.get("type") == "system" and ev.get("subtype") == "api_retry": errors.append(str(ev.get("error", ev))[:200])
+stderr = open(f"{log}/stderr.log", errors="replace").read()
+text = (result.get("result") or "") + "\n" + stderr
+quota = re.search(r"insufficient balance|\b402\b|\b401\b|\b429\b|authentication|invalid api key|rate limit", text, re.I)
+if code != 0 and quota:
+    code = 75
+if result.get("is_error"): errors.append((result.get("result") or result.get("subtype") or "")[:300])
+errors += [l for l in stderr.splitlines() if l.strip() and "unrecognized_model" not in l][-5:]
+errors = list(dict.fromkeys(errors))
+try:
+    cost = round(float(e["MK_BAL0"]) - float(e["MK_BAL1"]), 4)
+except ValueError:
+    cost = None
+usage = result.get("usage", {})
+meta = {
+    "repo": e["MK_REPO"], "task": e["MK_TASK"], "model": e["MK_MODEL"], "effort": e["MK_EFFORT"],
+    "api_effort": e["MK_API_EFFORT"], "head_before": e["MK_HEAD"], "started": e["MK_START"],
+    "ended": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "exit": code,
+    "num_turns": result.get("num_turns"), "tool_calls": tools, "duration_ms": result.get("duration_ms"),
+    "session_id": result.get("session_id"), "usage": {k: usage.get(k) for k in
+        ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")},
+    "balance_before": e["MK_BAL0"] or None, "balance_after": e["MK_BAL1"] or None,
+    "cost_usd_by_balance": cost, "key_present": True, "errors": errors,
+}
+json.dump(meta, open(f"{log}/meta.json", "w"), indent=2)
+stat = subprocess.run(["git", "-C", e["MK_REPO"], "status", "--short"], capture_output=True, text=True).stdout.strip()
+final = (result.get("result") or "(no final message)").strip().splitlines()[-12:]
+lines = [f"EXIT={code}" + (" (quota/auth/balance)" if code == 75 else " (timeout)" if code == 124 else ""),
+         f"model={e['MK_MODEL']} effort={e['MK_EFFORT']} turns={meta['num_turns']} tools={tools} "
+         f"tokens in/out={usage.get('input_tokens')}/{usage.get('output_tokens')} cost=${cost}",
+         "--- changed files", *(stat.splitlines()[:12] or ["(none)"]),
+         "--- worker summary", *final]
+if errors: lines += ["--- errors", *[x[:200] for x in errors[:6]]]
+lines.append(f"--- log {log}")
+open(f"{log}/summary.txt", "w").write("\n".join(lines[:40]) + "\n")
+PY
+cat "$logdir/summary.txt"
+exit "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["exit"])' "$logdir/meta.json")"

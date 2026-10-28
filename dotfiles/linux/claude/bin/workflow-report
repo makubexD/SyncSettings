@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Review a plan → delegate → review run: what the orchestrator did per step and what each worker run did.
+
+Usage: workflow-report <repo-dir> [--since YYYY-MM-DD]
+Read-only. Sources: orchestrator transcripts (~/.claude/projects/<repo>/), mk-exec logs
+(~/.claude/state/mk-worker-logs/*/meta.json), legacy OpenCode runs (opencode.db + opencode.log), git log.
+"""
+import datetime as dt, glob, json, os, re, sqlite3, subprocess, sys
+
+HOME = os.path.expanduser("~")
+STEP_RE = re.compile(r"(execute|do|run) steps? [\d ,and+]+|/mk-delegate|step \d+ of", re.I)
+
+
+def ts(s):
+    return dt.datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone()
+
+
+def short(s, n=70):
+    s = " ".join(str(s).split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def transcripts(repo, since):
+    d = os.path.join(HOME, ".claude/projects", re.sub(r"[^A-Za-z0-9]", "-", repo))
+    out = []
+    for f in sorted(glob.glob(d + "/*.jsonl")):
+        if dt.datetime.fromtimestamp(os.path.getmtime(f)).astimezone() >= since:
+            out.append(f)
+    return out
+
+
+def session_steps(path, repo):
+    """Split an orchestrator session into segments, one per real user prompt."""
+    steps, cur = [], None
+    for line in open(path, errors="replace"):
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        msg, when = ev.get("message") or {}, ev.get("timestamp")
+        content = msg.get("content")
+        if ev.get("type") == "user" and isinstance(content, str) and when:
+            if content.startswith("<") or content.startswith("Another Claude session"):
+                continue
+            cur = {"start": ts(when), "prompt": content, "edits": set(), "spawns": [], "mk_exec": 0,
+                   "commits": 0, "out_tokens": 0}
+            steps.append(cur)
+            continue
+        if cur is None or not isinstance(content, list):
+            continue
+        if ev.get("type") == "assistant":
+            cur["out_tokens"] += (msg.get("usage") or {}).get("output_tokens", 0) or 0
+        for b in content:
+            if b.get("type") != "tool_use":
+                continue
+            name, inp = b.get("name"), b.get("input") or {}
+            if name in ("Edit", "Write", "MultiEdit") and str(inp.get("file_path", "")).startswith(repo):
+                cur["edits"].add(os.path.relpath(inp["file_path"], repo))
+            elif name == "Agent":
+                cur["spawns"].append(f"{inp.get('subagent_type', '?')}: {short(inp.get('description', ''), 40)}")
+            elif name == "Bash":
+                cmd = inp.get("command", "")
+                cur["mk_exec"] += cmd.count("mk-exec ")
+                cur["commits"] += len(re.findall(r"git commit", cmd))
+    return steps
+
+
+def mk_exec_runs(repo, since):
+    runs = []
+    for f in glob.glob(os.path.join(HOME, ".claude/state/mk-worker-logs/*/meta.json")):
+        try:
+            m = json.load(open(f))
+        except (ValueError, OSError):
+            continue
+        if m.get("repo") == repo and ts(m["started"]) >= since:
+            m["kind"], m["log"] = "mk-exec", os.path.dirname(f)
+            runs.append(m)
+    return runs
+
+
+def opencode_runs(repo, since):
+    db = os.path.join(HOME, ".local/share/opencode/opencode.db")
+    if not os.path.exists(db):
+        return []
+    errs = {}
+    logf = os.path.join(HOME, ".local/share/opencode/log/opencode.log")
+    if os.path.exists(logf):
+        for line in open(logf, errors="replace"):
+            if "level=ERROR" in line and "agent=build" in line:
+                sid = re.search(r"session\.id=(\S+)", line)
+                err = re.search(r'error\.error="([^"]{0,140})', line)
+                if sid and err:
+                    errs.setdefault(sid.group(1), set()).add(err.group(1))
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    runs = []
+    q = ("select id, model, tokens_input, tokens_output, cost, time_created, time_updated from session "
+         "where directory = ? and parent_id is null order by time_created")
+    for sid, model, tin, tout, cost, t0, t1 in con.execute(q, (repo,)):
+        start = dt.datetime.fromtimestamp(t0 / 1000).astimezone()
+        if start < since:
+            continue
+        try:
+            model = json.loads(model).get("id", model)
+        except (TypeError, ValueError):
+            pass
+        runs.append({"kind": "opencode", "model": model, "started": start.isoformat(), "effort": "-",
+                     "exit": "err" if sid in errs else (0 if tout else "?"), "usage": {"input_tokens": tin, "output_tokens": tout},
+                     "duration_ms": t1 - t0, "errors": sorted(errs.get(sid, [])), "cost_usd_by_balance": cost,
+                     "log": f"opencode session {sid}"})
+    return runs
+
+
+def main():
+    args = sys.argv[1:]
+    since_s = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+    if "--since" in args:
+        i = args.index("--since")
+        since_s = args[i + 1] if i + 1 < len(args) else ""
+        del args[i:i + 2]
+    if len(args) != 1 or args[0] in ("-h", "--help") or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since_s):
+        sys.exit(__doc__.strip())
+    repo_arg = args[0]
+    repo = subprocess.run(["git", "-C", repo_arg, "rev-parse", "--show-toplevel"], capture_output=True,
+                          text=True).stdout.strip() or os.path.abspath(repo_arg)
+    since = dt.datetime.fromisoformat(since_s).astimezone()
+
+    runs = sorted(mk_exec_runs(repo, since) + opencode_runs(repo, since), key=lambda r: ts(r["started"]))
+    steps = []
+    for f in transcripts(repo, since):
+        for s in session_steps(f, repo):
+            s["session"] = os.path.basename(f)[:8]
+            steps.append(s)
+    steps = [s for s in steps if s["start"] >= since]
+    steps.sort(key=lambda s: s["start"])
+    for i, s in enumerate(steps):
+        end = steps[i + 1]["start"] if i + 1 < len(steps) else dt.datetime.max.replace(tzinfo=s["start"].tzinfo)
+        s["runs"] = [r for r in runs if s["start"] <= ts(r["started"]) < end]
+
+    print(f"# Workflow report: {repo} (since {since_s})\n")
+    print("## Steps (one per orchestrator prompt)\n")
+    print("| time | session | prompt | worker runs | files edited inline | spawns | orch out-tok |")
+    print("|---|---|---|---|---|---|---|")
+    for s in steps:
+        if not (s["edits"] or s["runs"] or s["spawns"] or STEP_RE.search(s["prompt"])):
+            continue
+        rs = ", ".join(f"{r['model']}→{r['exit']}" for r in s["runs"]) or "-"
+        print(f"| {s['start']:%m-%d %H:%M} | {s['session']} | {short(s['prompt'], 50)} | {rs} | "
+              f"{len(s['edits'])} | {short('; '.join(s['spawns']), 40) or '-'} | {s['out_tokens']} |")
+
+    print("\n## Worker runs\n")
+    print("| started | kind | model | effort | exit | in/out tokens | duration | errors | log |")
+    print("|---|---|---|---|---|---|---|---|---|")
+    for r in runs:
+        u = r.get("usage") or {}
+        dur = f"{(r.get('duration_ms') or 0) / 60000:.1f}m"
+        print(f"| {ts(r['started']):%m-%d %H:%M} | {r['kind']} | {r['model']} | {r.get('effort')} | {r['exit']} | "
+              f"{u.get('input_tokens')}/{u.get('output_tokens')} | {dur} | "
+              f"{short('; '.join(r.get('errors') or []), 60) or '-'} | {r['log']} |")
+
+    ok = [r for r in runs if r["exit"] == 0]
+    seg = [s for s in steps if s["edits"] or s["runs"] or STEP_RE.search(s["prompt"])]
+    delegated = sum(1 for s in seg if s["runs"])
+    bal = [r for r in runs if r["kind"] == "mk-exec" and r.get("balance_before")]
+    print("\n## Totals\n")
+    print(f"- steps: {len(seg)}, delegated: {delegated}, inline-only: {len(seg) - delegated}")
+    print(f"- worker runs: {len(runs)}, exit 0: {len(ok)}, failed: {len(runs) - len(ok)}")
+    print(f"- worker tokens in/out: {sum((r.get('usage') or {}).get('input_tokens') or 0 for r in runs)}/"
+          f"{sum((r.get('usage') or {}).get('output_tokens') or 0 for r in runs)}")
+    if bal:
+        print(f"- DeepSeek balance: ${bal[0]['balance_before']} before first run, "
+              f"${bal[-1].get('balance_after')} right after last run (billing settles with a delay)")
+    print(f"- repo files edited inline (distinct per step): {sum(len(s['edits']) for s in seg)}")
+    print("\n## Commits\n")
+    print(subprocess.run(["git", "-C", repo, "log", f"--since={since_s}", "--format=- %h %ad %s", "--date=format:%m-%d %H:%M"],
+                         capture_output=True, text=True).stdout.strip() or "(none)")
+
+
+if __name__ == "__main__":
+    main()

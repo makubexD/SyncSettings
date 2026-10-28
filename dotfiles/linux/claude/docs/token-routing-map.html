@@ -148,12 +148,12 @@ footer { color: var(--muted); font-size: 0.85rem; }
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">~/.claude · set up 2026-10-27</div>
+    <div class="eyebrow">~/.claude · set up 2026-10-27 · worker moved to paid DeepSeek 2026-10-28</div>
     <h1>Where every request goes, and what it costs</h1>
     <p class="lede">Opus plans and reviews. Cheaper helpers do the legwork. Two filters keep big outputs from flooding the conversation. Your plan usage is spent only on the amber parts.</p>
     <div class="legend">
       <span><i class="sw cost"></i>Spends your Anthropic plan usage</span>
-      <span><i class="sw free"></i>Free, or saves usage</span>
+      <span><i class="sw free"></i>Saves plan usage (free, or cents on DeepSeek)</span>
       <span><i class="sw ink"></i>Main session (the orchestrator)</span>
     </div>
   </header>
@@ -161,7 +161,7 @@ footer { color: var(--muted); font-size: 0.85rem; }
   <section aria-labelledby="flow-h">
     <h2 id="flow-h">The flow</h2>
     <div class="diagram">
-      <svg viewBox="0 0 900 610" role="img" aria-label="Flow: you ask the main Opus session, it routes work to judgment on Opus, an Explore agent, or the mk-worker free worker; results pass through RTK and context-mode filters and a review gate before they are accepted.">
+      <svg viewBox="0 0 900 610" role="img" aria-label="Flow: you ask the main Opus session, it routes work to judgment on Opus, an Explore agent, or the mk-exec DeepSeek worker; results pass through RTK and context-mode filters and a review gate before they are accepted.">
         <defs>
           <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker>
           <marker id="ahf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead-free"/></marker>
@@ -205,13 +205,13 @@ footer { color: var(--muted); font-size: 0.85rem; }
         <text x="345" y="376" class="t-small">and sends back a summary only.</text>
         <text x="345" y="400" class="t-small">Costs some usage; starts cold.</text>
 
-        <!-- Branch 3: mk-worker -->
+        <!-- Branch 3: mk-exec -->
         <rect x="625" y="286" width="250" height="138" rx="10" class="box-free"/>
-        <text x="645" y="310" class="t-mono c-free">MK-WORKER · ~FREE</text>
+        <text x="645" y="310" class="t-mono c-free">MK-EXEC · CENTS, NO PLAN USAGE</text>
         <text x="645" y="334" class="t-title">Mechanical, with a spec</text>
-        <text x="645" y="358" class="t-small">Haiku dispatcher → oc-exec →</text>
-        <text x="645" y="376" class="t-small">OpenCode DeepSeek V4.1 Flash Free</text>
-        <text x="645" y="394" class="t-small">(GLM 5.3 fallback). Clean git tree.</text>
+        <text x="645" y="358" class="t-small">Headless Claude Code on the</text>
+        <text x="645" y="376" class="t-small">paid DeepSeek API, own config.</text>
+        <text x="645" y="394" class="t-small">Effort low/medium/high. Clean tree.</text>
         <text x="645" y="414" class="t-mono c-free">↓ ZOOMED IN BELOW</text>
 
         <!-- to review gate -->
@@ -235,11 +235,11 @@ footer { color: var(--muted); font-size: 0.85rem; }
 
   <section aria-labelledby="oc-h">
     <div class="eyebrow">Zoom on the teal box</div>
-    <h2 id="oc-h">The free worker: OpenCode + DeepSeek</h2>
-    <p>This is the part we built. Opus writes the spec, then hands the typing to a free model running in OpenCode on your machine. Only step 1 and the final review use your Claude plan.</p>
-    <div class="built"><span>✓ mk-worker agent</span><span>✓ ~/.local/bin/oc-exec</span><span>✓ OpenCode 1.19.4</span><span>✓ DeepSeek V4.1 Flash Free</span><span>✓ GLM 5.3 fallback</span><span>✓ /mk-delegate</span><span>✓ /mk-check</span><span>✓ worker mode</span></div>
+    <h2 id="oc-h">The worker: headless Claude Code on DeepSeek</h2>
+    <p>Opus writes the spec, then hands the typing to a second Claude Code process that talks to the paid DeepSeek API with your DeepSeek key. It has its own config folder, so it never sees your Claude login, hooks or plugins. Only the spec and the review use your Claude plan; the typing costs cents on DeepSeek.</p>
+    <div class="built"><span>✓ ~/.local/bin/mk-exec</span><span>✓ ~/.claude-worker</span><span>✓ deepseek-flash</span><span>✓ deepseek-v4-pro (high)</span><span>✓ workflow-report</span><span>✓ /mk-delegate</span><span>✓ /mk-check</span><span>✓ worker mode</span></div>
     <div class="diagram">
-      <svg viewBox="0 0 900 262" role="img" aria-label="Free worker chain: mk-worker Haiku dispatcher, then the oc-exec wrapper, then OpenCode editing the repo, then the DeepSeek V4.1 Flash Free model with GLM fallback, then a report back to Opus. Opus reviews; a rejection loops back for one more try, and a second rejection means Opus does the task.">
+      <svg viewBox="0 0 900 262" role="img" aria-label="Worker chain: Opus runs the mk-exec wrapper in the background, which starts headless Claude Code with its own config, which calls the paid DeepSeek model, then a short summary and full logs go back to Opus. Opus reviews; a rejection loops back for one more try, and a second rejection means Opus does the task.">
         <defs>
           <marker id="ahf2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead-free"/></marker>
           <marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead-warn"/></marker>
@@ -247,69 +247,63 @@ footer { color: var(--muted); font-size: 0.85rem; }
         <text x="36" y="34" class="t-mono c-ink">OPUS HANDS OFF A WRITTEN SPEC →</text>
 
         <rect x="36" y="52" width="156" height="118" rx="10" class="box-cost"/>
-        <text x="50" y="76" class="t-mono c-cost">1 · CLAUDE SUBAGENT</text>
-        <text x="50" y="102" class="t-title">mk-worker</text>
-        <text x="50" y="126" class="t-small">Haiku dispatcher.</text>
-        <text x="50" y="144" class="t-small">Writes no code itself.</text>
+        <text x="50" y="76" class="t-mono c-cost">1 · OPUS SESSION</text>
+        <text x="50" y="102" class="t-title">/mk-delegate</text>
+        <text x="50" y="126" class="t-small">Writes the spec, picks</text>
+        <text x="50" y="144" class="t-small">effort. No subagent.</text>
 
         <path d="M194,111 H202" class="edge-free" marker-end="url(#ahf2)"/>
         <rect x="204" y="52" width="156" height="118" rx="10" class="box-free"/>
         <text x="218" y="76" class="t-mono c-free">2 · SHELL WRAPPER</text>
-        <text x="218" y="102" class="t-title">oc-exec</text>
-        <text x="218" y="126" class="t-small">Pins the free model,</text>
-        <text x="218" y="144" class="t-small">15-min timeout.</text>
+        <text x="218" y="102" class="t-title">mk-exec</text>
+        <text x="218" y="126" class="t-small">Checks key and balance,</text>
+        <text x="218" y="144" class="t-small">15-min timeout, logs.</text>
 
         <path d="M362,111 H370" class="edge-free" marker-end="url(#ahf2)"/>
         <rect x="372" y="52" width="156" height="118" rx="10" class="box-free"/>
         <text x="386" y="76" class="t-mono c-free">3 · CODING AGENT</text>
-        <text x="386" y="102" class="t-title">OpenCode</text>
+        <text x="386" y="102" class="t-title">claude -p</text>
         <text x="386" y="126" class="t-small">Edits files and runs</text>
         <text x="386" y="144" class="t-small">tests in your repo.</text>
 
         <path d="M530,111 H538" class="edge-free" marker-end="url(#ahf2)"/>
         <rect x="540" y="52" width="156" height="118" rx="10" class="box-free"/>
-        <text x="554" y="76" class="t-mono c-free">4 · FREE MODEL · ZEN</text>
-        <text x="554" y="102" class="t-title">DeepSeek V4.1</text>
-        <text x="554" y="126" class="t-small">Flash Free. GLM 5.3</text>
-        <text x="554" y="144" class="t-small">if rate-limited.</text>
+        <text x="554" y="76" class="t-mono c-free">4 · PAID · DEEPSEEK</text>
+        <text x="554" y="102" class="t-title">deepseek-flash</text>
+        <text x="554" y="126" class="t-small">v4-pro at high effort.</text>
+        <text x="554" y="144" class="t-small">Bad key fails in 1 s.</text>
 
         <path d="M698,111 H706" class="edge-free" marker-end="url(#ahf2)"/>
         <rect x="708" y="52" width="156" height="118" rx="10" class="box-ink"/>
         <text x="722" y="76" class="t-mono c-ink">5 · REPORT</text>
         <text x="722" y="102" class="t-title">Back to Opus</text>
-        <text x="722" y="126" class="t-small">git diff, test result,</text>
-        <text x="722" y="144" class="t-small">which model ran.</text>
+        <text x="722" y="126" class="t-small">≤40-line summary; full</text>
+        <text x="722" y="144" class="t-small">transcript in the log.</text>
 
         <path d="M786,170 V206 H114 V174" class="edge-warn" marker-end="url(#ahw)"/>
         <text x="450" y="200" text-anchor="middle" class="t-mono c-warn">OPUS REJECTS → ONE MORE TRY</text>
         <text x="450" y="236" text-anchor="middle" class="t-small">Accepted → done. Rejected twice → Opus does the task in the main session.</text>
       </svg>
     </div>
-    <p>You don't run any of this by hand. When a task is mechanical and has a plan, the main session sends it here and prints <code>⏵ mk-worker (haiku + opencode/deepseek-v4.1-flash-free, low effort): …</code>. To make sure it gets used, run <code>/mk-delegate</code>, or turn on worker mode so Claude can't write the code itself.</p>
+    <p>You don't run any of this by hand. When a task is mechanical and has a plan, the main session sends it here and prints <code>⏵ mk-exec (deepseek deepseek-flash, medium effort): …</code>. Effort defaults to medium: <b>low</b> = flash, light thinking; <b>medium</b> = flash, full thinking; <b>high</b> = v4-pro. Override per step with <code>/mk-delegate --effort high …</code> or tag the plan step <code>[worker:high]</code>. To make sure it gets used, run <code>/mk-delegate</code>, or turn on worker mode so Claude can't write the code itself.</p>
   </section>
 
   <section aria-labelledby="proof-h">
-    <div class="eyebrow">Test run · 2026-10-27 · passed</div>
-    <h2 id="proof-h">It works: first real job</h2>
-    <p>A throwaway repo with one function and one test. The task was to add <code>multiply(a, b)</code> and a test for it. Opus checked the diff and reran the tests itself before accepting.</p>
+    <div class="eyebrow">Why it changed · 2026-10-28</div>
+    <h2 id="proof-h">What the first real feature taught us</h2>
+    <p>On the sigil status-backlog plan, the free worker did step 2. On steps 3 and 4 the Zen free quota ran out (<code>Free usage limit reached</code>, three retries). OpenCode then hung for the full 15 minutes, and the GLM fallback hit the same quota. The steps were finished inline. The worker now runs on the paid DeepSeek API, a key or balance problem fails in about a second, and every run keeps a full log.</p>
     <div class="proof">
-      <div><b>22 s</b><small>start to finish</small></div>
-      <div><b>DeepSeek</b><small>V4.1 Flash Free, no fallback</small></div>
-      <div><b>2 files</b><small>only the ones named</small></div>
-      <div><b>2 / 2</b><small>tests pass, rerun by Opus</small></div>
-      <div><b>~11.7k</b><small>tokens used by the Haiku dispatcher</small></div>
+      <div><b>2 of 6</b><small>steps delegated on the free worker</small></div>
+      <div><b>2 × 15 min</b><small>lost to the quota hang</small></div>
+      <div><b>~6 s</b><small>live test job on deepseek-flash now</small></div>
+      <div><b>0.5 s</b><small>to fail on a bad key (was 3 min)</small></div>
+      <div><b>0</b><small>subagent tokens per step (Haiku dispatcher removed)</small></div>
     </div>
-<pre class="diffbox">mathutil.py
-  def add(a, b):
-      return a + b
-<span class="a">+ def multiply(a, b):
-+     return a * b</span>
-
-test_mathutil.py
-<span class="a">+ from mathutil import add, multiply</span>
-  ...
-<span class="a">+     def test_multiply(self):
-+         self.assertEqual(multiply(4, 5), 20)</span></pre>
+<pre class="diffbox">~/.claude/state/mk-worker-logs/&lt;time&gt;-&lt;repo&gt;/
+  stream.jsonl   every tool call and result
+  meta.json      model, effort, exit, tokens, DeepSeek balance
+  diff.patch     what the worker changed
+  summary.txt    the ≤40 lines Opus reads</pre>
   </section>
 
   <section aria-labelledby="cmd-h">
@@ -317,10 +311,10 @@ test_mathutil.py
     <h2 id="cmd-h">Commands and worker mode</h2>
     <p>Type these at the Claude Code prompt in any project. The <code>!</code> commands run in your shell.</p>
     <div class="panel cmds">
-      <div class="cmd"><code>/mk-delegate &lt;task&gt;</code><span>Hands a task to the free worker. Opus writes the spec, then reads the diff and reruns the tests before accepting. Works with a plan step too: <code>/mk-delegate step 2 of docs/plan-x.md</code>.</span></div>
-      <div class="cmd"><code>/mk-check</code><span>Checks the install and the two allowed models, shows worker mode, and runs an 8-second live job on DeepSeek. The job itself uses no Claude tokens.</span></div>
-      <div class="cmd"><code>/mk-check --fallback</code><span>Same live job on the GLM 5.3 backup model.</span></div>
-      <div class="cmd"><code>! worker-mode on</code><span>Blocks Claude from editing your code files, so every change goes through mk-worker. A green WORKER badge shows in the status line. Plan files and <code>~/.claude</code> stay editable.</span></div>
+      <div class="cmd"><code>/mk-delegate [--effort low|medium|high] &lt;task&gt;</code><span>Hands a task to the DeepSeek worker (default effort medium). Opus writes the spec, then reads the diff and reruns the tests before accepting. Works with a plan step too: <code>/mk-delegate step 2 of docs/plan-x.md</code>.</span></div>
+      <div class="cmd"><code>/mk-check</code><span>Checks the key (without showing it), the isolation from your Claude login and worker mode, then runs a 6-second live job on DeepSeek. The job itself uses no Claude tokens.</span></div>
+      <div class="cmd"><code>! workflow-report .</code><span>After a feature: which steps went to the worker and which were done inline, every worker run with model, effort, exit, tokens and errors, and the commits.</span></div>
+      <div class="cmd"><code>! worker-mode on</code><span>Blocks Claude from editing your code files, so every change goes through mk-exec. A green WORKER badge shows in the status line. Plan files and <code>~/.claude</code> stay editable.</span></div>
       <div class="cmd"><code>! worker-mode off</code><span>Lets Claude edit normally again. Use it for tiny fixes or judgment work.</span></div>
       <div class="cmd"><code>! worker-mode status</code><span>Shows whether it's on.</span></div>
     </div>
@@ -330,7 +324,7 @@ test_mathutil.py
   <section aria-labelledby="guide-h">
     <div class="eyebrow">Step by step</div>
     <h2 id="guide-h">Using it on real work</h2>
-    <p>The pattern is always the same: Opus thinks and writes the plan, the free worker types, Opus checks. Copy these prompts and swap in your own details.</p>
+    <p>The pattern is always the same: Opus thinks and writes the plan, the DeepSeek worker types, Opus checks. Copy these prompts and swap in your own details.</p>
     <ol class="steps">
       <li>
         <h3>Start clean</h3>
@@ -354,9 +348,9 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
 <div class="prompt">/clear<button class="copy" type="button">Copy</button></div></div>
       </li>
       <li>
-        <h3>Hand a step to the free worker</h3>
-        <span class="who">mk-worker → OpenCode → DeepSeek · free</span>
-        <div><p>The command sends the step to the free worker and Opus reviews the result. You should see a <code>⏵ mk-worker …</code> line. One step at a time keeps each diff easy to review. To be sure Claude doesn't write it itself, run <code>! worker-mode on</code> first.</p>
+        <h3>Hand a step to the worker</h3>
+        <span class="who">mk-exec → claude -p → DeepSeek · cents</span>
+        <div><p>The command sends the step to the DeepSeek worker and Opus reviews the result. You should see a <code>⏵ mk-exec …</code> line. Add <code>--effort high</code> for a harder step. One step at a time keeps each diff easy to review. To be sure Claude doesn't write it itself, run <code>! worker-mode on</code> first.</p>
 <div class="prompt free">/mk-delegate step 1 of docs/plan-pagination.md<button class="copy" type="button">Copy</button></div></div>
       </li>
       <li>
@@ -371,13 +365,13 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
         <div><p>Accepted work gets committed. A rejection with a concrete reason goes back to the worker once. A second failure means Opus does it directly.</p>
 <div class="prompt">Looks good. Commit it with a short message.
 /mk-delegate step 2 of docs/plan-pagination.md<button class="copy" type="button">Copy</button></div>
-<div class="prompt">Reject: it changed the response shape of /users. Resend step 1 to mk-worker and say the JSON fields must stay the same.<button class="copy" type="button">Copy</button></div></div>
+<div class="prompt">Reject: it changed the response shape of /users. Resend step 1 to the worker and say the JSON fields must stay the same.<button class="copy" type="button">Copy</button></div></div>
       </li>
       <li>
         <h3>Finish and clear</h3>
         <span class="who">You</span>
-        <div><p>When the plan is done, get one final review, then start the next feature in a fresh session.</p>
-<div class="prompt">All steps are done. Review the whole feature with /agent-skills:review, then summarize what changed.<button class="copy" type="button">Copy</button></div></div>
+        <div><p>When the plan is done, look at the run report, get one final review, then start the next feature in a fresh session.</p>
+<div class="prompt">All steps are done. Run workflow-report on this repo and tell me which steps ran inline and why, then review the whole feature with /agent-skills:review and summarize what changed.<button class="copy" type="button">Copy</button></div></div>
       </li>
     </ol>
   </section>
@@ -386,7 +380,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
     <h2 id="sort-h">Which tasks go where</h2>
     <div class="sort">
       <div class="panel free">
-        <h3><i class="sw free"></i>Send to mk-worker</h3>
+        <h3><i class="sw free"></i>Send to the worker</h3>
         <ul>
           <li>“Rename <code>getUser</code> to <code>fetchUser</code> across src/ and update imports and tests.”</li>
           <li>“Add docstrings to every public function in utils/.”</li>
@@ -404,7 +398,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
         </ul>
       </div>
       <div class="panel warn">
-        <h3>Never send to mk-worker</h3>
+        <h3>Never send to the worker</h3>
         <ul>
           <li>Anything that needs <code>.env</code>, API keys or passwords.</li>
           <li>Private or customer data.</li>
@@ -432,7 +426,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
       <div class="panel free">
         <h3><i class="sw free"></i>Free, or saves usage</h3>
         <ul>
-          <li>The OpenCode worker on the free Zen models. Only its short report comes back.</li>
+          <li>The DeepSeek worker. It costs cents on your DeepSeek balance, not plan usage, and only its short summary comes back.</li>
           <li>Shell output RTK trims away before it reaches context.</li>
           <li>Data processed inside <code>ctx_execute</code>. Only what it prints enters the conversation.</li>
           <li>Prompt cache hits. Staying on one task keeps the cache warm.</li>
@@ -449,7 +443,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
       <table>
         <thead><tr><th>Effort</th><th>Use it for</th><th>Who usually runs it</th></tr></thead>
         <tbody>
-          <tr><td><span class="pill p-low">low</span></td><td>Mechanical work with a clear spec: formatting, bulk edits, migrations</td><td>mk-worker (free)</td></tr>
+          <tr><td><span class="pill p-low">low</span></td><td>Mechanical work with a clear spec: formatting, bulk edits, migrations</td><td>mk-exec on DeepSeek (its own effort: default medium)</td></tr>
           <tr><td><span class="pill p-med">medium</span></td><td>Routine implementation, searches, straightforward fixes</td><td>Main session, Explore</td></tr>
           <tr><td><span class="pill p-high">high</span></td><td>Debugging, design, reviews, cross-cutting refactors</td><td>Main session (Opus)</td></tr>
           <tr><td><span class="pill p-max">xhigh / max</span></td><td>Adversarial checks, judge panels, gnarly root causes</td><td>Opus, only when you ask</td></tr>
@@ -462,8 +456,8 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
     <h2 id="habits-h">Habits that keep usage low</h2>
     <ul class="habits">
       <li><strong>Run <code>/clear</code> between unrelated tasks</strong><span>Old context gets re-read on every turn. A new task rarely needs it. Use <code>/compact</code> when one task runs long.</span></li>
-      <li><strong>Ask for a plan first</strong><span>A written plan or spec is the ticket to mk-worker. Without one, the work stays on Opus.</span></li>
-      <li><strong>Work in a clean git repo</strong><span>mk-worker needs a clean tree so its diff is easy to review. Commit or stash before mechanical jobs.</span></li>
+      <li><strong>Ask for a plan first</strong><span>A written plan or spec is the ticket to the worker. Without one, the work stays on Opus.</span></li>
+      <li><strong>Work in a clean git repo</strong><span>mk-exec needs a clean tree so its diff is easy to review. Commit or stash before mechanical jobs.</span></li>
       <li><strong>Point at files, don't paste them</strong><span>Give a path or a log file. context-mode can index and search it instead of loading the whole thing.</span></li>
       <li><strong>Stay at medium effort</strong><span>Ask for high only for debugging or design. Ask for max or ultra reviews only when the stakes are real.</span></li>
       <li><strong>Watch the <code>⏵</code> lines</strong><span>Each one is a spawn. A fan-out of many agents on a small task is a sign to stop and redirect.</span></li>
@@ -477,10 +471,9 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
     <p>Anthropic's consumer terms allow your subscription login only in Claude Code and Claude.ai. Breaking these can get the account banned.</p>
     <ul>
       <li>Never connect Anthropic or Claude inside OpenCode (<code>/connect</code>, <code>opencode-anthropic-auth</code>) or OmniRoute.</li>
-      <li>Never set <code>ANTHROPIC_BASE_URL</code> on your main Claude Code session.</li>
-      <li>Never send secrets, <code>.env</code> files or private data through mk-worker.</li>
-      <li>Use only DeepSeek V4.1 Flash Free and GLM 5.3 Flash Free on Zen. Other free models may keep data for training.</li>
-      <li>If Zen ends the free period, enable the paid DeepSeek worker that is commented out in <code>CLAUDE.md</code>.</li>
+      <li>Never set <code>ANTHROPIC_BASE_URL</code> on your main Claude Code session. Only the <code>mk-exec</code> child process gets the DeepSeek endpoint, with its own config folder <code>~/.claude-worker</code>.</li>
+      <li>Never send secrets, <code>.env</code> files or private data through the worker. The paid DeepSeek API is not zero-retention.</li>
+      <li>Keep the DeepSeek key only in <code>~/.config/claude-workers/env</code> (mode 600).</li>
     </ul>
   </section>
 
@@ -490,7 +483,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
       <div class="cmd"><code>rtk gain</code><span>Tokens RTK has saved, with history.</span></div>
       <div class="cmd"><code>rtk discover</code><span>Commands in your history that skipped RTK and could have been cheaper.</span></div>
       <div class="cmd"><code>rtk cc-economics</code><span>Your Claude Code spending next to RTK's savings.</span></div>
-      <div class="cmd"><code>/mk-check</code><span>The free worker is installed, pinned to the right models, and answering.</span></div>
+      <div class="cmd"><code>/mk-check</code><span>The DeepSeek worker has its key and balance, is isolated from your Claude login, and answers.</span></div>
       <div class="cmd"><code>ctx stats</code><span>Type it in Claude Code to see how much context-mode kept out of this session.</span></div>
       <div class="cmd"><code>status line</code><span>Cost, context bar and cache reads, live at the bottom of the terminal.</span></div>
     </div>
@@ -515,5 +508,5 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
     });
   });
   </script>
-  <footer>Built from ~/.claude/CLAUDE.md, agents/mk-worker.md, skills/mk-delegate, skills/mk-check, hooks/worker-mode-guard.sh, settings.json and statusline.sh.</footer>
+  <footer>Built from ~/.claude/CLAUDE.md, ~/.local/bin/mk-exec, ~/.claude-worker, skills/mk-delegate, skills/mk-check, hooks/worker-mode-guard.sh, settings.json and statusline.sh.</footer>
 </main>

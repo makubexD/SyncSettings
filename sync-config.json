@@ -89,12 +89,6 @@
       "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
     },
     {
-      "repoPath": "dotfiles/linux/claude/agents/mk-worker.md",
-      "localPath": "~/.claude/agents/mk-worker.md",
-      "platform": "linux",
-      "description": "mk-worker agent: hands tasks to OpenCode + free DeepSeek"
-    },
-    {
       "repoPath": "dotfiles/linux/claude/hooks/context-mode-cache-heal.mjs",
       "localPath": "~/.claude/hooks/context-mode-cache-heal.mjs",
       "platform": "linux",
@@ -131,10 +125,28 @@
       "description": "Workflow guide page source"
     },
     {
-      "repoPath": "dotfiles/linux/claude/bin/oc-exec",
-      "localPath": "~/.claude/bin/oc-exec",
+      "repoPath": "dotfiles/linux/claude/bin/mk-exec",
+      "localPath": "~/.claude/bin/mk-exec",
       "platform": "linux",
-      "description": "OpenCode wrapper pinned to the free models"
+      "description": "Worker wrapper: runs a task as headless Claude Code on the paid DeepSeek API, with logs"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/bin/workflow-report",
+      "localPath": "~/.claude/bin/workflow-report",
+      "platform": "linux",
+      "description": "Read-only report of delegated vs inline steps and worker runs for a repo"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude-worker/CLAUDE.md",
+      "localPath": "~/.claude-worker/CLAUDE.md",
+      "platform": "linux",
+      "description": "Worker rules for the mk-exec Claude Code process (its own config dir)"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude-worker/settings.json",
+      "localPath": "~/.claude-worker/settings.json",
+      "platform": "linux",
+      "description": "Worker permissions for the mk-exec Claude Code process"
     },
     {
       "repoPath": "dotfiles/linux/claude/bin/worker-mode",

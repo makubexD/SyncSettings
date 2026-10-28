@@ -21,14 +21,14 @@ PowerShell scripts (`.bat` entry points). Linux uses the bash scripts (`.sh` ent
 | `CLAUDE.md`, `RTK.md` | Global instructions for Claude Code |
 | `settings.json` | Hooks, plugins, permissions (home path and GitHub username sanitized) |
 | `statusline.sh` | Status line script |
-| `agents/mk-worker.md` | Agent that hands mechanical tasks to OpenCode on a free model |
 | `skills/mk-delegate/`, `skills/mk-check/` | `/mk-delegate` and `/mk-check` slash commands |
 | `hooks/` | context-mode hook and the worker-mode guard |
-| `bin/oc-exec`, `bin/worker-mode` | OpenCode wrapper pinned to the free models, worker-mode switch |
+| `bin/mk-exec`, `bin/workflow-report`, `bin/worker-mode` | Worker wrapper (headless Claude Code on the paid DeepSeek API), run report, worker-mode switch |
 | `plugins/installed_plugins.json`, `known_marketplaces.json` | Which plugins are installed (home path sanitized) |
 | `docs/token-routing-map.html`, `sampleGrok.md` | Workflow guide page, old Windows Grok setup for reference |
+| `~/.claude-worker/CLAUDE.md`, `settings.json` | The worker's own config dir: its rules and permissions (no credentials) |
 
-Never synced: `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, caches.
+Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, caches.
 
 Add or remove files by editing `sync-config.json`.
 
@@ -134,14 +134,16 @@ a missing value is an error: nothing is written with a placeholder left unfilled
 
 ### New Linux machine: restore the Claude Code setup
 
-1. Install the tools: `git`, `jq`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node, OpenCode
-   (`npm i -g opencode-ai`) and [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`.
+1. Install the tools: `git`, `jq`, `python3`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node and
+   [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`.
 2. Open Claude Code once so `~/.claude` exists, then install the plugins with `/plugin`
    (`context-mode`, `agent-skills`).
 3. Clone this repo and run `./import.sh`.
 4. Link the scripts onto your PATH:
-   `ln -sf ~/.claude/bin/oc-exec ~/.claude/bin/worker-mode ~/.local/bin/`
-5. In Claude Code, run `/mk-check`. All checks should pass and the live job should finish on DeepSeek.
+   `ln -sf ~/.claude/bin/mk-exec ~/.claude/bin/workflow-report ~/.claude/bin/worker-mode ~/.local/bin/`
+5. Add your DeepSeek key: `mkdir -p -m 700 ~/.config/claude-workers`, then put
+   `export DEEPSEEK_API_KEY=<key>` in `~/.config/claude-workers/env` and `chmod 600` it.
+6. In Claude Code, run `/mk-check`. All checks should pass and the live job should finish on DeepSeek.
 
 Not supported on Linux: `detectLinkedPaths` and importing into another user's profile.
 
