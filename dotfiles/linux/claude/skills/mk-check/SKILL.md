@@ -13,7 +13,7 @@ Run these checks in one Bash call where possible, then report a short checklist 
 the fix for any ✗). Never print the API key.
 
 1. **Installed:** `command -v mk-exec workflow-report claude`, and `~/.claude-worker/{CLAUDE.md,settings.json}` exist.
-2. **Key:** `~/.config/claude-workers/env` exists with mode 600 and has a `DEEPSEEK_API_KEY=` line
+2. **Key:** `~/.config/claude-workers/env` exists with mode 600 and has a key line: `grep -cE '^(export )?DEEPSEEK_API_KEY='`
    (check with `grep -c`, never `cat`).
 3. **Isolation:** `env | grep -c '^ANTHROPIC_'` in this session is 0, and `~/.claude-worker` has no
    `.credentials.json`.
