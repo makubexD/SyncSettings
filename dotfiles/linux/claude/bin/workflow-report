@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Review a plan → delegate → review run: what the orchestrator did per step and what each worker run did.
 
-Usage: workflow-report <repo-dir> [--since YYYY-MM-DD]
+Usage: workflow-report [repo-dir, default .] [--since YYYY-MM-DD]
 Read-only. Sources: orchestrator transcripts (~/.claude/projects/<repo>/), mk-exec logs
 (~/.claude/state/mk-worker-logs/*/meta.json), legacy OpenCode runs (opencode.db + opencode.log), git log.
 """
@@ -121,9 +121,9 @@ def main():
         i = args.index("--since")
         since_s = args[i + 1] if i + 1 < len(args) else ""
         del args[i:i + 2]
-    if len(args) != 1 or args[0] in ("-h", "--help") or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since_s):
+    if len(args) > 1 or args[:1] in (["-h"], ["--help"]) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since_s):
         sys.exit(__doc__.strip())
-    repo_arg = args[0]
+    repo_arg = args[0] if args else "."
     repo = subprocess.run(["git", "-C", repo_arg, "rev-parse", "--show-toplevel"], capture_output=True,
                           text=True).stdout.strip() or os.path.abspath(repo_arg)
     since = dt.datetime.fromisoformat(since_s).astimezone()
@@ -178,7 +178,7 @@ def main():
               f"${bal[-1].get('balance_after')} right after last run (billing settles with a delay)")
     print(f"- repo files edited inline (distinct per step): {sum(len(s['edits']) for s in seg)}")
     print("\n## Commits\n")
-    print(subprocess.run(["git", "-C", repo, "log", f"--since={since_s}", "--format=- %h %ad %s", "--date=format:%m-%d %H:%M"],
+    print(subprocess.run(["git", "-C", repo, "log", f"--since={since_s} 00:00", "--format=- %h %ad %s", "--date=format:%m-%d %H:%M"],
                          capture_output=True, text=True).stdout.strip() or "(none)")
 
 
