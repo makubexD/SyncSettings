@@ -20,6 +20,10 @@ def short(s, n=70):
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def money(x):
+    return "-" if x is None else f"${x:.4f}"
+
+
 def transcripts(repo, since):
     d = os.path.join(HOME, ".claude/projects", re.sub(r"[^A-Za-z0-9]", "-", repo))
     out = []
@@ -105,7 +109,7 @@ def opencode_runs(repo, since):
             pass
         runs.append({"kind": "opencode", "model": model, "started": start.isoformat(), "effort": "-",
                      "exit": "err" if sid in errs else (0 if tout else "?"), "usage": {"input_tokens": tin, "output_tokens": tout},
-                     "duration_ms": t1 - t0, "errors": sorted(errs.get(sid, [])), "cost_usd_by_balance": cost,
+                     "duration_ms": t1 - t0, "errors": sorted(errs.get(sid, [])), "cost_usd_est": cost,
                      "log": f"opencode session {sid}"})
     return runs
 
@@ -148,13 +152,13 @@ def main():
               f"{len(s['edits'])} | {short('; '.join(s['spawns']), 40) or '-'} | {s['out_tokens']} |")
 
     print("\n## Worker runs\n")
-    print("| started | kind | model | effort | exit | in/out tokens | duration | errors | log |")
-    print("|---|---|---|---|---|---|---|---|---|")
+    print("| started | kind | model | effort | exit | in/out tokens | cost≈ | duration | errors | log |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
     for r in runs:
         u = r.get("usage") or {}
         dur = f"{(r.get('duration_ms') or 0) / 60000:.1f}m"
         print(f"| {ts(r['started']):%m-%d %H:%M} | {r['kind']} | {r['model']} | {r.get('effort')} | {r['exit']} | "
-              f"{u.get('input_tokens')}/{u.get('output_tokens')} | {dur} | "
+              f"{u.get('input_tokens')}/{u.get('output_tokens')} | {money(r.get('cost_usd_est'))} | {dur} | "
               f"{short('; '.join(r.get('errors') or []), 60) or '-'} | {r['log']} |")
 
     ok = [r for r in runs if r["exit"] == 0]
@@ -166,6 +170,9 @@ def main():
     print(f"- worker runs: {len(runs)}, exit 0: {len(ok)}, failed: {len(runs) - len(ok)}")
     print(f"- worker tokens in/out: {sum((r.get('usage') or {}).get('input_tokens') or 0 for r in runs)}/"
           f"{sum((r.get('usage') or {}).get('output_tokens') or 0 for r in runs)}")
+    print(f"- worker cost≈ (from tokens and DeepSeek prices): "
+          f"{money(sum(r.get('cost_usd_est') or 0 for r in runs))}"
+          + (" (some runs have no estimate)" if any(r.get("cost_usd_est") is None for r in runs) else ""))
     if bal:
         print(f"- DeepSeek balance: ${bal[0]['balance_before']} before first run, "
               f"${bal[-1].get('balance_after')} right after last run (billing settles with a delay)")

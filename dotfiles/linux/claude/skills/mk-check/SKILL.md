@@ -22,5 +22,9 @@ the fix for any ✗). Never print the API key.
    run `mk-exec --effort <level, default low> <dir> "Append the line 'mk-check ok' to README.md. Change nothing else. Then run: cat README.md"`.
    Pass if the exit code is 0, `README.md` contains `mk-check ok`, `git status --short` shows only
    README.md, and the log dir in the last summary line holds `stream.jsonl`, `meta.json`, `diff.patch`
-   and `summary.txt`. Report the model, effort, tokens, duration and the balance from the banner.
-   Delete the throwaway repo afterwards (keep the log dir).
+   and `summary.txt`. Report the model, effort, tokens, duration, the `cost≈` estimate from the summary
+   and the balance from the banner. Delete the throwaway repo afterwards (keep the log dir).
+   Known and expected, don't flag them: `stderr.log` has `unrecognized_model` for `deepseek-*[1m]`
+   (Claude Code doesn't know DeepSeek model names; `[1m]` gives the 1M context), and the transcript's own
+   `total_cost_usd` is 0 for the same reason. `mk-exec` estimates the cost from tokens and DeepSeek prices
+   instead, and the balance updates with a delay, so one small run often shows no change.
