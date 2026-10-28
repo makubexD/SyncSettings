@@ -61,7 +61,7 @@ Dependencies: `bash`, `jq`, `git`, `cmp`. No other tools.
    new machine.
 
 **Done when:** `bash -n export.sh scripts/sync.sh` passes, then `./export.sh < /dev/null` exits 0 and
-`dotfiles/linux/claude/` holds 16 files. `grep -rl /home/makubexd dotfiles/linux` prints nothing,
+`dotfiles/linux/claude/` holds 16 files. `grep -rl "$HOME" dotfiles/linux` prints nothing,
 `git diff --quiet -- sync-config.json scripts/*.ps1` succeeds, and a second `./export.sh < /dev/null`
 reports all 16 as UNCHANGED.
 Files allowed to change: `scripts/sync.sh`, `export.sh`, `dotfiles/linux/claude/**`.
