@@ -190,7 +190,7 @@ Files with `sanitizeRules` in `sync-config.json` are never stored raw in the rep
 
 | Direction | What happens |
 |---|---|
-| **Export** | Reads your local `.gitconfig`, replaces `Kiefer Fernandez Valladolid` → `<YOUR_NAME>`, `Kiefer.Fernandez@tranzact.net` → `<YOUR_EMAIL>`, etc., then saves the sanitized version to `dotfiles/` |
+| **Export** | Reads your local `.gitconfig`, replaces `Jane Doe` → `<YOUR_NAME>`, `jane@example.com` → `<YOUR_EMAIL>`, etc., then saves the sanitized version to `dotfiles/` |
 | **Import** | Reads the sanitized `dotfiles/.gitconfig`, prompts you for each `<PLACEHOLDER>` value, writes the hydrated file to your profile |
 | **Change detection** | Only structural/non-sensitive changes are detected. Adding a new alias = change. Changing your email = no change (it's sanitized away) |
 

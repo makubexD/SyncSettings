@@ -89,7 +89,7 @@ function ConvertTo-Sanitized {
         [hashtable]$UserValues
     )
     # Sort by value length descending to avoid partial replacements
-    # e.g., "Kiefer Fernandez Valladolid" before "Kiefer" (if both existed)
+    # e.g., "Jane Mary Doe" before "Jane" (if both existed)
     $sorted = $Rules | Sort-Object {
         $v = $UserValues[$_.placeholder]
         if ($v) { $v.Length } else { 0 }
