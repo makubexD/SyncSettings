@@ -21,21 +21,25 @@ Arguments from the user: $ARGUMENTS
 3. **Check the repo.** Run `git rev-parse --show-toplevel` and `git status --short`. Not a git repo, or
    a dirty tree: stop and tell the user to commit or stash first. An uncommitted plan file counts as
    dirty too: offer to commit it (`docs: plan <feature>`) before delegating.
-4. **Write the spec** in a few lines: the exact change, the files allowed to change, the test command
+4. **Size it.** A worker step is one concern touching at most about 3 files. If the step is bigger (several
+   separate changes, a long file-by-file list), split it into sub-steps and send them one at a time, each
+   reviewed before the next. The effort level is unaffected: keep the one chosen.
+5. **Write the spec** in a few lines: the exact change, the files allowed to change, the test command
    that proves it's done, and any setup it needs (e.g. `source ~/.nvm/nvm.sh` before npm). Name callers
    outside the allowed files that the change could break, so the worker stops instead of leaving them
    broken. Never include secrets, `.env` contents or private data: the paid API is not zero-retention.
-5. **Delegate.** Print the report line, then run with Bash `run_in_background: true`:
+6. **Delegate.** Print the report line, then run with Bash `run_in_background: true`:
    `⏵ mk-exec (deepseek <model>, <level> effort): <task in ≤10 words>`
    `mk-exec --effort <level> <repo> '<spec>'`
    Wait for the completion notification; don't poll or sleep. Then read only the output file's
    summary (it ends with `--- log <dir>`). The full transcript is in `<dir>/stream.jsonl` if needed.
-6. **Exit codes.** 0 = review it. 75 = DeepSeek key, balance or rate problem: stop, report the error
+7. **Exit codes.** 0 = review it. 75 = DeepSeek key, balance or rate problem: stop, report the error
    line, don't retry. 2 = setup problem (dirty tree, missing key): fix and rerun. 124 = timed out after
-   15 min: treat as a rejection. Other non-zero: read the errors in the summary, treat as a rejection.
-7. **Review it yourself.** The summary is a claim. Read `git diff`, rerun the test command, and check
+   15 min: treat as a rejection. `(max turns)`: the step was too big and the diff may be partial; review
+   what's there, then split the rest and send it. Other non-zero: read the errors, treat as a rejection.
+8. **Review it yourself.** The summary is a claim. Read `git diff`, rerun the test command, and check
    that only the allowed files changed and no tests were deleted or skipped.
-8. **Report** to the user: accepted or rejected, files changed, test result, model, effort, tokens, and
+9. **Report** to the user: accepted or rejected, files changed, test result, model, effort, tokens, and
    the log dir. Don't commit unless the user asks.
    - Rejected once: discard the worker's changes only with the user's OK (or `git stash`), then resend
      with a concrete correction.
