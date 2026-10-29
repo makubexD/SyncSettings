@@ -19,6 +19,7 @@ linux_entries() {
 
 resolve_local() {
     local p=$1
+    # shellcheck disable=SC2088  # literal '~/' prefix from sync-config.json
     if [[ $p == '~/'* ]]; then
         p="$HOME/${p#'~/'}"
     fi
@@ -34,6 +35,7 @@ done < <(jq -r '(.excludePatterns // []) | .[]' "$CONFIG")
 is_excluded() {
     local path=$1 leaf=${1##*/} pattern
     for pattern in "${EXCLUDES[@]}"; do
+        # shellcheck disable=SC2053  # pattern is a glob on purpose
         if [[ $leaf == $pattern || $path == */$pattern ]]; then
             return 0
         fi
