@@ -94,8 +94,9 @@ Files: `scripts/sync.sh`, `.github/workflows/ci.yml` (new).
   - `lint` (ubuntu-latest): checkout; `shellcheck -x export.sh import.sh commit.sh scripts/sync.sh scripts/ci/*.sh`;
     `jq empty sync-config.json`; config sanity with jq: every `.files[]` has non-empty `repoPath` and `localPath`,
     no duplicate `repoPath`, every entry with `platform == "linux"` has `repoPath` starting `dotfiles/linux/`
-    (print the offending repoPath and exit 1 otherwise); PSScriptAnalyzer:
-    `pwsh -c "Install-Module PSScriptAnalyzer -Force -Scope CurrentUser; $r = Invoke-ScriptAnalyzer -Path scripts -Severity Error; $r; if ($r) { exit 1 }"`.
+    (print the offending repoPath and exit 1 otherwise); PSScriptAnalyzer in its own `shell: pwsh` step
+    (not `pwsh -c "…"` in a bash step, where bash would expand `$r` to empty):
+    `Install-Module PSScriptAnalyzer -Force -Scope CurrentUser; $r = Invoke-ScriptAnalyzer -Path scripts -Severity Error; $r; if ($r) { exit 1 }`.
 
 Tests:
 - `shellcheck -x export.sh import.sh commit.sh scripts/sync.sh scripts/ci/*.sh` → exit 0, no output.
