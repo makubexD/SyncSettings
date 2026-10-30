@@ -370,6 +370,25 @@ report_orphans() {
     done < <(find "$REPO_ROOT/dotfiles" -type f -print0 | sort -z)
 }
 
+# -- Leak scan ------------------------------------------------------------------
+
+# Run scripts/ci/leak-scan.sh over the given paths.
+# Returns 0 when clean, 1 when it found a hit, 2 when it could not run (script
+# missing or not executable, or any exit code other than 0 and 1).
+run_leak_scan() {
+    local scan=$REPO_ROOT/scripts/ci/leak-scan.sh code
+    [[ -x $scan ]] || return 2
+    if "$scan" "$@"; then
+        return 0
+    else
+        code=$?
+    fi
+    if (( code == 1 )); then
+        return 1
+    fi
+    return 2
+}
+
 # -- Export preview -------------------------------------------------------------
 
 # Show what a real export would write to the repo, without touching the repo.
@@ -399,17 +418,16 @@ run_preview() {
 
     # Scan first: a hit must suppress the diff, which would print the leaked text.
     leak_found=0
-    if [[ -x $REPO_ROOT/scripts/ci/leak-scan.sh ]]; then
-        if "$REPO_ROOT/scripts/ci/leak-scan.sh" after/dotfiles after/sync-config.json; then
-            printf '  Leak scan: clean.\n'
+    if run_leak_scan after/dotfiles after/sync-config.json; then
+        printf '  Leak scan: clean.\n'
+    else
+        local code=$?
+        if (( code == 1 )); then
+            printf '  WARNING: the leak scan found the lines above. Fix them before committing.\n'
+            leak_found=1
         else
-            if (( $? == 1 )); then
-                printf '  WARNING: the leak scan found the lines above. Fix them before committing.\n'
-                leak_found=1
-            else
-                printf 'ERROR: leak scan failed.\n' >&2
-                exit 1
-            fi
+            printf 'ERROR: leak scan could not run; nothing was committed.\n' >&2
+            exit 1
         fi
     fi
 

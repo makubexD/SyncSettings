@@ -134,6 +134,46 @@ add_sync() {
     cp -a "$REPO/sync" "$t/repo/"
 }
 
+# A stub GH that logs each invocation to $t/gh.log and prints a fixed URL.
+make_gh_stub() {
+    mkdir -p "$t/bin"
+    cat > "$t/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${GH_LOG:?}"
+printf 'https://github.com/example/pr/1\n'
+EOF
+    chmod +x "$t/bin/gh"
+}
+
+# A fixture repo (commit.sh + scripts/ + sync paths) committed on master and
+# pushed to a bare origin, plus a fresh clone where commit.sh actually runs.
+setup_commit_repo() {
+    setup_repo
+    mkdir -p "$t/repo/scripts/ci"
+    cp -a "$REPO/scripts/ci/." "$t/repo/scripts/ci/"
+    setup_repo_fixture
+    make_git_repo
+    git clone -q "$t/origin.git" "$t/clone"
+    git -C "$t/clone" config syncsettings.machine testbox
+    git -C "$t/clone" config user.name t
+    git -C "$t/clone" config user.email t@example.com
+    make_gh_stub
+    mkdir -p "$t/home"
+}
+
+# Run commit.sh in the clone with the stub GH and a throwaway HOME.
+run_commit() {
+    local home=$1
+    shift
+    rc=0
+    (cd "$t/clone" && HOME="$home" GH="$t/bin/gh" GH_LOG="$t/gh.log" ./commit.sh "$@" < /dev/null) > "$out" 2>&1 || rc=$?
+}
+
+# Refnames of every branch on the bare origin.
+origin_branches() {
+    git --git-dir="$t/origin.git" for-each-ref --format='%(refname)' refs/heads
+}
+
 # -- Cases ---------------------------------------------------------------------
 
 case_import_creates() {
@@ -1229,6 +1269,107 @@ case_preview_not_a_repo() {
         || fail "missing 'needs a git repo' error"
 }
 
+case_commit_happy() {
+    new_tmp
+    setup_commit_repo
+
+    local origin_master
+    origin_master=$(git --git-dir="$t/origin.git" rev-parse master)
+
+    printf 'changed\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 0 )) || fail "commit.sh exited $rc, want 0"
+
+    [[ $(git --git-dir="$t/origin.git" rev-parse master) == "$origin_master" ]] \
+        || fail "origin master moved"
+
+    [[ $(git -C "$t/clone" symbolic-ref --short HEAD) == master ]] \
+        || fail "HEAD is not back on master"
+
+    local branches sync_count
+    branches=$(origin_branches)
+    sync_count=$(printf '%s\n' "$branches" | grep -c '^refs/heads/sync/linux-testbox-' || true)
+    (( sync_count == 1 )) || fail "want 1 sync branch on origin, got: $branches"
+
+    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub called $(wc -l < "$t/gh.log") times, want 1"
+}
+
+case_commit_leak_blocked() {
+    new_tmp
+    setup_commit_repo
+
+    # A home-style path the scan flags, built by concatenation so the literal
+    # never appears in this file.
+    local leaky
+    leaky='/ho'"me/someone/x"
+    printf '%s\n' "$leaky" > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: the leak scan found the lines above; nothing was committed.' "$out" \
+        || fail "missing leak-blocked ERROR line"
+
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ -z "$(git -C "$t/clone" branch --list 'sync/*')" ]] || fail "a sync branch was created locally"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_commit_scan_missing() {
+    new_tmp
+    setup_commit_repo
+    # Removed in a commit: an uncommitted removal stops at the outside-changes check.
+    git -C "$t/clone" rm -q scripts/ci/leak-scan.sh
+    git -C "$t/clone" commit -qm 'remove the scan'
+
+    printf 'changed\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: leak scan could not run; nothing was committed.' "$out" \
+        || fail "missing scan-missing ERROR line"
+
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_commit_outside_changes() {
+    new_tmp
+    setup_commit_repo
+
+    printf 'outside\n' > "$t/clone/outside.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: commit or stash changes outside dotfiles/ first.' "$out" \
+        || fail "missing outside-changes ERROR line"
+
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_preview_scan_missing() {
+    new_tmp
+    setup_preview_repo
+    preview_change_default
+    rm "$t/repo/scripts/ci/leak-scan.sh"
+
+    run_engine "$t/home" export.sh --preview
+    (( rc == 1 )) || fail "preview exited $rc, want 1"
+
+    grep -Fqx 'ERROR: leak scan could not run; nothing was committed.' "$out" \
+        || fail "missing scan-missing ERROR line"
+    if grep -Fq 'before/dotfiles' "$out"; then
+        fail "output contains a diff"
+    fi
+}
+
 case_sync_usage() {
     new_tmp
     setup_repo
@@ -1318,7 +1459,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value prompt-empty-stops error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value prompt-empty-stops error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1383,6 +1524,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         preview-cleans-up) case_preview_cleans_up ;;
         preview-reset-rejected) case_preview_reset_rejected ;;
         preview-not-a-repo) case_preview_not_a_repo ;;
+        commit-happy) case_commit_happy ;;
+        commit-leak-blocked) case_commit_leak_blocked ;;
+        commit-scan-missing) case_commit_scan_missing ;;
+        commit-outside-changes) case_commit_outside_changes ;;
+        preview-scan-missing) case_preview_scan_missing ;;
         sync-usage) case_sync_usage ;;
         sync-unknown) case_sync_unknown ;;
         sync-routes-export) case_sync_routes_export ;;

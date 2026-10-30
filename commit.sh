@@ -158,6 +158,22 @@ if [[ -z $status_output ]]; then
     exit 0
 fi
 
+# Scan the sync paths for personal data before branching or committing.
+leak_code=0
+if run_leak_scan "${SYNC_PATHS[@]}"; then
+    :
+else
+    leak_code=$?
+fi
+if (( leak_code == 1 )); then
+    printf 'ERROR: the leak scan found the lines above; nothing was committed.\n' >&2
+    exit 1
+fi
+if (( leak_code == 2 )); then
+    printf 'ERROR: leak scan could not run; nothing was committed.\n' >&2
+    exit 1
+fi
+
 machine=$(resolve_machine_alias)
 
 mapfile -t status_lines <<<"$status_output"
