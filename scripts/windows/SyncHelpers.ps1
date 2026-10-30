@@ -531,6 +531,7 @@ function Sync-LinkedDirectory {
     )
 
     $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0; removed = 0 }
+    $fileCount = 0
 
     if (-not (Test-Path -LiteralPath $SourceDir)) {
         Write-StatusLine 'SKIPPED' "$Label/" "WARNING: source directory not found: $SourceDir"
@@ -562,6 +563,8 @@ function Sync-LinkedDirectory {
             continue
         }
 
+        $fileCount++
+
         $destDir2 = Split-Path $destFile -Parent
         if (-not (Test-Path -LiteralPath $destDir2)) {
             New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null
@@ -578,6 +581,18 @@ function Sync-LinkedDirectory {
             Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
             Write-StatusLine 'MODIFIED' $itemLabel
             $stats.modified++
+        }
+    }
+
+    # An empty source folder (or one holding only symlinks or excluded files)
+    # must not empty the dest entry; keep the dest files and report it instead.
+    if ($fileCount -eq 0) {
+        $existingParams = @{ LiteralPath = $DestDir; File = $true; Force = $true }
+        if ($Recursive) { $existingParams['Recurse'] = $true }
+        if (@(Get-ChildItem @existingParams).Count -gt 0) {
+            Write-StatusLine 'SKIPPED' "$Label/" 'local folder is empty; repo files kept'
+            $stats.skipped++
+            return $stats
         }
     }
 

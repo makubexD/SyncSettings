@@ -208,6 +208,7 @@ An entry with `"type": "dir"` syncs a whole folder, recursively.
 PowerShell only. A folder detected in an entry's file is stored under `<repoPath>.linked/<folder>/`.
 
 - Export deletes repo files that are gone from the folder, like a `dir` entry.
+- An empty folder keeps its repo files, like a `dir` entry.
 - Import never deletes. A local file that the repo doesn't have is reported as `EXTRA` and kept.
 - Each file inside follows the same compare, prompt and `.bak` rules as a plain entry on import, and `excludePatterns`
   apply to it.

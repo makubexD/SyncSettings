@@ -747,6 +747,80 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' "local folder not found: $localDir")
     }
 
+    It 'dir-export-empty-keeps-repo' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $localDir = Join-Path $script:HomeDir '.config\fixture\dir'
+        Get-ChildItem -LiteralPath $localDir -Force | Remove-Item -Recurse -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' 'local folder is empty; repo files kept')
+        $script:EngineOut | Should -Not -Match '\[REMOVED'
+        foreach ($rel in @('a\b.txt', 'c.txt')) {
+            $repoFile = Join-Path $script:RepoDir "dotfiles\common\dir\$rel"
+            $want = Join-Path $Script:Fixtures "repo\dotfiles\common\dir\$rel"
+            ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        }
+    }
+
+    It 'dir-export-only-excluded' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $localDir = Join-Path $script:HomeDir '.config\fixture\dir'
+        Get-ChildItem -LiteralPath $localDir -Force | Remove-Item -Recurse -Force
+        [IO.File]::WriteAllText((Join-Path $localDir 'x.secret'), "x`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/x.secret' 'matches exclude pattern')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' 'local folder is empty; repo files kept')
+        $script:EngineOut | Should -Not -Match '\[REMOVED'
+        foreach ($rel in @('a\b.txt', 'c.txt')) {
+            $repoFile = Join-Path $script:RepoDir "dotfiles\common\dir\$rel"
+            $want = Join-Path $Script:Fixtures "repo\dotfiles\common\dir\$rel"
+            ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        }
+    }
+
+    It 'dir-export-one-left' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        Remove-Item -LiteralPath (Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt') -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'REMOVED' 'dotfiles/common/dir/a/b.txt' 'no longer in source')
+        (Join-Path $script:RepoDir 'dotfiles\common\dir\a\b.txt') | Should -Not -Exist
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/c.txt')
+        $repoC = Join-Path $script:RepoDir 'dotfiles\common\dir\c.txt'
+        $wantC = Join-Path $Script:Fixtures 'repo\dotfiles\common\dir\c.txt'
+        ([IO.File]::ReadAllBytes($repoC) -join ',') | Should -Be ([IO.File]::ReadAllBytes($wantC) -join ',')
+    }
+
+    It 'dir-export-empty-both' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        $localDir = Join-Path $script:HomeDir '.config\fixture\dir'
+        Get-ChildItem -LiteralPath $localDir -Force | Remove-Item -Recurse -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' 'local folder is empty; repo files kept')
+        $script:EngineOut | Should -Not -Match '\[REMOVED'
+    }
+
     It 'dir-import-creates' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
@@ -999,6 +1073,51 @@ Describe 'Windows engine' {
             ([IO.File]::ReadAllBytes("$aTxt.bak") -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("local-a`n") -join ',')
             ([IO.File]::ReadAllBytes((Join-Path $toolDir 'local.txt')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("mine`n") -join ',')
             ([IO.File]::ReadAllBytes((Join-Path $toolDir 'x.bak')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("x`n") -join ',')
+        } finally {
+            if (Test-Path -LiteralPath $linkedRoot) {
+                Remove-Item -LiteralPath $linkedRoot -Recurse -Force
+            }
+        }
+    }
+
+    It 'linked-export-empty-keeps-repo' {
+        Copy-EngineToRepo
+
+        # A linked folder lives on the system drive, outside the system paths
+        # Find-LinkedPaths filters out (C:\Windows, C:\Program Files, C:\Users, ...).
+        $linkedRoot = "$env:SystemDrive\SyncSettingsTest-$([guid]::NewGuid().ToString('N'))"
+        $toolDir    = "$linkedRoot\tool"
+        $null = New-Item -ItemType Directory -Path $toolDir -Force
+
+        try {
+            $configPath = Join-Path $script:RepoDir 'sync-config.json'
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            $linkedEntry = [pscustomobject]@{
+                repoPath          = 'dotfiles/windows/linked.sh'
+                localPath         = '~\linked.sh'
+                platform          = 'windows'
+                detectLinkedPaths = $true
+            }
+            $config.files = @($config.files) + $linkedEntry
+            [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+            $winDir = Join-Path $script:RepoDir 'dotfiles\windows'
+            $null = New-Item -ItemType Directory -Path $winDir -Force
+            [IO.File]::WriteAllText((Join-Path $winDir 'linked.sh'), "script`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+            $linkRepo = Join-Path $winDir 'linked.sh.linked\tool'
+            $null = New-Item -ItemType Directory -Path $linkRepo -Force
+            $repoA = Join-Path $linkRepo 'a.txt'
+            [IO.File]::WriteAllText($repoA, "repo-a`n", [System.Text.UTF8Encoding]::new($false))
+
+            # The entry file points at the folder, but the local folder is empty.
+            [IO.File]::WriteAllText((Join-Path $script:HomeDir 'linked.sh'), "script`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/windows/linked.sh.linked/tool/' 'local folder is empty; repo files kept')
+            $script:EngineOut | Should -Not -Match '\[REMOVED'
+            ([IO.File]::ReadAllBytes($repoA) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("repo-a`n") -join ',')
         } finally {
             if (Test-Path -LiteralPath $linkedRoot) {
                 Remove-Item -LiteralPath $linkedRoot -Recurse -Force
