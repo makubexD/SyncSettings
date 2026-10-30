@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x export.sh import.sh commit.sh scripts/sync.sh scripts/ci/*.sh
+        run: shellcheck -x export.sh import.sh commit.sh scripts/linux/sync.sh scripts/ci/*.sh
       - name: Validate JSON
         run: jq empty sync-config.json
       - name: Config sanity
@@ -37,6 +37,6 @@ jobs:
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
-          $r = Invoke-ScriptAnalyzer -Path scripts -Severity Error
+          $r = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error
           $r
           if ($r) { exit 1 }

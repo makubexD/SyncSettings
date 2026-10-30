@@ -108,7 +108,7 @@ try {
         throw 'gh is not found in PATH. Install the GitHub CLI and run gh auth login.'
     }
 
-    $repoRoot = Split-Path $PSScriptRoot -Parent
+    $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     Set-Location $repoRoot
 
     # Paths this script owns. `packages` is optional.

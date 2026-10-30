@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 
 # -- Elevation check ----------------------------------------------------------
 
-$repoRoot = Split-Path $PSScriptRoot -Parent
+$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 try { $profileRoot = Resolve-UserProfile -Username $User } catch {
     Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red

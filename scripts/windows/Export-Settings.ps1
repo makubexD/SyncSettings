@@ -34,7 +34,7 @@ Write-Host '+==========================================+' -ForegroundColor Cyan
 Write-Host
 
 try {
-    $repoRoot   = Split-Path $PSScriptRoot -Parent
+    $repoRoot   = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $configPath = Join-Path $repoRoot 'sync-config.json'
     if (-not (Test-Path $configPath)) {
         throw "sync-config.json not found at: $configPath"

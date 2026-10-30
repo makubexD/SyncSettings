@@ -9,8 +9,8 @@ Sync user dotfiles and config files between a machine and this git repository. W
 ## Architecture
 
 - `.bat` files are the Windows entry points — they set the working directory and invoke the corresponding PowerShell script
-- `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/sync.sh`
-- Windows logic lives in `scripts/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
+- `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/linux/sync.sh`
+- Windows logic lives in `scripts/windows/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
 - Each entry's `platform` field picks its side: `"linux"` entries are bash-only, and entries without it are Windows-only (`Test-WindowsEntry` filters right after the config loads)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
 - `dotfiles/` is the staging area inside the repo; it mirrors the logical file set
@@ -19,12 +19,12 @@ Sync user dotfiles and config files between a machine and this git repository. W
 
 | Command | Script | Purpose |
 |---|---|---|
-| `export.bat` | `scripts/Export-Settings.ps1` | Copy changed local files → repo |
-| `commit.bat` | `scripts/Commit-Settings.ps1` | Commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`) |
-| `import.bat` | `scripts/Import-Settings.ps1` | Copy repo files → local machine |
-| `./export.sh` | `scripts/sync.sh` | Linux: copy changed local files → repo |
+| `export.bat` | `scripts/windows/Export-Settings.ps1` | Copy changed local files → repo |
+| `commit.bat` | `scripts/windows/Commit-Settings.ps1` | Commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`) |
+| `import.bat` | `scripts/windows/Import-Settings.ps1` | Copy repo files → local machine |
+| `./export.sh` | `scripts/linux/sync.sh` | Linux: copy changed local files → repo |
 | `./commit.sh` | (self-contained) | Linux: commit `dotfiles/` on a `sync/linux-…` branch, open a PR (never pushes to `master`) |
-| `./import.sh` | `scripts/sync.sh` | Linux: copy repo files → local machine |
+| `./import.sh` | `scripts/linux/sync.sh` | Linux: copy repo files → local machine |
 
 Every change reaches `master` through a PR that the `review-gate` check holds red until it carries the
 `reviewed` label; see `docs/review-gate.md` and `docs/daily-workflow.md`.
@@ -44,7 +44,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 ## Key Patterns
 
 - **Content comparison:** Files without sanitize rules use `Get-FileHash -Algorithm SHA256`. Files with sanitize rules use normalized text comparison after sanitization. Never compare by date.
-- **Sanitization layer:** Files with `sanitizeRules` in `sync-config.json` have sensitive values (name, email, credentials) replaced with `<PLACEHOLDERS>` during export and hydrated back during import. Actual values are cached in `.user-values.json` (gitignored). Shared helpers live in `scripts/SyncHelpers.ps1` (dot-sourced by Export and Import).
+- **Sanitization layer:** Files with `sanitizeRules` in `sync-config.json` have sensitive values (name, email, credentials) replaced with `<PLACEHOLDERS>` during export and hydrated back during import. Actual values are cached in `.user-values.json` (gitignored). Shared helpers live in `scripts/windows/SyncHelpers.ps1` (dot-sourced by Export and Import).
 - **User resolution:** `~` in `localPath` resolves to `$env:USERPROFILE` (current user) or `C:\Users\<name>` for `-User <name>`.
 - **Elevation:** Import targeting another user's profile triggers `Start-Process -Verb RunAs` to re-launch elevated.
 - **Backups:** Import creates `<file>.bak` before overwriting any existing local file.

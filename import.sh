@@ -3,7 +3,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-source scripts/sync.sh
+source scripts/linux/sync.sh
 
 FORCE=0
 RESET_VALUES=0
