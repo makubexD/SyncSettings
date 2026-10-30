@@ -197,8 +197,13 @@ BeforeAll {
     # A commit repo with the fixture values cached, ignored the way the real repo ignores them.
     function New-CommitValuesRepo {
         New-CommitRepo
-        Copy-Item -LiteralPath (Join-Path $Script:Fixtures 'user-values.json') -Destination (Join-Path $script:CloneDir '.user-values.json')
+        $ErrorActionPreference = 'Continue'
+        # Copy-EngineToRepo commits the values file, which the real repo never does.
+        git -C $script:CloneDir rm -q --cached .user-values.json 2>$null
+        git -C $script:CloneDir commit -qm 'stop tracking the values' 2>$null
+        git -C $script:CloneDir push -q origin master 2>$null
         Add-Content -LiteralPath (Join-Path $script:CloneDir '.git\info\exclude') -Value '.user-values.json'
+        Copy-Item -LiteralPath (Join-Path $Script:Fixtures 'user-values.json') -Destination (Join-Path $script:CloneDir '.user-values.json') -Force
     }
 
     function Set-CloneWinConf {
