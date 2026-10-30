@@ -449,9 +449,31 @@ case_infer_keeps_cache() {
         || fail "named.conf does not match the fixture after update"
 }
 
+case_infer_escaped() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    jq -n '{"<NAME>": "Fixture User"}' > "$t/repo/.user-values.json"
+    mkdir -p "$t/home/.config/fixture"
+    cp "$FIXTURES/home/.config/fixture/paths.ini" "$t/home/.config/fixture/paths.ini"
+
+    # The local file holds the doubled form, so inference stores the un-doubled
+    # value; hydrate doubles it back and the repo file matches the local one.
+    run_engine "$t/home" import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    [[ $(jq -r '."<WINPATH>"' "$t/repo/.user-values.json") == 'C:\Tools\gh.exe' ]] \
+        || fail ".user-values.json does not have the un-doubled <WINPATH>"
+    output_has_status UNCHANGED dotfiles/common/paths.ini \
+        || fail "missing UNCHANGED line for paths.ini"
+    cmp -s "$FIXTURES/home/.config/fixture/paths.ini" "$t/home/.config/fixture/paths.ini" \
+        || fail "paths.ini was rewritten"
+    [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -478,6 +500,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         infer-name) case_infer_name ;;
         infer-reset) case_infer_reset ;;
         infer-keeps-cache) case_infer_keeps_cache ;;
+        infer-escaped) case_infer_escaped ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"

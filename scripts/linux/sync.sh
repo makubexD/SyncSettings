@@ -89,6 +89,7 @@ infer_values() {
     local repo_text local_text r l ph prefix suffix value
     local i count
     local -a repo_lines=() local_lines=()
+    local -A escape=()
 
     [[ -n $entries ]] || return 0
 
@@ -97,6 +98,12 @@ infer_values() {
         [[ -n $entry ]] || continue
         rules=$(jq -c '(.sanitizeRules // [])' <<<"$entry")
         [[ $rules != '[]' ]] || continue
+
+        # Placeholders whose rule stores the backslash-doubled form in the file.
+        escape=()
+        while IFS= read -r -d '' ph; do
+            escape[$ph]=1
+        done < <(jq -j '.[] | select(.escapeBackslashes == true) | .placeholder, "\u0000"' <<<"$rules")
 
         repo_path=$(jq -r '.repoPath' <<<"$entry")
         local_path=$(resolve_local "$(jq -r '.localPath' <<<"$entry")")
@@ -127,6 +134,10 @@ infer_values() {
                 [[ $l == *"$suffix" ]] || continue
                 (( ${#l} >= ${#prefix} + ${#suffix} )) || continue
                 value=${l:${#prefix}:${#l}-${#prefix}-${#suffix}}
+                # The file holds the doubled form, so undo it before caching.
+                if [[ -n ${escape[$ph]:-} ]]; then
+                    value=${value//\\\\/\\}
+                fi
                 if [[ -n $value && -z ${USER_VALUES[$ph]:-} ]]; then
                     USER_VALUES[$ph]=$value
                 fi

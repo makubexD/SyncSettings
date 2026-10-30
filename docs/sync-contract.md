@@ -124,7 +124,8 @@ New values are saved back to `.user-values.json`.
 **Inference on import.** For each entry with rules whose local and repo files both exist, the engine compares the
 two files line by line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder,
 paired with a local line that doesn't. If the local line starts with the text before the placeholder and ends with
-the text after it, the text in between is the value. Empty results are ignored.
+the text after it, the text in between is the value. Empty results are ignored. For a rule with
+`escapeBackslashes: true`, each `\\` in the inferred value becomes `\`, because the file holds the doubled form.
 
 **Sanitize (export).** Values are replaced longest first, so a value that contains a shorter one is replaced whole.
 For each value that contains `\`, its backslash-doubled form (`C:\\Tools`) is replaced before the plain form
@@ -211,6 +212,7 @@ These are the gaps listed in [plan-restructure.md](plan-restructure.md), with th
 | `defaultEnv` | step 8 | yes | |
 | `escapeBackslashes` | yes | step 9 | |
 | Infer values from the local file on import | yes | step 10 | |
+| Inference undoes `escapeBackslashes` | step 10b | step 10a | |
 | `type: dir` export | step 13 | step 11 | |
 | `type: dir` import | step 14 | step 12 | |
 | Missing value without a terminal stops the run | step 8a | yes | |
