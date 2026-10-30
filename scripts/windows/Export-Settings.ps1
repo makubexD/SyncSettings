@@ -41,6 +41,7 @@ try {
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
     Assert-ValidPlatform -Files $config.files
+    $allEntries = @($config.files)
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
     $profileRoot = Resolve-UserProfile -Username $User
@@ -202,6 +203,9 @@ try {
     if ($valuesDirty) {
         Save-UserValues -RepoRoot $repoRoot -Values $userValues
     }
+
+    # Repo files no entry owns (all platforms); informational only.
+    Write-OrphanReport -RepoRoot $repoRoot -Entries $allEntries
 
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray

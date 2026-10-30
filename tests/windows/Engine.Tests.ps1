@@ -535,6 +535,60 @@ Describe 'Windows engine' {
         $want = Join-Path $Script:Fixtures 'home\.config\fixture\win.conf'
         ([IO.File]::ReadAllBytes($winConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
     }
+
+    It 'orphan-reported' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $stray = Join-Path $script:RepoDir 'dotfiles\linux\stray.txt'
+        [IO.File]::WriteAllText($stray, "stray`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ORPHAN' 'dotfiles/linux/stray.txt' 'no entry in sync-config.json; git rm it or add an entry')
+        [regex]::Matches($script:EngineOut, '\[ORPHAN').Count | Should -Be 1
+    }
+
+    It 'orphan-none' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match '\[ORPHAN'
+    }
+
+    It 'orphan-linked-ok' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $linkedEntry = [pscustomobject]@{
+            repoPath          = 'dotfiles/windows/linked.sh'
+            localPath         = '~\linked.sh'
+            platform          = 'windows'
+            detectLinkedPaths = $true
+        }
+        $config.files = @($config.files) + $linkedEntry
+        [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+        $winDir = Join-Path $script:RepoDir 'dotfiles\windows'
+        [IO.File]::WriteAllText((Join-Path $winDir 'linked.sh'), "echo linked`n", [System.Text.UTF8Encoding]::new($false))
+        $toolDir = Join-Path $winDir 'linked.sh.linked\tool'
+        $null = New-Item -ItemType Directory -Path $toolDir -Force
+        [IO.File]::WriteAllText((Join-Path $toolDir 'x.bat'), "echo x`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match '\[ORPHAN'
+    }
 }
 
 Describe 'Request-MissingValues' {

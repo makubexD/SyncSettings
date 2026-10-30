@@ -456,6 +456,59 @@ function Sync-LinkedDirectory {
     return $stats
 }
 
+function Write-OrphanReport {
+    <#
+    .SYNOPSIS
+        Lists files under dotfiles/ that no sync-config.json entry owns.
+    .DESCRIPTION
+        Uses every entry, not just this platform's, so both engines print the
+        same list. A file is owned when it is an entry's repoPath, lies under a
+        dir entry's repoPath/, or lies under <repoPath>.linked/ of an entry with
+        detectLinkedPaths. Reports only: never deletes, and never changes the
+        change count or the exit code.
+    #>
+    param(
+        [string]$RepoRoot,
+        $Entries
+    )
+
+    $base         = $RepoRoot.TrimEnd('\', '/')
+    $dotfilesRoot = Join-Path $base 'dotfiles'
+    if (-not (Test-Path $dotfilesRoot -PathType Container)) { return }
+
+    $exactPaths  = @()
+    $prefixPaths = @()
+    foreach ($entry in @($Entries)) {
+        $repoPath = ([string]$entry.repoPath) -replace '\\', '/'
+        $exactPaths += $repoPath
+        if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+            $prefixPaths += "$repoPath/"
+        }
+        if ($entry.PSObject.Properties['detectLinkedPaths'] -and $entry.detectLinkedPaths -eq $true) {
+            $prefixPaths += "$repoPath.linked/"
+        }
+    }
+
+    $files = Get-ChildItem -Path $dotfilesRoot -File -Recurse -Force
+    foreach ($file in $files) {
+        $rel = ($file.FullName.Substring($base.Length).TrimStart('\', '/')) -replace '\\', '/'
+
+        $owned = $false
+        foreach ($exact in $exactPaths) {
+            if ($rel -ieq $exact) { $owned = $true; break }
+        }
+        if (-not $owned) {
+            foreach ($prefix in $prefixPaths) {
+                if ($rel.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $owned = $true; break }
+            }
+        }
+
+        if (-not $owned) {
+            Write-StatusLine 'ORPHAN' $rel 'no entry in sync-config.json; git rm it or add an entry'
+        }
+    }
+}
+
 # -- Import helpers ------------------------------------------------------------
 
 function Copy-RepoFileToLocal {
@@ -582,6 +635,7 @@ function Write-StatusLine {
         'SKIPPED'   { 'DarkYellow' }
         'EXTRA'     { 'DarkYellow' }
         'REMOVED'   { 'Red' }
+        'ORPHAN'    { 'Magenta' }
         'ERROR'     { 'Red' }
         default     { 'White' }
     }
