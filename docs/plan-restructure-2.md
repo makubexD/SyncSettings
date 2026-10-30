@@ -152,7 +152,10 @@ Test: `tests/linux/engine.sh` → all `ok`, exit 0. Break one fixture byte → t
 
 ### 4. Pester fixture tests, baseline + CI jobs `[worker:high]`
 
-Files: `tests/windows/Engine.Tests.ps1` (new), `.github/workflows/ci.yml`.
+Files: `tests/windows/Engine.Tests.ps1` (new), `.github/workflows/ci.yml`, `.gitattributes` (new).
+
+- `.gitattributes`: `tests/fixtures/** -text`, so the `windows-latest` checkout (`core.autocrlf=true`) keeps the
+  fixture bytes as committed. Phase 3 adds the `dotfiles/` rules to the same file.
 
 - Pester 5. `BeforeEach` builds the temp layout (`$t\repo\scripts\windows\*.ps1`, config, values) and sets
   `$env:USERPROFILE = "$t\home"`, restored in `AfterEach`. Engine runs:
