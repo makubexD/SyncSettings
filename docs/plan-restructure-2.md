@@ -36,7 +36,7 @@ Linux configs (phase 4), dconf (phase 5), packages (phase 6), markdownlint/link 
   `CREATED UPDATED UNCHANGED SKIPPED EXTRA ERROR`, both `ORPHAN`. Both engines print the same word for the same case.
 - Every engine change adds its fixture cases to `tests/linux/engine.sh` and/or `tests/windows/Engine.Tests.ps1`
   in the same step.
-- `pwsh` is not installed here. PowerShell steps are checked by the `engine-windows` CI job: after each PS step,
+- The Pester suite calls `powershell.exe`, which Linux lacks. PowerShell steps are checked by the `engine-windows` CI job: after each PS step,
   `git push` (the draft PR picks it up) and `gh run watch` on the `ci` run. A red job counts as a rejection.
 - Never test in the real repo: the harness copies the engine into a temp dir; manual checks use a throwaway clone
   and `HOME=$(mktemp -d)`.

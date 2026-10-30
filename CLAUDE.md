@@ -51,7 +51,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **Error handling:** `$ErrorActionPreference = 'Stop'` at script level; per-file `try/catch` so one failure doesn't abort the rest.
 - **Exclude patterns:** Checked via `-like` before every copy. Never copy files matching patterns in `sync-config.json > excludePatterns`.
 - **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
-- **Tests:** Both engines run the fixtures in `tests/fixtures/`. Bash: `tests/linux/engine.sh [case-name-filter]`. PowerShell (PS 5.1, Pester 5, from the repo root): `Invoke-Pester -Path tests/windows -CI`. CI runs them as `engine-linux` and `engine-windows`; `pwsh` isn't installed on the Linux machine, so PowerShell changes are checked by the CI job. An engine change updates `docs/sync-contract.md` and adds a fixture case.
+- **Tests:** Both engines run the fixtures in `tests/fixtures/`. Bash: `tests/linux/engine.sh [case-name-filter]`. PowerShell (PS 5.1, Pester 5, from the repo root): `Invoke-Pester -Path tests/windows -CI`. CI runs them as `engine-linux` and `engine-windows`; the Pester suite calls `powershell.exe`, so on Linux `pwsh` can only parse the scripts and PowerShell changes are checked by the CI job. An engine change updates `docs/sync-contract.md` and adds a fixture case.
 
 ### Bash scripts (Linux)
 
