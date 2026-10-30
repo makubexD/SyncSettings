@@ -11,7 +11,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 - `.bat` files are the Windows entry points — they set the working directory and invoke the corresponding PowerShell script
 - `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/linux/sync.sh`
 - Windows logic lives in `scripts/windows/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
-- Each entry's `platform` field picks its side: `"linux"` entries are bash-only, and entries without it are Windows-only (`Test-WindowsEntry` filters right after the config loads)
+- Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` entries are bash-only, and `"common"` entries run on both (`Test-WindowsEntry` and `platform_entries` filter). A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
 - `dotfiles/` is the staging area inside the repo; it mirrors the logical file set
 
@@ -51,6 +51,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **Error handling:** `$ErrorActionPreference = 'Stop'` at script level; per-file `try/catch` so one failure doesn't abort the rest.
 - **Exclude patterns:** Checked via `-like` before every copy. Never copy files matching patterns in `sync-config.json > excludePatterns`.
 - **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
+- **Tests:** Both engines run the fixtures in `tests/fixtures/`. Bash: `tests/linux/engine.sh [case-name-filter]`. PowerShell (PS 5.1, Pester 5, from the repo root): `Invoke-Pester -Path tests/windows -CI`. CI runs them as `engine-linux` and `engine-windows`; `pwsh` isn't installed on the Linux machine, so PowerShell changes are checked by the CI job. An engine change updates `docs/sync-contract.md` and adds a fixture case.
 
 ### Bash scripts (Linux)
 
@@ -69,6 +70,7 @@ Set `"detectLinkedPaths": true` on any file entry. The script automatically pars
 {
   "repoPath": "dotfiles/.bashrc",
   "localPath": "~\\.bashrc",
+  "platform": "windows",
   "detectLinkedPaths": true
 }
 ```
@@ -86,12 +88,13 @@ dotfiles/.bashrc.linked/MakuCustomAlias/vs.bat
 
 ## Adding New Files to Sync
 
-Add an entry to the `files` array in `sync-config.json`:
+Add an entry to the `files` array in `sync-config.json`. `platform` is required; `docs/configuration.md` covers every field.
 
 ```json
 {
   "repoPath": "dotfiles/<filename>",
   "localPath": "~\\<path-relative-to-userprofile>",
+  "platform": "windows",
   "description": "What this file configures"
 }
 ```
@@ -102,6 +105,7 @@ For files containing sensitive data, add `sanitizeRules`:
 {
   "repoPath": "dotfiles/.gitconfig",
   "localPath": "~\\.gitconfig",
+  "platform": "windows",
   "description": "Git global configuration",
   "sanitizeRules": [
     { "placeholder": "<YOUR_NAME>", "prompt": "Full name for git commits" },
@@ -112,7 +116,7 @@ For files containing sensitive data, add `sanitizeRules`:
 
 Then run `export.bat` to pull it into the repo for the first time.
 
-For a Linux file, add `"platform": "linux"`, put it under `dotfiles/linux/`, and use a `~/` path:
+For a Linux file, use `"platform": "linux"`, put it under `dotfiles/linux/`, and use a `~/` path. A file shared by both systems uses `"platform": "common"`, `dotfiles/common/` and a `~/` path:
 
 ```json
 {

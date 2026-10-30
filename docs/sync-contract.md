@@ -8,6 +8,8 @@ This page is for contributors. If you change how an engine behaves, change this 
 fixture case to `tests/linux/engine.sh` or `tests/windows/Engine.Tests.ps1` (or both) that proves the rule. A rule
 listed under [Known differences](#known-differences) applies to one engine only. Every other rule applies to both.
 
+To add or change an entry in `sync-config.json`, see [configuration.md](configuration.md).
+
 ## Flow
 
 ```mermaid
@@ -97,7 +99,7 @@ them.
 
 An `ERROR` affects only its own file. The engine moves on to the next entry, and the run still exits 0. Exit code 1
 is reserved for problems that stop the whole run: invalid config, a missing placeholder value in a non-interactive
-bash run, or a failed `git pull`.
+run, or a failed `git pull`.
 
 ## Overwrite prompt
 
@@ -196,7 +198,9 @@ Export and import start by checking whether the repo is behind `origin/master`:
 
 | Behavior | Windows (PowerShell) | Linux (bash) |
 |---|---|---|
-| Import, target folder missing | `SKIPPED` with `WARNING: target folder not found: <dir>`; the app is probably not installed | creates the folder (`mkdir -p`) |
+| Export, local file missing | the note starts with `WARNING:`, and is `WARNING: folder not found: <dir>` if its folder is missing too | the note in the [Export](#export) table |
+| Import, target folder missing | `SKIPPED` with `WARNING: target folder not found: <dir>`; the app is probably not installed. For a `dir` entry this checks the folder's parent | creates the folder (`mkdir -p`) |
+| Exclude patterns | case-insensitive (`-like`) | case-sensitive |
 | End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes |
 | `detectLinkedPaths` | supported | not supported |
 | `-User <name>` (import into another profile, elevated) | supported | not supported |
@@ -205,10 +209,11 @@ Export and import start by checking whether the repo is behind `origin/master`:
 
 ## Parity
 
-These are the gaps listed in [plan-restructure.md](plan-restructure.md), with the step of
-[plan-restructure-2.md](plan-restructure-2.md) that closes each one in this phase.
+Every gap listed in [plan-restructure.md](plan-restructure.md) is closed. A step number is the step of
+[plan-restructure-2.md](plan-restructure-2.md) that closed the gap in that engine, and `yes` means the engine already
+had the behavior.
 
-| Behavior | Windows | Linux | Closed by |
+| Behavior | Windows | Linux | Note |
 |---|---|---|---|
 | Required `platform` with `common` | step 6 | step 5 | lint: step 7 |
 | `defaultEnv` | step 8 | yes | |
@@ -221,4 +226,5 @@ These are the gaps listed in [plan-restructure.md](plan-restructure.md), with th
 | Missing target folder on import | | | kept as a known difference |
 | Orphan report | step 16 | step 15 | |
 | Up-to-date check | step 18 | step 17 | |
+| Stop after a pull | step 18b | step 18a | |
 | Commit: branch + PR, stages `dotfiles/ packages/ sync-config.json` | yes | yes | phase 1 |

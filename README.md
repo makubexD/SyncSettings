@@ -38,6 +38,8 @@ Add or remove files by editing `sync-config.json`.
 
 - [Daily workflow](docs/daily-workflow.md): export → PR → review → merge → import on the other machine
 - [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
+- [Configuration reference](docs/configuration.md): every `sync-config.json` field, with examples
+- [Sync contract](docs/sync-contract.md): the rules both engines follow
 
 ---
 
@@ -124,8 +126,8 @@ If the target user is different from the current session, PowerShell will reques
 
 ## Linux
 
-The bash scripts handle only entries marked `"platform": "linux"`. The PowerShell scripts skip those
-entries, so one repo serves both systems.
+The bash scripts handle entries marked `"platform": "linux"` or `"common"`. The PowerShell scripts handle
+`"windows"` and `"common"`, so one repo serves both systems.
 
 | Command | Does |
 |---|---|
@@ -164,6 +166,7 @@ Set `"detectLinkedPaths": true` on any file entry in `sync-config.json` to enabl
 {
   "repoPath": "dotfiles/.bashrc",
   "localPath": "~\\.bashrc",
+  "platform": "windows",
   "detectLinkedPaths": true
 }
 ```
@@ -213,6 +216,7 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
     {
       "repoPath": "dotfiles/.gitconfig",
       "localPath": "~\\.gitconfig",
+      "platform": "windows",
       "description": "Git global configuration",
       "sanitizeRules": [                        // optional — omit for plain files
         { "placeholder": "<YOUR_NAME>", "prompt": "Full name for git commits" },
@@ -228,6 +232,7 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
     {
       "repoPath": "dotfiles/.bashrc",
       "localPath": "~\\.bashrc",
+      "platform": "windows",
       "description": "Bash run commands",
       "detectLinkedPaths": true                 // auto-detect and sync referenced directories
     }
@@ -241,8 +246,8 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
 - `sanitizeRules` is optional — files without it are compared/copied as-is
 - `escapeBackslashes: true` on a sanitize rule doubles backslashes when hydrating (needed for `.gitconfig` where paths use `\\` escaping)
 - `detectLinkedPaths: true` — scans the file's content for directory references and automatically syncs them; no manual path listing required
-- `platform: "linux"` — the entry belongs to the bash scripts. `localPath` then uses `~/` and forward slashes (`~/.claude/settings.json`). Entries without `platform` are Windows entries
-- `defaultEnv: "HOME"` on a sanitize rule — the prompt's default is that environment variable's value (bash scripts only)
+- `platform` is required: `windows`, `linux` or `common`. `linux` and `common` entries use `~/` and forward slashes in `localPath` (`~/.claude/settings.json`). An entry without a valid `platform` stops the scripts
+- `defaultEnv: "HOME"` on a sanitize rule — the prompt's default is that environment variable's value
 
 ---
 
