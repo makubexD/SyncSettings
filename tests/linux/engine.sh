@@ -627,6 +627,55 @@ case_path_real_config() {
     fi
 }
 
+case_real_config_roundtrip() {
+    new_tmp
+    setup_repo
+    cp "$REPO/sync-config.json" "$t/repo/sync-config.json"
+    cp -a "$REPO/dotfiles" "$t/before"
+    cp -a "$REPO/dotfiles" "$t/repo/"
+    mkdir -p "$t/home"
+
+    # Fake values, escaped by jq, so the round trip never reads the real home.
+    jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
+        --arg gh 'fixture-user' --arg home "$t/home" \
+        '{ "<YOUR_NAME>": $name, "<YOUR_EMAIL>": $email,
+           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home }' > "$t/repo/.user-values.json"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -Fq 'ERROR' "$out"; then
+        fail "import printed an ERROR line"
+    fi
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    grep -Fq 'Repo is up to date' "$out" || fail "export did not print 'Repo is up to date'"
+    if grep -qE '^  (MODIFIED|ADDED|REMOVED|ORPHAN)[[:space:]]|ERROR' "$out"; then
+        fail "export printed a changed status or an error"
+    fi
+
+    if ! diff -r "$t/before" "$t/repo/dotfiles" > "$t/dotfiles.diff" 2>&1; then
+        fail "dotfiles changed during the round trip: $(head -n 3 "$t/dotfiles.diff")"
+    fi
+
+    local name helpers
+    name=$(HOME="$t/home" git config --file "$t/home/.gitconfig" --includes --get user.name)
+    [[ $name == 'Fixture User' ]] || fail "user.name is '$name', want 'Fixture User'"
+
+    helpers=$(HOME="$t/home" git config --file "$t/home/.gitconfig" --includes \
+        --get-all credential.https://github.com.helper)
+    [[ $(printf '%s\n' "$helpers" | tail -n 1) == '!/usr/bin/gh auth git-credential' ]] \
+        || fail "the last credential.https://github.com.helper value is not the gh helper"
+
+    if grep -Fq '<YOUR_' "$t/home/.gitconfig"; then
+        fail ".gitconfig still holds an unfilled placeholder"
+    fi
+    [[ ! -e "$t/home/.bashrc" ]] || fail ".bashrc was imported from a windows entry"
+    [[ ! -e "$t/home/.gitconfig.bak" ]] || fail ".gitconfig.bak was created"
+    [[ -x "$t/home/.claude/hooks/worker-mode-guard.sh" ]] \
+        || fail "worker-mode-guard.sh is not executable"
+}
+
 case_lint_real_config() {
     new_tmp
 
@@ -1988,7 +2037,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -2020,6 +2069,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         path-local-absolute) case_path_local_absolute ;;
         path-repo-symlink) case_path_repo_symlink ;;
         path-real-config) case_path_real_config ;;
+        real-config-roundtrip) case_real_config_roundtrip ;;
         lint-real-config) case_lint_real_config ;;
         lint-platform-missing) case_lint_platform_missing ;;
         lint-platform-bad) case_lint_platform_bad ;;
