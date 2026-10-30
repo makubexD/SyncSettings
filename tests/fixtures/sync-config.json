@@ -67,6 +67,13 @@
           "escapeBackslashes": true
         }
       ]
+    },
+    {
+      "repoPath": "dotfiles/common/dir",
+      "localPath": "~/.config/fixture/dir",
+      "platform": "common",
+      "type": "dir",
+      "description": "Directory fixture"
     }
   ],
   "excludePatterns": [

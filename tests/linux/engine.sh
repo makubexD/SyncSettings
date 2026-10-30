@@ -471,9 +471,101 @@ case_infer_escaped() {
     [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
 }
 
+case_dir_export_adds() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+    chmod 600 "$t/home/.config/fixture/dir/a/b.txt"
+    chmod 755 "$t/home/.config/fixture/dir/c.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+    [[ $(stat -c %a "$t/repo/dotfiles/common/dir/a/b.txt") == 600 ]] \
+        || fail "a/b.txt mode is $(stat -c %a "$t/repo/dotfiles/common/dir/a/b.txt"), want 600"
+    [[ $(stat -c %a "$t/repo/dotfiles/common/dir/c.txt") == 755 ]] \
+        || fail "c.txt mode is $(stat -c %a "$t/repo/dotfiles/common/dir/c.txt"), want 755"
+
+    output_has_status ADDED dotfiles/common/dir/a/b.txt || fail "missing ADDED line for dir/a/b.txt"
+    output_has_status ADDED dotfiles/common/dir/c.txt || fail "missing ADDED line for dir/c.txt"
+}
+
+case_dir_export_modify_remove() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/repo/dotfiles/common/dir/old"
+    printf 'old\n' > "$t/repo/dotfiles/common/dir/old/old.txt"
+    setup_home_fixture
+    printf 'c2\n' > "$t/home/.config/fixture/dir/c.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status MODIFIED dotfiles/common/dir/c.txt || fail "missing MODIFIED line for dir/c.txt"
+    output_has_status REMOVED dotfiles/common/dir/old/old.txt 'no longer in source' \
+        || fail "missing REMOVED line for dir/old/old.txt"
+    output_has_status UNCHANGED dotfiles/common/dir/a/b.txt || fail "missing UNCHANGED line for dir/a/b.txt"
+
+    printf 'c2\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "repo dir/c.txt does not contain c2"
+    [[ ! -e "$t/repo/dotfiles/common/dir/old" ]] || fail "repo dir old/ still exists"
+}
+
+case_dir_export_excluded() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+    printf 'x\n' > "$t/home/.config/fixture/dir/x.bak"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED dotfiles/common/dir/x.bak 'matches exclude pattern' \
+        || fail "missing SKIPPED (exclude) line for dir/x.bak"
+    [[ ! -e "$t/repo/dotfiles/common/dir/x.bak" ]] || fail "x.bak was copied to the repo"
+}
+
+case_dir_export_missing() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED 'dotfiles/common/dir/' "local folder not found: $t/home/.config/fixture/dir" \
+        || fail "missing SKIPPED (folder missing) line for the dir entry"
+}
+
+case_dir_export_symlink() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+    ln -s c.txt "$t/home/.config/fixture/dir/link.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED dotfiles/common/dir/link.txt symlink \
+        || fail "missing SKIPPED (symlink) line for dir/link.txt"
+    [[ ! -e "$t/repo/dotfiles/common/dir/link.txt" && ! -L "$t/repo/dotfiles/common/dir/link.txt" ]] \
+        || fail "link.txt was copied to the repo"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -501,6 +593,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         infer-reset) case_infer_reset ;;
         infer-keeps-cache) case_infer_keeps_cache ;;
         infer-escaped) case_infer_escaped ;;
+        dir-export-adds) case_dir_export_adds ;;
+        dir-export-modify-remove) case_dir_export_modify_remove ;;
+        dir-export-excluded) case_dir_export_excluded ;;
+        dir-export-missing) case_dir_export_missing ;;
+        dir-export-symlink) case_dir_export_symlink ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"
