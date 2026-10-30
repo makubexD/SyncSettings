@@ -86,7 +86,7 @@ dotfiles/.bashrc.linked/MakuCustomAlias/vs.bat
 - **Export**: reads local file, detects paths, syncs each dir -> repo `.linked/` folder
 - **Import**: scans repo `.linked/` folders, resolves local paths from file content, syncs back
 - Files inside linked dirs are subject to `excludePatterns`
-- Orphaned files (deleted from source) are removed from destination
+- Export removes repo files that are gone from the folder. Import never deletes: a local file the repo doesn't have is reported as `EXTRA` and kept
 
 ## Adding New Files to Sync
 

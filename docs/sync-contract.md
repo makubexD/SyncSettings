@@ -229,6 +229,8 @@ the backslash-doubled form. A placeholder on its own passes. The value never app
 ERROR: a cached value for <PLACEHOLDER> is in <file>; nothing was committed.
 ```
 
+A search that cannot finish stops the commit too, with `ERROR: could not search for cached values; nothing was committed.`
+
 ## Orphan report
 
 At the end of an export, each engine lists every file under `dotfiles/` that no entry owns, as `ORPHAN`. A file is
