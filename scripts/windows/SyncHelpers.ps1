@@ -659,7 +659,7 @@ function Invoke-ExportPreview {
             if ($leakFound -eq 0) {
                 $differed = 0
                 foreach ($path in @('dotfiles', 'sync-config.json')) {
-                    git --no-pager diff --no-index --stat "before/$path" "after/$path" | Out-Host
+                    git -c core.safecrlf=false --no-pager diff --no-index --stat "before/$path" "after/$path" | Out-Host
                     $code = $LASTEXITCODE
                     if ($code -eq 1) {
                         $differed = 1
@@ -671,7 +671,7 @@ function Invoke-ExportPreview {
 
                 if ($differed) {
                     foreach ($path in @('dotfiles', 'sync-config.json')) {
-                        git --no-pager diff --no-index "before/$path" "after/$path" | Out-Host
+                        git -c core.safecrlf=false --no-pager diff --no-index "before/$path" "after/$path" | Out-Host
                         $code = $LASTEXITCODE
                         if ($code -gt 1) {
                             Write-Host 'ERROR: git diff failed.' -ForegroundColor Red
