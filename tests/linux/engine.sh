@@ -476,6 +476,41 @@ case_infer_keeps_cache() {
         || fail "named.conf does not match the fixture after update"
 }
 
+case_infer_skips_unhydrated_local() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    jq 'del(."<NAME>")' "$t/repo/.user-values.json" > "$t/repo/.user-values.json.tmp"
+    mv "$t/repo/.user-values.json.tmp" "$t/repo/.user-values.json"
+    rm "$t/home/.config/fixture/shared.conf"
+    printf 'name = <NAME>\n' > "$t/home/.config/fixture/named.conf"
+
+    # The local line still holds the placeholder, so there is nothing to infer.
+    run_engine "$t/home" import.sh
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fq 'missing value for <NAME>: add it to .user-values.json' "$out" \
+        || fail "missing message for an unfilled <NAME>"
+}
+
+case_infer_overlapping_context() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    jq 'del(."<NAME>")' "$t/repo/.user-values.json" > "$t/repo/.user-values.json.tmp"
+    mv "$t/repo/.user-values.json.tmp" "$t/repo/.user-values.json"
+    rm "$t/home/.config/fixture/shared.conf"
+    printf 'abc<NAME>cba\n' > "$t/repo/dotfiles/linux/named.conf"
+    printf 'abcba\n' > "$t/home/.config/fixture/named.conf"
+
+    # The local text is shorter than prefix + suffix; it must not infer "b".
+    run_engine "$t/home" import.sh
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fq 'missing value for <NAME>: add it to .user-values.json' "$out" \
+        || fail "missing message for an unfilled <NAME>"
+}
+
 case_infer_escaped() {
     new_tmp
     setup_repo
@@ -496,6 +531,22 @@ case_infer_escaped() {
     cmp -s "$FIXTURES/home/.config/fixture/paths.ini" "$t/home/.config/fixture/paths.ini" \
         || fail "paths.ini was rewritten"
     [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
+}
+
+case_dir_symlink_removed() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm "$t/home/.config/fixture/dir/c.txt"
+    ln -s a/b.txt "$t/home/.config/fixture/dir/c.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status REMOVED dotfiles/common/dir/c.txt 'no longer in source' \
+        || fail "missing REMOVED line for dir/c.txt"
+    [[ ! -e "$t/repo/dotfiles/common/dir/c.txt" ]] || fail "repo dir/c.txt still exists"
 }
 
 case_dir_export_adds() {
@@ -776,6 +827,23 @@ case_orphan_linked_ok() {
     fi
 }
 
+case_orphan_no_dir_entries() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    jq '.files |= map(select(.type != "dir"))' "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    rm -rf "$t/repo/dotfiles/common/dir"
+    printf 'stray\n' > "$t/repo/dotfiles/stray.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status ORPHAN dotfiles/stray.txt 'no entry in sync-config.json; git rm it or add an entry' \
+        || fail "missing ORPHAN line for dotfiles/stray.txt"
+}
+
 case_upstream_none() {
     # $t/repo is not a git repo, so the up-to-date check stays silent.
     new_tmp
@@ -881,9 +949,31 @@ case_upstream_unreachable() {
         || fail "export did not run after the reachability check"
 }
 
+case_upstream_off_master() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    make_git_repo
+
+    git clone -q "$t/origin.git" "$t/other"
+    printf 'readme\n' > "$t/other/README"
+    git -C "$t/other" add README
+    git -C "$t/other" -c user.name=t -c user.email=t@example.com commit -q -m second
+    git -C "$t/other" push -q origin master
+    git -C "$t/repo" switch -q -c feature
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    if grep -qE 'WARNING: repo is|NOTE:' "$out"; then
+        fail "up-to-date check ran on a branch other than master"
+    fi
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -911,12 +1001,15 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         infer-reset) case_infer_reset ;;
         infer-keeps-cache) case_infer_keeps_cache ;;
         infer-escaped) case_infer_escaped ;;
+        infer-skips-unhydrated-local) case_infer_skips_unhydrated_local ;;
+        infer-overlapping-context) case_infer_overlapping_context ;;
         dir-export-adds) case_dir_export_adds ;;
         dir-export-modify-remove) case_dir_export_modify_remove ;;
         dir-export-excluded) case_dir_export_excluded ;;
         dir-export-missing) case_dir_export_missing ;;
         dir-export-symlink) case_dir_export_symlink ;;
         dir-root-symlink) case_dir_root_symlink ;;
+        dir-symlink-removed) case_dir_symlink_removed ;;
         dir-import-creates) case_dir_import_creates ;;
         dir-import-update-backup) case_dir_import_update_backup ;;
         dir-import-extra) case_dir_import_extra ;;
@@ -925,11 +1018,13 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         orphan-reported) case_orphan_reported ;;
         orphan-none) case_orphan_none ;;
         orphan-linked-ok) case_orphan_linked_ok ;;
+        orphan-no-dir-entries) case_orphan_no_dir_entries ;;
         upstream-none) case_upstream_none ;;
         upstream-current) case_upstream_current ;;
         upstream-behind-noninteractive) case_upstream_behind_noninteractive ;;
         upstream-behind-pull) case_upstream_behind_pull ;;
         upstream-unreachable) case_upstream_unreachable ;;
+        upstream-off-master) case_upstream_off_master ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"
