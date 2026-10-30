@@ -413,6 +413,36 @@ Files: `scripts/windows/SyncHelpers.ps1`, `Export-Settings.ps1`, `Import-Setting
 `[Environment]::UserInteractive -and -not [Console]::IsInputRedirected`. Check `$LASTEXITCODE` after each git call.
 Cases: same four.
 
+### 18a. Stop after a pull, bash + contract `[worker]`
+
+Added after the step 17/18 review. After a successful pull the run went on with what it loaded before it: the
+config (PowerShell reads it first; bash reads `excludePatterns` and runs `check_platforms` when sourcing
+`sync.sh`) and the engine code itself. A pull that changes either was applied by the old version. Stop instead.
+
+Files: `scripts/linux/sync.sh`, `tests/linux/engine.sh`, `docs/sync-contract.md`.
+
+- `check_upstream`: after a successful `git pull --ff-only`, `printf '  Pulled %d commit(s); run the command again.\n'`
+  and `exit 0`.
+- Contract, "Up-to-date check", the "Behind, with a terminal" bullet: "Yes pulls, prints `Pulled <n> commit(s); run
+  the command again.` and exits 0, so the next run uses the pulled config and scripts."
+
+Case `upstream-behind-pull` (the first test of the prompt path): as `upstream-behind-noninteractive`, but export runs
+on a pseudo-terminal answering `y`: `printf 'y\n' | script -qec "cd '$t/repo' && HOME='$t/home' ./export.sh" /dev/null`
+→ exit 0; output contains `Pulled 1 commit(s); run the command again.`; `HEAD` equals `origin/master`; no
+`UNCHANGED` line (the export did not run).
+
+### 18b. Stop after a pull, PowerShell `[worker]`
+
+Files: `scripts/windows/SyncHelpers.ps1`, `Export-Settings.ps1`, `Import-Settings.ps1`, `tests/windows/Engine.Tests.ps1`.
+
+- `Test-RepoUpToDate` returns `$true` after a successful pull (`$false` otherwise) and prints the same `Pulled …`
+  line; Export and Import: `if (Test-RepoUpToDate -RepoRoot $repoRoot) { exit 0 }`.
+
+Unit case in a new `Describe 'Test-RepoUpToDate'` (dot-source `SyncHelpers.ps1`; repo, bare origin and a second
+clone that pushes one commit, under `$TestDrive`): `Mock Test-Interactive { $true }`, `Mock Read-Host { 'y' }` →
+returns `$true`, `HEAD` equals `origin/master`; with `Mock Read-Host { 'n' }` → returns `$false`, `HEAD` unchanged.
+CI `engine-windows` green.
+
 ### 19. Docs `[inline: user-facing copy]`
 
 Files: `docs/sync-contract.md` (parity table: all rows closed, adjust anything the implementation changed),
