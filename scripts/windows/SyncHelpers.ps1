@@ -934,13 +934,17 @@ function Import-DirEntry {
             continue
         }
 
-        $localFileParent = Split-Path $localFile -Parent
-        if (-not (Test-Path -LiteralPath $localFileParent)) {
-            New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
-        }
+        try {
+            $localFileParent = Split-Path $localFile -Parent
+            if (-not (Test-Path -LiteralPath $localFileParent)) {
+                New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
+            }
 
-        $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
-        if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
+            if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+        } catch {
+            Write-StatusLine 'ERROR' $itemLabel $_.Exception.Message
+        }
     }
 
     if (Test-Path -LiteralPath $LocalDir) {
@@ -1003,8 +1007,12 @@ function Import-LinkedDirectory {
             continue
         }
 
-        $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
-        if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+        try {
+            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
+            if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+        } catch {
+            Write-StatusLine 'ERROR' $itemLabel $_.Exception.Message
+        }
     }
 
     if (Test-Path -LiteralPath $DestDir) {

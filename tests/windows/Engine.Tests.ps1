@@ -1757,4 +1757,36 @@ Describe 'Import-LinkedDirectory' {
         Should -Invoke Read-Host -Times 1 -Exactly
         Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'SKIPPED' -and $Note -eq 'user skipped' }
     }
+
+    It 'import-linked-error-continues' {
+        $src = Join-Path $script:LinkedWork 'repo-tool'
+        $dst = Join-Path $script:LinkedWork 'local-tool'
+        $null = New-Item -ItemType Directory -Path $src -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), "a`n", [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $src 'b.txt'), "b`n", [System.Text.UTF8Encoding]::new($false))
+
+        Mock Copy-RepoFileToLocal { if ($Label -like '*a.txt') { throw 'copy failed' }; 'CREATED' }
+        Mock Write-StatusLine { }
+
+        $applied = Import-LinkedDirectory -SourceDir $src -DestDir $dst -Label 'tool' -ExcludePatterns @() -Force $true
+
+        $applied | Should -Be 1
+        Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'ERROR' -and $Note -eq 'copy failed' }
+    }
+
+    It 'import-dir-error-continues' {
+        $src = Join-Path $script:LinkedWork 'repo-tool'
+        $dst = Join-Path $script:LinkedWork 'local-tool'
+        $null = New-Item -ItemType Directory -Path $src -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), "a`n", [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $src 'b.txt'), "b`n", [System.Text.UTF8Encoding]::new($false))
+
+        Mock Copy-RepoFileToLocal { if ($Label -like '*a.txt') { throw 'copy failed' }; 'CREATED' }
+        Mock Write-StatusLine { }
+
+        $applied = Import-DirEntry -RepoDir $src -LocalDir $dst -Label 'tool' -ExcludePatterns @() -Force $true
+
+        $applied | Should -Be 1
+        Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'ERROR' -and $Note -eq 'copy failed' }
+    }
 }
