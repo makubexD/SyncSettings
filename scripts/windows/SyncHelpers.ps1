@@ -224,7 +224,7 @@ function Compare-NormalizedContent {
     # Normalize line endings and trailing whitespace
     $normA = ($A -replace "`r`n", "`n").TrimEnd()
     $normB = ($B -replace "`r`n", "`n").TrimEnd()
-    return $normA -eq $normB
+    return $normA -ceq $normB
 }
 
 function Compare-FilesByHash {

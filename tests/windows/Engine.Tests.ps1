@@ -417,6 +417,25 @@ Describe 'Windows engine' {
         ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
     }
 
+    It 'sanitized-case-change' {
+        Copy-EngineToRepo
+
+        # The lines differ only by case, and the sanitized form of the local file
+        # is itself, so only a case-sensitive compare sees a change.
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\windows\win.conf'
+        $null = New-Item -ItemType Directory -Path (Split-Path $repoFile -Parent) -Force
+        [IO.File]::WriteAllText($repoFile, "editor = vim`n", [System.Text.UTF8Encoding]::new($false))
+        $localFile = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($localFile, "EDITOR = VIM`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/windows/win.conf' 'sanitized')
+        $want = [System.Text.UTF8Encoding]::new($false).GetBytes("EDITOR = VIM`n")
+        ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ($want -join ',')
+    }
+
     It 'dir-export-adds' {
         Copy-EngineToRepo
         Copy-HomeFiles

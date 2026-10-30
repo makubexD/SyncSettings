@@ -479,6 +479,25 @@ case_sanitized_large_file() {
         || fail "missing UNCHANGED line for the large named.conf"
 }
 
+case_sanitized_case_change() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/linux" "$t/home/.config/fixture"
+
+    # The lines differ only by case, and the sanitized form of the local file is
+    # itself, so only a case-sensitive compare sees a change.
+    printf 'editor = vim\n' > "$t/repo/dotfiles/linux/named.conf"
+    printf 'EDITOR = VIM\n' > "$t/home/.config/fixture/named.conf"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status MODIFIED dotfiles/linux/named.conf sanitized \
+        || fail "missing MODIFIED (sanitized) line for named.conf"
+    printf 'EDITOR = VIM\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/linux/named.conf" \
+        || fail "repo named.conf does not hold the local text"
+}
+
 case_infer_name() {
     new_tmp
     setup_repo
@@ -1276,7 +1295,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1301,6 +1320,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         escape-roundtrip-unchanged) case_escape_roundtrip_unchanged ;;
         sanitize-longest-first) case_sanitize_longest_first ;;
         sanitized-large-file) case_sanitized_large_file ;;
+        sanitized-case-change) case_sanitized_case_change ;;
         infer-name) case_infer_name ;;
         infer-reset) case_infer_reset ;;
         infer-keeps-cache) case_infer_keeps_cache ;;
