@@ -38,7 +38,7 @@ These touch `.github/` or the review gate, so they are decisions for the maintai
 - Bash and PowerShell rules from `docs/plan-restructure-2.md` apply. Every behavior change adds fixture cases.
 - PowerShell steps are checked by `engine-windows`: open the PR as a draft at step 3. A red job counts as a rejection.
 - Workers use `tests/fixtures/user-values.json` only. They never open, copy or print a repo's `.user-values.json`. Tests
-  seed their own copy in a temp folder. Step 1 runs first so this is enforced.
+  seed their own copy in a temp folder. Steps 1 and 1a run first so this is enforced.
 - Test output and error messages name the placeholder, never its value.
 
 ## Steps
@@ -51,6 +51,20 @@ Add `Read(**/.user-values.json)`, `Edit(**/.user-values.json)` and `Bash(gh:*)` 
 
 Test: a throwaway repo holding a dummy `.user-values.json`, plus `mk-exec` asked to read it → the read is denied. `/mk-check`
 still passes.
+
+### 1a. Keep the values file out of the worker's folder `[inline: touches .user-values.json]`
+
+Added after step 1's test: the deny rules stop `Read` and `cat`, but `python3 -c "open(...)"` still read the file. Rules
+match commands, not files, so the worker has to run where the file doesn't exist.
+
+Files: `~/.claude/bin/mk-exec`, then `./sync export` for its repo copy (`dotfiles/linux/claude/bin/mk-exec`).
+
+A repo holding `.user-values.json` runs in the temporary worktree `mk-exec` already uses for repos under `.claude`. A
+gitignored file isn't in a worktree. The diff is applied back to the repo and the worktree removed.
+
+Test: a throwaway repo holding a dummy gitignored `.user-values.json`, plus `mk-exec` asked to read it with `python3` and to
+append a line to `README.md` → the read fails with file not found, the dummy value is not in the log, the `README.md`
+change is back in the repo, and no worktree is left.
 
 ### 2. Contract `[inline: contract design]`
 
