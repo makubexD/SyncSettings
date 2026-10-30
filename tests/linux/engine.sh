@@ -714,6 +714,37 @@ case_lint_sibling_prefix() {
     if grep -Fq 'd-old' "$out"; then fail "output names the sibling entry"; fi
 }
 
+case_lint_windows_root() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/windows/shell/.bashrc" then .repoPath = "dotfiles/.bashrc" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/.bashrc' "$out" || fail "output does not name the new repoPath"
+}
+
+case_lint_windows_sibling() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/windows/shell/.bashrc" then .repoPath = "dotfiles/windows-old/.bashrc" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/windows-old/.bashrc' "$out" || fail "output does not name the new repoPath"
+}
+
+case_lint_windows_linux_prefix() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/windows/shell/.bashrc" then .repoPath = "dotfiles/linux/.bashrc" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/.bashrc' "$out" || fail "output does not name the new repoPath"
+}
+
+case_lint_windows_ok() {
+    new_tmp
+    lint_run '.'
+
+    (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+}
+
 case_path_dotted_name() {
     new_tmp
     setup_repo
@@ -1957,7 +1988,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1999,6 +2030,10 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         lint-dir-in-dir) case_lint_dir_in_dir ;;
         lint-dir-trailing-slash) case_lint_dir_trailing_slash ;;
         lint-sibling-prefix) case_lint_sibling_prefix ;;
+        lint-windows-root) case_lint_windows_root ;;
+        lint-windows-sibling) case_lint_windows_sibling ;;
+        lint-windows-linux-prefix) case_lint_windows_linux_prefix ;;
+        lint-windows-ok) case_lint_windows_ok ;;
         path-dotted-name) case_path_dotted_name ;;
         escape-import) case_escape_import ;;
         escape-export) case_escape_export ;;

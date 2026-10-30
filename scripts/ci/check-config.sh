@@ -21,7 +21,7 @@ jq -r --arg file "$CONFIG" '
   (.files[] | select((.platform // "") | IN("common", "windows", "linux") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "linux") | select((.repoPath // "") | startswith("dotfiles/linux/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "common") | select((.repoPath // "") | startswith("dotfiles/common/") | not) | .repoPath // "<missing repoPath>"),
-  (.files[] | select(.platform == "windows") | select((.repoPath // "") | (startswith("dotfiles/linux/") or startswith("dotfiles/common/"))) | .repoPath // "<missing repoPath>"),
+  (.files[] | select(.platform == "windows") | select((.repoPath // "") | startswith("dotfiles/windows/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "common") | select((.localPath // "") | startswith("~/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(has("type") and ((.type == "file" or .type == "dir") | not)) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.type == "dir") | select(has("sanitizeRules") or has("detectLinkedPaths")) | .repoPath // "<missing repoPath>"),
