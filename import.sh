@@ -47,6 +47,53 @@ fi
 
 # -- Process each entry ---------------------------------------------------------
 
+# Copy one repo file onto its local path: compare, prompt unless --force, back up
+# the old file, then copy. Used for plain file entries and every file in a dir
+# entry. Prints the status line and updates APPLIED/SKIPPED; returns 1 after an
+# ERROR so the caller can move on to the next file.
+apply_plain() {
+    local repo_file=$1 local_file=$2 label=$3
+    local answer backup
+
+    if [[ -f $local_file ]]; then
+        if cmp -s "$repo_file" "$local_file"; then
+            status UNCHANGED "$label"
+            return 0
+        fi
+
+        if (( ! FORCE )); then
+            printf '  Overwrite %s? [Y/n] ' "$local_file"
+            answer=''
+            read -r answer || answer=''
+            if [[ -n $answer && $answer != [Yy]* ]]; then
+                status SKIPPED "$label" 'user skipped'
+                SKIPPED=$((SKIPPED + 1))
+                return 0
+            fi
+        fi
+
+        backup=$local_file.bak
+        if ! cp -p "$local_file" "$backup"; then
+            status ERROR "$label" 'cannot create backup'
+            return 1
+        fi
+        if ! cp -p "$repo_file" "$local_file"; then
+            status ERROR "$label" 'cannot copy from repo'
+            return 1
+        fi
+        status UPDATED "$label" "backup saved as ${backup##*/}"
+        APPLIED=$((APPLIED + 1))
+    else
+        if ! cp -p "$repo_file" "$local_file"; then
+            status ERROR "$label" 'cannot copy from repo'
+            return 1
+        fi
+        status CREATED "$label"
+        APPLIED=$((APPLIED + 1))
+    fi
+    return 0
+}
+
 process_entry() {
     local entry=$1
     local repo_path local_path label rules repo_file local_file local_dir
@@ -120,49 +167,72 @@ process_entry() {
             APPLIED=$((APPLIED + 1))
         fi
     else
-        if [[ -f $local_file ]]; then
-            if cmp -s "$repo_file" "$local_file"; then
-                status UNCHANGED "$label"
-                return 0
-            fi
-
-            if (( ! FORCE )); then
-                printf '  Overwrite %s? [Y/n] ' "$local_file"
-                answer=''
-                read -r answer || answer=''
-                if [[ -n $answer && $answer != [Yy]* ]]; then
-                    status SKIPPED "$label" 'user skipped'
-                    SKIPPED=$((SKIPPED + 1))
-                    return 0
-                fi
-            fi
-
-            backup=$local_file.bak
-            if ! cp -p "$local_file" "$backup"; then
-                status ERROR "$label" 'cannot create backup'
-                return 1
-            fi
-            if ! cp -p "$repo_file" "$local_file"; then
-                status ERROR "$label" 'cannot copy from repo'
-                return 1
-            fi
-            status UPDATED "$label" "backup saved as ${backup##*/}"
-            APPLIED=$((APPLIED + 1))
-        else
-            if ! cp -p "$repo_file" "$local_file"; then
-                status ERROR "$label" 'cannot copy from repo'
-                return 1
-            fi
-            status CREATED "$label"
-            APPLIED=$((APPLIED + 1))
-        fi
+        apply_plain "$repo_file" "$local_file" "$label" || return 1
     fi
+    return 0
+}
+
+# Sync a type:dir entry from the repo onto the machine. Import never deletes:
+# a local file the repo does not have is reported as EXTRA and kept.
+import_dir() {
+    local entry=$1
+    local repo_path local_path repo_dir local_dir rel label f local_file
+
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    local_path=$(jq -r '.localPath' <<<"$entry")
+    repo_dir=$REPO_ROOT/$repo_path
+    local_dir=$(resolve_local "$local_path")
+
+    if [[ ! -d $repo_dir ]]; then
+        status SKIPPED "$repo_path/" 'not found in repo'
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    # Repo files arrive on fd 5 so the overwrite prompt inside apply_plain reads
+    # the user's answer from stdin.
+    while IFS= read -r -d '' f <&5; do
+        rel=${f#"$repo_dir"/}
+        label="$repo_path/$rel"
+        local_file=$local_dir/$rel
+
+        if is_excluded "$local_file"; then
+            status SKIPPED "$label" 'matches exclude pattern'
+            continue
+        fi
+
+        if ! mkdir -p "${local_file%/*}"; then
+            status ERROR "$label" "cannot create ${local_file%/*}"
+            continue
+        fi
+
+        apply_plain "$f" "$local_file" "$label" || true
+    done 5< <(find "$repo_dir" -type f -print0 | sort -z)
+
+    # Report local files the repo does not have; never delete them. Excluded
+    # files (including .bak written above) are silent.
+    if [[ -d $local_dir ]]; then
+        while IFS= read -r -d '' f <&5; do
+            rel=${f#"$local_dir"/}
+            label="$repo_path/$rel"
+            if [[ -f $repo_dir/$rel ]]; then
+                continue
+            fi
+            if is_excluded "$f"; then
+                continue
+            fi
+            status EXTRA "$label" 'not in repo; kept'
+        done 5< <(find "$local_dir" -type f -print0 | sort -z)
+    fi
+
     return 0
 }
 
 # Entries arrive on fd 3 so the overwrite prompt inside process_entry reads the user's answer from stdin.
 while IFS= read -r entry <&3; do
-    if ! process_entry "$entry"; then
+    if [[ $(jq -r '.type // "file"' <<<"$entry") == dir ]]; then
+        import_dir "$entry"
+    elif ! process_entry "$entry"; then
         # process_entry already printed an ERROR line for this file.
         :
     fi

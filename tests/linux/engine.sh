@@ -71,6 +71,15 @@ run_engine() {
     (cd "$t/repo" && HOME="$home" "./$script" "$@" < /dev/null) > "$out" 2>&1 || rc=$?
 }
 
+# Run one engine entry point feeding a line on stdin instead of < /dev/null, so
+# the overwrite prompt reads a real answer.
+run_engine_input() {
+    local home=$1 input=$2 script=$3
+    shift 3
+    rc=0
+    (cd "$t/repo" && printf '%s\n' "$input" | HOME="$home" "./$script" "$@") > "$out" 2>&1 || rc=$?
+}
+
 # -- Cases ---------------------------------------------------------------------
 
 case_import_creates() {
@@ -563,9 +572,111 @@ case_dir_export_symlink() {
         || fail "link.txt was copied to the repo"
 }
 
+case_dir_import_creates() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/home/.config/fixture/dir/a/b.txt" "$t/home/.config/fixture/dir/a/b.txt" \
+        || fail "dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/home/.config/fixture/dir/c.txt" "$t/home/.config/fixture/dir/c.txt" \
+        || fail "dir/c.txt differs from fixture"
+
+    output_has_status CREATED dotfiles/common/dir/a/b.txt || fail "missing CREATED line for dir/a/b.txt"
+    output_has_status CREATED dotfiles/common/dir/c.txt || fail "missing CREATED line for dir/c.txt"
+}
+
+case_dir_import_update_backup() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'c2\n' > "$t/home/.config/fixture/dir/c.txt"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    output_has_status UPDATED dotfiles/common/dir/c.txt 'backup saved as c.txt.bak' \
+        || fail "missing UPDATED (backup) line for dir/c.txt"
+    cmp -s "$FIXTURES/home/.config/fixture/dir/c.txt" "$t/home/.config/fixture/dir/c.txt" \
+        || fail "dir/c.txt does not match the fixture after update"
+    printf 'c2\n' > "$t/expected.bak"
+    cmp -s "$t/expected.bak" "$t/home/.config/fixture/dir/c.txt.bak" \
+        || fail "dir/c.txt.bak does not contain the old content"
+    if grep -qE '^  EXTRA[[:space:]]' "$out"; then
+        fail "unexpected EXTRA line"
+    fi
+}
+
+case_dir_import_extra() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'mine\n' > "$t/home/.config/fixture/dir/mine.txt"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    output_has_status EXTRA dotfiles/common/dir/mine.txt 'not in repo; kept' \
+        || fail "missing EXTRA line for dir/mine.txt"
+    printf 'mine\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/home/.config/fixture/dir/mine.txt" \
+        || fail "dir/mine.txt was deleted or changed"
+}
+
+case_dir_roundtrip_unchanged() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/common/dir/a/b.txt || fail "export: missing UNCHANGED line for dir/a/b.txt"
+    output_has_status UNCHANGED dotfiles/common/dir/c.txt || fail "export: missing UNCHANGED line for dir/c.txt"
+    if grep -qE '^  (ADDED|MODIFIED|REMOVED)[[:space:]]+dotfiles/common/dir/' "$out"; then
+        fail "export printed a changed status for a dotfiles/common/dir/ path"
+    fi
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/common/dir/a/b.txt || fail "import: missing UNCHANGED line for dir/a/b.txt"
+    output_has_status UNCHANGED dotfiles/common/dir/c.txt || fail "import: missing UNCHANGED line for dir/c.txt"
+    if grep -qE '^  (CREATED|UPDATED|EXTRA)[[:space:]]+dotfiles/common/dir/' "$out"; then
+        fail "import printed a changed or extra status for a dotfiles/common/dir/ path"
+    fi
+
+    [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
+}
+
+case_dir_import_prompt_reads_stdin() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'c2\n' > "$t/home/.config/fixture/dir/c.txt"
+
+    run_engine_input "$t/home" 'n' import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    # The prompt has no trailing newline, so the status line follows it on the
+    # same output line; match the status text as a substring.
+    grep -Fq "$(status_line SKIPPED dotfiles/common/dir/c.txt 'user skipped')" "$out" \
+        || fail "missing SKIPPED (user skipped) line for dir/c.txt"
+    printf 'c2\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/home/.config/fixture/dir/c.txt" \
+        || fail "dir/c.txt was overwritten despite the 'n' answer"
+    [[ ! -e "$t/home/.config/fixture/dir/c.txt.bak" ]] || fail "c.txt.bak was created"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -598,6 +709,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         dir-export-excluded) case_dir_export_excluded ;;
         dir-export-missing) case_dir_export_missing ;;
         dir-export-symlink) case_dir_export_symlink ;;
+        dir-import-creates) case_dir_import_creates ;;
+        dir-import-update-backup) case_dir_import_update_backup ;;
+        dir-import-extra) case_dir_import_extra ;;
+        dir-roundtrip-unchanged) case_dir_roundtrip_unchanged ;;
+        dir-import-prompt-reads-stdin) case_dir_import_prompt_reads_stdin ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"
