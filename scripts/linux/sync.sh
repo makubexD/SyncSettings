@@ -281,6 +281,55 @@ status() {
     printf '  %-10s %s%s\n' "$s" "$label" "${note:+  ($note)}"
 }
 
+# -- Orphan report --------------------------------------------------------------
+
+# Every file under dotfiles/ that no entry owns. All platforms count, so both
+# engines print the same list. Report only: never deletes, never changes the
+# change count or the exit code.
+report_orphans() {
+    [[ -d $REPO_ROOT/dotfiles ]] || return 0
+
+    local -a owned=() dir_prefixes=() linked_prefixes=()
+    local p prefix is_owned
+
+    # A file entry owns its repoPath exactly.
+    while IFS= read -r -d '' p; do
+        owned+=("$p")
+    done < <(jq -j '.files[] | select((.type // "file") == "file") | .repoPath, "\u0000"' "$CONFIG")
+    # A dir entry owns everything under <repoPath>/.
+    while IFS= read -r -d '' prefix; do
+        dir_prefixes+=("$prefix")
+    done < <(jq -j '.files[] | select(.type == "dir") | .repoPath + "/", "\u0000"' "$CONFIG")
+    # An entry with detectLinkedPaths owns everything under <repoPath>.linked/.
+    while IFS= read -r -d '' prefix; do
+        linked_prefixes+=("$prefix")
+    done < <(jq -j '.files[] | select(.detectLinkedPaths == true) | .repoPath + ".linked/", "\u0000"' "$CONFIG")
+
+    while IFS= read -r -d '' p; do
+        p=${p#"$REPO_ROOT"/}
+        is_owned=0
+        for prefix in "${owned[@]:-}"; do
+            if [[ $p == "$prefix" ]]; then is_owned=1; break; fi
+        done
+        if (( ! is_owned )); then
+            for prefix in "${dir_prefixes[@]:-}"; do
+                # An empty array expands to one empty element; it must not own everything.
+                [[ -n $prefix ]] || continue
+                if [[ $p == "$prefix"* ]]; then is_owned=1; break; fi
+            done
+        fi
+        if (( ! is_owned )); then
+            for prefix in "${linked_prefixes[@]:-}"; do
+                [[ -n $prefix ]] || continue
+                if [[ $p == "$prefix"* ]]; then is_owned=1; break; fi
+            done
+        fi
+        if (( ! is_owned )); then
+            status ORPHAN "$p" 'no entry in sync-config.json; git rm it or add an entry'
+        fi
+    done < <(find "$REPO_ROOT/dotfiles" -type f -print0 | sort -z)
+}
+
 # -- Text I/O helpers ------------------------------------------------------------
 
 # Read a file's full text as-is into $1 (name of variable), keeping trailing newlines.

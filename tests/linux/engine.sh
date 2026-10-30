@@ -681,9 +681,63 @@ case_dir_import_prompt_reads_stdin() {
     [[ ! -e "$t/home/.config/fixture/dir/c.txt.bak" ]] || fail "c.txt.bak was created"
 }
 
+case_orphan_reported() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    mkdir -p "$t/repo/dotfiles/linux"
+    printf 'stray\n' > "$t/repo/dotfiles/linux/stray.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    local count
+    count=$(grep -cE '^  ORPHAN[[:space:]]' "$out" || true)
+    (( count == 1 )) || fail "found $count ORPHAN lines, want 1"
+    output_has_status ORPHAN dotfiles/linux/stray.txt \
+        'no entry in sync-config.json; git rm it or add an entry' \
+        || fail "missing ORPHAN line for dotfiles/linux/stray.txt"
+}
+
+case_orphan_none() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    # dotfiles/windows/win.conf is owned by a windows entry, so it is not reported.
+    if grep -qE '^  ORPHAN[[:space:]]' "$out"; then
+        fail "unexpected ORPHAN line"
+    fi
+}
+
+case_orphan_linked_ok() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    jq '.files += [{"repoPath": "dotfiles/windows/linked.sh", "localPath": "~\\linked.sh", "platform": "windows", "detectLinkedPaths": true}]' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    mkdir -p "$t/repo/dotfiles/windows/linked.sh.linked/tool"
+    printf 'script\n' > "$t/repo/dotfiles/windows/linked.sh"
+    printf 'tool\n' > "$t/repo/dotfiles/windows/linked.sh.linked/tool/x.bat"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    if grep -qE '^  ORPHAN[[:space:]]' "$out"; then
+        fail "unexpected ORPHAN line for a detectLinkedPaths entry"
+    fi
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -721,6 +775,9 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         dir-import-extra) case_dir_import_extra ;;
         dir-roundtrip-unchanged) case_dir_roundtrip_unchanged ;;
         dir-import-prompt-reads-stdin) case_dir_import_prompt_reads_stdin ;;
+        orphan-reported) case_orphan_reported ;;
+        orphan-none) case_orphan_none ;;
+        orphan-linked-ok) case_orphan_linked_ok ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"

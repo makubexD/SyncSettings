@@ -203,6 +203,10 @@ while IFS= read -r entry; do
     fi
 done < <(platform_entries)
 
+# Report files under dotfiles/ that no entry owns; this never changes the counts
+# or the exit code.
+report_orphans
+
 # -- Summary ---------------------------------------------------------------------
 
 printf '\n  %s\n' "--------------------------------------------------"
