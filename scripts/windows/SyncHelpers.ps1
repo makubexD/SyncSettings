@@ -24,15 +24,36 @@ function Resolve-UserProfile {
 }
 
 function Test-WindowsEntry {
-    # Entries without "platform" are Windows entries. "linux" entries belong to the bash scripts.
+    # Only entries with platform "windows" or "common" belong to the PowerShell scripts.
+    # "linux" entries belong to the bash scripts; anything else is caught by Assert-ValidPlatform.
     param($Entry)
-    $hasPlatform = $Entry.PSObject.Properties['platform'] -and $Entry.platform
-    return (-not $hasPlatform) -or ($Entry.platform -eq 'windows')
+    return ($Entry.platform -eq 'windows') -or ($Entry.platform -eq 'common')
+}
+
+function Assert-ValidPlatform {
+    <#
+    .SYNOPSIS
+        Stops the run if any entry has a missing or invalid platform.
+    .DESCRIPTION
+        Every entry must name one of "common", "windows" or "linux". The check
+        covers all entries, not only the ones this engine selects, so a bad
+        Linux entry also stops the Windows engine.
+    #>
+    param([array]$Files)
+    foreach ($entry in $Files) {
+        $prop  = $entry.PSObject.Properties['platform']
+        $valid = $prop -and ($prop.Value -eq 'common' -or $prop.Value -eq 'windows' -or $prop.Value -eq 'linux')
+        if (-not $valid) {
+            throw ('sync-config.json: entry {0} needs "platform": "common", "windows" or "linux".' -f $entry.repoPath)
+        }
+    }
 }
 
 function Resolve-LocalPath {
     param([string]$Template, [string]$ProfileRoot)
-    $Template -replace '^~', $ProfileRoot
+    # "~/..." works on both engines: expand ~ first, then use backslashes on Windows.
+    $path = $Template -replace '^~', $ProfileRoot
+    return $path -replace '/', '\'
 }
 
 # -- Exclude pattern check ----------------------------------------------------

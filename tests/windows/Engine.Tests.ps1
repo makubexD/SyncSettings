@@ -174,4 +174,57 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/windows/x.secret' 'matches exclude pattern')
         (Join-Path $script:RepoDir 'dotfiles\windows\x.secret') | Should -Not -Exist
     }
+
+    It 'common-import' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 0
+        $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+        $sharedConf | Should -Exist
+        $want = Join-Path $Script:Fixtures 'home\.config\fixture\shared.conf'
+        ([IO.File]::ReadAllBytes($sharedConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'CREATED' 'dotfiles/common/shared.conf')
+    }
+
+    It 'common-export' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $sharedConf = Join-Path $script:RepoDir 'dotfiles\common\shared.conf'
+        $sharedConf | Should -Exist
+        $want = Join-Path $Script:Fixtures 'repo\dotfiles\common\shared.conf'
+        ([IO.File]::ReadAllBytes($sharedConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/shared.conf' 'sanitized')
+    }
+
+    It 'missing-platform' {
+        Copy-EngineToRepo
+
+        # A linux entry on purpose: the check covers every entry, not only this engine's.
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $entry = $config.files | Where-Object { $_.repoPath -eq 'dotfiles/linux/plain.txt' }
+        $entry.PSObject.Properties.Remove('platform')
+        $json = $config | ConvertTo-Json -Depth 10
+        [IO.File]::WriteAllText($configPath, $json, [System.Text.UTF8Encoding]::new($false))
+
+        $msg = [regex]::Escape('ERROR: sync-config.json: entry dotfiles/linux/plain.txt needs "platform": "common", "windows" or "linux".')
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $msg
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $msg
+
+        @(Get-ChildItem -Path $script:HomeDir -Recurse -File).Count | Should -Be 0
+        (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
+    }
 }

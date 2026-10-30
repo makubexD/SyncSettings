@@ -40,6 +40,7 @@ try {
         throw "sync-config.json not found at: $configPath"
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
+    Assert-ValidPlatform -Files $config.files
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
     $profileRoot = Resolve-UserProfile -Username $User
