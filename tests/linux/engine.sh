@@ -254,6 +254,29 @@ case_noninteractive_missing_value() {
     [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written despite the missing value"
 }
 
+case_prompt_empty_stops() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    printf '{}\n' > "$t/repo/.user-values.json"
+    mkdir -p "$t/home"
+
+    local repo_before
+    repo_before=$(tree_hash "$t/repo")
+
+    # Run on a pseudo-terminal and answer the <NAME> prompt with an empty line.
+    # <NAME> has no default, so the empty answer must stop the run, not count as
+    # a value. script -e propagates import.sh's exit code.
+    rc=0
+    printf '\n' | script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fq 'missing value for <NAME>: add it to .user-values.json' "$out" \
+        || fail "missing 'missing value for <NAME>' message"
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written despite the empty answer"
+    [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed despite the empty answer"
+}
+
 case_error_continues() {
     # The repo copy of plain.txt is read-only, so the copy fails; export must
     # still report that file as ERROR and process the remaining entries.
@@ -1295,7 +1318,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value prompt-empty-stops error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1309,6 +1332,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         import-backup) case_import_backup ;;
         excluded) case_excluded ;;
         noninteractive-missing-value) case_noninteractive_missing_value ;;
+        prompt-empty-stops) case_prompt_empty_stops ;;
         error-continues) case_error_continues ;;
         import-eof-overwrites) case_import_eof_overwrites ;;
         crlf-unchanged) case_crlf_unchanged ;;

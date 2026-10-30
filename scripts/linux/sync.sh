@@ -244,7 +244,7 @@ request_values() {
         fi
         if [[ -n $input ]]; then
             USER_VALUES[$placeholder]=$input
-        elif [[ ! -t 0 ]]; then
+        else
             printf 'missing value for %s: add it to .user-values.json\n' "$placeholder" >&2
             exit 1
         fi
