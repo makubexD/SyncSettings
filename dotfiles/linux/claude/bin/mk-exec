@@ -61,8 +61,9 @@ started="$(date -Is)"
 
 # Headless Claude Code refuses writes anywhere under a `.claude` directory, so a repo there (~/.claude itself)
 # runs in a throwaway worktree outside it, and the worker's diff is applied back to the repo afterwards.
+# A repo with a .user-values.json does too: deny rules can't stop an interpreter, but a gitignored file isn't in a worktree.
 workdir="$repo"
-if [[ "$repo/" == */.claude/* ]]; then
+if [[ "$repo/" == */.claude/* || -e "$repo/.user-values.json" ]]; then
   workdir="$HOME/.cache/mk-worktrees/$(basename "$logdir")"
   mkdir -p "${workdir%/*}"
   git -C "$repo" worktree prune
