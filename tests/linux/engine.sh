@@ -669,6 +669,51 @@ case_lint_dir_with_rules() {
     grep -Fqx 'dotfiles/linux/d' "$out" || fail "output does not name the dir entry"
 }
 
+case_lint_file_in_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/x.txt", "localPath": "~/d/x.txt", "platform": "linux"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/x.txt' "$out" || fail "output does not name the file entry"
+}
+
+case_lint_typed_file_in_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/x.txt", "localPath": "~/d/x.txt", "platform": "linux", "type": "file"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/x.txt' "$out" || fail "output does not name the file entry"
+}
+
+case_lint_dir_in_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/e", "localPath": "~/d/e", "platform": "linux", "type": "dir"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/e' "$out" || fail "output does not name the nested dir entry"
+}
+
+case_lint_dir_trailing_slash() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d/", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/x.txt", "localPath": "~/d/x.txt", "platform": "linux"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/x.txt' "$out" || fail "output does not name the file entry"
+}
+
+case_lint_sibling_prefix() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d-old/x.txt", "localPath": "~/d-old/x.txt", "platform": "linux"}]'
+
+    (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+    if grep -Fq 'd-old' "$out"; then fail "output names the sibling entry"; fi
+}
+
 case_path_dotted_name() {
     new_tmp
     setup_repo
@@ -1805,7 +1850,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1842,6 +1887,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         lint-platform-bad) case_lint_platform_bad ;;
         lint-linux-prefix) case_lint_linux_prefix ;;
         lint-dir-with-rules) case_lint_dir_with_rules ;;
+        lint-file-in-dir) case_lint_file_in_dir ;;
+        lint-typed-file-in-dir) case_lint_typed_file_in_dir ;;
+        lint-dir-in-dir) case_lint_dir_in_dir ;;
+        lint-dir-trailing-slash) case_lint_dir_trailing_slash ;;
+        lint-sibling-prefix) case_lint_sibling_prefix ;;
         path-dotted-name) case_path_dotted_name ;;
         escape-import) case_escape_import ;;
         escape-export) case_escape_export ;;
