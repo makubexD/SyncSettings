@@ -229,7 +229,7 @@ function Compare-NormalizedContent {
 
 function Compare-FilesByHash {
     param([string]$PathA, [string]$PathB)
-    if (-not (Test-Path $PathA) -or -not (Test-Path $PathB)) { return $false }
+    if (-not (Test-Path -LiteralPath $PathA) -or -not (Test-Path -LiteralPath $PathB)) { return $false }
     $sha   = [System.Security.Cryptography.SHA256]::Create()
     $hashA = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($PathA)))
     $hashB = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($PathB)))
@@ -417,16 +417,16 @@ function Sync-LinkedDirectory {
 
     $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0; removed = 0 }
 
-    if (-not (Test-Path $SourceDir)) {
+    if (-not (Test-Path -LiteralPath $SourceDir)) {
         Write-StatusLine 'SKIPPED' "$Label/" "WARNING: source directory not found: $SourceDir"
         return $stats
     }
 
-    if (-not (Test-Path $DestDir)) {
+    if (-not (Test-Path -LiteralPath $DestDir)) {
         New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
     }
 
-    $gciParams = @{ Path = $SourceDir; File = $true; Force = $true }
+    $gciParams = @{ LiteralPath = $SourceDir; File = $true; Force = $true }
     if ($Recursive) { $gciParams['Recurse'] = $true }
     $sourceFiles = Get-ChildItem @gciParams
 
@@ -448,19 +448,19 @@ function Sync-LinkedDirectory {
         }
 
         $destDir2 = Split-Path $destFile -Parent
-        if (-not (Test-Path $destDir2)) {
+        if (-not (Test-Path -LiteralPath $destDir2)) {
             New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null
         }
 
-        if (-not (Test-Path $destFile)) {
-            Copy-Item -Path $file.FullName -Destination $destFile -Force
+        if (-not (Test-Path -LiteralPath $destFile)) {
+            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
             Write-StatusLine 'ADDED' $itemLabel
             $stats.added++
         } elseif (Compare-FilesByHash -PathA $file.FullName -PathB $destFile) {
             Write-StatusLine 'UNCHANGED' $itemLabel
             $stats.unchanged++
         } else {
-            Copy-Item -Path $file.FullName -Destination $destFile -Force
+            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
             Write-StatusLine 'MODIFIED' $itemLabel
             $stats.modified++
         }
@@ -468,8 +468,8 @@ function Sync-LinkedDirectory {
 
     # Remove orphans: files in dest whose source is gone, a symlink, or now
     # excluded; then prune empty folders under the dest dir.
-    if (Test-Path $DestDir) {
-        $destGciParams = @{ Path = $DestDir; File = $true; Force = $true }
+    if (Test-Path -LiteralPath $DestDir) {
+        $destGciParams = @{ LiteralPath = $DestDir; File = $true; Force = $true }
         if ($Recursive) { $destGciParams['Recurse'] = $true }
         $destFiles = Get-ChildItem @destGciParams
         foreach ($df in $destFiles) {
@@ -477,30 +477,30 @@ function Sync-LinkedDirectory {
             $itemLabel  = "$Label/" + ($relPath -replace '\\', '/')
             $sourceFile = Join-Path $SourceDir $relPath
 
-            $remove = -not (Test-Path $sourceFile)
+            $remove = -not (Test-Path -LiteralPath $sourceFile)
             if (-not $remove -and (Test-Excluded -FilePath $sourceFile -Patterns $ExcludePatterns)) {
                 $remove = $true
             }
             if (-not $remove) {
-                $sourceItem = Get-Item -Path $sourceFile -Force
+                $sourceItem = Get-Item -LiteralPath $sourceFile -Force
                 if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
                     $remove = $true
                 }
             }
 
             if ($remove) {
-                Remove-Item $df.FullName -Force
+                Remove-Item -LiteralPath $df.FullName -Force
                 Write-StatusLine 'REMOVED' $itemLabel 'no longer in source'
                 $stats.removed++
             }
         }
 
         if ($Recursive) {
-            $emptyDirs = Get-ChildItem -Path $DestDir -Directory -Recurse -Force |
+            $emptyDirs = Get-ChildItem -LiteralPath $DestDir -Directory -Recurse -Force |
                 Sort-Object { $_.FullName.Length } -Descending
             foreach ($dir in $emptyDirs) {
                 if (@($dir.GetFileSystemInfos()).Count -eq 0) {
-                    Remove-Item -Path $dir.FullName -Force
+                    Remove-Item -LiteralPath $dir.FullName -Force
                 }
             }
         }
@@ -580,8 +580,8 @@ function Copy-RepoFileToLocal {
         [bool]$Force = $false
     )
 
-    if (-not (Test-Path $LocalFile)) {
-        Copy-Item -Path $RepoFile -Destination $LocalFile -Force
+    if (-not (Test-Path -LiteralPath $LocalFile)) {
+        Copy-Item -LiteralPath $RepoFile -Destination $LocalFile -Force
         Write-StatusLine 'CREATED' $Label
         return 'CREATED'
     } elseif (Compare-FilesByHash -PathA $RepoFile -PathB $LocalFile) {
@@ -599,8 +599,8 @@ function Copy-RepoFileToLocal {
             }
             Write-Host
         }
-        Copy-Item -Path $LocalFile -Destination "$LocalFile.bak" -Force
-        Copy-Item -Path $RepoFile  -Destination $LocalFile      -Force
+        Copy-Item -LiteralPath $LocalFile -Destination "$LocalFile.bak" -Force
+        Copy-Item -LiteralPath $RepoFile  -Destination $LocalFile      -Force
         Write-StatusLine 'UPDATED' $Label "backup saved as $(Split-Path "$LocalFile.bak" -Leaf)"
         return 'UPDATED'
     }
@@ -623,23 +623,23 @@ function Import-DirEntry {
         [bool]$Force = $false
     )
 
-    if (-not (Test-Path $RepoDir -PathType Container)) {
+    if (-not (Test-Path -LiteralPath $RepoDir -PathType Container)) {
         Write-StatusLine 'SKIPPED' "$Label/" 'not found in repo'
         return 0
     }
 
     $localParent = Split-Path $LocalDir -Parent
-    if (-not (Test-Path $localParent)) {
+    if (-not (Test-Path -LiteralPath $localParent)) {
         Write-StatusLine 'SKIPPED' "$Label/" "WARNING: target folder not found: $localParent"
         return 0
     }
 
-    if (-not (Test-Path $LocalDir)) {
+    if (-not (Test-Path -LiteralPath $LocalDir)) {
         New-Item -ItemType Directory -Path $LocalDir -Force | Out-Null
     }
 
     $applied = 0
-    foreach ($file in (Get-ChildItem -Path $RepoDir -File -Recurse -Force)) {
+    foreach ($file in (Get-ChildItem -LiteralPath $RepoDir -File -Recurse -Force)) {
         $rel = $file.FullName.Substring($RepoDir.TrimEnd('\').Length + 1)
         $itemLabel = "$Label/" + ($rel -replace '\\', '/')
         $localFile = Join-Path $LocalDir $rel
@@ -650,7 +650,7 @@ function Import-DirEntry {
         }
 
         $localFileParent = Split-Path $localFile -Parent
-        if (-not (Test-Path $localFileParent)) {
+        if (-not (Test-Path -LiteralPath $localFileParent)) {
             New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
         }
 
@@ -658,11 +658,11 @@ function Import-DirEntry {
         if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
     }
 
-    if (Test-Path $LocalDir) {
-        foreach ($file in (Get-ChildItem -Path $LocalDir -File -Recurse -Force)) {
+    if (Test-Path -LiteralPath $LocalDir) {
+        foreach ($file in (Get-ChildItem -LiteralPath $LocalDir -File -Recurse -Force)) {
             $rel = $file.FullName.Substring($LocalDir.TrimEnd('\').Length + 1)
             $itemLabel = "$Label/" + ($rel -replace '\\', '/')
-            if (Test-Path (Join-Path $RepoDir $rel)) {
+            if (Test-Path -LiteralPath (Join-Path $RepoDir $rel)) {
                 continue
             }
             if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {

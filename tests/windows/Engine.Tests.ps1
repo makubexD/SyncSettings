@@ -346,6 +346,38 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/dir/c.txt')
     }
 
+    It 'dir-bracket-name' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        $localFile = Join-Path $script:HomeDir '.config\fixture\dir\[x].txt'
+        [IO.File]::WriteAllText($localFile, "b`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\common\dir\[x].txt'
+        (Test-Path -LiteralPath $repoFile) | Should -BeTrue
+        ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("b`n") -join ',')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/dir/[x].txt')
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $exportExit = $script:EngineExit
+        $exportOut = $script:EngineOut
+
+        $exportExit | Should -Be 0
+        $exportOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/[x].txt')
+        $exportOut | Should -Not -Match '\[REMOVED'
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $importExit = $script:EngineExit
+        $importOut = $script:EngineOut
+
+        $importExit | Should -Be 0
+        $importOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/[x].txt')
+        $importOut | Should -Not -Match '\[EXTRA'
+    }
+
     It 'dir-export-modify-remove' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
