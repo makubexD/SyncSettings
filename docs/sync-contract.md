@@ -206,8 +206,8 @@ the machine.
   so the diff holds placeholders, not real values.
 - The temp folder is removed at the end, also after a failure. A placeholder value answered during a preview is not
   saved.
-- The leak scan runs on the result. A hit prints `WARNING: the leak scan found the lines above. Fix them before
-  committing.`, and the preview exits 1.
+- The leak scan runs on the result before any diff prints. A hit prints `WARNING: the leak scan found the lines above.
+  Fix them before committing.`, leaves the diff out so the leaked text stays off the screen, and the preview exits 1.
 - With no differences: `Nothing would be sent: the repo matches HEAD.`
 - `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
 - The up-to-date check does not run.
