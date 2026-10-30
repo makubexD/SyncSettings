@@ -124,6 +124,24 @@ BeforeAll {
         }
     }
 
+    # -- sync.cmd helpers -------------------------------------------------------
+
+    # The sync wrappers are not part of the engine copy; the sync cases add both
+    # of them, so PowerShell has to choose sync.cmd over the extensionless sync.
+    function Copy-SyncWrappers {
+        Copy-Item -Path (Join-Path $Script:TestRepo 'sync') -Destination $script:RepoDir -Force
+        Copy-Item -Path (Join-Path $Script:TestRepo 'sync.cmd') -Destination $script:RepoDir -Force
+    }
+
+    # Runs sync.cmd through cmd /c. Each argument is a separate element, so one
+    # holding a space reaches the batch file quoted, as a real user would type it.
+    function Invoke-SyncCmd {
+        param([string[]]$CmdArgs = @())
+        $script:EngineScript = Join-Path $script:RepoDir 'sync.cmd'
+        $script:EngineOut = & cmd.exe /c $script:EngineScript @CmdArgs 2>&1 | Out-String
+        $script:EngineExit = $LASTEXITCODE
+    }
+
     # Runs Export-Settings.ps1 -Preview in the temp repo.
     function Invoke-Preview {
         param([switch]$ResetValues)
@@ -922,6 +940,98 @@ Describe 'Windows engine' {
 
         $script:EngineExit | Should -Be 1
         $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --preview needs a git repo with a commit.'))
+    }
+
+    # -- sync.cmd ---------------------------------------------------------------
+
+    It 'sync-cmd-usage' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+
+        Invoke-SyncCmd
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('usage: sync.cmd <preview|export|commit|import> [options]'))
+        $script:EngineOut | Should -Match ([regex]::Escape('Detected: windows'))
+    }
+
+    It 'sync-cmd-unknown' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+
+        Invoke-SyncCmd -CmdArgs @('bogus')
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('Unknown command: bogus'))
+    }
+
+    It 'sync-cmd-export' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+        Copy-HomeFiles
+
+        Invoke-SyncCmd -CmdArgs @('export')
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/windows/win.conf' 'sanitized')
+    }
+
+    It 'sync-cmd-import-force' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+        Copy-RepoDotfiles
+
+        $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        # -Force must reach Import-Settings.ps1, or it would prompt before overwriting.
+        Invoke-SyncCmd -CmdArgs @('import', '-Force')
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/windows/win.conf' 'backup saved as win.conf.bak')
+    }
+
+    It 'sync-cmd-preview' {
+        New-PreviewRepo
+        Copy-SyncWrappers
+        Set-PreviewChange
+
+        Invoke-SyncCmd -CmdArgs @('preview')
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match ([regex]::Escape('Nothing was written.'))
+    }
+
+    It 'sync-cmd-message-quotes' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+
+        # Commit-Settings -Message cannot run without a git repo and gh, so this
+        # asks Import-Settings to resolve a quoted user name with a space and
+        # checks the whole value came through as one argument, not two.
+        Invoke-SyncCmd -CmdArgs @('import', '-User', 'Fixture User')
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape("Cannot resolve profile directory for user 'Fixture User'"))
+    }
+
+    It 'sync-powershell-resolves' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+
+        # PowerShell prefers sync.cmd from PATHEXT; the extensionless sync is not
+        # executable there. The output proves which one ran.
+        Push-Location $script:RepoDir
+        try {
+            $script:EngineOut = & .\sync 2>&1 | Out-String
+            $script:EngineExit = $LASTEXITCODE
+        } finally {
+            Pop-Location
+        }
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('Detected: windows'))
     }
 }
 
