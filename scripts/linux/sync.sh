@@ -3,7 +3,6 @@
 # Source this file after cd-ing to the repo root. Never execute it directly.
 
 set -euo pipefail
-shopt -s extglob
 
 REPO_ROOT=$PWD
 CONFIG=$REPO_ROOT/sync-config.json
@@ -309,8 +308,8 @@ same_normalized() {
     local a=$1 b=$2
     a=${a//$'\r'/}
     b=${b//$'\r'/}
-    a=${a%%+([[:space:]])}
-    b=${b%%+([[:space:]])}
+    a=${a%"${a##*[![:space:]]}"}
+    b=${b%"${b##*[![:space:]]}"}
     [[ $a == "$b" ]]
 }
 

@@ -421,6 +421,30 @@ case_sanitize_longest_first() {
         || fail "dotfiles/common/paths.ini is not exactly 'gh = <WINPATH>'"
 }
 
+case_sanitized_large_file() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/linux" "$t/home/.config/fixture"
+
+    # 128 KB of x lines: the old extglob trim took minutes on files this size.
+    local xline body i
+    printf -v xline '%128s' ''
+    xline=${xline// /x}
+    body=$t/body
+    for ((i = 0; i < 1024; i++)); do printf '%s\n' "$xline"; done > "$body"
+
+    # Local and repo differ only by the sanitized value and the local trailing
+    # blank lines, which normalization ignores, so the export must be UNCHANGED.
+    { printf 'name = <NAME>\n'; cat "$body"; } > "$t/repo/dotfiles/linux/named.conf"
+    { printf 'name = Fixture User\n'; cat "$body"; printf '\n\n'; } > "$t/home/.config/fixture/named.conf"
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" timeout 20 ./export.sh < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/named.conf \
+        || fail "missing UNCHANGED line for the large named.conf"
+}
+
 case_infer_name() {
     new_tmp
     setup_repo
@@ -973,7 +997,7 @@ case_upstream_off_master() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -997,6 +1021,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         escape-export) case_escape_export ;;
         escape-roundtrip-unchanged) case_escape_roundtrip_unchanged ;;
         sanitize-longest-first) case_sanitize_longest_first ;;
+        sanitized-large-file) case_sanitized_large_file ;;
         infer-name) case_infer_name ;;
         infer-reset) case_infer_reset ;;
         infer-keeps-cache) case_infer_keeps_cache ;;
