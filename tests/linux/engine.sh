@@ -25,6 +25,15 @@ fail() {
     exit 1
 }
 
+# The copy keeps the source's mode and is executable. Compare with the fixture
+# rather than a literal 755: git checks files out under the user's umask.
+same_mode() {
+    local want=$1 got=$2
+    [[ -x $got ]] || fail "${got##*/} is not executable"
+    [[ $(stat -c %a "$got") == "$(stat -c %a "$want")" ]] \
+        || fail "${got##*/} mode is $(stat -c %a "$got"), want $(stat -c %a "$want") like ${want#"$FIXTURES"/}"
+}
+
 # The exact status line the engine prints (scripts/linux/sync.sh status()).
 status_line() {
     local s=$1 label=$2 note=${3:-}
@@ -96,8 +105,7 @@ case_import_creates() {
         cmp -s "$FIXTURES/home/.config/fixture/$f" "$t/home/.config/fixture/$f" \
             || fail "$f differs from fixture"
     done
-    [[ $(stat -c %a "$t/home/.config/fixture/tool.sh") == 755 ]] \
-        || fail "tool.sh mode is $(stat -c %a "$t/home/.config/fixture/tool.sh"), want 755"
+    same_mode "$FIXTURES/repo/dotfiles/linux/tool.sh" "$t/home/.config/fixture/tool.sh"
     [[ ! -e "$t/home/.config/fixture/win.conf" ]] || fail "win.conf was created"
 }
 
@@ -115,8 +123,7 @@ case_export_adds() {
         cmp -s "$FIXTURES/repo/dotfiles/linux/$f" "$t/repo/dotfiles/linux/$f" \
             || fail "dotfiles/linux/$f differs from fixture"
     done
-    [[ $(stat -c %a "$t/repo/dotfiles/linux/tool.sh") == 755 ]] \
-        || fail "tool.sh mode is $(stat -c %a "$t/repo/dotfiles/linux/tool.sh"), want 755"
+    same_mode "$FIXTURES/home/.config/fixture/tool.sh" "$t/repo/dotfiles/linux/tool.sh"
     [[ ! -e "$t/repo/dotfiles/windows" ]] || fail "dotfiles/windows exists"
 
     output_has_status ADDED dotfiles/linux/plain.txt || fail "missing ADDED line for plain.txt"
