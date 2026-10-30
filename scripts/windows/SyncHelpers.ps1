@@ -313,13 +313,13 @@ function Request-MissingValues {
                 }
             } elseif ($defaultVal) {
                 $value = $defaultVal
-            } else {
+            }
+
+            if (-not $value -or $value.Length -eq 0) {
                 throw "missing value for $($rule.placeholder): add it to .user-values.json"
             }
 
-            if ($value -and $value.Length -gt 0) {
-                $UserValues[$rule.placeholder] = $value
-            }
+            $UserValues[$rule.placeholder] = $value
         }
     }
 

@@ -1159,14 +1159,26 @@ Describe 'Request-MissingValues' {
         Should -Invoke Read-Host -Times 1 -Exactly
     }
 
-    It 'no default leaves value unset' {
+    It 'no default throws' {
         Remove-Item Env:FIXTURE_ENV -ErrorAction SilentlyContinue
         $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; defaultEnv = 'FIXTURE_ENV' }
         $values = @{}
 
-        Request-MissingValues -Rules @($rule) -UserValues $values -Direction import
+        { Request-MissingValues -Rules @($rule) -UserValues $values -Direction import } | Should -Throw 'missing value for <X>: add it to .user-values.json'
 
         $values.ContainsKey('<X>') | Should -BeFalse
+    }
+
+    It 'interactive empty answer throws and stores nothing' {
+        Mock Test-Interactive { $true }
+        Mock Read-Host { '' }
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X' }
+        $values = @{}
+
+        { Request-MissingValues -Rules @($rule) -UserValues $values -Direction import } | Should -Throw 'missing value for <X>: add it to .user-values.json'
+
+        $values.ContainsKey('<X>') | Should -BeFalse
+        Should -Invoke Read-Host -Times 1 -Exactly
     }
 
     It 'non-interactive without default throws' {
