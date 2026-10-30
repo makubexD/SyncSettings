@@ -194,6 +194,28 @@ BeforeAll {
         $script:EngineExit = $LASTEXITCODE
     }
 
+    # A commit repo with the fixture values cached, ignored the way the real repo ignores them.
+    function New-CommitValuesRepo {
+        New-CommitRepo
+        Copy-Item -LiteralPath (Join-Path $Script:Fixtures 'user-values.json') -Destination (Join-Path $script:CloneDir '.user-values.json')
+        Add-Content -LiteralPath (Join-Path $script:CloneDir '.git\info\exclude') -Value '.user-values.json'
+    }
+
+    function Set-CloneWinConf {
+        param([string]$Text)
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, $Text, [System.Text.UTF8Encoding]::new($false))
+    }
+
+    function Assert-CommitBlocked {
+        param([string]$Placeholder)
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape("ERROR: a cached value for $Placeholder is in dotfiles/windows/win.conf; nothing was committed."))
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
     # Refnames of every branch on the bare origin.
     function Get-OriginBranches {
         $ErrorActionPreference = 'Continue'
@@ -1162,6 +1184,65 @@ Describe 'Windows engine' {
         Get-OriginBranches | Should -Be 'refs/heads/master'
         (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
         $script:GhLog | Should -Not -Exist
+    }
+
+    It 'commit-value-blocked' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = Fixture User`r`n"
+
+        Invoke-Commit
+
+        Assert-CommitBlocked '<NAME>'
+    }
+
+    It 'commit-value-case-variant' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = FIXTURE user`r`n"
+
+        Invoke-Commit
+
+        Assert-CommitBlocked '<NAME>'
+    }
+
+    It 'commit-value-doubled' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "tool = C:\\Tools\\gh.exe`r`n"
+
+        Invoke-Commit
+
+        Assert-CommitBlocked '<WINPATH>'
+    }
+
+    It 'commit-value-untracked' {
+        New-CommitValuesRepo
+        $newDir = Join-Path $script:CloneDir 'dotfiles\windows\new'
+        $null = New-Item -ItemType Directory -Path $newDir -Force
+        [IO.File]::WriteAllText((Join-Path $newDir 'added.txt'), "author = Fixture User`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: a cached value for <NAME> is in dotfiles/windows/new/added.txt; nothing was committed.'))
+    }
+
+    It 'commit-value-placeholder-only' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = <NAME>`r`n"
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 0
+        @(Get-Content $script:GhLog).Count | Should -Be 1
+    }
+
+    It 'commit-value-not-printed' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = Fixture User`r`n"
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Not -Match 'Fixture User'
     }
 
     # -- sync.cmd ---------------------------------------------------------------
