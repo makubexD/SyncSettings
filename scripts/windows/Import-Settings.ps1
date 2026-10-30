@@ -268,15 +268,7 @@ try {
                             Write-Host "  Creating linked directory: $linkLocal" -ForegroundColor Cyan
                         }
 
-                        $syncParams = @{
-                            SourceDir       = $linkRepoFull
-                            DestDir         = $linkLocal
-                            Label           = $linkLabel
-                            ExcludePatterns = $config.excludePatterns
-                            Recursive       = $false
-                        }
-                        $linkStats = Sync-LinkedDirectory @syncParams
-                        $applied += ($linkStats.added + $linkStats.modified)
+                        $applied += Import-LinkedDirectory -SourceDir $linkRepoFull -DestDir $linkLocal -Label $linkLabel -ExcludePatterns $config.excludePatterns -Force ([bool]$Force)
                     }
                 }
             }

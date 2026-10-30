@@ -813,6 +813,69 @@ function Import-DirEntry {
     return $applied
 }
 
+function Import-LinkedDirectory {
+    <#
+    .SYNOPSIS
+        Imports the files of one linked folder from the repo onto the machine.
+    .DESCRIPTION
+        Import never deletes: a local file the repo does not have is reported as
+        EXTRA and kept. Each repo file follows the same compare / prompt / .bak /
+        copy flow as a plain file entry, so -Force skips only the prompt. Linked
+        folders are non-recursive, matching the current import call. Returns the
+        number of files applied.
+    #>
+    param(
+        [string]$SourceDir,
+        [string]$DestDir,
+        [string]$Label,
+        [string[]]$ExcludePatterns,
+        [bool]$Force = $false
+    )
+
+    if (-not (Test-Path -LiteralPath $SourceDir -PathType Container)) {
+        Write-StatusLine 'SKIPPED' "$Label/" 'not found in repo'
+        return 0
+    }
+
+    if (-not (Test-Path -LiteralPath $DestDir)) {
+        New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+    }
+
+    $applied = 0
+    foreach ($file in (Get-ChildItem -LiteralPath $SourceDir -File -Force)) {
+        $itemLabel = "$Label/" + $file.Name
+        $localFile = Join-Path $DestDir $file.Name
+
+        if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'symlink'
+            continue
+        }
+
+        if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'matches exclude pattern'
+            continue
+        }
+
+        $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
+        if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+    }
+
+    if (Test-Path -LiteralPath $DestDir) {
+        foreach ($file in (Get-ChildItem -LiteralPath $DestDir -File -Force)) {
+            $itemLabel = "$Label/" + $file.Name
+            if (Test-Path -LiteralPath (Join-Path $SourceDir $file.Name)) {
+                continue
+            }
+            if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
+                continue
+            }
+            Write-StatusLine 'EXTRA' $itemLabel 'not in repo; kept'
+        }
+    }
+
+    return $applied
+}
+
 # -- Status output -------------------------------------------------------------
 
 function Write-StatusLine {

@@ -723,6 +723,59 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Not -Match '\[ORPHAN'
     }
 
+    It 'import-linked-keeps-local' {
+        Copy-EngineToRepo
+
+        # A linked folder lives on the system drive, outside the system paths
+        # Find-LinkedPaths filters out (C:\Windows, C:\Program Files, C:\Users, ...).
+        $linkedRoot = "$env:SystemDrive\SyncSettingsTest-$([guid]::NewGuid().ToString('N'))"
+        $toolDir    = "$linkedRoot\tool"
+        $null = New-Item -ItemType Directory -Path $toolDir -Force
+
+        try {
+            $configPath = Join-Path $script:RepoDir 'sync-config.json'
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            $linkedEntry = [pscustomobject]@{
+                repoPath          = 'dotfiles/windows/linked.sh'
+                localPath         = '~\linked.sh'
+                platform          = 'windows'
+                detectLinkedPaths = $true
+            }
+            $config.files = @($config.files) + $linkedEntry
+            [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+            $winDir = Join-Path $script:RepoDir 'dotfiles\windows'
+            $null = New-Item -ItemType Directory -Path $winDir -Force
+            [IO.File]::WriteAllText((Join-Path $winDir 'linked.sh'), "script`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+            $linkRepo = Join-Path $winDir 'linked.sh.linked\tool'
+            $null = New-Item -ItemType Directory -Path $linkRepo -Force
+            [IO.File]::WriteAllText((Join-Path $linkRepo 'a.txt'), "repo-a`n", [System.Text.UTF8Encoding]::new($false))
+
+            # Local: a differing file, a local-only file, and an excluded file.
+            [IO.File]::WriteAllText((Join-Path $toolDir 'a.txt'), "local-a`n", [System.Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText((Join-Path $toolDir 'local.txt'), "mine`n", [System.Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText((Join-Path $toolDir 'x.bak'), "x`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/windows/linked.sh.linked/tool/a.txt' 'backup saved as a.txt.bak')
+            $script:EngineOut | Should -Match (Get-StatusPattern 'EXTRA' 'dotfiles/windows/linked.sh.linked/tool/local.txt' 'not in repo; kept')
+            $script:EngineOut | Should -Not -Match 'x\.bak'
+
+            $aTxt = Join-Path $toolDir 'a.txt'
+            ([IO.File]::ReadAllBytes($aTxt) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("repo-a`n") -join ',')
+            "$aTxt.bak" | Should -Exist
+            ([IO.File]::ReadAllBytes("$aTxt.bak") -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("local-a`n") -join ',')
+            ([IO.File]::ReadAllBytes((Join-Path $toolDir 'local.txt')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("mine`n") -join ',')
+            ([IO.File]::ReadAllBytes((Join-Path $toolDir 'x.bak')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("x`n") -join ',')
+        } finally {
+            if (Test-Path -LiteralPath $linkedRoot) {
+                Remove-Item -LiteralPath $linkedRoot -Recurse -Force
+            }
+        }
+    }
+
     It 'upstream-none' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
@@ -1181,5 +1234,42 @@ Describe 'Test-RepoUpToDate' {
         Test-RepoUpToDate -RepoRoot $script:Work | Should -BeFalse
 
         Should -Invoke Read-Host -Times 0 -Exactly
+    }
+}
+
+Describe 'Import-LinkedDirectory' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+    }
+
+    BeforeEach {
+        $script:LinkedWork = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path $script:LinkedWork -Force
+    }
+
+    AfterEach {
+        if (Test-Path -LiteralPath $script:LinkedWork) {
+            Remove-Item -LiteralPath $script:LinkedWork -Recurse -Force
+        }
+    }
+
+    It 'import-linked-answer-no' {
+        $src = Join-Path $script:LinkedWork 'repo-tool'
+        $dst = Join-Path $script:LinkedWork 'local-tool'
+        $null = New-Item -ItemType Directory -Path $src -Force
+        $null = New-Item -ItemType Directory -Path $dst -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), "repo`n", [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $dst 'a.txt'), "local`n", [System.Text.UTF8Encoding]::new($false))
+
+        Mock Read-Host { 'n' }
+        Mock Write-StatusLine { }
+
+        $applied = Import-LinkedDirectory -SourceDir $src -DestDir $dst -Label 'tool' -ExcludePatterns @() -Force $false
+
+        $applied | Should -Be 0
+        ([IO.File]::ReadAllBytes((Join-Path $dst 'a.txt')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("local`n") -join ',')
+        (Join-Path $dst 'a.txt.bak') | Should -Not -Exist
+        Should -Invoke Read-Host -Times 1 -Exactly
+        Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'SKIPPED' -and $Note -eq 'user skipped' }
     }
 }
