@@ -49,6 +49,108 @@ function Assert-ValidPlatform {
     }
 }
 
+function Test-SafePath {
+    <#
+    .SYNOPSIS
+        True when a repoPath or localPath stays inside its allowed area.
+    .DESCRIPTION
+        repoPath must start with dotfiles/ and localPath with ~/ or ~\, both
+        with no .. segment, splitting on both / and \. A name like foo..bar is
+        a legal segment; an empty or missing path never matches a prefix, so it
+        fails.
+    #>
+    param([string]$Path, [string]$Kind)
+
+    if ([string]::IsNullOrEmpty($Path)) { return $false }
+
+    if ($Kind -eq 'repo') {
+        if ($Path -cnotlike 'dotfiles/*') { return $false }
+    } else {
+        if ($Path -cnotlike '~/*' -and $Path -cnotlike '~\*') { return $false }
+    }
+
+    foreach ($seg in ($Path -split '[/\\]')) {
+        if ($seg -eq '..') { return $false }
+    }
+    return $true
+}
+
+function Get-OwningRepoPath {
+    # The repoPath of the entry that owns a repo-relative path, or the path
+    # itself when no entry does. A file entry owns its repoPath exactly; a dir
+    # entry owns everything under <repoPath>/; an entry with detectLinkedPaths
+    # owns everything under <repoPath>.linked/.
+    param([array]$Files, [string]$RelPath)
+
+    foreach ($entry in $Files) {
+        if (-not ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir')) {
+            if ([string]$entry.repoPath -eq $RelPath) { return [string]$entry.repoPath }
+        }
+    }
+    foreach ($entry in $Files) {
+        if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+            $r = [string]$entry.repoPath
+            if ($RelPath -eq $r -or $RelPath.StartsWith("$r/", [StringComparison]::Ordinal)) {
+                return $r
+            }
+        }
+    }
+    foreach ($entry in $Files) {
+        if ($entry.PSObject.Properties['detectLinkedPaths'] -and $entry.detectLinkedPaths -eq $true) {
+            $r = [string]$entry.repoPath
+            if ($RelPath.StartsWith("$r.linked/", [StringComparison]::Ordinal)) {
+                return $r
+            }
+        }
+    }
+    return $RelPath
+}
+
+function Assert-SafePaths {
+    <#
+    .SYNOPSIS
+        Stops the run if any entry has an unsafe path or dotfiles/ holds a
+        reparse point.
+    .DESCRIPTION
+        Every entry's repoPath must start with dotfiles/ and its localPath with
+        ~/ or ~\, both with no .. segment. A reparse point (symlink or junction)
+        anywhere under dotfiles/ also stops the run. The checks cover all
+        entries, not only the ones this engine selects.
+    #>
+    param([string]$RepoRoot, [array]$Files)
+
+    foreach ($entry in $Files) {
+        $repoPath  = [string]$entry.repoPath
+        $localPath = [string]$entry.localPath
+        if (-not (Test-SafePath -Path $repoPath -Kind repo)) {
+            throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
+        }
+        if (-not (Test-SafePath -Path $localPath -Kind local)) {
+            throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
+        }
+    }
+
+    # A reparse point can point anywhere; name the entry that owns it, or the
+    # reparse point's own repo-relative path when no entry does.
+    $base         = $RepoRoot.TrimEnd('\', '/')
+    $dotfilesRoot = Join-Path $base 'dotfiles'
+    if (Test-Path -LiteralPath $dotfilesRoot -PathType Container) {
+        $stack = New-Object System.Collections.Stack
+        $stack.Push($dotfilesRoot)
+        while ($stack.Count -gt 0) {
+            $dir = $stack.Pop()
+            foreach ($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
+                if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    $rel = ($item.FullName.Substring($base.Length).TrimStart('\', '/')) -replace '\\', '/'
+                    throw ('sync-config.json: entry {0} has an unsafe path.' -f (Get-OwningRepoPath -Files $Files -RelPath $rel))
+                } elseif ($item.PSIsContainer) {
+                    $stack.Push($item.FullName)
+                }
+            }
+        }
+    }
+}
+
 function Resolve-LocalPath {
     param([string]$Template, [string]$ProfileRoot)
     # "~/..." works on both engines: expand ~ first, then use backslashes on Windows.

@@ -78,6 +78,36 @@ BeforeAll {
         return $pattern
     }
 
+    # Appends one entry to the repo's sync-config.json (a full array round-trip).
+    function Add-FixtureEntry {
+        param($Entry)
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $config.files = @($config.files) + $Entry
+        [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+    }
+
+    # Both engines must stop with the same path error before touching any file.
+    function Assert-PathStop {
+        param([string]$Message)
+        $esc = [regex]::Escape($Message)
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $esc
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $esc
+
+        @(Get-ChildItem -Path $script:HomeDir -Recurse -File -Force -ErrorAction SilentlyContinue).Count | Should -Be 0
+
+        $dotfiles = Join-Path $script:RepoDir 'dotfiles'
+        if (Test-Path -LiteralPath $dotfiles) {
+            @(Get-ChildItem -LiteralPath $dotfiles -Recurse -File -Force -ErrorAction SilentlyContinue).Count | Should -Be 0
+        }
+    }
+
     # -- Preview helpers --------------------------------------------------------
 
     function Copy-CiToRepo {
@@ -423,6 +453,103 @@ Describe 'Windows engine' {
 
         @(Get-ChildItem -Path $script:HomeDir -Recurse -File).Count | Should -Be 0
         (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
+    }
+
+    It 'path-repo-traversal' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/../evil.txt'
+            localPath   = '~\evil.txt'
+            platform    = 'windows'
+            description = 'unsafe repoPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/../evil.txt has an unsafe path.'
+    }
+
+    It 'path-repo-outside' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'outside/evil.txt'
+            localPath   = '~\evil.txt'
+            platform    = 'windows'
+            description = 'unsafe repoPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry outside/evil.txt has an unsafe path.'
+    }
+
+    It 'path-local-traversal' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/windows/evil.txt'
+            localPath   = '~\..\evil.txt'
+            platform    = 'windows'
+            description = 'unsafe localPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/windows/evil.txt has an unsafe path.'
+    }
+
+    It 'path-local-absolute' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/windows/evil.txt'
+            localPath   = '/etc/passwd'
+            platform    = 'windows'
+            description = 'unsafe localPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/windows/evil.txt has an unsafe path.'
+    }
+
+    It 'path-repo-symlink' {
+        Copy-EngineToRepo
+
+        # A junction needs no admin rights, unlike a symlink, and it is a
+        # reparse point either way. Its target exists so a recursive listing
+        # cannot fail while following it.
+        $target   = Join-Path $script:T 'junction-target'
+        $junction = Join-Path $script:RepoDir 'dotfiles\linux\plain.txt'
+        $null = New-Item -ItemType Directory -Path $target -Force
+        $null = New-Item -ItemType Directory -Path (Split-Path $junction -Parent) -Force
+        New-Item -ItemType Junction -Path $junction -Value $target | Out-Null
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/plain.txt has an unsafe path.'
+    }
+
+    It 'path-real-config' {
+        Copy-EngineToRepo
+        Copy-Item -Path (Join-Path $Script:TestRepo 'sync-config.json') -Destination (Join-Path $script:RepoDir 'sync-config.json') -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('has an unsafe path'))
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('has an unsafe path'))
+    }
+
+    It 'path-dotted-name' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/windows/foo..bar.txt'
+            localPath   = '~\.config\fixture\foo..bar.txt'
+            platform    = 'windows'
+            description = 'dotted name'
+        })
+
+        $localFile = Join-Path $script:HomeDir '.config\fixture\foo..bar.txt'
+        [IO.File]::WriteAllText($localFile, "dotted`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/windows/foo..bar.txt')
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/windows/foo..bar.txt')
     }
 
     It 'escape-import' {

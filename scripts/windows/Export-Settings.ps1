@@ -51,6 +51,7 @@ try {
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
     Assert-ValidPlatform -Files $config.files
+    Assert-SafePaths -RepoRoot $repoRoot -Files $config.files
     $allEntries = @($config.files)
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
