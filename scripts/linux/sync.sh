@@ -162,18 +162,34 @@ _placeholders_by_length() {
 }
 
 sanitize() {
-    local c=$1 rules=$2 ph
+    local c=$1 rules=$2 ph v doubled
     # Longest value first, so a value that contains a shorter one is replaced whole.
     while IFS= read -r ph; do
-        c=${c//"${USER_VALUES[$ph]}"/"$ph"}
+        v=${USER_VALUES[$ph]}
+        doubled=${v//\\/\\\\}
+        # A config file may escape its backslashes (C:\\Tools): replace that form first.
+        if [[ $doubled != "$v" ]]; then
+            c=${c//"$doubled"/"$ph"}
+        fi
+        c=${c//"$v"/"$ph"}
     done < <(_placeholders_by_length "$rules")
     printf '%s' "$c"
 }
 
 hydrate() {
-    local c=$1 rules=$2 ph
+    local c=$1 rules=$2 ph v
+    local -A escape=()
+    # Placeholders whose rule asks for backslash-doubled values on the way back.
+    while IFS= read -r -d '' ph; do
+        escape[$ph]=1
+    done < <(jq -j '.[] | select(.escapeBackslashes == true) | .placeholder, "\u0000"' <<<"$rules")
+
     while IFS= read -r ph; do
-        c=${c//"$ph"/"${USER_VALUES[$ph]}"}
+        v=${USER_VALUES[$ph]}
+        if [[ -n ${escape[$ph]:-} && $v == *\\* ]]; then
+            v=${v//\\/\\\\}
+        fi
+        c=${c//"$ph"/"$v"}
     done < <(_placeholders_by_length "$rules")
     printf '%s' "$c"
 }

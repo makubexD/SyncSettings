@@ -323,9 +323,80 @@ case_missing_platform() {
     [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
 }
 
+case_escape_import() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/home/.config/fixture/paths.ini" "$t/home/.config/fixture/paths.ini" \
+        || fail "paths.ini differs from fixture"
+    output_has_status CREATED dotfiles/common/paths.ini \
+        || fail "missing CREATED line for paths.ini"
+}
+
+case_escape_export() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/repo/dotfiles/common/paths.ini" "$t/repo/dotfiles/common/paths.ini" \
+        || fail "dotfiles/common/paths.ini differs from fixture"
+    output_has_status ADDED dotfiles/common/paths.ini sanitized \
+        || fail "missing ADDED (sanitized) line for paths.ini"
+}
+
+case_escape_roundtrip_unchanged() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/common/paths.ini \
+        || fail "export: missing UNCHANGED line for paths.ini"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/common/paths.ini \
+        || fail "import: missing UNCHANGED line for paths.ini"
+
+    [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
+}
+
+case_sanitize_longest_first() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+
+    # A second, shorter value (<TOOLS> = C:\Tools) must not be replaced inside <WINPATH>'s value.
+    jq '(.files[] | select(.repoPath == "dotfiles/common/paths.ini") | .sanitizeRules) +=
+        [{"placeholder": "<TOOLS>", "prompt": "Tools dir"}]' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    jq --arg v 'C:\Tools' '. + {"<TOOLS>": $v}' \
+        "$t/repo/.user-values.json" > "$t/repo/.user-values.json.tmp"
+    mv "$t/repo/.user-values.json.tmp" "$t/repo/.user-values.json"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/repo/dotfiles/common/paths.ini" "$t/repo/dotfiles/common/paths.ini" \
+        || fail "dotfiles/common/paths.ini is not exactly 'gh = <WINPATH>'"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -345,6 +416,10 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         common-import) case_common_import ;;
         common-export) case_common_export ;;
         missing-platform) case_missing_platform ;;
+        escape-import) case_escape_import ;;
+        escape-export) case_escape_export ;;
+        escape-roundtrip-unchanged) case_escape_roundtrip_unchanged ;;
+        sanitize-longest-first) case_sanitize_longest_first ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"

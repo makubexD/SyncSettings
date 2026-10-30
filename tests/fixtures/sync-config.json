@@ -54,6 +54,19 @@
           "prompt": "Full name"
         }
       ]
+    },
+    {
+      "repoPath": "dotfiles/common/paths.ini",
+      "localPath": "~/.config/fixture/paths.ini",
+      "platform": "common",
+      "description": "Escaped-backslash fixture",
+      "sanitizeRules": [
+        {
+          "placeholder": "<WINPATH>",
+          "prompt": "Path to gh.exe",
+          "escapeBackslashes": true
+        }
+      ]
     }
   ],
   "excludePatterns": [

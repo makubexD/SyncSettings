@@ -240,6 +240,82 @@ Describe 'Windows engine' {
         (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
     }
 
+    It 'escape-import' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 0
+        $pathsIni = Join-Path $script:HomeDir '.config\fixture\paths.ini'
+        $pathsIni | Should -Exist
+        $want = Join-Path $Script:Fixtures 'home\.config\fixture\paths.ini'
+        ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'CREATED' 'dotfiles/common/paths.ini')
+    }
+
+    It 'escape-export' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $pathsIni = Join-Path $script:RepoDir 'dotfiles\common\paths.ini'
+        $pathsIni | Should -Exist
+        $want = Join-Path $Script:Fixtures 'repo\dotfiles\common\paths.ini'
+        ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/paths.ini' 'sanitized')
+    }
+
+    It 'escape-roundtrip-unchanged' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $exportExit = $script:EngineExit
+        $exportOut = $script:EngineOut
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $importExit = $script:EngineExit
+        $importOut = $script:EngineOut
+
+        $exportExit | Should -Be 0
+        $importExit | Should -Be 0
+        $exportOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/paths.ini')
+        $importOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/paths.ini')
+
+        $baks = @(Get-ChildItem -Path $script:HomeDir -Recurse -Filter '*.bak' -File)
+        $baks.Count | Should -Be 0
+    }
+
+    It 'sanitize-longest-first' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        # <TOOLS> = C:\Tools is shorter than <WINPATH> = C:\Tools\gh.exe, so it must not
+        # be replaced inside the longer value.
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $entry = $config.files | Where-Object { $_.repoPath -eq 'dotfiles/common/paths.ini' }
+        $rule = [pscustomobject]@{ placeholder = '<TOOLS>'; prompt = 'Tools dir' }
+        $entry.sanitizeRules = @($entry.sanitizeRules) + $rule
+        [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+        $valuesPath = Join-Path $script:RepoDir '.user-values.json'
+        $values = Get-Content $valuesPath -Raw | ConvertFrom-Json
+        $values | Add-Member -NotePropertyName '<TOOLS>' -NotePropertyValue 'C:\Tools' -Force
+        [IO.File]::WriteAllText($valuesPath, ($values | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $pathsIni = Join-Path $script:RepoDir 'dotfiles\common\paths.ini'
+        $want = Join-Path $Script:Fixtures 'repo\dotfiles\common\paths.ini'
+        ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+    }
+
     It 'noninteractive-missing-value-import' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
@@ -280,7 +356,7 @@ Describe 'Windows engine' {
         }
         $json = $config | ConvertTo-Json -Depth 10
         [IO.File]::WriteAllText($configPath, $json, [System.Text.UTF8Encoding]::new($false))
-        [IO.File]::WriteAllText((Join-Path $script:RepoDir '.user-values.json'), '{}', [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $script:RepoDir '.user-values.json'), '{"<WINPATH>": "C:\\Tools\\gh.exe"}', [System.Text.UTF8Encoding]::new($false))
 
         Invoke-EnginePiped -ScriptName 'Import-Settings.ps1' -Force
 
