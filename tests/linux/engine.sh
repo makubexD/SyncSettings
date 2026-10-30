@@ -394,9 +394,64 @@ case_sanitize_longest_first() {
         || fail "dotfiles/common/paths.ini is not exactly 'gh = <WINPATH>'"
 }
 
+case_infer_name() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    jq -n --arg v 'C:\Tools\gh.exe' '{"<WINPATH>": $v}' > "$t/repo/.user-values.json"
+    mkdir -p "$t/home/.config/fixture"
+    printf 'name = Jane Roe\n' > "$t/home/.config/fixture/named.conf"
+
+    # No --force: the inferred <NAME> makes the hydrated repo file match the
+    # local one, so there is no overwrite prompt and nothing is rewritten.
+    run_engine "$t/home" import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    [[ $(jq -r '."<NAME>"' "$t/repo/.user-values.json") == 'Jane Roe' ]] \
+        || fail ".user-values.json does not have the inferred <NAME>"
+    output_has_status UNCHANGED dotfiles/linux/named.conf \
+        || fail "missing UNCHANGED line for named.conf"
+    printf 'name = Jane Roe\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/home/.config/fixture/named.conf" \
+        || fail "local named.conf was rewritten"
+}
+
+case_infer_reset() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    jq -n --arg v 'C:\Tools\gh.exe' '{"<WINPATH>": $v}' > "$t/repo/.user-values.json"
+    mkdir -p "$t/home/.config/fixture"
+    printf 'name = Jane Roe\n' > "$t/home/.config/fixture/named.conf"
+
+    # --reset-values skips inference, so <NAME> has no value in a non-interactive run.
+    run_engine "$t/home" import.sh --reset-values
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -q 'missing value for <NAME>' "$out" || fail "missing 'missing value for <NAME>' message"
+}
+
+case_infer_keeps_cache() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'name = Jane Roe\n' > "$t/home/.config/fixture/named.conf"
+
+    # The fixture cache (<NAME> = Fixture User) must beat the inferred value.
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    [[ $(jq -r '."<NAME>"' "$t/repo/.user-values.json") == 'Fixture User' ]] \
+        || fail "cached <NAME> was overwritten"
+    output_has_status UPDATED dotfiles/linux/named.conf 'backup saved as named.conf.bak' \
+        || fail "missing UPDATED line for named.conf"
+    cmp -s "$FIXTURES/home/.config/fixture/named.conf" "$t/home/.config/fixture/named.conf" \
+        || fail "named.conf does not match the fixture after update"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -420,6 +475,9 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         escape-export) case_escape_export ;;
         escape-roundtrip-unchanged) case_escape_roundtrip_unchanged ;;
         sanitize-longest-first) case_sanitize_longest_first ;;
+        infer-name) case_infer_name ;;
+        infer-reset) case_infer_reset ;;
+        infer-keeps-cache) case_infer_keeps_cache ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"

@@ -38,6 +38,9 @@ done < <(platform_entries)
 
 load_values
 if [[ $ALL_RULES != '[]' ]]; then
+    if [[ $RESET_VALUES != 1 ]]; then
+        infer_values "$(platform_entries)"
+    fi
     request_values import "$RESET_VALUES" "$ALL_RULES"
     save_values
 fi

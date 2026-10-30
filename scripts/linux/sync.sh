@@ -78,6 +78,63 @@ save_values() {
     jq -S -n "${args[@]}" '$ARGS.named' > "$VALUES_FILE"
 }
 
+# -- Value inference (import only) --------------------------------------------
+
+# Fill USER_VALUES from an existing local file: where a repo line carries a
+# placeholder that the matching local line does not, the local text between the
+# repo line's prefix and suffix is that placeholder's value. Cached values win.
+# Entries arrive as newline-delimited JSON (platform_entries output).
+infer_values() {
+    local entries=$1 entry repo_path local_path rules repo_file
+    local repo_text local_text r l ph prefix suffix value
+    local i count
+    local -a repo_lines=() local_lines=()
+
+    [[ -n $entries ]] || return 0
+
+    # Entries arrive on fd 3, so stdin stays free for anything the loop runs.
+    while IFS= read -r entry <&3; do
+        [[ -n $entry ]] || continue
+        rules=$(jq -c '(.sanitizeRules // [])' <<<"$entry")
+        [[ $rules != '[]' ]] || continue
+
+        repo_path=$(jq -r '.repoPath' <<<"$entry")
+        local_path=$(resolve_local "$(jq -r '.localPath' <<<"$entry")")
+        repo_file=$REPO_ROOT/$repo_path
+        [[ -f $repo_file && -f $local_path ]] || continue
+
+        read_text repo_text "$repo_file" || continue
+        read_text local_text "$local_path" || continue
+
+        mapfile -t repo_lines <<<"$repo_text"
+        mapfile -t local_lines <<<"$local_text"
+        count=${#repo_lines[@]}
+        if (( ${#local_lines[@]} < count )); then
+            count=${#local_lines[@]}
+        fi
+
+        for (( i = 0; i < count; i++ )); do
+            r=${repo_lines[$i]%$'\r'}
+            l=${local_lines[$i]%$'\r'}
+            while IFS= read -r -d '' ph; do
+                [[ -n $ph ]] || continue
+                [[ $r == *"$ph"* ]] || continue
+                [[ $l == *"$ph"* ]] && continue
+                # Text before the first placeholder and after it, both literal.
+                prefix=${r%%"$ph"*}
+                suffix=${r#*"$ph"}
+                [[ $l == "$prefix"* ]] || continue
+                [[ $l == *"$suffix" ]] || continue
+                (( ${#l} >= ${#prefix} + ${#suffix} )) || continue
+                value=${l:${#prefix}:${#l}-${#prefix}-${#suffix}}
+                if [[ -n $value && -z ${USER_VALUES[$ph]:-} ]]; then
+                    USER_VALUES[$ph]=$value
+                fi
+            done < <(jq -j '.[] | .placeholder, "\u0000"' <<<"$rules")
+        done
+    done 3< <(printf '%s\n' "$entries")
+}
+
 # -- Prompting ----------------------------------------------------------------
 
 request_values() {
