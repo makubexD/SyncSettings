@@ -562,6 +562,47 @@ function Write-OrphanReport {
     }
 }
 
+# -- Leak scan -----------------------------------------------------------------
+
+function Find-GitBash {
+    # Returns the full path to Git's bash.exe, or $null when git is not on PATH
+    # or bash.exe is not where Git for Windows keeps it.
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) { return $null }
+    $candidate = Join-Path (Split-Path (Split-Path $git.Source -Parent) -Parent) 'bin\bash.exe'
+    if (Test-Path $candidate) { return $candidate }
+    return $null
+}
+
+function Invoke-LeakScan {
+    <#
+    .SYNOPSIS
+        Runs scripts/ci/leak-scan.sh over the given paths.
+    .DESCRIPTION
+        Returns 0 when clean, 1 when it found a hit, 2 when it could not run
+        (script missing, no bash, or any exit code other than 0 and 1). The
+        scanner's output reaches the console so the hit lines show.
+    #>
+    param([string]$RepoRoot, [string[]]$Paths)
+
+    $scan = Join-Path $RepoRoot 'scripts\ci\leak-scan.sh'
+    if (-not (Test-Path $scan)) { return 2 }
+
+    $bash = Find-GitBash
+    if (-not $bash) { return 2 }
+
+    # Native bash may write to stderr; keep it from throwing under Stop, and
+    # pipe stdout to the console so the hit lines show without leaking into
+    # this function's return value.
+    $ErrorActionPreference = 'Continue'
+    & $bash $scan @Paths | Out-Host
+    $leakExit = $LASTEXITCODE
+
+    if ($leakExit -eq 0) { return 0 }
+    if ($leakExit -eq 1) { return 1 }
+    return 2
+}
+
 # -- Export preview ------------------------------------------------------------
 
 function Invoke-ExportPreview {
@@ -631,29 +672,15 @@ function Invoke-ExportPreview {
         try {
             # Scan first: a hit must suppress the diff, which would print the leaked text.
             $leakFound = 0
-            $leakScript = Join-Path $RepoRoot 'scripts\ci\leak-scan.sh'
-            if (Test-Path $leakScript) {
-                $git = Get-Command git -ErrorAction SilentlyContinue
-                $bash = $null
-                if ($git) {
-                    $candidate = Join-Path (Split-Path (Split-Path $git.Source -Parent) -Parent) 'bin\bash.exe'
-                    if (Test-Path $candidate) { $bash = $candidate }
-                }
-                if (-not $bash) {
-                    Write-Host '  NOTE: bash not found; skipping the leak scan.'
-                } else {
-                    & $bash $leakScript after/dotfiles after/sync-config.json | Out-Host
-                    $leakExit = $LASTEXITCODE
-                    if ($leakExit -eq 0) {
-                        Write-Host '  Leak scan: clean.'
-                    } elseif ($leakExit -eq 1) {
-                        Write-Host '  WARNING: the leak scan found the lines above. Fix them before committing.'
-                        $leakFound = 1
-                    } else {
-                        Write-Host 'ERROR: leak scan failed.' -ForegroundColor Red
-                        return 1
-                    }
-                }
+            $leakCode = Invoke-LeakScan -RepoRoot $RepoRoot -Paths @('after/dotfiles', 'after/sync-config.json')
+            if ($leakCode -eq 1) {
+                Write-Host '  WARNING: the leak scan found the lines above. Fix them before committing.'
+                $leakFound = 1
+            } elseif ($leakCode -ne 0) {
+                Write-Host 'ERROR: leak scan could not run; nothing was committed.' -ForegroundColor Red
+                return 1
+            } else {
+                Write-Host '  Leak scan: clean.'
             }
 
             if ($leakFound -eq 0) {

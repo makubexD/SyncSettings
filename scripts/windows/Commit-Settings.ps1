@@ -21,6 +21,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+. "$PSScriptRoot\SyncHelpers.ps1"
+
 # -- Helpers ------------------------------------------------------------------
 
 function Build-CommitMessage {
@@ -141,6 +143,15 @@ try {
         Write-Host '  Nothing to commit -- dotfiles/ is clean.' -ForegroundColor Green
         Write-Host
         exit 0
+    }
+
+    # Scan the sync paths for personal data before branching or committing.
+    $leakCode = Invoke-LeakScan -RepoRoot $repoRoot -Paths $syncPaths
+    if ($leakCode -eq 1) {
+        throw 'the leak scan found the lines above; nothing was committed.'
+    }
+    if ($leakCode -eq 2) {
+        throw 'leak scan could not run; nothing was committed.'
     }
 
     $machine = Resolve-MachineAlias

@@ -153,6 +153,53 @@ BeforeAll {
         }
         $script:EngineExit = $LASTEXITCODE
     }
+
+    # -- Commit helpers ----------------------------------------------------------
+
+    # A stub gh.cmd that logs each invocation to $script:GhLog and prints a fixed
+    # URL, placed first on PATH so Commit-Settings.ps1 finds it instead of gh.
+    function New-GhStub {
+        $script:BinDir = Join-Path $script:T 'bin'
+        $null = New-Item -ItemType Directory -Path $script:BinDir -Force
+        $script:GhLog = Join-Path $script:T 'gh.log'
+        $stub = Join-Path $script:BinDir 'gh.cmd'
+        [IO.File]::WriteAllText(
+            $stub,
+            "@echo off`r`necho %*>> `"%GH_LOG%`"`r`necho https://github.com/example/pr/1`r`n",
+            [Text.Encoding]::ASCII)
+        $env:GH_LOG = $script:GhLog
+        $env:PATH = "$script:BinDir;$env:PATH"
+    }
+
+    # Engine + fixtures + scripts/ci committed on master and pushed to a bare
+    # origin, plus a fresh clone where Commit-Settings.ps1 actually runs.
+    function New-CommitRepo {
+        Copy-EngineToRepo
+        Copy-CiToRepo
+        Copy-RepoDotfiles
+        New-GitRepo
+        $ErrorActionPreference = 'Continue'
+        $script:CloneDir = Join-Path $script:T 'clone'
+        git clone -q (Join-Path $script:T 'origin.git') $script:CloneDir 2>$null
+        git -C $script:CloneDir config syncsettings.machine testbox 2>$null
+        git -C $script:CloneDir config user.name t 2>$null
+        git -C $script:CloneDir config user.email t@example.com 2>$null
+        New-GhStub
+    }
+
+    # Runs Commit-Settings.ps1 in the clone with the stub gh on PATH.
+    function Invoke-Commit {
+        $script:EngineScript = Join-Path $script:CloneDir 'scripts\windows\Commit-Settings.ps1'
+        $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript 2>&1 | Out-String
+        $script:EngineExit = $LASTEXITCODE
+    }
+
+    # Refnames of every branch on the bare origin.
+    function Get-OriginBranches {
+        $ErrorActionPreference = 'Continue'
+        $origin = Join-Path $script:T 'origin.git'
+        (git --git-dir=$origin for-each-ref --format='%(refname)' refs/heads 2>$null | Out-String).Trim()
+    }
 }
 
 Describe 'Windows engine' {
@@ -165,6 +212,8 @@ Describe 'Windows engine' {
         $env:USERPROFILE = $script:HomeDir
         $script:SavedTemp = $env:TEMP
         $script:SavedTmp = $env:TMP
+        $script:SavedPath = $env:PATH
+        $script:SavedGhLog = $env:GH_LOG
     }
 
     AfterEach {
@@ -178,6 +227,12 @@ Describe 'Windows engine' {
             Remove-Item Env:\TMP -ErrorAction SilentlyContinue
         } else {
             $env:TMP = $script:SavedTmp
+        }
+        $env:PATH = $script:SavedPath
+        if ($null -eq $script:SavedGhLog) {
+            Remove-Item Env:\GH_LOG -ErrorAction SilentlyContinue
+        } else {
+            $env:GH_LOG = $script:SavedGhLog
         }
         if (Test-Path $script:T) {
             Remove-Item $script:T -Recurse -Force
@@ -1012,6 +1067,101 @@ Describe 'Windows engine' {
 
         $script:EngineExit | Should -Be 1
         $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --preview needs a git repo with a commit.'))
+    }
+
+    It 'preview-scan-missing' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        Remove-Item -Path (Join-Path $script:RepoDir 'scripts\ci\leak-scan.sh') -Force
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: leak scan could not run; nothing was committed.'))
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('before/dotfiles'))
+    }
+
+    # -- Commit-Settings.ps1 -----------------------------------------------------
+
+    It 'commit-happy' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        $origin = Join-Path $script:T 'origin.git'
+        $originMaster = (git --git-dir=$origin rev-parse master 2>$null | Out-String).Trim()
+
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, "changed`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 0
+
+        (git --git-dir=$origin rev-parse master 2>$null | Out-String).Trim() | Should -Be $originMaster
+        (git -C $script:CloneDir symbolic-ref --short HEAD 2>$null | Out-String).Trim() | Should -Be 'master'
+
+        $branches = (git --git-dir=$origin for-each-ref --format='%(refname)' refs/heads 2>$null | Out-String)
+        @($branches -split "`r?`n" | Where-Object { $_ -match '^refs/heads/sync/windows-testbox-' }).Count | Should -Be 1
+
+        @(Get-Content $script:GhLog).Count | Should -Be 1
+    }
+
+    It 'commit-leak-blocked' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        # A home-style path the scan flags, built by concatenation so the literal
+        # never appears in this file.
+        $leaky = '/ho' + 'me/someone/x'
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, "$leaky`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: the leak scan found the lines above; nothing was committed.'))
+
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
+    It 'commit-scan-missing' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        # Removed in a commit: an uncommitted removal stops at the outside-changes check.
+        git -C $script:CloneDir rm -q scripts/ci/leak-scan.sh 2>$null
+        git -C $script:CloneDir commit -qm 'remove the scan' 2>$null
+
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, "changed`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: leak scan could not run; nothing was committed.'))
+
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
+    It 'commit-outside-changes' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        [IO.File]::WriteAllText((Join-Path $script:CloneDir 'outside.txt'), "outside`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: commit or stash changes outside dotfiles/ first.'))
+
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
     }
 
     # -- sync.cmd ---------------------------------------------------------------
