@@ -55,6 +55,11 @@ path_fail() {
     exit 1
 }
 
+default_env_fail() {
+    printf 'ERROR: sync-config.json: entry %s has an invalid defaultEnv.\n' "$1" >&2
+    exit 1
+}
+
 # Every path must stay inside dotfiles/ and the home directory, on any platform,
 # and no symlink may sit under dotfiles/. Stop before any file is touched.
 check_paths() {
@@ -63,6 +68,17 @@ check_paths() {
         path_is_safe "$repo_path" repo || path_fail "$repo_path"
         path_is_safe "$local_path" local || path_fail "$repo_path"
     done < <(jq -j '.files[] | (.repoPath // ""), "\u0000", (.localPath // ""), "\u0000"' "$CONFIG")
+
+    # A defaultEnv is read as a variable name, so it must be a valid shell name.
+    local default_env env_name_re='^[A-Za-z_][A-Za-z0-9_]*$'
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' default_env; do
+        [[ $default_env =~ $env_name_re ]] || default_env_fail "$repo_path"
+    done < <(jq -j '.files[]
+        | select(.sanitizeRules != null)
+        | .repoPath as $r
+        | .sanitizeRules[]
+        | select(.defaultEnv != null)
+        | $r, "\u0000", .defaultEnv, "\u0000"' "$CONFIG")
 
     # A symlink can point anywhere; name the entry that owns it, or the symlink's
     # own repo-relative path when no entry does.

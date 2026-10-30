@@ -317,6 +317,62 @@ case_prompt_empty_stops() {
     [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed despite the empty answer"
 }
 
+case_defaultenv_invalid() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/linux/env.conf", "localPath": "~/.config/fixture/env.conf", "platform": "linux", "description": "invalid defaultEnv", "sanitizeRules": [{"placeholder": "<ENV>", "prompt": "Env value", "defaultEnv": "BAD-NAME"}]}'
+
+    local msg='ERROR: sync-config.json: entry dotfiles/linux/env.conf has an invalid defaultEnv.'
+
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "export did not print the defaultEnv error"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "import did not print the defaultEnv error"
+
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written under the home dir"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
+
+    # A leading digit is not a valid variable name either.
+    jq '.files |= map(if .repoPath == "dotfiles/linux/env.conf"
+        then .sanitizeRules[0].defaultEnv = "1BAD" else . end)' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh exited $rc with 1BAD, want 1"
+    grep -Fqx "$msg" "$out" || fail "export did not print the defaultEnv error for 1BAD"
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written for 1BAD"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/ for 1BAD"
+}
+
+case_defaultenv_valid() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    jq '.files |= map(if .repoPath == "dotfiles/linux/named.conf"
+        then .sanitizeRules[0].defaultEnv = "FIXTURE_NAME" else . end)' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    jq 'del(."<NAME>")' "$t/repo/.user-values.json" > "$t/repo/.user-values.json.tmp"
+    mv "$t/repo/.user-values.json.tmp" "$t/repo/.user-values.json"
+    mkdir -p "$t/home"
+
+    # <NAME> has no cached value, so the prompt offers FIXTURE_NAME's value as
+    # its default. Answer it with Enter on a pseudo-terminal, as a user would.
+    rc=0
+    printf '\n' | FIXTURE_NAME='Env Value' \
+        script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    printf 'name = Env Value\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/home/.config/fixture/named.conf" \
+        || fail "named.conf was not hydrated with FIXTURE_NAME's value"
+}
+
 case_error_continues() {
     # The repo copy of plain.txt is read-only, so the copy fails; export must
     # still report that file as ERROR and process the remaining entries.
@@ -1631,7 +1687,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value prompt-empty-stops error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1646,6 +1702,8 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         excluded) case_excluded ;;
         noninteractive-missing-value) case_noninteractive_missing_value ;;
         prompt-empty-stops) case_prompt_empty_stops ;;
+        defaultenv-invalid) case_defaultenv_invalid ;;
+        defaultenv-valid) case_defaultenv_valid ;;
         error-continues) case_error_continues ;;
         import-eof-overwrites) case_import_eof_overwrites ;;
         crlf-unchanged) case_crlf_unchanged ;;
