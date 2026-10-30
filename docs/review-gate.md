@@ -42,6 +42,13 @@ Add the label from the PR page (Labels → `reviewed`) or from a terminal:
 gh pr edit <number> --add-label reviewed
 ```
 
+## Claude auto-approval (temporary)
+
+During development, Claude may add the `reviewed` label and merge a PR itself after reviewing the full diff,
+rerunning the tests and seeing `lint` and `leak-scan` green. The label then means Claude reviewed the PR, not
+you. PRs that change the gate itself (`.github/workflows/`, this file, `.claude/settings.json`, the auto-approval
+section of `CLAUDE.md`) still wait for your label. The rules are in `CLAUDE.md`; the rollback is in `TODO.md`.
+
 ## Get an email when a check fails
 
 The red `review-gate` run on each new PR is your reminder that a review is waiting. GitHub sends workflow
