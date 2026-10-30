@@ -353,7 +353,7 @@ function Find-LinkedPaths {
 
 function Sync-LinkedDirectory {
     # Copies files from SourceDir to DestDir, comparing by hash. Direction-agnostic.
-    # Returns hashtable: { added, modified, unchanged, skipped }
+    # Returns hashtable: { added, modified, unchanged, skipped, removed }
     param(
         [string]$SourceDir,
         [string]$DestDir,
@@ -362,7 +362,7 @@ function Sync-LinkedDirectory {
         [bool]$Recursive = $false
     )
 
-    $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0 }
+    $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0; removed = 0 }
 
     if (-not (Test-Path $SourceDir)) {
         Write-StatusLine 'SKIPPED' "$Label/" "WARNING: source directory not found: $SourceDir"
@@ -373,16 +373,23 @@ function Sync-LinkedDirectory {
         New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
     }
 
-    $gciParams = @{ Path = $SourceDir; File = $true }
+    $gciParams = @{ Path = $SourceDir; File = $true; Force = $true }
     if ($Recursive) { $gciParams['Recurse'] = $true }
     $sourceFiles = Get-ChildItem @gciParams
 
     foreach ($file in $sourceFiles) {
         $relPath  = $file.FullName.Substring($SourceDir.TrimEnd('\').Length + 1)
+        $itemLabel = "$Label/" + ($relPath -replace '\\', '/')
         $destFile = Join-Path $DestDir $relPath
 
+        if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'symlink'
+            $stats.skipped++
+            continue
+        }
+
         if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
-            Write-StatusLine 'SKIPPED' "$Label/$relPath" 'matches exclude pattern'
+            Write-StatusLine 'SKIPPED' $itemLabel 'matches exclude pattern'
             $stats.skipped++
             continue
         }
@@ -394,29 +401,54 @@ function Sync-LinkedDirectory {
 
         if (-not (Test-Path $destFile)) {
             Copy-Item -Path $file.FullName -Destination $destFile -Force
-            Write-StatusLine 'ADDED' "$Label/$relPath"
+            Write-StatusLine 'ADDED' $itemLabel
             $stats.added++
         } elseif (Compare-FilesByHash -PathA $file.FullName -PathB $destFile) {
-            Write-StatusLine 'UNCHANGED' "$Label/$relPath"
+            Write-StatusLine 'UNCHANGED' $itemLabel
             $stats.unchanged++
         } else {
             Copy-Item -Path $file.FullName -Destination $destFile -Force
-            Write-StatusLine 'MODIFIED' "$Label/$relPath"
+            Write-StatusLine 'MODIFIED' $itemLabel
             $stats.modified++
         }
     }
 
-    # Remove orphans: files in dest that no longer exist in source
+    # Remove orphans: files in dest whose source is gone, a symlink, or now
+    # excluded; then prune empty folders under the dest dir.
     if (Test-Path $DestDir) {
-        $destGciParams = @{ Path = $DestDir; File = $true }
+        $destGciParams = @{ Path = $DestDir; File = $true; Force = $true }
         if ($Recursive) { $destGciParams['Recurse'] = $true }
         $destFiles = Get-ChildItem @destGciParams
         foreach ($df in $destFiles) {
             $relPath    = $df.FullName.Substring($DestDir.TrimEnd('\').Length + 1)
+            $itemLabel  = "$Label/" + ($relPath -replace '\\', '/')
             $sourceFile = Join-Path $SourceDir $relPath
-            if (-not (Test-Path $sourceFile)) {
+
+            $remove = -not (Test-Path $sourceFile)
+            if (-not $remove -and (Test-Excluded -FilePath $sourceFile -Patterns $ExcludePatterns)) {
+                $remove = $true
+            }
+            if (-not $remove) {
+                $sourceItem = Get-Item -Path $sourceFile -Force
+                if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    $remove = $true
+                }
+            }
+
+            if ($remove) {
                 Remove-Item $df.FullName -Force
-                Write-StatusLine 'REMOVED' "$Label/$relPath" 'no longer in source'
+                Write-StatusLine 'REMOVED' $itemLabel 'no longer in source'
+                $stats.removed++
+            }
+        }
+
+        if ($Recursive) {
+            $emptyDirs = Get-ChildItem -Path $DestDir -Directory -Recurse -Force |
+                Sort-Object { $_.FullName.Length } -Descending
+            foreach ($dir in $emptyDirs) {
+                if (@($dir.GetFileSystemInfos()).Count -eq 0) {
+                    Remove-Item -Path $dir.FullName -Force
+                }
             }
         }
     }
@@ -435,6 +467,7 @@ function Write-StatusLine {
         'UPDATED'   { 'Yellow' }
         'UNCHANGED' { 'DarkGray' }
         'SKIPPED'   { 'DarkYellow' }
+        'REMOVED'   { 'Red' }
         'ERROR'     { 'Red' }
         default     { 'White' }
     }

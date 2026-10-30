@@ -316,6 +316,74 @@ Describe 'Windows engine' {
         ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
     }
 
+    It 'dir-export-adds' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        foreach ($rel in @('a\b.txt', 'c.txt')) {
+            $repoFile = Join-Path $script:RepoDir "dotfiles\common\dir\$rel"
+            $repoFile | Should -Exist
+            $want = Join-Path $Script:Fixtures "repo\dotfiles\common\dir\$rel"
+            ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        }
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/dir/c.txt')
+    }
+
+    It 'dir-export-modify-remove' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+
+        $oldDir = Join-Path $script:RepoDir 'dotfiles\common\dir\old'
+        $null = New-Item -ItemType Directory -Path $oldDir -Force
+        [IO.File]::WriteAllText((Join-Path $oldDir 'old.txt'), "old`n", [System.Text.UTF8Encoding]::new($false))
+
+        Copy-HomeFiles
+        $localC = Join-Path $script:HomeDir '.config\fixture\dir\c.txt'
+        [IO.File]::WriteAllText($localC, "c2`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/common/dir/c.txt')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'REMOVED' 'dotfiles/common/dir/old/old.txt' 'no longer in source')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/a/b.txt')
+
+        $repoC = Join-Path $script:RepoDir 'dotfiles\common\dir\c.txt'
+        ([IO.File]::ReadAllBytes($repoC) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("c2`n") -join ',')
+        (Join-Path $script:RepoDir 'dotfiles\common\dir\old') | Should -Not -Exist
+    }
+
+    It 'dir-export-excluded' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        $bak = Join-Path $script:HomeDir '.config\fixture\dir\x.bak'
+        [IO.File]::WriteAllText($bak, "x`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/x.bak' 'matches exclude pattern')
+        (Join-Path $script:RepoDir 'dotfiles\common\dir\x.bak') | Should -Not -Exist
+    }
+
+    It 'dir-export-missing' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        $localDir = Join-Path $script:HomeDir '.config\fixture\dir'
+        Remove-Item -Path $localDir -Recurse -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' "local folder not found: $localDir")
+    }
+
     It 'infer-escaped' {
         Copy-EngineToRepo
         Copy-RepoDotfiles

@@ -91,6 +91,26 @@ try {
         $label     = $entry.repoPath
 
         try {
+            # Directory entries sync the whole folder recursively, before the
+            # single-file logic below.
+            if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+                if (-not (Test-Path $localFile -PathType Container)) {
+                    Write-StatusLine 'SKIPPED' "$($entry.repoPath)/" "local folder not found: $localFile"
+                    $skipped++
+                } else {
+                    $dirParams = @{
+                        SourceDir       = $localFile
+                        DestDir         = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
+                        Label           = $entry.repoPath
+                        ExcludePatterns = $config.excludePatterns
+                        Recursive       = $true
+                    }
+                    $dirStats = Sync-LinkedDirectory @dirParams
+                    $changed += ($dirStats.added + $dirStats.modified + $dirStats.removed)
+                }
+                continue
+            }
+
             # Exclude-pattern safety check
             if (Test-Excluded -FilePath $localFile -Patterns $config.excludePatterns) {
                 Write-StatusLine 'SKIPPED' $label 'matches exclude pattern'
