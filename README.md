@@ -3,6 +3,20 @@
 Keep your dotfiles and config files in sync across machines via a git repository. Windows uses the
 PowerShell scripts (`.bat` entry points). Linux uses the bash scripts (`.sh` entry points), see [Linux](#linux).
 
+## Commands
+
+One command on every system. It picks the right scripts for your OS.
+
+| Command | Does |
+|---|---|
+| `./sync preview` | Shows exactly what would be sent to the repo. Changes nothing |
+| `./sync export` | Copies your changed files into the repo, sanitized |
+| `./sync commit` | Commits on a new branch and opens a pull request |
+| `./sync import` | Applies the repo's files to this machine, keeping a `.bak` of every file it replaces |
+
+On Windows, use `.\sync preview` in PowerShell or `sync preview` in cmd. Options pass through, for example
+`./sync import --force` (`-Force` on Windows). Run `./sync` alone to see the usage and the detected OS.
+
 ## What gets synced
 
 **Windows**
