@@ -15,7 +15,15 @@
         {
           "placeholder": "<YOUR_EMAIL>",
           "prompt": "Email for git commits"
-        },
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/windows/git/.gitconfig.local",
+      "localPath": "~\\.gitconfig.local",
+      "platform": "windows",
+      "description": "Git credentials for Windows, included by .gitconfig",
+      "sanitizeRules": [
         {
           "placeholder": "<YOUR_GH_USERNAME>",
           "prompt": "GitHub username"
@@ -31,6 +39,12 @@
           "escapeBackslashes": true
         }
       ]
+    },
+    {
+      "repoPath": "dotfiles/linux/git/.gitconfig.local",
+      "localPath": "~/.gitconfig.local",
+      "platform": "linux",
+      "description": "Git credentials for Linux, included by .gitconfig"
     },
     {
       "repoPath": "dotfiles/windows/shell/.bashrc",
