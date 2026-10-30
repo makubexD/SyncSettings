@@ -158,6 +158,15 @@ try {
         $label     = $entry.repoPath
 
         try {
+            # Directory entries sync the whole folder recursively (import never
+            # deletes), before the single-file logic below.
+            if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+                $repoDir  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
+                $localDir = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
+                $applied += Import-DirEntry -RepoDir $repoDir -LocalDir $localDir -Label $label -ExcludePatterns $config.excludePatterns -Force ([bool]$Force)
+                continue
+            }
+
             # Exclude-pattern safety check
             if (Test-Excluded -FilePath $localFile -Patterns $config.excludePatterns) {
                 Write-StatusLine 'SKIPPED' $label 'matches exclude pattern'
@@ -217,29 +226,10 @@ try {
                 }
             } else {
                 # -- Direct copy --------------------------------------
-                if (-not (Test-Path $localFile)) {
-                    Copy-Item -Path $repoFile -Destination $localFile -Force
-                    Write-StatusLine 'CREATED' $label
-                    $applied++
-                } elseif (Compare-FilesByHash -PathA $repoFile -PathB $localFile) {
-                    Write-StatusLine 'UNCHANGED' $label
-                } else {
-                    if (-not $Force) {
-                        Write-Host
-                        Write-Host "  File differs: $localFile" -ForegroundColor Yellow
-                        $answer = Read-Host '  Overwrite? [Y/n]'
-                        if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
-                            Write-StatusLine 'SKIPPED' $label 'user skipped'
-                            Write-Host
-                            continue
-                        }
-                        Write-Host
-                    }
-                    Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
-                    Copy-Item -Path $repoFile  -Destination $localFile      -Force
-                    Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
-                    $applied++
-                }
+                $result = Copy-RepoFileToLocal -RepoFile $repoFile -LocalFile $localFile -Label $label -Force ([bool]$Force)
+                # A skipped file also skips its linked paths, as before the refactor.
+                if ($result -eq 'SKIPPED') { continue }
+                if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
             }
 
             # -- Auto-detect linked paths (import: repo -> local) --------

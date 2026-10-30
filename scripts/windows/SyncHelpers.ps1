@@ -456,6 +456,119 @@ function Sync-LinkedDirectory {
     return $stats
 }
 
+# -- Import helpers ------------------------------------------------------------
+
+function Copy-RepoFileToLocal {
+    <#
+    .SYNOPSIS
+        Copies one repo file onto its local path (the plain, non-sanitized flow).
+    .DESCRIPTION
+        Creates the file when it is missing, compares by hash when it exists,
+        and otherwise prompts before overwriting (unless -Force), keeping a .bak
+        of the old file. Returns the status word: CREATED, UPDATED, UNCHANGED or SKIPPED.
+    #>
+    param(
+        [string]$RepoFile,
+        [string]$LocalFile,
+        [string]$Label,
+        [bool]$Force = $false
+    )
+
+    if (-not (Test-Path $LocalFile)) {
+        Copy-Item -Path $RepoFile -Destination $LocalFile -Force
+        Write-StatusLine 'CREATED' $Label
+        return 'CREATED'
+    } elseif (Compare-FilesByHash -PathA $RepoFile -PathB $LocalFile) {
+        Write-StatusLine 'UNCHANGED' $Label
+        return 'UNCHANGED'
+    } else {
+        if (-not $Force) {
+            Write-Host
+            Write-Host "  File differs: $LocalFile" -ForegroundColor Yellow
+            $answer = Read-Host '  Overwrite? [Y/n]'
+            if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
+                Write-StatusLine 'SKIPPED' $Label 'user skipped'
+                Write-Host
+                return 'SKIPPED'
+            }
+            Write-Host
+        }
+        Copy-Item -Path $LocalFile -Destination "$LocalFile.bak" -Force
+        Copy-Item -Path $RepoFile  -Destination $LocalFile      -Force
+        Write-StatusLine 'UPDATED' $Label "backup saved as $(Split-Path "$LocalFile.bak" -Leaf)"
+        return 'UPDATED'
+    }
+}
+
+function Import-DirEntry {
+    <#
+    .SYNOPSIS
+        Imports every file under a type:dir entry from the repo onto the machine.
+    .DESCRIPTION
+        Import never deletes: a local file the repo does not have is reported as
+        EXTRA and kept. Each repo file follows the same compare / prompt / .bak /
+        copy flow as a plain file entry. Returns the number of files applied.
+    #>
+    param(
+        [string]$RepoDir,
+        [string]$LocalDir,
+        [string]$Label,
+        [string[]]$ExcludePatterns,
+        [bool]$Force = $false
+    )
+
+    if (-not (Test-Path $RepoDir -PathType Container)) {
+        Write-StatusLine 'SKIPPED' "$Label/" 'not found in repo'
+        return 0
+    }
+
+    $localParent = Split-Path $LocalDir -Parent
+    if (-not (Test-Path $localParent)) {
+        Write-StatusLine 'SKIPPED' "$Label/" "WARNING: target folder not found: $localParent"
+        return 0
+    }
+
+    if (-not (Test-Path $LocalDir)) {
+        New-Item -ItemType Directory -Path $LocalDir -Force | Out-Null
+    }
+
+    $applied = 0
+    foreach ($file in (Get-ChildItem -Path $RepoDir -File -Recurse -Force)) {
+        $rel = $file.FullName.Substring($RepoDir.TrimEnd('\').Length + 1)
+        $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+        $localFile = Join-Path $LocalDir $rel
+
+        if (Test-Excluded -FilePath $localFile -Patterns $ExcludePatterns) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'matches exclude pattern'
+            continue
+        }
+
+        $localFileParent = Split-Path $localFile -Parent
+        if (-not (Test-Path $localFileParent)) {
+            New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
+        }
+
+        $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
+        if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+    }
+
+    if (Test-Path $LocalDir) {
+        foreach ($file in (Get-ChildItem -Path $LocalDir -File -Recurse -Force)) {
+            $rel = $file.FullName.Substring($LocalDir.TrimEnd('\').Length + 1)
+            $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+            if (Test-Path (Join-Path $RepoDir $rel)) {
+                continue
+            }
+            if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
+                continue
+            }
+            Write-StatusLine 'EXTRA' $itemLabel 'not in repo; kept'
+        }
+    }
+
+    return $applied
+}
+
 # -- Status output -------------------------------------------------------------
 
 function Write-StatusLine {
@@ -467,6 +580,7 @@ function Write-StatusLine {
         'UPDATED'   { 'Yellow' }
         'UNCHANGED' { 'DarkGray' }
         'SKIPPED'   { 'DarkYellow' }
+        'EXTRA'     { 'DarkYellow' }
         'REMOVED'   { 'Red' }
         'ERROR'     { 'Red' }
         default     { 'White' }

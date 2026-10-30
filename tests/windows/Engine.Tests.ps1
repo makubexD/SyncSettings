@@ -384,6 +384,86 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' "local folder not found: $localDir")
     }
 
+    It 'dir-import-creates' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 0
+        foreach ($rel in @('a\b.txt', 'c.txt')) {
+            $localFile = Join-Path $script:HomeDir ".config\fixture\dir\$rel"
+            $localFile | Should -Exist
+            $want = Join-Path $Script:Fixtures "home\.config\fixture\dir\$rel"
+            ([IO.File]::ReadAllBytes($localFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        }
+        $script:EngineOut | Should -Match (Get-StatusPattern 'CREATED' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'CREATED' 'dotfiles/common/dir/c.txt')
+    }
+
+    It 'dir-import-update-backup' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $localC = Join-Path $script:HomeDir '.config\fixture\dir\c.txt'
+        [IO.File]::WriteAllText($localC, "c2`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/common/dir/c.txt' 'backup saved as c.txt.bak')
+        $want = Join-Path $Script:Fixtures 'home\.config\fixture\dir\c.txt'
+        ([IO.File]::ReadAllBytes($localC) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        $bak = "$localC.bak"
+        $bak | Should -Exist
+        ([IO.File]::ReadAllBytes($bak) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("c2`n") -join ',')
+        $script:EngineOut | Should -Not -Match '\[EXTRA'
+    }
+
+    It 'dir-import-extra' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $mine = Join-Path $script:HomeDir '.config\fixture\dir\mine.txt'
+        [IO.File]::WriteAllText($mine, "mine`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'EXTRA' 'dotfiles/common/dir/mine.txt' 'not in repo; kept')
+        ([IO.File]::ReadAllBytes($mine) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("mine`n") -join ',')
+    }
+
+    It 'dir-roundtrip-unchanged' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $exportExit = $script:EngineExit
+        $exportOut = $script:EngineOut
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $importExit = $script:EngineExit
+        $importOut = $script:EngineOut
+
+        $exportExit | Should -Be 0
+        $importExit | Should -Be 0
+
+        $exportOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/a/b.txt')
+        $exportOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/c.txt')
+        $importOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/a/b.txt')
+        $importOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/c.txt')
+
+        $exportOut | Should -Not -Match '\[(ADDED|MODIFIED|REMOVED|CREATED|UPDATED|EXTRA)\s*\] dotfiles/common/dir/'
+        $importOut | Should -Not -Match '\[(ADDED|MODIFIED|REMOVED|CREATED|UPDATED|EXTRA)\s*\] dotfiles/common/dir/'
+
+        $baks = @(Get-ChildItem -Path $script:HomeDir -Recurse -Filter '*.bak' -File)
+        $baks.Count | Should -Be 0
+    }
+
     It 'infer-escaped' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
