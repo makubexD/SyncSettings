@@ -22,8 +22,9 @@ flowchart LR
 
 - **Export** reads every selected entry's local file. It compares the file with the repo copy by content (never by
   date), sanitizes it, and writes only the files that changed.
-- **Commit** stages `dotfiles/`, `sync-config.json` and `packages/` (if it exists), commits on a `sync/<os>-<machine>-…` branch and opens a PR. It never pushes to
-  `master`. See [review-gate.md](review-gate.md).
+- **Commit** runs the [checks before pushing](#checks-before-pushing), stages `dotfiles/`, `sync-config.json` and
+  `packages/` (if it exists), commits on a `sync/<os>-<machine>-…` branch and opens a PR. It never pushes to `master`. See
+  [review-gate.md](review-gate.md).
 - **Import** reads every selected entry's repo file and hydrates its placeholders. If the local file differs, import
   asks before overwriting it (unless forced) and keeps a `.bak` copy of the old file.
 
@@ -49,6 +50,26 @@ engine. CI lint catches the same mistake earlier.
 
 Entries run in the order they appear in `sync-config.json`.
 
+## Path safety
+
+Right after the `platform` check, each engine checks every entry, on any platform, and stops with exit code 1 before it
+touches a file:
+
+- `repoPath` starts with `dotfiles/` and has no `..` segment.
+- `localPath` starts with `~/` or `~\` and has no `..` segment.
+- Nothing under `dotfiles/` is a symlink.
+
+```text
+ERROR: sync-config.json: entry <repoPath> has an unsafe path.
+```
+
+The bash engine also checks that `defaultEnv` matches `^[A-Za-z_][A-Za-z0-9_]*$`, because it uses the name to look up a
+variable. PowerShell reads the name as plain data, so it has no such check.
+
+```text
+ERROR: sync-config.json: entry <repoPath> has an invalid defaultEnv.
+```
+
 ## `localPath`
 
 | Form | Example | Works on |
@@ -57,7 +78,8 @@ Entries run in the order they appear in `sync-config.json`.
 | `~\` + backslashes | `~\.gitconfig` | Windows only |
 
 `~` is the user's home: `$HOME` on Linux, the profile folder on Windows (`$env:USERPROFILE`, or the target user's
-profile with `-User`). A `common` entry must use the `~/` form.
+profile with `-User`). A `common` entry must use the `~/` form. Every `localPath` must use one of these two forms: an
+absolute path stops the run ([Path safety](#path-safety)).
 
 ## Statuses
 
@@ -88,7 +110,7 @@ them.
 | Same content | `UNCHANGED` | |
 | Different content, overwrite accepted | `UPDATED` | `backup saved as <name>.bak` |
 | Different content, user answered no | `SKIPPED` | `user skipped` |
-| `type: dir`: local file not in the repo | `EXTRA` | `not in repo; kept` |
+| `type: dir` or linked folder: local file not in the repo | `EXTRA` | `not in repo; kept` |
 | Read, write or copy failed | `ERROR` | the reason |
 
 ### Both
@@ -98,14 +120,15 @@ them.
 | File under `dotfiles/` that no entry owns | `ORPHAN` | `no entry in sync-config.json; git rm it or add an entry` |
 
 An `ERROR` affects only its own file. The engine moves on to the next entry, and the run still exits 0. Exit code 1
-is reserved for problems that stop the whole run: invalid config, a missing placeholder value in a non-interactive
-run, or a failed `git pull`.
+is reserved for problems that stop the whole run: invalid config, a missing placeholder value, a failed `git pull`, or a
+failed [check before pushing](#checks-before-pushing).
 
 ## Overwrite prompt
 
 Unless `--force` (bash) or `-Force` (PowerShell) is given, import asks `Overwrite <file>? [Y/n]` before it replaces a
 local file whose content differs. An empty answer means yes. In bash, end of input (for example `< /dev/null`) also
 counts as an empty answer, so a non-interactive run without `--force` overwrites. The `.bak` copy is still written.
+Force skips only the prompt, never the `.bak`.
 
 ## Sanitize and hydrate
 
@@ -118,10 +141,12 @@ placeholders. On import, hydrating puts the values back.
 2. Import only: values inferred from the existing local file (below). They are never used for a placeholder that
    already has a cached value.
 3. A prompt, offering a default taken from the first of these that exists: the cached value, the rule's `default`,
-   the environment variable named by `defaultEnv`. An empty answer takes the default.
+   the environment variable named by `defaultEnv`. An empty answer takes the default. With no default it stops the run
+   (see below).
 
 `--reset-values` (bash) or `-ResetValues` (PowerShell) prompts again for every placeholder and skips inference.
-New values are saved back to `.user-values.json`.
+New values are saved back to `.user-values.json`. Each save leaves the file readable by the current user only: mode 600
+on Linux, also tightening an existing file, and no inherited access on Windows.
 
 **Inference on import.** For each entry with rules whose local and repo files both exist, the engine compares the
 two files line by line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder,
@@ -136,23 +161,24 @@ For each value that contains `\`, its backslash-doubled form (`C:\\Tools`) is re
 **Hydrate (import).** Each placeholder gets its value. If the rule has `escapeBackslashes: true` and the value
 contains `\`, the placeholder gets the backslash-doubled value instead.
 
-**Missing value, non-interactive.** If a placeholder has no value after all of the above, and stdin is not a
-terminal, the engine prints `missing value for <PLACEHOLDER>: add it to .user-values.json` and exits 1 before
-writing any file.
+**Missing value.** If a placeholder has no value after all of the above, with or without a terminal, the engine prints
+`missing value for <PLACEHOLDER>: add it to .user-values.json` and exits 1 before writing any file. Output names the
+placeholder, never its value.
 
 ## Compare
 
 - Files without rules: byte for byte (`cmp` in bash, SHA256 in PowerShell).
 - Files with rules: the sanitized local text (export) or the hydrated repo text (import) against the other side,
   after turning CRLF into LF and trimming whitespace at the end of the file. A file that differs only in line
-  endings or trailing blank lines counts as `UNCHANGED`, and nothing is written.
+  endings or trailing blank lines counts as `UNCHANGED`, and nothing is written. The compare is case-sensitive, so a
+  change of case counts as `MODIFIED`.
 
 Text is written byte for byte: no BOM, and trailing newlines are kept.
 
 ## Backups
 
-Import copies the old local file to `<file>.bak` before overwriting it, replacing any older `.bak`. `*.bak` is in
-`excludePatterns`, so a `.bak` inside a synced directory is never exported.
+Import copies the old local file to `<file>.bak` before overwriting it, replacing any older `.bak`, in every entry type.
+`*.bak` is in `excludePatterns`, so a `.bak` inside a synced directory is never exported.
 
 ## Exclude patterns
 
@@ -173,6 +199,35 @@ An entry with `"type": "dir"` syncs a whole folder, recursively.
 - Import never deletes. A local file that the repo doesn't have is reported as `EXTRA` and kept, so a file you
   haven't exported yet survives an import.
 - Each file inside follows the same compare, prompt and `.bak` rules as a plain entry.
+
+## Linked folders (`detectLinkedPaths`)
+
+PowerShell only. A folder detected in an entry's file is stored under `<repoPath>.linked/<folder>/`.
+
+- Export deletes repo files that are gone from the folder, like a `dir` entry.
+- Import never deletes. A local file that the repo doesn't have is reported as `EXTRA` and kept.
+- Each file inside follows the same compare, prompt and `.bak` rules as a plain entry on import, and `excludePatterns`
+  apply to it.
+
+## Checks before pushing
+
+Commit runs these after the check for changes outside the sync paths, and before it creates a branch or a commit. A
+failure exits 1 and leaves no branch, no commit and no PR.
+
+**Leak scan.** `scripts/ci/leak-scan.sh` runs on the sync paths. Skipping it is not an option: a scan that cannot run stops
+the commit the same way a hit does.
+
+| Scan result | Message |
+|---|---|
+| Exit 1 | `ERROR: the leak scan found the lines above; nothing was committed.` |
+| Script or bash missing, or any other exit code | `ERROR: leak scan could not run; nothing was committed.` |
+
+**Cached values.** The changed sync files are searched for each value in `.user-values.json`, ignoring case and including
+the backslash-doubled form. A placeholder on its own passes. The value never appears in arguments or output.
+
+```text
+ERROR: a cached value for <PLACEHOLDER> is in <file>; nothing was committed.
+```
 
 ## Orphan report
 
@@ -208,6 +263,7 @@ the machine.
   saved.
 - The leak scan runs on the result before any diff prints. A hit prints `WARNING: the leak scan found the lines above.
   Fix them before committing.`, leaves the diff out so the leaked text stays off the screen, and the preview exits 1.
+  A scan that cannot run prints `ERROR: leak scan could not run; nothing was committed.`, prints no diff and exits 1.
 - With no differences: `Nothing would be sent: the repo matches HEAD.`
 - `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
 - The up-to-date check does not run.
@@ -234,6 +290,8 @@ or `gh` on Linux, exits 1 and names what's wrong.
 | `-User <name>` (import into another profile, elevated) | supported | not supported |
 | File modes | not kept | kept (`cp -p`; mode copied for written text) |
 | Status line layout | `[WORD      ] label`, colored | `WORD       label` |
+| Sanitized text that isn't valid UTF-8 | invalid bytes are replaced when read | bytes are kept |
+| `defaultEnv` name check | none needed | stops the run on an invalid name |
 
 ## Parity
 
