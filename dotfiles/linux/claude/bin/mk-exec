@@ -59,11 +59,21 @@ echo "mk-exec: log=$logdir model=$model effort=$effort balance=\$${balance_befor
 head_before="$(git -C "$repo" rev-parse HEAD)"
 started="$(date -Is)"
 
+# Headless Claude Code refuses writes anywhere under a `.claude` directory, so a repo there (~/.claude itself)
+# runs in a throwaway worktree outside it, and the worker's diff is applied back to the repo afterwards.
+workdir="$repo"
+if [[ "$repo/" == */.claude/* ]]; then
+  workdir="$HOME/.cache/mk-worktrees/$(basename "$logdir")"
+  mkdir -p "${workdir%/*}"
+  git -C "$repo" worktree prune
+  git -C "$repo" worktree add --quiet --detach "$workdir" HEAD || { echo "mk-exec: could not create worktree $workdir" >&2; exit 2; }
+fi
+
 # The worker gets the DeepSeek endpoint and its own config dir (no OAuth credentials, no user hooks/plugins/MCP).
 # MK_WORKER tells hooks shared with the main session (worker-mode-guard) that this is the worker.
 # Only this child process sees these variables; the orchestrator's environment is untouched.
 (
-  cd "$repo" || exit 2
+  cd "$workdir" || exit 2
   unset ANTHROPIC_API_KEY
   export CLAUDE_CONFIG_DIR="$HOME/.claude-worker" MK_WORKER=1
   export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
@@ -83,11 +93,25 @@ code=$?
 
 # Diff of tracked changes plus new untracked files, without touching the index.
 {
-  git -C "$repo" diff
-  git -C "$repo" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
-    git -C "$repo" diff --no-index -- /dev/null "$f"
+  git -C "$workdir" diff --binary
+  git -C "$workdir" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+    git -C "$workdir" diff --no-index -- /dev/null "$f"
   done
 } > "$logdir/diff.patch" 2>/dev/null
+
+if [[ $workdir != "$repo" ]]; then
+  # The diff can't carry gitignored files, and removing the worktree would lose them without a word.
+  ignored="$(git -C "$workdir" ls-files --others --ignored --exclude-standard | head -20 | tr '\n' ' ')"
+  if [[ -s $logdir/diff.patch ]] && ! git -C "$repo" apply --whitespace=nowarn "$logdir/diff.patch" 2>> "$logdir/stderr.log"; then
+    echo "mk-exec: could not apply the worker's diff to $repo; worktree kept at $workdir" | tee -a "$logdir/stderr.log" >&2
+  elif [[ "$(git -C "$workdir" rev-parse HEAD)" != "$head_before" ]]; then
+    echo "mk-exec: worker made commits, worktree kept at $workdir" | tee -a "$logdir/stderr.log" >&2
+  elif [[ -n $ignored ]]; then
+    echo "mk-exec: worker created gitignored files, worktree kept at $workdir: ${ignored% }" | tee -a "$logdir/stderr.log" >&2
+  else
+    git -C "$repo" worktree remove --force "$workdir"
+  fi
+fi
 
 balance_after="$(DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" balance 2>/dev/null)" || balance_after=""
 

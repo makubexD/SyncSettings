@@ -75,7 +75,9 @@ OAuth credentials, no user hooks or plugins). The key is in `~/.config/claude-wo
 It loads the repo's own config like a normal session: `CLAUDE.md`, `.claude/rules`, skills, agents, commands and
 project hooks, but nothing from `~/.claude` and no MCP. A repo whose `.claude/settings.json` sets `ANTHROPIC_*` env
 or `apiKeyHelper` is refused (exit 2), since that could send the key elsewhere. Hooks shared with the main
-session see `MK_WORKER=1`; `worker-mode-guard` lets the worker edit.
+session see `MK_WORKER=1`; `worker-mode-guard` lets the worker edit. Headless Claude Code refuses writes under
+any `.claude` directory, so a repo there (`~/.claude` itself) runs in a temporary worktree in `~/.cache/mk-worktrees/`;
+the diff is applied back to the repo and the worktree removed (kept, with a message, if the apply fails).
 Switched from OpenCode + Zen free models on 2026-10-28 after the free quota ran out mid-feature.
 
 Effort: `mk-exec --effort low|medium|high` (default **medium**). low = `deepseek-flash`/low,
