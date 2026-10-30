@@ -78,6 +78,36 @@ BeforeAll {
         return $pattern
     }
 
+    # Appends one entry to the repo's sync-config.json (a full array round-trip).
+    function Add-FixtureEntry {
+        param($Entry)
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $config.files = @($config.files) + $Entry
+        [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+    }
+
+    # Both engines must stop with the same path error before touching any file.
+    function Assert-PathStop {
+        param([string]$Message)
+        $esc = [regex]::Escape($Message)
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $esc
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $esc
+
+        @(Get-ChildItem -Path $script:HomeDir -Recurse -File -Force -ErrorAction SilentlyContinue).Count | Should -Be 0
+
+        $dotfiles = Join-Path $script:RepoDir 'dotfiles'
+        if (Test-Path -LiteralPath $dotfiles) {
+            @(Get-ChildItem -LiteralPath $dotfiles -Recurse -File -Force -ErrorAction SilentlyContinue).Count | Should -Be 0
+        }
+    }
+
     # -- Preview helpers --------------------------------------------------------
 
     function Copy-CiToRepo {
@@ -153,6 +183,82 @@ BeforeAll {
         }
         $script:EngineExit = $LASTEXITCODE
     }
+
+    # -- Commit helpers ----------------------------------------------------------
+
+    # A stub gh.cmd that logs each invocation to $script:GhLog and prints a fixed
+    # URL, placed first on PATH so Commit-Settings.ps1 finds it instead of gh.
+    function New-GhStub {
+        $script:BinDir = Join-Path $script:T 'bin'
+        $null = New-Item -ItemType Directory -Path $script:BinDir -Force
+        $script:GhLog = Join-Path $script:T 'gh.log'
+        $stub = Join-Path $script:BinDir 'gh.cmd'
+        [IO.File]::WriteAllText(
+            $stub,
+            "@echo off`r`necho %*>> `"%GH_LOG%`"`r`necho https://github.com/example/pr/1`r`n",
+            [Text.Encoding]::ASCII)
+        $env:GH_LOG = $script:GhLog
+        $env:PATH = "$script:BinDir;$env:PATH"
+    }
+
+    # Engine + fixtures + scripts/ci committed on master and pushed to a bare
+    # origin, plus a fresh clone where Commit-Settings.ps1 actually runs.
+    function New-CommitRepo {
+        Copy-EngineToRepo
+        Copy-CiToRepo
+        Copy-RepoDotfiles
+        New-GitRepo
+        $ErrorActionPreference = 'Continue'
+        $script:CloneDir = Join-Path $script:T 'clone'
+        git clone -q (Join-Path $script:T 'origin.git') $script:CloneDir 2>$null
+        git -C $script:CloneDir config syncsettings.machine testbox 2>$null
+        git -C $script:CloneDir config user.name t 2>$null
+        git -C $script:CloneDir config user.email t@example.com 2>$null
+        New-GhStub
+    }
+
+    # Runs Commit-Settings.ps1 in the clone with the stub gh on PATH.
+    function Invoke-Commit {
+        # git fetch and push write to stderr, which must not fail the test.
+        $ErrorActionPreference = 'Continue'
+        $script:EngineScript = Join-Path $script:CloneDir 'scripts\windows\Commit-Settings.ps1'
+        $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript 2>&1 | Out-String
+        $script:EngineExit = $LASTEXITCODE
+    }
+
+    # A commit repo with the fixture values cached, ignored the way the real repo ignores them.
+    function New-CommitValuesRepo {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+        # Copy-EngineToRepo commits the values file, which the real repo never does.
+        git -C $script:CloneDir rm -q --cached .user-values.json 2>$null
+        git -C $script:CloneDir commit -qm 'stop tracking the values' 2>$null
+        git -C $script:CloneDir push -q origin master 2>$null
+        Add-Content -LiteralPath (Join-Path $script:CloneDir '.git\info\exclude') -Value '.user-values.json'
+        Copy-Item -LiteralPath (Join-Path $Script:Fixtures 'user-values.json') -Destination (Join-Path $script:CloneDir '.user-values.json') -Force
+    }
+
+    function Set-CloneWinConf {
+        param([string]$Text)
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, $Text, [System.Text.UTF8Encoding]::new($false))
+    }
+
+    function Assert-CommitBlocked {
+        param([string]$Placeholder)
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape("ERROR: a cached value for $Placeholder is in dotfiles/windows/win.conf; nothing was committed."))
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
+    # Refnames of every branch on the bare origin.
+    function Get-OriginBranches {
+        $ErrorActionPreference = 'Continue'
+        $origin = Join-Path $script:T 'origin.git'
+        (git --git-dir=$origin for-each-ref --format='%(refname)' refs/heads 2>$null | Out-String).Trim()
+    }
 }
 
 Describe 'Windows engine' {
@@ -165,6 +271,8 @@ Describe 'Windows engine' {
         $env:USERPROFILE = $script:HomeDir
         $script:SavedTemp = $env:TEMP
         $script:SavedTmp = $env:TMP
+        $script:SavedPath = $env:PATH
+        $script:SavedGhLog = $env:GH_LOG
     }
 
     AfterEach {
@@ -178,6 +286,12 @@ Describe 'Windows engine' {
             Remove-Item Env:\TMP -ErrorAction SilentlyContinue
         } else {
             $env:TMP = $script:SavedTmp
+        }
+        $env:PATH = $script:SavedPath
+        if ($null -eq $script:SavedGhLog) {
+            Remove-Item Env:\GH_LOG -ErrorAction SilentlyContinue
+        } else {
+            $env:GH_LOG = $script:SavedGhLog
         }
         if (Test-Path $script:T) {
             Remove-Item $script:T -Recurse -Force
@@ -341,6 +455,103 @@ Describe 'Windows engine' {
         (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
     }
 
+    It 'path-repo-traversal' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/../evil.txt'
+            localPath   = '~\evil.txt'
+            platform    = 'windows'
+            description = 'unsafe repoPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/../evil.txt has an unsafe path.'
+    }
+
+    It 'path-repo-outside' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'outside/evil.txt'
+            localPath   = '~\evil.txt'
+            platform    = 'windows'
+            description = 'unsafe repoPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry outside/evil.txt has an unsafe path.'
+    }
+
+    It 'path-local-traversal' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/windows/evil.txt'
+            localPath   = '~\..\evil.txt'
+            platform    = 'windows'
+            description = 'unsafe localPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/windows/evil.txt has an unsafe path.'
+    }
+
+    It 'path-local-absolute' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/windows/evil.txt'
+            localPath   = '/etc/passwd'
+            platform    = 'windows'
+            description = 'unsafe localPath'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/windows/evil.txt has an unsafe path.'
+    }
+
+    It 'path-repo-symlink' {
+        Copy-EngineToRepo
+
+        # A junction needs no admin rights, unlike a symlink, and it is a
+        # reparse point either way. Its target exists so a recursive listing
+        # cannot fail while following it.
+        $target   = Join-Path $script:T 'junction-target'
+        $junction = Join-Path $script:RepoDir 'dotfiles\linux\plain.txt'
+        $null = New-Item -ItemType Directory -Path $target -Force
+        $null = New-Item -ItemType Directory -Path (Split-Path $junction -Parent) -Force
+        New-Item -ItemType Junction -Path $junction -Value $target | Out-Null
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/plain.txt has an unsafe path.'
+    }
+
+    It 'path-real-config' {
+        Copy-EngineToRepo
+        Copy-Item -Path (Join-Path $Script:TestRepo 'sync-config.json') -Destination (Join-Path $script:RepoDir 'sync-config.json') -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('has an unsafe path'))
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('has an unsafe path'))
+    }
+
+    It 'path-dotted-name' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/windows/foo..bar.txt'
+            localPath   = '~\.config\fixture\foo..bar.txt'
+            platform    = 'windows'
+            description = 'dotted name'
+        })
+
+        $localFile = Join-Path $script:HomeDir '.config\fixture\foo..bar.txt'
+        [IO.File]::WriteAllText($localFile, "dotted`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/windows/foo..bar.txt')
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/windows/foo..bar.txt')
+    }
+
     It 'escape-import' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
@@ -415,6 +626,25 @@ Describe 'Windows engine' {
         $pathsIni = Join-Path $script:RepoDir 'dotfiles\common\paths.ini'
         $want = Join-Path $Script:Fixtures 'repo\dotfiles\common\paths.ini'
         ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+    }
+
+    It 'sanitized-case-change' {
+        Copy-EngineToRepo
+
+        # The lines differ only by case, and the sanitized form of the local file
+        # is itself, so only a case-sensitive compare sees a change.
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\windows\win.conf'
+        $null = New-Item -ItemType Directory -Path (Split-Path $repoFile -Parent) -Force
+        [IO.File]::WriteAllText($repoFile, "editor = vim`n", [System.Text.UTF8Encoding]::new($false))
+        $localFile = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($localFile, "EDITOR = VIM`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/windows/win.conf' 'sanitized')
+        $want = [System.Text.UTF8Encoding]::new($false).GetBytes("EDITOR = VIM`n")
+        ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ($want -join ',')
     }
 
     It 'dir-export-adds' {
@@ -723,6 +953,59 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Not -Match '\[ORPHAN'
     }
 
+    It 'import-linked-keeps-local' {
+        Copy-EngineToRepo
+
+        # A linked folder lives on the system drive, outside the system paths
+        # Find-LinkedPaths filters out (C:\Windows, C:\Program Files, C:\Users, ...).
+        $linkedRoot = "$env:SystemDrive\SyncSettingsTest-$([guid]::NewGuid().ToString('N'))"
+        $toolDir    = "$linkedRoot\tool"
+        $null = New-Item -ItemType Directory -Path $toolDir -Force
+
+        try {
+            $configPath = Join-Path $script:RepoDir 'sync-config.json'
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            $linkedEntry = [pscustomobject]@{
+                repoPath          = 'dotfiles/windows/linked.sh'
+                localPath         = '~\linked.sh'
+                platform          = 'windows'
+                detectLinkedPaths = $true
+            }
+            $config.files = @($config.files) + $linkedEntry
+            [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+            $winDir = Join-Path $script:RepoDir 'dotfiles\windows'
+            $null = New-Item -ItemType Directory -Path $winDir -Force
+            [IO.File]::WriteAllText((Join-Path $winDir 'linked.sh'), "script`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+            $linkRepo = Join-Path $winDir 'linked.sh.linked\tool'
+            $null = New-Item -ItemType Directory -Path $linkRepo -Force
+            [IO.File]::WriteAllText((Join-Path $linkRepo 'a.txt'), "repo-a`n", [System.Text.UTF8Encoding]::new($false))
+
+            # Local: a differing file, a local-only file, and an excluded file.
+            [IO.File]::WriteAllText((Join-Path $toolDir 'a.txt'), "local-a`n", [System.Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText((Join-Path $toolDir 'local.txt'), "mine`n", [System.Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText((Join-Path $toolDir 'x.bak'), "x`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/windows/linked.sh.linked/tool/a.txt' 'backup saved as a.txt.bak')
+            $script:EngineOut | Should -Match (Get-StatusPattern 'EXTRA' 'dotfiles/windows/linked.sh.linked/tool/local.txt' 'not in repo; kept')
+            $script:EngineOut | Should -Not -Match 'x\.bak'
+
+            $aTxt = Join-Path $toolDir 'a.txt'
+            ([IO.File]::ReadAllBytes($aTxt) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("repo-a`n") -join ',')
+            "$aTxt.bak" | Should -Exist
+            ([IO.File]::ReadAllBytes("$aTxt.bak") -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("local-a`n") -join ',')
+            ([IO.File]::ReadAllBytes((Join-Path $toolDir 'local.txt')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("mine`n") -join ',')
+            ([IO.File]::ReadAllBytes((Join-Path $toolDir 'x.bak')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("x`n") -join ',')
+        } finally {
+            if (Test-Path -LiteralPath $linkedRoot) {
+                Remove-Item -LiteralPath $linkedRoot -Recurse -Force
+            }
+        }
+    }
+
     It 'upstream-none' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
@@ -942,6 +1225,160 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --preview needs a git repo with a commit.'))
     }
 
+    It 'preview-scan-missing' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        Remove-Item -Path (Join-Path $script:RepoDir 'scripts\ci\leak-scan.sh') -Force
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: leak scan could not run; nothing was committed.'))
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('before/dotfiles'))
+    }
+
+    # -- Commit-Settings.ps1 -----------------------------------------------------
+
+    It 'commit-happy' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        $origin = Join-Path $script:T 'origin.git'
+        $originMaster = (git --git-dir=$origin rev-parse master 2>$null | Out-String).Trim()
+
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, "changed`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 0
+
+        (git --git-dir=$origin rev-parse master 2>$null | Out-String).Trim() | Should -Be $originMaster
+        (git -C $script:CloneDir symbolic-ref --short HEAD 2>$null | Out-String).Trim() | Should -Be 'master'
+
+        $branches = (git --git-dir=$origin for-each-ref --format='%(refname)' refs/heads 2>$null | Out-String)
+        @($branches -split "`r?`n" | Where-Object { $_ -match '^refs/heads/sync/windows-testbox-' }).Count | Should -Be 1
+
+        @(Get-Content $script:GhLog).Count | Should -Be 1
+    }
+
+    It 'commit-leak-blocked' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        # A home-style path the scan flags, built by concatenation so the literal
+        # never appears in this file.
+        $leaky = '/ho' + 'me/someone/x'
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, "$leaky`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: the leak scan found the lines above; nothing was committed.'))
+
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
+    It 'commit-scan-missing' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        # Removed in a commit: an uncommitted removal stops at the outside-changes check.
+        git -C $script:CloneDir rm -q scripts/ci/leak-scan.sh 2>$null
+        git -C $script:CloneDir commit -qm 'remove the scan' 2>$null
+
+        $winConf = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+        [IO.File]::WriteAllText($winConf, "changed`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: leak scan could not run; nothing was committed.'))
+
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
+    It 'commit-outside-changes' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        [IO.File]::WriteAllText((Join-Path $script:CloneDir 'outside.txt'), "outside`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: commit or stash changes outside dotfiles/ first.'))
+
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
+    It 'commit-value-blocked' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = Fixture User`r`n"
+
+        Invoke-Commit
+
+        Assert-CommitBlocked '<NAME>'
+    }
+
+    It 'commit-value-case-variant' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = FIXTURE user`r`n"
+
+        Invoke-Commit
+
+        Assert-CommitBlocked '<NAME>'
+    }
+
+    It 'commit-value-doubled' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "tool = C:\\Tools\\gh.exe`r`n"
+
+        Invoke-Commit
+
+        Assert-CommitBlocked '<WINPATH>'
+    }
+
+    It 'commit-value-untracked' {
+        New-CommitValuesRepo
+        $newDir = Join-Path $script:CloneDir 'dotfiles\windows\new'
+        $null = New-Item -ItemType Directory -Path $newDir -Force
+        [IO.File]::WriteAllText((Join-Path $newDir 'added.txt'), "author = Fixture User`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: a cached value for <NAME> is in dotfiles/windows/new/added.txt; nothing was committed.'))
+    }
+
+    It 'commit-value-placeholder-only' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = <NAME>`r`n"
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 0
+        @(Get-Content $script:GhLog).Count | Should -Be 1
+    }
+
+    It 'commit-value-not-printed' {
+        New-CommitValuesRepo
+        Set-CloneWinConf "author = Fixture User`r`n"
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Not -Match 'Fixture User'
+    }
+
     # -- sync.cmd ---------------------------------------------------------------
 
     It 'sync-cmd-usage' {
@@ -1087,14 +1524,26 @@ Describe 'Request-MissingValues' {
         Should -Invoke Read-Host -Times 1 -Exactly
     }
 
-    It 'no default leaves value unset' {
+    It 'no default throws' {
         Remove-Item Env:FIXTURE_ENV -ErrorAction SilentlyContinue
         $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; defaultEnv = 'FIXTURE_ENV' }
         $values = @{}
 
-        Request-MissingValues -Rules @($rule) -UserValues $values -Direction import
+        { Request-MissingValues -Rules @($rule) -UserValues $values -Direction import } | Should -Throw 'missing value for <X>: add it to .user-values.json'
 
         $values.ContainsKey('<X>') | Should -BeFalse
+    }
+
+    It 'interactive empty answer throws and stores nothing' {
+        Mock Test-Interactive { $true }
+        Mock Read-Host { '' }
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X' }
+        $values = @{}
+
+        { Request-MissingValues -Rules @($rule) -UserValues $values -Direction import } | Should -Throw 'missing value for <X>: add it to .user-values.json'
+
+        $values.ContainsKey('<X>') | Should -BeFalse
+        Should -Invoke Read-Host -Times 1 -Exactly
     }
 
     It 'non-interactive without default throws' {
@@ -1107,6 +1556,17 @@ Describe 'Request-MissingValues' {
         Should -Invoke Read-Host -Times 0 -Exactly
     }
 
+    It 'non-interactive without default does not take the previous value' {
+        Mock Test-Interactive { $false }
+        $first = [pscustomobject]@{ placeholder = '<A>'; prompt = 'A'; default = 'd' }
+        $second = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X' }
+        $values = @{}
+
+        { Request-MissingValues -Rules @($first, $second) -UserValues $values -Direction import } | Should -Throw "missing value for <X>*"
+
+        $values.ContainsKey('<X>') | Should -BeFalse
+    }
+
     It 'non-interactive takes default' {
         Mock Test-Interactive { $false }
         $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; default = 'd' }
@@ -1116,6 +1576,43 @@ Describe 'Request-MissingValues' {
 
         $values['<X>'] | Should -Be 'd'
         Should -Invoke Read-Host -Times 0 -Exactly
+    }
+}
+
+Describe 'Find-GitBash' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+    }
+
+    BeforeEach {
+        $script:GitRoot = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:GitRoot 'bin') -Force
+    }
+
+    AfterEach {
+        if (Test-Path -LiteralPath $script:GitRoot) {
+            Remove-Item -LiteralPath $script:GitRoot -Recurse -Force
+        }
+    }
+
+    It 'git in cmd' {
+        [IO.File]::WriteAllText((Join-Path $script:GitRoot 'bin\bash.exe'), '')
+        Mock Get-Command { [pscustomobject]@{ Source = (Join-Path $script:GitRoot 'cmd\git.exe') } } -ParameterFilter { $Name -eq 'git' }
+
+        Find-GitBash | Should -Be (Join-Path $script:GitRoot 'bin\bash.exe')
+    }
+
+    It 'git in mingw64\bin' {
+        [IO.File]::WriteAllText((Join-Path $script:GitRoot 'bin\bash.exe'), '')
+        Mock Get-Command { [pscustomobject]@{ Source = (Join-Path $script:GitRoot 'mingw64\bin\git.exe') } } -ParameterFilter { $Name -eq 'git' }
+
+        Find-GitBash | Should -Be (Join-Path $script:GitRoot 'bin\bash.exe')
+    }
+
+    It 'no bash.exe' {
+        Mock Get-Command { [pscustomobject]@{ Source = (Join-Path $script:GitRoot 'cmd\git.exe') } } -ParameterFilter { $Name -eq 'git' }
+
+        Find-GitBash | Should -BeNullOrEmpty
     }
 }
 
@@ -1181,5 +1678,115 @@ Describe 'Test-RepoUpToDate' {
         Test-RepoUpToDate -RepoRoot $script:Work | Should -BeFalse
 
         Should -Invoke Read-Host -Times 0 -Exactly
+    }
+}
+
+Describe 'Save-UserValues' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+
+        function Assert-OnlyCurrentUser {
+            param([string]$Path)
+            $acl = Get-Acl -LiteralPath $Path
+            $acl.AreAccessRulesProtected | Should -BeTrue
+            $current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $sids = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value })
+            $sids | Should -Be @($current.Value)
+        }
+    }
+
+    BeforeEach {
+        $script:ValuesDir = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path $script:ValuesDir -Force
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:ValuesDir -Recurse -Force
+    }
+
+    It 'values-private-new' {
+        Save-UserValues -RepoRoot $script:ValuesDir -Values @{ '<X>' = 'y' }
+
+        $path = Join-Path $script:ValuesDir '.user-values.json'
+        Assert-OnlyCurrentUser $path
+        (Get-UserValues -RepoRoot $script:ValuesDir)['<X>'] | Should -Be 'y'
+    }
+
+    It 'values-private-tightened' {
+        $path = Join-Path $script:ValuesDir '.user-values.json'
+        [IO.File]::WriteAllText($path, '{}')
+
+        Save-UserValues -RepoRoot $script:ValuesDir -Values @{ '<X>' = 'y' }
+
+        Assert-OnlyCurrentUser $path
+    }
+}
+
+Describe 'Import-LinkedDirectory' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+    }
+
+    BeforeEach {
+        $script:LinkedWork = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path $script:LinkedWork -Force
+    }
+
+    AfterEach {
+        if (Test-Path -LiteralPath $script:LinkedWork) {
+            Remove-Item -LiteralPath $script:LinkedWork -Recurse -Force
+        }
+    }
+
+    It 'import-linked-answer-no' {
+        $src = Join-Path $script:LinkedWork 'repo-tool'
+        $dst = Join-Path $script:LinkedWork 'local-tool'
+        $null = New-Item -ItemType Directory -Path $src -Force
+        $null = New-Item -ItemType Directory -Path $dst -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), "repo`n", [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $dst 'a.txt'), "local`n", [System.Text.UTF8Encoding]::new($false))
+
+        Mock Read-Host { 'n' }
+        Mock Write-StatusLine { }
+
+        $applied = Import-LinkedDirectory -SourceDir $src -DestDir $dst -Label 'tool' -ExcludePatterns @() -Force $false
+
+        $applied | Should -Be 0
+        ([IO.File]::ReadAllBytes((Join-Path $dst 'a.txt')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("local`n") -join ',')
+        (Join-Path $dst 'a.txt.bak') | Should -Not -Exist
+        Should -Invoke Read-Host -Times 1 -Exactly
+        Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'SKIPPED' -and $Note -eq 'user skipped' }
+    }
+
+    It 'import-linked-error-continues' {
+        $src = Join-Path $script:LinkedWork 'repo-tool'
+        $dst = Join-Path $script:LinkedWork 'local-tool'
+        $null = New-Item -ItemType Directory -Path $src -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), "a`n", [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $src 'b.txt'), "b`n", [System.Text.UTF8Encoding]::new($false))
+
+        Mock Copy-RepoFileToLocal { if ($Label -like '*a.txt') { throw 'copy failed' }; 'CREATED' }
+        Mock Write-StatusLine { }
+
+        $applied = Import-LinkedDirectory -SourceDir $src -DestDir $dst -Label 'tool' -ExcludePatterns @() -Force $true
+
+        $applied | Should -Be 1
+        Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'ERROR' -and $Note -eq 'copy failed' }
+    }
+
+    It 'import-dir-error-continues' {
+        $src = Join-Path $script:LinkedWork 'repo-tool'
+        $dst = Join-Path $script:LinkedWork 'local-tool'
+        $null = New-Item -ItemType Directory -Path $src -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), "a`n", [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $src 'b.txt'), "b`n", [System.Text.UTF8Encoding]::new($false))
+
+        Mock Copy-RepoFileToLocal { if ($Label -like '*a.txt') { throw 'copy failed' }; 'CREATED' }
+        Mock Write-StatusLine { }
+
+        $applied = Import-DirEntry -RepoDir $src -LocalDir $dst -Label 'tool' -ExcludePatterns @() -Force $true
+
+        $applied | Should -Be 1
+        Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'ERROR' -and $Note -eq 'copy failed' }
     }
 }

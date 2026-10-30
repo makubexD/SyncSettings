@@ -108,6 +108,54 @@ resolve_machine_alias() {
     printf '%s' "$alias"
 }
 
+# Stop if a changed sync file holds a cached value, in any case or with doubled
+# backslashes. Values reach grep through a private temp file, so they never show
+# up in arguments or output.
+check_cached_values() {
+    load_values
+    (( ${#USER_VALUES[@]} > 0 )) || return 0
+
+    local -a files=() placeholders=()
+    local file
+    while IFS= read -r -d '' file; do
+        if [[ -f $file ]]; then
+            files+=("$file")
+        fi
+    done < <(git diff --name-only -z HEAD -- "${SYNC_PATHS[@]}"
+             git ls-files --others --exclude-standard -z -- "${SYNC_PATHS[@]}")
+    (( ${#files[@]} > 0 )) || return 0
+
+    mapfile -t placeholders < <(printf '%s\n' "${!USER_VALUES[@]}" | sort)
+
+    # mktemp creates the file with mode 600.
+    VALUE_PATTERNS=$(mktemp)
+    trap 'rm -f "$VALUE_PATTERNS"' EXIT
+
+    local placeholder value hits status
+    for placeholder in "${placeholders[@]}"; do
+        value=${USER_VALUES[$placeholder]}
+        [[ -n $value ]] || continue
+        printf '%s\n' "$value" > "$VALUE_PATTERNS"
+        if [[ $value == *\\* ]]; then
+            printf '%s\n' "${value//\\/\\\\}" >> "$VALUE_PATTERNS"
+        fi
+
+        status=0
+        hits=$(grep -Fil -f "$VALUE_PATTERNS" -- "${files[@]}") || status=$?
+        if (( status == 0 )); then
+            printf 'ERROR: a cached value for %s is in %s; nothing was committed.\n' "$placeholder" "${hits%%$'\n'*}" >&2
+            exit 1
+        fi
+        if (( status > 1 )); then
+            printf 'ERROR: could not search for cached values; nothing was committed.\n' >&2
+            exit 1
+        fi
+    done
+
+    rm -f "$VALUE_PATTERNS"
+    trap - EXIT
+}
+
 # -- Main ---------------------------------------------------------------------
 
 printf '\n'
@@ -157,6 +205,24 @@ if [[ -z $status_output ]]; then
     printf '  Nothing to commit -- dotfiles/ is clean.\n\n'
     exit 0
 fi
+
+# Scan the sync paths for personal data before branching or committing.
+leak_code=0
+if run_leak_scan "${SYNC_PATHS[@]}"; then
+    :
+else
+    leak_code=$?
+fi
+if (( leak_code == 1 )); then
+    printf 'ERROR: the leak scan found the lines above; nothing was committed.\n' >&2
+    exit 1
+fi
+if (( leak_code == 2 )); then
+    printf 'ERROR: leak scan could not run; nothing was committed.\n' >&2
+    exit 1
+fi
+
+check_cached_values
 
 machine=$(resolve_machine_alias)
 

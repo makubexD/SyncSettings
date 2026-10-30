@@ -61,7 +61,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **No `@tsv` for values:** jq's `@tsv` escapes backslashes and `read` with `IFS=$'\t'` collapses empty fields. Parse values and rules NUL-separated (`jq -j … "\u0000"`, `read -d ''`) and replace text literally (`${c//"$from"/"$to"}`).
 - **Prompts inside loops:** a loop that reads from a pipe must use another fd (`read … <&3` with `done 3< <(…)`), or `read` takes the next loop line as the user's answer.
 - **Modes:** `cp -p` for plain copies, `chmod --reference` for files written from text. `bin/` scripts must stay executable.
-- **Non-interactive runs:** with no terminal and a placeholder value missing, `request_values` fails rather than writing an unfilled placeholder.
+- **Missing values:** with a placeholder value missing after the prompt, with or without a terminal, `request_values` stops rather than writing an unfilled placeholder.
 - **Testing:** use a throwaway `HOME` (`HOME=$(mktemp -d) ./import.sh --force < /dev/null`) and a throwaway `git clone` for `commit.sh`. Don't test in the real repo.
 
 ## Linked Paths (Auto-Detection)
@@ -86,7 +86,7 @@ dotfiles/.bashrc.linked/MakuCustomAlias/vs.bat
 - **Export**: reads local file, detects paths, syncs each dir -> repo `.linked/` folder
 - **Import**: scans repo `.linked/` folders, resolves local paths from file content, syncs back
 - Files inside linked dirs are subject to `excludePatterns`
-- Orphaned files (deleted from source) are removed from destination
+- Export removes repo files that are gone from the folder. Import never deletes: a local file the repo doesn't have is reported as `EXTRA` and kept
 
 ## Adding New Files to Sync
 

@@ -196,7 +196,7 @@ dotfiles/
         └── vs.bat
 ```
 
-**Import** on a new machine creates the directory if it doesn't exist and copies files into it.
+**Import** on a new machine creates the directory if it doesn't exist and copies files into it. On a machine that already has the directory, it asks before overwriting a file, keeps a `.bak`, and never deletes: a local file the repo doesn't have is reported as `EXTRA` and kept.
 
 If you have multiple referenced directories, all of them are detected and grouped under `<filename>.linked/`:
 ```

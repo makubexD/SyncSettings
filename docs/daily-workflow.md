@@ -98,7 +98,8 @@ git pull
 ```
 
 Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
-`--force`. If you import a newer change over the same file later, that `.bak` is replaced.
+`--force`. If you import a newer change over the same file later, that `.bak` is replaced. Import never deletes a local
+file: one the repo doesn't have is reported as `EXTRA` and kept.
 
 ## When `commit.sh` stops
 
@@ -107,6 +108,12 @@ Import asks before overwriting each file, and it always saves the old file as `<
 | `no machine alias set. Run: git config syncsettings.machine <alias>` | It ran without a terminal, so it could not ask. Run that command with your alias (e.g. `laptop`), then run it again |
 | `invalid machine alias '<value>' …` | Pick an alias with only `a-z`, `0-9` and `-`, not starting with `-`. If the message ends with `in git config syncsettings.machine`, fix it with `git config syncsettings.machine <alias>` |
 | `commit or stash changes outside dotfiles/ first.` | Commit those files on their own branch, or `git stash`, then run it again |
+| `the leak scan found the lines above; nothing was committed.` | Open each `<file>:<line>` it listed, replace the personal text or add a `sanitizeRules` entry, export again, then run it again |
+| `leak scan could not run; nothing was committed.` | Restore `scripts/ci/leak-scan.sh` with `git restore`. On Windows, make sure Git for Windows and its `bash.exe` are installed. Then run it again |
+| `a cached value for <PLACEHOLDER> is in <file>; nothing was committed.` | Add a `sanitizeRules` entry for that placeholder to the file's entry, or remove the value from the file, export again, then run it again |
+| `could not search for cached values; nothing was committed.` | A changed file could not be read. On Windows this can be a file name with unusual characters: rename it, then run it again |
+| `sync-config.json: entry <repoPath> has an unsafe path.` | Fix that entry: `repoPath` starts with `dotfiles/`, `localPath` starts with `~/` or `~\`, and neither has a `..` segment. Remove any symlink under `dotfiles/` |
+| `sync-config.json: entry <repoPath> has an invalid defaultEnv.` | Use a valid variable name: letters, digits and `_`, not starting with a digit |
 | `run commit.sh from master (current: <branch>).` (or `commit.bat`) | `git switch master`, then run it again |
 | `master is behind origin; pull first.` | `git pull`, then run it again |
 | `local master has unpushed commits; push or move them to a branch first.` | `git branch <name>` to keep them on a branch, then `git reset --keep origin/master` (your uncommitted dotfiles changes stay) |

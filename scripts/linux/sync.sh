@@ -23,7 +23,78 @@ check_platforms() {
         | .repoPath, "\u0000"' "$CONFIG")
 }
 
+# A path is safe when it starts with its required prefix and has no ".." segment,
+# splitting on both / and \. A name like "foo..bar" is a legal segment; an empty
+# path never matches a prefix, so it fails.
+path_is_safe() {
+    local path=$1 kind=$2 rest seg
+    case $kind in
+        repo)
+            [[ $path == dotfiles/* ]] || return 1
+            ;;
+        local)
+            # shellcheck disable=SC2088  # literal '~' prefix from sync-config.json
+            [[ $path == '~/'* || $path == $'~\\'* ]] || return 1
+            ;;
+    esac
+    rest=$path
+    while [[ -n $rest ]]; do
+        seg=${rest%%[\\/]*}
+        [[ $seg == '..' ]] && return 1
+        if [[ $rest == *[\\/]* ]]; then
+            rest=${rest#*[\\/]}
+        else
+            break
+        fi
+    done
+    return 0
+}
+
+path_fail() {
+    printf 'ERROR: sync-config.json: entry %s has an unsafe path.\n' "$1" >&2
+    exit 1
+}
+
+default_env_fail() {
+    printf 'ERROR: sync-config.json: entry %s has an invalid defaultEnv.\n' "$1" >&2
+    exit 1
+}
+
+# Every path must stay inside dotfiles/ and the home directory, on any platform,
+# and no symlink may sit under dotfiles/. Stop before any file is touched.
+check_paths() {
+    local repo_path local_path
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' local_path; do
+        path_is_safe "$repo_path" repo || path_fail "$repo_path"
+        path_is_safe "$local_path" local || path_fail "$repo_path"
+    done < <(jq -j '.files[] | (.repoPath // ""), "\u0000", (.localPath // ""), "\u0000"' "$CONFIG")
+
+    # A defaultEnv is read as a variable name, so it must be a valid shell name.
+    local default_env env_name_re='^[A-Za-z_][A-Za-z0-9_]*$'
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' default_env; do
+        [[ $default_env =~ $env_name_re ]] || default_env_fail "$repo_path"
+    done < <(jq -j '.files[]
+        | select(.sanitizeRules != null)
+        | .repoPath as $r
+        | .sanitizeRules[]
+        | select(.defaultEnv != null)
+        | $r, "\u0000", .defaultEnv, "\u0000"' "$CONFIG")
+
+    # A symlink can point anywhere; name the entry that owns it, or the symlink's
+    # own repo-relative path when no entry does.
+    local link name
+    while IFS= read -r -d '' link; do
+        name=${link#"$REPO_ROOT"/}
+        path_fail "$(jq -j --arg name "$name" '
+            ([.files[] | select((.type // "file") == "file") | select(.repoPath == $name) | .repoPath] +
+             [.files[] | select(.type == "dir") | .repoPath as $r | select($name == $r or ($name | startswith($r + "/"))) | $r] +
+             [.files[] | select(.detectLinkedPaths == true) | .repoPath as $r | select($name | startswith($r + ".linked/")) | $r])
+            | .[0] // $name' "$CONFIG")"
+    done < <(find "$REPO_ROOT/dotfiles" -type l -print0 2>/dev/null | sort -z)
+}
+
 check_platforms
+check_paths
 
 platform_entries() {
     jq -c '.files[] | select(.platform == "linux" or .platform == "common")' "$CONFIG"
@@ -115,7 +186,14 @@ save_values() {
     for key in "${!USER_VALUES[@]}"; do
         args+=(--arg "$key" "${USER_VALUES[$key]}")
     done
-    jq -S -n "${args[@]}" '$ARGS.named' > "$VALUES_FILE"
+    # Tighten an existing file before writing, so new values never sit in a readable one.
+    (
+        umask 077
+        if [[ -e $VALUES_FILE ]]; then
+            chmod 600 "$VALUES_FILE"
+        fi
+        jq -S -n "${args[@]}" '$ARGS.named' > "$VALUES_FILE"
+    )
 }
 
 # -- Value inference (import only) --------------------------------------------
@@ -244,7 +322,7 @@ request_values() {
         fi
         if [[ -n $input ]]; then
             USER_VALUES[$placeholder]=$input
-        elif [[ ! -t 0 ]]; then
+        else
             printf 'missing value for %s: add it to .user-values.json\n' "$placeholder" >&2
             exit 1
         fi
@@ -370,6 +448,25 @@ report_orphans() {
     done < <(find "$REPO_ROOT/dotfiles" -type f -print0 | sort -z)
 }
 
+# -- Leak scan ------------------------------------------------------------------
+
+# Run scripts/ci/leak-scan.sh over the given paths.
+# Returns 0 when clean, 1 when it found a hit, 2 when it could not run (script
+# missing or not executable, or any exit code other than 0 and 1).
+run_leak_scan() {
+    local scan=$REPO_ROOT/scripts/ci/leak-scan.sh code
+    [[ -x $scan ]] || return 2
+    if "$scan" "$@"; then
+        return 0
+    else
+        code=$?
+    fi
+    if (( code == 1 )); then
+        return 1
+    fi
+    return 2
+}
+
 # -- Export preview -------------------------------------------------------------
 
 # Show what a real export would write to the repo, without touching the repo.
@@ -399,17 +496,16 @@ run_preview() {
 
     # Scan first: a hit must suppress the diff, which would print the leaked text.
     leak_found=0
-    if [[ -x $REPO_ROOT/scripts/ci/leak-scan.sh ]]; then
-        if "$REPO_ROOT/scripts/ci/leak-scan.sh" after/dotfiles after/sync-config.json; then
-            printf '  Leak scan: clean.\n'
+    if run_leak_scan after/dotfiles after/sync-config.json; then
+        printf '  Leak scan: clean.\n'
+    else
+        local code=$?
+        if (( code == 1 )); then
+            printf '  WARNING: the leak scan found the lines above. Fix them before committing.\n'
+            leak_found=1
         else
-            if (( $? == 1 )); then
-                printf '  WARNING: the leak scan found the lines above. Fix them before committing.\n'
-                leak_found=1
-            else
-                printf 'ERROR: leak scan failed.\n' >&2
-                exit 1
-            fi
+            printf 'ERROR: leak scan could not run; nothing was committed.\n' >&2
+            exit 1
         fi
     fi
 

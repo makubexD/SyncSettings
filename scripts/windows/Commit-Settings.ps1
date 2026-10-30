@@ -21,6 +21,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+. "$PSScriptRoot\SyncHelpers.ps1"
+
 # -- Helpers ------------------------------------------------------------------
 
 function Build-CommitMessage {
@@ -96,6 +98,47 @@ Write-Host
 
 $bodyFile = $null
 
+function Assert-NoCachedValues {
+    # Stops the commit if a changed sync file holds a cached value, in any case or
+    # with doubled backslashes. The search runs in this process, so values never
+    # show up in arguments or output. A file that can't be listed or found stops
+    # the commit too.
+    param([string]$RepoRoot, [string[]]$SyncPaths)
+
+    $values = Get-UserValues -RepoRoot $RepoRoot
+    if ($values.Count -eq 0) { return }
+
+    $searchFailed = 'could not search for cached values; nothing was committed.'
+
+    $changed = @(git -c core.quotepath=off diff --name-only --diff-filter=d HEAD -- @SyncPaths)
+    if ($LASTEXITCODE -ne 0) { throw $searchFailed }
+    $changed += @(git -c core.quotepath=off ls-files --others --exclude-standard -- @SyncPaths)
+    if ($LASTEXITCODE -ne 0) { throw $searchFailed }
+
+    $texts = @{}
+    foreach ($file in ($changed | Where-Object { $_ })) {
+        $full = Join-Path $RepoRoot $file
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw $searchFailed }
+        $texts[$file] = [IO.File]::ReadAllText($full)
+    }
+
+    foreach ($placeholder in ($values.Keys | Sort-Object)) {
+        $value = [string]$values[$placeholder]
+        if (-not $value) { continue }
+
+        $needles = @($value)
+        if ($value.Contains('\')) { $needles += $value.Replace('\', '\\') }
+
+        foreach ($file in ($texts.Keys | Sort-Object)) {
+            foreach ($needle in $needles) {
+                if ($texts[$file].IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                    throw "a cached value for $placeholder is in $file; nothing was committed."
+                }
+            }
+        }
+    }
+}
+
 try {
     # Verify git is available
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -142,6 +185,17 @@ try {
         Write-Host
         exit 0
     }
+
+    # Scan the sync paths for personal data before branching or committing.
+    $leakCode = Invoke-LeakScan -RepoRoot $repoRoot -Paths $syncPaths
+    if ($leakCode -eq 1) {
+        throw 'the leak scan found the lines above; nothing was committed.'
+    }
+    if ($leakCode -eq 2) {
+        throw 'leak scan could not run; nothing was committed.'
+    }
+
+    Assert-NoCachedValues -RepoRoot $repoRoot -SyncPaths $syncPaths
 
     $machine = Resolve-MachineAlias
 

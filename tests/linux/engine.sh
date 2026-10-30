@@ -134,6 +134,46 @@ add_sync() {
     cp -a "$REPO/sync" "$t/repo/"
 }
 
+# A stub GH that logs each invocation to $t/gh.log and prints a fixed URL.
+make_gh_stub() {
+    mkdir -p "$t/bin"
+    cat > "$t/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${GH_LOG:?}"
+printf 'https://github.com/example/pr/1\n'
+EOF
+    chmod +x "$t/bin/gh"
+}
+
+# A fixture repo (commit.sh + scripts/ + sync paths) committed on master and
+# pushed to a bare origin, plus a fresh clone where commit.sh actually runs.
+setup_commit_repo() {
+    setup_repo
+    mkdir -p "$t/repo/scripts/ci"
+    cp -a "$REPO/scripts/ci/." "$t/repo/scripts/ci/"
+    setup_repo_fixture
+    make_git_repo
+    git clone -q "$t/origin.git" "$t/clone"
+    git -C "$t/clone" config syncsettings.machine testbox
+    git -C "$t/clone" config user.name t
+    git -C "$t/clone" config user.email t@example.com
+    make_gh_stub
+    mkdir -p "$t/home"
+}
+
+# Run commit.sh in the clone with the stub GH and a throwaway HOME.
+run_commit() {
+    local home=$1
+    shift
+    rc=0
+    (cd "$t/clone" && HOME="$home" GH="$t/bin/gh" GH_LOG="$t/gh.log" ./commit.sh "$@" < /dev/null) > "$out" 2>&1 || rc=$?
+}
+
+# Refnames of every branch on the bare origin.
+origin_branches() {
+    git --git-dir="$t/origin.git" for-each-ref --format='%(refname)' refs/heads
+}
+
 # -- Cases ---------------------------------------------------------------------
 
 case_import_creates() {
@@ -252,6 +292,119 @@ case_noninteractive_missing_value() {
     (( rc == 1 )) || fail "import.sh exited $rc, want 1"
     grep -q 'missing value for <NAME>' "$out" || fail "missing 'missing value for <NAME>' message"
     [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written despite the missing value"
+}
+
+case_prompt_empty_stops() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    printf '{}\n' > "$t/repo/.user-values.json"
+    mkdir -p "$t/home"
+
+    local repo_before
+    repo_before=$(tree_hash "$t/repo")
+
+    # Run on a pseudo-terminal and answer the <NAME> prompt with an empty line.
+    # <NAME> has no default, so the empty answer must stop the run, not count as
+    # a value. script -e propagates import.sh's exit code.
+    rc=0
+    printf '\n' | script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fq 'missing value for <NAME>: add it to .user-values.json' "$out" \
+        || fail "missing 'missing value for <NAME>' message"
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written despite the empty answer"
+    [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed despite the empty answer"
+}
+
+case_defaultenv_invalid() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/linux/env.conf", "localPath": "~/.config/fixture/env.conf", "platform": "linux", "description": "invalid defaultEnv", "sanitizeRules": [{"placeholder": "<ENV>", "prompt": "Env value", "defaultEnv": "BAD-NAME"}]}'
+
+    local msg='ERROR: sync-config.json: entry dotfiles/linux/env.conf has an invalid defaultEnv.'
+
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "export did not print the defaultEnv error"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "import did not print the defaultEnv error"
+
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written under the home dir"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
+
+    # A leading digit is not a valid variable name either.
+    jq '.files |= map(if .repoPath == "dotfiles/linux/env.conf"
+        then .sanitizeRules[0].defaultEnv = "1BAD" else . end)' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh exited $rc with 1BAD, want 1"
+    grep -Fqx "$msg" "$out" || fail "export did not print the defaultEnv error for 1BAD"
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written for 1BAD"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/ for 1BAD"
+}
+
+case_defaultenv_valid() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    jq '.files |= map(if .repoPath == "dotfiles/linux/named.conf"
+        then .sanitizeRules[0].defaultEnv = "FIXTURE_NAME" else . end)' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    jq 'del(."<NAME>")' "$t/repo/.user-values.json" > "$t/repo/.user-values.json.tmp"
+    mv "$t/repo/.user-values.json.tmp" "$t/repo/.user-values.json"
+    mkdir -p "$t/home"
+
+    # <NAME> has no cached value, so the prompt offers FIXTURE_NAME's value as
+    # its default. Answer it with Enter on a pseudo-terminal, as a user would.
+    rc=0
+    printf '\n' | FIXTURE_NAME='Env Value' \
+        script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    printf 'name = Env Value\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/home/.config/fixture/named.conf" \
+        || fail "named.conf was not hydrated with FIXTURE_NAME's value"
+}
+
+case_values_mode_new() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    rm "$t/repo/.user-values.json"
+    jq '.files |= map(if .sanitizeRules then .sanitizeRules |= map(.default = "Fixture Default") else . end)' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    mkdir -p "$t/home"
+
+    # Without its own umask, save_values would leave this file at 644.
+    umask 022
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    [[ $(stat -c '%a' "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
+}
+
+case_values_mode_tightened() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    jq 'del(."<NAME>")' "$t/repo/.user-values.json" > "$t/repo/.user-values.json.tmp"
+    mv "$t/repo/.user-values.json.tmp" "$t/repo/.user-values.json"
+    chmod 644 "$t/repo/.user-values.json"
+    jq '.files |= map(if .sanitizeRules then .sanitizeRules |= map(.default = "Fixture Default") else . end)' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    [[ $(stat -c '%a' "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
 }
 
 case_error_continues() {
@@ -384,6 +537,99 @@ case_missing_platform() {
     [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
 }
 
+# Append one JSON entry to the fixture sync-config.json in $t/repo.
+add_entry() {
+    jq --argjson e "$1" '.files += [$e]' "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+}
+
+# Both engines must stop with the same path error before touching anything.
+assert_path_stop() {
+    local msg=$1
+
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "export did not print the path error"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "import did not print the path error"
+
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written under the home dir"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
+}
+
+case_path_repo_traversal() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/../evil.txt", "localPath": "~\\evil.txt", "platform": "windows", "description": "unsafe repoPath"}'
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/../evil.txt has an unsafe path.'
+}
+
+case_path_repo_outside() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "outside/evil.txt", "localPath": "~\\evil.txt", "platform": "windows", "description": "unsafe repoPath"}'
+    assert_path_stop 'ERROR: sync-config.json: entry outside/evil.txt has an unsafe path.'
+}
+
+case_path_local_traversal() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/windows/evil.txt", "localPath": "~\\..\\evil.txt", "platform": "windows", "description": "unsafe localPath"}'
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/windows/evil.txt has an unsafe path.'
+}
+
+case_path_local_absolute() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/windows/evil.txt", "localPath": "/etc/passwd", "platform": "windows", "description": "unsafe localPath"}'
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/windows/evil.txt has an unsafe path.'
+}
+
+case_path_repo_symlink() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/linux" "$t/home"
+    ln -s nowhere "$t/repo/dotfiles/linux/plain.txt"
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/linux/plain.txt has an unsafe path.'
+}
+
+case_path_real_config() {
+    new_tmp
+    setup_repo
+    cp "$REPO/sync-config.json" "$t/repo/sync-config.json"
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    if grep -Fq 'has an unsafe path' "$out"; then
+        fail "check_paths rejected the repo's own sync-config.json"
+    fi
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -Fq 'has an unsafe path' "$out"; then
+        fail "check_paths rejected the repo's own sync-config.json"
+    fi
+}
+
+case_path_dotted_name() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home/.config/fixture"
+    add_entry '{"repoPath": "dotfiles/linux/foo..bar.txt", "localPath": "~/.config/fixture/foo..bar.txt", "platform": "linux", "description": "dotted name"}'
+    printf 'dotted\n' > "$t/home/.config/fixture/foo..bar.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status ADDED dotfiles/linux/foo..bar.txt || fail "missing ADDED line for foo..bar.txt"
+}
+
 case_escape_import() {
     new_tmp
     setup_repo
@@ -477,6 +723,25 @@ case_sanitized_large_file() {
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/named.conf \
         || fail "missing UNCHANGED line for the large named.conf"
+}
+
+case_sanitized_case_change() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/linux" "$t/home/.config/fixture"
+
+    # The lines differ only by case, and the sanitized form of the local file is
+    # itself, so only a case-sensitive compare sees a change.
+    printf 'editor = vim\n' > "$t/repo/dotfiles/linux/named.conf"
+    printf 'EDITOR = VIM\n' > "$t/home/.config/fixture/named.conf"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status MODIFIED dotfiles/linux/named.conf sanitized \
+        || fail "missing MODIFIED (sanitized) line for named.conf"
+    printf 'EDITOR = VIM\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/linux/named.conf" \
+        || fail "repo named.conf does not hold the local text"
 }
 
 case_infer_name() {
@@ -667,6 +932,39 @@ case_dir_export_excluded() {
     output_has_status SKIPPED dotfiles/common/dir/x.bak 'matches exclude pattern' \
         || fail "missing SKIPPED (exclude) line for dir/x.bak"
     [[ ! -e "$t/repo/dotfiles/common/dir/x.bak" ]] || fail "x.bak was copied to the repo"
+}
+
+case_excluded_credentials() {
+    new_tmp
+    setup_repo
+    # Tests copy the fixture config; use the repo's real exclude patterns so this
+    # case covers the shipped list.
+    jq --argjson patterns "$(jq '.excludePatterns' "$REPO/sync-config.json")" \
+        '.excludePatterns = $patterns
+         | .files += [{"repoPath": "dotfiles/common/creds", "localPath": "~/.config/fixture/creds", "platform": "common", "type": "dir", "description": "excluded credentials fixture"}]' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    mkdir -p "$t/repo/dotfiles" "$t/home/.config/fixture/creds"
+
+    local f
+    local -a names=(.git-credentials .netrc .npmrc .pgpass hosts.yml auth.json secrets.yaml token app.env id_dsa)
+    for f in "${names[@]}"; do
+        printf 'secret\n' > "$t/home/.config/fixture/creds/$f"
+    done
+    printf 'ordinary\n' > "$t/home/.config/fixture/creds/ordinary.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    for f in "${names[@]}"; do
+        output_has_status SKIPPED "dotfiles/common/creds/$f" 'matches exclude pattern' \
+            || fail "missing SKIPPED (exclude) line for $f"
+        [[ ! -e "$t/repo/dotfiles/common/creds/$f" ]] || fail "$f was copied to the repo"
+    done
+    output_has_status ADDED dotfiles/common/creds/ordinary.txt \
+        || fail "missing ADDED line for ordinary.txt"
+    cmp -s "$t/home/.config/fixture/creds/ordinary.txt" "$t/repo/dotfiles/common/creds/ordinary.txt" \
+        || fail "ordinary.txt differs from the local file"
 }
 
 case_dir_export_missing() {
@@ -1187,6 +1485,186 @@ case_preview_not_a_repo() {
         || fail "missing 'needs a git repo' error"
 }
 
+case_commit_happy() {
+    new_tmp
+    setup_commit_repo
+
+    local origin_master
+    origin_master=$(git --git-dir="$t/origin.git" rev-parse master)
+
+    printf 'changed\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 0 )) || fail "commit.sh exited $rc, want 0"
+
+    [[ $(git --git-dir="$t/origin.git" rev-parse master) == "$origin_master" ]] \
+        || fail "origin master moved"
+
+    [[ $(git -C "$t/clone" symbolic-ref --short HEAD) == master ]] \
+        || fail "HEAD is not back on master"
+
+    local branches sync_count
+    branches=$(origin_branches)
+    sync_count=$(printf '%s\n' "$branches" | grep -c '^refs/heads/sync/linux-testbox-' || true)
+    (( sync_count == 1 )) || fail "want 1 sync branch on origin, got: $branches"
+
+    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub called $(wc -l < "$t/gh.log") times, want 1"
+}
+
+case_commit_leak_blocked() {
+    new_tmp
+    setup_commit_repo
+
+    # A home-style path the scan flags, built by concatenation so the literal
+    # never appears in this file.
+    local leaky
+    leaky='/ho'"me/someone/x"
+    printf '%s\n' "$leaky" > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: the leak scan found the lines above; nothing was committed.' "$out" \
+        || fail "missing leak-blocked ERROR line"
+
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ -z "$(git -C "$t/clone" branch --list 'sync/*')" ]] || fail "a sync branch was created locally"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_commit_scan_missing() {
+    new_tmp
+    setup_commit_repo
+    # Removed in a commit: an uncommitted removal stops at the outside-changes check.
+    git -C "$t/clone" rm -q scripts/ci/leak-scan.sh
+    git -C "$t/clone" commit -qm 'remove the scan'
+
+    printf 'changed\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: leak scan could not run; nothing was committed.' "$out" \
+        || fail "missing scan-missing ERROR line"
+
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_commit_outside_changes() {
+    new_tmp
+    setup_commit_repo
+
+    printf 'outside\n' > "$t/clone/outside.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: commit or stash changes outside dotfiles/ first.' "$out" \
+        || fail "missing outside-changes ERROR line"
+
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+# A commit repo with the fixture values cached, ignored the way the real repo ignores them.
+setup_commit_values() {
+    setup_commit_repo
+    cp "$FIXTURES/user-values.json" "$t/clone/.user-values.json"
+    printf '.user-values.json\n' >> "$t/clone/.git/info/exclude"
+}
+
+assert_commit_blocked() {
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+    grep -Fq "ERROR: a cached value for $1 is in dotfiles/linux/plain.txt; nothing was committed." "$out" \
+        || fail "missing cached-value ERROR line"
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ -z "$(git -C "$t/clone" branch --list 'sync/*')" ]] || fail "a sync branch was created locally"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_commit_value_blocked() {
+    new_tmp
+    setup_commit_values
+    printf 'author = Fixture User\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    assert_commit_blocked '<NAME>'
+}
+
+case_commit_value_case_variant() {
+    new_tmp
+    setup_commit_values
+    printf 'author = FIXTURE user\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    assert_commit_blocked '<NAME>'
+}
+
+case_commit_value_doubled() {
+    new_tmp
+    setup_commit_values
+    printf '%s\n' 'tool = C:\\Tools\\gh.exe' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    assert_commit_blocked '<WINPATH>'
+}
+
+case_commit_value_untracked() {
+    # A new file is as much a change as an edited one.
+    new_tmp
+    setup_commit_values
+    mkdir "$t/clone/dotfiles/linux/new"
+    printf 'author = Fixture User\n' > "$t/clone/dotfiles/linux/new/added.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+    grep -Fq 'ERROR: a cached value for <NAME> is in dotfiles/linux/new/added.txt; nothing was committed.' "$out" \
+        || fail "missing cached-value ERROR line"
+}
+
+case_commit_value_placeholder_only() {
+    new_tmp
+    setup_commit_values
+    printf 'author = <NAME>\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 0 )) || fail "commit.sh exited $rc, want 0"
+    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub was not called once"
+}
+
+case_commit_value_not_printed() {
+    new_tmp
+    setup_commit_values
+    printf 'author = Fixture User\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+    if grep -Fiq 'Fixture User' "$out"; then
+        fail "the output holds the cached value"
+    fi
+}
+
+case_preview_scan_missing() {
+    new_tmp
+    setup_preview_repo
+    preview_change_default
+    rm "$t/repo/scripts/ci/leak-scan.sh"
+
+    run_engine "$t/home" export.sh --preview
+    (( rc == 1 )) || fail "preview exited $rc, want 1"
+
+    grep -Fqx 'ERROR: leak scan could not run; nothing was committed.' "$out" \
+        || fail "missing scan-missing ERROR line"
+    if grep -Fq 'before/dotfiles' "$out"; then
+        fail "output contains a diff"
+    fi
+}
+
 case_sync_usage() {
     new_tmp
     setup_repo
@@ -1276,7 +1754,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1289,18 +1767,32 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         roundtrip-unchanged) case_roundtrip_unchanged ;;
         import-backup) case_import_backup ;;
         excluded) case_excluded ;;
+        excluded-credentials) case_excluded_credentials ;;
         noninteractive-missing-value) case_noninteractive_missing_value ;;
+        prompt-empty-stops) case_prompt_empty_stops ;;
+        defaultenv-invalid) case_defaultenv_invalid ;;
+        defaultenv-valid) case_defaultenv_valid ;;
+        values-mode-new) case_values_mode_new ;;
+        values-mode-tightened) case_values_mode_tightened ;;
         error-continues) case_error_continues ;;
         import-eof-overwrites) case_import_eof_overwrites ;;
         crlf-unchanged) case_crlf_unchanged ;;
         common-import) case_common_import ;;
         common-export) case_common_export ;;
         missing-platform) case_missing_platform ;;
+        path-repo-traversal) case_path_repo_traversal ;;
+        path-repo-outside) case_path_repo_outside ;;
+        path-local-traversal) case_path_local_traversal ;;
+        path-local-absolute) case_path_local_absolute ;;
+        path-repo-symlink) case_path_repo_symlink ;;
+        path-real-config) case_path_real_config ;;
+        path-dotted-name) case_path_dotted_name ;;
         escape-import) case_escape_import ;;
         escape-export) case_escape_export ;;
         escape-roundtrip-unchanged) case_escape_roundtrip_unchanged ;;
         sanitize-longest-first) case_sanitize_longest_first ;;
         sanitized-large-file) case_sanitized_large_file ;;
+        sanitized-case-change) case_sanitized_case_change ;;
         infer-name) case_infer_name ;;
         infer-reset) case_infer_reset ;;
         infer-keeps-cache) case_infer_keeps_cache ;;
@@ -1339,12 +1831,24 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         preview-cleans-up) case_preview_cleans_up ;;
         preview-reset-rejected) case_preview_reset_rejected ;;
         preview-not-a-repo) case_preview_not_a_repo ;;
+        commit-happy) case_commit_happy ;;
+        commit-leak-blocked) case_commit_leak_blocked ;;
+        commit-scan-missing) case_commit_scan_missing ;;
+        commit-outside-changes) case_commit_outside_changes ;;
+        commit-value-blocked) case_commit_value_blocked ;;
+        commit-value-case-variant) case_commit_value_case_variant ;;
+        commit-value-doubled) case_commit_value_doubled ;;
+        commit-value-untracked) case_commit_value_untracked ;;
+        commit-value-placeholder-only) case_commit_value_placeholder_only ;;
+        commit-value-not-printed) case_commit_value_not_printed ;;
+        preview-scan-missing) case_preview_scan_missing ;;
         sync-usage) case_sync_usage ;;
         sync-unknown) case_sync_unknown ;;
         sync-routes-export) case_sync_routes_export ;;
         sync-routes-import) case_sync_routes_import ;;
         sync-routes-preview) case_sync_routes_preview ;;
         sync-missing-tool) case_sync_missing_tool ;;
+        *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"

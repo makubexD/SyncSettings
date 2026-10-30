@@ -58,7 +58,7 @@ stops both engines with exit code 1 before they touch a file. CI lint also fails
 | `~\` with backslashes | `"~\\.gitconfig"` | Windows only |
 
 `~` is `$HOME` on Linux and the profile folder on Windows, or the target user's profile with `-User`. Backslashes are
-doubled in JSON. A path without `~` is used as written, which ties the entry to one machine.
+doubled in JSON. An absolute path, or a path with a `..` segment, stops every command before it touches a file.
 
 ## `sanitizeRules`
 
@@ -152,6 +152,9 @@ Syncs a whole folder, recursively.
 The Windows engine scans the file for folder paths (`/c/Tools` or `C:\Tools`) and syncs each folder that exists.
 System folders and anything under the user profile are ignored. Copies live in the repo under
 `<repoPath>.linked/<folder name>/`, for example `dotfiles/.bashrc.linked/Tools/`. The bash engine ignores this field.
+
+Import never deletes from a linked folder. It asks before overwriting a file and keeps a `.bak`, and a local file the
+repo doesn't have is reported as `EXTRA` and kept.
 
 ## `excludePatterns`
 

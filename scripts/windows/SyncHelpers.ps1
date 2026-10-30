@@ -49,6 +49,108 @@ function Assert-ValidPlatform {
     }
 }
 
+function Test-SafePath {
+    <#
+    .SYNOPSIS
+        True when a repoPath or localPath stays inside its allowed area.
+    .DESCRIPTION
+        repoPath must start with dotfiles/ and localPath with ~/ or ~\, both
+        with no .. segment, splitting on both / and \. A name like foo..bar is
+        a legal segment; an empty or missing path never matches a prefix, so it
+        fails.
+    #>
+    param([string]$Path, [string]$Kind)
+
+    if ([string]::IsNullOrEmpty($Path)) { return $false }
+
+    if ($Kind -eq 'repo') {
+        if ($Path -cnotlike 'dotfiles/*') { return $false }
+    } else {
+        if ($Path -cnotlike '~/*' -and $Path -cnotlike '~\*') { return $false }
+    }
+
+    foreach ($seg in ($Path -split '[/\\]')) {
+        if ($seg -eq '..') { return $false }
+    }
+    return $true
+}
+
+function Get-OwningRepoPath {
+    # The repoPath of the entry that owns a repo-relative path, or the path
+    # itself when no entry does. A file entry owns its repoPath exactly; a dir
+    # entry owns everything under <repoPath>/; an entry with detectLinkedPaths
+    # owns everything under <repoPath>.linked/.
+    param([array]$Files, [string]$RelPath)
+
+    foreach ($entry in $Files) {
+        if (-not ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir')) {
+            if ([string]$entry.repoPath -eq $RelPath) { return [string]$entry.repoPath }
+        }
+    }
+    foreach ($entry in $Files) {
+        if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+            $r = [string]$entry.repoPath
+            if ($RelPath -eq $r -or $RelPath.StartsWith("$r/", [StringComparison]::Ordinal)) {
+                return $r
+            }
+        }
+    }
+    foreach ($entry in $Files) {
+        if ($entry.PSObject.Properties['detectLinkedPaths'] -and $entry.detectLinkedPaths -eq $true) {
+            $r = [string]$entry.repoPath
+            if ($RelPath.StartsWith("$r.linked/", [StringComparison]::Ordinal)) {
+                return $r
+            }
+        }
+    }
+    return $RelPath
+}
+
+function Assert-SafePaths {
+    <#
+    .SYNOPSIS
+        Stops the run if any entry has an unsafe path or dotfiles/ holds a
+        reparse point.
+    .DESCRIPTION
+        Every entry's repoPath must start with dotfiles/ and its localPath with
+        ~/ or ~\, both with no .. segment. A reparse point (symlink or junction)
+        anywhere under dotfiles/ also stops the run. The checks cover all
+        entries, not only the ones this engine selects.
+    #>
+    param([string]$RepoRoot, [array]$Files)
+
+    foreach ($entry in $Files) {
+        $repoPath  = [string]$entry.repoPath
+        $localPath = [string]$entry.localPath
+        if (-not (Test-SafePath -Path $repoPath -Kind repo)) {
+            throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
+        }
+        if (-not (Test-SafePath -Path $localPath -Kind local)) {
+            throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
+        }
+    }
+
+    # A reparse point can point anywhere; name the entry that owns it, or the
+    # reparse point's own repo-relative path when no entry does.
+    $base         = $RepoRoot.TrimEnd('\', '/')
+    $dotfilesRoot = Join-Path $base 'dotfiles'
+    if (Test-Path -LiteralPath $dotfilesRoot -PathType Container) {
+        $stack = New-Object System.Collections.Stack
+        $stack.Push($dotfilesRoot)
+        while ($stack.Count -gt 0) {
+            $dir = $stack.Pop()
+            foreach ($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
+                if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    $rel = ($item.FullName.Substring($base.Length).TrimStart('\', '/')) -replace '\\', '/'
+                    throw ('sync-config.json: entry {0} has an unsafe path.' -f (Get-OwningRepoPath -Files $Files -RelPath $rel))
+                } elseif ($item.PSIsContainer) {
+                    $stack.Push($item.FullName)
+                }
+            }
+        }
+    }
+}
+
 function Resolve-LocalPath {
     param([string]$Template, [string]$ProfileRoot)
     # "~/..." works on both engines: expand ~ first, then use backslashes on Windows.
@@ -158,6 +260,18 @@ function Save-UserValues {
         $ordered[$key] = $Values[$key]
     }
     $json = $ordered | ConvertTo-Json -Depth 10
+
+    # Lock the file before writing, so new values never sit in a readable one.
+    if (-not (Test-Path -LiteralPath $path)) {
+        [IO.File]::WriteAllText($path, '')
+    }
+    $acl = New-Object System.Security.AccessControl.FileSecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($user, 'FullControl', 'Allow')
+    $acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $path -AclObject $acl
+
     [IO.File]::WriteAllText($path, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
@@ -224,7 +338,7 @@ function Compare-NormalizedContent {
     # Normalize line endings and trailing whitespace
     $normA = ($A -replace "`r`n", "`n").TrimEnd()
     $normB = ($B -replace "`r`n", "`n").TrimEnd()
-    return $normA -eq $normB
+    return $normA -ceq $normB
 }
 
 function Compare-FilesByHash {
@@ -306,6 +420,7 @@ function Request-MissingValues {
                 $promptText += " [$defaultVal]"
             }
 
+            $value = $null
             if (Test-Interactive) {
                 $value = Read-Host $promptText
                 if (-not $value -and $defaultVal) {
@@ -313,13 +428,13 @@ function Request-MissingValues {
                 }
             } elseif ($defaultVal) {
                 $value = $defaultVal
-            } else {
+            }
+
+            if (-not $value -or $value.Length -eq 0) {
                 throw "missing value for $($rule.placeholder): add it to .user-values.json"
             }
 
-            if ($value -and $value.Length -gt 0) {
-                $UserValues[$rule.placeholder] = $value
-            }
+            $UserValues[$rule.placeholder] = $value
         }
     }
 
@@ -562,6 +677,52 @@ function Write-OrphanReport {
     }
 }
 
+# -- Leak scan -----------------------------------------------------------------
+
+function Find-GitBash {
+    # Returns the full path to Git's bash.exe, or $null when git is not on PATH
+    # or bash.exe is not where Git for Windows keeps it. git.exe is in <root>\cmd,
+    # or in <root>\mingw64\bin when PATH comes from a Git Bash shell.
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) { return $null }
+    $parent = Split-Path (Split-Path $git.Source -Parent) -Parent
+    foreach ($root in @($parent, (Split-Path $parent -Parent))) {
+        if (-not $root) { continue }
+        $candidate = Join-Path $root 'bin\bash.exe'
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Invoke-LeakScan {
+    <#
+    .SYNOPSIS
+        Runs scripts/ci/leak-scan.sh over the given paths.
+    .DESCRIPTION
+        Returns 0 when clean, 1 when it found a hit, 2 when it could not run
+        (script missing, no bash, or any exit code other than 0 and 1). The
+        scanner's output reaches the console so the hit lines show.
+    #>
+    param([string]$RepoRoot, [string[]]$Paths)
+
+    $scan = Join-Path $RepoRoot 'scripts\ci\leak-scan.sh'
+    if (-not (Test-Path $scan)) { return 2 }
+
+    $bash = Find-GitBash
+    if (-not $bash) { return 2 }
+
+    # Native bash may write to stderr; keep it from throwing under Stop, and
+    # pipe stdout to the console so the hit lines show without leaking into
+    # this function's return value.
+    $ErrorActionPreference = 'Continue'
+    & $bash $scan @Paths | Out-Host
+    $leakExit = $LASTEXITCODE
+
+    if ($leakExit -eq 0) { return 0 }
+    if ($leakExit -eq 1) { return 1 }
+    return 2
+}
+
 # -- Export preview ------------------------------------------------------------
 
 function Invoke-ExportPreview {
@@ -631,29 +792,15 @@ function Invoke-ExportPreview {
         try {
             # Scan first: a hit must suppress the diff, which would print the leaked text.
             $leakFound = 0
-            $leakScript = Join-Path $RepoRoot 'scripts\ci\leak-scan.sh'
-            if (Test-Path $leakScript) {
-                $git = Get-Command git -ErrorAction SilentlyContinue
-                $bash = $null
-                if ($git) {
-                    $candidate = Join-Path (Split-Path (Split-Path $git.Source -Parent) -Parent) 'bin\bash.exe'
-                    if (Test-Path $candidate) { $bash = $candidate }
-                }
-                if (-not $bash) {
-                    Write-Host '  NOTE: bash not found; skipping the leak scan.'
-                } else {
-                    & $bash $leakScript after/dotfiles after/sync-config.json | Out-Host
-                    $leakExit = $LASTEXITCODE
-                    if ($leakExit -eq 0) {
-                        Write-Host '  Leak scan: clean.'
-                    } elseif ($leakExit -eq 1) {
-                        Write-Host '  WARNING: the leak scan found the lines above. Fix them before committing.'
-                        $leakFound = 1
-                    } else {
-                        Write-Host 'ERROR: leak scan failed.' -ForegroundColor Red
-                        return 1
-                    }
-                }
+            $leakCode = Invoke-LeakScan -RepoRoot $RepoRoot -Paths @('after/dotfiles', 'after/sync-config.json')
+            if ($leakCode -eq 1) {
+                Write-Host '  WARNING: the leak scan found the lines above. Fix them before committing.'
+                $leakFound = 1
+            } elseif ($leakCode -ne 0) {
+                Write-Host 'ERROR: leak scan could not run; nothing was committed.' -ForegroundColor Red
+                return 1
+            } else {
+                Write-Host '  Leak scan: clean.'
             }
 
             if ($leakFound -eq 0) {
@@ -787,13 +934,17 @@ function Import-DirEntry {
             continue
         }
 
-        $localFileParent = Split-Path $localFile -Parent
-        if (-not (Test-Path -LiteralPath $localFileParent)) {
-            New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
-        }
+        try {
+            $localFileParent = Split-Path $localFile -Parent
+            if (-not (Test-Path -LiteralPath $localFileParent)) {
+                New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
+            }
 
-        $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
-        if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
+            if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+        } catch {
+            Write-StatusLine 'ERROR' $itemLabel $_.Exception.Message
+        }
     }
 
     if (Test-Path -LiteralPath $LocalDir) {
@@ -801,6 +952,73 @@ function Import-DirEntry {
             $rel = $file.FullName.Substring($LocalDir.TrimEnd('\').Length + 1)
             $itemLabel = "$Label/" + ($rel -replace '\\', '/')
             if (Test-Path -LiteralPath (Join-Path $RepoDir $rel)) {
+                continue
+            }
+            if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
+                continue
+            }
+            Write-StatusLine 'EXTRA' $itemLabel 'not in repo; kept'
+        }
+    }
+
+    return $applied
+}
+
+function Import-LinkedDirectory {
+    <#
+    .SYNOPSIS
+        Imports the files of one linked folder from the repo onto the machine.
+    .DESCRIPTION
+        Import never deletes: a local file the repo does not have is reported as
+        EXTRA and kept. Each repo file follows the same compare / prompt / .bak /
+        copy flow as a plain file entry, so -Force skips only the prompt. Linked
+        folders are non-recursive, matching the current import call. Returns the
+        number of files applied.
+    #>
+    param(
+        [string]$SourceDir,
+        [string]$DestDir,
+        [string]$Label,
+        [string[]]$ExcludePatterns,
+        [bool]$Force = $false
+    )
+
+    if (-not (Test-Path -LiteralPath $SourceDir -PathType Container)) {
+        Write-StatusLine 'SKIPPED' "$Label/" 'not found in repo'
+        return 0
+    }
+
+    if (-not (Test-Path -LiteralPath $DestDir)) {
+        New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+    }
+
+    $applied = 0
+    foreach ($file in (Get-ChildItem -LiteralPath $SourceDir -File -Force)) {
+        $itemLabel = "$Label/" + $file.Name
+        $localFile = Join-Path $DestDir $file.Name
+
+        if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'symlink'
+            continue
+        }
+
+        if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'matches exclude pattern'
+            continue
+        }
+
+        try {
+            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
+            if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+        } catch {
+            Write-StatusLine 'ERROR' $itemLabel $_.Exception.Message
+        }
+    }
+
+    if (Test-Path -LiteralPath $DestDir) {
+        foreach ($file in (Get-ChildItem -LiteralPath $DestDir -File -Force)) {
+            $itemLabel = "$Label/" + $file.Name
+            if (Test-Path -LiteralPath (Join-Path $SourceDir $file.Name)) {
                 continue
             }
             if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {

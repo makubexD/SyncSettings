@@ -69,6 +69,7 @@ try {
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
     Assert-ValidPlatform -Files $config.files
+    Assert-SafePaths -RepoRoot $repoRoot -Files $config.files
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
     if (Test-RepoUpToDate -RepoRoot $repoRoot) { exit 0 }
@@ -268,15 +269,7 @@ try {
                             Write-Host "  Creating linked directory: $linkLocal" -ForegroundColor Cyan
                         }
 
-                        $syncParams = @{
-                            SourceDir       = $linkRepoFull
-                            DestDir         = $linkLocal
-                            Label           = $linkLabel
-                            ExcludePatterns = $config.excludePatterns
-                            Recursive       = $false
-                        }
-                        $linkStats = Sync-LinkedDirectory @syncParams
-                        $applied += ($linkStats.added + $linkStats.modified)
+                        $applied += Import-LinkedDirectory -SourceDir $linkRepoFull -DestDir $linkLocal -Label $linkLabel -ExcludePatterns $config.excludePatterns -Force ([bool]$Force)
                     }
                 }
             }
