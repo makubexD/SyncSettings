@@ -222,6 +222,42 @@ commit stops to the "When `commit.sh` stops" table.
 4. Review the whole diff with `/agent-skills:review`.
 5. Windows machine after merge: `export.bat`, then `import.bat` → no changes.
 
+### 18a. Stale value in `Request-MissingValues` `[inline: review fix]`
+
+Files: `scripts/windows/SyncHelpers.ps1`, `tests/windows/Engine.Tests.ps1`.
+
+Step 6 removed the `else { throw }`, so with no terminal a rule without a default kept `$value` from the rule before it,
+and stored it. Reset `$value` for each rule.
+
+Case: mock `Test-Interactive` as `$false`, a rule with a default and then one without → throws for the second, stores
+nothing for it.
+
+### 18b. Find Git's bash from a Git Bash shell `[inline: review fix]`
+
+Files: `scripts/windows/SyncHelpers.ps1`, `tests/windows/Engine.Tests.ps1`.
+
+From Git Bash, including `./sync`, `git` resolves to `<root>\mingw64\bin\git.exe`, so `Find-GitBash` looked in
+`mingw64\bin` and found nothing. That was a skipped scan before step 8 and now stops every commit. Also look one level up.
+
+Cases: `git` in `cmd\`, `git` in `mingw64\bin\`, no `bash.exe` → `$null`.
+
+### 18c. One failed file doesn't stop a folder import, PowerShell `[inline: review fix]`
+
+Files: `scripts/windows/SyncHelpers.ps1`, `tests/windows/Engine.Tests.ps1`.
+
+The contract says an `ERROR` affects only its own file, and `import_dir` follows that. `Import-DirEntry` and
+`Import-LinkedDirectory` let a failed copy end the folder: the later files and the `EXTRA` report are lost. Catch it per
+file.
+
+Cases: `import-linked-error-continues` and `import-dir-error-continues`, a failed first file → `ERROR` for it, the second
+file still applied.
+
+### 18d. `CLAUDE.md` still scopes the missing-value stop to no terminal `[inline: review fix]`
+
+Files: `CLAUDE.md`.
+
+Step 5 made it stop with or without a terminal.
+
 ## Not in this plan
 
 - Tests for gaps that carry no safety risk: inference cases on PowerShell, `commit.sh` title edge cases, entry order.
