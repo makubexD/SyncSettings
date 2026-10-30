@@ -76,8 +76,9 @@ It loads the repo's own config like a normal session: `CLAUDE.md`, `.claude/rule
 project hooks, but nothing from `~/.claude` and no MCP. A repo whose `.claude/settings.json` sets `ANTHROPIC_*` env
 or `apiKeyHelper` is refused (exit 2), since that could send the key elsewhere. Hooks shared with the main
 session see `MK_WORKER=1`; `worker-mode-guard` lets the worker edit. Headless Claude Code refuses writes under
-any `.claude` directory, so a repo there (`~/.claude` itself) runs in a temporary worktree in `~/.cache/mk-worktrees/`;
-the diff is applied back to the repo and the worktree removed (kept, with a message, if the apply fails).
+any `.claude` directory, so a repo there (`~/.claude` itself) runs in a temporary worktree in `~/.cache/mk-worktrees/`.
+So does a repo holding a `.user-values.json`, because deny rules don't stop an interpreter and a gitignored file isn't in
+a worktree. The diff is applied back to the repo and the worktree removed (kept, with a message, if the apply fails).
 Switched from OpenCode + Zen free models on 2026-10-28 after the free quota ran out mid-feature.
 
 Effort: `mk-exec --effort low|medium|high` (default **medium**). low = `deepseek-flash`/low,
@@ -106,6 +107,18 @@ Feature flow (the user's guide: https://claude.ai/artifact/MXZujhwqjk3N8QUfTiLJs
    or plan. Reject with a concrete reason and resend once; after two rejections, do the step in the main session.
 7. Run `workflow-report .` (or a repo path) to see delegated vs inline steps, worker runs and errors, then
    `/agent-skills:review` of the whole feature, then `/clear` before the next one.
+
+Commit trailers: the main session adds them to every commit, in every repo. They go in the message's last paragraph,
+before `Co-Authored-By`, with no blank line between them, so git reads them as one trailer block:
+
+```
+Plan-Step: docs/plan-<feature>.md#<n>
+Route: worker:<effort> | inline:<reason> | unplanned
+```
+
+`Plan-Step` is the plan path relative to the repo root, plus the step number. `Route` is one value: `worker:<effort>`
+with the effort `mk-exec` ran at, or `inline:<reason>` with the reason from the step's tag or the one-line notice before
+working inline. Commits outside a plan step, plan edits included, get only `Route: unplanned`.
 
 Execution rule (any main model, including `opusplan` after a plan is approved): the main session does not
 write the code for a mechanical plan step itself. It sends that step to `mk-exec` and reviews the result.

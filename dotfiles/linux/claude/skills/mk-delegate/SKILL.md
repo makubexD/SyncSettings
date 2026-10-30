@@ -42,7 +42,8 @@ Arguments from the user: $ARGUMENTS
    that only the allowed files changed and no tests were deleted or skipped.
 9. **Report** to the user: accepted or rejected, files changed, test result, model, effort, tokens, and
    the log dir. A one-off task: don't commit unless the user asks. A step of a committed plan: commit
-   the accepted step and send the next one without asking; stop and ask only at an `[inline]` judgment
+   the accepted step with the `Plan-Step` and `Route` trailers from `CLAUDE.md`, and send the next one
+   without asking; stop and ask only at an `[inline]` judgment
    step, a rejection or failure, or the end of the phase or plan.
    - Rejected once: discard the worker's changes only with the user's OK (or `git stash`), then resend
      with a concrete correction.
