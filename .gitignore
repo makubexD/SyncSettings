@@ -33,3 +33,6 @@ id_dsa*
 # OS noise
 Thumbs.db
 desktop.ini
+
+# Local Claude Code settings
+.claude/settings.local.json
