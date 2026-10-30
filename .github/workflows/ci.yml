@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x export.sh import.sh commit.sh scripts/sync.sh scripts/ci/*.sh
+        run: shellcheck -x export.sh import.sh commit.sh scripts/linux/sync.sh scripts/ci/*.sh tests/linux/*.sh
       - name: Validate JSON
         run: jq empty sync-config.json
       - name: Config sanity
@@ -26,7 +26,13 @@ jobs:
           [
             (.files[] | select((.repoPath // "") == "" or (.localPath // "") == "") | .repoPath // "<missing repoPath>"),
             (.files | group_by(.repoPath)[] | select(length > 1) | .[0].repoPath | select(. != null and . != "")),
-            (.files[] | select(.platform == "linux") | select((.repoPath // "") | startswith("dotfiles/linux/") | not) | .repoPath // "<missing repoPath>")
+            (.files[] | select((.platform // "") | IN("common", "windows", "linux") | not) | .repoPath // "<missing repoPath>"),
+            (.files[] | select(.platform == "linux") | select((.repoPath // "") | startswith("dotfiles/linux/") | not) | .repoPath // "<missing repoPath>"),
+            (.files[] | select(.platform == "common") | select((.repoPath // "") | startswith("dotfiles/common/") | not) | .repoPath // "<missing repoPath>"),
+            (.files[] | select(.platform == "windows") | select((.repoPath // "") | (startswith("dotfiles/linux/") or startswith("dotfiles/common/"))) | .repoPath // "<missing repoPath>"),
+            (.files[] | select(.platform == "common") | select((.localPath // "") | startswith("~/") | not) | .repoPath // "<missing repoPath>"),
+            (.files[] | select(has("type") and ((.type == "file" or .type == "dir") | not)) | .repoPath // "<missing repoPath>"),
+            (.files[] | select(.type == "dir") | select(has("sanitizeRules") or has("detectLinkedPaths")) | .repoPath // "<missing repoPath>")
           ] | unique as $bad
           | if ($bad | length) == 0
             then "sync-config.json: OK"
@@ -37,6 +43,24 @@ jobs:
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
-          $r = Invoke-ScriptAnalyzer -Path scripts -Severity Error
+          $r = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error
           $r
           if ($r) { exit 1 }
+  engine-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Engine contract tests (bash)
+        run: tests/linux/engine.sh
+  engine-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pester
+        shell: powershell
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+      - name: Run engine tests
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          Invoke-Pester -Path tests/windows -CI

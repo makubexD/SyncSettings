@@ -3,7 +3,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-source scripts/sync.sh
+source scripts/linux/sync.sh
 
 RESET_VALUES=0
 for arg in "$@"; do
@@ -20,6 +20,8 @@ printf '\n  SyncSettings -- EXPORT (linux)\n\n'
 printf '  HOME       : %s\n' "$HOME"
 printf '  Repo root  : %s\n\n' "$REPO_ROOT"
 
+check_upstream
+
 # -- Collect sanitize rules from linux entries whose local file exists ----------
 
 ALL_RULES='[]'
@@ -32,7 +34,7 @@ while IFS= read -r entry; do
     if [[ -f $local_path ]]; then
         ALL_RULES=$(jq -c --argjson old "$ALL_RULES" '$old + (.sanitizeRules // [])' <<<"$entry")
     fi
-done < <(linux_entries)
+done < <(platform_entries)
 
 load_values
 if [[ $ALL_RULES != '[]' ]]; then
@@ -115,13 +117,97 @@ process_entry() {
     return 0
 }
 
+export_dir() {
+    local entry=$1
+    local repo_path local_path local_dir repo_dir rel label src dst repo_file local_file
+
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    local_path=$(jq -r '.localPath' <<<"$entry")
+    local_dir=$(resolve_local "$local_path")
+    repo_dir=$REPO_ROOT/$repo_path
+
+    if [[ ! -d $local_dir ]]; then
+        status SKIPPED "$repo_path/" "local folder not found: $local_dir"
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    # Copy or update every regular file under the local dir; symlinks and
+    # excluded files are skipped.
+    while IFS= read -r -d '' src; do
+        rel=${src#"$local_dir"/}
+        label="$repo_path/$rel"
+
+        if [[ -L $src ]]; then
+            status SKIPPED "$label" 'symlink'
+            continue
+        fi
+        if is_excluded "$src"; then
+            status SKIPPED "$label" 'matches exclude pattern'
+            continue
+        fi
+
+        dst=$repo_dir/$rel
+        if [[ ! -e $dst ]]; then
+            if ! mkdir -p "${dst%/*}"; then
+                status ERROR "$label" 'cannot create parent folder'
+                continue
+            fi
+            if ! cp -p "$src" "$dst"; then
+                status ERROR "$label" 'cannot copy to repo'
+                continue
+            fi
+            status ADDED "$label"
+            CHANGED=$((CHANGED + 1))
+        elif cmp -s "$src" "$dst"; then
+            status UNCHANGED "$label"
+        else
+            if ! cp -p "$src" "$dst"; then
+                status ERROR "$label" 'cannot copy to repo'
+                continue
+            fi
+            status MODIFIED "$label"
+            CHANGED=$((CHANGED + 1))
+        fi
+    done < <(find "$local_dir/" \( -type f -o -type l \) -print0 | sort -z)
+
+    # Remove repo files whose local counterpart is gone, a symlink, or now
+    # excluded; then prune empty folders under the entry's repo dir.
+    if [[ -d $repo_dir ]]; then
+        while IFS= read -r -d '' repo_file; do
+            rel=${repo_file#"$repo_dir"/}
+            label="$repo_path/$rel"
+            local_file=$local_dir/$rel
+
+            if [[ ! -f $local_file || -L $local_file ]] || is_excluded "$local_file"; then
+                if ! rm -f "$repo_file"; then
+                    status ERROR "$label" 'cannot remove from repo'
+                    continue
+                fi
+                status REMOVED "$label" 'no longer in source'
+                CHANGED=$((CHANGED + 1))
+            fi
+        done < <(find "$repo_dir" -type f -print0 | sort -z)
+
+        # A folder that cannot be pruned is left behind; it holds no files, so git ignores it.
+        find "$repo_dir" -mindepth 1 -type d -empty -delete || true
+    fi
+
+    return 0
+}
+
 while IFS= read -r entry; do
-    label=$(jq -r '.repoPath' <<<"$entry")
-    if ! process_entry "$entry"; then
+    if [[ $(jq -r '.type // "file"' <<<"$entry") == dir ]]; then
+        export_dir "$entry"
+    elif ! process_entry "$entry"; then
         # process_entry already printed an ERROR line for this file.
         :
     fi
-done < <(linux_entries)
+done < <(platform_entries)
+
+# Report files under dotfiles/ that no entry owns; this never changes the counts
+# or the exit code.
+report_orphans
 
 # -- Summary ---------------------------------------------------------------------
 

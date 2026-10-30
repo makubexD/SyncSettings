@@ -34,13 +34,17 @@ Write-Host '+==========================================+' -ForegroundColor Cyan
 Write-Host
 
 try {
-    $repoRoot   = Split-Path $PSScriptRoot -Parent
+    $repoRoot   = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $configPath = Join-Path $repoRoot 'sync-config.json'
     if (-not (Test-Path $configPath)) {
         throw "sync-config.json not found at: $configPath"
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
+    Assert-ValidPlatform -Files $config.files
+    $allEntries = @($config.files)
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
+
+    if (Test-RepoUpToDate -RepoRoot $repoRoot) { exit 0 }
 
     $profileRoot = Resolve-UserProfile -Username $User
     Write-Host "  Target user   : $User" -ForegroundColor White
@@ -90,6 +94,26 @@ try {
         $label     = $entry.repoPath
 
         try {
+            # Directory entries sync the whole folder recursively, before the
+            # single-file logic below.
+            if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+                if (-not (Test-Path $localFile -PathType Container)) {
+                    Write-StatusLine 'SKIPPED' "$($entry.repoPath)/" "local folder not found: $localFile"
+                    $skipped++
+                } else {
+                    $dirParams = @{
+                        SourceDir       = $localFile
+                        DestDir         = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
+                        Label           = $entry.repoPath
+                        ExcludePatterns = $config.excludePatterns
+                        Recursive       = $true
+                    }
+                    $dirStats = Sync-LinkedDirectory @dirParams
+                    $changed += ($dirStats.added + $dirStats.modified + $dirStats.removed)
+                }
+                continue
+            }
+
             # Exclude-pattern safety check
             if (Test-Excluded -FilePath $localFile -Patterns $config.excludePatterns) {
                 Write-StatusLine 'SKIPPED' $label 'matches exclude pattern'
@@ -181,6 +205,9 @@ try {
     if ($valuesDirty) {
         Save-UserValues -RepoRoot $repoRoot -Values $userValues
     }
+
+    # Repo files no entry owns (all platforms); informational only.
+    Write-OrphanReport -RepoRoot $repoRoot -Entries $allEntries
 
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray

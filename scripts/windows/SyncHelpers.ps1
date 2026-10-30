@@ -24,15 +24,36 @@ function Resolve-UserProfile {
 }
 
 function Test-WindowsEntry {
-    # Entries without "platform" are Windows entries. "linux" entries belong to the bash scripts.
+    # Only entries with platform "windows" or "common" belong to the PowerShell scripts.
+    # "linux" entries belong to the bash scripts; anything else is caught by Assert-ValidPlatform.
     param($Entry)
-    $hasPlatform = $Entry.PSObject.Properties['platform'] -and $Entry.platform
-    return (-not $hasPlatform) -or ($Entry.platform -eq 'windows')
+    return ($Entry.platform -eq 'windows') -or ($Entry.platform -eq 'common')
+}
+
+function Assert-ValidPlatform {
+    <#
+    .SYNOPSIS
+        Stops the run if any entry has a missing or invalid platform.
+    .DESCRIPTION
+        Every entry must name one of "common", "windows" or "linux". The check
+        covers all entries, not only the ones this engine selects, so a bad
+        Linux entry also stops the Windows engine.
+    #>
+    param([array]$Files)
+    foreach ($entry in $Files) {
+        $prop  = $entry.PSObject.Properties['platform']
+        $valid = $prop -and ($prop.Value -eq 'common' -or $prop.Value -eq 'windows' -or $prop.Value -eq 'linux')
+        if (-not $valid) {
+            throw ('sync-config.json: entry {0} needs "platform": "common", "windows" or "linux".' -f $entry.repoPath)
+        }
+    }
 }
 
 function Resolve-LocalPath {
     param([string]$Template, [string]$ProfileRoot)
-    $Template -replace '^~', $ProfileRoot
+    # "~/..." works on both engines: expand ~ first, then use backslashes on Windows.
+    $path = $Template -replace '^~', $ProfileRoot
+    return $path -replace '/', '\'
 }
 
 # -- Exclude pattern check ----------------------------------------------------
@@ -52,6 +73,66 @@ function Test-IsAdmin {
     $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]$identity
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# -- Terminal check ------------------------------------------------------------
+
+function Test-Interactive {
+    # True when a human can answer a prompt; the up-to-date check (step 18) reuses it.
+    return ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected)
+}
+
+# -- Up-to-date check ----------------------------------------------------------
+
+function Test-RepoUpToDate {
+    param([string]$RepoRoot)
+
+    # Native git writes to stderr, which throws under $ErrorActionPreference = 'Stop'.
+    $ErrorActionPreference = 'Continue'
+    $savedPrompt = $env:GIT_TERMINAL_PROMPT
+    $env:GIT_TERMINAL_PROMPT = '0'
+    try {
+        git -C $RepoRoot rev-parse --is-inside-work-tree 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { return $false }
+
+        git -C $RepoRoot remote get-url origin 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { return $false }
+
+        $branch = git -C $RepoRoot symbolic-ref --short -q HEAD 2>$null
+        if ($LASTEXITCODE -ne 0 -or $branch -ne 'master') { return $false }
+
+        git -C $RepoRoot fetch -q origin master 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host '  NOTE: could not reach origin; skipping the up-to-date check.' -ForegroundColor DarkYellow
+            return $false
+        }
+
+        $n = 0
+        $count = git -C $RepoRoot rev-list --count HEAD..origin/master 2>$null
+        if ($LASTEXITCODE -eq 0) { $n = [int]$count }
+        if ($n -eq 0) { return $false }
+
+        if (Test-Interactive) {
+            $answer = Read-Host "  Repo is $n commit(s) behind origin/master. Pull now (git pull --ff-only)? [Y/n]"
+            if ($answer -eq '' -or $answer -match '^[Yy]') {
+                git -C $RepoRoot pull --ff-only -q 2>$null | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    throw 'pull failed; resolve it and rerun.'
+                }
+                Write-Host "  Pulled $n commit(s); run the command again." -ForegroundColor Green
+                return $true
+            }
+        } else {
+            Write-Host "  WARNING: repo is $n commit(s) behind origin/master; run git pull --ff-only." -ForegroundColor Yellow
+        }
+        return $false
+    } finally {
+        if ($null -eq $savedPrompt) {
+            Remove-Item Env:\GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+        } else {
+            $env:GIT_TERMINAL_PROMPT = $savedPrompt
+        }
+    }
 }
 
 # -- User values cache (.user-values.json) ------------------------------------
@@ -148,7 +229,7 @@ function Compare-NormalizedContent {
 
 function Compare-FilesByHash {
     param([string]$PathA, [string]$PathB)
-    if (-not (Test-Path $PathA) -or -not (Test-Path $PathB)) { return $false }
+    if (-not (Test-Path -LiteralPath $PathA) -or -not (Test-Path -LiteralPath $PathB)) { return $false }
     $sha   = [System.Security.Cryptography.SHA256]::Create()
     $hashA = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($PathA)))
     $hashB = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($PathB)))
@@ -208,21 +289,32 @@ function Request-MissingValues {
 
             $promptText = "  $($rule.prompt)"
 
-            # Show default: cached value or rule default
+            # Show default: cached value, rule default, or the rule's defaultEnv variable
             $defaultVal = $null
             if ($cached -and $cached.Length -gt 0) {
                 $defaultVal = $cached
             } elseif ($rule.PSObject.Properties['default'] -and $rule.default) {
                 $defaultVal = $rule.default
+            } elseif ($rule.PSObject.Properties['defaultEnv'] -and $rule.defaultEnv) {
+                $envDefault = [Environment]::GetEnvironmentVariable($rule.defaultEnv)
+                if ($envDefault) {
+                    $defaultVal = $envDefault
+                }
             }
 
             if ($defaultVal) {
                 $promptText += " [$defaultVal]"
             }
 
-            $value = Read-Host $promptText
-            if (-not $value -and $defaultVal) {
+            if (Test-Interactive) {
+                $value = Read-Host $promptText
+                if (-not $value -and $defaultVal) {
+                    $value = $defaultVal
+                }
+            } elseif ($defaultVal) {
                 $value = $defaultVal
+            } else {
+                throw "missing value for $($rule.placeholder): add it to .user-values.json"
             }
 
             if ($value -and $value.Length -gt 0) {
@@ -314,7 +406,7 @@ function Find-LinkedPaths {
 
 function Sync-LinkedDirectory {
     # Copies files from SourceDir to DestDir, comparing by hash. Direction-agnostic.
-    # Returns hashtable: { added, modified, unchanged, skipped }
+    # Returns hashtable: { added, modified, unchanged, skipped, removed }
     param(
         [string]$SourceDir,
         [string]$DestDir,
@@ -323,66 +415,264 @@ function Sync-LinkedDirectory {
         [bool]$Recursive = $false
     )
 
-    $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0 }
+    $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0; removed = 0 }
 
-    if (-not (Test-Path $SourceDir)) {
+    if (-not (Test-Path -LiteralPath $SourceDir)) {
         Write-StatusLine 'SKIPPED' "$Label/" "WARNING: source directory not found: $SourceDir"
         return $stats
     }
 
-    if (-not (Test-Path $DestDir)) {
+    if (-not (Test-Path -LiteralPath $DestDir)) {
         New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
     }
 
-    $gciParams = @{ Path = $SourceDir; File = $true }
+    $gciParams = @{ LiteralPath = $SourceDir; File = $true; Force = $true }
     if ($Recursive) { $gciParams['Recurse'] = $true }
     $sourceFiles = Get-ChildItem @gciParams
 
     foreach ($file in $sourceFiles) {
         $relPath  = $file.FullName.Substring($SourceDir.TrimEnd('\').Length + 1)
+        $itemLabel = "$Label/" + ($relPath -replace '\\', '/')
         $destFile = Join-Path $DestDir $relPath
 
+        if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'symlink'
+            $stats.skipped++
+            continue
+        }
+
         if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
-            Write-StatusLine 'SKIPPED' "$Label/$relPath" 'matches exclude pattern'
+            Write-StatusLine 'SKIPPED' $itemLabel 'matches exclude pattern'
             $stats.skipped++
             continue
         }
 
         $destDir2 = Split-Path $destFile -Parent
-        if (-not (Test-Path $destDir2)) {
+        if (-not (Test-Path -LiteralPath $destDir2)) {
             New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null
         }
 
-        if (-not (Test-Path $destFile)) {
-            Copy-Item -Path $file.FullName -Destination $destFile -Force
-            Write-StatusLine 'ADDED' "$Label/$relPath"
+        if (-not (Test-Path -LiteralPath $destFile)) {
+            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
+            Write-StatusLine 'ADDED' $itemLabel
             $stats.added++
         } elseif (Compare-FilesByHash -PathA $file.FullName -PathB $destFile) {
-            Write-StatusLine 'UNCHANGED' "$Label/$relPath"
+            Write-StatusLine 'UNCHANGED' $itemLabel
             $stats.unchanged++
         } else {
-            Copy-Item -Path $file.FullName -Destination $destFile -Force
-            Write-StatusLine 'MODIFIED' "$Label/$relPath"
+            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
+            Write-StatusLine 'MODIFIED' $itemLabel
             $stats.modified++
         }
     }
 
-    # Remove orphans: files in dest that no longer exist in source
-    if (Test-Path $DestDir) {
-        $destGciParams = @{ Path = $DestDir; File = $true }
+    # Remove orphans: files in dest whose source is gone, a symlink, or now
+    # excluded; then prune empty folders under the dest dir.
+    if (Test-Path -LiteralPath $DestDir) {
+        $destGciParams = @{ LiteralPath = $DestDir; File = $true; Force = $true }
         if ($Recursive) { $destGciParams['Recurse'] = $true }
         $destFiles = Get-ChildItem @destGciParams
         foreach ($df in $destFiles) {
             $relPath    = $df.FullName.Substring($DestDir.TrimEnd('\').Length + 1)
+            $itemLabel  = "$Label/" + ($relPath -replace '\\', '/')
             $sourceFile = Join-Path $SourceDir $relPath
-            if (-not (Test-Path $sourceFile)) {
-                Remove-Item $df.FullName -Force
-                Write-StatusLine 'REMOVED' "$Label/$relPath" 'no longer in source'
+
+            $remove = -not (Test-Path -LiteralPath $sourceFile)
+            if (-not $remove -and (Test-Excluded -FilePath $sourceFile -Patterns $ExcludePatterns)) {
+                $remove = $true
+            }
+            if (-not $remove) {
+                $sourceItem = Get-Item -LiteralPath $sourceFile -Force
+                if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    $remove = $true
+                }
+            }
+
+            if ($remove) {
+                Remove-Item -LiteralPath $df.FullName -Force
+                Write-StatusLine 'REMOVED' $itemLabel 'no longer in source'
+                $stats.removed++
+            }
+        }
+
+        if ($Recursive) {
+            $emptyDirs = Get-ChildItem -LiteralPath $DestDir -Directory -Recurse -Force |
+                Sort-Object { $_.FullName.Length } -Descending
+            foreach ($dir in $emptyDirs) {
+                if (@($dir.GetFileSystemInfos()).Count -eq 0) {
+                    Remove-Item -LiteralPath $dir.FullName -Force
+                }
             }
         }
     }
 
     return $stats
+}
+
+function Write-OrphanReport {
+    <#
+    .SYNOPSIS
+        Lists files under dotfiles/ that no sync-config.json entry owns.
+    .DESCRIPTION
+        Uses every entry, not just this platform's, so both engines print the
+        same list. A file is owned when it is an entry's repoPath, lies under a
+        dir entry's repoPath/, or lies under <repoPath>.linked/ of an entry with
+        detectLinkedPaths. Reports only: never deletes, and never changes the
+        change count or the exit code.
+    #>
+    param(
+        [string]$RepoRoot,
+        $Entries
+    )
+
+    $base         = $RepoRoot.TrimEnd('\', '/')
+    $dotfilesRoot = Join-Path $base 'dotfiles'
+    if (-not (Test-Path $dotfilesRoot -PathType Container)) { return }
+
+    $exactPaths  = @()
+    $prefixPaths = @()
+    foreach ($entry in @($Entries)) {
+        $repoPath = ([string]$entry.repoPath) -replace '\\', '/'
+        $exactPaths += $repoPath
+        if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+            $prefixPaths += "$repoPath/"
+        }
+        if ($entry.PSObject.Properties['detectLinkedPaths'] -and $entry.detectLinkedPaths -eq $true) {
+            $prefixPaths += "$repoPath.linked/"
+        }
+    }
+
+    $files = Get-ChildItem -Path $dotfilesRoot -File -Recurse -Force
+    foreach ($file in $files) {
+        $rel = ($file.FullName.Substring($base.Length).TrimStart('\', '/')) -replace '\\', '/'
+
+        $owned = $false
+        foreach ($exact in $exactPaths) {
+            if ($rel -ieq $exact) { $owned = $true; break }
+        }
+        if (-not $owned) {
+            foreach ($prefix in $prefixPaths) {
+                if ($rel.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $owned = $true; break }
+            }
+        }
+
+        if (-not $owned) {
+            Write-StatusLine 'ORPHAN' $rel 'no entry in sync-config.json; git rm it or add an entry'
+        }
+    }
+}
+
+# -- Import helpers ------------------------------------------------------------
+
+function Copy-RepoFileToLocal {
+    <#
+    .SYNOPSIS
+        Copies one repo file onto its local path (the plain, non-sanitized flow).
+    .DESCRIPTION
+        Creates the file when it is missing, compares by hash when it exists,
+        and otherwise prompts before overwriting (unless -Force), keeping a .bak
+        of the old file. Returns the status word: CREATED, UPDATED, UNCHANGED or SKIPPED.
+    #>
+    param(
+        [string]$RepoFile,
+        [string]$LocalFile,
+        [string]$Label,
+        [bool]$Force = $false
+    )
+
+    if (-not (Test-Path -LiteralPath $LocalFile)) {
+        Copy-Item -LiteralPath $RepoFile -Destination $LocalFile -Force
+        Write-StatusLine 'CREATED' $Label
+        return 'CREATED'
+    } elseif (Compare-FilesByHash -PathA $RepoFile -PathB $LocalFile) {
+        Write-StatusLine 'UNCHANGED' $Label
+        return 'UNCHANGED'
+    } else {
+        if (-not $Force) {
+            Write-Host
+            Write-Host "  File differs: $LocalFile" -ForegroundColor Yellow
+            $answer = Read-Host '  Overwrite? [Y/n]'
+            if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
+                Write-StatusLine 'SKIPPED' $Label 'user skipped'
+                Write-Host
+                return 'SKIPPED'
+            }
+            Write-Host
+        }
+        Copy-Item -LiteralPath $LocalFile -Destination "$LocalFile.bak" -Force
+        Copy-Item -LiteralPath $RepoFile  -Destination $LocalFile      -Force
+        Write-StatusLine 'UPDATED' $Label "backup saved as $(Split-Path "$LocalFile.bak" -Leaf)"
+        return 'UPDATED'
+    }
+}
+
+function Import-DirEntry {
+    <#
+    .SYNOPSIS
+        Imports every file under a type:dir entry from the repo onto the machine.
+    .DESCRIPTION
+        Import never deletes: a local file the repo does not have is reported as
+        EXTRA and kept. Each repo file follows the same compare / prompt / .bak /
+        copy flow as a plain file entry. Returns the number of files applied.
+    #>
+    param(
+        [string]$RepoDir,
+        [string]$LocalDir,
+        [string]$Label,
+        [string[]]$ExcludePatterns,
+        [bool]$Force = $false
+    )
+
+    if (-not (Test-Path -LiteralPath $RepoDir -PathType Container)) {
+        Write-StatusLine 'SKIPPED' "$Label/" 'not found in repo'
+        return 0
+    }
+
+    $localParent = Split-Path $LocalDir -Parent
+    if (-not (Test-Path -LiteralPath $localParent)) {
+        Write-StatusLine 'SKIPPED' "$Label/" "WARNING: target folder not found: $localParent"
+        return 0
+    }
+
+    if (-not (Test-Path -LiteralPath $LocalDir)) {
+        New-Item -ItemType Directory -Path $LocalDir -Force | Out-Null
+    }
+
+    $applied = 0
+    foreach ($file in (Get-ChildItem -LiteralPath $RepoDir -File -Recurse -Force)) {
+        $rel = $file.FullName.Substring($RepoDir.TrimEnd('\').Length + 1)
+        $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+        $localFile = Join-Path $LocalDir $rel
+
+        if (Test-Excluded -FilePath $localFile -Patterns $ExcludePatterns) {
+            Write-StatusLine 'SKIPPED' $itemLabel 'matches exclude pattern'
+            continue
+        }
+
+        $localFileParent = Split-Path $localFile -Parent
+        if (-not (Test-Path -LiteralPath $localFileParent)) {
+            New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
+        }
+
+        $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
+        if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+    }
+
+    if (Test-Path -LiteralPath $LocalDir) {
+        foreach ($file in (Get-ChildItem -LiteralPath $LocalDir -File -Recurse -Force)) {
+            $rel = $file.FullName.Substring($LocalDir.TrimEnd('\').Length + 1)
+            $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+            if (Test-Path -LiteralPath (Join-Path $RepoDir $rel)) {
+                continue
+            }
+            if (Test-Excluded -FilePath $file.FullName -Patterns $ExcludePatterns) {
+                continue
+            }
+            Write-StatusLine 'EXTRA' $itemLabel 'not in repo; kept'
+        }
+    }
+
+    return $applied
 }
 
 # -- Status output -------------------------------------------------------------
@@ -396,6 +686,9 @@ function Write-StatusLine {
         'UPDATED'   { 'Yellow' }
         'UNCHANGED' { 'DarkGray' }
         'SKIPPED'   { 'DarkYellow' }
+        'EXTRA'     { 'DarkYellow' }
+        'REMOVED'   { 'Red' }
+        'ORPHAN'    { 'Magenta' }
         'ERROR'     { 'Red' }
         default     { 'White' }
     }

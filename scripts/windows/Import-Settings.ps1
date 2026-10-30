@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 
 # -- Elevation check ----------------------------------------------------------
 
-$repoRoot = Split-Path $PSScriptRoot -Parent
+$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 try { $profileRoot = Resolve-UserProfile -Username $User } catch {
     Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
@@ -68,7 +68,10 @@ try {
         throw "sync-config.json not found at: $configPath"
     }
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
+    Assert-ValidPlatform -Files $config.files
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
+
+    if (Test-RepoUpToDate -RepoRoot $repoRoot) { exit 0 }
 
     Write-Host "  Target user   : $User" -ForegroundColor White
     Write-Host "  Profile path  : $profileRoot" -ForegroundColor White
@@ -126,6 +129,10 @@ try {
                                 $suffix = $repoTrim.Substring($after)
                                 if ($localTrim.StartsWith($prefix) -and $localTrim.EndsWith($suffix)) {
                                     $extracted = $localTrim.Substring($prefix.Length, $localTrim.Length - $prefix.Length - $suffix.Length)
+                                    # The file holds the doubled form, so store the un-doubled value.
+                                    if ($rule.PSObject.Properties['escapeBackslashes'] -and $rule.escapeBackslashes -eq $true) {
+                                        $extracted = $extracted.Replace('\\', '\')
+                                    }
                                     if ($extracted.Length -gt 0 -and (-not $userValues.ContainsKey($ph) -or $userValues[$ph].Length -eq 0)) {
                                         $userValues[$ph] = $extracted
                                         $valuesDirty = $true
@@ -153,6 +160,15 @@ try {
         $label     = $entry.repoPath
 
         try {
+            # Directory entries sync the whole folder recursively (import never
+            # deletes), before the single-file logic below.
+            if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
+                $repoDir  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
+                $localDir = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
+                $applied += Import-DirEntry -RepoDir $repoDir -LocalDir $localDir -Label $label -ExcludePatterns $config.excludePatterns -Force ([bool]$Force)
+                continue
+            }
+
             # Exclude-pattern safety check
             if (Test-Excluded -FilePath $localFile -Patterns $config.excludePatterns) {
                 Write-StatusLine 'SKIPPED' $label 'matches exclude pattern'
@@ -212,29 +228,10 @@ try {
                 }
             } else {
                 # -- Direct copy --------------------------------------
-                if (-not (Test-Path $localFile)) {
-                    Copy-Item -Path $repoFile -Destination $localFile -Force
-                    Write-StatusLine 'CREATED' $label
-                    $applied++
-                } elseif (Compare-FilesByHash -PathA $repoFile -PathB $localFile) {
-                    Write-StatusLine 'UNCHANGED' $label
-                } else {
-                    if (-not $Force) {
-                        Write-Host
-                        Write-Host "  File differs: $localFile" -ForegroundColor Yellow
-                        $answer = Read-Host '  Overwrite? [Y/n]'
-                        if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
-                            Write-StatusLine 'SKIPPED' $label 'user skipped'
-                            Write-Host
-                            continue
-                        }
-                        Write-Host
-                    }
-                    Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
-                    Copy-Item -Path $repoFile  -Destination $localFile      -Force
-                    Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
-                    $applied++
-                }
+                $result = Copy-RepoFileToLocal -RepoFile $repoFile -LocalFile $localFile -Label $label -Force ([bool]$Force)
+                # A skipped file also skips its linked paths, as before the refactor.
+                if ($result -eq 'SKIPPED') { continue }
+                if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
             }
 
             # -- Auto-detect linked paths (import: repo -> local) --------

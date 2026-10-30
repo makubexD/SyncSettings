@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "repoPath": "dotfiles/linux/plain.txt",
+      "localPath": "~/.config/fixture/plain.txt",
+      "platform": "linux",
+      "description": "Plain text fixture"
+    },
+    {
+      "repoPath": "dotfiles/linux/tool.sh",
+      "localPath": "~/.config/fixture/tool.sh",
+      "platform": "linux",
+      "description": "Executable fixture"
+    },
+    {
+      "repoPath": "dotfiles/linux/named.conf",
+      "localPath": "~/.config/fixture/named.conf",
+      "platform": "linux",
+      "description": "Sanitized fixture",
+      "sanitizeRules": [
+        {
+          "placeholder": "<NAME>",
+          "prompt": "Full name"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/no-trailing.txt",
+      "localPath": "~/.config/fixture/no-trailing.txt",
+      "platform": "linux",
+      "description": "Trailing-newline fixture"
+    },
+    {
+      "repoPath": "dotfiles/windows/win.conf",
+      "localPath": "~\\.config\\fixture\\win.conf",
+      "platform": "windows",
+      "description": "Windows fixture",
+      "sanitizeRules": [
+        {
+          "placeholder": "<NAME>",
+          "prompt": "Full name"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/common/shared.conf",
+      "localPath": "~/.config/fixture/shared.conf",
+      "platform": "common",
+      "description": "Shared fixture",
+      "sanitizeRules": [
+        {
+          "placeholder": "<NAME>",
+          "prompt": "Full name"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/common/paths.ini",
+      "localPath": "~/.config/fixture/paths.ini",
+      "platform": "common",
+      "description": "Escaped-backslash fixture",
+      "sanitizeRules": [
+        {
+          "placeholder": "<WINPATH>",
+          "prompt": "Path to gh.exe",
+          "escapeBackslashes": true
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/common/dir",
+      "localPath": "~/.config/fixture/dir",
+      "platform": "common",
+      "type": "dir",
+      "description": "Directory fixture"
+    }
+  ],
+  "excludePatterns": [
+    "*.secret",
+    "*.bak"
+  ]
+}
