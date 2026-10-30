@@ -33,14 +33,14 @@
       ]
     },
     {
-      "repoPath": "dotfiles/.bashrc",
+      "repoPath": "dotfiles/windows/shell/.bashrc",
       "localPath": "~\\.bashrc",
       "platform": "windows",
       "description": "Bash run commands",
       "detectLinkedPaths": true
     },
     {
-      "repoPath": "dotfiles/.bash_profile",
+      "repoPath": "dotfiles/windows/shell/.bash_profile",
       "localPath": "~\\.bash_profile",
       "platform": "windows",
       "description": "Bash login profile"
