@@ -163,7 +163,8 @@ on export and import, and inside directory entries too.
 
 An entry with `"type": "dir"` syncs a whole folder, recursively.
 
-- Only regular files are synced. Symlinks are `SKIPPED` with the note `symlink`.
+- Only regular files are synced. Symlinks are `SKIPPED` with the note `symlink`. A symlink at the folder's own
+  path is followed.
 - `excludePatterns` apply to every file. `sanitizeRules` and `detectLinkedPaths` are not allowed on a `dir`
   entry (lint fails).
 - If the local folder is missing on export, the entry is `SKIPPED` with the note `local folder not found: <path>`.

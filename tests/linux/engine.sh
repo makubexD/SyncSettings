@@ -590,6 +590,36 @@ case_dir_export_symlink() {
         || fail "link.txt was copied to the repo"
 }
 
+case_dir_root_symlink() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    rm -rf "$t/repo/dotfiles/common/dir"
+    setup_home_fixture
+    mv "$t/home/.config/fixture/dir" "$t/home/real-dir"
+    ln -s "$t/home/real-dir" "$t/home/.config/fixture/dir"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status ADDED dotfiles/common/dir/a/b.txt || fail "missing ADDED line for dir/a/b.txt"
+    output_has_status ADDED dotfiles/common/dir/c.txt || fail "missing ADDED line for dir/c.txt"
+    if grep -Fq '(symlink)' "$out"; then
+        fail "output has a (symlink) line for the symlinked folder root"
+    fi
+    cmp -s "$FIXTURES/home/.config/fixture/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/home/.config/fixture/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/common/dir/c.txt || fail "missing UNCHANGED line for dir/c.txt"
+    if grep -qE '^  EXTRA[[:space:]]' "$out"; then
+        fail "import printed an EXTRA line for the symlinked folder root"
+    fi
+}
+
 case_dir_import_creates() {
     new_tmp
     setup_repo
@@ -853,7 +883,7 @@ case_upstream_unreachable() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -886,6 +916,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         dir-export-excluded) case_dir_export_excluded ;;
         dir-export-missing) case_dir_export_missing ;;
         dir-export-symlink) case_dir_export_symlink ;;
+        dir-root-symlink) case_dir_root_symlink ;;
         dir-import-creates) case_dir_import_creates ;;
         dir-import-update-backup) case_dir_import_update_backup ;;
         dir-import-extra) case_dir_import_extra ;;

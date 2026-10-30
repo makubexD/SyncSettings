@@ -224,7 +224,7 @@ import_dir() {
                 continue
             fi
             status EXTRA "$label" 'not in repo; kept'
-        done 5< <(find "$local_dir" -type f -print0 | sort -z)
+        done 5< <(find "$local_dir/" -type f -print0 | sort -z)
     fi
 
     return 0

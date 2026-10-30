@@ -169,7 +169,7 @@ export_dir() {
             status MODIFIED "$label"
             CHANGED=$((CHANGED + 1))
         fi
-    done < <(find "$local_dir" \( -type f -o -type l \) -print0 | sort -z)
+    done < <(find "$local_dir/" \( -type f -o -type l \) -print0 | sort -z)
 
     # Remove repo files whose local counterpart is gone, a symlink, or now
     # excluded; then prune empty folders under the entry's repo dir.
