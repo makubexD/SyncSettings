@@ -195,6 +195,33 @@ Export and import start by checking whether the repo is behind `origin/master`:
 - Behind, without a terminal: `WARNING: repo is <n> commit(s) behind origin/master; run git pull --ff-only.` and the
   run continues.
 
+## Export preview
+
+`--preview` (bash) or `-Preview` (PowerShell) shows exactly what a commit would send, and writes nothing to the repo or
+the machine.
+
+- The engine copies `dotfiles/`, `sync-config.json`, `.user-values.json` and itself to a temp folder, runs a normal
+  export there, and compares the result with `HEAD`. Changes exported earlier but not yet committed therefore show too.
+- Status lines are the same as in a real export, followed by a `--stat` summary and the full diff. Text is sanitized,
+  so the diff holds placeholders, not real values.
+- The temp folder is removed at the end, also after a failure. A placeholder value answered during a preview is not
+  saved.
+- The leak scan runs on the result. A hit prints `WARNING: the leak scan found the lines above. Fix them before
+  committing.`, and the preview exits 1.
+- With no differences: `Nothing would be sent: the repo matches HEAD.`
+- `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
+- The up-to-date check does not run.
+- A preview ends with `Nothing was written. Run ./export.sh to apply.` (`export.bat` on Windows).
+
+## One command
+
+`./sync <preview|export|commit|import> [options]` on Linux and Git Bash, `.\sync` in PowerShell, `sync` in cmd. The name
+resolves to the right script for the OS, so `sync` and `sync.cmd` are the two front doors, and Git Bash on Windows hands
+over to `sync.cmd`. Options pass through unchanged. The `.sh` and `.bat` entry points still work.
+
+With no command, `sync` prints the usage and the detected OS and exits 0. An unknown command, or a missing `git`, `jq`
+or `gh` on Linux, exits 1 and names what's wrong.
+
 ## Known differences
 
 | Behavior | Windows (PowerShell) | Linux (bash) |
