@@ -34,10 +34,18 @@ Add or remove files by editing `sync-config.json`.
 
 ---
 
+## Read next
+
+- [Daily workflow](docs/daily-workflow.md): export → PR → review → merge → import on the other machine
+- [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
+
+---
+
 ## Requirements
 
 - **Windows:** Windows 10 or 11, PowerShell 5.1+, Git (in PATH)
 - **Linux:** bash 4+, `jq`, `git`, `cmp` (diffutils)
+- **Both, for committing:** the [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`
 
 ---
 
@@ -57,13 +65,9 @@ This compares local files against the repo **by content** (not dates). Files wit
 commit.bat
 ```
 
-`commit.bat` will auto-generate a descriptive commit message (e.g., `sync: update .gitconfig, .bashrc`) and prompt whether to push.
-
-To push automatically without prompting:
-
-```
-commit.bat -Push
-```
+`commit.bat` auto-generates a descriptive commit message (e.g., `sync: update .gitconfig, .bashrc`), commits on a
+new `sync/windows-…` branch and opens a pull request. Review it, add the `reviewed` label, merge, then `git pull`.
+Needs the [GitHub CLI](https://cli.github.com/) (`gh auth login`). `-Push` is still accepted but does nothing.
 
 To use a custom commit message:
 
@@ -125,7 +129,7 @@ entries, so one repo serves both systems.
 | Command | Does |
 |---|---|
 | `./export.sh` | Copy changed local files → repo (sanitized). `--reset-values` re-asks for placeholder values |
-| `./commit.sh` | Commit `dotfiles/` with a generated message, then ask before pushing. `-m "<msg>"` sets the message, `--push` pushes without asking |
+| `./commit.sh` | Commit `dotfiles/` on a new `sync/linux-…` branch and open a pull request (needs `gh`). `-m "<msg>"` sets the message |
 | `./import.sh` | Copy repo files → this machine, asking before each overwrite and saving `<file>.bak` first. `--force` skips the questions |
 
 Export and import ask once for each placeholder value and cache the answers in `.user-values.json`
@@ -247,13 +251,15 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
 SyncSettings/
 ├── sync-config.json        File mapping configuration
 ├── export.bat              Run to copy local changes → repo
-├── commit.bat              Run to commit and push
+├── commit.bat              Run to commit on a branch and open a PR
 ├── import.bat              Run to apply repo files → machine
 ├── export.sh               Linux: copy local changes → repo
-├── commit.sh               Linux: commit and push
+├── commit.sh               Linux: commit on a branch and open a PR
 ├── import.sh               Linux: apply repo files → machine
 ├── docs/
-│   └── plan-linux.md       Spec the Linux scripts were built from
+│   ├── daily-workflow.md   Export → PR → review → merge → import
+│   ├── review-gate.md      The PR checks and the `reviewed` label
+│   └── plan-*.md           Plans the scripts were built from
 ├── scripts/
 │   ├── SyncHelpers.ps1     Shared functions (sanitization, hashing, linked paths, etc.)
 │   ├── Export-Settings.ps1
