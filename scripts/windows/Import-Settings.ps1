@@ -71,6 +71,8 @@ try {
     Assert-ValidPlatform -Files $config.files
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
+    Test-RepoUpToDate -RepoRoot $repoRoot
+
     Write-Host "  Target user   : $User" -ForegroundColor White
     Write-Host "  Profile path  : $profileRoot" -ForegroundColor White
     Write-Host "  Repo root     : $repoRoot" -ForegroundColor White

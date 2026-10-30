@@ -31,6 +31,19 @@ BeforeAll {
         Copy-Item -Path (Join-Path $Script:Fixtures 'home\*') -Destination $script:HomeDir -Recurse -Force
     }
 
+    # Makes $script:RepoDir a git repo on master with a local bare origin.
+    # git writes to stderr, which must not fail the test.
+    function New-GitRepo {
+        $ErrorActionPreference = 'Continue'
+        git -C $script:RepoDir init -q -b master 2>$null
+        git -C $script:RepoDir add -A 2>$null
+        git -C $script:RepoDir -c user.name=t -c user.email=t@example.com commit -q -m init 2>$null
+        $origin = Join-Path $script:T 'origin.git'
+        git init -q --bare -b master $origin 2>$null
+        git -C $script:RepoDir remote add origin $origin 2>$null
+        git -C $script:RepoDir push -q origin master 2>$null
+    }
+
     function Invoke-Engine {
         param([string]$ScriptName, [switch]$Force)
         $script:EngineScript = Join-Path $script:RepoDir "scripts\windows\$ScriptName"
@@ -588,6 +601,71 @@ Describe 'Windows engine' {
 
         $script:EngineExit | Should -Be 0
         $script:EngineOut | Should -Not -Match '\[ORPHAN'
+    }
+
+    It 'upstream-none' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        Invoke-EnginePiped -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match 'NOTE:|WARNING: repo is'
+    }
+
+    It 'upstream-current' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+        New-GitRepo
+
+        Invoke-EnginePiped -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match 'NOTE:|WARNING: repo is'
+    }
+
+    It 'upstream-behind-noninteractive' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+        New-GitRepo
+
+        $ErrorActionPreference = 'Continue'
+
+        $other = Join-Path $script:T 'other'
+        git clone -q (Join-Path $script:T 'origin.git') $other 2>$null
+        [IO.File]::WriteAllText((Join-Path $other 'README'), "x`n", [System.Text.UTF8Encoding]::new($false))
+        git -C $other add README 2>$null
+        git -C $other -c user.name=t -c user.email=t@example.com commit -q -m ahead 2>$null
+        git -C $other push -q origin master 2>$null
+
+        $headBefore = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+
+        Invoke-EnginePiped -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('WARNING: repo is 1 commit(s) behind origin/master; run git pull --ff-only.'))
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/windows/win.conf')
+        $headAfter = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        $headAfter | Should -Be $headBefore
+    }
+
+    It 'upstream-unreachable' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+        New-GitRepo
+
+        $ErrorActionPreference = 'Continue'
+        git -C $script:RepoDir remote set-url origin (Join-Path $script:T 'missing.git') 2>$null
+
+        Invoke-EnginePiped -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('NOTE: could not reach origin; skipping the up-to-date check.'))
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/windows/win.conf')
     }
 }
 

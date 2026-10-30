@@ -82,6 +82,56 @@ function Test-Interactive {
     return ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected)
 }
 
+# -- Up-to-date check ----------------------------------------------------------
+
+function Test-RepoUpToDate {
+    param([string]$RepoRoot)
+
+    # Native git writes to stderr, which throws under $ErrorActionPreference = 'Stop'.
+    $ErrorActionPreference = 'Continue'
+    $savedPrompt = $env:GIT_TERMINAL_PROMPT
+    $env:GIT_TERMINAL_PROMPT = '0'
+    try {
+        git -C $RepoRoot rev-parse --is-inside-work-tree 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { return }
+
+        git -C $RepoRoot remote get-url origin 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { return }
+
+        $branch = git -C $RepoRoot symbolic-ref --short -q HEAD 2>$null
+        if ($LASTEXITCODE -ne 0 -or $branch -ne 'master') { return }
+
+        git -C $RepoRoot fetch -q origin master 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host '  NOTE: could not reach origin; skipping the up-to-date check.' -ForegroundColor DarkYellow
+            return
+        }
+
+        $n = 0
+        $count = git -C $RepoRoot rev-list --count HEAD..origin/master 2>$null
+        if ($LASTEXITCODE -eq 0) { $n = [int]$count }
+        if ($n -eq 0) { return }
+
+        if (Test-Interactive) {
+            $answer = Read-Host "  Repo is $n commit(s) behind origin/master. Pull now (git pull --ff-only)? [Y/n]"
+            if ($answer -eq '' -or $answer -match '^[Yy]') {
+                git -C $RepoRoot pull --ff-only -q 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    throw 'pull failed; resolve it and rerun.'
+                }
+            }
+        } else {
+            Write-Host "  WARNING: repo is $n commit(s) behind origin/master; run git pull --ff-only." -ForegroundColor Yellow
+        }
+    } finally {
+        if ($null -eq $savedPrompt) {
+            Remove-Item Env:\GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+        } else {
+            $env:GIT_TERMINAL_PROMPT = $savedPrompt
+        }
+    }
+}
+
 # -- User values cache (.user-values.json) ------------------------------------
 
 function Get-UserValues {
