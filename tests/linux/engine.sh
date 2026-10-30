@@ -248,20 +248,24 @@ case_crlf_unchanged() {
     setup_repo
     setup_repo_fixture
     setup_home_fixture
-    printf 'name = Fixture User\r\n' > "$t/home/.config/fixture/named.conf"
+    # Two lines: a CR before the last line is not removed by the end-of-file trim,
+    # so this only passes if the compare really ignores CRLF.
+    printf '# fixture\nname = <NAME>\n' > "$t/repo/dotfiles/linux/named.conf"
+    cp "$t/repo/dotfiles/linux/named.conf" "$t/expected-repo"
+    printf '# fixture\r\nname = Fixture User\r\n' > "$t/home/.config/fixture/named.conf"
 
     run_engine "$t/home" export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/named.conf \
         || fail "export: missing UNCHANGED line for named.conf"
-    cmp -s "$FIXTURES/repo/dotfiles/linux/named.conf" "$t/repo/dotfiles/linux/named.conf" \
+    cmp -s "$t/expected-repo" "$t/repo/dotfiles/linux/named.conf" \
         || fail "export rewrote the repo named.conf"
 
     run_engine "$t/home" import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/named.conf \
         || fail "import: missing UNCHANGED line for named.conf"
-    printf 'name = Fixture User\r\n' > "$t/expected-crlf"
+    printf '# fixture\r\nname = Fixture User\r\n' > "$t/expected-crlf"
     cmp -s "$t/expected-crlf" "$t/home/.config/fixture/named.conf" \
         || fail "local named.conf did not keep its CRLF ending"
     [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
