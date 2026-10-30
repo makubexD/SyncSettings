@@ -200,6 +200,16 @@
     ".env",
     ".env.*",
     "*.secret*",
-    "*.token*"
+    "*.token*",
+    ".git-credentials",
+    ".netrc",
+    ".npmrc",
+    ".pgpass",
+    "hosts.yml",
+    "auth.json",
+    "secrets.yaml",
+    "token",
+    "*.env",
+    "id_dsa*"
   ]
 }

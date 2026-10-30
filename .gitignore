@@ -16,6 +16,16 @@ credentials.json
 .env.*
 *.secret*
 *.token*
+.git-credentials
+.netrc
+.npmrc
+.pgpass
+hosts.yml
+auth.json
+secrets.yaml
+token
+*.env
+id_dsa*
 
 # Backup files created by import
 *.bak
