@@ -456,7 +456,7 @@ function Resolve-UnixPath {
 }
 
 function Resolve-LinkedRepoPath {
-    # Derives: "dotfiles/.bashrc" + "/c/MakuCustomAlias" -> "dotfiles/.bashrc.linked/MakuCustomAlias"
+    # Derives: "dotfiles/windows/shell/.bashrc" + "/c/MakuCustomAlias" -> "dotfiles/windows/shell/.bashrc.linked/MakuCustomAlias"
     param([string]$ParentRepoPath, [string]$LinkedLocalPath)
     $resolvedLocal = Resolve-UnixPath -Path $LinkedLocalPath
     $folderName    = Split-Path $resolvedLocal -Leaf
