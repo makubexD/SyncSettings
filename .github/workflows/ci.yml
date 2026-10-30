@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x export.sh import.sh commit.sh scripts/linux/sync.sh scripts/ci/*.sh
+        run: shellcheck -x export.sh import.sh commit.sh scripts/linux/sync.sh scripts/ci/*.sh tests/linux/*.sh
       - name: Validate JSON
         run: jq empty sync-config.json
       - name: Config sanity
@@ -40,3 +40,21 @@ jobs:
           $r = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error
           $r
           if ($r) { exit 1 }
+  engine-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Engine contract tests (bash)
+        run: tests/linux/engine.sh
+  engine-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pester
+        shell: powershell
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+      - name: Run engine tests
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          Invoke-Pester -Path tests/windows -CI
