@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr edit * --add-label reviewed)",
+      "Bash(gh pr merge * --merge --delete-branch)",
+      "Bash(gh pr checks *)"
+    ]
+  }
+}

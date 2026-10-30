@@ -29,6 +29,18 @@ Sync user dotfiles and config files between a machine and this git repository. W
 Every change reaches `master` through a PR that the `review-gate` check holds red until it carries the
 `reviewed` label; see `docs/review-gate.md` and `docs/daily-workflow.md`.
 
+### Claude auto-approval (temporary, development stage)
+
+Claude may add the `reviewed` label and merge a PR (`gh pr merge <n> --merge --delete-branch`) without asking,
+once all of these hold:
+
+1. Claude has read the full diff and rerun the PR's tests.
+2. `lint` and `leak-scan` are green.
+3. The PR touches none of: `.github/workflows/`, `docs/review-gate.md`, `.claude/settings.json`, or this section.
+   Those PRs, and any PR with a failing check, wait for the user to add the label.
+
+After a merge, `git switch master && git pull`. Remove this section when development is done; see `TODO.md`.
+
 ## Key Patterns
 
 - **Content comparison:** Files without sanitize rules use `Get-FileHash -Algorithm SHA256`. Files with sanitize rules use normalized text comparison after sanitization. Never compare by date.
