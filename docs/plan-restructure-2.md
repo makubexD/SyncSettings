@@ -25,7 +25,8 @@ Linux configs (phase 4), dconf (phase 5), packages (phase 6), markdownlint/link 
 
 ## Shared rules (all steps)
 
-- Work on branch `feat/engine-parity`; one commit per step; one PR at the end (step 20).
+- Work on branch `feat/engine-parity`; one commit per step; one PR for the phase, opened as a draft at step 4
+  (`ci.yml` runs only on `pull_request` and pushes to `master`) and marked ready at step 20.
 - Bash: `#!/usr/bin/env bash`, `set -euo pipefail`, match `scripts/sync.sh` style (4-space indent, `printf`,
   `(( ))` for numbers, `[[ ]]` for strings), and the repo `CLAUDE.md` bash rules (byte-exact text, NUL-separated
   jq, prompts on another fd). New scripts are executable.
@@ -36,7 +37,7 @@ Linux configs (phase 4), dconf (phase 5), packages (phase 6), markdownlint/link 
 - Every engine change adds its fixture cases to `tests/linux/engine.sh` and/or `tests/windows/Engine.Tests.ps1`
   in the same step.
 - `pwsh` is not installed here. PowerShell steps are checked by the `engine-windows` CI job: after each PS step,
-  `git push -u origin feat/engine-parity` and `gh run watch` on the `ci` run. A red job counts as a rejection.
+  `git push` (the draft PR picks it up) and `gh run watch` on the `ci` run. A red job counts as a rejection.
 - Never test in the real repo: the harness copies the engine into a temp dir; manual checks use a throwaway clone
   and `HOME=$(mktemp -d)`.
 
@@ -396,7 +397,7 @@ Test: read through; every command copy-pasteable; examples parse with `jq`.
 2. Throwaway clone + `HOME=$(mktemp -d)`: `./import.sh --force < /dev/null` then `./export.sh` → no diff, no ORPHAN.
 3. Real machine, throwaway clone with real HOME: `./export.sh` → "Repo is up to date" (proves the move and parity
    changes don't alter the current Linux files).
-4. Push, open the PR. CI: `leak-scan`, `lint`, `engine-linux`, `engine-windows` green.
+4. Push, mark the draft PR ready (`gh pr ready`), update its description. CI: `leak-scan`, `lint`, `engine-linux`, `engine-windows` green.
 5. `/agent-skills:review` of the phase diff.
 6. The PR touches `.github/workflows/ci.yml`, so auto-approval doesn't apply: you add `reviewed` and merge.
 7. Windows machine after merge: `export.bat` → no changes (the four entries now carry `platform: windows`);
