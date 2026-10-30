@@ -139,6 +139,14 @@ Cases:
   `SKIPPED … matches exclude pattern`, repo file absent.
 - `noninteractive-missing-value`: empty `.user-values.json` → import exits 1 with
   `missing value for <NAME>`; no file written.
+- Added after the step 2 review (contract rules with no case yet):
+  - `error-continues`: repo `plain.txt` made read-only (`chmod 444`), local `plain.txt` = `new\n` → export exit 0,
+    `ERROR` line for `dotfiles/linux/plain.txt`, status lines for the other three linux entries. Skipped with
+    `ok   error-continues (skipped: root)` when `EUID` is 0.
+  - `import-eof-overwrites`: home `plain.txt` = `old\n`, import **without** `--force`, `< /dev/null` → `UPDATED`,
+    `plain.txt` equals the fixture, `plain.txt.bak` = `old\n`.
+  - `crlf-unchanged`: home `named.conf` = `name = Fixture User\r\n` → export prints `UNCHANGED` for it and the repo
+    file keeps its bytes; import `--force` prints `UNCHANGED`, local file keeps its CRLF, no `.bak`.
 
 Test: `tests/linux/engine.sh` → all `ok`, exit 0. Break one fixture byte → that case `FAIL`, exit 1.
 
@@ -216,6 +224,28 @@ Unit cases (dot-source `SyncHelpers.ps1`, `Mock Read-Host { '' }`): rule `{place
 with `$env:FIXTURE_ENV='abc'` → value `abc`; with `default:'d'` too → `d`; cached `c` → `c`; env unset and no
 default → value not set.
 
+### 8a. Missing value stops PowerShell without a terminal `[worker]`
+
+Added after the step 2 review: today PowerShell writes the file with the placeholder unfilled. Bash exits 1.
+
+Files: `scripts/windows/SyncHelpers.ps1`, `tests/windows/Engine.Tests.ps1`, `docs/sync-contract.md`.
+
+- New `Test-Interactive`: `[Environment]::UserInteractive -and -not [Console]::IsInputRedirected` (step 18 reuses it).
+- `Request-MissingValues`, for a placeholder that needs a value: when `Test-Interactive` is false, don't call
+  `Read-Host`. Take the default (step 8 order) if there is one; otherwise throw
+  `missing value for <PLACEHOLDER>: add it to .user-values.json`. Export and Import call it before any file is
+  touched, so their top-level `catch` prints `ERROR: …` and exits 1 with nothing written. Interactive runs are
+  unchanged.
+- `docs/sync-contract.md`: in "Missing value, non-interactive", replace the bash-only sentence and "PowerShell
+  behaves differently; see Known differences." with one rule for both engines (bash text kept, "the engine" instead
+  of "bash"); delete the "Missing placeholder value, non-interactive" row from Known differences; add a parity row
+  `| Missing value without a terminal stops the run | step 8a | yes | |` above "Missing target folder on import".
+
+Cases (engine runs piped from `''`, so stdin is redirected): `noninteractive-missing-value` import (empty
+`.user-values.json` → exit 1, output has `missing value for <NAME>`, `win.conf` not created) and export (same →
+exit 1, `dotfiles\windows\win.conf` not written); `noninteractive-default` (rule with `default` and no cache →
+import exit 0, `win.conf` hydrated with the default). CI `engine-windows` green.
+
 ### 9. `escapeBackslashes` in bash `[worker]`
 
 Files: `scripts/linux/sync.sh`, `tests/linux/engine.sh`, fixtures (`common/paths.ini` row, also exercised by Pester
@@ -227,7 +257,9 @@ in the same step: add a case to `Engine.Tests.ps1`, 4th file).
   doubled value. Read the flag per placeholder with jq from the rules (NUL-separated, no `@tsv`).
 
 New cases (both harnesses): `escape-import` (`paths.ini` home equals fixture, `gh = C:\\Tools\\gh.exe`),
-`escape-export` (repo equals `gh = <WINPATH>`), `escape-roundtrip-unchanged`.
+`escape-export` (repo equals `gh = <WINPATH>`), `escape-roundtrip-unchanged`, and `sanitize-longest-first`
+(added after the step 2 review: temp config adds rule `<TOOLS>` to the `paths.ini` entry, temp values
+`"<TOOLS>": "C:\\Tools"` → export writes `gh = <WINPATH>\n`, not `gh = <TOOLS>\\gh.exe\n`).
 
 ### 10. Infer placeholder values on bash import `[worker]`
 
@@ -260,7 +292,8 @@ In `export.sh`, entries with `type == "dir"` go to new `export_dir <entry>`:
 
 New cases: `dir-export-adds` (both files `ADDED`, modes kept), `dir-export-modify-remove` (repo has `old.txt`,
 local `c.txt` changed → `MODIFIED c.txt`, `REMOVED old.txt`, empty subdir pruned), `dir-export-excluded`
-(`x.bak` in local dir not copied), `dir-export-missing`.
+(`x.bak` in local dir not copied), `dir-export-missing`, and `dir-export-symlink` (added after the step 2
+review: local `link.txt -> c.txt` → `SKIPPED <repoPath>/link.txt  (symlink)`, not in the repo).
 
 ### 12. `type: dir` import, bash `[worker:high]`
 
@@ -285,7 +318,8 @@ Files: `scripts/windows/SyncHelpers.ps1`, `Export-Settings.ps1`, `tests/windows/
 status `REMOVED` gets a color in `Write-StatusLine` (Red). Local folder missing → `SKIPPED`, same note as bash.
 Count added + modified + removed toward the changed total.
 
-Cases: same four as step 11, same labels and status words.
+Cases: the step 11 cases except `dir-export-symlink` (creating symlinks on Windows needs admin or developer
+mode), same labels and status words.
 
 ### 14. `type: dir` import, PowerShell `[worker:high]`
 
