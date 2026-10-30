@@ -189,6 +189,8 @@ BeforeAll {
 
     # Runs Commit-Settings.ps1 in the clone with the stub gh on PATH.
     function Invoke-Commit {
+        # git fetch and push write to stderr, which must not fail the test.
+        $ErrorActionPreference = 'Continue'
         $script:EngineScript = Join-Path $script:CloneDir 'scripts\windows\Commit-Settings.ps1'
         $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript 2>&1 | Out-String
         $script:EngineExit = $LASTEXITCODE
