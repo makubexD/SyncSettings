@@ -78,7 +78,9 @@ message. With `-Preview`, call `Invoke-ExportPreview -RepoRoot $repoRoot -User $
 `exit` with its result. Summary: with `$env:SYNC_PREVIEW` set and `$changed -gt 0`, print `  $changed file(s) would
 change.` instead of the copied and review lines.
 
-`Invoke-ExportPreview` follows step 2 in the same order, with the same messages, except:
+`Invoke-ExportPreview` follows `run_preview` in `scripts/linux/sync.sh` as built, in the same order, with the same
+messages. That means the leak scan runs before the diff and a hit leaves the diff out, because the diff would print the
+leaked text. Exceptions:
 
 - Temp folder under `[IO.Path]::GetTempPath()` named with a GUID, removed in `finally`.
 - Runs `& powershell.exe -NoProfile -ExecutionPolicy Bypass -File <after>\scripts\windows\Export-Settings.ps1 -User
