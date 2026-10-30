@@ -20,6 +20,8 @@ printf '\n  SyncSettings -- EXPORT (linux)\n\n'
 printf '  HOME       : %s\n' "$HOME"
 printf '  Repo root  : %s\n\n' "$REPO_ROOT"
 
+check_upstream
+
 # -- Collect sanitize rules from linux entries whose local file exists ----------
 
 ALL_RULES='[]'

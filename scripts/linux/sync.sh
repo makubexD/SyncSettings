@@ -56,6 +56,45 @@ is_excluded() {
     return 1
 }
 
+# -- Up-to-date check -----------------------------------------------------------
+
+# Warn, or offer to pull, when the repo is behind origin/master. Silent unless
+# the repo is a git work tree on master with an origin remote.
+check_upstream() {
+    local branch n answer
+
+    GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1 || return 0
+    branch=$(GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" symbolic-ref --short -q HEAD 2>/dev/null) || return 0
+    [[ $branch == master ]] || return 0
+
+    if ! GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" fetch -q origin master 2>/dev/null; then
+        printf '  NOTE: could not reach origin; skipping the up-to-date check.\n'
+        return 0
+    fi
+
+    n=$(GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" rev-list --count HEAD..origin/master 2>/dev/null) || return 0
+    if (( n == 0 )); then
+        return 0
+    fi
+
+    if [[ ! -t 0 ]]; then
+        printf '  WARNING: repo is %d commit(s) behind origin/master; run git pull --ff-only.\n' "$n"
+        return 0
+    fi
+
+    printf '  Repo is %d commit(s) behind origin/master. Pull now (git pull --ff-only)? [Y/n] ' "$n"
+    answer=''
+    read -r answer || answer=''
+    if [[ -z $answer || $answer == [Yy]* ]]; then
+        if ! GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" pull --ff-only -q 2>/dev/null; then
+            printf 'ERROR: pull failed; resolve it and rerun.\n' >&2
+            exit 1
+        fi
+    fi
+    return 0
+}
+
 # -- User values cache (.user-values.json) ------------------------------------
 
 load_values() {

@@ -22,6 +22,8 @@ printf '\n  SyncSettings -- IMPORT (linux)\n\n'
 printf '  HOME       : %s\n' "$HOME"
 printf '  Repo root  : %s\n\n' "$REPO_ROOT"
 
+check_upstream
+
 # -- Collect sanitize rules from linux entries whose repo file exists -----------
 
 ALL_RULES='[]'

@@ -72,6 +72,17 @@ setup_repo_fixture() {
     cp -a "$FIXTURES/repo/dotfiles/." "$t/repo/dotfiles/"
 }
 
+# Turn $t/repo (after setup_repo + fixtures) into a git repo on master with one
+# commit, plus a bare origin at $t/origin.git holding the same commit.
+make_git_repo() {
+    git -C "$t/repo" init -q -b master
+    git -C "$t/repo" add -A
+    git -C "$t/repo" -c user.name=t -c user.email=t@example.com commit -q -m init
+    git init -q --bare -b master "$t/origin.git"
+    git -C "$t/repo" remote add origin "$t/origin.git"
+    git -C "$t/repo" push -q origin master
+}
+
 # Run one engine entry point from $t/repo with a throwaway HOME and < /dev/null.
 run_engine() {
     local home=$1 script=$2
@@ -735,9 +746,83 @@ case_orphan_linked_ok() {
     fi
 }
 
+case_upstream_none() {
+    # $t/repo is not a git repo, so the up-to-date check stays silent.
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    if grep -qE 'NOTE:|WARNING: repo is' "$out"; then
+        fail "unexpected up-to-date message in a non-git repo"
+    fi
+}
+
+case_upstream_current() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    make_git_repo
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    if grep -qE 'NOTE:|WARNING: repo is' "$out"; then
+        fail "unexpected up-to-date message when origin is up to date"
+    fi
+}
+
+case_upstream_behind_noninteractive() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    make_git_repo
+
+    # A second clone pushes a commit that $t/repo does not have. The new file
+    # stays outside dotfiles/, so the export itself sees unchanged fixtures.
+    git clone -q "$t/origin.git" "$t/other"
+    printf 'readme\n' > "$t/other/README"
+    git -C "$t/other" add README
+    git -C "$t/other" -c user.name=t -c user.email=t@example.com commit -q -m second
+    git -C "$t/other" push -q origin master
+    local head_before
+    head_before=$(git -C "$t/repo" rev-parse HEAD)
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    grep -Fqx '  WARNING: repo is 1 commit(s) behind origin/master; run git pull --ff-only.' "$out" \
+        || fail "missing WARNING line for a repo behind origin/master"
+    output_has_status UNCHANGED dotfiles/linux/plain.txt \
+        || fail "export did not run after the up-to-date check"
+    [[ $(git -C "$t/repo" rev-parse HEAD) == "$head_before" ]] || fail "the export moved HEAD"
+}
+
+case_upstream_unreachable() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    make_git_repo
+    git -C "$t/repo" remote set-url origin "$t/missing.git"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    grep -Fqx '  NOTE: could not reach origin; skipping the up-to-date check.' "$out" \
+        || fail "missing NOTE line for an unreachable origin"
+    output_has_status UNCHANGED dotfiles/linux/plain.txt \
+        || fail "export did not run after the reachability check"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok upstream-none upstream-current upstream-behind-noninteractive upstream-unreachable; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -778,6 +863,10 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         orphan-reported) case_orphan_reported ;;
         orphan-none) case_orphan_none ;;
         orphan-linked-ok) case_orphan_linked_ok ;;
+        upstream-none) case_upstream_none ;;
+        upstream-current) case_upstream_current ;;
+        upstream-behind-noninteractive) case_upstream_behind_noninteractive ;;
+        upstream-unreachable) case_upstream_unreachable ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"
