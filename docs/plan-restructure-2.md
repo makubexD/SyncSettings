@@ -454,6 +454,80 @@ Windows-only" sentence), `README.md` (one "Read next" link per new doc; full rew
 
 Test: read through; every command copy-pasteable; examples parse with `jq`.
 
+### 19a. `dir` entry whose root is a symlink, bash `[worker]`
+
+Added after the phase review of PR #21, like 19b to 19d. `find "$local_dir"` does not follow a symlink given as its
+start path, so export printed one `SKIPPED … (symlink)` line with a garbled label and then "Repo is up to date",
+having synced nothing. PowerShell follows the link. A trailing slash makes `find` follow it too.
+
+Files: `export.sh`, `import.sh`, `tests/linux/engine.sh`, `docs/sync-contract.md`.
+
+- `export.sh`, `export_dir`: `find "$local_dir" \( -type f …` becomes `find "$local_dir/" \( -type f …`. Leave the
+  `find "$repo_dir"` calls alone.
+- `import.sh`, `import_dir`: `find "$local_dir" -type f …` becomes `find "$local_dir/" -type f …`.
+- Contract, "Directory entries", the first bullet, append: "A symlink at the folder's own path is followed."
+
+Case `dir-root-symlink`: home fixture, move `$t/home/.config/fixture/dir` to `$t/home/real-dir` and symlink it back.
+With `$t/repo/dotfiles/common/dir` removed, export → exit 0, `ADDED dotfiles/common/dir/c.txt` and `ADDED
+dotfiles/common/dir/a/b.txt`, no output line containing `(symlink)`, both repo files byte-equal to the fixture. A
+following import → `UNCHANGED dotfiles/common/dir/c.txt`, no `EXTRA` line.
+
+### 19b. Close the test gaps the mutation check found, bash `[worker]`
+
+Tests only. Each case below stayed green with its guard deleted from the code.
+
+Files: `tests/linux/engine.sh`.
+
+- `dir-symlink-removed`: guard `-L $local_file` in `export_dir`. Replace local `dir/c.txt` with a symlink to
+  `dir/a/b.txt` → export exit 0, `REMOVED dotfiles/common/dir/c.txt`, repo file gone.
+- `orphan-no-dir-entries`: guard `[[ -n $prefix ]]` in the `dir_prefixes` loop of `report_orphans`. Drop the dir entry
+  from the temp config with `jq`, remove `$t/repo/dotfiles/common/dir`, add `$t/repo/dotfiles/stray.txt` → export
+  prints `ORPHAN dotfiles/stray.txt`.
+- `infer-skips-unhydrated-local`: guard `[[ $l == *"$ph"* ]] && continue` in `infer_values`. Delete `<NAME>` from the
+  temp `.user-values.json`, delete local `shared.conf`, leave local `named.conf` literally `name = <NAME>\n` → import
+  with stdin `/dev/null` exits 1, prints `missing value for <NAME>: add it to .user-values.json`.
+- `infer-overlapping-context`: guard `(( ${#l} >= ${#prefix} + ${#suffix} ))`. Delete `<NAME>` from the temp
+  `.user-values.json`, delete local `shared.conf`, repo `named.conf` = `abc<NAME>cba\n`, local `named.conf` =
+  `abcba\n` → import with stdin `/dev/null` exits 1 with the same message (with the guard gone it infers `b`).
+- `upstream-off-master`: guard `[[ $branch == master ]]`. As `upstream-behind-noninteractive`, but first `git -C
+  "$t/repo" switch -q -c feature` → export exit 0, output has neither `WARNING: repo is` nor `NOTE:`.
+
+Test: delete each guard in a scratch copy; the matching case must fail. Restore; all green.
+
+### 19c. Trim text in linear time, bash `[worker]`
+
+`same_normalized` trims with `${a%%+([[:space:]])}`, which is quadratic: 2 KB 0.6 s, 16 KB 33 s, 64 KB does not finish
+in a minute. It runs twice per sanitized file. The largest one today is 3 KB, so runs are only slow, but the time grows
+with every file added under rules.
+
+Files: `scripts/linux/sync.sh`, `tests/linux/engine.sh`.
+
+- `same_normalized`: `a=${a%"${a##*[![:space:]]}"}` and the same for `b`.
+- Delete `shopt -s extglob` (line 6); nothing else uses it.
+
+Case `sanitized-large-file`: `named.conf` local and repo with `name = <NAME>\n` followed by 128 KB of `x` lines, the
+local copy with `Fixture User` and an extra `\n\n` at the end → export under `timeout 20`: exit 0, `UNCHANGED
+dotfiles/linux/named.conf`.
+
+### 19d. Literal paths in `dir` entries, PowerShell `[worker]`
+
+`type: dir` is the first feature that handles arbitrary file names, and `-Path` treats `[` and `]` as wildcards, so
+`[x].txt` is not found and the file is reported or copied wrongly.
+
+Files: `scripts/windows/SyncHelpers.ps1`, `tests/windows/Engine.Tests.ps1`.
+
+- In `Compare-FilesByHash`, `Sync-LinkedDirectory`, `Copy-RepoFileToLocal` and `Import-DirEntry`: `-LiteralPath`
+  instead of `-Path` (or the positional path) on `Test-Path`, `Copy-Item`, `Get-Item`, `Remove-Item`, `New-Item` is
+  excluded because it has no `-LiteralPath`, and `Get-ChildItem` (`LiteralPath` key in `$gciParams` and
+  `$destGciParams`).
+
+Case `dir-bracket-name`, in the same `Describe` as `dir-export-adds`: add local `dir/[x].txt` = `b\n` → export `ADDED
+dotfiles/common/dir/[x].txt`, repo file present; second export `UNCHANGED`, no `REMOVED`; import `UNCHANGED`, no
+`EXTRA`. CI `engine-windows` green.
+
+Carried to phase 3, which adds `dir` entries to the real config: lint must reject a `file` entry whose `repoPath` lies
+under a `dir` entry's `repoPath`, because `export_dir` removes such a file unless it also exists in the local folder.
+
 ### 20. Verify + PR `[inline: final review, gate touches workflows]`
 
 1. `tests/linux/engine.sh` green; shellcheck clean; config sanity OK.
