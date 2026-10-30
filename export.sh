@@ -131,6 +131,7 @@ process_entry() {
 export_dir() {
     local entry=$1
     local repo_path local_path local_dir repo_dir rel label src dst repo_file local_file
+    local files=0
 
     repo_path=$(jq -r '.repoPath' <<<"$entry")
     local_path=$(jq -r '.localPath' <<<"$entry")
@@ -158,6 +159,7 @@ export_dir() {
             continue
         fi
 
+        files=$((files + 1))
         dst=$repo_dir/$rel
         if [[ ! -e $dst ]]; then
             if ! mkdir -p "${dst%/*}"; then
@@ -181,6 +183,15 @@ export_dir() {
             CHANGED=$((CHANGED + 1))
         fi
     done < <(find "$local_dir/" \( -type f -o -type l \) -print0 | sort -z)
+
+    # An empty local folder (or one holding only symlinks or excluded files) must
+    # not empty the repo entry; keep the repo files and report it instead.
+    if (( files == 0 )) && [[ -d $repo_dir ]] \
+        && [[ -n $(find "$repo_dir" -type f -print -quit) ]]; then
+        status SKIPPED "$repo_path/" 'local folder is empty; repo files kept'
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
 
     # Remove repo files whose local counterpart is gone, a symlink, or now
     # excluded; then prune empty folders under the entry's repo dir.

@@ -194,6 +194,9 @@ An entry with `"type": "dir"` syncs a whole folder, recursively.
 - `excludePatterns` apply to every file. `sanitizeRules` and `detectLinkedPaths` are not allowed on a `dir`
   entry (lint fails).
 - If the local folder is missing on export, the entry is `SKIPPED` with the note `local folder not found: <path>`.
+- If no local file passes the symlink and exclude checks (an empty folder, or one holding only symlinks or excluded
+  files) while the repo folder still holds at least one file, the entry is `SKIPPED` with the note
+  `local folder is empty; repo files kept` and no repo file is removed.
 - Export deletes repo files that are gone locally or are now excluded (`REMOVED`; git keeps the history), then
   removes empty folders under the entry's `repoPath`.
 - Import never deletes. A local file that the repo doesn't have is reported as `EXTRA` and kept, so a file you

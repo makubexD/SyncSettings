@@ -1093,6 +1093,113 @@ case_dir_export_symlink() {
         || fail "link.txt was copied to the repo"
 }
 
+case_dir_export_empty_keeps_repo() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+    [[ -z $(find "$t/home/.config/fixture/dir" -mindepth 1) ]] || fail "local dir/ is not empty"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept' \
+        || fail "missing SKIPPED (empty folder) line for the dir entry"
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line for an empty local folder"
+    fi
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_only_excluded() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+    printf 'x\n' > "$t/home/.config/fixture/dir/x.secret"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED dotfiles/common/dir/x.secret 'matches exclude pattern' \
+        || fail "missing SKIPPED (exclude) line for dir/x.secret"
+    output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept' \
+        || fail "missing SKIPPED (empty folder) line for the dir entry"
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line for a folder holding only excluded files"
+    fi
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_only_symlink() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+    ln -s c.txt "$t/home/.config/fixture/dir/link.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED dotfiles/common/dir/link.txt symlink \
+        || fail "missing SKIPPED (symlink) line for dir/link.txt"
+    output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept' \
+        || fail "missing SKIPPED (empty folder) line for the dir entry"
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line for a folder holding only a symlink"
+    fi
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_one_left() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm "$t/home/.config/fixture/dir/a/b.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status REMOVED dotfiles/common/dir/a/b.txt 'no longer in source' \
+        || fail "missing REMOVED line for dir/a/b.txt"
+    [[ ! -e "$t/repo/dotfiles/common/dir/a/b.txt" ]] || fail "repo dir/a/b.txt still exists"
+    output_has_status UNCHANGED dotfiles/common/dir/c.txt || fail "missing UNCHANGED line for dir/c.txt"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_empty_both() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    if output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept'; then
+        fail "printed a SKIPPED line for a folder empty on both sides"
+    fi
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line with no repo folder"
+    fi
+    [[ ! -e "$t/repo/dotfiles/common/dir" ]] || fail "repo dir/ was created"
+}
+
 case_dir_root_symlink() {
     new_tmp
     setup_repo
@@ -1850,7 +1957,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1910,6 +2017,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         dir-export-excluded) case_dir_export_excluded ;;
         dir-export-missing) case_dir_export_missing ;;
         dir-export-symlink) case_dir_export_symlink ;;
+        dir-export-empty-keeps-repo) case_dir_export_empty_keeps_repo ;;
+        dir-export-only-excluded) case_dir_export_only_excluded ;;
+        dir-export-only-symlink) case_dir_export_only_symlink ;;
+        dir-export-one-left) case_dir_export_one_left ;;
+        dir-export-empty-both) case_dir_export_empty_both ;;
         dir-root-symlink) case_dir_root_symlink ;;
         dir-symlink-removed) case_dir_symlink_removed ;;
         dir-import-creates) case_dir_import_creates ;;
