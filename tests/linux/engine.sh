@@ -1354,6 +1354,85 @@ case_commit_outside_changes() {
     [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
 }
 
+# A commit repo with the fixture values cached, ignored the way the real repo ignores them.
+setup_commit_values() {
+    setup_commit_repo
+    cp "$FIXTURES/user-values.json" "$t/clone/.user-values.json"
+    printf '.user-values.json\n' >> "$t/clone/.git/info/exclude"
+}
+
+assert_commit_blocked() {
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+    grep -Fq "ERROR: a cached value for $1 is in dotfiles/linux/plain.txt; nothing was committed." "$out" \
+        || fail "missing cached-value ERROR line"
+    [[ $(origin_branches) == 'refs/heads/master' ]] \
+        || fail "origin has branches besides master: $(origin_branches)"
+    [[ -z "$(git -C "$t/clone" branch --list 'sync/*')" ]] || fail "a sync branch was created locally"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_commit_value_blocked() {
+    new_tmp
+    setup_commit_values
+    printf 'author = Fixture User\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    assert_commit_blocked '<NAME>'
+}
+
+case_commit_value_case_variant() {
+    new_tmp
+    setup_commit_values
+    printf 'author = FIXTURE user\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    assert_commit_blocked '<NAME>'
+}
+
+case_commit_value_doubled() {
+    new_tmp
+    setup_commit_values
+    printf '%s\n' 'tool = C:\\Tools\\gh.exe' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    assert_commit_blocked '<WINPATH>'
+}
+
+case_commit_value_untracked() {
+    # A new file is as much a change as an edited one.
+    new_tmp
+    setup_commit_values
+    mkdir "$t/clone/dotfiles/linux/new"
+    printf 'author = Fixture User\n' > "$t/clone/dotfiles/linux/new/added.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+    grep -Fq 'ERROR: a cached value for <NAME> is in dotfiles/linux/new/added.txt; nothing was committed.' "$out" \
+        || fail "missing cached-value ERROR line"
+}
+
+case_commit_value_placeholder_only() {
+    new_tmp
+    setup_commit_values
+    printf 'author = <NAME>\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 0 )) || fail "commit.sh exited $rc, want 0"
+    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub was not called once"
+}
+
+case_commit_value_not_printed() {
+    new_tmp
+    setup_commit_values
+    printf 'author = Fixture User\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_commit "$t/home"
+    (( rc == 1 )) || fail "commit.sh exited $rc, want 1"
+    if grep -Fiq 'Fixture User' "$out"; then
+        fail "the output holds the cached value"
+    fi
+}
+
 case_preview_scan_missing() {
     new_tmp
     setup_preview_repo
@@ -1459,7 +1538,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value prompt-empty-stops error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value prompt-empty-stops error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missingsync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1528,6 +1607,12 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         commit-leak-blocked) case_commit_leak_blocked ;;
         commit-scan-missing) case_commit_scan_missing ;;
         commit-outside-changes) case_commit_outside_changes ;;
+        commit-value-blocked) case_commit_value_blocked ;;
+        commit-value-case-variant) case_commit_value_case_variant ;;
+        commit-value-doubled) case_commit_value_doubled ;;
+        commit-value-untracked) case_commit_value_untracked ;;
+        commit-value-placeholder-only) case_commit_value_placeholder_only ;;
+        commit-value-not-printed) case_commit_value_not_printed ;;
         preview-scan-missing) case_preview_scan_missing ;;
         sync-usage) case_sync_usage ;;
         sync-unknown) case_sync_unknown ;;
