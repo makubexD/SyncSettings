@@ -229,12 +229,17 @@ function Request-MissingValues {
 
             $promptText = "  $($rule.prompt)"
 
-            # Show default: cached value or rule default
+            # Show default: cached value, rule default, or the rule's defaultEnv variable
             $defaultVal = $null
             if ($cached -and $cached.Length -gt 0) {
                 $defaultVal = $cached
             } elseif ($rule.PSObject.Properties['default'] -and $rule.default) {
                 $defaultVal = $rule.default
+            } elseif ($rule.PSObject.Properties['defaultEnv'] -and $rule.defaultEnv) {
+                $envDefault = [Environment]::GetEnvironmentVariable($rule.defaultEnv)
+                if ($envDefault) {
+                    $defaultVal = $envDefault
+                }
             }
 
             if ($defaultVal) {

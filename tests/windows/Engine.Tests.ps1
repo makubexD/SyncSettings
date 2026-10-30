@@ -228,3 +228,64 @@ Describe 'Windows engine' {
         (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
     }
 }
+
+Describe 'Request-MissingValues' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+    }
+
+    BeforeEach {
+        Mock Read-Host { "" }
+        $script:SavedFixtureEnv = $env:FIXTURE_ENV
+    }
+
+    AfterEach {
+        Remove-Item Env:FIXTURE_ENV -ErrorAction SilentlyContinue
+        if ($script:SavedFixtureEnv) {
+            $env:FIXTURE_ENV = $script:SavedFixtureEnv
+        }
+    }
+
+    It 'defaultEnv used' {
+        $env:FIXTURE_ENV = 'abc'
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; defaultEnv = 'FIXTURE_ENV' }
+        $values = @{}
+
+        Request-MissingValues -Rules @($rule) -UserValues $values -Direction import
+
+        $values['<X>'] | Should -Be 'abc'
+        Should -Invoke Read-Host -Times 1 -Exactly
+    }
+
+    It 'default before defaultEnv' {
+        $env:FIXTURE_ENV = 'abc'
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; default = 'd'; defaultEnv = 'FIXTURE_ENV' }
+        $values = @{}
+
+        Request-MissingValues -Rules @($rule) -UserValues $values -Direction import
+
+        $values['<X>'] | Should -Be 'd'
+        Should -Invoke Read-Host -Times 1 -Exactly
+    }
+
+    It 'cached before default' {
+        $env:FIXTURE_ENV = 'abc'
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; default = 'd'; defaultEnv = 'FIXTURE_ENV' }
+        $values = @{ '<X>' = 'c' }
+
+        Request-MissingValues -Rules @($rule) -UserValues $values -Direction import -ForceAll
+
+        $values['<X>'] | Should -Be 'c'
+        Should -Invoke Read-Host -Times 1 -Exactly
+    }
+
+    It 'no default leaves value unset' {
+        Remove-Item Env:FIXTURE_ENV -ErrorAction SilentlyContinue
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; defaultEnv = 'FIXTURE_ENV' }
+        $values = @{}
+
+        Request-MissingValues -Rules @($rule) -UserValues $values -Direction import
+
+        $values.ContainsKey('<X>') | Should -BeFalse
+    }
+}
