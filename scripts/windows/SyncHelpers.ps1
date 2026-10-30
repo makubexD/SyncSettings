@@ -562,6 +562,144 @@ function Write-OrphanReport {
     }
 }
 
+# -- Export preview ------------------------------------------------------------
+
+function Invoke-ExportPreview {
+    <#
+    .SYNOPSIS
+        Shows what a real export would write to the repo, without touching the repo.
+    .DESCRIPTION
+        Copies dotfiles/, sync-config.json, scripts/ and .user-values.json into a
+        throwaway folder, runs Export-Settings.ps1 there, and diffs the result
+        against HEAD. The leak scan runs before any diff so a hit never prints the
+        leaked text. Returns the process exit code.
+    #>
+    param([string]$RepoRoot, [string]$User)
+
+    # Native git/tar/bash write to stderr, which must not throw.
+    $ErrorActionPreference = 'Continue'
+
+    git -C $RepoRoot rev-parse --verify -q HEAD 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'ERROR: --preview needs a git repo with a commit.' -ForegroundColor Red
+        return 1
+    }
+
+    $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+    $null = New-Item -ItemType Directory -Path $tmpDir -Force
+    $beforeDir = Join-Path $tmpDir 'before'
+    $afterDir  = Join-Path $tmpDir 'after'
+    $null = New-Item -ItemType Directory -Path $beforeDir -Force
+    $null = New-Item -ItemType Directory -Path $afterDir -Force
+
+    $savedSyncPreview = $env:SYNC_PREVIEW
+    try {
+        # HEAD's copy of the tracked files, as the diff baseline.
+        $beforeTar = Join-Path $tmpDir 'before.tar'
+        git -C $RepoRoot archive -o $beforeTar HEAD -- dotfiles sync-config.json
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'ERROR: git archive failed.' -ForegroundColor Red
+            return 1
+        }
+        # The Windows tar by full path: Git's GNU tar reads C: as a remote host.
+        & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $beforeTar -C $beforeDir
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'ERROR: tar failed.' -ForegroundColor Red
+            return 1
+        }
+
+        # The working tree plus the engine itself, for a real export in after/.
+        Copy-Item -Path (Join-Path $RepoRoot 'dotfiles') -Destination $afterDir -Recurse -Force
+        Copy-Item -Path (Join-Path $RepoRoot 'sync-config.json') -Destination $afterDir -Force
+        Copy-Item -Path (Join-Path $RepoRoot 'scripts') -Destination $afterDir -Recurse -Force
+        $valuesFile = Join-Path $RepoRoot '.user-values.json'
+        if (Test-Path $valuesFile) {
+            Copy-Item -Path $valuesFile -Destination $afterDir -Force
+        }
+
+        $env:SYNC_PREVIEW = '1'
+        $afterScript = Join-Path $afterDir 'scripts\windows\Export-Settings.ps1'
+        # Start-Process, not &: its output stays out of this function's return value,
+        # and a piped child would hide the value prompts, which end without a newline.
+        $childArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$afterScript`"", '-User', "`"$User`"")
+        $child = Start-Process -FilePath 'powershell.exe' -ArgumentList $childArgs -NoNewWindow -Wait -PassThru
+        if ($child.ExitCode -ne 0) {
+            return $child.ExitCode
+        }
+
+        Push-Location $tmpDir
+        try {
+            # Scan first: a hit must suppress the diff, which would print the leaked text.
+            $leakFound = 0
+            $leakScript = Join-Path $RepoRoot 'scripts\ci\leak-scan.sh'
+            if (Test-Path $leakScript) {
+                $git = Get-Command git -ErrorAction SilentlyContinue
+                $bash = $null
+                if ($git) {
+                    $candidate = Join-Path (Split-Path (Split-Path $git.Source -Parent) -Parent) 'bin\bash.exe'
+                    if (Test-Path $candidate) { $bash = $candidate }
+                }
+                if (-not $bash) {
+                    Write-Host '  NOTE: bash not found; skipping the leak scan.'
+                } else {
+                    & $bash $leakScript after/dotfiles after/sync-config.json | Out-Host
+                    $leakExit = $LASTEXITCODE
+                    if ($leakExit -eq 0) {
+                        Write-Host '  Leak scan: clean.'
+                    } elseif ($leakExit -eq 1) {
+                        Write-Host '  WARNING: the leak scan found the lines above. Fix them before committing.'
+                        $leakFound = 1
+                    } else {
+                        Write-Host 'ERROR: leak scan failed.' -ForegroundColor Red
+                        return 1
+                    }
+                }
+            }
+
+            if ($leakFound -eq 0) {
+                $differed = 0
+                foreach ($path in @('dotfiles', 'sync-config.json')) {
+                    git -c core.safecrlf=false --no-pager diff --no-index --stat "before/$path" "after/$path" | Out-Host
+                    $code = $LASTEXITCODE
+                    if ($code -eq 1) {
+                        $differed = 1
+                    } elseif ($code -gt 1) {
+                        Write-Host 'ERROR: git diff failed.' -ForegroundColor Red
+                        return 1
+                    }
+                }
+
+                if ($differed) {
+                    foreach ($path in @('dotfiles', 'sync-config.json')) {
+                        git -c core.safecrlf=false --no-pager diff --no-index "before/$path" "after/$path" | Out-Host
+                        $code = $LASTEXITCODE
+                        if ($code -gt 1) {
+                            Write-Host 'ERROR: git diff failed.' -ForegroundColor Red
+                            return 1
+                        }
+                    }
+                } else {
+                    Write-Host '  Nothing would be sent: the repo matches HEAD.'
+                }
+            }
+
+            Write-Host '  Nothing was written. Run export.bat to apply.'
+            return $leakFound
+        } finally {
+            Pop-Location
+        }
+    } finally {
+        if ($null -eq $savedSyncPreview) {
+            Remove-Item Env:\SYNC_PREVIEW -ErrorAction SilentlyContinue
+        } else {
+            $env:SYNC_PREVIEW = $savedSyncPreview
+        }
+        if (Test-Path $tmpDir) {
+            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 # -- Import helpers ------------------------------------------------------------
 
 function Copy-RepoFileToLocal {

@@ -6,12 +6,23 @@ cd "$(dirname "$0")"
 source scripts/linux/sync.sh
 
 RESET_VALUES=0
+PREVIEW=0
 for arg in "$@"; do
     case $arg in
         --reset-values) RESET_VALUES=1 ;;
-        *) printf 'Unknown option: %s\nUsage: export.sh [--reset-values]\n' "$arg" >&2; exit 1 ;;
+        --preview) PREVIEW=1 ;;
+        *) printf 'Unknown option: %s\nUsage: export.sh [--preview] [--reset-values]\n' "$arg" >&2; exit 1 ;;
     esac
 done
+
+if (( PREVIEW )); then
+    if (( RESET_VALUES )); then
+        printf 'ERROR: --preview cannot be combined with --reset-values.\n' >&2
+        exit 1
+    fi
+    run_preview
+    exit
+fi
 
 CHANGED=0
 SKIPPED=0
@@ -214,8 +225,12 @@ report_orphans
 printf '\n  %s\n' "--------------------------------------------------"
 
 if (( CHANGED > 0 )); then
-    printf '\n  %d file(s) copied to the repo.\n\n' "$CHANGED"
-    printf '  Review the changes, then run  ./commit.sh\n'
+    if [[ -n ${SYNC_PREVIEW:-} ]]; then
+        printf '\n  %d file(s) would change.\n\n' "$CHANGED"
+    else
+        printf '\n  %d file(s) copied to the repo.\n\n' "$CHANGED"
+        printf '  Review the changes, then run  ./commit.sh\n'
+    fi
 else
     printf '\n  Repo is up to date. No changes detected.\n'
     if (( SKIPPED > 0 )); then

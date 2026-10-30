@@ -11,14 +11,18 @@
     Target Windows username. Defaults to the current user.
 .PARAMETER ResetValues
     Force re-prompting for all sanitized placeholder values, even if cached.
+.PARAMETER Preview
+    Show what a commit would send without writing to the repo, then exit.
 .EXAMPLE
     .\Export-Settings.ps1
     .\Export-Settings.ps1 -User johndoe
     .\Export-Settings.ps1 -ResetValues
+    .\Export-Settings.ps1 -Preview
 #>
 param(
     [string]$User = $env:USERNAME,
-    [switch]$ResetValues
+    [switch]$ResetValues,
+    [switch]$Preview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +39,12 @@ Write-Host
 
 try {
     $repoRoot   = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    if ($Preview) {
+        if ($ResetValues) {
+            throw '--preview cannot be combined with --reset-values.'
+        }
+        exit (Invoke-ExportPreview -RepoRoot $repoRoot -User $User)
+    }
     $configPath = Join-Path $repoRoot 'sync-config.json'
     if (-not (Test-Path $configPath)) {
         throw "sync-config.json not found at: $configPath"
@@ -213,9 +223,13 @@ try {
     Write-Host ('-' * 50) -ForegroundColor DarkGray
 
     if ($changed -gt 0) {
-        Write-Host "  $changed file(s) copied to the repo." -ForegroundColor Green
-        Write-Host
-        Write-Host '  Review the changes, then run  commit.bat  to commit and push.' -ForegroundColor Cyan
+        if ($env:SYNC_PREVIEW) {
+            Write-Host "  $changed file(s) would change." -ForegroundColor Green
+        } else {
+            Write-Host "  $changed file(s) copied to the repo." -ForegroundColor Green
+            Write-Host
+            Write-Host '  Review the changes, then run  commit.bat  to commit and push.' -ForegroundColor Cyan
+        }
     } else {
         Write-Host '  Repo is up to date. No changes detected.' -ForegroundColor Green
         if ($skipped -gt 0) {

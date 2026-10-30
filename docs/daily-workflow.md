@@ -34,24 +34,29 @@ git switch master
 git pull
 ```
 
-Copy your changed settings into the repo and look at what changed:
+See what would be sent. This changes nothing, in the repo or on the machine:
 
 ```bash
-./export.sh
-git diff -- dotfiles
+./sync preview
 ```
 
-Open the PR (add `-m "<message>"` to set the title yourself):
+It lists each file's status, shows the full diff against `HEAD`, and runs the leak scan. The diff shows placeholders,
+not your real values. If the scan finds something, the diff is left out; fix the file and preview again.
+
+When it looks right, copy your settings into the repo and open the PR (add `-m "<message>"` to set the title yourself):
 
 ```bash
-./commit.sh
+./sync export
+./sync commit
 ```
 
-`commit.sh` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>`, commits `dotfiles/` and `sync-config.json`,
+`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>`, commits `dotfiles/` and `sync-config.json`,
 pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
 
-On Windows, the same steps are `export.bat`, then `commit.bat` (`-Message "<message>"` to set the title).
-The branch is `sync/windows-<alias>-<yyyyMMdd-HHmm>`.
+On Windows, the commands are the same: `.\sync preview` in PowerShell, or `sync preview` in cmd. Use
+`-Message "<message>"` to set the title. The branch is `sync/windows-<alias>-<yyyyMMdd-HHmm>`.
+
+`./export.sh`, `./commit.sh`, `export.bat` and `commit.bat` still work.
 
 ### Machine alias
 
@@ -89,10 +94,11 @@ git pull
 ```bash
 git switch master
 git pull
-./import.sh
+./sync import
 ```
 
-`import.sh` asks before overwriting each file and saves a `<file>.bak` first. On Windows, run `import.bat`.
+Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
+`--force`. If you import a newer change over the same file later, that `.bak` is replaced.
 
 ## When `commit.sh` stops
 

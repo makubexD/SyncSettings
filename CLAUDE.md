@@ -17,6 +17,8 @@ Sync user dotfiles and config files between a machine and this git repository. W
 
 ## Entry Points
 
+`./sync <preview|export|commit|import>` (`sync.cmd` on Windows) is the front door: it picks the OS and routes to the scripts below, which still work directly. `preview` runs a normal export in a temp copy and diffs it against `HEAD`, so it cannot write to the repo.
+
 | Command | Script | Purpose |
 |---|---|---|
 | `export.bat` | `scripts/windows/Export-Settings.ps1` | Copy changed local files → repo |

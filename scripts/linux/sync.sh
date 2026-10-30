@@ -370,6 +370,84 @@ report_orphans() {
     done < <(find "$REPO_ROOT/dotfiles" -type f -print0 | sort -z)
 }
 
+# -- Export preview -------------------------------------------------------------
+
+# Show what a real export would write to the repo, without touching the repo.
+# Runs export.sh against a throwaway copy of dotfiles/ and diffs it against HEAD.
+run_preview() {
+    if ! git -C "$REPO_ROOT" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+        printf 'ERROR: --preview needs a git repo with a commit.\n' >&2
+        exit 1
+    fi
+
+    PREVIEW_TMP=$(mktemp -d)
+    trap 'rm -rf "$PREVIEW_TMP"' EXIT
+    trap 'exit 130' INT TERM
+    mkdir -p "$PREVIEW_TMP/before" "$PREVIEW_TMP/after"
+
+    git -C "$REPO_ROOT" archive -o "$PREVIEW_TMP/before.tar" HEAD -- dotfiles sync-config.json
+    tar -xf "$PREVIEW_TMP/before.tar" -C "$PREVIEW_TMP/before"
+
+    cp -a "$REPO_ROOT/dotfiles" "$REPO_ROOT/sync-config.json" "$REPO_ROOT/export.sh" "$REPO_ROOT/scripts" "$PREVIEW_TMP/after/"
+    if [[ -f $REPO_ROOT/.user-values.json ]]; then
+        cp -a "$REPO_ROOT/.user-values.json" "$PREVIEW_TMP/after/"
+    fi
+
+    (cd "$PREVIEW_TMP/after" && SYNC_PREVIEW=1 ./export.sh)
+
+    cd "$PREVIEW_TMP"
+
+    # Scan first: a hit must suppress the diff, which would print the leaked text.
+    leak_found=0
+    if [[ -x $REPO_ROOT/scripts/ci/leak-scan.sh ]]; then
+        if "$REPO_ROOT/scripts/ci/leak-scan.sh" after/dotfiles after/sync-config.json; then
+            printf '  Leak scan: clean.\n'
+        else
+            if (( $? == 1 )); then
+                printf '  WARNING: the leak scan found the lines above. Fix them before committing.\n'
+                leak_found=1
+            else
+                printf 'ERROR: leak scan failed.\n' >&2
+                exit 1
+            fi
+        fi
+    fi
+
+    if (( leak_found == 0 )); then
+        local path differed=0
+        for path in dotfiles sync-config.json; do
+            if git --no-pager diff --no-index --stat "before/$path" "after/$path"; then
+                :
+            else
+                if (( $? > 1 )); then
+                    printf 'ERROR: git diff failed.\n' >&2
+                    exit 1
+                fi
+                differed=1
+            fi
+        done
+
+        if (( differed )); then
+            for path in dotfiles sync-config.json; do
+                if git --no-pager diff --no-index "before/$path" "after/$path"; then
+                    :
+                else
+                    if (( $? > 1 )); then
+                        printf 'ERROR: git diff failed.\n' >&2
+                        exit 1
+                    fi
+                fi
+            done
+        else
+            printf '  Nothing would be sent: the repo matches HEAD.\n'
+        fi
+    fi
+
+    printf '  Nothing was written. Run ./export.sh to apply.\n'
+
+    return "$leak_found"
+}
+
 # -- Text I/O helpers ------------------------------------------------------------
 
 # Read a file's full text as-is into $1 (name of variable), keeping trailing newlines.
