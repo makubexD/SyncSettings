@@ -281,6 +281,39 @@ non-interactive import → exit 0, `.user-values.json` has `"<NAME>": "Jane Roe"
 `infer-reset` (`--reset-values` non-interactive → exit 1 missing value, as today); `infer-keeps-cache` (cached
 `<NAME>` = `Fixture User` wins over the inferred one).
 
+### 10a. Inferred values undo `escapeBackslashes`, bash + contract `[worker]`
+
+Added after the step 9 review. For a rule with `escapeBackslashes: true`, the local file holds the doubled form
+(`gh = C:\\Tools\\gh.exe`), so inference stores `C:\\Tools\\gh.exe`; hydrate doubles it again and import rewrites
+the file with `C:\\\\Tools\\\\gh.exe`. It only bites when the value is not cached yet (a new machine), which is
+the case inference exists for. PowerShell has the same bug today (step 10b).
+
+Files: `scripts/linux/sync.sh` (`infer_values`), `tests/linux/engine.sh`, `docs/sync-contract.md`.
+
+- `infer_values`: when the rule for `ph` has `escapeBackslashes: true`, turn each `\\` in the extracted value into
+  `\` (`${v//\\\\/\\}`) before storing it. Read the flag per placeholder NUL-separated, as `hydrate` does.
+- `docs/sync-contract.md`, "Inference on import": append `For a rule with escapeBackslashes: true, each \\ in the
+  inferred value becomes \, because the file holds the doubled form.` (with code spans); add the parity row
+  `| Inference undoes escapeBackslashes | step 10b | step 10a | |` below "Infer values from the local file on import".
+
+Case `infer-escaped`: repo fixture; `.user-values.json` = `{"<NAME>": "Fixture User"}` (no `<WINPATH>`); home
+`paths.ini` = the fixture (`gh = C:\\Tools\\gh.exe\n`); import without `--force`, `< /dev/null` → exit 0;
+`.user-values.json` `<WINPATH>` is `C:\Tools\gh.exe` (single backslashes); `UNCHANGED` line for
+`dotfiles/common/paths.ini`; `paths.ini` bytes unchanged; no `.bak`. Mutant check: drop the un-doubling →
+the case fails.
+
+### 10b. Inferred values undo `escapeBackslashes`, PowerShell `[worker]`
+
+Files: `scripts/windows/Import-Settings.ps1` (the inference block), `tests/windows/Engine.Tests.ps1`.
+
+- Same rule as 10a: when the rule has `escapeBackslashes` set to `$true`, `$extracted = $extracted.Replace('\\', '\')`
+  before storing it.
+
+Case `infer-escaped`, mirroring 10a: repo fixture, `.user-values.json` = `{"<NAME>": "Fixture User"}`, home
+`paths.ini` from the fixture, `Invoke-EnginePiped Import-Settings.ps1` (no `-Force`; no prompt is needed because
+the value is inferred) → exit 0; `.user-values.json` `<WINPATH>` is `C:\Tools\gh.exe`; `UNCHANGED` for
+`dotfiles/common/paths.ini`; `paths.ini` bytes unchanged; no `.bak`. CI `engine-windows` green.
+
 ### 11. `type: dir` export, bash `[worker:high]`
 
 Files: `scripts/linux/sync.sh`, `export.sh`, `tests/linux/engine.sh` (+ fixtures `common/dir` row).
