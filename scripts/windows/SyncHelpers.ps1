@@ -681,11 +681,16 @@ function Write-OrphanReport {
 
 function Find-GitBash {
     # Returns the full path to Git's bash.exe, or $null when git is not on PATH
-    # or bash.exe is not where Git for Windows keeps it.
+    # or bash.exe is not where Git for Windows keeps it. git.exe is in <root>\cmd,
+    # or in <root>\mingw64\bin when PATH comes from a Git Bash shell.
     $git = Get-Command git -ErrorAction SilentlyContinue
     if (-not $git) { return $null }
-    $candidate = Join-Path (Split-Path (Split-Path $git.Source -Parent) -Parent) 'bin\bash.exe'
-    if (Test-Path $candidate) { return $candidate }
+    $parent = Split-Path (Split-Path $git.Source -Parent) -Parent
+    foreach ($root in @($parent, (Split-Path $parent -Parent))) {
+        if (-not $root) { continue }
+        $candidate = Join-Path $root 'bin\bash.exe'
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
     return $null
 }
 

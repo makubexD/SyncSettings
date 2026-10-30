@@ -1579,6 +1579,43 @@ Describe 'Request-MissingValues' {
     }
 }
 
+Describe 'Find-GitBash' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+    }
+
+    BeforeEach {
+        $script:GitRoot = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:GitRoot 'bin') -Force
+    }
+
+    AfterEach {
+        if (Test-Path -LiteralPath $script:GitRoot) {
+            Remove-Item -LiteralPath $script:GitRoot -Recurse -Force
+        }
+    }
+
+    It 'git in cmd' {
+        [IO.File]::WriteAllText((Join-Path $script:GitRoot 'bin\bash.exe'), '')
+        Mock Get-Command { [pscustomobject]@{ Source = (Join-Path $script:GitRoot 'cmd\git.exe') } } -ParameterFilter { $Name -eq 'git' }
+
+        Find-GitBash | Should -Be (Join-Path $script:GitRoot 'bin\bash.exe')
+    }
+
+    It 'git in mingw64\bin' {
+        [IO.File]::WriteAllText((Join-Path $script:GitRoot 'bin\bash.exe'), '')
+        Mock Get-Command { [pscustomobject]@{ Source = (Join-Path $script:GitRoot 'mingw64\bin\git.exe') } } -ParameterFilter { $Name -eq 'git' }
+
+        Find-GitBash | Should -Be (Join-Path $script:GitRoot 'bin\bash.exe')
+    }
+
+    It 'no bash.exe' {
+        Mock Get-Command { [pscustomobject]@{ Source = (Join-Path $script:GitRoot 'cmd\git.exe') } } -ParameterFilter { $Name -eq 'git' }
+
+        Find-GitBash | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'Test-RepoUpToDate' {
     BeforeAll {
         . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
