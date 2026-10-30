@@ -1,0 +1,42 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  leak-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Leak scan
+        run: scripts/ci/leak-scan.sh
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: shellcheck -x export.sh import.sh commit.sh scripts/sync.sh scripts/ci/*.sh
+      - name: Validate JSON
+        run: jq empty sync-config.json
+      - name: Config sanity
+        run: |
+          jq -r '
+          [
+            (.files[] | select((.repoPath // "") == "" or (.localPath // "") == "") | .repoPath // "<missing repoPath>"),
+            (.files | group_by(.repoPath)[] | select(length > 1) | .[0].repoPath | select(. != null and . != "")),
+            (.files[] | select(.platform == "linux") | select((.repoPath // "") | startswith("dotfiles/linux/") | not) | .repoPath // "<missing repoPath>")
+          ] | unique as $bad
+          | if ($bad | length) == 0
+            then "sync-config.json: OK"
+            else ($bad[]), ("sync-config.json: invalid entries above\n" | halt_error(1))
+            end
+          ' sync-config.json
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path scripts -Severity Error
+          $r
+          if ($r) { exit 1 }

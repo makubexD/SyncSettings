@@ -20,11 +20,14 @@ Sync user dotfiles and config files between a machine and this git repository. W
 | Command | Script | Purpose |
 |---|---|---|
 | `export.bat` | `scripts/Export-Settings.ps1` | Copy changed local files → repo |
-| `commit.bat` | `scripts/Commit-Settings.ps1` | Stage, commit, push `dotfiles/` |
+| `commit.bat` | `scripts/Commit-Settings.ps1` | Commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`) |
 | `import.bat` | `scripts/Import-Settings.ps1` | Copy repo files → local machine |
 | `./export.sh` | `scripts/sync.sh` | Linux: copy changed local files → repo |
-| `./commit.sh` | (self-contained) | Linux: stage, commit, push `dotfiles/` |
+| `./commit.sh` | (self-contained) | Linux: commit `dotfiles/` on a `sync/linux-…` branch, open a PR (never pushes to `master`) |
 | `./import.sh` | `scripts/sync.sh` | Linux: copy repo files → local machine |
+
+Every change reaches `master` through a PR that the `review-gate` check holds red until it carries the
+`reviewed` label; see `docs/review-gate.md` and `docs/daily-workflow.md`.
 
 ## Key Patterns
 

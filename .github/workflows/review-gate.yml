@@ -1,0 +1,28 @@
+name: review-gate
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
+permissions:
+  pull-requests: write
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Drop the review label after new commits
+        if: github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'reviewed')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --remove-label reviewed
+      - name: Require the reviewed label
+        env:
+          ACTION: ${{ github.event.action }}
+          REVIEWED: ${{ contains(github.event.pull_request.labels.*.name, 'reviewed') }}
+        run: |
+          if [[ $ACTION == synchronize || $REVIEWED != true ]]; then
+            echo "::error::Review pending: review the PR, then add the 'reviewed' label."
+            exit 1
+          fi
+          echo "Reviewed."
