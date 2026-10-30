@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# One command for the sync flow: preview, export, commit, import.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+usage() {
+    printf 'usage: ./sync <preview|export|commit|import> [options]\n'
+}
+
+# Windows shells hand over to the batch wrapper; cmd.exe needs // so it does not
+# read the switch as a path.
+case $(uname -s 2>/dev/null || printf 'Linux') in
+    MINGW*|MSYS*|CYGWIN*)
+        exec cmd.exe //c sync.cmd "$@"
+        ;;
+esac
+
+if (( $# == 0 )); then
+    usage
+    printf '  Detected: linux\n'
+    exit 0
+fi
+
+COMMAND=$1
+shift
+
+case $COMMAND in
+    help|-h)
+        usage
+        printf '  Detected: linux\n'
+        exit 0
+        ;;
+    preview|export|import|commit) ;;
+    *)
+        printf 'Unknown command: %s\n' "$COMMAND" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+
+require_tool() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        printf 'ERROR: %s is not installed. Install it and run the command again.\n' "$1" >&2
+        exit 1
+    fi
+}
+
+require_tool git
+require_tool jq
+if [[ $COMMAND == commit ]]; then
+    require_tool gh
+fi
+
+case $COMMAND in
+    preview) exec ./export.sh --preview "$@" ;;
+    export) exec ./export.sh "$@" ;;
+    import) exec ./import.sh "$@" ;;
+    commit) exec ./commit.sh "$@" ;;
+esac

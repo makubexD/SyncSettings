@@ -129,6 +129,11 @@ preview_change_default() {
     rm -f "$t/home/.config/fixture/dir/c.txt"
 }
 
+# The sync wrapper is not part of the engine copy; the sync cases add it.
+add_sync() {
+    cp -a "$REPO/sync" "$t/repo/"
+}
+
 # -- Cases ---------------------------------------------------------------------
 
 case_import_creates() {
@@ -1182,9 +1187,96 @@ case_preview_not_a_repo() {
         || fail "missing 'needs a git repo' error"
 }
 
+case_sync_usage() {
+    new_tmp
+    setup_repo
+    add_sync
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fq 'usage: ./sync <preview|export|commit|import> [options]' "$out" \
+        || fail "missing usage line"
+    grep -Fq 'Detected: linux' "$out" || fail "missing 'Detected: linux' line"
+}
+
+case_sync_unknown() {
+    new_tmp
+    setup_repo
+    add_sync
+
+    run_engine "$t/home" sync bogus
+    (( rc == 1 )) || fail "sync exited $rc, want 1"
+
+    grep -Fq 'Unknown command: bogus' "$out" || fail "missing 'Unknown command: bogus' line"
+}
+
+case_sync_routes_export() {
+    new_tmp
+    setup_repo
+    add_sync
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+
+    run_engine "$t/home" sync export
+    (( rc == 0 )) || fail "sync export exited $rc, want 0"
+
+    output_has_status ADDED dotfiles/linux/plain.txt || fail "missing ADDED line for plain.txt"
+}
+
+case_sync_routes_import() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+
+    # --force must reach import.sh, or it would prompt before overwriting.
+    run_engine "$t/home" sync import --force
+    (( rc == 0 )) || fail "sync import exited $rc, want 0"
+
+    output_has_status UPDATED dotfiles/linux/plain.txt 'backup saved as plain.txt.bak' \
+        || fail "missing UPDATED (backup) line for plain.txt"
+    if grep -Fq 'Overwrite ' "$out"; then
+        fail "import prompted despite --force being passed through"
+    fi
+}
+
+case_sync_routes_preview() {
+    new_tmp
+    setup_preview_repo
+    add_sync
+    preview_change_default
+
+    run_engine "$t/home" sync preview
+    (( rc == 0 )) || fail "sync preview exited $rc, want 0"
+
+    grep -Fq 'Nothing was written.' "$out" || fail "missing 'Nothing was written.' line"
+}
+
+case_sync_missing_tool() {
+    new_tmp
+    mkdir -p "$t/repo" "$t/stub"
+    add_sync
+    # A PATH with bash and git but no jq. uname and dirname are there so the
+    # script gets past its first lines to the tool checks.
+    local tool
+    for tool in bash git uname dirname; do
+        ln -s "$(command -v "$tool")" "$t/stub/$tool"
+    done
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" ./sync export) > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync exited $rc, want 1"
+
+    grep -Fq 'ERROR: jq is not installed. Install it and run the command again.' "$out" \
+        || fail "missing jq error"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1247,6 +1339,12 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         preview-cleans-up) case_preview_cleans_up ;;
         preview-reset-rejected) case_preview_reset_rejected ;;
         preview-not-a-repo) case_preview_not_a_repo ;;
+        sync-usage) case_sync_usage ;;
+        sync-unknown) case_sync_unknown ;;
+        sync-routes-export) case_sync_routes_export ;;
+        sync-routes-import) case_sync_routes_import ;;
+        sync-routes-preview) case_sync_routes_preview ;;
+        sync-missing-tool) case_sync_missing_tool ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"
