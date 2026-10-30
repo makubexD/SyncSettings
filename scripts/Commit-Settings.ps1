@@ -62,6 +62,30 @@ function Build-CommitMessage {
     return $msg
 }
 
+function Resolve-MachineAlias {
+    $alias = git config --get syncsettings.machine 2>$null
+    if ($LASTEXITCODE -eq 0 -and $alias) {
+        if ($alias -cnotmatch '^[a-z0-9][a-z0-9-]{0,23}$') {
+            throw "invalid machine alias '$alias' in git config syncsettings.machine (use a-z, 0-9, -)."
+        }
+    }
+    elseif (-not [Console]::IsInputRedirected) {
+        Write-Host '  Machine alias for branch names (e.g. laptop, desktop): ' -NoNewline
+        $alias = "$(Read-Host)".Trim()
+        if ($alias -cnotmatch '^[a-z0-9][a-z0-9-]{0,23}$') {
+            throw "invalid machine alias '$alias' (use a-z, 0-9, -)."
+        }
+        git config syncsettings.machine $alias
+        if ($LASTEXITCODE -ne 0) { throw 'git config failed.' }
+        Write-Host "  Saved machine alias: $alias"
+    }
+    else {
+        throw 'no machine alias set. Run: git config syncsettings.machine <alias>'
+    }
+
+    return $alias
+}
+
 # -- Main ---------------------------------------------------------------------
 
 Write-Host
@@ -119,6 +143,8 @@ try {
         exit 0
     }
 
+    $machine = Resolve-MachineAlias
+
     Write-Host '  Changed files:' -ForegroundColor White
     foreach ($line in $statusLines) {
         Write-Host "    $line" -ForegroundColor Yellow
@@ -161,7 +187,7 @@ try {
     }
 
     # Branch this sync off master.
-    $branch = "sync/windows-$($env:COMPUTERNAME.ToLower())-$(Get-Date -Format 'yyyyMMdd-HHmm')"
+    $branch = "sync/windows-$machine-$(Get-Date -Format 'yyyyMMdd-HHmm')"
     git switch -c $branch
     if ($LASTEXITCODE -ne 0) { throw 'git switch failed.' }
 
@@ -184,7 +210,7 @@ try {
         $bodyLines += "- ``$line``"
     }
     $bodyLines += ''
-    $bodyLines += "Platform: windows · Host: $env:COMPUTERNAME"
+    $bodyLines += "Platform: windows · Machine: $machine"
     $bodyLines += ''
     $bodyLines += 'When the review is done, add the **`reviewed`** label.'
 

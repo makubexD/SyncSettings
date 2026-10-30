@@ -81,6 +81,33 @@ build_commit_message() {
     printf '%s' "$msg"
 }
 
+resolve_machine_alias() {
+    local alias
+
+    if alias=$(git config --get syncsettings.machine 2>/dev/null) && [[ -n $alias ]]; then
+        if [[ ! $alias =~ ^[a-z0-9][a-z0-9-]{0,23}$ ]]; then
+            printf 'ERROR: invalid machine alias '\''%s'\'' in git config syncsettings.machine (use a-z, 0-9, -).\n' "$alias" >&2
+            exit 1
+        fi
+    elif [[ -t 0 ]]; then
+        printf '  Machine alias for branch names (e.g. laptop, desktop): ' >&2
+        read -r alias || alias=''
+        alias=${alias#"${alias%%[![:space:]]*}"}
+        alias=${alias%"${alias##*[![:space:]]}"}
+        if [[ ! $alias =~ ^[a-z0-9][a-z0-9-]{0,23}$ ]]; then
+            printf 'ERROR: invalid machine alias '\''%s'\'' (use a-z, 0-9, -).\n' "$alias" >&2
+            exit 1
+        fi
+        git config syncsettings.machine "$alias"
+        printf '  Saved machine alias: %s\n' "$alias" >&2
+    else
+        printf 'ERROR: no machine alias set. Run: git config syncsettings.machine <alias>\n' >&2
+        exit 1
+    fi
+
+    printf '%s' "$alias"
+}
+
 # -- Main ---------------------------------------------------------------------
 
 printf '\n'
@@ -131,6 +158,8 @@ if [[ -z $status_output ]]; then
     exit 0
 fi
 
+machine=$(resolve_machine_alias)
+
 mapfile -t status_lines <<<"$status_output"
 
 printf '  Changed files:\n'
@@ -171,9 +200,8 @@ if (( ahead > 0 )); then
 fi
 
 # Branch this sync off master.
-host=$(hostname -s)
 stamp=$(date +%Y%m%d-%H%M)
-branch="sync/linux-$host-$stamp"
+branch="sync/linux-$machine-$stamp"
 git switch -c "$branch"
 
 # Stage and commit.
@@ -201,7 +229,7 @@ trap 'rm -f "$body"' EXIT
     for line in "${status_lines[@]}"; do
         printf '%s%s%s\n' '- `' "$line" '`'
     done
-    printf '\nPlatform: linux · Host: %s\n\n' "$host"
+    printf '\nPlatform: linux · Machine: %s\n\n' "$machine"
     printf "When the review is done, add the **\`reviewed\`** label.\n"
 } > "$body"
 

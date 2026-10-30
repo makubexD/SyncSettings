@@ -68,6 +68,7 @@ commit.bat
 `commit.bat` auto-generates a descriptive commit message (e.g., `sync: update .gitconfig, .bashrc`), commits on a
 new `sync/windows-…` branch and opens a pull request. Review it, add the `reviewed` label, merge, then `git pull`.
 Needs the [GitHub CLI](https://cli.github.com/) (`gh auth login`). `-Push` is still accepted but does nothing.
+The first run asks for a machine alias (e.g. `desktop`) to use in branch names instead of the computer name.
 
 To use a custom commit message:
 
@@ -129,7 +130,7 @@ entries, so one repo serves both systems.
 | Command | Does |
 |---|---|
 | `./export.sh` | Copy changed local files → repo (sanitized). `--reset-values` re-asks for placeholder values |
-| `./commit.sh` | Commit `dotfiles/` on a new `sync/linux-…` branch and open a pull request (needs `gh`). `-m "<msg>"` sets the message |
+| `./commit.sh` | Commit `dotfiles/` on a new `sync/linux-…` branch and open a pull request (needs `gh`). The first run asks for a machine alias for branch names. `-m "<msg>"` sets the message |
 | `./import.sh` | Copy repo files → this machine, asking before each overwrite and saving `<file>.bak` first. `--force` skips the questions |
 
 Export and import ask once for each placeholder value and cache the answers in `.user-values.json`
