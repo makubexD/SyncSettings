@@ -127,6 +127,10 @@ try {
                                 $suffix = $repoTrim.Substring($after)
                                 if ($localTrim.StartsWith($prefix) -and $localTrim.EndsWith($suffix)) {
                                     $extracted = $localTrim.Substring($prefix.Length, $localTrim.Length - $prefix.Length - $suffix.Length)
+                                    # The file holds the doubled form, so store the un-doubled value.
+                                    if ($rule.PSObject.Properties['escapeBackslashes'] -and $rule.escapeBackslashes -eq $true) {
+                                        $extracted = $extracted.Replace('\\', '\')
+                                    }
                                     if ($extracted.Length -gt 0 -and (-not $userValues.ContainsKey($ph) -or $userValues[$ph].Length -eq 0)) {
                                         $userValues[$ph] = $extracted
                                         $valuesDirty = $true

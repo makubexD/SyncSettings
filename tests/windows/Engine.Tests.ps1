@@ -316,6 +316,27 @@ Describe 'Windows engine' {
         ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
     }
 
+    It 'infer-escaped' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        $valuesPath = Join-Path $script:RepoDir '.user-values.json'
+        [IO.File]::WriteAllText($valuesPath, '{"<NAME>": "Fixture User"}', [System.Text.UTF8Encoding]::new($false))
+        Copy-Item -Path (Join-Path $Script:Fixtures 'home\.config\fixture\paths.ini') -Destination (Join-Path $script:HomeDir '.config\fixture\paths.ini') -Force
+
+        # The local file holds the doubled form, so inference stores the un-doubled
+        # value; hydrate doubles it back and the repo file matches the local one.
+        Invoke-EnginePiped -ScriptName 'Import-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        (Get-Content $valuesPath -Raw | ConvertFrom-Json).'<WINPATH>' | Should -BeExactly 'C:\Tools\gh.exe'
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/paths.ini')
+        $pathsIni = Join-Path $script:HomeDir '.config\fixture\paths.ini'
+        $want = Join-Path $Script:Fixtures 'home\.config\fixture\paths.ini'
+        ([IO.File]::ReadAllBytes($pathsIni) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        $baks = @(Get-ChildItem -Path $script:HomeDir -Recurse -Filter '*.bak' -File)
+        $baks.Count | Should -Be 0
+    }
+
     It 'noninteractive-missing-value-import' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
