@@ -95,4 +95,3 @@
 [credential "https://gist.github.com"]
 	helper = 
 	helper = !'<GH_CLI_PATH>' auth git-credential
-# review-gate live test 2026-10-30
