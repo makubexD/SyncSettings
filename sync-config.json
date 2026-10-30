@@ -5,6 +5,7 @@
     {
       "repoPath": "dotfiles/.gitconfig",
       "localPath": "~\\.gitconfig",
+      "platform": "windows",
       "description": "Git global configuration",
       "sanitizeRules": [
         {
@@ -34,17 +35,20 @@
     {
       "repoPath": "dotfiles/.bashrc",
       "localPath": "~\\.bashrc",
+      "platform": "windows",
       "description": "Bash run commands",
       "detectLinkedPaths": true
     },
     {
       "repoPath": "dotfiles/.bash_profile",
       "localPath": "~\\.bash_profile",
+      "platform": "windows",
       "description": "Bash login profile"
     },
     {
       "repoPath": "dotfiles/WindowsTerminal/settings.json",
       "localPath": "~\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
+      "platform": "windows",
       "description": "Windows Terminal settings"
     },
     {
@@ -186,6 +190,7 @@
     "*.key",
     "*.pfx",
     "*.p12",
+    "*.bak",
     "id_rsa*",
     "id_ed25519*",
     "id_ecdsa*",
