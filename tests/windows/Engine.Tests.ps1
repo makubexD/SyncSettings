@@ -42,6 +42,18 @@ BeforeAll {
         $script:EngineExit = $LASTEXITCODE
     }
 
+    # Same as Invoke-Engine, but with stdin redirected so Test-Interactive is false.
+    function Invoke-EnginePiped {
+        param([string]$ScriptName, [switch]$Force)
+        $script:EngineScript = Join-Path $script:RepoDir "scripts\windows\$ScriptName"
+        if ($Force) {
+            $script:EngineOut = "" | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript -Force 2>&1 | Out-String
+        } else {
+            $script:EngineOut = "" | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript 2>&1 | Out-String
+        }
+        $script:EngineExit = $LASTEXITCODE
+    }
+
     # Builds a regex for Write-StatusLine output: "[WORD      ] label" with an
     # optional "  (note)" suffix. Labels use forward slashes (the repoPath).
     function Get-StatusPattern {
@@ -227,6 +239,57 @@ Describe 'Windows engine' {
         @(Get-ChildItem -Path $script:HomeDir -Recurse -File).Count | Should -Be 0
         (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
     }
+
+    It 'noninteractive-missing-value-import' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        [IO.File]::WriteAllText((Join-Path $script:RepoDir '.user-values.json'), '{}', [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-EnginePiped -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('missing value for <NAME>'))
+        (Join-Path $script:HomeDir '.config\fixture\win.conf') | Should -Not -Exist
+    }
+
+    It 'noninteractive-missing-value-export' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+        [IO.File]::WriteAllText((Join-Path $script:RepoDir '.user-values.json'), '{}', [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-EnginePiped -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('missing value for <NAME>'))
+        (Join-Path $script:RepoDir 'dotfiles\windows\win.conf') | Should -Not -Exist
+    }
+
+    It 'noninteractive-default' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        foreach ($entry in $config.files) {
+            if (-not $entry.PSObject.Properties['sanitizeRules']) { continue }
+            foreach ($rule in $entry.sanitizeRules) {
+                if ($rule.placeholder -eq '<NAME>') {
+                    $rule | Add-Member -NotePropertyName default -NotePropertyValue 'Fixture User' -Force
+                }
+            }
+        }
+        $json = $config | ConvertTo-Json -Depth 10
+        [IO.File]::WriteAllText($configPath, $json, [System.Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $script:RepoDir '.user-values.json'), '{}', [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-EnginePiped -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 0
+        $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        $winConf | Should -Exist
+        $want = Join-Path $Script:Fixtures 'home\.config\fixture\win.conf'
+        ([IO.File]::ReadAllBytes($winConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+    }
 }
 
 Describe 'Request-MissingValues' {
@@ -236,6 +299,8 @@ Describe 'Request-MissingValues' {
 
     BeforeEach {
         Mock Read-Host { "" }
+        # CI has no terminal, so these cases test the prompt path explicitly.
+        Mock Test-Interactive { $true }
         $script:SavedFixtureEnv = $env:FIXTURE_ENV
     }
 
@@ -287,5 +352,26 @@ Describe 'Request-MissingValues' {
         Request-MissingValues -Rules @($rule) -UserValues $values -Direction import
 
         $values.ContainsKey('<X>') | Should -BeFalse
+    }
+
+    It 'non-interactive without default throws' {
+        Mock Test-Interactive { $false }
+        Remove-Item Env:FIXTURE_ENV -ErrorAction SilentlyContinue
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; defaultEnv = 'FIXTURE_ENV' }
+        $values = @{}
+
+        { Request-MissingValues -Rules @($rule) -UserValues $values -Direction import } | Should -Throw "missing value for <X>*"
+        Should -Invoke Read-Host -Times 0 -Exactly
+    }
+
+    It 'non-interactive takes default' {
+        Mock Test-Interactive { $false }
+        $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; default = 'd' }
+        $values = @{}
+
+        Request-MissingValues -Rules @($rule) -UserValues $values -Direction import
+
+        $values['<X>'] | Should -Be 'd'
+        Should -Invoke Read-Host -Times 0 -Exactly
     }
 }

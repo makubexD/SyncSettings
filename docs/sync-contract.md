@@ -134,8 +134,8 @@ For each value that contains `\`, its backslash-doubled form (`C:\\Tools`) is re
 contains `\`, the placeholder gets the backslash-doubled value instead.
 
 **Missing value, non-interactive.** If a placeholder has no value after all of the above, and stdin is not a
-terminal, bash prints `missing value for <PLACEHOLDER>: add it to .user-values.json` and exits 1 before writing any
-file. PowerShell behaves differently; see [Known differences](#known-differences).
+terminal, the engine prints `missing value for <PLACEHOLDER>: add it to .user-values.json` and exits 1 before
+writing any file.
 
 ## Compare
 
@@ -194,7 +194,6 @@ Export and import start by checking whether the repo is behind `origin/master`:
 | Behavior | Windows (PowerShell) | Linux (bash) |
 |---|---|---|
 | Import, target folder missing | `SKIPPED` with `WARNING: target folder not found: <dir>`; the app is probably not installed | creates the folder (`mkdir -p`) |
-| Missing placeholder value, non-interactive | the placeholder is left unfilled in the written file | exit 1, no file written |
 | End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes |
 | `detectLinkedPaths` | supported | not supported |
 | `-User <name>` (import into another profile, elevated) | supported | not supported |
@@ -214,6 +213,7 @@ These are the gaps listed in [plan-restructure.md](plan-restructure.md), with th
 | Infer values from the local file on import | yes | step 10 | |
 | `type: dir` export | step 13 | step 11 | |
 | `type: dir` import | step 14 | step 12 | |
+| Missing value without a terminal stops the run | step 8a | yes | |
 | Missing target folder on import | | | kept as a known difference |
 | Orphan report | step 16 | step 15 | |
 | Up-to-date check | step 18 | step 17 | |

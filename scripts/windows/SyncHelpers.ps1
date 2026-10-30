@@ -75,6 +75,13 @@ function Test-IsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# -- Terminal check ------------------------------------------------------------
+
+function Test-Interactive {
+    # True when a human can answer a prompt; the up-to-date check (step 18) reuses it.
+    return ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected)
+}
+
 # -- User values cache (.user-values.json) ------------------------------------
 
 function Get-UserValues {
@@ -246,9 +253,15 @@ function Request-MissingValues {
                 $promptText += " [$defaultVal]"
             }
 
-            $value = Read-Host $promptText
-            if (-not $value -and $defaultVal) {
+            if (Test-Interactive) {
+                $value = Read-Host $promptText
+                if (-not $value -and $defaultVal) {
+                    $value = $defaultVal
+                }
+            } elseif ($defaultVal) {
                 $value = $defaultVal
+            } else {
+                throw "missing value for $($rule.placeholder): add it to .user-values.json"
             }
 
             if ($value -and $value.Length -gt 0) {
