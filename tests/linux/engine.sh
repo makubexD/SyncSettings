@@ -193,14 +193,89 @@ case_noninteractive_missing_value() {
     [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written despite the missing value"
 }
 
+case_error_continues() {
+    # The repo copy of plain.txt is read-only, so the copy fails; export must
+    # still report that file as ERROR and process the remaining entries.
+    if (( EUID == 0 )); then
+        printf '__SKIP_ROOT__\n'
+        return 0
+    fi
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'new\n' > "$t/home/.config/fixture/plain.txt"
+    chmod 444 "$t/repo/dotfiles/linux/plain.txt"
+
+    run_engine "$t/home" export.sh
+    chmod u+w "$t/repo/dotfiles/linux/plain.txt"
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    grep -qE '^  ERROR +dotfiles/linux/plain\.txt' "$out" \
+        || fail "missing ERROR line for plain.txt"
+    local f
+    for f in tool.sh named.conf no-trailing.txt; do
+        grep -qE "^  [A-Z]+ +dotfiles/linux/$f" "$out" \
+            || fail "missing status line for $f"
+    done
+}
+
+case_import_eof_overwrites() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+
+    # No --force, stdin is /dev/null: the overwrite prompt reads EOF, which
+    # counts as accepting the default, so the file is overwritten.
+    run_engine "$t/home" import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    # The prompt has no trailing newline, so the status line follows it on the
+    # same output line; match the status text as a substring.
+    grep -Fq "$(status_line UPDATED dotfiles/linux/plain.txt 'backup saved as plain.txt.bak')" "$out" \
+        || fail "missing UPDATED (backup) line for plain.txt"
+    cmp -s "$FIXTURES/home/.config/fixture/plain.txt" "$t/home/.config/fixture/plain.txt" \
+        || fail "plain.txt does not match the fixture after update"
+    printf 'old\n' > "$t/expected.bak"
+    cmp -s "$t/expected.bak" "$t/home/.config/fixture/plain.txt.bak" \
+        || fail "plain.txt.bak does not contain the old content"
+}
+
+case_crlf_unchanged() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'name = Fixture User\r\n' > "$t/home/.config/fixture/named.conf"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/named.conf \
+        || fail "export: missing UNCHANGED line for named.conf"
+    cmp -s "$FIXTURES/repo/dotfiles/linux/named.conf" "$t/repo/dotfiles/linux/named.conf" \
+        || fail "export rewrote the repo named.conf"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/named.conf \
+        || fail "import: missing UNCHANGED line for named.conf"
+    printf 'name = Fixture User\r\n' > "$t/expected-crlf"
+    cmp -s "$t/expected-crlf" "$t/home/.config/fixture/named.conf" \
+        || fail "local named.conf did not keep its CRLF ending"
+    [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
-    # Each case runs in a subshell so its EXIT trap (new_tmp) cleans up its temp
-    # dir even when set -e aborts the case after a failing assertion.
+    # Each case runs in a subshell so its EXIT trap (new_tmp) cleans up its temp dir.
+    # set -e is off inside this command substitution (it is an if condition), so
+    # every assertion must end in || fail.
     if out_text=$(case "$case_name" in
         import-creates) case_import_creates ;;
         export-adds) case_export_adds ;;
@@ -208,8 +283,15 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         import-backup) case_import_backup ;;
         excluded) case_excluded ;;
         noninteractive-missing-value) case_noninteractive_missing_value ;;
+        error-continues) case_error_continues ;;
+        import-eof-overwrites) case_import_eof_overwrites ;;
+        crlf-unchanged) case_crlf_unchanged ;;
     esac); then
-        printf 'ok   %s\n' "$case_name"
+        if [[ $out_text == '__SKIP_ROOT__' ]]; then
+            printf 'ok   %s (skipped: root)\n' "$case_name"
+        else
+            printf 'ok   %s\n' "$case_name"
+        fi
     else
         printf '%s\n' "$out_text"
         failed=1
