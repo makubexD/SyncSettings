@@ -271,9 +271,61 @@ case_crlf_unchanged() {
     [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
 }
 
+case_common_import() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/home/.config/fixture/shared.conf" "$t/home/.config/fixture/shared.conf" \
+        || fail "shared.conf differs from fixture"
+    output_has_status CREATED dotfiles/common/shared.conf \
+        || fail "missing CREATED line for shared.conf"
+}
+
+case_common_export() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/repo/dotfiles/common/shared.conf" "$t/repo/dotfiles/common/shared.conf" \
+        || fail "dotfiles/common/shared.conf differs from fixture"
+    output_has_status ADDED dotfiles/common/shared.conf sanitized \
+        || fail "missing ADDED (sanitized) line for shared.conf"
+}
+
+case_missing_platform() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    jq '.files |= map(if .repoPath == "dotfiles/linux/plain.txt" then del(.platform) else . end)' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+
+    local msg='ERROR: sync-config.json: entry dotfiles/linux/plain.txt needs "platform": "common", "windows" or "linux".'
+
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "export did not print the platform error"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "import did not print the platform error"
+
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written under the home dir"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -290,6 +342,9 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         error-continues) case_error_continues ;;
         import-eof-overwrites) case_import_eof_overwrites ;;
         crlf-unchanged) case_crlf_unchanged ;;
+        common-import) case_common_import ;;
+        common-export) case_common_export ;;
+        missing-platform) case_missing_platform ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
             printf 'ok   %s (skipped: root)\n' "$case_name"

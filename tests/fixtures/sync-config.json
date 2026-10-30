@@ -42,6 +42,18 @@
           "prompt": "Full name"
         }
       ]
+    },
+    {
+      "repoPath": "dotfiles/common/shared.conf",
+      "localPath": "~/.config/fixture/shared.conf",
+      "platform": "common",
+      "description": "Shared fixture",
+      "sanitizeRules": [
+        {
+          "placeholder": "<NAME>",
+          "prompt": "Full name"
+        }
+      ]
     }
   ],
   "excludePatterns": [

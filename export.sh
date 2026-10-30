@@ -32,7 +32,7 @@ while IFS= read -r entry; do
     if [[ -f $local_path ]]; then
         ALL_RULES=$(jq -c --argjson old "$ALL_RULES" '$old + (.sanitizeRules // [])' <<<"$entry")
     fi
-done < <(linux_entries)
+done < <(platform_entries)
 
 load_values
 if [[ $ALL_RULES != '[]' ]]; then
@@ -121,7 +121,7 @@ while IFS= read -r entry; do
         # process_entry already printed an ERROR line for this file.
         :
     fi
-done < <(linux_entries)
+done < <(platform_entries)
 
 # -- Summary ---------------------------------------------------------------------
 

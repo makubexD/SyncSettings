@@ -34,7 +34,7 @@ while IFS= read -r entry; do
     if [[ -f $REPO_ROOT/$repo_path ]]; then
         ALL_RULES=$(jq -c --argjson old "$ALL_RULES" '$old + (.sanitizeRules // [])' <<<"$entry")
     fi
-done < <(linux_entries)
+done < <(platform_entries)
 
 load_values
 if [[ $ALL_RULES != '[]' ]]; then
@@ -163,7 +163,7 @@ while IFS= read -r entry <&3; do
         # process_entry already printed an ERROR line for this file.
         :
     fi
-done 3< <(linux_entries)
+done 3< <(platform_entries)
 
 # -- Summary ---------------------------------------------------------------------
 

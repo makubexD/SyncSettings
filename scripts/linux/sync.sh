@@ -13,8 +13,21 @@ declare -A USER_VALUES=()
 
 # -- Config -------------------------------------------------------------------
 
-linux_entries() {
-    jq -c '.files[] | select(.platform == "linux")' "$CONFIG"
+# Every entry must name one of the three platforms. Stop before any file is touched.
+check_platforms() {
+    local repo_path
+    while IFS= read -r -d '' repo_path; do
+        printf 'ERROR: sync-config.json: entry %s needs "platform": "common", "windows" or "linux".\n' "$repo_path" >&2
+        exit 1
+    done < <(jq -j '.files[]
+        | select((.platform == "common" or .platform == "windows" or .platform == "linux") | not)
+        | .repoPath, "\u0000"' "$CONFIG")
+}
+
+check_platforms
+
+platform_entries() {
+    jq -c '.files[] | select(.platform == "linux" or .platform == "common")' "$CONFIG"
 }
 
 resolve_local() {
