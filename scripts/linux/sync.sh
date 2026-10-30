@@ -91,6 +91,8 @@ check_upstream() {
             printf 'ERROR: pull failed; resolve it and rerun.\n' >&2
             exit 1
         fi
+        printf '  Pulled %d commit(s); run the command again.\n' "$n"
+        exit 0
     fi
     return 0
 }

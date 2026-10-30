@@ -803,6 +803,37 @@ case_upstream_behind_noninteractive() {
     [[ $(git -C "$t/repo" rev-parse HEAD) == "$head_before" ]] || fail "the export moved HEAD"
 }
 
+case_upstream_behind_pull() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    make_git_repo
+
+    git clone -q "$t/origin.git" "$t/other"
+    printf 'readme\n' > "$t/other/README"
+    git -C "$t/other" add README
+    git -C "$t/other" -c user.name=t -c user.email=t@example.com commit -q -m second
+    git -C "$t/other" push -q origin master
+    # make_git_repo pushes without -u; give master the tracking a real clone has,
+    # so the engine's plain `git pull --ff-only` works.
+    git -C "$t/repo" branch -q --set-upstream-to=origin/master master
+
+    # Run on a pseudo-terminal so the pull prompt sees a real answer.
+    rc=0
+    printf 'y\n' | script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./export.sh" /dev/null \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    grep -Fq '  Pulled 1 commit(s); run the command again.' "$out" \
+        || fail "missing Pulled line after a successful pull"
+    [[ $(git -C "$t/repo" rev-parse HEAD) == "$(git -C "$t/repo" rev-parse origin/master)" ]] \
+        || fail "the pull did not move HEAD to origin/master"
+    if grep -q 'UNCHANGED' "$out"; then
+        fail "the export ran after the pull"
+    fi
+}
+
 case_upstream_unreachable() {
     new_tmp
     setup_repo
@@ -822,7 +853,7 @@ case_upstream_unreachable() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok upstream-none upstream-current upstream-behind-noninteractive upstream-unreachable; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded noninteractive-missing-value error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first infer-name infer-reset infer-keeps-cache infer-escaped dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -866,6 +897,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         upstream-none) case_upstream_none ;;
         upstream-current) case_upstream_current ;;
         upstream-behind-noninteractive) case_upstream_behind_noninteractive ;;
+        upstream-behind-pull) case_upstream_behind_pull ;;
         upstream-unreachable) case_upstream_unreachable ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then

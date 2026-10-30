@@ -186,7 +186,9 @@ Export and import start by checking whether the repo is behind `origin/master`:
 - `git fetch` fails: `NOTE: could not reach origin; skipping the up-to-date check.` and the run continues.
 - Up to date: no message.
 - Behind, with a terminal: `Repo is <n> commit(s) behind origin/master. Pull now (git pull --ff-only)? [Y/n]`. Yes
-  pulls. If the pull fails: `ERROR: pull failed; resolve it and rerun.` and exit 1. No continues without pulling.
+  pulls, prints `Pulled <n> commit(s); run the command again.` and exits 0, so the next run uses the
+  pulled config and scripts. If the pull fails: `ERROR: pull failed; resolve it and rerun.` and exit 1.
+  No continues without pulling.
 - Behind, without a terminal: `WARNING: repo is <n> commit(s) behind origin/master; run git pull --ff-only.` and the
   run continues.
 
