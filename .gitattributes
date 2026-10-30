@@ -1,1 +1,3 @@
 tests/fixtures/** -text
+*.sh text eol=lf
+sync text eol=lf

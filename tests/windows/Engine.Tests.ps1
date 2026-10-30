@@ -77,6 +77,64 @@ BeforeAll {
         }
         return $pattern
     }
+
+    # -- Preview helpers --------------------------------------------------------
+
+    function Copy-CiToRepo {
+        $ciDir = Join-Path $script:RepoDir 'scripts\ci'
+        $null = New-Item -ItemType Directory -Path $ciDir -Force
+        Copy-Item -Path (Join-Path $Script:TestRepo 'scripts\ci\*') -Destination $ciDir -Recurse -Force
+    }
+
+    # Engine + fixtures + scripts/ci as a git repo with one commit (preview cases).
+    function New-PreviewRepo {
+        Copy-EngineToRepo
+        Copy-CiToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+        New-GitRepo
+    }
+
+    # The default local change for preview cases: modify dir/a/b.txt, add
+    # dir/new.txt, delete dir/c.txt.
+    function Set-PreviewChange {
+        $a = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+        [IO.File]::WriteAllText($a, "b2`n", [System.Text.UTF8Encoding]::new($false))
+        $new = Join-Path $script:HomeDir '.config\fixture\dir\new.txt'
+        [IO.File]::WriteAllText($new, "new`n", [System.Text.UTF8Encoding]::new($false))
+        Remove-Item -Path (Join-Path $script:HomeDir '.config\fixture\dir\c.txt') -Force
+    }
+
+    # Sorted path + SHA256 of every file under $Path, .git excluded. A stable
+    # fingerprint used to assert a preview wrote nothing outside its temp dir.
+    function Get-TreeHash {
+        param([string]$Path)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $files = Get-ChildItem -Path $Path -File -Recurse -Force |
+                Where-Object { $_.FullName -notlike "*\.git\*" }
+            $lines = foreach ($f in $files) {
+                $rel = ($f.FullName.Substring($Path.TrimEnd('\').Length + 1)) -replace '\\', '/'
+                $hash = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($f.FullName)))
+                "$rel|$hash"
+            }
+            return (($lines | Sort-Object) -join "`n")
+        } finally {
+            $sha.Dispose()
+        }
+    }
+
+    # Runs Export-Settings.ps1 -Preview in the temp repo.
+    function Invoke-Preview {
+        param([switch]$ResetValues)
+        $script:EngineScript = Join-Path $script:RepoDir 'scripts\windows\Export-Settings.ps1'
+        if ($ResetValues) {
+            $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript -Preview -ResetValues 2>&1 | Out-String
+        } else {
+            $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript -Preview 2>&1 | Out-String
+        }
+        $script:EngineExit = $LASTEXITCODE
+    }
 }
 
 Describe 'Windows engine' {
@@ -87,10 +145,22 @@ Describe 'Windows engine' {
         $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir '.config\fixture') -Force
         $script:SavedUserProfile = $env:USERPROFILE
         $env:USERPROFILE = $script:HomeDir
+        $script:SavedTemp = $env:TEMP
+        $script:SavedTmp = $env:TMP
     }
 
     AfterEach {
         $env:USERPROFILE = $script:SavedUserProfile
+        if ($null -eq $script:SavedTemp) {
+            Remove-Item Env:\TEMP -ErrorAction SilentlyContinue
+        } else {
+            $env:TEMP = $script:SavedTemp
+        }
+        if ($null -eq $script:SavedTmp) {
+            Remove-Item Env:\TMP -ErrorAction SilentlyContinue
+        } else {
+            $env:TMP = $script:SavedTmp
+        }
         if (Test-Path $script:T) {
             Remove-Item $script:T -Recurse -Force
         }
@@ -698,6 +768,160 @@ Describe 'Windows engine' {
         $script:EngineExit | Should -Be 0
         $script:EngineOut | Should -Match ([regex]::Escape('NOTE: could not reach origin; skipping the up-to-date check.'))
         $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/windows/win.conf')
+    }
+
+    It 'preview-writes-nothing' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        $repoBefore = Get-TreeHash $script:RepoDir
+        $homeBefore = Get-TreeHash $script:HomeDir
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 0
+        (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+
+        $ErrorActionPreference = 'Continue'
+        $status = (git -C $script:RepoDir status --short 2>$null | Out-String).Trim()
+        $status | Should -Be ''
+
+        $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/dir/new.txt')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'REMOVED' 'dotfiles/common/dir/c.txt' 'no longer in source')
+        $script:EngineOut | Should -Match ([regex]::Escape('Nothing was written.'))
+    }
+
+    It 'preview-shows-diff' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match '\+b2'
+        $script:EngineOut | Should -Match ([regex]::Escape('before/dotfiles/common/dir/a/b.txt'))
+    }
+
+    It 'preview-matches-export' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        Invoke-Preview
+        $script:EngineExit | Should -Be 0
+
+        $previewPaths = @($script:EngineOut -split "`r?`n" | ForEach-Object {
+            if ($_ -match '^\s*\[(MODIFIED|ADDED|REMOVED)\s*\]\s+(\S+)') { $Matches[2] }
+        } | Sort-Object -Unique)
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 0
+
+        $ErrorActionPreference = 'Continue'
+        $exportPaths = @(((git -C $script:RepoDir status --short -- dotfiles 2>$null | Out-String) -split "`r?`n") | ForEach-Object {
+            if ($_ -match '^..\s+(.+)$') { $Matches[1] }
+        } | Where-Object { $_ } | Sort-Object -Unique)
+
+        ($previewPaths -join "`n") | Should -Be ($exportPaths -join "`n")
+    }
+
+    It 'preview-includes-uncommitted' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        # Export for real but do not commit, so the change is only in the working tree.
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 0
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match '\+b2'
+    }
+
+    It 'preview-no-changes' {
+        New-PreviewRepo
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('Nothing would be sent'))
+    }
+
+    It 'preview-sanitized' {
+        New-PreviewRepo
+
+        $conf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($conf, "user = Fixture User`r`n# comment`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match '<NAME>'
+        $script:EngineOut | Should -Not -Match 'Fixture User'
+    }
+
+    It 'preview-leak-found' {
+        New-PreviewRepo
+
+        $conf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($conf, "user = C:\Users\someone\secret`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('WARNING: the leak scan'))
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('C:\Users\someone'))
+    }
+
+    It 'preview-cleans-up' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        $env:TEMP = Join-Path $script:T 'tmp'
+        $env:TMP = Join-Path $script:T 'tmp'
+        $null = New-Item -ItemType Directory -Path $env:TEMP -Force
+
+        # Passing run.
+        Invoke-Preview
+        $script:EngineExit | Should -Be 0
+        @(Get-ChildItem -Path $env:TEMP -Force).Count | Should -Be 0
+
+        # Failing run: a leak makes the preview exit 1.
+        $conf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($conf, "user = C:\Users\someone\secret`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Preview
+        $script:EngineExit | Should -Be 1
+        @(Get-ChildItem -Path $env:TEMP -Force).Count | Should -Be 0
+    }
+
+    It 'preview-reset-rejected' {
+        New-PreviewRepo
+        Set-PreviewChange
+
+        $repoBefore = Get-TreeHash $script:RepoDir
+        $homeBefore = Get-TreeHash $script:HomeDir
+
+        Invoke-Preview -ResetValues
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --preview cannot be combined with --reset-values.'))
+
+        (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+    }
+
+    It 'preview-not-a-repo' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        Invoke-Preview
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --preview needs a git repo with a commit.'))
     }
 }
 
