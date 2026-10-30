@@ -3,9 +3,9 @@
   "defaultUser": null,
   "files": [
     {
-      "repoPath": "dotfiles/.gitconfig",
-      "localPath": "~\\.gitconfig",
-      "platform": "windows",
+      "repoPath": "dotfiles/common/git/.gitconfig",
+      "localPath": "~/.gitconfig",
+      "platform": "common",
       "description": "Git global configuration",
       "sanitizeRules": [
         {
