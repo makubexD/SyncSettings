@@ -23,7 +23,62 @@ check_platforms() {
         | .repoPath, "\u0000"' "$CONFIG")
 }
 
+# A path is safe when it starts with its required prefix and has no ".." segment,
+# splitting on both / and \. A name like "foo..bar" is a legal segment; an empty
+# path never matches a prefix, so it fails.
+path_is_safe() {
+    local path=$1 kind=$2 rest seg
+    case $kind in
+        repo)
+            [[ $path == dotfiles/* ]] || return 1
+            ;;
+        local)
+            # shellcheck disable=SC2088  # literal '~' prefix from sync-config.json
+            [[ $path == '~/'* || $path == $'~\\'* ]] || return 1
+            ;;
+    esac
+    rest=$path
+    while [[ -n $rest ]]; do
+        seg=${rest%%[\\/]*}
+        [[ $seg == '..' ]] && return 1
+        if [[ $rest == *[\\/]* ]]; then
+            rest=${rest#*[\\/]}
+        else
+            break
+        fi
+    done
+    return 0
+}
+
+path_fail() {
+    printf 'ERROR: sync-config.json: entry %s has an unsafe path.\n' "$1" >&2
+    exit 1
+}
+
+# Every path must stay inside dotfiles/ and the home directory, on any platform,
+# and no symlink may sit under dotfiles/. Stop before any file is touched.
+check_paths() {
+    local repo_path local_path
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' local_path; do
+        path_is_safe "$repo_path" repo || path_fail "$repo_path"
+        path_is_safe "$local_path" local || path_fail "$repo_path"
+    done < <(jq -j '.files[] | (.repoPath // ""), "\u0000", (.localPath // ""), "\u0000"' "$CONFIG")
+
+    # A symlink can point anywhere; name the entry that owns it, or the symlink's
+    # own repo-relative path when no entry does.
+    local link name
+    while IFS= read -r -d '' link; do
+        name=${link#"$REPO_ROOT"/}
+        path_fail "$(jq -j --arg name "$name" '
+            ([.files[] | select((.type // "file") == "file") | select(.repoPath == $name) | .repoPath] +
+             [.files[] | select(.type == "dir") | .repoPath as $r | select($name == $r or ($name | startswith($r + "/"))) | $r] +
+             [.files[] | select(.detectLinkedPaths == true) | .repoPath as $r | select($name | startswith($r + ".linked/")) | $r])
+            | .[0] // $name' "$CONFIG")"
+    done < <(find "$REPO_ROOT/dotfiles" -type l -print0 2>/dev/null | sort -z)
+}
+
 check_platforms
+check_paths
 
 platform_entries() {
     jq -c '.files[] | select(.platform == "linux" or .platform == "common")' "$CONFIG"
