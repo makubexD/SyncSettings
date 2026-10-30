@@ -47,11 +47,28 @@ Open the PR (add `-m "<message>"` to set the title yourself):
 ./commit.sh
 ```
 
-`commit.sh` creates the branch `sync/linux-<host>-<yyyymmdd-hhmm>`, commits `dotfiles/` and `sync-config.json`,
+`commit.sh` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>`, commits `dotfiles/` and `sync-config.json`,
 pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
 
 On Windows, the same steps are `export.bat`, then `commit.bat` (`-Message "<message>"` to set the title).
-The branch is `sync/windows-<computer>-<yyyyMMdd-HHmm>`.
+The branch is `sync/windows-<alias>-<yyyyMMdd-HHmm>`.
+
+### Machine alias
+
+`<alias>` names this machine in branch names and PR bodies, so the hostname never appears there. The first
+time you commit from a clone, `commit.sh` (or `commit.bat`) asks for it:
+
+```
+  Machine alias for branch names (e.g. laptop, desktop):
+```
+
+Use lowercase letters, digits and dashes (up to 24 characters, not starting with a dash). The alias is saved
+in this clone's git config, is never committed, and is reused from then on. To see or change it:
+
+```bash
+git config --get syncsettings.machine
+git config syncsettings.machine desktop
+```
 
 ## Review and merge
 
@@ -81,6 +98,8 @@ git pull
 
 | Message | What to do |
 |---|---|
+| `no machine alias set. Run: git config syncsettings.machine <alias>` | It ran without a terminal, so it could not ask. Run that command with your alias (e.g. `laptop`), then run it again |
+| `invalid machine alias '<value>' …` | Pick an alias with only `a-z`, `0-9` and `-`, not starting with `-`. If the message ends with `in git config syncsettings.machine`, fix it with `git config syncsettings.machine <alias>` |
 | `commit or stash changes outside dotfiles/ first.` | Commit those files on their own branch, or `git stash`, then run it again |
 | `run commit.sh from master (current: <branch>).` (or `commit.bat`) | `git switch master`, then run it again |
 | `master is behind origin; pull first.` | `git pull`, then run it again |
