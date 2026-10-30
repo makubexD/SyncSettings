@@ -186,7 +186,14 @@ save_values() {
     for key in "${!USER_VALUES[@]}"; do
         args+=(--arg "$key" "${USER_VALUES[$key]}")
     done
-    jq -S -n "${args[@]}" '$ARGS.named' > "$VALUES_FILE"
+    # Tighten an existing file before writing, so new values never sit in a readable one.
+    (
+        umask 077
+        if [[ -e $VALUES_FILE ]]; then
+            chmod 600 "$VALUES_FILE"
+        fi
+        jq -S -n "${args[@]}" '$ARGS.named' > "$VALUES_FILE"
+    )
 }
 
 # -- Value inference (import only) --------------------------------------------

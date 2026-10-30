@@ -260,6 +260,18 @@ function Save-UserValues {
         $ordered[$key] = $Values[$key]
     }
     $json = $ordered | ConvertTo-Json -Depth 10
+
+    # Lock the file before writing, so new values never sit in a readable one.
+    if (-not (Test-Path -LiteralPath $path)) {
+        [IO.File]::WriteAllText($path, '')
+    }
+    $acl = New-Object System.Security.AccessControl.FileSecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($user, 'FullControl', 'Allow')
+    $acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $path -AclObject $acl
+
     [IO.File]::WriteAllText($path, $json, [System.Text.UTF8Encoding]::new($false))
 }
 

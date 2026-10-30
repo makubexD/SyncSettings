@@ -1633,6 +1633,47 @@ Describe 'Test-RepoUpToDate' {
     }
 }
 
+Describe 'Save-UserValues' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+
+        function Assert-OnlyCurrentUser {
+            param([string]$Path)
+            $acl = Get-Acl -LiteralPath $Path
+            $acl.AreAccessRulesProtected | Should -BeTrue
+            $current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $sids = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value })
+            $sids | Should -Be @($current.Value)
+        }
+    }
+
+    BeforeEach {
+        $script:ValuesDir = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+        $null = New-Item -ItemType Directory -Path $script:ValuesDir -Force
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:ValuesDir -Recurse -Force
+    }
+
+    It 'values-private-new' {
+        Save-UserValues -RepoRoot $script:ValuesDir -Values @{ '<X>' = 'y' }
+
+        $path = Join-Path $script:ValuesDir '.user-values.json'
+        Assert-OnlyCurrentUser $path
+        (Get-UserValues -RepoRoot $script:ValuesDir)['<X>'] | Should -Be 'y'
+    }
+
+    It 'values-private-tightened' {
+        $path = Join-Path $script:ValuesDir '.user-values.json'
+        [IO.File]::WriteAllText($path, '{}')
+
+        Save-UserValues -RepoRoot $script:ValuesDir -Values @{ '<X>' = 'y' }
+
+        Assert-OnlyCurrentUser $path
+    }
+}
+
 Describe 'Import-LinkedDirectory' {
     BeforeAll {
         . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
