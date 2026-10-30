@@ -72,9 +72,9 @@
       "description": "Claude Code global instructions"
     },
     {
-      "repoPath": "dotfiles/linux/claude/RTK.md",
+      "repoPath": "dotfiles/common/claude/RTK.md",
       "localPath": "~/.claude/RTK.md",
-      "platform": "linux",
+      "platform": "common",
       "description": "RTK command-output notes (imported by CLAUDE.md)"
     },
     {
@@ -137,9 +137,9 @@
       "description": "/mk-check slash command"
     },
     {
-      "repoPath": "dotfiles/linux/claude/docs/token-routing-map.html",
+      "repoPath": "dotfiles/common/claude/docs/token-routing-map.html",
       "localPath": "~/.claude/docs/token-routing-map.html",
-      "platform": "linux",
+      "platform": "common",
       "description": "Workflow guide page source"
     },
     {
