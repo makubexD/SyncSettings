@@ -4,7 +4,8 @@
     "deny": [
       "Bash(git commit:*)", "Bash(git push:*)", "Bash(git reset:*)", "Bash(git checkout:*)",
       "Bash(git stash:*)", "Bash(git branch -D:*)", "Bash(rm -rf:*)",
-      "Read(**/.env)", "Read(**/.env.*)"
+      "Read(**/.env)", "Read(**/.env.*)",
+      "Read(**/.user-values.json)", "Edit(**/.user-values.json)", "Bash(gh:*)"
     ]
   },
   "env": { "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1" },
