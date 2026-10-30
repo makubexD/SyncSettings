@@ -752,3 +752,68 @@ Describe 'Request-MissingValues' {
         Should -Invoke Read-Host -Times 0 -Exactly
     }
 }
+
+Describe 'Test-RepoUpToDate' {
+    BeforeAll {
+        . (Join-Path $Script:TestRepo "scripts\windows\SyncHelpers.ps1")
+    }
+
+    BeforeEach {
+        $ErrorActionPreference = "Continue"
+        $script:Work = Join-Path $TestDrive 'work'
+        $script:OriginRepo = Join-Path $TestDrive 'origin.git'
+        $script:Second = Join-Path $TestDrive 'second'
+
+        foreach ($dir in @($script:Work, $script:OriginRepo, $script:Second)) {
+            if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+        }
+
+        New-Item -ItemType Directory -Path $script:Work | Out-Null
+        git -C $script:Work init -q -b master
+        Set-Content -Path (Join-Path $script:Work 'a.txt') -Value 'a'
+        git -C $script:Work add -A
+        git -C $script:Work -c user.name=t -c user.email=t@example.com commit -q -m init
+
+        New-Item -ItemType Directory -Path $script:OriginRepo | Out-Null
+        git -C $script:OriginRepo init -q --bare -b master
+        git -C $script:Work remote add origin $script:OriginRepo
+        git -C $script:Work push -q -u origin master
+
+        git clone -q $script:OriginRepo $script:Second
+        Set-Content -Path (Join-Path $script:Second 'b.txt') -Value 'b'
+        git -C $script:Second add -A
+        git -C $script:Second -c user.name=t -c user.email=t@example.com commit -q -m second
+        git -C $script:Second push -q origin master
+
+        $script:HeadBefore = (git -C $script:Work rev-parse HEAD).Trim()
+    }
+
+    It 'pull accepted stops the run' {
+        Mock Test-Interactive { $true }
+        Mock Read-Host { "y" }
+
+        Test-RepoUpToDate -RepoRoot $script:Work | Should -BeTrue
+
+        $head = (git -C $script:Work rev-parse HEAD).Trim()
+        $origin = (git -C $script:Work rev-parse origin/master).Trim()
+        $head | Should -Be $origin
+    }
+
+    It 'pull declined continues' {
+        Mock Test-Interactive { $true }
+        Mock Read-Host { "n" }
+
+        Test-RepoUpToDate -RepoRoot $script:Work | Should -BeFalse
+
+        (git -C $script:Work rev-parse HEAD).Trim() | Should -Be $script:HeadBefore
+    }
+
+    It 'non-interactive warns and continues' {
+        Mock Test-Interactive { $false }
+        Mock Read-Host { "" }
+
+        Test-RepoUpToDate -RepoRoot $script:Work | Should -BeFalse
+
+        Should -Invoke Read-Host -Times 0 -Exactly
+    }
+}

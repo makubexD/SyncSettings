@@ -93,36 +93,39 @@ function Test-RepoUpToDate {
     $env:GIT_TERMINAL_PROMPT = '0'
     try {
         git -C $RepoRoot rev-parse --is-inside-work-tree 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { return }
+        if ($LASTEXITCODE -ne 0) { return $false }
 
         git -C $RepoRoot remote get-url origin 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { return }
+        if ($LASTEXITCODE -ne 0) { return $false }
 
         $branch = git -C $RepoRoot symbolic-ref --short -q HEAD 2>$null
-        if ($LASTEXITCODE -ne 0 -or $branch -ne 'master') { return }
+        if ($LASTEXITCODE -ne 0 -or $branch -ne 'master') { return $false }
 
         git -C $RepoRoot fetch -q origin master 2>$null
         if ($LASTEXITCODE -ne 0) {
             Write-Host '  NOTE: could not reach origin; skipping the up-to-date check.' -ForegroundColor DarkYellow
-            return
+            return $false
         }
 
         $n = 0
         $count = git -C $RepoRoot rev-list --count HEAD..origin/master 2>$null
         if ($LASTEXITCODE -eq 0) { $n = [int]$count }
-        if ($n -eq 0) { return }
+        if ($n -eq 0) { return $false }
 
         if (Test-Interactive) {
             $answer = Read-Host "  Repo is $n commit(s) behind origin/master. Pull now (git pull --ff-only)? [Y/n]"
             if ($answer -eq '' -or $answer -match '^[Yy]') {
-                git -C $RepoRoot pull --ff-only -q 2>$null
+                git -C $RepoRoot pull --ff-only -q 2>$null | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     throw 'pull failed; resolve it and rerun.'
                 }
+                Write-Host "  Pulled $n commit(s); run the command again." -ForegroundColor Green
+                return $true
             }
         } else {
             Write-Host "  WARNING: repo is $n commit(s) behind origin/master; run git pull --ff-only." -ForegroundColor Yellow
         }
+        return $false
     } finally {
         if ($null -eq $savedPrompt) {
             Remove-Item Env:\GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue

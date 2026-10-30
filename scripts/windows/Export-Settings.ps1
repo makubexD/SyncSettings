@@ -44,7 +44,7 @@ try {
     $allEntries = @($config.files)
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
-    Test-RepoUpToDate -RepoRoot $repoRoot
+    if (Test-RepoUpToDate -RepoRoot $repoRoot) { exit 0 }
 
     $profileRoot = Resolve-UserProfile -Username $User
     Write-Host "  Target user   : $User" -ForegroundColor White
