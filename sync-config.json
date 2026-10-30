@@ -107,33 +107,24 @@
       "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
     },
     {
-      "repoPath": "dotfiles/linux/claude/hooks/context-mode-cache-heal.mjs",
-      "localPath": "~/.claude/hooks/context-mode-cache-heal.mjs",
+      "repoPath": "dotfiles/linux/claude/hooks",
+      "localPath": "~/.claude/hooks",
       "platform": "linux",
-      "description": "context-mode SessionStart hook"
+      "type": "dir",
+      "description": "Claude Code hook scripts"
     },
     {
-      "repoPath": "dotfiles/linux/claude/hooks/node.sh",
-      "localPath": "~/.claude/hooks/node.sh",
+      "repoPath": "dotfiles/linux/claude/skills/mk-delegate",
+      "localPath": "~/.claude/skills/mk-delegate",
       "platform": "linux",
-      "description": "Runs hook scripts with the nvm Node"
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/hooks/worker-mode-guard.sh",
-      "localPath": "~/.claude/hooks/worker-mode-guard.sh",
-      "platform": "linux",
-      "description": "Blocks Claude edits while worker mode is on"
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/skills/mk-delegate/SKILL.md",
-      "localPath": "~/.claude/skills/mk-delegate/SKILL.md",
-      "platform": "linux",
+      "type": "dir",
       "description": "/mk-delegate slash command"
     },
     {
-      "repoPath": "dotfiles/linux/claude/skills/mk-check/SKILL.md",
-      "localPath": "~/.claude/skills/mk-check/SKILL.md",
+      "repoPath": "dotfiles/linux/claude/skills/mk-check",
+      "localPath": "~/.claude/skills/mk-check",
       "platform": "linux",
+      "type": "dir",
       "description": "/mk-check slash command"
     },
     {
@@ -153,6 +144,12 @@
       "localPath": "~/.claude/bin/workflow-report",
       "platform": "linux",
       "description": "Read-only report of delegated vs inline steps and worker runs for a repo"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/bin/metrics-archive",
+      "localPath": "~/.claude/bin/metrics-archive",
+      "platform": "linux",
+      "description": "Archives workflow metrics"
     },
     {
       "repoPath": "dotfiles/linux/claude-worker/CLAUDE.md",
