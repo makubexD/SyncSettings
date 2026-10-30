@@ -1556,6 +1556,17 @@ Describe 'Request-MissingValues' {
         Should -Invoke Read-Host -Times 0 -Exactly
     }
 
+    It 'non-interactive without default does not take the previous value' {
+        Mock Test-Interactive { $false }
+        $first = [pscustomobject]@{ placeholder = '<A>'; prompt = 'A'; default = 'd' }
+        $second = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X' }
+        $values = @{}
+
+        { Request-MissingValues -Rules @($first, $second) -UserValues $values -Direction import } | Should -Throw "missing value for <X>*"
+
+        $values.ContainsKey('<X>') | Should -BeFalse
+    }
+
     It 'non-interactive takes default' {
         Mock Test-Interactive { $false }
         $rule = [pscustomobject]@{ placeholder = '<X>'; prompt = 'X'; default = 'd' }

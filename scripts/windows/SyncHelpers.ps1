@@ -420,6 +420,7 @@ function Request-MissingValues {
                 $promptText += " [$defaultVal]"
             }
 
+            $value = $null
             if (Test-Interactive) {
                 $value = Read-Host $promptText
                 if (-not $value -and $defaultVal) {
