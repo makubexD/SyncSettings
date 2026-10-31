@@ -502,7 +502,91 @@ step_pipx() {
     done
     return "$rc"
 }
-step_tools() { return 0; }
+# Unpack one tools.txt line under $WORK and move its binary into place. The
+# return code says where it stopped, so the caller can name the failure: 10
+# download or hash, 11 unpack, 12 install. The move is last, so a failed
+# recipe leaves nothing at the target.
+install_tool() {
+    local name=$1 url=$2 sha=$3 target=$4 file dir
+    case $name in
+        bun)
+            file=$WORK/$name.zip
+            dir=$WORK/$name
+            fetch_verified "$url" "$sha" "$file" </dev/null || return 10
+            mkdir -p "$dir" || return 11
+            unzip -jo "$file" bun-linux-x64/bun -d "$dir" </dev/null || return 11
+            mkdir -p "${target%/*}" || return 12
+            install -m 755 "$dir/bun" "$target" </dev/null || return 12
+            ln -sf "$HOME/.bun/bin/bun" "$HOME/.bun/bin/bunx" || return 12
+            ;;
+        rtk|copilot)
+            file=$WORK/$name.tar.gz
+            dir=$WORK/$name
+            fetch_verified "$url" "$sha" "$file" </dev/null || return 10
+            mkdir -p "$dir" || return 11
+            tar -xzf "$file" -C "$dir" "$name" </dev/null || return 11
+            mkdir -p "${target%/*}" || return 12
+            install -m 755 "$dir/$name" "$target" </dev/null || return 12
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+step_tools() {
+    local name url sha target code=0 rc=0
+    local claude=$HOME/.local/bin/claude
+    while read -r name url sha <&3; do
+        [[ -n $name ]] || continue
+        # nvm is step_node's, so its line is left alone here.
+        if [[ $name == nvm ]]; then
+            continue
+        fi
+        case $name in
+            bun) target=$HOME/.bun/bin/bun ;;
+            rtk|copilot) target=$HOME/.local/bin/$name ;;
+            *)
+                status ERROR "tool/$name" 'no recipe'
+                rc=1
+                continue
+                ;;
+        esac
+        if [[ -e $target ]]; then
+            boot_unchanged "tool/$name"
+            continue
+        fi
+        if (( DRY_RUN )); then
+            status WOULD "tool/$name"
+            continue
+        fi
+        code=0
+        install_tool "$name" "$url" "$sha" "$target" || code=$?
+        case $code in
+            0) boot_installed "tool/$name" ;;
+            10) status ERROR "tool/$name" 'download or hash failed'; rc=1 ;;
+            11) status ERROR "tool/$name" 'unpack failed'; rc=1 ;;
+            *) status ERROR "tool/$name" 'install failed'; rc=1 ;;
+        esac
+    done 3< <(list_lines "$PACKAGES_DIR/tools.txt")
+    # Claude's installer is unpinned, so it goes to a file and runs from there,
+    # never through a pipe. It runs last, so its failure leaves the others.
+    if [[ -e $claude ]]; then
+        boot_unchanged tool/claude
+    elif (( DRY_RUN )); then
+        status WOULD tool/claude
+    elif ! curl -fsSL --proto '=https' --tlsv1.2 -o "$WORK/claude-install.sh" \
+        https://claude.ai/install.sh </dev/null; then
+        status ERROR tool/claude 'download failed'
+        rc=1
+    elif ! bash "$WORK/claude-install.sh" </dev/null; then
+        status ERROR tool/claude 'installer failed'
+        rc=1
+    else
+        boot_installed tool/claude
+    fi
+    return "$rc"
+}
 step_import() { return 0; }
 step_links() { return 0; }
 step_plugins() { return 0; }

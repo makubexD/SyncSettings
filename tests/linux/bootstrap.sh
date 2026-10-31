@@ -181,7 +181,7 @@ EOF
 # overwrite stub outputs/rc files or package lists before running.
 setup_case() {
     new_tmp
-    mkdir -p "$t/repo" "$t/home" "$t/root/etc" "$t/bin" "$t/sysbin" "$t/stub" "$t/net"
+    mkdir -p "$t/repo" "$t/home" "$t/root/etc" "$t/bin" "$t/sysbin" "$t/stub" "$t/net" "$t/tmp"
     : > "$t/calls"
     cp -a "$REPO/bootstrap" "$t/repo/"
     cp -a "$REPO/scripts" "$t/repo/"
@@ -213,7 +213,7 @@ EOF
     # which is the format dpkg_installed parses.
     : > "$t/stub/dpkg-query.out"
     local p
-    for tool in bash awk sed grep sort comm cmp cp mv rm mkdir mktemp chmod ln cat tar unzip sha256sum install env dirname basename tr cut head tail find jq xz gzip ls wc; do
+    for tool in bash awk sed grep sort comm cmp cp mv rm mkdir mktemp chmod ln cat tar unzip sha256sum install env dirname basename tr cut head tail find jq xz gzip ls wc readlink; do
         p=$(command -v "$tool") || fail "$tool is not installed"
         ln -s "$p" "$t/sysbin/$tool"
     done
@@ -224,7 +224,7 @@ EOF
 run_bootstrap() {
     rc=0
     (cd "$t/repo" && env -i HOME="$t/home" PATH="$t/bin:$t/sysbin" \
-        BOOTSTRAP_ROOT="$t/root" DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null \
+        BOOTSTRAP_ROOT="$t/root" DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null TMPDIR="$t/tmp" \
         bash "$t/repo/bootstrap/linux.sh" "$@" < /dev/null) > "$out" 2>&1 || rc=$?
 }
 
@@ -237,6 +237,9 @@ make_packages() {
     mkdir -p "$dir/apt-sources/keyrings"
     printf 'ca-certificates\ngit\n' > "$dir/apt.txt"
     : > "$dir/deb.txt"
+    # The real tool pins: seed_tools makes their targets exist, so the step
+    # makes no request. Cases that test a recipe write their own lines.
+    cp "$REPO/packages/linux/tools.txt" "$dir/tools.txt"
     cat > "$dir/apt-sources/test.sources" <<'EOF'
 Types: deb
 URIs: https://example.com/apt
@@ -253,6 +256,18 @@ EOF
     # npm and pipx idle. The node cases replace this with the state they need.
     make_nvm_sh "$t/home"
     make_node_version v22.1.0
+    seed_tools
+}
+
+# Every standalone tool already installed, so step_tools reports UNCHANGED and
+# downloads nothing in cases about other steps. The tool cases remove the
+# targets they test.
+seed_tools() {
+    mkdir -p "$t/home/.bun/bin" "$t/home/.local/bin"
+    : > "$t/home/.bun/bin/bun"
+    : > "$t/home/.local/bin/rtk"
+    : > "$t/home/.local/bin/copilot"
+    : > "$t/home/.local/bin/claude"
 }
 
 # Place the repo's apt sources and keys at their install targets, byte-identical,
@@ -341,6 +356,45 @@ make_node_version() {
     for path in "$@"; do
         mkdir -p "$dir/$path"
     done
+}
+
+# Build the release asset in $t/net under its URL basename. A zip holds
+# bun-linux-x64/bun; a tarball holds $name plus a LICENSE sibling, so a recipe
+# that unpacked the whole archive would leave the LICENSE behind; raw writes
+# text, so the hash matches but the archive can't be unpacked. The zip is made
+# with python3, on the test side only: `zip` may not be installed, and python3
+# never enters the stub PATH.
+make_tool_asset() {
+    local name=$1 url=$2 kind=${3:-tar} body=${4:-$1 binary} base
+    base=${url##*/}
+    rm -rf "$t/tool-fixture"
+    mkdir -p "$t/tool-fixture"
+    case $kind in
+        zip)
+            mkdir -p "$t/tool-fixture/bun-linux-x64"
+            printf '%s\n' "$body" > "$t/tool-fixture/bun-linux-x64/bun"
+            python3 -I -c 'import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.write(sys.argv[2], "bun-linux-x64/bun")' \
+                "$t/net/$base" "$t/tool-fixture/bun-linux-x64/bun"
+            ;;
+        tar)
+            printf '%s\n' "$body" > "$t/tool-fixture/$name"
+            printf 'license\n' > "$t/tool-fixture/LICENSE"
+            tar -czf "$t/net/$base" -C "$t/tool-fixture" "$name" LICENSE
+            ;;
+        raw)
+            printf '%s\n' "$body" > "$t/net/$base"
+            ;;
+    esac
+}
+
+# Append one tools.txt line for the asset already in $t/net. Without a hash
+# argument it records the file's own, so the step's check passes.
+write_tool_line() {
+    local name=$1 url=$2 sha=${3:-}
+    [[ -n $sha ]] || sha=$(sha256sum "$t/net/${url##*/}" | cut -d' ' -f1)
+    printf '%s %s %s\n' "$name" "$url" "$sha" >> "$t/repo/packages/linux/tools.txt"
 }
 
 # -- Cases ---------------------------------------------------------------------
@@ -1040,7 +1094,160 @@ case_node_dry_run() {
     ! grep -q '^pipx install' "$t/calls" || fail 'pipx install was called'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run; do
+# -- Standalone tools ---------------------------------------------------------
+
+case_tools_bun() {
+    setup_case
+    make_packages
+    local url=https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64.zip
+    rm -rf "$t/home/.bun"
+    : > "$t/repo/packages/linux/tools.txt"
+    make_tool_asset bun "$url" zip
+    write_tool_line bun "$url"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    local dest=$t/home/.bun/bin/bun
+    [[ -f $dest ]] || fail 'bun was not installed'
+    [[ $(stat -c %a "$dest") == 755 ]] || fail "bun has mode $(stat -c %a "$dest")"
+    [[ $(readlink "$t/home/.bun/bin/bunx") == "$dest" ]] || fail 'bunx does not link to bun'
+    output_has_status INSTALLED tool/bun || fail 'missing INSTALLED tool/bun'
+}
+
+case_tools_rtk() {
+    setup_case
+    make_packages
+    local url=https://github.com/rtk-ai/rtk/releases/download/v1.1.0/rtk-x86_64-unknown-linux-musl.tar.gz
+    rm -f "$t/home/.local/bin/rtk"
+    : > "$t/repo/packages/linux/tools.txt"
+    make_tool_asset rtk "$url" tar
+    write_tool_line rtk "$url"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    local dest=$t/home/.local/bin/rtk
+    [[ -f $dest ]] || fail 'rtk was not installed'
+    [[ $(stat -c %a "$dest") == 755 ]] || fail "rtk has mode $(stat -c %a "$dest")"
+    [[ ! -e $t/home/.local/bin/LICENSE ]] || fail 'the LICENSE was copied into ~/.local/bin'
+    output_has_status INSTALLED tool/rtk || fail 'missing INSTALLED tool/rtk'
+}
+
+case_tools_copilot() {
+    setup_case
+    make_packages
+    local url=https://github.com/github/copilot-cli/releases/download/v1.0.105/copilot-linux-x64.tar.gz
+    rm -f "$t/home/.local/bin/copilot"
+    : > "$t/repo/packages/linux/tools.txt"
+    make_tool_asset copilot "$url" tar
+    write_tool_line copilot "$url"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    local dest=$t/home/.local/bin/copilot
+    [[ -f $dest ]] || fail 'copilot was not installed'
+    [[ $(stat -c %a "$dest") == 755 ]] || fail "copilot has mode $(stat -c %a "$dest")"
+    output_has_status INSTALLED tool/copilot || fail 'missing INSTALLED tool/copilot'
+}
+
+case_tools_bad_hash() {
+    setup_case
+    make_packages
+    local rtk_url=https://github.com/rtk-ai/rtk/releases/download/v1.1.0/rtk-x86_64-unknown-linux-musl.tar.gz
+    local copilot_url=https://github.com/github/copilot-cli/releases/download/v1.0.105/copilot-linux-x64.tar.gz
+    rm -f "$t/home/.local/bin/rtk" "$t/home/.local/bin/copilot"
+    : > "$t/repo/packages/linux/tools.txt"
+    make_tool_asset copilot "$copilot_url" tar
+    write_tool_line copilot "$copilot_url"
+    make_tool_asset rtk "$rtk_url" tar
+    write_tool_line rtk "$rtk_url" "$(printf '%064d' 0)"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR tool/rtk 'download or hash failed' || fail 'missing ERROR for the bad hash'
+    [[ ! -e $t/home/.local/bin/rtk ]] || fail 'rtk was left behind'
+    output_has_status INSTALLED tool/copilot || fail 'the next tool did not install'
+}
+
+case_tools_bad_archive() {
+    setup_case
+    make_packages
+    local url=https://github.com/rtk-ai/rtk/releases/download/v1.1.0/rtk-x86_64-unknown-linux-musl.tar.gz
+    rm -f "$t/home/.local/bin/rtk"
+    : > "$t/repo/packages/linux/tools.txt"
+    make_tool_asset rtk "$url" raw 'not a tarball'
+    write_tool_line rtk "$url"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR tool/rtk 'unpack failed' || fail 'missing ERROR for the bad archive'
+    [[ ! -e $t/home/.local/bin/rtk ]] || fail 'a file was left at the target'
+}
+
+case_tools_present() {
+    setup_case
+    make_packages
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^curl ' "$t/calls" || fail 'curl was called'
+    output_has_status UNCHANGED tool/bun || fail 'missing UNCHANGED tool/bun'
+    output_has_status UNCHANGED tool/rtk || fail 'missing UNCHANGED tool/rtk'
+    output_has_status UNCHANGED tool/copilot || fail 'missing UNCHANGED tool/copilot'
+    output_has_status UNCHANGED tool/claude || fail 'missing UNCHANGED tool/claude'
+}
+
+case_tools_claude_file_first() {
+    setup_case
+    make_packages
+    rm -f "$t/home/.local/bin/claude"
+    cat > "$t/net/install.sh" <<EOF
+#!/bin/sh
+printf 'claude-install script=%s stdin=%s\n' "\$0" "\$(readlink /proc/self/fd/0)" >> "$t/calls"
+EOF
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    local line script
+    line=$(grep '^claude-install ' "$t/calls") || fail 'the installer did not run'
+    script=${line#*script=}
+    script=${script%% *}
+    [[ $script == "$t/tmp/"*/claude-install.sh ]] || fail "the installer ran from $script"
+    grep -Fq 'stdin=/dev/null' "$t/calls" || fail 'stdin was not /dev/null'
+    output_has_status INSTALLED tool/claude || fail 'missing INSTALLED tool/claude'
+}
+
+case_tools_claude_fails() {
+    setup_case
+    make_packages
+    rm -f "$t/home/.local/bin/claude"
+    printf '#!/bin/sh\nexit 1\n' > "$t/net/install.sh"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR tool/claude 'installer failed' || fail 'missing ERROR for the failed installer'
+    [[ -e $t/home/.local/bin/rtk ]] || fail 'the failed claude step touched the other tools'
+}
+
+case_tools_nvm_skipped() {
+    setup_case
+    make_packages
+    printf 'nvm https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh %064d\n' 0 \
+        > "$t/repo/packages/linux/tools.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^curl ' "$t/calls" || fail 'curl was called'
+    ! grep -Fq 'tool/nvm' "$out" || fail 'step_tools handled the nvm line'
+    output_has_status UNCHANGED nvm || fail 'missing UNCHANGED nvm'
+}
+
+case_tools_dry_run() {
+    setup_case
+    make_packages
+    rm -rf "$t/home/.bun" "$t/home/.local/bin"
+    run_bootstrap --dry-run
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status WOULD tool/bun || fail 'missing WOULD tool/bun'
+    output_has_status WOULD tool/rtk || fail 'missing WOULD tool/rtk'
+    output_has_status WOULD tool/copilot || fail 'missing WOULD tool/copilot'
+    output_has_status WOULD tool/claude || fail 'missing WOULD tool/claude'
+    ! grep -q '^curl ' "$t/calls" || fail 'curl was called'
+    ! grep -q '^claude-install ' "$t/calls" || fail 'the installer ran'
+    [[ ! -e $t/home/.bun && ! -e $t/home/.local/bin ]] || fail 'a dry run wrote a target'
+}
+
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-nvm-skipped tools-dry-run; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1105,6 +1312,16 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         node-pipx-present) case_node_pipx_present ;;
         node-pipx-missing-tool) case_node_pipx_missing_tool ;;
         node-dry-run) case_node_dry_run ;;
+        tools-bun) case_tools_bun ;;
+        tools-rtk) case_tools_rtk ;;
+        tools-copilot) case_tools_copilot ;;
+        tools-bad-hash) case_tools_bad_hash ;;
+        tools-bad-archive) case_tools_bad_archive ;;
+        tools-present) case_tools_present ;;
+        tools-claude-file-first) case_tools_claude_file_first ;;
+        tools-claude-fails) case_tools_claude_fails ;;
+        tools-nvm-skipped) case_tools_nvm_skipped ;;
+        tools-dry-run) case_tools_dry_run ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         printf 'ok   %s\n' "$case_name"
