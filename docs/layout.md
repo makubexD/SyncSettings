@@ -32,10 +32,13 @@ packages/
     ├── apt-sources/
     │   └── keyrings/
     └── *.txt
+
+bootstrap/
+└── linux.sh   Installs from packages/, then runs import
 ```
 
 Lists in `packages/` aren't under `dotfiles/`, so no entry owns them and `ORPHAN` doesn't apply. You edit them by hand; see
-[packages.md](packages.md).
+[packages.md](packages.md). To restore a machine from all of this, see [restore.md](restore.md).
 
 ## Where a file goes
 

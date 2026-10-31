@@ -31,6 +31,11 @@ import can replace a `.bak`.
 If `export.bat` runs before W1, the whole `.gitconfig` lands in the common file and the cached-value check stops
 `commit.bat`. Run `git restore dotfiles`, then W1.
 
+## Fresh VM run of bootstrap
+
+- [ ] Fresh VM run of `./bootstrap/linux.sh`, ending in a clean `./sync preview` and the `docs/restore.md` checklist. Snaps,
+      VS Code and the desktop session can't run in the container check, so this is their first real test.
+
 ## Roll back Claude auto-approval when development is done
 
 Added 2026-10-30 to speed up development: Claude adds the `reviewed` label and merges its own PRs. When the

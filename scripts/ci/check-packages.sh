@@ -21,24 +21,26 @@ bad() {
     problems=$(( problems + 1 ))
 }
 
-# -- The nine lists -------------------------------------------------------------
+# -- The ten lists --------------------------------------------------------------
 
 KNOWN_LISTS=(
     apt.txt deb.txt snap.txt npm.txt pipx.txt vscode-extensions.txt fonts.txt
-    gnome-extensions.txt drift-ignore.txt
+    gnome-extensions.txt tools.txt drift-ignore.txt
 )
 
 # Names start with a letter or digit, so a line can't reach a root command as an
 # option (--dangerous) or a path (..).
+# A name ends in a letter, digit or +, because apt reads a trailing - as remove.
 declare -A LIST_PATTERNS=(
-    [apt.txt]='^[a-z0-9][a-z0-9+.-]*$'
-    [deb.txt]='^[a-z0-9][a-z0-9+.-]* https://[A-Za-z0-9./_~+-]+\.deb [0-9a-f]{64}$'
+    [apt.txt]='^[a-z0-9][a-z0-9+.-]*[a-z0-9+]$'
+    [deb.txt]='^[a-z0-9][a-z0-9+.-]*[a-z0-9+] https://[A-Za-z0-9./_~+-]+\.deb [0-9a-f]{64}$'
     [snap.txt]='^[a-z0-9][a-z0-9-]*( classic)?( channel=[a-z0-9./-]+)?$'
     [npm.txt]='^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$'
     [pipx.txt]='^[A-Za-z0-9][A-Za-z0-9._-]*$'
     [vscode-extensions.txt]='^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$'
     [fonts.txt]='^[A-Za-z0-9]+ v[0-9]+\.[0-9]+\.[0-9]+ [0-9a-f]{64}$'
     [gnome-extensions.txt]='^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9._-]+ https://github\.com/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]* [0-9a-f]{40}$'
+    [tools.txt]='^(bun|copilot|nvm|rtk) https://(github\.com|raw\.githubusercontent\.com)/[A-Za-z0-9./_~+-]+ [0-9a-f]{64}$'
     [drift-ignore.txt]='^(apt|snap|npm|pipx|vscode|font|extension|apt-source) [A-Za-z0-9@][A-Za-z0-9@/+._-]*$'
 )
 
@@ -85,7 +87,7 @@ for name in "${KNOWN_LISTS[@]}"; do
     fi
 done
 
-# A file directly in the folder must be one of the nine; apt-sources is the one
+# A file directly in the folder must be one of the ten; apt-sources is the one
 # allowed directory.
 while IFS= read -r name; do
     is_known_list "$name" || bad "$name" 1 'unknown list'

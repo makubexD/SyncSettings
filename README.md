@@ -77,6 +77,7 @@ Add or remove files by editing `sync-config.json`. [Repository layout](docs/layo
 - [Configuration reference](docs/configuration.md): every `sync-config.json` field, with examples
 - [Repository layout](docs/layout.md): where a file goes under `dotfiles/`, and why
 - [Packages](docs/packages.md): the package lists, the drift report, and how to change a list or move a pin
+- [Restore a machine](docs/restore.md): bootstrap, what it asks, and what's left to do by hand
 - [Sync contract](docs/sync-contract.md): the rules both engines follow
 
 ---
@@ -179,18 +180,18 @@ a missing value is an error: nothing is written with a placeholder left unfilled
 
 ### New Linux machine: restore your setup
 
-1. Install the tools: `git`, `jq`, `dconf-cli`, `python3`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node and
-   [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`. The restored `.bashrc` also needs `zoxide` and `starship`,
-   or every new shell prints `command not found`. Nothing installs from the lists yet, so until bootstrap exists, use
-   `packages/linux/` to see what else the old machine had ([how to read them](docs/packages.md#the-lists)).
-2. Open Claude Code once so `~/.claude` exists, then install the plugins with `/plugin`
-   (`context-mode`, `agent-skills`).
-3. Clone this repo and run `./import.sh` in a terminal on the desktop, so it can restore the GNOME settings.
-4. Link the scripts onto your PATH:
-   `ln -sf ~/.claude/bin/mk-exec ~/.claude/bin/workflow-report ~/.claude/bin/worker-mode ~/.local/bin/`
-5. Add your DeepSeek key: `mkdir -p -m 700 ~/.config/claude-workers`, then put
-   `export DEEPSEEK_API_KEY=<key>` in `~/.config/claude-workers/env` and `chmod 600` it.
-6. In Claude Code, run `/mk-check`. All checks should pass and the live job should finish on DeepSeek.
+On Ubuntu 26.04, sign in to the desktop and run this in a terminal there:
+
+```bash
+sudo apt install git
+git clone https://github.com/makubexD/SyncSettings.git
+cd SyncSettings
+./bootstrap/linux.sh
+```
+
+Bootstrap installs the packages and tools, imports your configs, links the scripts and adds the Claude plugins. Running it again
+is safe. [Restore a machine](docs/restore.md) says what it asks and what each line means. Then finish the
+[steps it can't do](docs/restore.md#finish-by-hand), including your DeepSeek key and `/mk-check`.
 
 Not supported on Linux: `detectLinkedPaths` and importing into another user's profile.
 
@@ -301,16 +302,19 @@ SyncSettings/
 ├── export.sh               Linux: copy local changes → repo
 ├── commit.sh               Linux: commit on a branch and open a PR
 ├── import.sh               Linux: apply repo files → machine
+├── bootstrap/
+│   └── linux.sh            Linux: restore a new machine
 ├── docs/
 │   ├── daily-workflow.md   Export → PR → review → merge → import
 │   ├── layout.md           Where a file goes under dotfiles/
 │   ├── packages.md         The package lists and the drift report
+│   ├── restore.md          Restore a machine: bootstrap and the manual steps
 │   ├── review-gate.md      The PR checks and the `reviewed` label
 │   └── plan-*.md           Plans the scripts were built from
 ├── packages/
 │   └── linux/              What this machine has installed, and where it came from
 ├── scripts/
-│   ├── ci/                 Config and package lint, leak scan
+│   ├── ci/                 Config, package and plugin lint, leak scan, clean-container check
 │   ├── linux/sync.sh       Linux: shared bash helpers
 │   └── windows/
 │       ├── SyncHelpers.ps1 Shared functions (sanitization, hashing, linked paths, etc.)

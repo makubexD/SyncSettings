@@ -4,7 +4,7 @@
 compares them with the machine and prints a `DRIFT` line for each difference, but it never changes a list and never installs
 anything.
 
-Installing from the lists is a later phase. For the exact rules, see
+`./bootstrap/linux.sh` installs from these lists on a new machine; see [restore.md](restore.md). For the exact drift rules, see
 [sync-contract.md](sync-contract.md#package-drift).
 
 ## The lists
@@ -21,6 +21,7 @@ Installing from the lists is a later phase. For the exact rules, see
 | `vscode-extensions.txt` | Default-profile extensions | `<publisher.name>`, lower case |
 | `fonts.txt` | Nerd Fonts | `<asset> <tag> <sha256>` |
 | `gnome-extensions.txt` | GNOME Shell extensions | `<uuid> <github url> <commit>` |
+| `tools.txt` | Tools with no apt source: `bun`, `copilot`, `nvm`, `rtk` | `<name> <https url> <sha256>` |
 | `drift-ignore.txt` | Installed names that aren't yours to restore | `<manager> <name>` |
 
 Each `.txt` list has one entry per line, sorted with `LC_ALL=C`, with no duplicates. Blank lines and lines starting with `#`
@@ -37,6 +38,10 @@ list:
 ```bash
 scripts/ci/check-packages.sh
 ```
+
+`tools.txt` exists because of how these tools install. Their own installers edit the shell profile, need a terminal, or follow a
+moving URL, so bootstrap downloads a pinned file instead, for the same reason `deb.txt` does. Drift doesn't compare these pins,
+because the tools update themselves. Claude Code isn't listed: its installer checks its own download, and it updates right after.
 
 ## Reading the report
 
@@ -140,6 +145,24 @@ git -C "$dir" diff <old commit>..<new commit>
 ```
 
 Then put the full 40-character commit in `gnome-extensions.txt`.
+
+### Move a tool pin
+
+Update the tool on this machine first, then check the download against it:
+
+```bash
+dir=$(mktemp -d)
+gh release download <tag> -R <owner>/<repo> -p '<asset>' -D "$dir"
+tar -xzf "$dir/<asset>" -C "$dir"
+cmp "$dir/<tool>" ~/.local/bin/<tool>
+sha256sum "$dir/<asset>"
+```
+
+`cmp` should print nothing. For `bun` the asset is a zip: use `unzip -jo "$dir/<asset>" -d "$dir"` and compare with `~/.bun/bin/bun`.
+Then put the release URL and the hash in `tools.txt`.
+
+`nvm` is a script, so there's no binary to compare. Download `install.sh` from the new tag, read what changed, and record its hash.
+The `bootstrap-check` job downloads every pin on each PR, so a wrong hash fails there.
 
 ## Replace a rotated key
 

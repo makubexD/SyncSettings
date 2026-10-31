@@ -62,10 +62,10 @@ Decision: keep two native engines (PowerShell 5.1 ships with Windows; bash on Li
 | `wezterm-xwayland` and its launcher | Done in phase 4: linux/wezterm |
 | dconf (Ptyxis, favorites, `clipboard-history` extension, tiling-assistant, nautilus) | Done in phase 5: linux/gnome/dconf. `tiling-assistant` dropped, since the extension writes those keys itself. `clipboard-history` has no settings of its own, so only `enabled-extensions` is synced, and its code moved to phase 6 |
 | Nerd Fonts | Done in phase 6: packages/linux/fonts.txt (downloaded, not stored) |
-| `~/.local/bin` links to `~/.claude/bin/*` | created by bootstrap |
+| `~/.local/bin` links to `~/.claude/bin/*` | Done in phase 7: `step_links` in bootstrap/linux.sh |
 | apt (+ brave, chrome, gh, wezterm sources), snap (code, postman), npm globals, pipx poetry, dotnet-sdk-10 | Done in phase 6: packages/linux/*. `powershell` and `rustdesk` have no apt source, so they're split into `deb.txt`, pinned by URL and SHA-256 |
-| nvm, bun, rtk, claude, copilot | Standalone installers, each with its own recipe: bootstrap in phase 7, not a list |
-| **Never in repo**: gh `hosts.yml`, `claude-workers/env`, `omniroute.env`, ssh keys, `~/.gnupg`, `~/.claude.json`, `repown/accounts.json` | manual steps in `docs/restore.md` |
+| nvm, bun, rtk, claude, copilot | Done in phase 7: packages/linux/tools.txt pins nvm, bun, rtk and copilot, reversing the plan for no list, because their installers edit synced files, need a terminal or follow a moving URL. `claude` stays unpinned |
+| **Never in repo**: gh `hosts.yml`, `claude-workers/env`, `omniroute.env`, ssh keys, `~/.gnupg`, `~/.claude.json`, `repown/accounts.json` | Done in phase 7: manual steps in `docs/restore.md` |
 
 Windows candidates (inventory on that machine, phase 8): `winget export`, PowerShell `$PROFILE`, VS Code
 `%APPDATA%\Code\User`, `~/.ssh/config`, `.minttyrc`, PowerToys backup, npm globals, user env vars/PATH.
@@ -79,7 +79,7 @@ dotfiles/
             vscode/  gnome/  claude/  claude-worker/
   windows/  shell/(.bashrc .bash_profile .bashrc.linked/)  git/.gitconfig.local  windows-terminal/  (+ phase 8)
 packages/   linux/{apt.txt,deb.txt,apt-sources/keyrings/,snap.txt,npm.txt,pipx.txt,vscode-extensions.txt,fonts.txt,
-            gnome-extensions.txt,drift-ignore.txt}  windows/winget.json
+            gnome-extensions.txt,tools.txt,drift-ignore.txt}  windows/winget.json
 bootstrap/  linux.sh  windows.ps1
 scripts/    windows/*.ps1   linux/sync.sh
 tests/      fixtures/  engine.bats-or-sh  Engine.Tests.ps1
