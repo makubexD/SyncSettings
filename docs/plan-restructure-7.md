@@ -489,7 +489,9 @@ Files: `bootstrap/linux.sh`, `tests/linux/bootstrap.sh`.
 `step_tools`: for each line of `tools.txt` except `nvm`, skip if the target exists, otherwise `fetch_verified` and follow the recipe
 table. Each recipe unpacks in `$WORK` and moves the binary into place last. A `case` on the name holds the recipes, and an unknown
 name is an `ERROR` line. Then Claude: if `$HOME/.local/bin/claude` is missing, `curl` the installer to `$WORK/claude-install.sh`
-and `bash "$WORK/claude-install.sh" </dev/null`. Never pipe it.
+and `bash "$WORK/claude-install.sh" </dev/null`. Never pipe it. An installer can exit 0 without leaving a working binary, so after
+it runs, `$HOME/.local/bin/claude` must be executable, or the step is `ERROR tool/claude 'installer left no claude'` and exit 1. It's
+`-x`, the same check `step_plugins` uses, because otherwise that step would skip with a note that hides the cause.
 
 | Case | Setup | Expected |
 |---|---|---|
@@ -501,6 +503,7 @@ and `bash "$WORK/claude-install.sh" </dev/null`. Never pipe it.
 | `tools-present` | All targets exist | No `curl` |
 | `tools-claude-file-first` | Installer in `$t/net` | Ran from a file under `$WORK`, with stdin from `/dev/null` |
 | `tools-claude-fails` | Script exits 1 | `ERROR`, exit 1 |
+| `tools-claude-no-binary` | Script exits 0 and writes no `claude` | `ERROR tool/claude`, note `installer left no claude`, no `INSTALLED tool/claude`, exit 1 |
 | `tools-nvm-skipped` | `tools.txt` with `nvm` | No `nvm` recipe here |
 
 Test: `tests/linux/bootstrap.sh tools`, shellcheck.
