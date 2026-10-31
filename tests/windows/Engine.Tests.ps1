@@ -1156,10 +1156,11 @@ Describe 'Windows engine' {
         $env:HOME = $script:HomeDir
 
         try {
-            # Import skips a missing target folder, so create the two folders whose
+            # Import skips a missing target folder, so create the folders whose
             # parents don't exist in a fresh home.
             $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir 'AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState') -Force
             $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir '.claude\docs') -Force
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir '.config\git') -Force
 
             Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
             $importExit = $script:EngineExit
@@ -1168,7 +1169,7 @@ Describe 'Windows engine' {
             $importExit | Should -Be 0
             $importOut | Should -Not -Match '\[ERROR'
 
-            foreach ($rel in @('.bashrc', '.bash_profile', '.gitconfig', '.gitconfig.local', '.claude\RTK.md', '.claude\docs\token-routing-map.html')) {
+            foreach ($rel in @('.bashrc', '.bash_profile', '.gitconfig', '.gitconfig.local', '.claude\RTK.md', '.claude\docs\token-routing-map.html', '.config\git\ignore')) {
                 (Join-Path $script:HomeDir $rel) | Should -Exist
             }
             (Join-Path $script:HomeDir 'AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json') | Should -Exist
@@ -1177,6 +1178,9 @@ Describe 'Windows engine' {
             (Join-Path $script:HomeDir '.claude\CLAUDE.md') | Should -Not -Exist
             (Join-Path $script:HomeDir '.claude\hooks') | Should -Not -Exist
             (Join-Path $script:HomeDir '.claude-worker') | Should -Not -Exist
+            (Join-Path $script:HomeDir '.tmux.conf') | Should -Not -Exist
+            (Join-Path $script:HomeDir '.config\gh') | Should -Not -Exist
+            (Join-Path $script:HomeDir '.config\rtk') | Should -Not -Exist
 
             Invoke-Engine -ScriptName 'Export-Settings.ps1'
             $exportExit = $script:EngineExit
@@ -1192,10 +1196,13 @@ Describe 'Windows engine' {
             $helpers = @(git config --file (Join-Path $script:HomeDir '.gitconfig') --includes --get-all credential.https://github.com.helper 2>$null)
             $helpers[-1] | Should -Be "!'C:\Tools\gh.exe' auth git-credential"
 
-            # RTK.md is dotfiles/common/** (eol=lf), so no CR byte survives the
-            # runner's core.autocrlf=true checkout. Check bytes, not text.
+            # RTK.md and .config/git/ignore are dotfiles/common/** (eol=lf), so no
+            # CR byte survives the runner's core.autocrlf=true checkout. Check
+            # bytes, not text.
             $rtkBytes = [IO.File]::ReadAllBytes((Join-Path $script:HomeDir '.claude\RTK.md'))
             $rtkBytes | Should -Not -Contain 13
+            $ignoreBytes = [IO.File]::ReadAllBytes((Join-Path $script:HomeDir '.config\git\ignore'))
+            $ignoreBytes | Should -Not -Contain 13
         } finally {
             if ($null -eq $savedHome) {
                 Remove-Item Env:\HOME -ErrorAction SilentlyContinue
