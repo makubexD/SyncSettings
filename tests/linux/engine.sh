@@ -644,7 +644,8 @@ case_real_config_roundtrip() {
     jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
         --arg gh 'fixture-user' --arg home "$t/home" \
         '{ "<YOUR_NAME>": $name, "<YOUR_EMAIL>": $email,
-           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home }' > "$t/repo/.user-values.json"
+           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home,
+           "<YOUR_WORK_MARKETPLACE>": "https://example.com/plugins" }' > "$t/repo/.user-values.json"
 
     run_engine "$t/home" import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"

@@ -1,0 +1,182 @@
+{
+  "editor.accessibilitySupport": "off",
+  "editor.guides.bracketPairs": true,
+  "editor.largeFileOptimizations": false,
+  "editor.maxTokenizationLineLength": 20000,
+  "editor.minimap.enabled": false,
+  "editor.renderWhitespace": "none",
+  "editor.suggestSelection": "first",
+  "diffEditor.ignoreTrimWhitespace": true,
+  "diffEditor.maxComputationTime": 0,
+  "workbench.colorTheme": "Monokai",
+  "workbench.editor.enablePreview": false,
+  "workbench.editorAssociations": {
+    "0": {
+      "viewType": "jupyter.notebook.ipynb",
+      "filenamePattern": "*.ipynb"
+    },
+    "*.copilotmd": "vscode.markdown.preview.editor",
+    "*.md": "default"
+  },
+  "workbench.iconTheme": "material-icon-theme",
+  "workbench.startupEditor": "newUntitledFile",
+  "workbench.colorCustomizations": {
+    "[Material Theme Darker High Contrast]": {
+      "activityBarBadge.background": "#80CBC4",
+      "activityBar.activeBorder": "#80CBC4",
+      "list.activeSelectionForeground": "#80CBC4",
+      "list.inactiveSelectionForeground": "#80CBC4",
+      "list.highlightForeground": "#80CBC4",
+      "scrollbarSlider.activeBackground": "#80CBC450",
+      "editorSuggestWidget.highlightForeground": "#80CBC4",
+      "textLink.foreground": "#80CBC4",
+      "progressBar.background": "#80CBC4",
+      "pickerGroup.foreground": "#80CBC4",
+      "tab.activeBorder": "#80CBC4",
+      "notificationLink.foreground": "#80CBC4",
+      "editorWidget.resizeBorder": "#80CBC4",
+      "editorWidget.border": "#80CBC4",
+      "settings.modifiedItemIndicator": "#80CBC4",
+      "settings.headerForeground": "#80CBC4",
+      "panelTitle.activeBorder": "#80CBC4",
+      "breadcrumb.activeSelectionForeground": "#80CBC4",
+      "menu.selectionForeground": "#80CBC4",
+      "menubar.selectionForeground": "#80CBC4",
+      "editor.findMatchBorder": "#80CBC4",
+      "selection.background": "#80CBC440",
+      "statusBarItem.remoteBackground": "#80CBC4"
+    }
+  },
+  "terminal.integrated.scrollback": 1000000,
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.defaultProfile.osx": "",
+  "terminal.integrated.automationProfile.windows": null,
+  "terminal.integrated.env.osx": {},
+  "terminal.integrated.profiles.windows": {
+    "Git Bash": {
+      "path": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "args": [
+        "--login",
+        "-i"
+      ]
+    }
+  },
+  "terminal.external.windowsExec": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+  "security.workspace.trust.untrustedFiles": "open",
+  "git.ignoreMissingGitWarning": true,
+  "scm.repositories.selectionMode": "single",
+  "[html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[python]": {
+    "editor.formatOnType": true,
+    "diffEditor.ignoreTrimWhitespace": true
+  },
+  "[xml]": {
+    "editor.defaultFormatter": "redhat.vscode-xml"
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "chat.agent.maxRequests": 500,
+  "chat.emptyState.history.enabled": true,
+  "chat.mcp.serverSampling": {
+    "pylance mcp server: pylance mcp server": {
+      "allowedModels": [
+        "copilot/auto"
+      ]
+    }
+  },
+  "chat.permissions.default": "autoApprove",
+  "chat.tools.global.autoApprove": true,
+  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.tools.terminal.ignoreDefaultAutoApproveRules": true,
+  "chat.tools.terminal.autoApprove": {
+    "/.*/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
+  },
+  "chat.tools.urls.autoApprove": {
+    "*": true
+  },
+  "chat.viewSessions.orientation": "stacked",
+  "claudeCode.environmentVariables": [],
+  "claudeCode.preferredLocation": "panel",
+  "cSpell.diagnosticLevel": "Warning",
+  "cSpell.language": ",en",
+  "cSpell.userWords": [
+    "DIALERDISPOSITION",
+    "existingtzcustomer",
+    "FACETOFACE",
+    "ICEP",
+    "msql",
+    "tcpa",
+    "Upsell",
+    "XFER"
+  ],
+  "docker.extension.enableComposeLanguageServer": false,
+  "github.copilot.advanced": {
+    "debug": false
+  },
+  "github.copilot.enable": {
+    "*": true
+  },
+  "github.copilot.chat.runInTerminal": true,
+  "github.copilot.nextEditSuggestions.enabled": true,
+  "gitlens.blame.avatars": false,
+  "gitlens.codeLens.enabled": false,
+  "gitlens.currentLine.enabled": false,
+  "gitlens.hovers.currentLine.over": "line",
+  "gitlens.hovers.enabled": false,
+  "gitlens.recentChanges.highlight.locations": [
+    "line",
+    "overview",
+    "gutter"
+  ],
+  "gitlens.views.commitDetails.files.layout": "list",
+  "gitlens.views.fileHistory.avatars": false,
+  "gitlens.views.lineHistory.avatars": false,
+  "javascript.validate.enable": false,
+  "json.maxItemsComputed": 500000,
+  "material-icon-theme.folders.color": "#90a4ae",
+  "material-icon-theme.folders.theme": "classic",
+  "materialTheme.accent": "Teal",
+  "mssql.autoDisableNonTSqlLanguageService": false,
+  "mssql.enableRichExperiencesDoNotShowPrompt": true,
+  "prettier.printWidth": 220,
+  "python.analysis.typeCheckingMode": "strict",
+  "python.languageServer": "Default",
+  "redhat.telemetry.enabled": true,
+  "selectline.alignment": "right",
+  "vsintellicode.modify.editor.suggestSelection": "automaticallyOverrodeDefaultValue",
+  "mssql.connectionGroups": [
+    {
+      "name": "ROOT",
+      "id": "ROOT"
+    }
+  ],
+  "update.mode": "none",
+  "yaml.disableSchemaDetection": [
+    "**/.github/workflows/*.yml",
+    "**/.github/workflows/*.yaml",
+    "**/.gitea/workflows/*.yml",
+    "**/.gitea/workflows/*.yaml",
+    "**/.forgejo/workflows/*.yml",
+    "**/.forgejo/workflows/*.yaml"
+  ],
+  "chat.plugins.marketplaces": [
+    "github/copilot-plugins",
+    "github/awesome-copilot#marketplace",
+    "<YOUR_WORK_MARKETPLACE>"
+  ]
+}

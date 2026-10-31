@@ -165,6 +165,30 @@
       ]
     },
     {
+      "repoPath": "dotfiles/linux/vscode/settings.json",
+      "localPath": "~/.config/Code/User/settings.json",
+      "platform": "linux",
+      "description": "VS Code settings, default profile",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        },
+        {
+          "placeholder": "<YOUR_WORK_MARKETPLACE>",
+          "prompt": "Work plugin marketplace URL"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/vscode/snippets",
+      "localPath": "~/.config/Code/User/snippets",
+      "platform": "linux",
+      "type": "dir",
+      "description": "VS Code snippets, default profile"
+    },
+    {
       "repoPath": "dotfiles/windows/windows-terminal/settings.json",
       "localPath": "~\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
       "platform": "windows",
