@@ -682,6 +682,35 @@ case_real_config_roundtrip() {
     [[ ! -e "$t/home/.gitconfig.bak" ]] || fail ".gitconfig.bak was created"
     [[ -x "$t/home/.claude/hooks/worker-mode-guard.sh" ]] \
         || fail "worker-mode-guard.sh is not executable"
+
+    cmp -s "$t/home/.config/git/ignore" "$t/repo/dotfiles/common/git/ignore" \
+        || fail ".config/git/ignore does not match the repo"
+    [[ -x "$t/home/.local/bin/wezterm-xwayland" ]] || fail "wezterm-xwayland is not executable"
+    grep -Fq "Exec=$t/home/.local/bin/wezterm-xwayland" \
+        "$t/home/.local/share/applications/wezterm-xwayland.desktop" \
+        || fail "wezterm-xwayland.desktop has no Exec line for the launcher"
+    if grep -Fq '<HOME>' "$t/home/.local/share/applications/wezterm-xwayland.desktop"; then
+        fail "wezterm-xwayland.desktop still holds <HOME>"
+    fi
+    grep -Fq "file://$t/home/Documents" "$t/home/.config/gtk-3.0/bookmarks" \
+        || fail "bookmarks has no file:// line for Documents"
+    if grep -Fq '<HOME>' "$t/home/.config/gtk-3.0/bookmarks"; then
+        fail "bookmarks still holds <HOME>"
+    fi
+    grep -Fq 'https://example.com/plugins' "$t/home/.config/Code/User/settings.json" \
+        || fail "settings.json has no marketplace URL"
+    if grep -Fq '<YOUR_' "$t/home/.config/Code/User/settings.json"; then
+        fail "settings.json still holds a <YOUR_ placeholder"
+    fi
+    compgen -G "$t/home/.config/Code/User/snippets/*" > /dev/null \
+        || fail "no snippet files were imported"
+    [[ ! -e "$t/home/.config/gh/hosts.yml" ]] || fail "gh/hosts.yml was imported"
+    [[ -e "$t/home/.config/rtk/config.toml" ]] || fail "rtk/config.toml was not imported"
+
+    local leftover
+    leftover=$(grep -rlE '<(HOME|YOUR_[A-Z_]+)>' "$t/home" || true)
+    leftover=${leftover%%$'\n'*}
+    [[ -z $leftover ]] || fail "unfilled placeholder in $leftover"
 }
 
 case_lint_real_config() {
