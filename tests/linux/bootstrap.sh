@@ -54,6 +54,20 @@ EOF
     chmod +x "$t/bin/$tool"
 }
 
+# npm logs its arguments and the PATH it ran with, so a case can prove the
+# newest Node's bin comes first. install fails only when its rc file says so.
+make_npm_stub() {
+    cat > "$t/bin/npm" <<EOF
+#!/bin/sh
+printf 'npm %s\n' "\$*" >> "$t/calls"
+printf 'npm-path %s\n' "\$PATH" >> "$t/calls"
+cat "$t/stub/npm.out" 2>/dev/null
+rc=\$(cat "$t/stub/npm.rc" 2>/dev/null || echo 0)
+[ "\$rc" -eq 0 ] || exit "\$rc"
+EOF
+    chmod +x "$t/bin/npm"
+}
+
 # sudo logs like the other stubs, then runs the command it was given. `-v`
 # only validates, so it just succeeds.
 make_sudo_stub() {
@@ -187,9 +201,10 @@ EOF
     printf '1000\n' > "$t/stub/id.out"
     printf 'x86_64\n' > "$t/stub/uname.out"
     local tool
-    for tool in apt-get dpkg-query dpkg-deb code pipx claude glib-compile-schemas fc-cache id uname; do
+    for tool in apt-get dpkg-query dpkg-deb code pipx claude glib-compile-schemas fc-cache id uname nvm; do
         make_stub "$tool"
     done
+    make_npm_stub
     make_sudo_stub
     make_curl_stub
     make_git_stub
@@ -234,6 +249,10 @@ deb [signed-by=/etc/apt/keyrings/other.gpg] https://example.com/other stable mai
 EOF
     printf 'key\n' > "$dir/apt-sources/keyrings/test.gpg"
     printf 'key\n' > "$dir/apt-sources/keyrings/other.gpg"
+    # A Node that is already installed, so cases about other steps leave node,
+    # npm and pipx idle. The node cases replace this with the state they need.
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0
 }
 
 # Place the repo's apt sources and keys at their install targets, byte-identical,
@@ -275,6 +294,53 @@ make_extension_list() {
     local uuid=$1 url=$2 commit=$3
     printf '%s %s %s\n' "$uuid" "$url" "$commit" > "$t/repo/packages/linux/gnome-extensions.txt"
     printf '%s\n' "$commit" > "$t/stub/git-rev.out"
+}
+
+# The fixture nvm.sh for $1/.nvm: nvm is a function logging every call. The real
+# script can't run here, and a binary stub can't be sourced.
+make_nvm_sh() {
+    local home=$1
+    mkdir -p "$home/.nvm"
+    cat > "$home/.nvm/nvm.sh" <<EOF
+nvm() {
+    printf 'nvm %s\n' "\$*" >> "$t/calls"
+}
+EOF
+}
+
+# The pinned nvm installer in $t/net plus its tools.txt line. With PROFILE
+# unset it appends to ~/.bashrc, as the real installer does; it leaves a fixture
+# nvm.sh and one Node version behind, so the step can carry on.
+make_nvm_release() {
+    mkdir -p "$t/net"
+    cat > "$t/net/install.sh" <<EOF
+#!/bin/sh
+PROFILE=\${PROFILE:-\$HOME/.bashrc}
+printf 'nvm-install PROFILE=%s NVM_DIR=%s\n' "\$PROFILE" "\$NVM_DIR" >> "$t/calls"
+printf 'nvm touched\n' >> "\$PROFILE"
+mkdir -p "\$NVM_DIR/versions/node/v22.1.0/lib/node_modules"
+cat > "\$NVM_DIR/nvm.sh" <<'NVMSH'
+nvm() {
+    printf 'nvm %s\n' "\$*" >> "$t/calls"
+}
+NVMSH
+EOF
+    local sha
+    sha=$(sha256sum "$t/net/install.sh" | cut -d' ' -f1)
+    printf 'nvm https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh %s\n' "$sha" \
+        > "$t/repo/packages/linux/tools.txt"
+}
+
+# A Node version folder under the throwaway home, with the given npm packages
+# already in lib/node_modules. No real binaries: the npm stub is on PATH.
+make_node_version() {
+    local version=$1 path
+    local dir=$t/home/.nvm/versions/node/$version/lib/node_modules
+    shift
+    mkdir -p "$dir"
+    for path in "$@"; do
+        mkdir -p "$dir/$path"
+    done
 }
 
 # -- Cases ---------------------------------------------------------------------
@@ -797,7 +863,184 @@ case_desktop_dry_run() {
         || fail 'a step ran under --dry-run'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run; do
+# -- Node, npm, pipx -----------------------------------------------------------
+
+case_node_installs_nvm() {
+    setup_case
+    make_packages
+    rm -rf "$t/home/.nvm"
+    make_nvm_release
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq "nvm-install PROFILE=/dev/null NVM_DIR=$t/home/.nvm" "$t/calls" \
+        || fail "installer did not run with PROFILE=/dev/null: $(cat "$t/calls")"
+    output_has_status INSTALLED nvm || fail 'missing INSTALLED nvm'
+}
+
+case_node_bad_hash() {
+    setup_case
+    make_packages
+    rm -rf "$t/home/.nvm"
+    make_nvm_release
+    printf 'nvm https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh %064d\n' 0 \
+        > "$t/repo/packages/linux/tools.txt"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR nvm 'download or hash failed' || fail 'missing ERROR for the bad hash'
+    ! grep -q '^nvm-install ' "$t/calls" || fail 'the installer ran'
+}
+
+case_node_profile_untouched() {
+    setup_case
+    make_packages
+    rm -rf "$t/home/.nvm"
+    printf 'keep\n' > "$t/home/.bashrc"
+    make_nvm_release
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    [[ $(cat "$t/home/.bashrc") == keep ]] || fail 'the installer edited the profile'
+    grep -Fxq "nvm-install PROFILE=/dev/null NVM_DIR=$t/home/.nvm" "$t/calls" \
+        || fail 'PROFILE was not /dev/null'
+    output_has_status INSTALLED nvm || fail 'missing INSTALLED nvm'
+}
+
+case_node_installs_lts() {
+    setup_case
+    make_packages
+    rm -rf "$t/home/.nvm"
+    make_nvm_sh "$t/home"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'nvm install --lts' "$t/calls" || fail 'nvm install --lts was not called'
+    grep -Fxq 'nvm alias default lts/*' "$t/calls" || fail 'nvm alias default was not called'
+    output_has_status UNCHANGED nvm || fail 'missing UNCHANGED nvm'
+    output_has_status INSTALLED node || fail 'missing INSTALLED node'
+}
+
+case_node_present() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^nvm ' "$t/calls" || fail 'nvm was called'
+    ! grep -q '^curl ' "$t/calls" || fail 'curl was called'
+    output_has_status UNCHANGED nvm || fail 'missing UNCHANGED nvm'
+    output_has_status UNCHANGED node || fail 'missing UNCHANGED node'
+}
+
+case_node_npm_missing() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0 beta
+    printf 'alpha\nbeta\n' > "$t/repo/packages/linux/npm.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'npm install -g -- alpha' "$t/calls" || fail "wrong npm call: $(grep '^npm ' "$t/calls")"
+    ! grep -Fq 'npm install -g -- beta' "$t/calls" || fail 'beta was installed again'
+    output_has_status INSTALLED npm/alpha || fail 'missing INSTALLED npm/alpha'
+    output_has_status UNCHANGED npm/beta || fail 'missing UNCHANGED npm/beta'
+}
+
+case_node_npm_newest() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v20.0.0
+    make_node_version v22.1.0 beta
+    printf 'alpha\nbeta\n' > "$t/repo/packages/linux/npm.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'npm install -g -- alpha' "$t/calls" || fail "wrong npm call: $(grep '^npm ' "$t/calls")"
+    ! grep -Fq 'npm install -g -- beta' "$t/calls" || fail 'beta was installed again'
+    grep -Fq "npm-path $t/home/.nvm/versions/node/v22.1.0/bin:" "$t/calls" \
+        || fail 'npm did not run with the newest Node first on PATH'
+    output_has_status INSTALLED npm/alpha || fail 'missing INSTALLED npm/alpha'
+}
+
+case_node_npm_scoped() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0 '@scope/name'
+    printf '@scope/name\n' > "$t/repo/packages/linux/npm.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^npm ' "$t/calls" || fail "npm was called: $(grep '^npm ' "$t/calls")"
+    output_has_status UNCHANGED npm/@scope/name || fail 'missing UNCHANGED for the scope'
+}
+
+case_node_npm_present() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0 alpha beta
+    printf 'alpha\nbeta\n' > "$t/repo/packages/linux/npm.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^npm ' "$t/calls" || fail 'npm was called'
+    output_has_status UNCHANGED npm/alpha || fail 'missing UNCHANGED npm/alpha'
+    output_has_status UNCHANGED npm/beta || fail 'missing UNCHANGED npm/beta'
+}
+
+case_node_pipx_installs() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0
+    printf 'poetry\n' > "$t/repo/packages/linux/pipx.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'pipx install poetry' "$t/calls" || fail 'poetry was not installed'
+    output_has_status INSTALLED pipx/poetry || fail 'missing INSTALLED pipx/poetry'
+}
+
+case_node_pipx_present() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0
+    printf 'poetry\n' > "$t/repo/packages/linux/pipx.txt"
+    printf 'poetry 2.0.0\n' > "$t/stub/pipx.out"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -Fq 'pipx install' "$t/calls" || fail 'poetry was installed again'
+    output_has_status UNCHANGED pipx/poetry || fail 'missing UNCHANGED pipx/poetry'
+}
+
+case_node_pipx_missing_tool() {
+    setup_case
+    make_packages
+    make_nvm_sh "$t/home"
+    make_node_version v22.1.0
+    rm "$t/bin/pipx"
+    printf 'poetry\n' > "$t/repo/packages/linux/pipx.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED packages/linux/pipx.txt 'pipx not installed' \
+        || fail 'missing SKIPPED for pipx'
+    ! grep -Fq 'pipx install' "$t/calls" || fail 'pipx install was called'
+}
+
+case_node_dry_run() {
+    setup_case
+    make_packages
+    rm -rf "$t/home/.nvm"
+    printf 'poetry\n' > "$t/repo/packages/linux/pipx.txt"
+    run_bootstrap --dry-run
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status WOULD nvm || fail 'missing WOULD nvm'
+    output_has_status WOULD node || fail 'missing WOULD node'
+    output_has_status WOULD pipx/poetry || fail 'missing WOULD pipx/poetry'
+    ! grep -q '^curl ' "$t/calls" || fail 'curl was called'
+    ! grep -q '^nvm-install ' "$t/calls" || fail 'the installer ran'
+    ! grep -q '^npm ' "$t/calls" || fail 'npm was called'
+    ! grep -q '^pipx install' "$t/calls" || fail 'pipx install was called'
+}
+
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -849,6 +1092,19 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         desktop-ext-partial-folder) case_desktop_ext_partial_folder ;;
         desktop-ext-fetch-fails) case_desktop_ext_fetch_fails ;;
         desktop-dry-run) case_desktop_dry_run ;;
+        node-installs-nvm) case_node_installs_nvm ;;
+        node-bad-hash) case_node_bad_hash ;;
+        node-profile-untouched) case_node_profile_untouched ;;
+        node-installs-lts) case_node_installs_lts ;;
+        node-present) case_node_present ;;
+        node-npm-missing) case_node_npm_missing ;;
+        node-npm-newest) case_node_npm_newest ;;
+        node-npm-scoped) case_node_npm_scoped ;;
+        node-npm-present) case_node_npm_present ;;
+        node-pipx-installs) case_node_pipx_installs ;;
+        node-pipx-present) case_node_pipx_present ;;
+        node-pipx-missing-tool) case_node_pipx_missing_tool ;;
+        node-dry-run) case_node_dry_run ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         printf 'ok   %s\n' "$case_name"

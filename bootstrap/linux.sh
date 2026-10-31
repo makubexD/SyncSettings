@@ -372,9 +372,136 @@ step_extensions() {
     done 3< <(list_lines "$PACKAGES_DIR/gnome-extensions.txt")
     return "$rc"
 }
-step_node() { return 0; }
-step_npm() { return 0; }
-step_pipx() { return 0; }
+# The newest Node version under nvm, as drift_npm picks it. Empty if there's none.
+newest_node() {
+    [[ -d $HOME/.nvm/versions/node ]] || return 0
+    find "$HOME/.nvm/versions/node" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+        | sort -V | tail -n 1
+}
+
+step_node() {
+    local name='' url='' sha='' newest=''
+    if [[ -f $HOME/.nvm/nvm.sh ]]; then
+        boot_unchanged nvm
+    elif (( DRY_RUN )); then
+        status WOULD nvm
+    else
+        while read -r name url sha <&3; do
+            if [[ $name == nvm ]]; then
+                break
+            fi
+        done 3< <(list_lines "$PACKAGES_DIR/tools.txt")
+        if [[ $name != nvm || -z $url || -z $sha ]]; then
+            status ERROR nvm 'nvm pin missing'
+            return 1
+        fi
+        if ! fetch_verified "$url" "$sha" "$WORK/nvm-install.sh"; then
+            status ERROR nvm 'download or hash failed'
+            return 1
+        fi
+        if ! PROFILE=/dev/null NVM_DIR="$HOME/.nvm" bash "$WORK/nvm-install.sh" </dev/null; then
+            status ERROR nvm 'installer failed'
+            return 1
+        fi
+        boot_installed nvm
+    fi
+    newest=$(newest_node)
+    if [[ -n $newest ]]; then
+        boot_unchanged node
+    elif (( DRY_RUN )); then
+        status WOULD node
+    else
+        if ! bash -c 'export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "lts/*"' </dev/null; then
+            status ERROR node 'lts install failed'
+            return 1
+        fi
+        boot_installed node
+    fi
+}
+
+step_npm() {
+    local name newest='' dir listed present
+    local -a missing=()
+    newest=$(newest_node)
+    if [[ -z $newest ]]; then
+        boot_skipped packages/linux/npm.txt 'no Node installed'
+        return 0
+    fi
+    dir=$HOME/.nvm/versions/node/$newest
+    listed=$(package_names "$PACKAGES_DIR/npm.txt")
+    present=$(npm_packages "$dir/lib/node_modules")
+    while IFS= read -r name <&3; do
+        if [[ -z $name ]]; then
+            continue
+        fi
+        if grep -Fxq "$name" <<<"$present"; then
+            boot_unchanged "npm/$name"
+        else
+            missing+=("$name")
+        fi
+    done 3< <(printf '%s\n' "$listed")
+    if (( ${#missing[@]} == 0 )); then
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        for name in "${missing[@]}"; do
+            status WOULD "npm/$name"
+        done
+        return 0
+    fi
+    if ! PATH="$dir/bin:$PATH" npm install -g -- "${missing[@]}" </dev/null; then
+        for name in "${missing[@]}"; do
+            status ERROR "npm/$name" 'install failed'
+        done
+        return 1
+    fi
+    for name in "${missing[@]}"; do
+        boot_installed "npm/$name"
+    done
+}
+
+step_pipx() {
+    local name out present listed rc=0
+    local -a missing=()
+    if ! command -v pipx >/dev/null 2>&1; then
+        boot_skipped packages/linux/pipx.txt 'pipx not installed'
+        return 0
+    fi
+    if ! out=$(pipx list --short 2>/dev/null </dev/null); then
+        boot_skipped packages/linux/pipx.txt 'pipx failed'
+        return 0
+    fi
+    present=$(awk '{ print $1 }' <<<"$out" | LC_ALL=C sort -u)
+    listed=$(package_names "$PACKAGES_DIR/pipx.txt")
+    while IFS= read -r name <&3; do
+        if [[ -z $name ]]; then
+            continue
+        fi
+        if grep -Fxq "$name" <<<"$present"; then
+            boot_unchanged "pipx/$name"
+        else
+            missing+=("$name")
+        fi
+    done 3< <(printf '%s\n' "$listed")
+    if (( ${#missing[@]} == 0 )); then
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        for name in "${missing[@]}"; do
+            status WOULD "pipx/$name"
+        done
+        return 0
+    fi
+    for name in "${missing[@]}"; do
+        if ! pipx install "$name" </dev/null; then
+            status ERROR "pipx/$name" 'install failed'
+            rc=1
+            continue
+        fi
+        boot_installed "pipx/$name"
+    done
+    return "$rc"
+}
 step_tools() { return 0; }
 step_import() { return 0; }
 step_links() { return 0; }
