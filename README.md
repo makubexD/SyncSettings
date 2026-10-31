@@ -76,6 +76,7 @@ Add or remove files by editing `sync-config.json`. [Repository layout](docs/layo
 - [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
 - [Configuration reference](docs/configuration.md): every `sync-config.json` field, with examples
 - [Repository layout](docs/layout.md): where a file goes under `dotfiles/`, and why
+- [Packages](docs/packages.md): the package lists, the drift report, and how to change a list or move a pin
 - [Sync contract](docs/sync-contract.md): the rules both engines follow
 
 ---
@@ -180,7 +181,8 @@ a missing value is an error: nothing is written with a placeholder left unfilled
 
 1. Install the tools: `git`, `jq`, `dconf-cli`, `python3`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node and
    [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`. The restored `.bashrc` also needs `zoxide` and `starship`,
-   or every new shell prints `command not found`.
+   or every new shell prints `command not found`. Nothing installs from the lists yet, so until bootstrap exists, use
+   `packages/linux/` to see what else the old machine had ([how to read them](docs/packages.md#the-lists)).
 2. Open Claude Code once so `~/.claude` exists, then install the plugins with `/plugin`
    (`context-mode`, `agent-skills`).
 3. Clone this repo and run `./import.sh` in a terminal on the desktop, so it can restore the GNOME settings.
@@ -302,10 +304,13 @@ SyncSettings/
 ├── docs/
 │   ├── daily-workflow.md   Export → PR → review → merge → import
 │   ├── layout.md           Where a file goes under dotfiles/
+│   ├── packages.md         The package lists and the drift report
 │   ├── review-gate.md      The PR checks and the `reviewed` label
 │   └── plan-*.md           Plans the scripts were built from
+├── packages/
+│   └── linux/              What this machine has installed, and where it came from
 ├── scripts/
-│   ├── ci/                 Config lint and leak scan
+│   ├── ci/                 Config and package lint, leak scan
 │   ├── linux/sync.sh       Linux: shared bash helpers
 │   └── windows/
 │       ├── SyncHelpers.ps1 Shared functions (sanitization, hashing, linked paths, etc.)

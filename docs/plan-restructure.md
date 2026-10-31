@@ -57,13 +57,14 @@ Decision: keep two native engines (PowerShell 5.1 ships with Windows; bash on Li
 | `.tmux.conf`, `starship.toml`, `wezterm.lua`, `htoprc` | Done in phase 4: linux/{tmux,starship,wezterm,htop} |
 | `~/.config/gh/config.yml`, `~/.config/rtk/` | Done in phase 4: linux/{gh,rtk} |
 | VS Code default profile: `settings.json`, `snippets/` | Done in phase 4: linux/vscode |
-| VS Code extensions (73) | packages; named profiles stay with Settings Sync |
+| VS Code extensions (73) | Done in phase 6: packages/linux/vscode-extensions.txt; named profiles stay with Settings Sync |
 | `mimeapps.list`, GTK bookmarks, `disco-datos` and `mis-discos` launchers | Done in phase 4: linux/gnome |
 | `wezterm-xwayland` and its launcher | Done in phase 4: linux/wezterm |
 | dconf (Ptyxis, favorites, `clipboard-history` extension, tiling-assistant, nautilus) | Done in phase 5: linux/gnome/dconf. `tiling-assistant` dropped, since the extension writes those keys itself. `clipboard-history` has no settings of its own, so only `enabled-extensions` is synced, and its code moved to phase 6 |
-| Nerd Fonts | packages/linux/fonts.txt (downloaded, not stored) |
+| Nerd Fonts | Done in phase 6: packages/linux/fonts.txt (downloaded, not stored) |
 | `~/.local/bin` links to `~/.claude/bin/*` | created by bootstrap |
-| apt (+ brave, chrome, gh, wezterm sources), snap (code, postman), npm globals, pipx poetry, bun, rtk, claude, copilot, dotnet-sdk-10 | packages/linux/* |
+| apt (+ brave, chrome, gh, wezterm sources), snap (code, postman), npm globals, pipx poetry, dotnet-sdk-10 | Done in phase 6: packages/linux/*. `powershell` and `rustdesk` have no apt source, so they're split into `deb.txt`, pinned by URL and SHA-256 |
+| nvm, bun, rtk, claude, copilot | Standalone installers, each with its own recipe: bootstrap in phase 7, not a list |
 | **Never in repo**: gh `hosts.yml`, `claude-workers/env`, `omniroute.env`, ssh keys, `~/.gnupg`, `~/.claude.json`, `repown/accounts.json` | manual steps in `docs/restore.md` |
 
 Windows candidates (inventory on that machine, phase 8): `winget export`, PowerShell `$PROFILE`, VS Code
@@ -77,7 +78,8 @@ dotfiles/
   linux/    shell/  git/.gitconfig.local  tmux/  starship/  wezterm/  htop/  gh/  rtk/
             vscode/  gnome/  claude/  claude-worker/
   windows/  shell/(.bashrc .bash_profile .bashrc.linked/)  git/.gitconfig.local  windows-terminal/  (+ phase 8)
-packages/   linux/{apt.txt,apt-sources/,snap.txt,npm.txt,pipx.txt,vscode-extensions.txt,fonts.txt}  windows/winget.json
+packages/   linux/{apt.txt,deb.txt,apt-sources/keyrings/,snap.txt,npm.txt,pipx.txt,vscode-extensions.txt,fonts.txt,
+            gnome-extensions.txt,drift-ignore.txt}  windows/winget.json
 bootstrap/  linux.sh  windows.ps1
 scripts/    windows/*.ps1   linux/sync.sh
 tests/      fixtures/  engine.bats-or-sh  Engine.Tests.ps1
@@ -155,7 +157,11 @@ don't rot. Each phase updates the docs it touches; repo `CLAUDE.md` is trimmed t
    - `packages/linux/gnome-extensions.txt`: `clipboard-history` from its GitHub repo, schema compile included. Until then
      a restored `enabled-extensions` names an extension that isn't installed, and GNOME Shell ignores it.
 7. **`bootstrap/linux.sh` + `docs/restore.md`**: idempotent install (apt sources/keyrings, apt, snap, nvm + node + npm
-   globals, pipx, bun, rtk, claude, fonts, VS Code extensions) → `import.sh` → links; bootstrap dry-run in CI.
+   globals, pipx, bun, rtk, claude, copilot, fonts, VS Code extensions) → `import.sh` → links; bootstrap dry-run in CI.
+   - Install sources and keys before apt, using the paths in each source.
+   - Verify the SHA-256 before installing a `.deb` or unpacking a font.
+   - Install the extension by copying `metadata.json`, `stylesheet.css`, `schemas/` and `src/modern/*.js`, then run
+     `glib-compile-schemas`. Don't run its `install.sh`.
    - Import must run inside the graphical session, because `dconf load` needs the session bus. From a text console, each
      dconf entry reports `ERROR`.
    - Plugins: read `extraKnownMarketplaces` and `enabledPlugins` from `settings.json`, run `claude plugin marketplace add`
@@ -164,7 +170,7 @@ don't rot. Each phase updates the docs it touches; repo `CLAUDE.md` is trimmed t
      `settings.json`, or import again after it, and end on a clean `./sync preview`.
    - CI lint: `enabledPlugins` must name a declared marketplace.
    - `docs/restore.md`: Settings Sync sign-in for VS Code profiles and extensions; the `/mnt/Data` mount that the
-     launchers and bookmark use; ssh keys depend on the machine, and this one has none today.
+     launchers and bookmark use; `ubuntu-drivers` for the GPU; ssh keys depend on the machine, and this one has none today.
 8. **Windows**: inventory on the Windows machine, add its configs, `winget.json`, `bootstrap/windows.ps1`.
 9. **Cleanup + docs polish**: drop `sampleGrok.md`, `docs/plan-linux.md`; final README landing page, fill any
    `docs/` gaps, Mermaid diagrams, badges, markdownlint + link check in CI, trim repo `CLAUDE.md`

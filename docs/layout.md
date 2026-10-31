@@ -26,7 +26,16 @@ dotfiles/
     ├── git/
     ├── shell/
     └── windows-terminal/
+
+packages/
+└── linux/     What to install, not files to copy
+    ├── apt-sources/
+    │   └── keyrings/
+    └── *.txt
 ```
+
+Lists in `packages/` aren't under `dotfiles/`, so no entry owns them and `ORPHAN` doesn't apply. You edit them by hand; see
+[packages.md](packages.md).
 
 ## Where a file goes
 
@@ -51,8 +60,9 @@ the `~/` form of `localPath`, because the other form only works on Windows.
 
 ## Line endings
 
-`.gitattributes` forces LF on everything under `dotfiles/common/` and `dotfiles/linux/`, so a Windows checkout with
-`core.autocrlf=true` doesn't add CR bytes to them. `dotfiles/windows/` has no rule yet.
+`.gitattributes` forces LF on everything under `dotfiles/common/`, `dotfiles/linux/` and `packages/`, so a Windows checkout
+with `core.autocrlf=true` doesn't add CR bytes to them. `*.gpg` files under `packages/` are binary, so they're left alone.
+`dotfiles/windows/` has no rule yet.
 
 ## Why `.gitconfig` has a local part
 

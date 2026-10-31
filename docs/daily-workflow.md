@@ -50,7 +50,7 @@ When it looks right, copy your settings into the repo and open the PR (add `-m "
 ./sync commit
 ```
 
-`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>`, commits `dotfiles/` and `sync-config.json`,
+`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>`, commits `dotfiles/`, `packages/` and `sync-config.json`,
 pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
 
 On Windows, the commands are the same: `.\sync preview` in PowerShell, or `sync preview` in cmd. Use
@@ -71,6 +71,19 @@ Some tools rewrite their own settings, so preview can show a file you never open
 
 These are real settings, so read the diff rather than reverting it. To keep one out of a PR, run `git restore <file>`
 after the export; preview keeps showing it until you send it.
+
+### A `DRIFT` line
+
+On Linux, preview and export end by comparing `packages/linux/` with the machine. A line like this after you install
+something is normal:
+
+```text
+  DRIFT      apt/cowsay  (installed, not in packages/linux/apt.txt)
+```
+
+It's only a report: nothing was changed, and it doesn't stop anything. If you want the package on a restored machine, add it to
+the list, run `scripts/ci/check-packages.sh`, then `./sync commit`. If not, uninstall it or add it to `drift-ignore.txt`.
+[packages.md](packages.md#reading-the-report) covers every note.
 
 ### Machine alias
 

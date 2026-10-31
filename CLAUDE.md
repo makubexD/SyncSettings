@@ -14,6 +14,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 - Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` entries are bash-only, and `"common"` entries run on both (`Test-WindowsEntry` and `platform_entries` filter). A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
 - `dotfiles/` is the staging area inside the repo; files live under `dotfiles/<platform>/<tool>/` (`docs/layout.md`)
+- `packages/linux/` holds hand-edited package lists (`docs/packages.md`). No entry owns them, and export never writes them
 
 ## Entry Points
 
@@ -53,6 +54,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **Error handling:** `$ErrorActionPreference = 'Stop'` at script level; per-file `try/catch` so one failure doesn't abort the rest.
 - **Exclude patterns:** Checked via `-like` before every copy. Never copy files matching patterns in `sync-config.json > excludePatterns`.
 - **dconf entries:** `"type": "dconf"` syncs a dconf `path` with one `.ini` file, bash only; PowerShell validates them and doesn't run them. `keys` is an allowlist, because the repo is public. Import merges and never resets, and it won't load unless `HOME` is the login home (`dconf_home_ok`). See `docs/sync-contract.md`.
+- **Package drift:** `report_drift` compares `packages/linux/` with the machine at the end of an export or preview, bash only. It's a report: it writes no file and changes no count or exit code. Pins and root-bound fields go through `scripts/ci/check-packages.sh`. Rules are in `docs/sync-contract.md`.
 - **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
 - **Tests:** Both engines run the fixtures in `tests/fixtures/`. Bash: `tests/linux/engine.sh [case-name-filter]`. PowerShell (PS 5.1, Pester 5, from the repo root): `Invoke-Pester -Path tests/windows -CI`. CI runs them as `engine-linux` and `engine-windows`; the Pester suite calls `powershell.exe`, so on Linux `pwsh` can only parse the scripts and PowerShell changes are checked by the CI job. An engine change updates `docs/sync-contract.md` and adds a fixture case.
 
@@ -63,7 +65,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **Prompts inside loops:** a loop that reads from a pipe must use another fd (`read … <&3` with `done 3< <(…)`), or `read` takes the next loop line as the user's answer.
 - **Modes:** `cp -p` for plain copies, `chmod --reference` for files written from text. `bin/` scripts must stay executable.
 - **Missing values:** with a placeholder value missing after the prompt, with or without a terminal, `request_values` stops rather than writing an unfilled placeholder.
-- **Testing:** use a throwaway `HOME` (`HOME=$(mktemp -d) ./import.sh --force < /dev/null`) and a throwaway `git clone` for `commit.sh`. Don't test in the real repo. A throwaway `HOME` doesn't isolate `dconf load`, which goes over the session bus: the login-home guard covers import, and dconf cases run on `on_test_bus`. Never run `dconf load` or `dconf write` on the real bus. To check the real database, compare `sha256sum ~/.config/dconf/user` before and after, but a moved hash alone doesn't mean the engine wrote it, because GNOME and open apps write there too (Resources does). Also check that `dconf list /test/` is empty.
+- **Testing:** use a throwaway `HOME` (`HOME=$(mktemp -d) ./import.sh --force < /dev/null`) and a throwaway `git clone` for `commit.sh`. Don't test in the real repo. A throwaway `HOME` doesn't isolate `dconf load`, which goes over the session bus: the login-home guard covers import, and dconf cases run on `on_test_bus`. Never run `dconf load` or `dconf write` on the real bus. To check the real database, compare `sha256sum ~/.config/dconf/user` before and after, but a moved hash alone doesn't mean the engine wrote it, because GNOME and open apps write there too (Resources does). Also check that `dconf list /test/` is empty. Drift cases run on stubs (`setup_drift_case`, `run_drift`), because a case that reaches the real `apt-mark`, `snap` or `code` depends on the machine.
 
 ## Linked Paths (Auto-Detection)
 
