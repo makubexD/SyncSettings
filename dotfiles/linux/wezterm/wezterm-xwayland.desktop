@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=WezTerm
+Comment=Terminal de desarrollo
+Exec=<HOME>/.local/bin/wezterm-xwayland
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;Development;
+StartupNotify=true

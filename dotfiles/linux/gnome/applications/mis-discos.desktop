@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Mis discos
+Comment=Ver todas las unidades del equipo
+Exec=nautilus --new-window computer:///
+Icon=drive-harddisk
+Terminal=false
+Categories=System;FileTools;

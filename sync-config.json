@@ -115,6 +115,56 @@
       "description": "RTK configuration and filters"
     },
     {
+      "repoPath": "dotfiles/linux/gnome/mimeapps.list",
+      "localPath": "~/.config/mimeapps.list",
+      "platform": "linux",
+      "description": "Default applications"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/bookmarks",
+      "localPath": "~/.config/gtk-3.0/bookmarks",
+      "platform": "linux",
+      "description": "Files sidebar bookmarks",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/applications/disco-datos.desktop",
+      "localPath": "~/.local/share/applications/disco-datos.desktop",
+      "platform": "linux",
+      "description": "Launcher for the data disk"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/applications/mis-discos.desktop",
+      "localPath": "~/.local/share/applications/mis-discos.desktop",
+      "platform": "linux",
+      "description": "Launcher for the computer's drives"
+    },
+    {
+      "repoPath": "dotfiles/linux/wezterm/wezterm-xwayland",
+      "localPath": "~/.local/bin/wezterm-xwayland",
+      "platform": "linux",
+      "description": "Runs WezTerm under XWayland"
+    },
+    {
+      "repoPath": "dotfiles/linux/wezterm/wezterm-xwayland.desktop",
+      "localPath": "~/.local/share/applications/wezterm-xwayland.desktop",
+      "platform": "linux",
+      "description": "Launcher for the XWayland WezTerm",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ]
+    },
+    {
       "repoPath": "dotfiles/windows/windows-terminal/settings.json",
       "localPath": "~\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
       "platform": "windows",
