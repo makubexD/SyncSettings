@@ -1,6 +1,6 @@
 # TODO
 
-## Windows checks after phase 3
+## Windows checks after phases 3 and 4
 
 CI runs the engines on a fake profile, so these need the real Windows machine. Run them in this order: W0 can only pass
 before W1. `docs/plan-restructure-3.md` has the full table.
@@ -19,6 +19,9 @@ before W1. `docs/plan-restructure-3.md` has the full table.
 - [ ] **W4** Apps. Open Git Bash and run `vs`; open Windows Terminal. Expect the alias to work and the settings to load.
 - [ ] **W5** PR flow. With the next real change, run `export.bat`, `commit.bat`. Expect a PR from a `sync/windows-…`
       branch with `dotfiles/windows/` paths in it.
+- [ ] **W6** Global git ignore, from phase 4. Create `~/.config/git`, run `import.bat`, and expect `CREATED` or
+      `UNCHANGED` for `dotfiles/common/git/ignore`. Then `git check-ignore -v` on a path named
+      `.claude/settings.local.json` shows the rule. If the folder is missing, import reports `SKIPPED`.
 - [ ] Delete this section when all of them pass.
 
 If W0 reports changes, those are Windows edits the repo doesn't have. Note the files, run `git restore dotfiles`,
