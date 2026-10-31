@@ -705,7 +705,9 @@ step_plugins() {
         fi
     done
     for plugin in "${plugs[@]}"; do
-        if "$claude" plugin install "$plugin" </dev/null; then
+        # The shell running this has not loaded the restored .bashrc, and without
+        # bun on PATH a plugin that needs it installs with no packages.
+        if PATH="$HOME/.bun/bin:$PATH" "$claude" plugin install "$plugin" </dev/null; then
             boot_installed "plugin/$plugin"
         else
             status ERROR "plugin/$plugin" 'install failed'
