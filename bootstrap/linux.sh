@@ -16,6 +16,7 @@ FAILED=()
 INSTALLED=0
 UNCHANGED=0
 BOOT_SKIPPED=0
+NO_SESSION=0
 APT_STALE=0
 
 # Data lines of a list, without comments and blanks.
@@ -587,9 +588,133 @@ step_tools() {
     fi
     return "$rc"
 }
-step_import() { return 0; }
-step_links() { return 0; }
-step_plugins() { return 0; }
+step_import() {
+    # No desktop session means no dconf, and a screen of ERROR lines. Set
+    # NO_SESSION so preview and the summary know to stop and say so.
+    if [[ -z ${DBUS_SESSION_BUS_ADDRESS:-} ]]; then
+        NO_SESSION=1
+        if (( DRY_RUN == 0 )); then
+            boot_skipped import 'no desktop session; rerun from a terminal on the desktop'
+        fi
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        return 0
+    fi
+    # Stdin stays the terminal, so import's overwrite prompts work.
+    ./import.sh || return 1
+}
+
+step_links() {
+    local src name dest
+    for src in "$HOME"/.claude/bin/*; do
+        [[ -e $src ]] || continue
+        # Only the executable scripts, not directories or the rest.
+        [[ -f $src && -x $src ]] || continue
+        name=${src##*/}
+        dest=$HOME/.local/bin/$name
+        # -L before -e: a dangling link is "anything else" unless its target
+        # is right, so it is never overwritten as if it were missing.
+        if [[ -L $dest ]]; then
+            if [[ $(readlink "$dest") == "$HOME/.claude/bin/$name" ]]; then
+                boot_unchanged "link/$name"
+            else
+                boot_skipped "link/$name" 'exists; left alone'
+            fi
+        elif [[ -e $dest ]]; then
+            boot_skipped "link/$name" 'exists; left alone'
+        elif (( DRY_RUN )); then
+            status WOULD "link/$name"
+        else
+            mkdir -p "$HOME/.local/bin" || return 1
+            ln -s "$HOME/.claude/bin/$name" "$dest" || return 1
+            boot_installed "link/$name"
+        fi
+    done
+}
+
+# Marketplaces in settings.json that known_marketplaces.json lacks, as
+# NUL-separated add arguments.
+missing_marketplaces() {
+    local known=$HOME/.claude/plugins/known_marketplaces.json
+    [[ -f $known ]] || known=/dev/null
+    jq -j --slurpfile k <(cat "$known") '(($k[0] // {}) | keys) as $have
+        | (.extraKnownMarketplaces // {}) | to_entries[] | select(.key as $n | $have | index($n) | not)
+        | .value.source | .repo + (if .ref then "#" + .ref else "" end), "\u0000"' "$1"
+}
+
+# Enabled plugins that installed_plugins.json lacks, NUL-separated.
+missing_plugins() {
+    local installed=$HOME/.claude/plugins/installed_plugins.json
+    [[ -f $installed ]] || installed=/dev/null
+    jq -j --slurpfile i <(cat "$installed") '(($i[0].plugins // {}) | keys) as $have
+        | (.enabledPlugins // {}) | to_entries[] | select(.value == true) | .key
+        | select(. as $n | $have | index($n) | not) | (., "\u0000")' "$1"
+}
+
+step_plugins() {
+    local settings=$HOME/.claude/settings.json keep=$WORK/settings.json
+    local claude=$HOME/.local/bin/claude spec plugin rc=0
+    local -a markets=() plugs=()
+    # -x, not -e: a non-executable file is not a working claude, and the test
+    # harness leaves an empty one there to keep other cases idle.
+    if [[ ! -f $settings || ! -x $claude ]]; then
+        boot_skipped plugins 'settings.json or claude not installed'
+        return 0
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        if (( DRY_RUN )); then
+            status WOULD plugins
+            return 0
+        fi
+        status ERROR plugins 'jq not installed'
+        return 1
+    fi
+    # Both missing lists first, read from settings.json before anything rewrites
+    # it, so a dry run prints them without claude and a finished machine reports
+    # UNCHANGED without copying or touching the file.
+    while IFS= read -r -d '' spec <&3; do
+        markets+=("$spec")
+    done 3< <(missing_marketplaces "$settings")
+    while IFS= read -r -d '' plugin <&3; do
+        plugs+=("$plugin")
+    done 3< <(missing_plugins "$settings")
+    if (( ${#markets[@]} == 0 && ${#plugs[@]} == 0 )); then
+        boot_unchanged plugins
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        for spec in "${markets[@]}"; do
+            status WOULD "plugin/$spec"
+        done
+        for plugin in "${plugs[@]}"; do
+            status WOULD "plugin/$plugin"
+        done
+        return 0
+    fi
+    # `add` rewrites settings.json (it drops autoUpdate), so keep a copy aside
+    # and put it back after, whatever happened. Nothing between the two copies
+    # returns early, so the restore always runs.
+    cp -p "$settings" "$keep" || return 1
+    for spec in "${markets[@]}"; do
+        if "$claude" plugin marketplace add "$spec" </dev/null; then
+            boot_installed "plugin/$spec"
+        else
+            status ERROR "plugin/$spec" 'add failed'
+            rc=1
+        fi
+    done
+    for plugin in "${plugs[@]}"; do
+        if "$claude" plugin install "$plugin" </dev/null; then
+            boot_installed "plugin/$plugin"
+        else
+            status ERROR "plugin/$plugin" 'install failed'
+            rc=1
+        fi
+    done
+    cp -p "$keep" "$settings" || return 1
+    return "$rc"
+}
 
 step_vscode() {
     local name code out present listed rc=0
@@ -641,7 +766,15 @@ step_vscode() {
     return "$rc"
 }
 
-step_preview() { return 0; }
+step_preview() {
+    if (( DRY_RUN )); then
+        return 0
+    fi
+    if (( NO_SESSION )); then
+        return 0
+    fi
+    ./sync preview </dev/null || return 1
+}
 
 print_summary() {
     printf '\n%d installed, %d already there, %d skipped.\n' "$INSTALLED" "$UNCHANGED" "$BOOT_SKIPPED"
@@ -650,6 +783,9 @@ print_summary() {
         status ERROR "$step" 'failed'
     done
     printf 'Next: docs/restore.md\n'
+    if (( NO_SESSION )); then
+        printf 'Rerun ./bootstrap/linux.sh from a terminal on the desktop to finish.\n'
+    fi
 }
 
 main() {

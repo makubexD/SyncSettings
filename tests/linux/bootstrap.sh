@@ -209,9 +209,14 @@ setup_case() {
     mkdir -p "$t/repo/packages"
     cp -a "$REPO/packages/linux" "$t/repo/packages/"
     # Entry points used by later steps: log their arguments, do nothing else.
+    # import exits with $t/stub/import.rc, so a case can make it fail.
     cat > "$t/repo/import.sh" <<EOF
 #!/bin/sh
-printf 'import %s\n' "\$*" >> "$t/calls"
+printf 'import' >> "$t/calls"
+for a in "\$@"; do printf ' %s' "\$a" >> "$t/calls"; done
+printf '\n' >> "$t/calls"
+rc=\$(cat "$t/stub/import.rc" 2>/dev/null || echo 0)
+[ "\$rc" -eq 0 ] || exit "\$rc"
 EOF
     cat > "$t/repo/sync" <<EOF
 #!/bin/sh
@@ -242,11 +247,13 @@ EOF
 }
 
 # Run bootstrap from $t/repo with a throwaway HOME and a PATH that holds only
-# the stubs and an allowlist of harmless tools.
+# the stubs and an allowlist of harmless tools. Set bootstrap_session='' to run
+# without a session bus (restore-no-session); it defaults to a fake one.
 run_bootstrap() {
+    local session=${bootstrap_session-unix:path=/dev/null}
     rc=0
     (cd "$t/repo" && env -i HOME="$t/home" PATH="$t/bin:$t/sysbin" \
-        BOOTSTRAP_ROOT="$t/root" DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null TMPDIR="$t/tmp" \
+        BOOTSTRAP_ROOT="$t/root" DBUS_SESSION_BUS_ADDRESS="$session" TMPDIR="$t/tmp" \
         bash "$t/repo/bootstrap/linux.sh" "$@" < /dev/null) > "$out" 2>&1 || rc=$?
 }
 
@@ -417,6 +424,65 @@ write_tool_line() {
     local name=$1 url=$2 sha=${3:-}
     [[ -n $sha ]] || sha=$(sha256sum "$t/net/${url##*/}" | cut -d' ' -f1)
     printf '%s %s %s\n' "$name" "$url" "$sha" >> "$t/repo/packages/linux/tools.txt"
+}
+
+# The restore cases don't care about the earlier steps: seed them all idle, so
+# only import, links, plugins and preview do anything, and snapd is "down".
+seed_restore() {
+    make_packages
+    seed_sources
+    printf 'installed ca-certificates\ninstalled git\n' > "$t/stub/dpkg-query.out"
+    printf '1\n' > "$t/stub/snap.rc"
+}
+
+# A claude stub that records plugin state the way the real tool does: `plugin
+# marketplace add <spec>` keys known_marketplaces.json by the marketplace name it
+# finds in settings.json and drops that marketplace's autoUpdate, and `plugin
+# install <plugin>` keys installed_plugins.json's .plugins object. It logs like
+# the other stubs, then exits with $t/stub/claude.rc, so a case can make it
+# rewrite settings.json and then fail.
+make_claude_stub() {
+    cat > "$t/home/.local/bin/claude" <<EOF
+#!/bin/sh
+printf 'claude %s\n' "\$*" >> "$t/calls"
+settings=$t/home/.claude/settings.json
+plugins=$t/home/.claude/plugins
+mkdir -p "\$plugins"
+[ -f "\$plugins/known_marketplaces.json" ] || printf '{}\n' > "\$plugins/known_marketplaces.json"
+[ -f "\$plugins/installed_plugins.json" ] || printf '{"plugins":{}}\n' > "\$plugins/installed_plugins.json"
+case \$2 in
+    marketplace)
+        spec=\$4
+        key=\$(jq -r --arg spec "\$spec" '(.extraKnownMarketplaces // {}) | to_entries[] | select((.value.source.repo + (if .value.source.ref then "#" + .value.source.ref else "" end)) == \$spec) | .key' "\$settings")
+        jq --arg key "\$key" '.[\$key] = {source: {source: "github"}}' "\$plugins/known_marketplaces.json" > "\$plugins/known.tmp" && mv "\$plugins/known.tmp" "\$plugins/known_marketplaces.json"
+        jq --arg key "\$key" 'del(.extraKnownMarketplaces[\$key].autoUpdate)' "\$settings" > "\$settings.tmp" && mv "\$settings.tmp" "\$settings"
+        ;;
+    install)
+        plugin=\$3
+        jq --arg p "\$plugin" '.plugins[\$p] = {}' "\$plugins/installed_plugins.json" > "\$plugins/installed.tmp" && mv "\$plugins/installed.tmp" "\$plugins/installed_plugins.json"
+        ;;
+esac
+rc=\$(cat "$t/stub/claude.rc" 2>/dev/null || echo 0)
+[ "\$rc" -eq 0 ] || exit "\$rc"
+EOF
+    chmod +x "$t/home/.local/bin/claude"
+}
+
+# Write settings.json with the given extraKnownMarketplaces and enabledPlugins
+# objects. The plugin state folder is left to the claude stub to create.
+make_claude_settings() {
+    local markets=$1 plugins=$2
+    mkdir -p "$t/home/.claude"
+    printf '{"extraKnownMarketplaces": %s, "enabledPlugins": %s}\n' "$markets" "$plugins" \
+        > "$t/home/.claude/settings.json"
+}
+
+# An executable script in ~/.claude/bin, as import leaves it, for step_links to
+# link into ~/.local/bin.
+seed_claude_bin() {
+    mkdir -p "$t/home/.claude/bin"
+    : > "$t/home/.claude/bin/mk-exec"
+    chmod +x "$t/home/.claude/bin/mk-exec"
 }
 
 # -- Cases ---------------------------------------------------------------------
@@ -1355,7 +1421,280 @@ case_vscode_dry_run() {
     ! grep -Fq -- '--install-extension' "$t/calls" || fail 'an install ran under --dry-run'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run; do
+# -- Restore: import, links, plugins, preview ---------------------------------
+
+case_restore_import_runs() {
+    setup_case
+    seed_restore
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'import' "$t/calls" || fail 'import was not called with no arguments'
+}
+
+case_restore_import_fails() {
+    setup_case
+    seed_restore
+    printf '1\n' > "$t/stub/import.rc"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR import 'failed' || fail 'summary does not name import'
+}
+
+case_restore_no_session() {
+    setup_case
+    seed_restore
+    bootstrap_session=''
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^import' "$t/calls" || fail 'import ran without a session'
+    ! grep -q '^sync ' "$t/calls" || fail 'preview ran without a session'
+    output_has_status SKIPPED import 'no desktop session; rerun from a terminal on the desktop' \
+        || fail 'missing SKIPPED import'
+    grep -Fq 'Rerun ./bootstrap/linux.sh from a terminal on the desktop to finish.' "$out" \
+        || fail 'missing rerun line'
+}
+
+case_restore_order() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{"x@m":true}'
+    seed_claude_bin
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    local iimport iadd iinstall isync
+    iimport=$(grep -n '^import' "$t/calls" | head -n1 | cut -d: -f1)
+    iadd=$(grep -n 'claude plugin marketplace add a/b' "$t/calls" | head -n1 | cut -d: -f1)
+    iinstall=$(grep -n 'claude plugin install x@m' "$t/calls" | head -n1 | cut -d: -f1)
+    isync=$(grep -n '^sync preview' "$t/calls" | head -n1 | cut -d: -f1)
+    [[ -n $iimport && -n $iadd && -n $iinstall && -n $isync ]] || fail "missing a call: $(cat "$t/calls")"
+    (( iimport < iadd && iadd < iinstall && iinstall < isync )) \
+        || fail "wrong order: import=$iimport add=$iadd install=$iinstall sync=$isync"
+    output_has_status INSTALLED link/mk-exec || fail 'links did not run before plugins'
+}
+
+case_restore_link_new() {
+    setup_case
+    seed_restore
+    seed_claude_bin
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    [[ -L $t/home/.local/bin/mk-exec ]] || fail 'no link was created'
+    [[ $(readlink "$t/home/.local/bin/mk-exec") == "$t/home/.claude/bin/mk-exec" ]] || fail 'link points elsewhere'
+    output_has_status INSTALLED link/mk-exec || fail 'missing INSTALLED link/mk-exec'
+}
+
+case_restore_link_same() {
+    setup_case
+    seed_restore
+    seed_claude_bin
+    mkdir -p "$t/home/.local/bin"
+    ln -s "$t/home/.claude/bin/mk-exec" "$t/home/.local/bin/mk-exec"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status UNCHANGED link/mk-exec || fail 'missing UNCHANGED link/mk-exec'
+}
+
+case_restore_link_real_file() {
+    setup_case
+    seed_restore
+    seed_claude_bin
+    mkdir -p "$t/home/.local/bin"
+    printf 'keep\n' > "$t/home/.local/bin/mk-exec"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED link/mk-exec 'exists; left alone' || fail 'missing SKIPPED link/mk-exec'
+    [[ $(cat "$t/home/.local/bin/mk-exec") == keep ]] || fail 'the regular file was touched'
+}
+
+case_restore_link_other_target() {
+    setup_case
+    seed_restore
+    seed_claude_bin
+    mkdir -p "$t/home/.local/bin"
+    ln -s /somewhere/else "$t/home/.local/bin/mk-exec"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED link/mk-exec 'exists; left alone' || fail 'missing SKIPPED link/mk-exec'
+    [[ $(readlink "$t/home/.local/bin/mk-exec") == /somewhere/else ]] || fail 'the link was touched'
+}
+
+case_restore_link_dangling() {
+    setup_case
+    seed_restore
+    seed_claude_bin
+    mkdir -p "$t/home/.local/bin"
+    ln -s "$t/home/.claude/bin/gone" "$t/home/.local/bin/mk-exec"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED link/mk-exec 'exists; left alone' || fail 'a dangling link was not skipped'
+    [[ $(readlink "$t/home/.local/bin/mk-exec") == "$t/home/.claude/bin/gone" ]] || fail 'the dangling link was touched'
+}
+
+case_restore_plugins_ref() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b","ref":"c"}}}' '{}'
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'claude plugin marketplace add a/b#c' "$t/calls" || fail 'the ref was not passed to add'
+    output_has_status INSTALLED plugin/a/b#c || fail 'missing INSTALLED plugin/a/b#c'
+}
+
+case_restore_plugins_no_ref() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{}'
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'claude plugin marketplace add a/b' "$t/calls" || fail 'the marketplace was not added'
+    output_has_status INSTALLED plugin/a/b || fail 'missing INSTALLED plugin/a/b'
+}
+
+case_restore_plugins_disabled() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{"x@m":false}'
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'claude plugin marketplace add a/b' "$t/calls" || fail 'the marketplace was not added'
+    ! grep -Fq 'plugin install' "$t/calls" || fail 'a disabled plugin was installed'
+    ! output_has_status INSTALLED plugin/x@m || fail 'a disabled plugin was reported installed'
+}
+
+case_restore_plugins_settings_back() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"},"autoUpdate":true}}' '{"x@m":true}'
+    local settings=$t/home/.claude/settings.json before
+    before=$(sha256sum "$settings" | cut -d' ' -f1)
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    [[ $(sha256sum "$settings" | cut -d' ' -f1) == "$before" ]] || fail 'settings.json changed'
+}
+
+case_restore_plugins_settings_back_on_failure() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"},"autoUpdate":true}}' '{"x@m":true}'
+    printf '1\n' > "$t/stub/claude.rc"
+    local settings=$t/home/.claude/settings.json before
+    before=$(sha256sum "$settings" | cut -d' ' -f1)
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    [[ $(sha256sum "$settings" | cut -d' ' -f1) == "$before" ]] || fail 'settings.json changed after a failure'
+    output_has_status ERROR plugin/a/b 'add failed' || fail 'missing ERROR plugin/a/b'
+}
+
+case_restore_plugins_no_settings() {
+    setup_case
+    seed_restore
+    # No make_claude_stub here: seed_tools left a non-executable claude, and
+    # there is no settings.json either.
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED plugins 'settings.json or claude not installed' || fail 'missing SKIPPED plugins'
+    ! grep -q '^claude ' "$t/calls" || fail 'claude was called'
+}
+
+case_restore_plugins_present() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{"x@m":true}'
+    mkdir -p "$t/home/.claude/plugins"
+    printf '{"m":{}}\n' > "$t/home/.claude/plugins/known_marketplaces.json"
+    printf '{"plugins":{"x@m":{}}}\n' > "$t/home/.claude/plugins/installed_plugins.json"
+    local settings=$t/home/.claude/settings.json before
+    before=$(stat -c %Y "$settings")
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^claude ' "$t/calls" || fail 'claude was called'
+    [[ $(stat -c %Y "$settings") == "$before" ]] || fail 'settings.json mtime changed'
+    output_has_status UNCHANGED plugins || fail 'missing UNCHANGED plugins'
+}
+
+case_restore_plugins_partial() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{"x@m":true,"y@m":true}'
+    mkdir -p "$t/home/.claude/plugins"
+    printf '{"m":{}}\n' > "$t/home/.claude/plugins/known_marketplaces.json"
+    printf '{"plugins":{"x@m":{}}}\n' > "$t/home/.claude/plugins/installed_plugins.json"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'claude plugin install y@m' "$t/calls" || fail 'y@m was not installed'
+    ! grep -Fq 'plugin install x@m' "$t/calls" || fail 'x@m was installed again'
+    [[ $(grep -c 'claude plugin install' "$t/calls") == 1 ]] || fail 'more than one plugin was installed'
+}
+
+case_restore_plugins_no_state() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{"x@m":true}'
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'claude plugin marketplace add a/b' "$t/calls" || fail 'the marketplace was not added'
+    grep -Fxq 'claude plugin install x@m' "$t/calls" || fail 'the plugin was not installed'
+    output_has_status INSTALLED plugin/a/b || fail 'missing INSTALLED plugin/a/b'
+    output_has_status INSTALLED plugin/x@m || fail 'missing INSTALLED plugin/x@m'
+}
+
+case_restore_plugins_dry_run() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{"x@m":true}'
+    mkdir -p "$t/home/.claude/plugins"
+    printf '{"m":{}}\n' > "$t/home/.claude/plugins/known_marketplaces.json"
+    printf '{"plugins":{"x@m":{}}}\n' > "$t/home/.claude/plugins/installed_plugins.json"
+    run_bootstrap --dry-run
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q WOULD "$out" || fail "a finished machine printed a WOULD line: $(grep WOULD "$out")"
+    ! grep -q '^claude ' "$t/calls" || fail 'claude was called'
+}
+
+case_restore_dry_run_no_import() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"}}}' '{"x@m":true}'
+    run_bootstrap --dry-run
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^import' "$t/calls" || fail 'import ran under --dry-run'
+    ! grep -q '^sync ' "$t/calls" || fail 'preview ran under --dry-run'
+}
+
+case_restore_idempotent() {
+    setup_case
+    seed_restore
+    make_claude_stub
+    make_claude_settings '{"m":{"source":{"source":"github","repo":"a/b"},"autoUpdate":true}}' '{"x@m":true}'
+    seed_claude_bin
+    run_bootstrap
+    (( rc == 0 )) || fail "first run exited $rc, want 0"
+    grep -Fxq 'claude plugin marketplace add a/b' "$t/calls" || fail 'first run did not add the marketplace'
+    grep -Fxq 'claude plugin install x@m' "$t/calls" || fail 'first run did not install the plugin'
+    grep -q '^import' "$t/calls" || fail 'first run did not import'
+    [[ -L $t/home/.local/bin/mk-exec ]] || fail 'first run did not link mk-exec'
+    : > "$t/calls"
+    run_bootstrap
+    (( rc == 0 )) || fail "second run exited $rc, want 0"
+    if grep -Eq '^curl |^git fetch|^claude |^sudo .*install|^ln ' "$t/calls"; then
+        fail "the second run did work: $(cat "$t/calls")"
+    fi
+    output_has_status UNCHANGED link/mk-exec || fail 'second run did not report the link unchanged'
+    output_has_status UNCHANGED plugins || fail 'second run did not report plugins unchanged'
+}
+
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-dry-run-no-import restore-idempotent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1436,6 +1775,27 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         vscode-no-code) case_vscode_no_code ;;
         vscode-snap-path) case_vscode_snap_path ;;
         vscode-dry-run) case_vscode_dry_run ;;
+        restore-import-runs) case_restore_import_runs ;;
+        restore-import-fails) case_restore_import_fails ;;
+        restore-no-session) case_restore_no_session ;;
+        restore-order) case_restore_order ;;
+        restore-link-new) case_restore_link_new ;;
+        restore-link-same) case_restore_link_same ;;
+        restore-link-real-file) case_restore_link_real_file ;;
+        restore-link-other-target) case_restore_link_other_target ;;
+        restore-link-dangling) case_restore_link_dangling ;;
+        restore-plugins-ref) case_restore_plugins_ref ;;
+        restore-plugins-no-ref) case_restore_plugins_no_ref ;;
+        restore-plugins-disabled) case_restore_plugins_disabled ;;
+        restore-plugins-settings-back) case_restore_plugins_settings_back ;;
+        restore-plugins-settings-back-on-failure) case_restore_plugins_settings_back_on_failure ;;
+        restore-plugins-no-settings) case_restore_plugins_no_settings ;;
+        restore-plugins-present) case_restore_plugins_present ;;
+        restore-plugins-partial) case_restore_plugins_partial ;;
+        restore-plugins-no-state) case_restore_plugins_no_state ;;
+        restore-plugins-dry-run) case_restore_plugins_dry_run ;;
+        restore-dry-run-no-import) case_restore_dry_run_no_import ;;
+        restore-idempotent) case_restore_idempotent ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         printf 'ok   %s\n' "$case_name"
