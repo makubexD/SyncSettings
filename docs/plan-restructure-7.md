@@ -110,6 +110,8 @@ Core of the script:
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# jq isn't installed yet, so skip the config checks sync.sh runs when sourced.
+SYNC_LIB_ONLY=1
 source scripts/linux/sync.sh
 
 PACKAGES_DIR=$REPO_ROOT/packages/linux
@@ -298,7 +300,12 @@ Test: `tests/linux/engine.sh lint-plugins`, `tests/linux/engine.sh lint-real-plu
 
 ### 3. Skeleton and test harness `[worker:high]`
 
-Files: `bootstrap/linux.sh` (new, executable), `tests/linux/bootstrap.sh` (new, executable), `.github/workflows/ci.yml`.
+Files: `bootstrap/linux.sh` (new, executable), `tests/linux/bootstrap.sh` (new, executable), `.github/workflows/ci.yml`,
+`scripts/linux/sync.sh`.
+
+`scripts/linux/sync.sh` runs `check_platforms`, `check_paths` and a `jq` read of `excludePatterns` when sourced. Without `jq`,
+as on a fresh machine, that prints five `jq: command not found` lines and the checks do nothing. Wrap those statements in
+`if [[ -z ${SYNC_LIB_ONLY:-} ]]; then … fi`, so export, import and preview behave as before.
 
 `bootstrap/linux.sh`: the core above, with `parse_args`, `check_machine`, `print_summary` and every `step_*` as a stub that
 returns 0, so later steps fill one function each. Use the table's order in `main`.
@@ -350,10 +357,12 @@ In `ci.yml`: add `bootstrap/linux.sh` to the `shellcheck` line, and a step `Boot
 | `guard-step-order` | Plain run | Step headers print in the table's order |
 | `guard-step-failure-continues` | One stub step made to fail through a list the later steps fill | Next header still prints, exit 1, summary names the step |
 | `guard-sourced-no-main` | `source` the file from a test script | No step runs, no `sudo` |
+| `guard-no-jq` | `$t/sysbin/jq` removed, `--dry-run` | Output before the first step header has no `jq` |
 
 `guard-step-failure-continues` can only be written once a step has real code, so add it in step 4.
 
-Test: `tests/linux/bootstrap.sh guard`, shellcheck on both new files.
+Test: `tests/linux/bootstrap.sh guard`, `tests/linux/engine.sh missing-platform`, `tests/linux/engine.sh excluded`, shellcheck
+on both new files and `scripts/linux/sync.sh`.
 
 ### 4. apt sources, apt, debs `[worker:high]`
 
