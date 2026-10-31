@@ -77,7 +77,7 @@ printf 'sudo %s\n' "\$*" >> "$t/calls"
 cat "$t/stub/sudo.out" 2>/dev/null
 rc=\$(cat "$t/stub/sudo.rc" 2>/dev/null || echo 0)
 [ "\$rc" -eq 0 ] || exit "\$rc"
-if [ "\$1" = -v ]; then
+if [ "\$1" = -v ] || [ "\$1" = -k ]; then
     exit 0
 fi
 exec "\$@"
@@ -607,6 +607,23 @@ case_guard_step_failure_continues() {
     (( rc == 1 )) || fail "exited $rc, want 1"
     grep -Fq '  -- debs' "$out" || fail 'the step after apt did not run'
     grep -Eq 'ERROR[[:space:]]+apt[[:space:]]+\(failed\)' "$out" || fail 'summary does not name apt'
+}
+
+case_guard_sudo_dropped() {
+    setup_case
+    make_packages
+    printf 'code classic\n' > "$t/repo/packages/linux/snap.txt"
+    printf 'alpha\n' > "$t/repo/packages/linux/npm.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0; output: $out"
+    local k last_snap first_npm
+    k=$(grep -n '^sudo -k$' "$t/calls" | head -n1 | cut -d: -f1)
+    last_snap=$(grep -n '^sudo snap install' "$t/calls" | tail -n1 | cut -d: -f1)
+    first_npm=$(grep -n '^npm install' "$t/calls" | head -n1 | cut -d: -f1)
+    [[ -n $k && -n $last_snap && -n $first_npm ]] \
+        || fail "missing a call: sudo -k=$k snap install=$last_snap npm install=$first_npm"
+    (( last_snap < k && k < first_npm )) \
+        || fail "wrong order: snap install=$last_snap sudo -k=$k npm install=$first_npm"
 }
 
 case_apt_sources_fresh() {
@@ -1729,7 +1746,7 @@ case_restore_idempotent() {
     output_has_status UNCHANGED plugins || fail 'second run did not report plugins unchanged'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-import-error-line restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues guard-sudo-dropped apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-import-error-line restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1750,6 +1767,7 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         guard-sourced-no-main) case_guard_sourced_no_main ;;
         guard-no-jq) case_guard_no_jq ;;
         guard-step-failure-continues) case_guard_step_failure_continues ;;
+        guard-sudo-dropped) case_guard_sudo_dropped ;;
         apt-sources-fresh) case_apt_sources_fresh ;;
         apt-sources-same) case_apt_sources_same ;;
         apt-sources-differs) case_apt_sources_differs ;;

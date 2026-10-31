@@ -797,6 +797,18 @@ print_summary() {
     fi
 }
 
+# Nothing after the snaps needs root, and the steps after them run unpinned code
+# (npm scripts, the Claude installer, plugins), so end the sudo ticket here.
+drop_sudo() {
+    if (( DRY_RUN )); then
+        return 0
+    fi
+    if ! "${SUDO[@]}" -k </dev/null; then
+        status ERROR sudo 'could not end the ticket'
+        FAILED+=(sudo)
+    fi
+}
+
 main() {
     parse_args "$@"
     check_machine
@@ -806,6 +818,7 @@ main() {
     run_step apt step_apt
     run_step debs step_debs
     run_step snaps step_snaps
+    drop_sudo
     run_step fonts step_fonts
     run_step extensions step_extensions
     run_step node step_node
