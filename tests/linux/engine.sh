@@ -188,7 +188,7 @@ leak_scan_on() {
     mkdir -p "$t/${rel%/*}"
     printf '%s\n' "$line" > "$t/$rel"
     rc=0
-    "$REPO/scripts/ci/leak-scan.sh" "$t/dotfiles" > "$out" 2>&1 || rc=$?
+    "$REPO/scripts/ci/leak-scan.sh" "$t/${rel%%/*}" > "$out" 2>&1 || rc=$?
 }
 
 # A stub GH that logs each invocation to $t/gh.log and prints a fixed URL.
@@ -229,6 +229,38 @@ run_commit() {
 # Refnames of every branch on the bare origin.
 origin_branches() {
     git --git-dir="$t/origin.git" for-each-ref --format='%(refname)' refs/heads
+}
+
+# Common setup for the drift cases: a repo and home with the fixture files, a
+# packages folder, and stubs for every tool the drift report runs, so no case
+# can reach the real apt-mark, dpkg-query, snap, pipx or code.
+setup_drift_case() {
+    new_tmp
+    setup_repo
+    setup_home_fixture
+    setup_repo_fixture
+    mkdir -p "$t/repo/packages/linux" "$t/root" "$t/bin" "$t/stub"
+    mkdir -p "$t/home/.nvm/versions/node/v1.0.0/lib/node_modules"
+    local tool
+    for tool in apt-mark dpkg-query snap pipx code; do
+        cat > "$t/bin/$tool" <<EOF
+#!/bin/sh
+cat "$t/stub/$tool.out" 2>/dev/null
+exit "\$(cat "$t/stub/$tool.rc" 2>/dev/null || echo 0)"
+EOF
+        chmod +x "$t/bin/$tool"
+    done
+}
+
+# Run export.sh on a drift case: the stub PATH stands in for the package tools.
+run_drift() {
+    PATH="$t/bin:$PATH" DRIFT_ROOT="$t/root" run_engine "$t/home" export.sh
+}
+
+assert_no_drift() {
+    if grep -qE '^  DRIFT[[:space:]]' "$out"; then
+        fail "unexpected DRIFT line: $(grep -E '^  DRIFT[[:space:]]' "$out" | head -n1)"
+    fi
 }
 
 # -- Cases ---------------------------------------------------------------------
@@ -863,6 +895,15 @@ case_lint_real_config() {
     grep -Fqx 'sync-config.json: OK' "$out" || fail "missing 'sync-config.json: OK' line"
 }
 
+case_lint_real_packages() {
+    new_tmp
+
+    rc=0
+    (cd "$REPO" && scripts/ci/check-packages.sh) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "check-packages.sh exited $rc, want 0"
+    grep -Fqx 'packages/linux: OK' "$out" || fail "missing 'packages/linux: OK' line"
+}
+
 case_lint_platform_missing() {
     new_tmp
     lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then del(.platform) else . end)'
@@ -969,6 +1010,319 @@ case_lint_windows_ok() {
     lint_run '.'
 
     (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+}
+
+# The hash and commit fields of the valid packages fixture: invented values
+# only, so no real address or home path reaches a test.
+PACKAGES_HASH=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+PACKAGES_COMMIT=0123456789abcdef0123456789abcdef01234567
+
+# A valid packages folder under $t/packages: one line per list, one apt source
+# and the key it names.
+lint_packages_valid() {
+    new_tmp
+    mkdir -p "$t/packages/apt-sources/keyrings"
+    printf 'foo\n' > "$t/packages/apt.txt"
+    printf 'bar https://example.com/bar_1.0.deb %s\n' "$PACKAGES_HASH" > "$t/packages/deb.txt"
+    printf 'baz\n' > "$t/packages/snap.txt"
+    printf 'qux\n' > "$t/packages/npm.txt"
+    printf 'quux\n' > "$t/packages/pipx.txt"
+    printf 'pub.name\n' > "$t/packages/vscode-extensions.txt"
+    printf 'Font v1.2.3 %s\n' "$PACKAGES_HASH" > "$t/packages/fonts.txt"
+    printf 'uuid@example https://github.com/owner/repo %s\n' "$PACKAGES_COMMIT" \
+        > "$t/packages/gnome-extensions.txt"
+    printf 'apt ignored-one\n' > "$t/packages/drift-ignore.txt"
+    printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' \
+        > "$t/packages/apt-sources/example.sources"
+    printf 'placeholder key\n' > "$t/packages/apt-sources/keyrings/example.gpg"
+}
+
+# Run the packages lint on one directory; rc and $out hold the result.
+lint_packages_check() {
+    rc=0
+    "$REPO/scripts/ci/check-packages.sh" "$1" > "$out" 2>&1 || rc=$?
+}
+
+# Build the valid folder, apply a change inside it (a shell snippet run from
+# the folder), and run the lint.
+lint_packages_run() {
+    local change=${1:-:}
+    lint_packages_valid
+    (cd "$t/packages" && eval "$change")
+    lint_packages_check "$t/packages"
+}
+
+lint_should_pass() {
+    (( rc == 0 )) || fail "check-packages.sh exited $rc, want 0"
+    grep -Fqx "$t/packages: OK" "$out" || fail "missing '<dir>: OK' line"
+}
+
+lint_should_fail() {
+    (( rc == 1 )) || fail "check-packages.sh exited $rc, want 1"
+    grep -Fqx "$t/packages: invalid entries above" "$out" \
+        || fail "missing '<dir>: invalid entries above' line"
+    local want
+    for want in "$@"; do
+        grep -Fq -- "$want" "$out" || fail "output does not contain '$want'"
+    done
+}
+
+case_lint_packages_ok() {
+    lint_packages_run
+    lint_should_pass
+}
+
+case_lint_packages_empty_dir() {
+    new_tmp
+    mkdir -p "$t/packages"
+    lint_packages_check "$t/packages"
+    lint_should_pass
+}
+
+case_lint_packages_no_dir() {
+    new_tmp
+    lint_packages_check "$t/packages"
+    (( rc == 2 )) || fail "check-packages.sh exited $rc, want 2"
+    grep -Fq "ERROR: no such directory: $t/packages" "$out" \
+        || fail "missing the missing-directory error"
+}
+
+case_lint_packages_comments() {
+    lint_packages_run "printf 'foo\n# aaa\n\nzzz\n' > apt.txt"
+    lint_should_pass
+}
+
+case_lint_packages_apt_shell() {
+    lint_packages_run "printf 'foo;rm\n' >> apt.txt"
+    lint_should_fail 'apt.txt:2:'
+}
+
+case_lint_packages_apt_upper() {
+    lint_packages_run "printf 'Foo\n' >> apt.txt"
+    lint_should_fail 'apt.txt:2:'
+}
+
+case_lint_packages_apt_two_fields() {
+    lint_packages_run "printf 'foo bar\n' >> apt.txt"
+    lint_should_fail 'apt.txt:2:'
+}
+
+case_lint_packages_unsorted() {
+    lint_packages_run "printf 'b\na\n' > apt.txt"
+    lint_should_fail 'not sorted'
+}
+
+case_lint_packages_duplicate() {
+    lint_packages_run "printf 'a\na\n' > apt.txt"
+    lint_should_fail 'duplicate'
+}
+
+case_lint_packages_deb_http() {
+    lint_packages_run "printf 'bar http://example.com/bar_1.0.deb $PACKAGES_HASH\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_deb_no_hash() {
+    lint_packages_run "printf 'bar https://example.com/bar_1.0.deb\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_deb_short_hash() {
+    lint_packages_run "printf 'bar https://example.com/bar_1.0.deb ${PACKAGES_HASH:0:63}\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_deb_subshell() {
+    lint_packages_run "printf 'bar https://example.com/\$(x).deb $PACKAGES_HASH\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_snap_options() {
+    lint_packages_run "printf 'a classic channel=v1/stable\n' > snap.txt"
+    lint_should_pass
+}
+
+case_lint_packages_snap_order() {
+    lint_packages_run "printf 'a channel=v1/stable classic\n' > snap.txt"
+    lint_should_fail 'snap.txt:1:'
+}
+
+case_lint_packages_npm_scoped() {
+    lint_packages_run "printf '@scope/name\n' > npm.txt"
+    lint_should_pass
+}
+
+case_lint_packages_vscode_upper() {
+    lint_packages_run "printf 'Pub.Name\n' > vscode-extensions.txt"
+    lint_should_fail 'vscode-extensions.txt:1:'
+}
+
+case_lint_packages_font_no_tag() {
+    lint_packages_run "printf 'Name abc\n' > fonts.txt"
+    lint_should_fail 'fonts.txt:1:'
+}
+
+case_lint_packages_extension_other_host() {
+    lint_packages_run "printf 'uuid@example https://example.com/a/b $PACKAGES_COMMIT\n' > gnome-extensions.txt"
+    lint_should_fail 'gnome-extensions.txt:1:'
+}
+
+case_lint_packages_extension_branch() {
+    lint_packages_run "printf 'uuid@example https://github.com/owner/repo main\n' > gnome-extensions.txt"
+    lint_should_fail 'gnome-extensions.txt:1:'
+}
+
+case_lint_packages_ignore_manager() {
+    lint_packages_run "printf 'brew x\n' > drift-ignore.txt"
+    lint_should_fail 'drift-ignore.txt:1:'
+}
+
+case_lint_packages_unknown_file() {
+    lint_packages_run "printf 'x\n' > extra.txt"
+    lint_should_fail 'extra.txt:1: unknown list'
+}
+
+case_lint_packages_apt_and_deb() {
+    lint_packages_run "printf 'foo https://example.com/foo_1.0.deb $PACKAGES_HASH\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:' 'foo is also in apt.txt'
+}
+
+case_lint_packages_listed_and_ignored() {
+    lint_packages_run "printf 'apt foo\n' > drift-ignore.txt"
+    lint_should_fail 'apt.txt:1:' 'foo is ignored'
+}
+
+case_lint_packages_same_name_other_manager() {
+    lint_packages_run "printf 'snap foo\n' > drift-ignore.txt"
+    lint_should_pass
+}
+
+case_lint_packages_source_http() {
+    lint_packages_run "printf 'Types: deb\nURIs: http://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_list_http() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [signed-by=/usr/share/keyrings/example.gpg] http://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_source_unsigned() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_missing() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/missing.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_elsewhere() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /tmp/k.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_key_unused() {
+    lint_packages_run "printf 'unused\n' > apt-sources/keyrings/unused.gpg"
+    lint_should_fail 'unused.gpg'
+}
+
+case_lint_packages_source_other_file() {
+    lint_packages_run "printf 'notes\n' > apt-sources/notes.md"
+    lint_should_fail 'apt-sources/notes.md:1: unknown list'
+}
+
+case_lint_packages_source_real_shapes() {
+    lint_packages_run "printf '# leading one\n# leading two\nTypes: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nX-Repolib-Name: Example\nArchitectures: amd64 arm64\n# between fields\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources; printf 'deb [arch=amd64 signed-by=/etc/apt/keyrings/example.gpg] https://example.com/packages stable main\ndeb [signed-by=/usr/share/keyrings/example.gpg] https://example.com/r/ * *\n' > apt-sources/example.list"
+    lint_should_pass
+}
+
+case_lint_packages_source_uris_lowercase() {
+    lint_packages_run "printf 'Types: deb\nuris: http://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_uri_continuation() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\n http://example.com/other\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_second_stanza() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n\nTypes: deb\nURIs: https://example.com/other\nSuites: stable\nComponents: main\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_trusted() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nTrusted: yes\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_dotdot() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/../../tmp/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_empty() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+    if grep -q 'bad array subscript' "$out"; then
+        fail "output contains 'bad array subscript'"
+    fi
+}
+
+case_lint_packages_list_second_line() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\ndeb https://example.com/other other main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_list_deb_src_http() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb-src [signed-by=/usr/share/keyrings/example.gpg] http://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_list_trusted() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [trusted=yes signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_list_other_line() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\nfoo bar\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_symlink() {
+    lint_packages_run "ln -s nowhere extra.txt"
+    lint_should_fail 'extra.txt' 'symlink'
+}
+
+case_lint_packages_other_dir() {
+    lint_packages_run "mkdir -p other; printf 'x\n' > other/n.txt"
+    lint_should_fail 'other' 'unknown list'
+}
+
+case_lint_packages_key_deep() {
+    lint_packages_run "mkdir -p apt-sources/keyrings/sub; printf 'x\n' > apt-sources/keyrings/sub/n.gpg"
+    lint_should_fail 'apt-sources/keyrings/sub/n.gpg' 'unknown list'
+}
+
+case_lint_packages_source_key_continuation() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n /tmp/other.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_allow_insecure() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nAllow-Insecure: yes\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_field_space() {
+    lint_packages_run "printf 'Types: deb\nURIs : http://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_list_allow_insecure() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [Allow-Insecure=yes signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
 }
 
 case_path_dotted_name() {
@@ -1938,6 +2292,55 @@ case_leak_email_other_suffix() {
 case_leak_email_key_in_value() {
     new_tmp
     leak_scan_on dotfiles/linux/gnome/dconf/shell.ini "label='enabled-extensions=person@gmail.com'"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+# A whole, well-formed line of the extension list is not an address; an
+# address anywhere else on the line, or the line in another file, still is.
+case_leak_gnome_list_ok() {
+    new_tmp
+    leak_scan_on packages/linux/gnome-extensions.txt \
+        "clip@someone.github.io https://github.com/someone/clip 0123456789abcdef0123456789abcdef01234567"
+    (( rc == 0 )) || fail "leak-scan exited $rc, want 0"
+    [[ ! -s $out ]] || fail "leak-scan reported a hit"
+}
+
+case_leak_gnome_list_comment() {
+    new_tmp
+    leak_scan_on packages/linux/gnome-extensions.txt "# ask person@gmail.com"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_gnome_list_extra_field() {
+    new_tmp
+    leak_scan_on packages/linux/gnome-extensions.txt \
+        "clip@someone.github.io https://github.com/someone/clip 0123456789abcdef0123456789abcdef01234567 person@gmail.com"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_gnome_list_url_address() {
+    new_tmp
+    leak_scan_on packages/linux/gnome-extensions.txt \
+        "clip@someone.github.io https://person@gmail.com/x 0123456789abcdef0123456789abcdef01234567"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_gnome_list_short_commit() {
+    new_tmp
+    leak_scan_on packages/linux/gnome-extensions.txt \
+        "clip@someone.github.io https://github.com/someone/clip 0123456"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_gnome_other_file() {
+    new_tmp
+    leak_scan_on packages/linux/npm.txt \
+        "clip@someone.github.io https://github.com/someone/clip 0123456789abcdef0123456789abcdef01234567"
     (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
     grep -Fq 'email' "$out" || fail "missing email hit"
 }
@@ -3139,9 +3542,376 @@ case_dconf_roundtrip_settles() {
         || fail "a backup was written during a settled round trip"
 }
 
+# -- Package drift --------------------------------------------------------------
+
+case_drift_no_packages() {
+    setup_drift_case
+    rm -rf "$t/repo/packages"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+    if grep -Fq 'packages/' "$out"; then
+        fail "output names packages/ despite no packages folder"
+    fi
+}
+
+case_drift_none() {
+    setup_drift_case
+    printf 'installed foo\ninstalled bar\n' > "$t/stub/dpkg-query.out"
+    printf 'foo\nbar\n' > "$t/stub/apt-mark.out"
+    printf 'foo\nbar\n' > "$t/repo/packages/linux/apt.txt"
+    printf 'Name  Version  Rev  Tracking  Publisher  Notes\ncode  1.0  1  latest/stable  vscode**  classic\n' > "$t/stub/snap.out"
+    printf 'code classic\n' > "$t/repo/packages/linux/snap.txt"
+    mkdir -p "$t/home/.nvm/versions/node/v1.0.0/lib/node_modules/foo"
+    printf 'foo\n' > "$t/repo/packages/linux/npm.txt"
+    printf 'bar 1.2.3\n' > "$t/stub/pipx.out"
+    printf 'bar\n' > "$t/repo/packages/linux/pipx.txt"
+    printf 'a.b\n' > "$t/stub/code.out"
+    printf 'a.b\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_empty_list() {
+    setup_drift_case
+    printf '# nothing installed\n' > "$t/repo/packages/linux/apt.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+    if grep -qE '^  DRIFT +apt/[[:space:]]' "$out"; then
+        fail "output has a DRIFT line with a blank apt name"
+    fi
+}
+
+case_drift_apt_extra() {
+    setup_drift_case
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt/foo 'installed, not in packages/linux/apt.txt' \
+        || fail "missing DRIFT apt/foo line"
+}
+
+case_drift_apt_missing() {
+    setup_drift_case
+    printf 'foo\n' > "$t/repo/packages/linux/apt.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt/foo 'in packages/linux/apt.txt, not installed' \
+        || fail "missing DRIFT apt/foo line"
+}
+
+case_drift_apt_auto_listed() {
+    setup_drift_case
+    printf 'foo\n' > "$t/repo/packages/linux/apt.txt"
+    printf 'installed foo\n' > "$t/stub/dpkg-query.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_apt_not_installed_state() {
+    setup_drift_case
+    printf 'foo\n' > "$t/repo/packages/linux/apt.txt"
+    printf 'config-files foo\n' > "$t/stub/dpkg-query.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt/foo 'in packages/linux/apt.txt, not installed' \
+        || fail "missing DRIFT apt/foo (not installed state) line"
+}
+
+case_drift_apt_ignored() {
+    setup_drift_case
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+    printf 'apt foo\n' > "$t/repo/packages/linux/drift-ignore.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_apt_ignore_other_manager() {
+    setup_drift_case
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+    printf 'snap foo\n' > "$t/repo/packages/linux/drift-ignore.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt/foo 'installed, not in packages/linux/apt.txt' \
+        || fail "missing DRIFT apt/foo line"
+}
+
+case_drift_apt_arch_suffix() {
+    setup_drift_case
+    printf 'foo:i386\n' > "$t/stub/apt-mark.out"
+    printf 'installed foo\n' > "$t/stub/dpkg-query.out"
+    printf 'foo\n' > "$t/repo/packages/linux/apt.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_deb_listed() {
+    setup_drift_case
+    printf 'foo https://example.com/foo.deb %s\n' "$PACKAGES_HASH" > "$t/repo/packages/linux/deb.txt"
+    printf 'installed foo\n' > "$t/stub/dpkg-query.out"
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_deb_missing() {
+    setup_drift_case
+    printf 'foo https://example.com/foo.deb %s\n' "$PACKAGES_HASH" > "$t/repo/packages/linux/deb.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt/foo 'in packages/linux/deb.txt, not installed' \
+        || fail "missing DRIFT apt/foo line"
+}
+
+case_drift_snap_notes() {
+    setup_drift_case
+    printf 'foo\nbar\n' > "$t/repo/packages/linux/snap.txt"
+    printf 'Name  Version  Rev  Tracking  Publisher  Notes\ncore22  20250101  1  latest/stable  canonical**  base\ncore24  20250101  1  latest/stable  canonical**  base,held\nsnapd  2.66  1  latest/stable  canonical**  snapd\nfoo  1.0  1  latest/stable  someone  -\nbar  2.0  1  latest/stable  someone  classic\n' > "$t/stub/snap.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_snap_options() {
+    setup_drift_case
+    printf 'foo classic channel=v1/stable\n' > "$t/repo/packages/linux/snap.txt"
+    printf 'Name  Version  Rev  Tracking  Publisher  Notes\nfoo  1.0  1  v1/stable  someone  classic\n' > "$t/stub/snap.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_snap_extra() {
+    setup_drift_case
+    printf 'Name  Version  Rev  Tracking  Publisher  Notes\nfoo  1.0  1  latest/stable  someone  classic\n' > "$t/stub/snap.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT snap/foo 'installed, not in packages/linux/snap.txt' \
+        || fail "missing DRIFT snap/foo line"
+}
+
+case_drift_snap_missing() {
+    setup_drift_case
+    printf 'foo\n' > "$t/repo/packages/linux/snap.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT snap/foo 'in packages/linux/snap.txt, not installed' \
+        || fail "missing DRIFT snap/foo line"
+}
+
+case_drift_npm_extra() {
+    setup_drift_case
+    mkdir -p "$t/home/.nvm/versions/node/v1.0.0/lib/node_modules/foo"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT npm/foo 'installed, not in packages/linux/npm.txt' \
+        || fail "missing DRIFT npm/foo line"
+}
+
+case_drift_npm_scoped() {
+    setup_drift_case
+    mkdir -p "$t/home/.nvm/versions/node/v1.0.0/lib/node_modules/@a/b"
+    printf '@a/b\n' > "$t/repo/packages/linux/npm.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_npm_newest() {
+    setup_drift_case
+    mkdir -p "$t/home/.nvm/versions/node/v9.0.0/lib/node_modules/x"
+    mkdir -p "$t/home/.nvm/versions/node/v10.0.0/lib/node_modules/y"
+    printf 'y\n' > "$t/repo/packages/linux/npm.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_npm_hidden() {
+    setup_drift_case
+    mkdir -p "$t/home/.nvm/versions/node/v1.0.0/lib/node_modules/.bin"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_npm_no_call() {
+    setup_drift_case
+    cat > "$t/bin/npm" <<EOF
+#!/bin/sh
+touch "$t/called"
+EOF
+    chmod +x "$t/bin/npm"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    [[ ! -e "$t/called" ]] || fail "the npm stub was called"
+}
+
+case_drift_npm_no_nvm() {
+    setup_drift_case
+    rm -rf "$t/home/.nvm"
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status SKIPPED packages/linux/npm.txt 'nvm not installed' \
+        || fail "missing SKIPPED nvm not installed line"
+    output_has_status DRIFT apt/foo 'installed, not in packages/linux/apt.txt' \
+        || fail "apt did not still report after npm was skipped"
+}
+
+case_drift_pipx() {
+    setup_drift_case
+    printf 'foo 1.2.3\n' > "$t/stub/pipx.out"
+    printf 'foo\n' > "$t/repo/packages/linux/pipx.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_vscode() {
+    setup_drift_case
+    printf 'a.b\n' > "$t/stub/code.out"
+    printf 'c.d\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT vscode/a.b 'installed, not in packages/linux/vscode-extensions.txt' \
+        || fail "missing DRIFT vscode/a.b line"
+    output_has_status DRIFT vscode/c.d 'in packages/linux/vscode-extensions.txt, not installed' \
+        || fail "missing DRIFT vscode/c.d line"
+}
+
+case_drift_tool_missing() {
+    setup_drift_case
+    # A PATH with every tool export.sh needs but none of the drift tools, so the
+    # report prints "not installed" for each instead of reaching the real ones.
+    local stub=$t/stubpath tool
+    mkdir -p "$stub"
+    for tool in bash dirname jq find sort cat cp cmp chmod mkdir rm git uname awk sed comm tail; do
+        ln -s "$(command -v "$tool")" "$stub/$tool"
+    done
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" PATH="$stub" DRIFT_ROOT="$t/root" ./export.sh < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status SKIPPED packages/linux/snap.txt 'snap not installed' \
+        || fail "missing SKIPPED (snap not installed) line"
+}
+
+case_drift_tool_fails() {
+    setup_drift_case
+    printf '1\n' > "$t/stub/snap.rc"
+    printf 'bar 1.0\n' > "$t/stub/pipx.out"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status SKIPPED packages/linux/snap.txt 'snap failed' \
+        || fail "missing SKIPPED (snap failed) line"
+    output_has_status DRIFT pipx/bar 'installed, not in packages/linux/pipx.txt' \
+        || fail "pipx did not still report after snap failed"
+}
+
+case_drift_counts_unchanged() {
+    setup_drift_case
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+    printf 'bar 1.0\n' > "$t/stub/pipx.out"
+    printf 'c.d\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+    printf '1\n' > "$t/stub/snap.rc"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    local drift_count
+    drift_count=$(grep -cE '^  DRIFT[[:space:]]' "$out" || true)
+    (( drift_count == 3 )) || fail "found $drift_count DRIFT lines, want 3"
+    output_has_status DRIFT apt/foo 'installed, not in packages/linux/apt.txt' \
+        || fail "missing DRIFT apt/foo line"
+    output_has_status DRIFT pipx/bar 'installed, not in packages/linux/pipx.txt' \
+        || fail "missing DRIFT pipx/bar line"
+    output_has_status DRIFT vscode/c.d 'in packages/linux/vscode-extensions.txt, not installed' \
+        || fail "missing DRIFT vscode/c.d line"
+    output_has_status SKIPPED packages/linux/snap.txt 'snap failed' \
+        || fail "missing SKIPPED (snap failed) line"
+    grep -Fq 'Repo is up to date' "$out" || fail "missing 'Repo is up to date' line"
+    if grep -Fq 'file(s) skipped' "$out"; then
+        fail "unexpected 'file(s) skipped' note"
+    fi
+}
+
+case_drift_writes_nothing() {
+    setup_drift_case
+    printf 'foo\n' > "$t/repo/packages/linux/apt.txt"
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+
+    local before
+    before=$(tree_hash "$t/repo/packages")
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    [[ $(tree_hash "$t/repo/packages") == "$before" ]] || fail "packages/ changed during export"
+}
+
+case_drift_preview() {
+    setup_drift_case
+    mkdir -p "$t/repo/scripts/ci"
+    cp -a "$REPO/scripts/ci/." "$t/repo/scripts/ci/"
+    printf '# no apt packages\n' > "$t/repo/packages/linux/apt.txt"
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+    make_git_repo
+
+    local repo_before
+    repo_before=$(tree_hash "$t/repo")
+
+    PATH="$t/bin:$PATH" DRIFT_ROOT="$t/root" run_engine "$t/home" export.sh --preview
+    (( rc == 0 )) || fail "preview exited $rc, want 0"
+    output_has_status DRIFT apt/foo 'installed, not in packages/linux/apt.txt' \
+        || fail "missing DRIFT line in preview"
+    grep -Fq 'Nothing would be sent' "$out" || fail "missing 'Nothing would be sent' line"
+    [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed during preview"
+}
+
+case_drift_import_silent() {
+    setup_drift_case
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+
+    PATH="$t/bin:$PATH" DRIFT_ROOT="$t/root" run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -qE '^  DRIFT[[:space:]]' "$out"; then
+        fail "import printed a DRIFT line"
+    fi
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-preview drift-import-silent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -3176,6 +3946,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         real-config-roundtrip) case_real_config_roundtrip ;;
         real-config-dconf-restore) case_real_config_dconf_restore ;;
         lint-real-config) case_lint_real_config ;;
+        lint-real-packages) case_lint_real_packages ;;
         lint-platform-missing) case_lint_platform_missing ;;
         lint-platform-bad) case_lint_platform_bad ;;
         lint-linux-prefix) case_lint_linux_prefix ;;
@@ -3189,6 +3960,56 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         lint-windows-sibling) case_lint_windows_sibling ;;
         lint-windows-linux-prefix) case_lint_windows_linux_prefix ;;
         lint-windows-ok) case_lint_windows_ok ;;
+        lint-packages-ok) case_lint_packages_ok ;;
+        lint-packages-empty-dir) case_lint_packages_empty_dir ;;
+        lint-packages-no-dir) case_lint_packages_no_dir ;;
+        lint-packages-comments) case_lint_packages_comments ;;
+        lint-packages-apt-shell) case_lint_packages_apt_shell ;;
+        lint-packages-apt-upper) case_lint_packages_apt_upper ;;
+        lint-packages-apt-two-fields) case_lint_packages_apt_two_fields ;;
+        lint-packages-unsorted) case_lint_packages_unsorted ;;
+        lint-packages-duplicate) case_lint_packages_duplicate ;;
+        lint-packages-deb-http) case_lint_packages_deb_http ;;
+        lint-packages-deb-no-hash) case_lint_packages_deb_no_hash ;;
+        lint-packages-deb-short-hash) case_lint_packages_deb_short_hash ;;
+        lint-packages-deb-subshell) case_lint_packages_deb_subshell ;;
+        lint-packages-snap-options) case_lint_packages_snap_options ;;
+        lint-packages-snap-order) case_lint_packages_snap_order ;;
+        lint-packages-npm-scoped) case_lint_packages_npm_scoped ;;
+        lint-packages-vscode-upper) case_lint_packages_vscode_upper ;;
+        lint-packages-font-no-tag) case_lint_packages_font_no_tag ;;
+        lint-packages-extension-other-host) case_lint_packages_extension_other_host ;;
+        lint-packages-extension-branch) case_lint_packages_extension_branch ;;
+        lint-packages-ignore-manager) case_lint_packages_ignore_manager ;;
+        lint-packages-unknown-file) case_lint_packages_unknown_file ;;
+        lint-packages-apt-and-deb) case_lint_packages_apt_and_deb ;;
+        lint-packages-listed-and-ignored) case_lint_packages_listed_and_ignored ;;
+        lint-packages-same-name-other-manager) case_lint_packages_same_name_other_manager ;;
+        lint-packages-source-http) case_lint_packages_source_http ;;
+        lint-packages-list-http) case_lint_packages_list_http ;;
+        lint-packages-source-unsigned) case_lint_packages_source_unsigned ;;
+        lint-packages-source-key-missing) case_lint_packages_source_key_missing ;;
+        lint-packages-source-key-elsewhere) case_lint_packages_source_key_elsewhere ;;
+        lint-packages-key-unused) case_lint_packages_key_unused ;;
+        lint-packages-source-other-file) case_lint_packages_source_other_file ;;
+        lint-packages-source-real-shapes) case_lint_packages_source_real_shapes ;;
+        lint-packages-source-uris-lowercase) case_lint_packages_source_uris_lowercase ;;
+        lint-packages-source-uri-continuation) case_lint_packages_source_uri_continuation ;;
+        lint-packages-source-second-stanza) case_lint_packages_source_second_stanza ;;
+        lint-packages-source-trusted) case_lint_packages_source_trusted ;;
+        lint-packages-source-key-dotdot) case_lint_packages_source_key_dotdot ;;
+        lint-packages-source-key-empty) case_lint_packages_source_key_empty ;;
+        lint-packages-list-second-line) case_lint_packages_list_second_line ;;
+        lint-packages-list-deb-src-http) case_lint_packages_list_deb_src_http ;;
+        lint-packages-list-trusted) case_lint_packages_list_trusted ;;
+        lint-packages-list-other-line) case_lint_packages_list_other_line ;;
+        lint-packages-symlink) case_lint_packages_symlink ;;
+        lint-packages-other-dir) case_lint_packages_other_dir ;;
+        lint-packages-key-deep) case_lint_packages_key_deep ;;
+        lint-packages-source-key-continuation) case_lint_packages_source_key_continuation ;;
+        lint-packages-source-allow-insecure) case_lint_packages_source_allow_insecure ;;
+        lint-packages-source-field-space) case_lint_packages_source_field_space ;;
+        lint-packages-list-allow-insecure) case_lint_packages_list_allow_insecure ;;
         path-dotted-name) case_path_dotted_name ;;
         escape-import) case_escape_import ;;
         escape-export) case_escape_export ;;
@@ -3263,6 +4084,12 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         leak-email-other-file) case_leak_email_other_file ;;
         leak-email-other-suffix) case_leak_email_other_suffix ;;
         leak-email-key-in-value) case_leak_email_key_in_value ;;
+        leak-gnome-list-ok) case_leak_gnome_list_ok ;;
+        leak-gnome-list-comment) case_leak_gnome_list_comment ;;
+        leak-gnome-list-extra-field) case_leak_gnome_list_extra_field ;;
+        leak-gnome-list-url-address) case_leak_gnome_list_url_address ;;
+        leak-gnome-list-short-commit) case_leak_gnome_list_short_commit ;;
+        leak-gnome-other-file) case_leak_gnome_other_file ;;
         dconf-test-bus) case_dconf_test_bus ;;
         dconf-config-valid) case_dconf_config_valid ;;
         dconf-path-missing) case_dconf_path_missing ;;
@@ -3322,6 +4149,36 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         dconf-import-prompt-reads-stdin) case_dconf_import_prompt_reads_stdin ;;
         dconf-roundtrip-values) case_dconf_roundtrip_values ;;
         dconf-roundtrip-settles) case_dconf_roundtrip_settles ;;
+        drift-no-packages) case_drift_no_packages ;;
+        drift-none) case_drift_none ;;
+        drift-empty-list) case_drift_empty_list ;;
+        drift-apt-extra) case_drift_apt_extra ;;
+        drift-apt-missing) case_drift_apt_missing ;;
+        drift-apt-auto-listed) case_drift_apt_auto_listed ;;
+        drift-apt-not-installed-state) case_drift_apt_not_installed_state ;;
+        drift-apt-ignored) case_drift_apt_ignored ;;
+        drift-apt-ignore-other-manager) case_drift_apt_ignore_other_manager ;;
+        drift-apt-arch-suffix) case_drift_apt_arch_suffix ;;
+        drift-deb-listed) case_drift_deb_listed ;;
+        drift-deb-missing) case_drift_deb_missing ;;
+        drift-snap-notes) case_drift_snap_notes ;;
+        drift-snap-options) case_drift_snap_options ;;
+        drift-snap-extra) case_drift_snap_extra ;;
+        drift-snap-missing) case_drift_snap_missing ;;
+        drift-npm-extra) case_drift_npm_extra ;;
+        drift-npm-scoped) case_drift_npm_scoped ;;
+        drift-npm-newest) case_drift_npm_newest ;;
+        drift-npm-hidden) case_drift_npm_hidden ;;
+        drift-npm-no-call) case_drift_npm_no_call ;;
+        drift-npm-no-nvm) case_drift_npm_no_nvm ;;
+        drift-pipx) case_drift_pipx ;;
+        drift-vscode) case_drift_vscode ;;
+        drift-tool-missing) case_drift_tool_missing ;;
+        drift-tool-fails) case_drift_tool_fails ;;
+        drift-counts-unchanged) case_drift_counts_unchanged ;;
+        drift-writes-nothing) case_drift_writes_nothing ;;
+        drift-preview) case_drift_preview ;;
+        drift-import-silent) case_drift_import_silent ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then

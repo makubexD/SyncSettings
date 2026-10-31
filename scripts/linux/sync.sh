@@ -464,6 +464,165 @@ dconf_unapplied() {
     LC_ALL=C comm -23 <(dconf_flat < "$1" | LC_ALL=C sort) <(dconf_flat <<<"$2" | LC_ALL=C sort)
 }
 
+# -- Package drift ---------------------------------------------------------------
+
+# Names in a list: the first field of each line, without comments and blanks.
+package_names() {
+    [[ -f $1 ]] || return 0
+    awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$1" | LC_ALL=C sort -u
+}
+
+# Names drift-ignore.txt gives for one manager.
+drift_ignored() {
+    [[ -f $PACKAGES_DIR/drift-ignore.txt ]] || return 0
+    awk -v m="$1" '$1 == m { print $2 }' "$PACKAGES_DIR/drift-ignore.txt" | LC_ALL=C sort -u
+}
+
+# Listed names ($3, sorted) that aren't present ($4).
+drift_missing() {
+    local manager=$1 list=$2 listed=$3 present=$4 name
+    while IFS= read -r name; do
+        [[ -z $name ]] || status DRIFT "$manager/$name" "in packages/linux/$list, not installed"
+    done < <(LC_ALL=C comm -23 <(printf '%s\n' "$listed") <(printf '%s\n' "$present" | LC_ALL=C sort -u))
+}
+
+# Chosen names ($4) that are neither listed ($3) nor ignored.
+drift_extra() {
+    local manager=$1 list=$2 listed=$3 chosen=$4 name
+    while IFS= read -r name; do
+        [[ -z $name ]] || status DRIFT "$manager/$name" "installed, not in packages/linux/$list"
+    done < <(LC_ALL=C comm -13 <(printf '%s\n%s\n' "$listed" "$(drift_ignored "$manager")" | LC_ALL=C sort -u) \
+                               <(printf '%s\n' "$chosen" | LC_ALL=C sort -u))
+}
+
+# Installed npm packages under a node_modules dir: one @scope/name per scoped
+# package, one name per plain package, and no dotfiles like .bin.
+npm_packages() {
+    local node_dir=$1 name sub
+    [[ -d $node_dir ]] || return 0
+    for name in "$node_dir"/*; do
+        [[ -d $name ]] || continue
+        name=${name##*/}
+        [[ $name == .* ]] && continue
+        if [[ $name == @* ]]; then
+            for sub in "$node_dir/$name"/*; do
+                [[ -d $sub ]] || continue
+                sub=${sub##*/}
+                [[ $sub == .* ]] && continue
+                printf '%s/%s\n' "$name" "$sub"
+            done
+        else
+            printf '%s\n' "$name"
+        fi
+    done | LC_ALL=C sort -u
+}
+
+drift_apt() {
+    local out present chosen apt_listed deb_listed listed
+    apt_listed=$(package_names "$PACKAGES_DIR/apt.txt")
+    deb_listed=$(package_names "$PACKAGES_DIR/deb.txt")
+    listed=$(printf '%s\n%s\n' "$apt_listed" "$deb_listed" | LC_ALL=C sort -u)
+
+    if ! command -v dpkg-query >/dev/null 2>&1; then
+        status SKIPPED packages/linux/apt.txt 'dpkg-query not installed'
+        return 0
+    fi
+    if ! out=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' 2>/dev/null); then
+        status SKIPPED packages/linux/apt.txt 'dpkg-query failed'
+        return 0
+    fi
+    present=$(awk '$1 == "installed" { print $2 }' <<<"$out" | LC_ALL=C sort -u)
+    drift_missing apt apt.txt "$apt_listed" "$present"
+    drift_missing apt deb.txt "$deb_listed" "$present"
+
+    if ! command -v apt-mark >/dev/null 2>&1; then
+        status SKIPPED packages/linux/apt.txt 'apt-mark not installed'
+        return 0
+    fi
+    if ! out=$(apt-mark showmanual 2>/dev/null); then
+        status SKIPPED packages/linux/apt.txt 'apt-mark failed'
+        return 0
+    fi
+    chosen=$(awk -F: '{ print $1 }' <<<"$out" | LC_ALL=C sort -u)
+    drift_extra apt apt.txt "$listed" "$chosen"
+}
+
+drift_snap() {
+    local out present listed
+    if ! command -v snap >/dev/null 2>&1; then
+        status SKIPPED packages/linux/snap.txt 'snap not installed'
+        return 0
+    fi
+    if ! out=$(snap list 2>/dev/null); then
+        status SKIPPED packages/linux/snap.txt 'snap failed'
+        return 0
+    fi
+    present=$(awk 'NR > 1 && $NF !~ /(^|,)(base|snapd)(,|$)/ { print $1 }' <<<"$out" | LC_ALL=C sort -u)
+    listed=$(package_names "$PACKAGES_DIR/snap.txt")
+    drift_missing snap snap.txt "$listed" "$present"
+    drift_extra snap snap.txt "$listed" "$present"
+}
+
+drift_npm() {
+    local nvm_dir newest node_dir listed present
+    nvm_dir=$HOME/.nvm/versions/node
+    if [[ ! -d $nvm_dir ]]; then
+        status SKIPPED packages/linux/npm.txt 'nvm not installed'
+        return 0
+    fi
+    newest=$(find "$nvm_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V | tail -n 1) || newest=
+    [[ -n $newest ]] || { status SKIPPED packages/linux/npm.txt 'nvm not installed'; return 0; }
+    node_dir=$nvm_dir/$newest/lib/node_modules
+    listed=$(package_names "$PACKAGES_DIR/npm.txt")
+    present=$(npm_packages "$node_dir")
+    drift_missing npm npm.txt "$listed" "$present"
+    drift_extra npm npm.txt "$listed" "$present"
+}
+
+drift_pipx() {
+    local out present listed
+    if ! command -v pipx >/dev/null 2>&1; then
+        status SKIPPED packages/linux/pipx.txt 'pipx not installed'
+        return 0
+    fi
+    if ! out=$(pipx list --short 2>/dev/null); then
+        status SKIPPED packages/linux/pipx.txt 'pipx failed'
+        return 0
+    fi
+    present=$(awk '{ print $1 }' <<<"$out" | LC_ALL=C sort -u)
+    listed=$(package_names "$PACKAGES_DIR/pipx.txt")
+    drift_missing pipx pipx.txt "$listed" "$present"
+    drift_extra pipx pipx.txt "$listed" "$present"
+}
+
+drift_vscode() {
+    local out present listed
+    if ! command -v code >/dev/null 2>&1; then
+        status SKIPPED packages/linux/vscode-extensions.txt 'code not installed'
+        return 0
+    fi
+    if ! out=$(code --list-extensions 2>/dev/null); then
+        status SKIPPED packages/linux/vscode-extensions.txt 'code failed'
+        return 0
+    fi
+    present=$(LC_ALL=C sort -u <<<"$out")
+    listed=$(package_names "$PACKAGES_DIR/vscode-extensions.txt")
+    drift_missing vscode vscode-extensions.txt "$listed" "$present"
+    drift_extra vscode vscode-extensions.txt "$listed" "$present"
+}
+
+# Report drift between the package lists and what this machine has installed.
+# Report only: never writes a list, never changes a count or the exit code.
+report_drift() {
+    PACKAGES_DIR=$REPO_ROOT/packages/linux
+    [[ -d $PACKAGES_DIR ]] || return 0
+    drift_apt
+    drift_snap
+    drift_npm
+    drift_pipx
+    drift_vscode
+}
+
 # -- Status output --------------------------------------------------------------
 
 status() {
@@ -559,6 +718,9 @@ run_preview() {
     tar -xf "$PREVIEW_TMP/before.tar" -C "$PREVIEW_TMP/before"
 
     cp -a "$REPO_ROOT/dotfiles" "$REPO_ROOT/sync-config.json" "$REPO_ROOT/export.sh" "$REPO_ROOT/scripts" "$PREVIEW_TMP/after/"
+    if [[ -d $REPO_ROOT/packages ]]; then
+        cp -a "$REPO_ROOT/packages" "$PREVIEW_TMP/after/"
+    fi
     if [[ -f $REPO_ROOT/.user-values.json ]]; then
         cp -a "$REPO_ROOT/.user-values.json" "$PREVIEW_TMP/after/"
     fi
