@@ -454,8 +454,9 @@ bash -c 'export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh" && nvm install --lts &
 ```
 
 `step_npm`: find the newest `$HOME/.nvm/versions/node/*` by `sort -V`, as `drift_npm` does. Missing names are `package_names npm.txt`
-minus `npm_packages <dir>/lib/node_modules`. If any are missing, in a child shell like the one above, `npm install -g -- "$@"`, with
-the names as arguments and never inside the quoted string.
+minus `npm_packages <dir>/lib/node_modules`. If any are missing, `PATH="$dir/bin:$PATH" npm install -g -- <names> </dev/null`, with
+the names as arguments. Don't source `nvm.sh` here: it activates the default alias, which can differ from the newest Node that
+this guard and `drift_npm` read, so a package would install into one Node, be checked against the other, and reinstall on every run.
 
 `step_pipx`: if `pipx` isn't on PATH, `SKIPPED`. Missing names are `package_names pipx.txt` minus the first field of `pipx list
 --short`. `pipx install <name>` for each one.
@@ -471,11 +472,13 @@ a stub `npm`. Add `nvm` and `npm` to the stubs.
 | `node-installs-lts` | `.nvm` exists, no version | `nvm install --lts`, `nvm alias default lts/*` |
 | `node-present` | Version folder exists | No `nvm` call, no `curl` |
 | `node-npm-missing` | One of two in `lib/node_modules` | `npm install -g -- <other>` |
+| `node-npm-newest` | `v20.0.0` empty, `v22.1.0` has one of two | `npm install -g -- <other>`, with `v22.1.0/bin` first on `PATH` |
 | `node-npm-scoped` | `@scope/name` listed, folder present | Not installed again |
 | `node-npm-present` | All present | No `npm` call |
 | `node-pipx-installs` | `pipx list --short` empty | `pipx install poetry` |
 | `node-pipx-present` | Prints `poetry 2.0.0` | No install |
 | `node-pipx-missing-tool` | No `pipx` stub | `SKIPPED`, exit 0 |
+| `node-dry-run` | `--dry-run`, all missing | `WOULD` lines, no `curl`, installer, `npm` or `pipx install` |
 
 Test: `tests/linux/bootstrap.sh node`, shellcheck.
 
