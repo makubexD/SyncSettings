@@ -16,6 +16,7 @@ FAILED=()
 INSTALLED=0
 UNCHANGED=0
 BOOT_SKIPPED=0
+APT_STALE=0
 
 # Data lines of a list, without comments and blanks.
 list_lines() {
@@ -112,11 +113,123 @@ boot_skipped() {
     BOOT_SKIPPED=$(( BOOT_SKIPPED + 1 ))
 }
 
+# Signed-By paths in a source file, one per line: `Signed-By: /p` in .sources
+# and `signed-by=/p` in .list, ignoring case.
+source_keys() {
+    sed -n 's/.*[Ss][Ii][Gg][Nn][Ee][Dd]-[Bb][Yy][: =][[:space:]]*\([^][:space:]]*\).*/\1/p' "$1"
+}
+
+# Put $1 at $2 unless the file already matches. A missing file is copied (and
+# marks the apt cache stale), an identical one is unchanged, and a different one
+# is kept and reported, because a key may have been rotated on purpose.
+install_file() {
+    local from=$1 to=$2 label=$3
+    if [[ ! -e $to ]]; then
+        if (( DRY_RUN )); then
+            status WOULD "$label"
+            return 0
+        fi
+        "${SUDO[@]}" install -D -m 0644 "$from" "$to" </dev/null || return 1
+        boot_installed "$label"
+        APT_STALE=1
+    elif cmp -s "$from" "$to"; then
+        boot_unchanged "$label"
+    else
+        boot_skipped "$label" 'differs from the repo; see docs/packages.md'
+    fi
+}
+
 # -- Steps ---------------------------------------------------------------------
 
-step_apt_sources() { return 0; }
-step_apt() { return 0; }
-step_debs() { return 0; }
+step_apt_sources() {
+    local installed src name to value base
+    # ca-certificates must be present before any https source can be fetched.
+    # Not a pipe into grep -q: with pipefail, the writer's SIGPIPE reads as missing.
+    installed=$(dpkg_installed) || installed=''
+    if ! grep -qx ca-certificates <<<"$installed"; then
+        if (( DRY_RUN )); then
+            status WOULD apt/ca-certificates
+        else
+            "${SUDO[@]}" apt-get install -y ca-certificates || return 1
+            boot_installed apt/ca-certificates
+            APT_STALE=1
+        fi
+    fi
+    for src in "$PACKAGES_DIR"/apt-sources/*.sources "$PACKAGES_DIR"/apt-sources/*.list; do
+        [[ -f $src ]] || continue
+        name=${src##*/}
+        to=$ROOT/etc/apt/sources.list.d/$name
+        install_file "$src" "$to" "/etc/apt/sources.list.d/$name" || return 1
+        while IFS= read -r value <&3; do
+            base=${value##*/}
+            install_file "$PACKAGES_DIR/apt-sources/keyrings/$base" "$ROOT$value" "$value" || return 1
+        done 3< <(source_keys "$src")
+    done
+}
+
+step_apt() {
+    local listed name
+    local -a missing=()
+    listed=$(package_names "$PACKAGES_DIR/apt.txt")
+    while IFS= read -r name <&3; do
+        [[ -z $name ]] || missing+=("$name")
+    done 3< <(LC_ALL=C comm -23 <(printf '%s\n' "$listed") <(dpkg_installed))
+    if (( ${#missing[@]} == 0 )) && (( APT_STALE == 0 )); then
+        boot_unchanged apt.txt
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        for name in "${missing[@]}"; do
+            status WOULD "apt/$name"
+        done
+        return 0
+    fi
+    "${SUDO[@]}" apt-get update || return 1
+    if (( ${#missing[@]} > 0 )); then
+        "${SUDO[@]}" apt-get install -y -- "${missing[@]}" || return 1
+    fi
+    for name in "${missing[@]}"; do
+        boot_installed "apt/$name"
+    done
+    APT_STALE=0
+}
+
+step_debs() {
+    local installed name url sha deb rc=0
+    installed=$(dpkg_installed) || installed=''
+    while read -r name url sha <&3; do
+        if grep -qx "$name" <<<"$installed"; then
+            boot_unchanged "deb/$name"
+            continue
+        fi
+        if (( DRY_RUN )); then
+            status WOULD "deb/$name"
+            continue
+        fi
+        deb=$WORK/$name.deb
+        if ! fetch_verified "$url" "$sha" "$deb"; then
+            status ERROR "deb/$name" 'download or hash failed'
+            rc=1
+            continue
+        fi
+        if [[ $(dpkg-deb -f "$deb" Package 2>/dev/null) != "$name" ]]; then
+            status ERROR "deb/$name" 'wrong package'
+            rm -f "$deb"
+            rc=1
+            continue
+        fi
+        chmod 755 "$WORK"
+        chmod 644 "$deb"
+        if ! "${SUDO[@]}" apt-get install -y "$deb" </dev/null; then
+            status ERROR "deb/$name" 'install failed'
+            rc=1
+            continue
+        fi
+        boot_installed "deb/$name"
+    done 3< <(list_lines "$PACKAGES_DIR/deb.txt")
+    return "$rc"
+}
+
 step_snaps() { return 0; }
 step_fonts() { return 0; }
 step_extensions() { return 0; }

@@ -521,6 +521,19 @@ npm_packages() {
     done | LC_ALL=C sort -u
 }
 
+# Installed apt package names from dpkg-query, LC_ALL=C sorted. Returns 1 when
+# dpkg-query is missing or failed, so a caller can tell "none" from "unknown".
+dpkg_installed() {
+    local out
+    if ! command -v dpkg-query >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! out=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' 2>/dev/null); then
+        return 1
+    fi
+    awk '$1 == "installed" { print $2 }' <<<"$out" | LC_ALL=C sort -u
+}
+
 drift_apt() {
     local out present chosen apt_listed deb_listed listed
     apt_listed=$(package_names "$PACKAGES_DIR/apt.txt")
@@ -531,11 +544,10 @@ drift_apt() {
         status SKIPPED packages/linux/apt.txt 'dpkg-query not installed'
         return 0
     fi
-    if ! out=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' 2>/dev/null); then
+    if ! present=$(dpkg_installed); then
         status SKIPPED packages/linux/apt.txt 'dpkg-query failed'
         return 0
     fi
-    present=$(awk '$1 == "installed" { print $2 }' <<<"$out" | LC_ALL=C sort -u)
     drift_missing apt apt.txt "$apt_listed" "$present"
     drift_missing apt deb.txt "$deb_listed" "$present"
 
