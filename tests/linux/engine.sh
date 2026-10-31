@@ -2948,6 +2948,42 @@ case_dconf_import_wrong_home() {
         || fail "a backup was written despite the wrong-home skip"
 }
 
+# The test bus's dconf service keeps $t/home/.config, as the desktop's keeps
+# ~/.config, so only the engine sees this config dir: its dump comes back empty
+# while its load would still reach the service.
+case_dconf_import_other_config() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf" "$t/other"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=2\n' | dconf_seed /test/app/
+
+    rc=0
+    (cd "$t/repo" && on_test_bus env XDG_CONFIG_HOME="$t/other" ./import.sh --force < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'XDG_CONFIG_HOME is not ~/.config; dconf left alone' \
+        || fail "missing SKIPPED (other config dir) line for the dconf entry"
+    [[ $(on_test_bus dconf read /test/app/a) == 2 ]] \
+        || fail "/test/app/a changed despite the config dir skip"
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a backup was written despite the config dir skip"
+}
+
+case_dconf_import_config_unset() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+
+    rc=0
+    (cd "$t/repo" && on_test_bus env -u XDG_CONFIG_HOME ./import.sh --force < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status CREATED dotfiles/linux/dconf/app.ini \
+        || fail "missing CREATED line with XDG_CONFIG_HOME unset"
+    [[ $(on_test_bus dconf read /test/app/a) == 1 ]] \
+        || fail "/test/app/a is not 1 after import"
+}
+
 case_dconf_import_missing_tool() {
     setup_dconf_export_case
     add_dconf_entry
@@ -3075,7 +3111,7 @@ case_dconf_roundtrip_settles() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -3247,6 +3283,8 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         dconf-import-merge) case_dconf_import_merge ;;
         dconf-import-no-repo-file) case_dconf_import_no_repo_file ;;
         dconf-import-wrong-home) case_dconf_import_wrong_home ;;
+        dconf-import-other-config) case_dconf_import_other_config ;;
+        dconf-import-config-unset) case_dconf_import_config_unset ;;
         dconf-import-missing-tool) case_dconf_import_missing_tool ;;
         dconf-import-bad-file) case_dconf_import_bad_file ;;
         dconf-import-prompt-reads-stdin) case_dconf_import_prompt_reads_stdin ;;

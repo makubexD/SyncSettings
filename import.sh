@@ -240,7 +240,7 @@ import_dconf() {
     dconf_path=$(jq -r '.path' <<<"$entry")
     repo_file=$REPO_ROOT/$repo_path
 
-    # In this order: repo file missing, dconf missing, dconf_home_ok fails. Each is a
+    # In this order: repo file missing, dconf missing, dconf_home_ok fails, dconf_config_ok fails. Each is a
     # SKIPPED line from the table in the plan, and SKIPPED=$((SKIPPED + 1)).
     if [[ ! -f $repo_file ]]; then
         status SKIPPED "$repo_path" 'not found in repo'
@@ -256,6 +256,12 @@ import_dconf() {
 
     if ! dconf_home_ok; then
         status SKIPPED "$repo_path" 'HOME is not the login home; dconf left alone'
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    if ! dconf_config_ok; then
+        status SKIPPED "$repo_path" 'XDG_CONFIG_HOME is not ~/.config; dconf left alone'
         SKIPPED=$((SKIPPED + 1))
         return 0
     fi

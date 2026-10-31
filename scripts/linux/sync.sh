@@ -446,6 +446,13 @@ dconf_home_ok() {
     [[ $HOME == "$(getent passwd "$(id -u)" | cut -d: -f6)" ]]
 }
 
+# A dump reads the database file in this dir, but a load goes to the service, which
+# keeps the session's own dir. With another dir, a dump comes back empty and a load
+# still changes the desktop.
+dconf_config_ok() {
+    [[ ${XDG_CONFIG_HOME:-$HOME/.config} == "$HOME/.config" ]]
+}
+
 # One "[section] key=value" line per key, so two dumps compare key by key.
 dconf_flat() {
     awk '/^\[.*\]$/ { s = $0; next } NF { print s " " $0 }'

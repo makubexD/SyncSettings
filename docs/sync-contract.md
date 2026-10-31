@@ -126,6 +126,7 @@ them.
 | `type: dir` or linked folder: local file not in the repo | `EXTRA` | `not in repo; kept` |
 | `type: dconf`: `dconf` isn't installed | `SKIPPED` | `dconf not installed` |
 | `type: dconf`: `HOME` isn't the login home | `SKIPPED` | `HOME is not the login home; dconf left alone` |
+| `type: dconf`: `${XDG_CONFIG_HOME:-$HOME/.config}` isn't `$HOME/.config` | `SKIPPED` | `XDG_CONFIG_HOME is not ~/.config; dconf left alone` |
 | `type: dconf`: nothing set under `path` yet | `CREATED` | no prompt, no backup |
 | `type: dconf`: every repo key already has that value | `UNCHANGED` | nothing is loaded |
 | `type: dconf`: dump, backup or load failed | `ERROR` | `dconf dump failed`, `cannot create backup`, `dconf load failed` |
