@@ -408,6 +408,38 @@ same_normalized() {
     [[ $a == "$b" ]]
 }
 
+# -- dconf ----------------------------------------------------------------------
+
+# Keep the keys of a dump (stdin) that match an entry's "keys" patterns. A key's
+# name is relative to the entry's path. The output keeps dconf's layout: a blank
+# line between sections, and no section left without keys.
+dconf_filter() {
+    local -a patterns=()
+    local line rel pattern section='' pending=0 first=1
+    mapfile -d '' patterns < <(jq -j '.[] | ., "\u0000"' <<<"$1")
+    while IFS= read -r line; do
+        case $line in
+            '') continue ;;
+            '['*']') section=${line:1:-1}; pending=1; continue ;;
+        esac
+        rel=${line%%=*}
+        [[ $section == / ]] || rel=$section/$rel
+        for pattern in "${patterns[@]}"; do
+            # shellcheck disable=SC2053  # pattern is a glob on purpose
+            if [[ $rel == $pattern ]]; then
+                if (( pending )); then
+                    (( first )) || printf '\n'
+                    printf '[%s]\n' "$section"
+                    pending=0
+                    first=0
+                fi
+                printf '%s\n' "$line"
+                break
+            fi
+        done
+    done
+}
+
 # -- Status output --------------------------------------------------------------
 
 status() {

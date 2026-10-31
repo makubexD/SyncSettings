@@ -218,9 +218,63 @@ export_dir() {
     return 0
 }
 
+export_dconf() {
+    local entry=$1
+    local repo_path dconf_path repo_file repo_dir keys text repo_text
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    dconf_path=$(jq -r '.path' <<<"$entry")
+    keys=$(jq -c '.keys // []' <<<"$entry")
+    repo_file=$REPO_ROOT/$repo_path
+
+    if ! command -v dconf > /dev/null; then
+        status SKIPPED "$repo_path" 'dconf not installed'
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    if ! text=$(dconf dump "$dconf_path" 2>/dev/null && printf x); then
+        status ERROR "$repo_path" 'dconf dump failed'
+        return 0
+    fi
+    text=${text%x}
+    if [[ $keys != '[]' ]]; then
+        text=$(dconf_filter "$keys" <<<"$text"; printf x)
+        text=${text%x}
+    fi
+
+    if [[ -z $text ]]; then
+        status SKIPPED "$repo_path" "no settings under $dconf_path"
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    repo_dir=${repo_file%/*}
+    if ! mkdir -p "$repo_dir"; then
+        status ERROR "$repo_path" "cannot create $repo_dir"
+        return 0
+    fi
+    if [[ ! -f $repo_file ]]; then
+        write_text text "$repo_file" || { status ERROR "$repo_path" 'cannot write repo file'; return 0; }
+        status ADDED "$repo_path"
+        CHANGED=$((CHANGED + 1))
+    else
+        read_text repo_text "$repo_file" || { status ERROR "$repo_path" 'cannot read repo file'; return 0; }
+        if [[ $text == "$repo_text" ]]; then
+            status UNCHANGED "$repo_path"
+        else
+            write_text text "$repo_file" || { status ERROR "$repo_path" 'cannot write repo file'; return 0; }
+            status MODIFIED "$repo_path"
+            CHANGED=$((CHANGED + 1))
+        fi
+    fi
+    return 0
+}
+
 while IFS= read -r entry; do
     if [[ $(jq -r '.type // "file"' <<<"$entry") == dir ]]; then
         export_dir "$entry"
+    elif [[ $(jq -r '.type // "file"' <<<"$entry") == dconf ]]; then
+        export_dconf "$entry"
     elif ! process_entry "$entry"; then
         # process_entry already printed an ERROR line for this file.
         :
