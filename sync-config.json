@@ -19,6 +19,12 @@
       ]
     },
     {
+      "repoPath": "dotfiles/common/git/ignore",
+      "localPath": "~/.config/git/ignore",
+      "platform": "common",
+      "description": "Global git ignore rules"
+    },
+    {
       "repoPath": "dotfiles/windows/git/.gitconfig.local",
       "localPath": "~\\.gitconfig.local",
       "platform": "windows",
