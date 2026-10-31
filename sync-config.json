@@ -78,6 +78,43 @@
       "description": "Login shell profile"
     },
     {
+      "repoPath": "dotfiles/linux/tmux/.tmux.conf",
+      "localPath": "~/.tmux.conf",
+      "platform": "linux",
+      "description": "tmux configuration"
+    },
+    {
+      "repoPath": "dotfiles/linux/starship/starship.toml",
+      "localPath": "~/.config/starship.toml",
+      "platform": "linux",
+      "description": "Starship prompt"
+    },
+    {
+      "repoPath": "dotfiles/linux/wezterm/wezterm.lua",
+      "localPath": "~/.config/wezterm/wezterm.lua",
+      "platform": "linux",
+      "description": "WezTerm terminal"
+    },
+    {
+      "repoPath": "dotfiles/linux/htop/htoprc",
+      "localPath": "~/.config/htop/htoprc",
+      "platform": "linux",
+      "description": "htop settings"
+    },
+    {
+      "repoPath": "dotfiles/linux/gh/config.yml",
+      "localPath": "~/.config/gh/config.yml",
+      "platform": "linux",
+      "description": "GitHub CLI settings (hosts.yml stays out)"
+    },
+    {
+      "repoPath": "dotfiles/linux/rtk",
+      "localPath": "~/.config/rtk",
+      "platform": "linux",
+      "type": "dir",
+      "description": "RTK configuration and filters"
+    },
+    {
       "repoPath": "dotfiles/windows/windows-terminal/settings.json",
       "localPath": "~\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
       "platform": "windows",
