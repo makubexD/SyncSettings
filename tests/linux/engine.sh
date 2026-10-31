@@ -105,6 +105,37 @@ run_engine_input() {
     (cd "$t/repo" && printf '%s\n' "$input" | HOME="$home" "./$script" "$@") > "$out" 2>&1 || rc=$?
 }
 
+# dconf writes go over the session bus, not through $HOME, so every dconf case
+# runs on its own bus. The fake getent makes $t/home the login home for the engine.
+setup_dconf_bus() {
+    command -v dconf > /dev/null || fail 'dconf is not installed (dconf-cli)'
+    command -v dbus-run-session > /dev/null || fail 'dbus-run-session is not installed (dbus)'
+    mkdir -p "$t/bin" "$t/home"
+    cat > "$t/bin/getent" <<EOF
+#!/bin/sh
+printf 'x:x:%s:%s::%s:/bin/bash\n' "$(id -u)" "$(id -g)" "$t/home"
+EOF
+    chmod +x "$t/bin/getent"
+}
+
+on_test_bus() {
+    PATH="$t/bin:$PATH" HOME="$t/home" XDG_CONFIG_HOME="$t/home/.config" XDG_RUNTIME_DIR="$t" \
+        dbus-run-session -- "$@"
+}
+
+# run_engine on the private bus, with stdin from the given file.
+run_engine_bus() {
+    local input=$1 script=$2
+    shift 2
+    rc=0
+    (cd "$t/repo" && on_test_bus "./$script" "$@" < "$input") > "$out" 2>&1 || rc=$?
+}
+
+# Seed the private bus: load ini text from stdin under a dconf path.
+dconf_seed() {
+    on_test_bus dconf load "$1"
+}
+
 # Sorted SHA256 and mode of every file under $1, .git excluded. A stable
 # fingerprint used to assert a preview wrote nothing outside its temp dir.
 tree_hash() {
@@ -2080,9 +2111,38 @@ case_host_git_config_ignored() {
     fi
 }
 
+case_dconf_test_bus() {
+    new_tmp
+    setup_dconf_bus
+
+    # The real database must not move while a case runs. Hash it first, but only
+    # if this machine has one.
+    local real_db=$HOME/.config/dconf/user real_before='' real_after=''
+    if [[ -e $real_db ]]; then
+        real_before=$(sha256sum "$real_db")
+    fi
+
+    printf '[/]\nkey=1\n' | dconf_seed /test/app/ \
+        || fail "dconf load on the test bus failed"
+
+    local value
+    rc=0
+    value=$(on_test_bus dconf read /test/app/key) || rc=$?
+    (( rc == 0 )) || fail "dconf read on the test bus exited $rc"
+    [[ $value == 1 ]] || fail "dconf read printed '$value', want 1"
+
+    [[ -e "$t/home/.config/dconf/user" ]] \
+        || fail "$t/home/.config/dconf/user was not created"
+
+    if [[ -n $real_before ]]; then
+        real_after=$(sha256sum "$real_db")
+        [[ $real_after == "$real_before" ]] || fail "the real dconf database changed"
+    fi
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored dconf-test-bus; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -2197,6 +2257,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-routes-preview) case_sync_routes_preview ;;
         sync-missing-tool) case_sync_missing_tool ;;
         host-git-config-ignored) case_host_git_config_ignored ;;
+        dconf-test-bus) case_dconf_test_bus ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
