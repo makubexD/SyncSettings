@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x export.sh import.sh commit.sh scripts/linux/sync.sh scripts/ci/*.sh tests/linux/*.sh
+        run: shellcheck -x bootstrap/linux.sh export.sh import.sh commit.sh scripts/linux/sync.sh scripts/ci/*.sh tests/linux/*.sh
       - name: Validate JSON
         run: jq empty sync-config.json
       - name: Config sanity
@@ -39,6 +39,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y dconf-cli dbus
       - name: Engine contract tests (bash)
         run: tests/linux/engine.sh
+      - name: Bootstrap tests (bash)
+        run: tests/linux/bootstrap.sh
   engine-windows:
     runs-on: windows-latest
     steps:

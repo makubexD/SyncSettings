@@ -110,8 +110,10 @@ check_paths() {
     done < <(find "$REPO_ROOT/dotfiles" -type l -print0 2>/dev/null | sort -z)
 }
 
-check_platforms
-check_paths
+if [[ -z ${SYNC_LIB_ONLY:-} ]]; then
+    check_platforms
+    check_paths
+fi
 
 platform_entries() {
     jq -c '.files[] | select(.platform == "linux" or .platform == "common")' "$CONFIG"
@@ -127,11 +129,13 @@ resolve_local() {
 }
 
 declare -a EXCLUDES=()
-while IFS= read -r pattern; do
-    if [[ -n $pattern ]]; then
-        EXCLUDES+=("$pattern")
-    fi
-done < <(jq -r '(.excludePatterns // []) | .[]' "$CONFIG")
+if [[ -z ${SYNC_LIB_ONLY:-} ]]; then
+    while IFS= read -r pattern; do
+        if [[ -n $pattern ]]; then
+            EXCLUDES+=("$pattern")
+        fi
+    done < <(jq -r '(.excludePatterns // []) | .[]' "$CONFIG")
+fi
 is_excluded() {
     local path=$1 leaf=${1##*/} pattern
     for pattern in "${EXCLUDES[@]}"; do
