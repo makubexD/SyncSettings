@@ -1,7 +1,8 @@
 # Review gate
 
 Every change to this repo lands through a pull request. A required check, `review-gate`, stays red until the
-PR carries the `reviewed` label. Two more checks, `leak-scan` and `lint`, run on every PR and must pass too.
+PR carries the `reviewed` label. Three more checks, `leak-scan`, `lint` and `bootstrap-check`, run on every PR
+and must pass too.
 
 ## What the checks do
 
