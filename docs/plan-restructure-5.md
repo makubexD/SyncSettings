@@ -657,6 +657,36 @@ Test: read through; every link in the changed docs resolves; `grep -n dconf READ
 5. `/agent-skills:review` of the phase diff.
 6. **Stop here.** The PR touches `.github/workflows/`, so auto-approval doesn't apply: you add the `reviewed` label.
 
+Review follow-up (PR #31 at 44f0323), all `[inline: review fix]`. The review's Optional items and nits stay out.
+These run before item 6, which then applies again after a full suite, the `ci.yml` shellcheck command and green CI.
+
+a. **`XDG_CONFIG_HOME` guard.** With another config dir, `dconf dump` reads a database that doesn't exist and comes back
+   empty, while `dconf load` still reaches the live desktop, so import takes the `CREATED` path with no prompt or backup.
+   Add `dconf_config_ok` to `scripts/linux/sync.sh`: `${XDG_CONFIG_HOME:-$HOME/.config}` must be `$HOME/.config`.
+   `import_dconf` checks it after `dconf_home_ok` and prints `SKIPPED`. Add the row to `docs/sync-contract.md`.
+
+   | Case, on a private bus | Expected |
+   |---|---|
+   | `dconf-import-other-config`: bus database has `a=2`, repo has `a=1`, engine runs with another `XDG_CONFIG_HOME` under `--force` | exit 0, `SKIPPED` with `XDG_CONFIG_HOME is not ~/.config; dconf left alone`, `a` stays `2`, no backup |
+   | `dconf-import-config-unset`: empty database, repo has `a=1`, engine runs with `XDG_CONFIG_HOME` unset | exit 0, `CREATED`, `a` is `1` |
+
+b. **Named Ptyxis profile keys.** In `sync-config.json`, replace `Profiles/*` with `Profiles/*/<key>` for every key of
+   `gsettings list-keys org.gnome.Ptyxis.Profile` except `custom-command`, `use-custom-command`, `custom-links`,
+   `default-container` and `preserve-container`. `dotfiles/linux/gnome/dconf/ptyxis.ini` stays the same, which `./sync preview`
+   shows. Update `docs/layout.md:121` and list the five keys under "Left out on purpose".
+
+   | Case, on a private bus | Expected |
+   |---|---|
+   | `dconf-ptyxis-profile-keys`: the real entry's `keys`, a profile with `label`, `palette` and the five keys | exit 0, the file holds `label` and `palette` and none of the five |
+
+c. **Leak scan anchor.** No test protects the `^` at `scripts/ci/leak-scan.sh:68`.
+
+   | Case | Expected |
+   |---|---|
+   | `leak-email-key-in-value`: `label='enabled-extensions=person@gmail.com'` in `dotfiles/linux/gnome/dconf/shell.ini` | exit 1, `email` in the output |
+
+   Loosen the anchor to confirm the case fails, then restore it.
+
 ### 12. Check this machine `[inline: the real desktop]`
 
 After the merge: `git switch master && git pull`.
