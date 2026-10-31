@@ -68,6 +68,11 @@ scan_email() {
         if [[ $file == *dotfiles/linux/gnome/dconf/*.ini && $text =~ ^(enabled|disabled)-extensions= ]]; then
             continue
         fi
+        # A UUID has the shape of an address; a whole line of this list is safe.
+        if [[ $file == *packages/linux/gnome-extensions.txt \
+            && $text =~ ^[^[:space:]@]+@[^[:space:]@]+\ https://github\.com/[^[:space:]@]+\ [0-9a-f]{40}$ ]]; then
+            continue
+        fi
         bad=0
         while [[ $text =~ $pattern ]]; do
             addr=${BASH_REMATCH[0],,}
