@@ -92,18 +92,27 @@ fi
 ) < /dev/null > "$logdir/stream.jsonl" 2> "$logdir/stderr.log"
 code=$?
 
-# Diff of tracked changes plus new untracked files, without touching the index.
-{
-  git -C "$workdir" diff --binary
-  git -C "$workdir" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
-    git -C "$workdir" diff --no-index -- /dev/null "$f"
-  done
-} > "$logdir/diff.patch" 2>/dev/null
+# Diff of tracked changes plus new untracked files. A worktree's index is throwaway, so staging everything there also
+# catches what the worker staged itself (git rm). The repo's own index stays untouched.
+add_failed=""
+if [[ $workdir != "$repo" ]]; then
+  git -C "$workdir" add -A 2>> "$logdir/stderr.log" || add_failed=1
+  git -C "$workdir" diff --binary --cached HEAD > "$logdir/diff.patch" 2>/dev/null
+else
+  {
+    git -C "$workdir" diff --binary
+    git -C "$workdir" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+      git -C "$workdir" diff --no-index -- /dev/null "$f"
+    done
+  } > "$logdir/diff.patch" 2>/dev/null
+fi
 
 if [[ $workdir != "$repo" ]]; then
   # The diff can't carry gitignored files, and removing the worktree would lose them without a word.
   ignored="$(git -C "$workdir" ls-files --others --ignored --exclude-standard | head -20 | tr '\n' ' ')"
-  if [[ -s $logdir/diff.patch ]] && ! git -C "$repo" apply --whitespace=nowarn "$logdir/diff.patch" 2>> "$logdir/stderr.log"; then
+  if [[ -n $add_failed ]]; then
+    echo "mk-exec: could not stage the worker's changes; worktree kept at $workdir" | tee -a "$logdir/stderr.log" >&2
+  elif [[ -s $logdir/diff.patch ]] && ! git -C "$repo" apply --whitespace=nowarn "$logdir/diff.patch" 2>> "$logdir/stderr.log"; then
     echo "mk-exec: could not apply the worker's diff to $repo; worktree kept at $workdir" | tee -a "$logdir/stderr.log" >&2
   elif [[ "$(git -C "$workdir" rev-parse HEAD)" != "$head_before" ]]; then
     echo "mk-exec: worker made commits, worktree kept at $workdir" | tee -a "$logdir/stderr.log" >&2
