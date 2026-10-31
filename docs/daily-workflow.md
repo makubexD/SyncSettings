@@ -67,6 +67,7 @@ Some tools rewrite their own settings, so preview can show a file you never open
 | `dotfiles/linux/htop/htoprc` | htop, when you change a setting in its interface |
 | `dotfiles/linux/gnome/mimeapps.list` | The desktop, when a default app changes |
 | `dotfiles/linux/vscode/settings.json` | VS Code Settings Sync, with changes from your other machine |
+| `dotfiles/linux/gnome/dconf/*.ini` | The desktop, when you change the theme, pin an app or change a shortcut |
 
 These are real settings, so read the diff rather than reverting it. To keep one out of a PR, run `git restore <file>`
 after the export; preview keeps showing it until you send it.
@@ -113,6 +114,9 @@ git pull
 Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
 `--force`. If you import a newer change over the same file later, that `.bak` is replaced. Import never deletes a local
 file: one the repo doesn't have is reported as `EXTRA` and kept.
+
+On Linux, run it in a terminal on the desktop, because GNOME settings load over the session bus. Their backups go in
+`~/.local/state/sync-settings/dconf/`, and a setting the repo doesn't name stays as it is.
 
 ## Moving a machine to the new layout
 
@@ -163,6 +167,7 @@ don't rely on it: read the diff.
 | `a cached value for <PLACEHOLDER> is in <file>; nothing was committed.` | Add a `sanitizeRules` entry for that placeholder to the file's entry, or remove the value from the file, export again, then run it again |
 | `could not search for cached values; nothing was committed.` | A changed file could not be read. On Windows this can be a file name with unusual characters: rename it, then run it again |
 | `sync-config.json: entry <repoPath> has an unsafe path.` | Fix that entry: `repoPath` starts with `dotfiles/`, `localPath` starts with `~/` or `~\`, and neither has a `..` segment. Remove any symlink under `dotfiles/` |
+| `sync-config.json: entry <repoPath> needs "platform": "linux" and a dconf path like /org/gnome/shell/.` | Fix that dconf entry: `"platform": "linux"`, and a `path` that starts and ends with `/` |
 | `sync-config.json: entry <repoPath> has an invalid defaultEnv.` | Use a valid variable name: letters, digits and `_`, not starting with a digit |
 | `run commit.sh from master (current: <branch>).` (or `commit.bat`) | `git switch master`, then run it again |
 | `master is behind origin; pull first.` | `git pull`, then run it again |

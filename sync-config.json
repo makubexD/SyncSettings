@@ -297,6 +297,90 @@
       "localPath": "~/.claude/bin/worker-mode",
       "platform": "linux",
       "description": "worker-mode on|off|status switch"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/interface.ini",
+      "path": "/org/gnome/desktop/interface/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Accent, dark scheme, GTK and icon theme"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/input-sources.ini",
+      "path": "/org/gnome/desktop/input-sources/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Keyboard layouts and options",
+      "keys": ["sources", "xkb-options", "per-window"]
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/wm-keybindings.ini",
+      "path": "/org/gnome/desktop/wm/keybindings/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Workspace and window shortcuts"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/privacy.ini",
+      "path": "/org/gnome/desktop/privacy/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Privacy preferences, problem reporting off"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/session.ini",
+      "path": "/org/gnome/desktop/session/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Screen blank delay"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/power.ini",
+      "path": "/org/gnome/settings-daemon/plugins/power/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Dimming and sleep on AC"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/shell.ini",
+      "path": "/org/gnome/shell/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Dock favorites, extensions, shell shortcuts",
+      "keys": ["favorite-apps", "enabled-extensions", "disabled-extensions", "keybindings/*"]
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/ptyxis.ini",
+      "path": "/org/gnome/Ptyxis/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Ptyxis preferences and profiles, without window size",
+      "keys": [
+        "audible-bell", "cursor-blink-mode", "cursor-shape", "default-columns", "default-profile-uuid", "default-rows",
+        "disable-padding", "enable-a11y", "enable-zoom-scroll-ctrl", "font-name", "ignore-osc-title", "inhibit-logout",
+        "interface-style", "new-tab-position", "profile-uuids", "prompt-on-close", "restore-session", "restore-window-size",
+        "scrollbar-policy", "tab-middle-click", "text-blink-mode", "toast-on-copy-clipboard", "use-system-font", "visual-bell",
+        "visual-process-leader", "word-char-exceptions", "Profiles/*/backspace-binding", "Profiles/*/bold-is-bright",
+        "Profiles/*/cell-height-scale", "Profiles/*/cell-width-scale", "Profiles/*/cjk-ambiguous-width",
+        "Profiles/*/delete-binding", "Profiles/*/exit-action", "Profiles/*/label", "Profiles/*/limit-scrollback",
+        "Profiles/*/login-shell", "Profiles/*/opacity", "Profiles/*/palette", "Profiles/*/preserve-directory",
+        "Profiles/*/scroll-on-keystroke", "Profiles/*/scroll-on-output", "Profiles/*/scrollback-lines", "Profiles/*/use-proxy"
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/nautilus.ini",
+      "path": "/org/gnome/nautilus/preferences/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "Files default view"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/dconf/file-chooser.ini",
+      "path": "/org/gtk/gtk4/settings/file-chooser/",
+      "type": "dconf",
+      "platform": "linux",
+      "description": "File dialog: hidden files, folders first",
+      "keys": ["show-*", "sort-directories-first"]
     }
   ],
   "excludePatterns": [

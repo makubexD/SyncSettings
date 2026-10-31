@@ -49,6 +49,7 @@ On Windows, use `.\sync preview` in PowerShell or `sync preview` in cmd. Options
 | `~/.config/Code/User/settings.json`, `snippets/` | VS Code default profile (home path and a work marketplace URL sanitized) |
 | `~/.config/mimeapps.list`, `~/.config/gtk-3.0/bookmarks` | Default apps and Files bookmarks (home path sanitized) |
 | `~/.local/share/applications/` | The `disco-datos`, `mis-discos` and `wezterm-xwayland` launchers |
+| GNOME settings (dconf) | Theme, keyboard, shortcuts, dock, power, Ptyxis, Files and the file dialog ([what's in and out](docs/layout.md#which-dconf-settings-are-synced)) |
 
 The rest is the Claude Code setup in `~/.claude`:
 
@@ -63,7 +64,7 @@ The rest is the Claude Code setup in `~/.claude`:
 | `sampleGrok.md` | Old Windows Grok setup for reference |
 | `~/.claude-worker/CLAUDE.md`, `settings.json` | The worker's own config dir: its rules and permissions (no credentials) |
 
-Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, plugin install state, caches, the GitHub CLI's `hosts.yml`, VS Code's named profiles.
+Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, plugin install state, caches, the GitHub CLI's `hosts.yml`, VS Code's named profiles, GNOME location, window sizes and history.
 
 Add or remove files by editing `sync-config.json`. [Repository layout](docs/layout.md) says where a new file goes.
 
@@ -82,7 +83,7 @@ Add or remove files by editing `sync-config.json`. [Repository layout](docs/layo
 ## Requirements
 
 - **Windows:** Windows 10 or 11, PowerShell 5.1+, Git (in PATH)
-- **Linux:** bash 4+, `jq`, `git`, `cmp` (diffutils)
+- **Linux:** bash 4+, `jq`, `git`, `cmp` (diffutils). `dconf-cli` for the GNOME settings; without it they're skipped
 - **Both, for committing:** the [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`
 
 ---
@@ -177,12 +178,12 @@ a missing value is an error: nothing is written with a placeholder left unfilled
 
 ### New Linux machine: restore your setup
 
-1. Install the tools: `git`, `jq`, `python3`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node and
+1. Install the tools: `git`, `jq`, `dconf-cli`, `python3`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node and
    [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`. The restored `.bashrc` also needs `zoxide` and `starship`,
    or every new shell prints `command not found`.
 2. Open Claude Code once so `~/.claude` exists, then install the plugins with `/plugin`
    (`context-mode`, `agent-skills`).
-3. Clone this repo and run `./import.sh`.
+3. Clone this repo and run `./import.sh` in a terminal on the desktop, so it can restore the GNOME settings.
 4. Link the scripts onto your PATH:
    `ln -sf ~/.claude/bin/mk-exec ~/.claude/bin/workflow-report ~/.claude/bin/worker-mode ~/.local/bin/`
 5. Add your DeepSeek key: `mkdir -p -m 700 ~/.config/claude-workers`, then put

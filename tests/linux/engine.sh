@@ -105,6 +105,37 @@ run_engine_input() {
     (cd "$t/repo" && printf '%s\n' "$input" | HOME="$home" "./$script" "$@") > "$out" 2>&1 || rc=$?
 }
 
+# dconf writes go over the session bus, not through $HOME, so every dconf case
+# runs on its own bus. The fake getent makes $t/home the login home for the engine.
+setup_dconf_bus() {
+    command -v dconf > /dev/null || fail 'dconf is not installed (dconf-cli)'
+    command -v dbus-run-session > /dev/null || fail 'dbus-run-session is not installed (dbus)'
+    mkdir -p "$t/bin" "$t/home"
+    cat > "$t/bin/getent" <<EOF
+#!/bin/sh
+printf 'x:x:%s:%s::%s:/bin/bash\n' "$(id -u)" "$(id -g)" "$t/home"
+EOF
+    chmod +x "$t/bin/getent"
+}
+
+on_test_bus() {
+    PATH="$t/bin:$PATH" HOME="$t/home" XDG_CONFIG_HOME="$t/home/.config" XDG_RUNTIME_DIR="$t" \
+        dbus-run-session -- "$@"
+}
+
+# run_engine on the private bus, with stdin from the given file.
+run_engine_bus() {
+    local input=$1 script=$2
+    shift 2
+    rc=0
+    (cd "$t/repo" && on_test_bus "./$script" "$@" < "$input") > "$out" 2>&1 || rc=$?
+}
+
+# Seed the private bus: load ini text from stdin under a dconf path.
+dconf_seed() {
+    on_test_bus dconf load "$1"
+}
+
 # Sorted SHA256 and mode of every file under $1, .git excluded. A stable
 # fingerprint used to assert a preview wrote nothing outside its temp dir.
 tree_hash() {
@@ -146,6 +177,18 @@ lint_run() {
     jq "$filter" "$REPO/sync-config.json" > "$t/config.json"
     rc=0
     "$REPO/scripts/ci/check-config.sh" "$t/config.json" > "$out" 2>&1 || rc=$?
+}
+
+# Write one line to a file under $t and run the leak scan on it. $1 is the
+# repo-relative path, $2 the line; rc and $out hold the result. The scan reads
+# $t/dotfiles, not the file alone: grep -r prints no filename for a lone file,
+# and the scan parses hits as "<file>:<line>: <text>".
+leak_scan_on() {
+    local rel=$1 line=$2
+    mkdir -p "$t/${rel%/*}"
+    printf '%s\n' "$line" > "$t/$rel"
+    rc=0
+    "$REPO/scripts/ci/leak-scan.sh" "$t/dotfiles" > "$out" 2>&1 || rc=$?
 }
 
 # A stub GH that logs each invocation to $t/gh.log and prints a fixed URL.
@@ -640,6 +683,13 @@ case_real_config_roundtrip() {
     cp -a "$REPO/dotfiles" "$t/repo/"
     mkdir -p "$t/home"
 
+    # The real dconf entries, read from the config so a new one is covered too.
+    local -a dconf_repo_paths=() dconf_paths=()
+    mapfile -d '' dconf_repo_paths < <(jq -j '.files[] | select(.type == "dconf") | .repoPath, "\u0000"' "$t/repo/sync-config.json")
+    mapfile -d '' dconf_paths < <(jq -j '.files[] | select(.type == "dconf") | .path, "\u0000"' "$t/repo/sync-config.json")
+    (( ${#dconf_repo_paths[@]} == 10 )) \
+        || fail "sync-config.json has ${#dconf_repo_paths[@]} dconf entries, want 10"
+
     # Fake values, escaped by jq, so the round trip never reads the real home.
     jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
         --arg gh 'fixture-user' --arg home "$t/home" \
@@ -653,12 +703,29 @@ case_real_config_roundtrip() {
         fail "import printed an ERROR line"
     fi
 
+    # Without a private bus the guard refuses every dconf entry, and no backup.
+    local i
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status SKIPPED "${dconf_repo_paths[$i]}" \
+            'HOME is not the login home; dconf left alone' \
+            || fail "import: missing guarded SKIPPED line for ${dconf_repo_paths[$i]}"
+    done
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a dconf backup was written under the throwaway HOME"
+
     run_engine "$t/home" export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     grep -Fq 'Repo is up to date' "$out" || fail "export did not print 'Repo is up to date'"
     if grep -qE '^  (MODIFIED|ADDED|REMOVED|ORPHAN)[[:space:]]|ERROR' "$out"; then
         fail "export printed a changed status or an error"
     fi
+    # Export reads the database under XDG_CONFIG_HOME, which is /nonexistent
+    # here, so every dconf path comes back empty.
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status SKIPPED "${dconf_repo_paths[$i]}" \
+            "no settings under ${dconf_paths[$i]}" \
+            || fail "export: missing empty SKIPPED line for ${dconf_repo_paths[$i]}"
+    done
 
     if ! diff -r "$t/before" "$t/repo/dotfiles" > "$t/dotfiles.diff" 2>&1; then
         fail "dotfiles changed during the round trip: $(head -n 3 "$t/dotfiles.diff")"
@@ -711,6 +778,79 @@ case_real_config_roundtrip() {
     leftover=$(grep -rlE '<(HOME|YOUR_[A-Z_]+)>' "$t/home" || true)
     leftover=${leftover%%$'\n'*}
     [[ -z $leftover ]] || fail "unfilled placeholder in $leftover"
+}
+
+# The real dconf entries restored on a private bus: the first import creates
+# every key, and import and export then settle on UNCHANGED.
+case_real_config_dconf_restore() {
+    new_tmp
+    setup_repo
+    cp "$REPO/sync-config.json" "$t/repo/sync-config.json"
+    cp -a "$REPO/dotfiles" "$t/before"
+    cp -a "$REPO/dotfiles" "$t/repo/"
+    setup_dconf_bus
+
+    # Fake values, escaped by jq, so the round trip never reads the real home.
+    jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
+        --arg gh 'fixture-user' --arg home "$t/home" \
+        '{ "<YOUR_NAME>": $name, "<YOUR_EMAIL>": $email,
+           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home,
+           "<YOUR_WORK_MARKETPLACE>": "https://example.com/plugins" }' > "$t/repo/.user-values.json"
+
+    # The real dconf entries, read from the config so a new one is covered too.
+    local -a dconf_repo_paths=() dconf_paths=()
+    mapfile -d '' dconf_repo_paths < <(jq -j '.files[] | select(.type == "dconf") | .repoPath, "\u0000"' "$t/repo/sync-config.json")
+    mapfile -d '' dconf_paths < <(jq -j '.files[] | select(.type == "dconf") | .path, "\u0000"' "$t/repo/sync-config.json")
+    (( ${#dconf_repo_paths[@]} == 10 )) \
+        || fail "sync-config.json has ${#dconf_repo_paths[@]} dconf entries, want 10"
+
+    local i repo_path dconf_path line dump
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status CREATED "${dconf_repo_paths[$i]}" \
+            || fail "import: missing CREATED line for ${dconf_repo_paths[$i]}"
+    done
+
+    # The key the plan names; its expected value comes from the repo file.
+    local wm_repo expected got
+    wm_repo=$(jq -r '.files[] | select(.type == "dconf" and .path == "/org/gnome/desktop/wm/keybindings/") | .repoPath' \
+        "$t/repo/sync-config.json")
+    expected=$(sed -n 's/^switch-to-workspace-up=//p' "$t/repo/$wm_repo")
+    got=$(on_test_bus dconf read /org/gnome/desktop/wm/keybindings/switch-to-workspace-up)
+    [[ $got == "$expected" ]] \
+        || fail "switch-to-workspace-up is '$got', want '$expected'"
+
+    # Every key line in each repo file must be in the dump of its path.
+    for i in "${!dconf_repo_paths[@]}"; do
+        repo_path=${dconf_repo_paths[$i]}
+        dconf_path=${dconf_paths[$i]}
+        dump=$(on_test_bus dconf dump "$dconf_path") \
+            || fail "dconf dump $dconf_path failed"
+        while IFS= read -r line; do
+            [[ $line == *=* ]] || continue
+            grep -Fqx -- "$line" <<<"$dump" \
+                || fail "$repo_path: $line is missing from the dump of $dconf_path"
+        done < "$t/repo/$repo_path"
+    done
+
+    run_engine_bus /dev/null import.sh
+    (( rc == 0 )) || fail "second import.sh exited $rc, want 0"
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status UNCHANGED "${dconf_repo_paths[$i]}" \
+            || fail "second import: missing UNCHANGED line for ${dconf_repo_paths[$i]}"
+    done
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status UNCHANGED "${dconf_repo_paths[$i]}" \
+            || fail "export: missing UNCHANGED line for ${dconf_repo_paths[$i]}"
+    done
+    grep -Fq 'Repo is up to date' "$out" || fail "export did not print 'Repo is up to date'"
+    if ! diff -r "$t/before" "$t/repo/dotfiles" > "$t/dotfiles.diff" 2>&1; then
+        fail "dotfiles changed during the restore: $(head -n 3 "$t/dotfiles.diff")"
+    fi
 }
 
 case_lint_real_config() {
@@ -1755,6 +1895,53 @@ case_preview_leak_found() {
     fi
 }
 
+# Extension UUIDs have the shape of an address. Only the two extension keys in
+# dconf .ini files are exempt; everything else must still be reported.
+case_leak_extension_enabled() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.ini \
+        "enabled-extensions=['clip@someone.github.io']"
+    (( rc == 0 )) || fail "leak-scan exited $rc, want 0"
+    [[ ! -s $out ]] || fail "leak-scan reported a hit"
+}
+
+case_leak_extension_disabled() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.ini \
+        "disabled-extensions=['ding@rastersoft.com']"
+    (( rc == 0 )) || fail "leak-scan exited $rc, want 0"
+    [[ ! -s $out ]] || fail "leak-scan reported a hit"
+}
+
+case_leak_email_other_key() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.ini "label='person@gmail.com'"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_email_other_file() {
+    new_tmp
+    leak_scan_on dotfiles/linux/tool/shell.ini "enabled-extensions=['person@gmail.com']"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_email_other_suffix() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.txt "enabled-extensions=['person@gmail.com']"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+# The key name inside another key's value doesn't make it an extension list.
+case_leak_email_key_in_value() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.ini "label='enabled-extensions=person@gmail.com'"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
 case_preview_cleans_up() {
     new_tmp
     mkdir -p "$t/tmp"
@@ -2080,9 +2267,881 @@ case_host_git_config_ignored() {
     fi
 }
 
+case_dconf_test_bus() {
+    new_tmp
+    setup_dconf_bus
+
+    # The real database must not move while a case runs. Hash it first, but only
+    # if this machine has one.
+    local real_db=$HOME/.config/dconf/user real_before='' real_after=''
+    if [[ -e $real_db ]]; then
+        real_before=$(sha256sum "$real_db")
+    fi
+
+    printf '[/]\nkey=1\n' | dconf_seed /test/app/ \
+        || fail "dconf load on the test bus failed"
+
+    local value
+    rc=0
+    value=$(on_test_bus dconf read /test/app/key) || rc=$?
+    (( rc == 0 )) || fail "dconf read on the test bus exited $rc"
+    [[ $value == 1 ]] || fail "dconf read printed '$value', want 1"
+
+    [[ -e "$t/home/.config/dconf/user" ]] \
+        || fail "$t/home/.config/dconf/user was not created"
+
+    # The engine must see $t/home as both HOME and the login home on this bus.
+    mkdir -p "$t/repo"
+    cat > "$t/repo/probe.sh" <<'EOF'
+#!/bin/sh
+getent passwd "$(id -u)" | cut -d: -f6
+echo "$HOME"
+EOF
+    chmod +x "$t/repo/probe.sh"
+    run_engine_bus /dev/null probe.sh
+    (( rc == 0 )) || fail "probe on the test bus exited $rc"
+    [[ $(grep -cFx "$t/home" "$out") == 2 ]] \
+        || fail "HOME and the login home aren't both $t/home on the test bus"
+
+    if [[ -n $real_before ]]; then
+        real_after=$(sha256sum "$real_db")
+        [[ $real_after == "$real_before" ]] || fail "the real dconf database changed"
+    fi
+}
+
+# Add the base dconf entry to the fixture config. $1 is an optional jq filter
+# applied to it, so a case can break exactly one field.
+add_dconf_entry() {
+    local filter=${1:-.}
+    add_entry "$(jq -c "$filter" <<<'{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux"}')"
+}
+
+# The exact line scripts/linux/sync.sh prints for an invalid dconf entry.
+dconf_error() {
+    printf 'ERROR: sync-config.json: entry %s needs "platform": "linux" and a dconf path like /org/gnome/shell/.' "$1"
+}
+
+# A dconf entry is valid config: both engines accept it and write nothing.
+case_dconf_config_valid() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_dconf_entry
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    if grep -Fq 'has an unsafe path' "$out"; then fail "export rejected the valid dconf entry"; fi
+    if grep -Fq 'dconf path' "$out"; then fail "export rejected the valid dconf path"; fi
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -Fq 'has an unsafe path' "$out"; then fail "import rejected the valid dconf entry"; fi
+    if grep -Fq 'dconf path' "$out"; then fail "import rejected the valid dconf path"; fi
+}
+
+# One dconf entry with a bad "path" or platform: both engines must stop.
+assert_dconf_stop() {
+    local filter=$1
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_dconf_entry "$filter"
+    assert_path_stop "$(dconf_error dotfiles/linux/dconf/app.ini)"
+}
+
+case_dconf_path_missing() {
+    assert_dconf_stop 'del(.path)'
+}
+
+case_dconf_path_relative() {
+    assert_dconf_stop '.path = "org/gnome/"'
+}
+
+case_dconf_path_no_slash() {
+    assert_dconf_stop '.path = "/org/gnome"'
+}
+
+case_dconf_path_root() {
+    assert_dconf_stop '.path = "/"'
+}
+
+case_dconf_path_double_slash() {
+    assert_dconf_stop '.path = "/org//gnome/"'
+}
+
+case_dconf_path_dotdot() {
+    assert_dconf_stop '.path = "/org/../etc/"'
+}
+
+case_dconf_path_space() {
+    assert_dconf_stop '.path = "/org/gno me/"'
+}
+
+case_dconf_platform_common() {
+    assert_dconf_stop '.platform = "common"'
+}
+
+case_dconf_platform_windows() {
+    assert_dconf_stop '.platform = "windows"'
+}
+
+case_dconf_repo_unsafe() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_dconf_entry '.repoPath = "dotfiles/../app.ini"'
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/../app.ini has an unsafe path.'
+}
+
+case_dconf_symlink_named() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/linux/dconf" "$t/home"
+    add_dconf_entry
+    ln -s nowhere "$t/repo/dotfiles/linux/dconf/app.ini"
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini has an unsafe path.'
+}
+
+case_dconf_orphan_owned() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    add_dconf_entry
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    if grep -qE '^  ORPHAN[[:space:]]' "$out"; then
+        fail "an ORPHAN line was printed for the dconf entry's repo file"
+    fi
+}
+
+# The base dconf entry the lint cases add to the real config.
+lint_dconf() {
+    lint_run ".files += [$1]"
+}
+
+case_lint_dconf_ok() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux"}'
+
+    (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+}
+
+case_lint_dconf_path() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/org/gnome", "type": "dconf", "platform": "linux"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_root() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/", "type": "dconf", "platform": "linux"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_platform() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/common/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "common"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/common/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_localpath() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "localPath": "~/x"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_rules() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "sanitizeRules": []}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_linked() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "detectLinkedPaths": true}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_keys_empty() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "keys": []}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_keys_type() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "keys": "font-name"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_keys_on_file() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .keys = ["x"] else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the entry"
+}
+
+case_lint_path_on_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/dd", "localPath": "~/dd", "platform": "linux", "type": "dir", "path": "/x/"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dd' "$out" || fail "output does not name the entry"
+}
+
+case_lint_type_unknown() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "gsettings", "platform": "linux"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+# Common setup for the dconf export cases: fixtures on both sides, then a
+# private bus, so every dconf command the engine runs stays off the real one.
+setup_dconf_export_case() {
+    new_tmp
+    setup_repo
+    setup_home_fixture
+    setup_repo_fixture
+    setup_dconf_bus
+}
+
+# dconf dump of /test/app/ on the private bus, as the export would write it.
+dconf_dump_app() {
+    on_test_bus dconf dump /test/app/
+}
+
+case_dconf_export_adds() {
+    setup_dconf_export_case
+    add_dconf_entry
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status ADDED dotfiles/linux/dconf/app.ini \
+        || fail "missing ADDED line for the dconf entry"
+
+    dconf_dump_app > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "repo file does not equal dconf dump /test/app/ byte for byte"
+}
+
+case_dconf_export_unchanged() {
+    setup_dconf_export_case
+    add_dconf_entry
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status ADDED dotfiles/linux/dconf/app.ini \
+        || fail "missing ADDED line on the first export"
+
+    local hash_before
+    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
+        || fail "missing UNCHANGED line on the second export"
+    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+        || fail "repo file changed on an UNCHANGED export"
+}
+
+case_dconf_export_modifies() {
+    setup_dconf_export_case
+    add_dconf_entry
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    on_test_bus dconf write /test/app/a 2 || fail "dconf write failed"
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status MODIFIED dotfiles/linux/dconf/app.ini \
+        || fail "missing MODIFIED line for the dconf entry"
+    printf '[/]\na=2\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "repo file does not hold a=2"
+}
+
+case_dconf_export_keys() {
+    setup_dconf_export_case
+    add_dconf_entry '.keys = ["keep", "sub/*"]'
+    printf '[/]\nkeep=1\ndrop=2\n\n[sub]\nx=3\n\n[other]\ny=4\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    printf '[/]\nkeep=1\n\n[sub]\nx=3\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "filtered dump differs: want keep and sub, nothing else"
+}
+
+case_dconf_export_keys_no_root() {
+    setup_dconf_export_case
+    add_dconf_entry '.keys = ["sub/*"]'
+    printf '[/]\nkeep=1\ndrop=2\n\n[sub]\nx=3\n\n[other]\ny=4\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    printf '[sub]\nx=3\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "filtered dump differs: want only the sub section"
+}
+
+case_dconf_export_keys_nested() {
+    setup_dconf_export_case
+    add_dconf_entry '.keys = ["sub/*"]'
+    printf '[sub/deep]\nz=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    grep -Fqx '[sub/deep]' "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "missing [sub/deep] section"
+    grep -Fqx 'z=1' "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "missing z=1 key"
+}
+
+case_dconf_export_keys_glob() {
+    setup_dconf_export_case
+    add_dconf_entry '.keys = ["show-*"]'
+    printf '[/]\nshow-hidden=true\nshown=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    grep -Fq 'show-hidden=true' "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "show-hidden was not kept"
+    if grep -Fq 'shown=1' "$t/repo/dotfiles/linux/dconf/app.ini"; then
+        fail "shown was kept despite the show-* pattern"
+    fi
+}
+
+# The real entry's keys: a profile's commands, links and containers stay out.
+case_dconf_ptyxis_profile_keys() {
+    setup_dconf_export_case
+    local keys key
+    keys=$(jq -c '.files[] | select(.path == "/org/gnome/Ptyxis/") | .keys' "$REPO/sync-config.json")
+    [[ -n $keys ]] || fail "no /org/gnome/Ptyxis/ entry in sync-config.json"
+    add_dconf_entry ".keys = $keys"
+    printf "[Profiles/abc]\nlabel='Main'\npalette='Tango'\ncustom-command='/opt/run'\nuse-custom-command=true\ncustom-links=['x']\ndefault-container='box'\npreserve-container='always'\n" \
+        | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    local file=$t/repo/dotfiles/linux/dconf/app.ini
+    grep -Fqx "label='Main'" "$file" || fail "label was not kept"
+    grep -Fqx "palette='Tango'" "$file" || fail "palette was not kept"
+    for key in custom-command use-custom-command custom-links default-container preserve-container; do
+        if grep -q "^$key=" "$file"; then
+            fail "$key was kept"
+        fi
+    done
+}
+
+case_dconf_export_keep_all() {
+    setup_dconf_export_case
+    add_dconf_entry '.keys = ["*"]'
+    printf '[/]\na=1\n\n[sub]\nx=2\n\n[other]\ny=3\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    dconf_dump_app > "$t/expected"
+    cmp -s "$t/expected" "$t/repo/dotfiles/linux/dconf/app.ini" \
+        || fail "keep-all result differs from the raw dump byte for byte"
+}
+
+case_dconf_export_no_settings() {
+    setup_dconf_export_case
+    add_dconf_entry
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'no settings under /test/app/' \
+        || fail "missing SKIPPED (no settings) line"
+    [[ ! -e "$t/repo/dotfiles/linux/dconf/app.ini" ]] \
+        || fail "repo file was created for an empty dump"
+}
+
+case_dconf_export_no_settings_keeps_repo() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\nold=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    local hash_before
+    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'no settings under /test/app/' \
+        || fail "missing SKIPPED (no settings) line"
+    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+        || fail "repo file changed despite the empty dump"
+}
+
+case_dconf_export_keys_empty_result() {
+    setup_dconf_export_case
+    add_dconf_entry '.keys = ["absent"]'
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\nold=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    local hash_before
+    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'no settings under /test/app/' \
+        || fail "missing SKIPPED (no settings) line"
+    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+        || fail "repo file changed when the filter kept nothing"
+}
+
+case_dconf_export_missing_tool() {
+    setup_dconf_export_case
+    add_dconf_entry
+    # A PATH with every tool the engine needs but no dconf, so export_dconf
+    # reports the tool as missing instead of failing on jq or another command.
+    local stub=$t/stub tool
+    mkdir -p "$stub"
+    for tool in bash dirname jq find sort cat cp cmp chmod mkdir rm git uname; do
+        ln -s "$(command -v "$tool")" "$stub/$tool"
+    done
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" PATH="$stub" ./export.sh < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'dconf not installed' \
+        || fail "missing SKIPPED (dconf not installed) line"
+}
+
+case_dconf_export_fails() {
+    setup_dconf_export_case
+    # The dconf entry goes first, so the fixture entries after it are the
+    # "later entries" that must still print a status after the ERROR.
+    jq '.files = [{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux"}] + .files' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    cat > "$t/bin/dconf" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+    chmod +x "$t/bin/dconf"
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status ERROR dotfiles/linux/dconf/app.ini 'dconf dump failed' \
+        || fail "missing ERROR (dconf dump failed) line"
+    output_has_status UNCHANGED dotfiles/linux/plain.txt \
+        || fail "a later fixture entry did not print a status"
+}
+
+# A repo write that fails is one entry's ERROR, and export.sh runs under set -e.
+case_dconf_export_write_fails() {
+    setup_dconf_export_case
+    jq '.files = [{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux"}] + .files' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    printf 'in the way\n' > "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status ERROR dotfiles/linux/dconf/app.ini "cannot create $t/repo/dotfiles/linux/dconf" \
+        || fail "missing ERROR line for the dconf entry"
+    output_has_status UNCHANGED dotfiles/linux/plain.txt \
+        || fail "a later fixture entry did not print a status"
+}
+
+case_dconf_preview_read_only() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/scripts/ci"
+    cp -a "$REPO/scripts/ci/." "$t/repo/scripts/ci/"
+    setup_repo_fixture
+    setup_home_fixture
+    make_git_repo
+    setup_dconf_bus
+    add_dconf_entry
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    # Export and commit the initial state, so the preview has a base to diff.
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    git -C "$t/repo" add -A
+    git -C "$t/repo" -c user.name=t -c user.email=t@example.com commit -q -m 'dconf export'
+
+    on_test_bus dconf write /test/app/a 2 || fail "dconf write failed"
+
+    local repo_before home_before
+    repo_before=$(tree_hash "$t/repo")
+    home_before=$(tree_hash "$t/home")
+
+    run_engine_bus /dev/null export.sh --preview
+    (( rc == 0 )) || fail "preview exited $rc, want 0"
+
+    grep -Fq 'a=2' "$out" || fail "the preview diff does not show the changed key"
+    [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed during preview"
+    [[ $(tree_hash "$t/home") == "$home_before" ]] || fail "home changed during preview"
+}
+
+case_dconf_import_creates() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+
+    # No --force: an empty database must not prompt before CREATED.
+    run_engine_bus /dev/null import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status CREATED dotfiles/linux/dconf/app.ini \
+        || fail "missing CREATED line for the dconf entry"
+    if grep -Fq 'Overwrite ' "$out"; then
+        fail "import prompted despite the empty database"
+    fi
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a backup was written for an empty database"
+    [[ $(on_test_bus dconf read /test/app/a) == 1 ]] \
+        || fail "dconf read /test/app/a is not 1"
+}
+
+case_dconf_import_unchanged() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    local hash_before
+    hash_before=$(sha256sum "$t/home/.config/dconf/user")
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
+        || fail "missing UNCHANGED line for the dconf entry"
+    [[ $(sha256sum "$t/home/.config/dconf/user") == "$hash_before" ]] \
+        || fail "the dconf database changed on an UNCHANGED import"
+}
+
+case_dconf_import_local_extra() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\nextra=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
+        || fail "missing UNCHANGED line for the dconf entry"
+    [[ $(on_test_bus dconf read /test/app/extra) == 1 ]] \
+        || fail "the local extra key was not kept"
+}
+
+case_dconf_import_update_yes() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+    printf 'y\n' > "$t/answers"
+
+    run_engine_bus "$t/answers" import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    grep -Fq 'Overwrite /test/app/? [Y/n]' "$out" \
+        || fail "the prompt does not name the dconf path"
+    # The prompt has no trailing newline, so the status line follows it on the same line.
+    grep -Fq "$(status_line UPDATED dotfiles/linux/dconf/app.ini 'backup saved as app.ini.bak')" "$out" \
+        || fail "missing UPDATED (backup) line for the dconf entry"
+    [[ $(on_test_bus dconf read /test/app/a) == 2 ]] \
+        || fail "dconf read /test/app/a is not 2"
+    printf '[/]\na=1\n' > "$t/expected.bak"
+    cmp -s "$t/expected.bak" "$t/home/.local/state/sync-settings/dconf/app.ini.bak" \
+        || fail "the backup does not hold the old dump"
+}
+
+case_dconf_import_update_no() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+    printf 'n\n' > "$t/answers"
+
+    run_engine_bus "$t/answers" import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    grep -Fq "$(status_line SKIPPED dotfiles/linux/dconf/app.ini 'user skipped')" "$out" \
+        || fail "missing SKIPPED (user skipped) line for the dconf entry"
+    [[ $(on_test_bus dconf read /test/app/a) == 1 ]] \
+        || fail "dconf read /test/app/a changed despite the 'n' answer"
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a backup was written despite the 'n' answer"
+}
+
+case_dconf_import_force() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -Fq 'Overwrite ' "$out"; then
+        fail "import prompted despite --force"
+    fi
+    output_has_status UPDATED dotfiles/linux/dconf/app.ini 'backup saved as app.ini.bak' \
+        || fail "missing UPDATED (backup) line for the dconf entry"
+    [[ -e "$t/home/.local/state/sync-settings/dconf/app.ini.bak" ]] \
+        || fail "no backup was written"
+}
+
+case_dconf_import_eof() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    # No --force, stdin /dev/null: the prompt reads EOF, which counts as yes.
+    run_engine_bus /dev/null import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    grep -Fq "$(status_line UPDATED dotfiles/linux/dconf/app.ini 'backup saved as app.ini.bak')" "$out" \
+        || fail "missing UPDATED (backup) line for the dconf entry"
+    [[ $(on_test_bus dconf read /test/app/a) == 2 ]] \
+        || fail "dconf read /test/app/a is not 2"
+}
+
+case_dconf_import_merge() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\nextra=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    [[ $(on_test_bus dconf read /test/app/a) == 2 ]] \
+        || fail "dconf read /test/app/a is not 2"
+    [[ $(on_test_bus dconf read /test/app/extra) == 1 ]] \
+        || fail "the local extra key was not kept through the merge"
+}
+
+case_dconf_import_no_repo_file() {
+    setup_dconf_export_case
+    add_dconf_entry
+    # No repo file under the entry's repoPath.
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'not found in repo' \
+        || fail "missing SKIPPED (not found in repo) line for the dconf entry"
+}
+
+case_dconf_import_wrong_home() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    # Drop the fake getent so the real one answers with the real login home,
+    # which is not $t/home; dconf_home_ok must then refuse to touch dconf.
+    rm "$t/bin/getent"
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'HOME is not the login home; dconf left alone' \
+        || fail "missing SKIPPED (wrong home) line for the dconf entry"
+    [[ -z $(on_test_bus dconf read /test/app/a) ]] \
+        || fail "dconf read /test/app/a is set despite the wrong-home skip"
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a backup was written despite the wrong-home skip"
+}
+
+# The test bus's dconf service keeps $t/home/.config, as the desktop's keeps
+# ~/.config, so only the engine sees this config dir: its dump comes back empty
+# while its load would still reach the service.
+case_dconf_import_other_config() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf" "$t/other"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=2\n' | dconf_seed /test/app/
+
+    rc=0
+    (cd "$t/repo" && on_test_bus env XDG_CONFIG_HOME="$t/other" ./import.sh --force < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'XDG_CONFIG_HOME is not ~/.config; dconf left alone' \
+        || fail "missing SKIPPED (other config dir) line for the dconf entry"
+    [[ $(on_test_bus dconf read /test/app/a) == 2 ]] \
+        || fail "/test/app/a changed despite the config dir skip"
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a backup was written despite the config dir skip"
+}
+
+case_dconf_import_config_unset() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+
+    rc=0
+    (cd "$t/repo" && on_test_bus env -u XDG_CONFIG_HOME ./import.sh --force < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status CREATED dotfiles/linux/dconf/app.ini \
+        || fail "missing CREATED line with XDG_CONFIG_HOME unset"
+    [[ $(on_test_bus dconf read /test/app/a) == 1 ]] \
+        || fail "/test/app/a is not 1 after import"
+}
+
+case_dconf_import_missing_tool() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    # A PATH with every tool the engine needs but no dconf, so import_dconf
+    # reports the tool as missing instead of failing on jq or another command.
+    local stub=$t/stub tool
+    mkdir -p "$stub"
+    for tool in bash dirname jq find sort cat cp cmp chmod mkdir rm git uname; do
+        ln -s "$(command -v "$tool")" "$stub/$tool"
+    done
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" PATH="$stub" ./import.sh --force < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'dconf not installed' \
+        || fail "missing SKIPPED (dconf not installed) line"
+}
+
+case_dconf_import_bad_file() {
+    setup_dconf_export_case
+    # The dconf entry goes first, so the fixture entries after it are the
+    # "later entries" that must still print a status after the ERROR.
+    jq '.files = [{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux"}] + .files' \
+        "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
+    mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\nbad=notvalid value\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status ERROR dotfiles/linux/dconf/app.ini 'dconf load failed' \
+        || fail "missing ERROR (dconf load failed) line"
+    [[ $(on_test_bus dconf read /test/app/a) == 1 ]] \
+        || fail "dconf read /test/app/a changed despite the failed load"
+    output_has_status UNCHANGED dotfiles/linux/plain.txt \
+        || fail "a later fixture entry did not print a status"
+}
+
+case_dconf_import_prompt_reads_stdin() {
+    setup_dconf_export_case
+    add_dconf_entry
+    add_dconf_entry '.repoPath = "dotfiles/linux/dconf/other.ini" | .path = "/test/other/"'
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\nb=2\n' > "$t/repo/dotfiles/linux/dconf/other.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+    printf '[/]\nb=1\n' | dconf_seed /test/other/
+    printf 'n\ny\n' > "$t/answers"
+
+    run_engine_bus "$t/answers" import.sh
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    grep -Fq "$(status_line SKIPPED dotfiles/linux/dconf/app.ini 'user skipped')" "$out" \
+        || fail "missing SKIPPED (user skipped) line for the first dconf entry"
+    grep -Fq "$(status_line UPDATED dotfiles/linux/dconf/other.ini 'backup saved as other.ini.bak')" "$out" \
+        || fail "missing UPDATED (backup) line for the second dconf entry"
+    [[ $(on_test_bus dconf read /test/app/a) == 1 ]] \
+        || fail "the first entry was overwritten despite the 'n' answer"
+    [[ $(on_test_bus dconf read /test/other/b) == 2 ]] \
+        || fail "the second entry was not overwritten despite the 'y' answer"
+}
+
+case_dconf_roundtrip_values() {
+    setup_dconf_export_case
+    add_dconf_entry
+    cat > "$t/seed" <<'EOF'
+[/]
+s='x=y'
+m="it's\nline2"
+l=['a', 'b']
+e=@as []
+u=uint32 3
+t=(1, 'x')
+EOF
+    dconf_seed /test/app/ < "$t/seed" \
+        || fail "seeding the test bus failed"
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status ADDED dotfiles/linux/dconf/app.ini \
+        || fail "missing ADDED line for the dconf entry"
+
+    # A fresh, empty database: the exported repo file must round-trip byte for byte.
+    mv "$t/home" "$t/old"
+    mkdir "$t/home"
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    dconf_dump_app > "$t/dumped"
+    cmp -s "$t/repo/dotfiles/linux/dconf/app.ini" "$t/dumped" \
+        || fail "the imported dump does not equal the repo file byte for byte"
+}
+
+case_dconf_roundtrip_settles() {
+    setup_dconf_export_case
+    add_dconf_entry
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "first export.sh exited $rc, want 0"
+    output_has_status ADDED dotfiles/linux/dconf/app.ini \
+        || fail "missing ADDED line on the first export"
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "first import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
+        || fail "missing UNCHANGED line on the first import"
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "second export.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
+        || fail "missing UNCHANGED line on the second export"
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "second import.sh exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
+        || fail "missing UNCHANGED line on the second import"
+
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a backup was written during a settled round trip"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -2115,6 +3174,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         path-repo-symlink) case_path_repo_symlink ;;
         path-real-config) case_path_real_config ;;
         real-config-roundtrip) case_real_config_roundtrip ;;
+        real-config-dconf-restore) case_real_config_dconf_restore ;;
         lint-real-config) case_lint_real_config ;;
         lint-platform-missing) case_lint_platform_missing ;;
         lint-platform-bad) case_lint_platform_bad ;;
@@ -2197,6 +3257,71 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-routes-preview) case_sync_routes_preview ;;
         sync-missing-tool) case_sync_missing_tool ;;
         host-git-config-ignored) case_host_git_config_ignored ;;
+        leak-extension-enabled) case_leak_extension_enabled ;;
+        leak-extension-disabled) case_leak_extension_disabled ;;
+        leak-email-other-key) case_leak_email_other_key ;;
+        leak-email-other-file) case_leak_email_other_file ;;
+        leak-email-other-suffix) case_leak_email_other_suffix ;;
+        leak-email-key-in-value) case_leak_email_key_in_value ;;
+        dconf-test-bus) case_dconf_test_bus ;;
+        dconf-config-valid) case_dconf_config_valid ;;
+        dconf-path-missing) case_dconf_path_missing ;;
+        dconf-path-relative) case_dconf_path_relative ;;
+        dconf-path-no-slash) case_dconf_path_no_slash ;;
+        dconf-path-root) case_dconf_path_root ;;
+        dconf-path-double-slash) case_dconf_path_double_slash ;;
+        dconf-path-dotdot) case_dconf_path_dotdot ;;
+        dconf-path-space) case_dconf_path_space ;;
+        dconf-platform-common) case_dconf_platform_common ;;
+        dconf-platform-windows) case_dconf_platform_windows ;;
+        dconf-repo-unsafe) case_dconf_repo_unsafe ;;
+        dconf-symlink-named) case_dconf_symlink_named ;;
+        dconf-orphan-owned) case_dconf_orphan_owned ;;
+        lint-dconf-ok) case_lint_dconf_ok ;;
+        lint-dconf-path) case_lint_dconf_path ;;
+        lint-dconf-root) case_lint_dconf_root ;;
+        lint-dconf-platform) case_lint_dconf_platform ;;
+        lint-dconf-localpath) case_lint_dconf_localpath ;;
+        lint-dconf-rules) case_lint_dconf_rules ;;
+        lint-dconf-linked) case_lint_dconf_linked ;;
+        lint-dconf-keys-empty) case_lint_dconf_keys_empty ;;
+        lint-dconf-keys-type) case_lint_dconf_keys_type ;;
+        lint-keys-on-file) case_lint_keys_on_file ;;
+        lint-path-on-dir) case_lint_path_on_dir ;;
+        lint-type-unknown) case_lint_type_unknown ;;
+        dconf-export-adds) case_dconf_export_adds ;;
+        dconf-export-unchanged) case_dconf_export_unchanged ;;
+        dconf-export-modifies) case_dconf_export_modifies ;;
+        dconf-export-keys) case_dconf_export_keys ;;
+        dconf-export-keys-no-root) case_dconf_export_keys_no_root ;;
+        dconf-export-keys-nested) case_dconf_export_keys_nested ;;
+        dconf-export-keys-glob) case_dconf_export_keys_glob ;;
+        dconf-ptyxis-profile-keys) case_dconf_ptyxis_profile_keys ;;
+        dconf-export-keep-all) case_dconf_export_keep_all ;;
+        dconf-export-no-settings) case_dconf_export_no_settings ;;
+        dconf-export-no-settings-keeps-repo) case_dconf_export_no_settings_keeps_repo ;;
+        dconf-export-keys-empty-result) case_dconf_export_keys_empty_result ;;
+        dconf-export-missing-tool) case_dconf_export_missing_tool ;;
+        dconf-export-fails) case_dconf_export_fails ;;
+        dconf-export-write-fails) case_dconf_export_write_fails ;;
+        dconf-preview-read-only) case_dconf_preview_read_only ;;
+        dconf-import-creates) case_dconf_import_creates ;;
+        dconf-import-unchanged) case_dconf_import_unchanged ;;
+        dconf-import-local-extra) case_dconf_import_local_extra ;;
+        dconf-import-update-yes) case_dconf_import_update_yes ;;
+        dconf-import-update-no) case_dconf_import_update_no ;;
+        dconf-import-force) case_dconf_import_force ;;
+        dconf-import-eof) case_dconf_import_eof ;;
+        dconf-import-merge) case_dconf_import_merge ;;
+        dconf-import-no-repo-file) case_dconf_import_no_repo_file ;;
+        dconf-import-wrong-home) case_dconf_import_wrong_home ;;
+        dconf-import-other-config) case_dconf_import_other_config ;;
+        dconf-import-config-unset) case_dconf_import_config_unset ;;
+        dconf-import-missing-tool) case_dconf_import_missing_tool ;;
+        dconf-import-bad-file) case_dconf_import_bad_file ;;
+        dconf-import-prompt-reads-stdin) case_dconf_import_prompt_reads_stdin ;;
+        dconf-roundtrip-values) case_dconf_roundtrip_values ;;
+        dconf-roundtrip-settles) case_dconf_roundtrip_settles ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then

@@ -125,7 +125,18 @@ function Assert-SafePaths {
         if (-not (Test-SafePath -Path $repoPath -Kind repo)) {
             throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
         }
-        if (-not (Test-SafePath -Path $localPath -Kind local)) {
+        # A dconf entry has no local file: it owns its repoPath and names a dconf
+        # folder instead. Refuse a bad one before anything is dumped or loaded.
+        if ($entry.PSObject.Properties['type'] -and $entry.type -ceq 'dconf') {
+            $dconfPath = [string]$entry.path
+            $platform  = [string]$entry.platform
+            $valid = ($platform -ceq 'linux') -and
+                ($dconfPath -cmatch '^(/[A-Za-z0-9._-]+)+/$') -and
+                ($dconfPath -cnotlike '*/../*')
+            if (-not $valid) {
+                throw ('sync-config.json: entry {0} needs "platform": "linux" and a dconf path like /org/gnome/shell/.' -f $repoPath)
+            }
+        } elseif (-not (Test-SafePath -Path $localPath -Kind local)) {
             throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
         }
     }

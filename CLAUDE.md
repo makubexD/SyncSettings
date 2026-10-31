@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4+, `jq`, `git`, `cmp`. The Linux side syncs the shell, terminal tools, VS Code's default profile, desktop files and the Claude Code setup in `~/.claude`.
+Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4+, `jq`, `git`, `cmp`. The Linux side syncs the shell, terminal tools, VS Code's default profile, desktop files, GNOME settings (dconf) and the Claude Code setup in `~/.claude`.
 
 ## Architecture
 
@@ -52,6 +52,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **Backups:** Import creates `<file>.bak` before overwriting any existing local file.
 - **Error handling:** `$ErrorActionPreference = 'Stop'` at script level; per-file `try/catch` so one failure doesn't abort the rest.
 - **Exclude patterns:** Checked via `-like` before every copy. Never copy files matching patterns in `sync-config.json > excludePatterns`.
+- **dconf entries:** `"type": "dconf"` syncs a dconf `path` with one `.ini` file, bash only; PowerShell validates them and doesn't run them. `keys` is an allowlist, because the repo is public. Import merges and never resets, and it won't load unless `HOME` is the login home (`dconf_home_ok`). See `docs/sync-contract.md`.
 - **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
 - **Tests:** Both engines run the fixtures in `tests/fixtures/`. Bash: `tests/linux/engine.sh [case-name-filter]`. PowerShell (PS 5.1, Pester 5, from the repo root): `Invoke-Pester -Path tests/windows -CI`. CI runs them as `engine-linux` and `engine-windows`; the Pester suite calls `powershell.exe`, so on Linux `pwsh` can only parse the scripts and PowerShell changes are checked by the CI job. An engine change updates `docs/sync-contract.md` and adds a fixture case.
 
@@ -62,7 +63,7 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **Prompts inside loops:** a loop that reads from a pipe must use another fd (`read … <&3` with `done 3< <(…)`), or `read` takes the next loop line as the user's answer.
 - **Modes:** `cp -p` for plain copies, `chmod --reference` for files written from text. `bin/` scripts must stay executable.
 - **Missing values:** with a placeholder value missing after the prompt, with or without a terminal, `request_values` stops rather than writing an unfilled placeholder.
-- **Testing:** use a throwaway `HOME` (`HOME=$(mktemp -d) ./import.sh --force < /dev/null`) and a throwaway `git clone` for `commit.sh`. Don't test in the real repo.
+- **Testing:** use a throwaway `HOME` (`HOME=$(mktemp -d) ./import.sh --force < /dev/null`) and a throwaway `git clone` for `commit.sh`. Don't test in the real repo. A throwaway `HOME` doesn't isolate `dconf load`, which goes over the session bus: the login-home guard covers import, and dconf cases run on `on_test_bus`. Never run `dconf load` or `dconf write` on the real bus. To check the real database, compare `sha256sum ~/.config/dconf/user` before and after, but a moved hash alone doesn't mean the engine wrote it, because GNOME and open apps write there too (Resources does). Also check that `dconf list /test/` is empty.
 
 ## Linked Paths (Auto-Detection)
 
