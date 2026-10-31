@@ -115,9 +115,9 @@ boot_skipped() {
 }
 
 # Signed-By paths in a source file, one per line: `Signed-By: /p` in .sources
-# and `signed-by=/p` in .list, ignoring case.
+# and `signed-by=/p` in .list, ignoring case; comment lines are skipped.
 source_keys() {
-    sed -n 's/.*[Ss][Ii][Gg][Nn][Ee][Dd]-[Bb][Yy][: =][[:space:]]*\([^][:space:]]*\).*/\1/p' "$1"
+    sed -n '/^[[:space:]]*#/d; s/.*[Ss][Ii][Gg][Nn][Ee][Dd]-[Bb][Yy][: =][[:space:]]*\([^][:space:]]*\).*/\1/p' "$1"
 }
 
 # Put $1 at $2 unless the file already matches. A missing file is copied (and
@@ -162,6 +162,11 @@ step_apt_sources() {
         to=$ROOT/etc/apt/sources.list.d/$name
         install_file "$src" "$to" "/etc/apt/sources.list.d/$name" || return 1
         while IFS= read -r value <&3; do
+            # The lint skips fields it doesn't know, so check the path that sudo writes.
+            if [[ ! $value =~ ^(/usr/share/keyrings|/etc/apt/keyrings)/[A-Za-z0-9._-]+$ ]]; then
+                status ERROR "$value" 'key path outside the keyring folders'
+                return 1
+            fi
             base=${value##*/}
             install_file "$PACKAGES_DIR/apt-sources/keyrings/$base" "$ROOT$value" "$value" || return 1
         done 3< <(source_keys "$src")
