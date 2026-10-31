@@ -285,6 +285,9 @@ done < <(platform_entries)
 # or the exit code.
 report_orphans
 
+# Report drift between the package lists and what this machine has installed.
+report_drift
+
 # -- Summary ---------------------------------------------------------------------
 
 printf '\n  %s\n' "--------------------------------------------------"
