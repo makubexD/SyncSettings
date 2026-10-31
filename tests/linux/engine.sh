@@ -2076,7 +2076,7 @@ case_host_git_config_ignored() {
     local config scope
     config=$(git config --list --show-scope)
     if scope=$(grep -Em1 '^(global|system)' <<< "$config"); then
-        fail "host $scope config is not ignored"
+        fail "host ${scope%%$'\t'*} config is not ignored"
     fi
 }
 

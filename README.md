@@ -175,10 +175,11 @@ Export and import ask once for each placeholder value and cache the answers in `
 (gitignored). `<HOME>` defaults to your `$HOME`, so pressing Enter is usually enough. Without a terminal,
 a missing value is an error: nothing is written with a placeholder left unfilled.
 
-### New Linux machine: restore the Claude Code setup
+### New Linux machine: restore your setup
 
 1. Install the tools: `git`, `jq`, `python3`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node and
-   [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`.
+   [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`. The restored `.bashrc` also needs `zoxide` and `starship`,
+   or every new shell prints `command not found`.
 2. Open Claude Code once so `~/.claude` exists, then install the plugins with `/plugin`
    (`context-mode`, `agent-skills`).
 3. Clone this repo and run `./import.sh`.
