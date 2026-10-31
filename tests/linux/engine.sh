@@ -971,6 +971,319 @@ case_lint_windows_ok() {
     (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
 }
 
+# The hash and commit fields of the valid packages fixture: invented values
+# only, so no real address or home path reaches a test.
+PACKAGES_HASH=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+PACKAGES_COMMIT=0123456789abcdef0123456789abcdef01234567
+
+# A valid packages folder under $t/packages: one line per list, one apt source
+# and the key it names.
+lint_packages_valid() {
+    new_tmp
+    mkdir -p "$t/packages/apt-sources/keyrings"
+    printf 'foo\n' > "$t/packages/apt.txt"
+    printf 'bar https://example.com/bar_1.0.deb %s\n' "$PACKAGES_HASH" > "$t/packages/deb.txt"
+    printf 'baz\n' > "$t/packages/snap.txt"
+    printf 'qux\n' > "$t/packages/npm.txt"
+    printf 'quux\n' > "$t/packages/pipx.txt"
+    printf 'pub.name\n' > "$t/packages/vscode-extensions.txt"
+    printf 'Font v1.2.3 %s\n' "$PACKAGES_HASH" > "$t/packages/fonts.txt"
+    printf 'uuid@example https://github.com/owner/repo %s\n' "$PACKAGES_COMMIT" \
+        > "$t/packages/gnome-extensions.txt"
+    printf 'apt ignored-one\n' > "$t/packages/drift-ignore.txt"
+    printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' \
+        > "$t/packages/apt-sources/example.sources"
+    printf 'placeholder key\n' > "$t/packages/apt-sources/keyrings/example.gpg"
+}
+
+# Run the packages lint on one directory; rc and $out hold the result.
+lint_packages_check() {
+    rc=0
+    "$REPO/scripts/ci/check-packages.sh" "$1" > "$out" 2>&1 || rc=$?
+}
+
+# Build the valid folder, apply a change inside it (a shell snippet run from
+# the folder), and run the lint.
+lint_packages_run() {
+    local change=${1:-:}
+    lint_packages_valid
+    (cd "$t/packages" && eval "$change")
+    lint_packages_check "$t/packages"
+}
+
+lint_should_pass() {
+    (( rc == 0 )) || fail "check-packages.sh exited $rc, want 0"
+    grep -Fqx "$t/packages: OK" "$out" || fail "missing '<dir>: OK' line"
+}
+
+lint_should_fail() {
+    (( rc == 1 )) || fail "check-packages.sh exited $rc, want 1"
+    grep -Fqx "$t/packages: invalid entries above" "$out" \
+        || fail "missing '<dir>: invalid entries above' line"
+    local want
+    for want in "$@"; do
+        grep -Fq -- "$want" "$out" || fail "output does not contain '$want'"
+    done
+}
+
+case_lint_packages_ok() {
+    lint_packages_run
+    lint_should_pass
+}
+
+case_lint_packages_empty_dir() {
+    new_tmp
+    mkdir -p "$t/packages"
+    lint_packages_check "$t/packages"
+    lint_should_pass
+}
+
+case_lint_packages_no_dir() {
+    new_tmp
+    lint_packages_check "$t/packages"
+    (( rc == 2 )) || fail "check-packages.sh exited $rc, want 2"
+    grep -Fq "ERROR: no such directory: $t/packages" "$out" \
+        || fail "missing the missing-directory error"
+}
+
+case_lint_packages_comments() {
+    lint_packages_run "printf 'foo\n# aaa\n\nzzz\n' > apt.txt"
+    lint_should_pass
+}
+
+case_lint_packages_apt_shell() {
+    lint_packages_run "printf 'foo;rm\n' >> apt.txt"
+    lint_should_fail 'apt.txt:2:'
+}
+
+case_lint_packages_apt_upper() {
+    lint_packages_run "printf 'Foo\n' >> apt.txt"
+    lint_should_fail 'apt.txt:2:'
+}
+
+case_lint_packages_apt_two_fields() {
+    lint_packages_run "printf 'foo bar\n' >> apt.txt"
+    lint_should_fail 'apt.txt:2:'
+}
+
+case_lint_packages_unsorted() {
+    lint_packages_run "printf 'b\na\n' > apt.txt"
+    lint_should_fail 'not sorted'
+}
+
+case_lint_packages_duplicate() {
+    lint_packages_run "printf 'a\na\n' > apt.txt"
+    lint_should_fail 'duplicate'
+}
+
+case_lint_packages_deb_http() {
+    lint_packages_run "printf 'bar http://example.com/bar_1.0.deb $PACKAGES_HASH\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_deb_no_hash() {
+    lint_packages_run "printf 'bar https://example.com/bar_1.0.deb\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_deb_short_hash() {
+    lint_packages_run "printf 'bar https://example.com/bar_1.0.deb ${PACKAGES_HASH:0:63}\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_deb_subshell() {
+    lint_packages_run "printf 'bar https://example.com/\$(x).deb $PACKAGES_HASH\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:'
+}
+
+case_lint_packages_snap_options() {
+    lint_packages_run "printf 'a classic channel=v1/stable\n' > snap.txt"
+    lint_should_pass
+}
+
+case_lint_packages_snap_order() {
+    lint_packages_run "printf 'a channel=v1/stable classic\n' > snap.txt"
+    lint_should_fail 'snap.txt:1:'
+}
+
+case_lint_packages_npm_scoped() {
+    lint_packages_run "printf '@scope/name\n' > npm.txt"
+    lint_should_pass
+}
+
+case_lint_packages_vscode_upper() {
+    lint_packages_run "printf 'Pub.Name\n' > vscode-extensions.txt"
+    lint_should_fail 'vscode-extensions.txt:1:'
+}
+
+case_lint_packages_font_no_tag() {
+    lint_packages_run "printf 'Name abc\n' > fonts.txt"
+    lint_should_fail 'fonts.txt:1:'
+}
+
+case_lint_packages_extension_other_host() {
+    lint_packages_run "printf 'uuid@example https://example.com/a/b $PACKAGES_COMMIT\n' > gnome-extensions.txt"
+    lint_should_fail 'gnome-extensions.txt:1:'
+}
+
+case_lint_packages_extension_branch() {
+    lint_packages_run "printf 'uuid@example https://github.com/owner/repo main\n' > gnome-extensions.txt"
+    lint_should_fail 'gnome-extensions.txt:1:'
+}
+
+case_lint_packages_ignore_manager() {
+    lint_packages_run "printf 'brew x\n' > drift-ignore.txt"
+    lint_should_fail 'drift-ignore.txt:1:'
+}
+
+case_lint_packages_unknown_file() {
+    lint_packages_run "printf 'x\n' > extra.txt"
+    lint_should_fail 'extra.txt:1: unknown list'
+}
+
+case_lint_packages_apt_and_deb() {
+    lint_packages_run "printf 'foo https://example.com/foo_1.0.deb $PACKAGES_HASH\n' > deb.txt"
+    lint_should_fail 'deb.txt:1:' 'foo is also in apt.txt'
+}
+
+case_lint_packages_listed_and_ignored() {
+    lint_packages_run "printf 'apt foo\n' > drift-ignore.txt"
+    lint_should_fail 'apt.txt:1:' 'foo is ignored'
+}
+
+case_lint_packages_same_name_other_manager() {
+    lint_packages_run "printf 'snap foo\n' > drift-ignore.txt"
+    lint_should_pass
+}
+
+case_lint_packages_source_http() {
+    lint_packages_run "printf 'Types: deb\nURIs: http://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_list_http() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [signed-by=/usr/share/keyrings/example.gpg] http://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_source_unsigned() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_missing() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/missing.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_elsewhere() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /tmp/k.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_key_unused() {
+    lint_packages_run "printf 'unused\n' > apt-sources/keyrings/unused.gpg"
+    lint_should_fail 'unused.gpg'
+}
+
+case_lint_packages_source_other_file() {
+    lint_packages_run "printf 'notes\n' > apt-sources/notes.md"
+    lint_should_fail 'apt-sources/notes.md:1: unknown list'
+}
+
+case_lint_packages_source_real_shapes() {
+    lint_packages_run "printf '# leading one\n# leading two\nTypes: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nX-Repolib-Name: Example\nArchitectures: amd64 arm64\n# between fields\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources; printf 'deb [arch=amd64 signed-by=/etc/apt/keyrings/example.gpg] https://example.com/packages stable main\ndeb [signed-by=/usr/share/keyrings/example.gpg] https://example.com/r/ * *\n' > apt-sources/example.list"
+    lint_should_pass
+}
+
+case_lint_packages_source_uris_lowercase() {
+    lint_packages_run "printf 'Types: deb\nuris: http://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_uri_continuation() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\n http://example.com/other\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_second_stanza() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n\nTypes: deb\nURIs: https://example.com/other\nSuites: stable\nComponents: main\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_trusted() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nTrusted: yes\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_dotdot() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/../../tmp/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_key_empty() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+    if grep -q 'bad array subscript' "$out"; then
+        fail "output contains 'bad array subscript'"
+    fi
+}
+
+case_lint_packages_list_second_line() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\ndeb https://example.com/other other main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_list_deb_src_http() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb-src [signed-by=/usr/share/keyrings/example.gpg] http://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_list_trusted() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [trusted=yes signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_list_other_line() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\nfoo bar\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
+case_lint_packages_symlink() {
+    lint_packages_run "ln -s nowhere extra.txt"
+    lint_should_fail 'extra.txt' 'symlink'
+}
+
+case_lint_packages_other_dir() {
+    lint_packages_run "mkdir -p other; printf 'x\n' > other/n.txt"
+    lint_should_fail 'other' 'unknown list'
+}
+
+case_lint_packages_key_deep() {
+    lint_packages_run "mkdir -p apt-sources/keyrings/sub; printf 'x\n' > apt-sources/keyrings/sub/n.gpg"
+    lint_should_fail 'apt-sources/keyrings/sub/n.gpg' 'unknown list'
+}
+
+case_lint_packages_source_key_continuation() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n /tmp/other.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_allow_insecure() {
+    lint_packages_run "printf 'Types: deb\nURIs: https://example.com/repo\nSuites: stable\nComponents: main\nAllow-Insecure: yes\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_source_field_space() {
+    lint_packages_run "printf 'Types: deb\nURIs : http://example.com/repo\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/example.gpg\n' > apt-sources/example.sources"
+    lint_should_fail 'example.sources'
+}
+
+case_lint_packages_list_allow_insecure() {
+    lint_packages_run "rm apt-sources/example.sources; printf 'deb [Allow-Insecure=yes signed-by=/usr/share/keyrings/example.gpg] https://example.com/stable stable main\n' > apt-sources/example.list"
+    lint_should_fail 'example.list'
+}
+
 case_path_dotted_name() {
     new_tmp
     setup_repo
@@ -3141,7 +3454,7 @@ case_dconf_roundtrip_settles() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -3189,6 +3502,56 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         lint-windows-sibling) case_lint_windows_sibling ;;
         lint-windows-linux-prefix) case_lint_windows_linux_prefix ;;
         lint-windows-ok) case_lint_windows_ok ;;
+        lint-packages-ok) case_lint_packages_ok ;;
+        lint-packages-empty-dir) case_lint_packages_empty_dir ;;
+        lint-packages-no-dir) case_lint_packages_no_dir ;;
+        lint-packages-comments) case_lint_packages_comments ;;
+        lint-packages-apt-shell) case_lint_packages_apt_shell ;;
+        lint-packages-apt-upper) case_lint_packages_apt_upper ;;
+        lint-packages-apt-two-fields) case_lint_packages_apt_two_fields ;;
+        lint-packages-unsorted) case_lint_packages_unsorted ;;
+        lint-packages-duplicate) case_lint_packages_duplicate ;;
+        lint-packages-deb-http) case_lint_packages_deb_http ;;
+        lint-packages-deb-no-hash) case_lint_packages_deb_no_hash ;;
+        lint-packages-deb-short-hash) case_lint_packages_deb_short_hash ;;
+        lint-packages-deb-subshell) case_lint_packages_deb_subshell ;;
+        lint-packages-snap-options) case_lint_packages_snap_options ;;
+        lint-packages-snap-order) case_lint_packages_snap_order ;;
+        lint-packages-npm-scoped) case_lint_packages_npm_scoped ;;
+        lint-packages-vscode-upper) case_lint_packages_vscode_upper ;;
+        lint-packages-font-no-tag) case_lint_packages_font_no_tag ;;
+        lint-packages-extension-other-host) case_lint_packages_extension_other_host ;;
+        lint-packages-extension-branch) case_lint_packages_extension_branch ;;
+        lint-packages-ignore-manager) case_lint_packages_ignore_manager ;;
+        lint-packages-unknown-file) case_lint_packages_unknown_file ;;
+        lint-packages-apt-and-deb) case_lint_packages_apt_and_deb ;;
+        lint-packages-listed-and-ignored) case_lint_packages_listed_and_ignored ;;
+        lint-packages-same-name-other-manager) case_lint_packages_same_name_other_manager ;;
+        lint-packages-source-http) case_lint_packages_source_http ;;
+        lint-packages-list-http) case_lint_packages_list_http ;;
+        lint-packages-source-unsigned) case_lint_packages_source_unsigned ;;
+        lint-packages-source-key-missing) case_lint_packages_source_key_missing ;;
+        lint-packages-source-key-elsewhere) case_lint_packages_source_key_elsewhere ;;
+        lint-packages-key-unused) case_lint_packages_key_unused ;;
+        lint-packages-source-other-file) case_lint_packages_source_other_file ;;
+        lint-packages-source-real-shapes) case_lint_packages_source_real_shapes ;;
+        lint-packages-source-uris-lowercase) case_lint_packages_source_uris_lowercase ;;
+        lint-packages-source-uri-continuation) case_lint_packages_source_uri_continuation ;;
+        lint-packages-source-second-stanza) case_lint_packages_source_second_stanza ;;
+        lint-packages-source-trusted) case_lint_packages_source_trusted ;;
+        lint-packages-source-key-dotdot) case_lint_packages_source_key_dotdot ;;
+        lint-packages-source-key-empty) case_lint_packages_source_key_empty ;;
+        lint-packages-list-second-line) case_lint_packages_list_second_line ;;
+        lint-packages-list-deb-src-http) case_lint_packages_list_deb_src_http ;;
+        lint-packages-list-trusted) case_lint_packages_list_trusted ;;
+        lint-packages-list-other-line) case_lint_packages_list_other_line ;;
+        lint-packages-symlink) case_lint_packages_symlink ;;
+        lint-packages-other-dir) case_lint_packages_other_dir ;;
+        lint-packages-key-deep) case_lint_packages_key_deep ;;
+        lint-packages-source-key-continuation) case_lint_packages_source_key_continuation ;;
+        lint-packages-source-allow-insecure) case_lint_packages_source_allow_insecure ;;
+        lint-packages-source-field-space) case_lint_packages_source_field_space ;;
+        lint-packages-list-allow-insecure) case_lint_packages_list_allow_insecure ;;
         path-dotted-name) case_path_dotted_name ;;
         escape-import) case_escape_import ;;
         escape-export) case_escape_export ;;
