@@ -14,7 +14,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 - Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` entries are bash-only, and `"common"` entries run on both (`Test-WindowsEntry` and `platform_entries` filter). A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
 - `dotfiles/` is the staging area inside the repo; files live under `dotfiles/<platform>/<tool>/` (`docs/layout.md`)
-- `packages/linux/` holds hand-edited package lists (`docs/packages.md`). No entry owns them, and export never writes them
+- `packages/linux/` holds hand-edited package lists (`docs/packages.md`), including `tools.txt`, the pinned downloads for tools with no apt source. No entry owns them, and export never writes them
 
 ## Entry Points
 
@@ -28,6 +28,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 | `./export.sh` | `scripts/linux/sync.sh` | Linux: copy changed local files → repo |
 | `./commit.sh` | (self-contained) | Linux: commit `dotfiles/` on a `sync/linux-…` branch, open a PR (never pushes to `master`) |
 | `./import.sh` | `scripts/linux/sync.sh` | Linux: copy repo files → local machine |
+| `./bootstrap/linux.sh` | `scripts/linux/sync.sh` | Linux: restore a new machine from `packages/linux/`, then import, links and plugins (`docs/restore.md`). `--dry-run` changes nothing |
 
 Every change reaches `master` through a PR that the `review-gate` check holds red until it carries the
 `reviewed` label; see `docs/review-gate.md` and `docs/daily-workflow.md`.
@@ -57,6 +58,8 @@ After a merge, `git switch master && git pull`. Remove this section when develop
 - **Package drift:** `report_drift` compares `packages/linux/` with the machine at the end of an export or preview, bash only. It's a report: it writes no file and changes no count or exit code. Pins and root-bound fields go through `scripts/ci/check-packages.sh`. Rules are in `docs/sync-contract.md`.
 - **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
 - **Tests:** Both engines run the fixtures in `tests/fixtures/`. Bash: `tests/linux/engine.sh [case-name-filter]`. PowerShell (PS 5.1, Pester 5, from the repo root): `Invoke-Pester -Path tests/windows -CI`. CI runs them as `engine-linux` and `engine-windows`; the Pester suite calls `powershell.exe`, so on Linux `pwsh` can only parse the scripts and PowerShell changes are checked by the CI job. An engine change updates `docs/sync-contract.md` and adds a fixture case.
+
+- **Bootstrap tests:** `tests/linux/bootstrap.sh [case-name-filter]`, separate from `engine.sh`. `PATH` in a case holds only stubs and an allowlist of harmless tools, so nothing can reach the real `sudo`, `apt-get` or `curl`; a tool the allowlist adds must not be able to install, download, or write outside the temp folder. `scripts/ci/bootstrap-check.sh` proves the lists and pins for real in a clean `ubuntu:26.04` container (the `bootstrap-check` job). A bootstrap step checks what's there first, counts every outcome, and handles `--dry-run`.
 
 ### Bash scripts (Linux)
 

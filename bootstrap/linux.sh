@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Restore this machine from the repo: packages, tools, configs, links, plugins.
-# Run it as your own user. It asks for sudo once, and running it again is safe.
+# Run it as your own user, not with sudo. Running it again is safe.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
