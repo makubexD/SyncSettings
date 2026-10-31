@@ -1286,6 +1286,8 @@ case_tools_claude_file_first() {
     cat > "$t/net/install.sh" <<EOF
 #!/bin/sh
 printf 'claude-install script=%s stdin=%s\n' "\$0" "\$(readlink /proc/self/fd/0)" >> "$t/calls"
+printf '#!/bin/sh\n' > "$t/home/.local/bin/claude"
+chmod +x "$t/home/.local/bin/claude"
 EOF
     run_bootstrap
     (( rc == 0 )) || fail "exited $rc, want 0"
@@ -1307,6 +1309,17 @@ case_tools_claude_fails() {
     (( rc == 1 )) || fail "exited $rc, want 1"
     output_has_status ERROR tool/claude 'installer failed' || fail 'missing ERROR for the failed installer'
     [[ -e $t/home/.local/bin/rtk ]] || fail 'the failed claude step touched the other tools'
+}
+
+case_tools_claude_no_binary() {
+    setup_case
+    make_packages
+    rm -f "$t/home/.local/bin/claude"
+    printf '#!/bin/sh\nexit 0\n' > "$t/net/install.sh"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR tool/claude 'installer left no claude' || fail 'missing ERROR for the empty installer'
+    ! output_has_status INSTALLED tool/claude || fail 'reported INSTALLED without a claude'
 }
 
 case_tools_nvm_skipped() {
@@ -1705,7 +1718,7 @@ case_restore_idempotent() {
     output_has_status UNCHANGED plugins || fail 'second run did not report plugins unchanged'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1778,6 +1791,7 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         tools-present) case_tools_present ;;
         tools-claude-file-first) case_tools_claude_file_first ;;
         tools-claude-fails) case_tools_claude_fails ;;
+        tools-claude-no-binary) case_tools_claude_no_binary ;;
         tools-nvm-skipped) case_tools_nvm_skipped ;;
         tools-dry-run) case_tools_dry_run ;;
         vscode-installs-missing) case_vscode_installs_missing ;;

@@ -583,6 +583,9 @@ step_tools() {
     elif ! bash "$WORK/claude-install.sh" </dev/null; then
         status ERROR tool/claude 'installer failed'
         rc=1
+    elif [[ ! -x $claude ]]; then
+        status ERROR tool/claude 'installer left no claude'
+        rc=1
     else
         boot_installed tool/claude
     fi
