@@ -4,3 +4,5 @@ sync text eol=lf
 *.cmd text eol=crlf
 dotfiles/common/** text eol=lf
 dotfiles/linux/** text eol=lf
+packages/** text eol=lf
+packages/**/*.gpg binary

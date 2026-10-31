@@ -1,0 +1,2 @@
+powershell https://github.com/PowerShell/PowerShell/releases/download/v7.6.6/powershell_7.6.6-1.deb_amd64.deb 9585f38ab5a026c3fc0995486e26e12050777960fef47a22dca98b577c5d27a7
+rustdesk https://github.com/rustdesk/rustdesk/releases/download/1.5.0/rustdesk-1.5.0-x86_64.deb 4e2b9701d25a7ef373f3d09bda584a37d6902f97a6ab15f2e86d4a5783e2a0ec

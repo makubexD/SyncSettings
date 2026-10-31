@@ -1593,6 +1593,53 @@ Describe 'Windows engine' {
         $script:GhLog | Should -Not -Exist
     }
 
+    It 'commit-packages' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        $origin = Join-Path $script:T 'origin.git'
+        $originMaster = (git --git-dir=$origin rev-parse master 2>$null | Out-String).Trim()
+
+        $aptList = Join-Path $script:CloneDir 'packages\linux\apt.txt'
+        $null = New-Item -ItemType Directory -Path (Split-Path $aptList -Parent) -Force
+        [IO.File]::WriteAllText($aptList, "foo`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 0
+
+        (git --git-dir=$origin rev-parse master 2>$null | Out-String).Trim() | Should -Be $originMaster
+
+        $branches = @((git --git-dir=$origin for-each-ref --format='%(refname)' refs/heads 2>$null | Out-String) -split "`r?`n" | Where-Object { $_ -match '^refs/heads/sync/windows-testbox-' })
+        $branches.Count | Should -Be 1
+        $syncBranch = $branches[0] -replace '^refs/heads/', ''
+        (git --git-dir=$origin show "${syncBranch}:packages/linux/apt.txt" 2>$null | Out-String).Trim() | Should -Be 'foo'
+    }
+
+    It 'commit-packages-leak-blocked' {
+        New-CommitRepo
+        $ErrorActionPreference = 'Continue'
+
+        # A home-style path the scan flags, built by concatenation so the literal
+        # never appears in this file.
+        $leaky = '/ho' + 'me/someone/x'
+        $aptList = Join-Path $script:CloneDir 'packages\linux\apt.txt'
+        $null = New-Item -ItemType Directory -Path (Split-Path $aptList -Parent) -Force
+        [IO.File]::WriteAllText($aptList, "$leaky`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Commit
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: the leak scan found the lines above; nothing was committed.'))
+        $script:EngineOut | Should -Match ([regex]::Escape('packages/linux/apt.txt'))
+        $script:EngineOut | Should -Match ([regex]::Escape('home-path'))
+        $script:EngineOut | Should -Not -Match ([regex]::Escape($leaky))
+
+        Get-OriginBranches | Should -Be 'refs/heads/master'
+        (git -C $script:CloneDir branch --list 'sync/*' 2>$null | Out-String).Trim() | Should -Be ''
+        $script:GhLog | Should -Not -Exist
+    }
+
     It 'commit-scan-missing' {
         New-CommitRepo
         $ErrorActionPreference = 'Continue'

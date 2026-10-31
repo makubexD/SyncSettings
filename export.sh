@@ -285,6 +285,10 @@ done < <(platform_entries)
 # or the exit code.
 report_orphans
 
+# Report drift between the package lists and what this machine has installed.
+# In a || list so nothing in the report can stop the export or change its exit code.
+report_drift || true
+
 # -- Summary ---------------------------------------------------------------------
 
 printf '\n  %s\n' "--------------------------------------------------"

@@ -21,7 +21,8 @@ flowchart LR
 ```
 
 - **Export** reads every selected entry's local file. It compares the file with the repo copy by content (never by
-  date), sanitizes it, and writes only the files that changed.
+  date), sanitizes it, and writes only the files that changed. It ends with the [orphan report](#orphan-report) and, in
+  bash, the [drift report](#package-drift).
 - **Commit** runs the [checks before pushing](#checks-before-pushing), stages `dotfiles/`, `sync-config.json` and
   `packages/` (if it exists), commits on a `sync/<os>-<machine>-…` branch and opens a PR. It never pushes to `master`. See
   [review-gate.md](review-gate.md).
@@ -137,6 +138,7 @@ them.
 | Case | Status | Note |
 |---|---|---|
 | File under `dotfiles/` that no entry owns | `ORPHAN` | `no entry in sync-config.json; git rm it or add an entry` |
+| Bash, export: a package list and the machine disagree | `DRIFT` | see [Package drift](#package-drift); the label is `<manager>/<name>` |
 
 An `ERROR` affects only its own file. The engine moves on to the next entry, and the run still exits 0. Exit code 1
 is reserved for problems that stop the whole run: invalid config, a missing placeholder value, a failed `git pull`, or a
@@ -292,6 +294,52 @@ owned if it is the `repoPath` of a file or dconf entry, lies under a `dir` entry
 an entry with `detectLinkedPaths`. Entries for all platforms count, so both engines print the same list. The report
 never deletes anything, and never changes the change count or the exit code.
 
+## Package drift
+
+Bash only, until the Windows engine has a list to compare. Right after the orphan report, in an export and in a preview, the
+engine compares `packages/linux/` with the machine. With no such folder it prints nothing. An import never reports drift.
+
+The report never writes a file, never changes a count and never changes the exit code. It runs no install command. `DRIFT` isn't
+counted, and neither are its `SKIPPED` lines, so the "file(s) skipped" note keeps counting files only.
+
+| Manager | Present: is a listed name installed? | Chosen: is an installed name listed? |
+|---|---|---|
+| `apt` | `dpkg-query`, status `installed`, for `apt.txt` and `deb.txt` | `apt-mark showmanual`, against both lists |
+| `snap` | `snap list`, without rows whose `Notes` has `base` or `snapd` | Same |
+| `npm` | Folders in the newest `$HOME/.nvm/versions/node/*/lib/node_modules` by `sort -V`, with `@scope/name` as one package | Same |
+| `pipx` | `pipx list --short`, first field | Same |
+| `vscode` | `code --list-extensions` | Same |
+| `font` | Folders in `$HOME/.local/share/fonts/NerdFonts/` | Same |
+| `extension` | Folders in `$HOME/.local/share/gnome-shell/extensions/` | Same |
+| `apt-source` | Files in `<root>/etc/apt/sources.list.d/`, compared by content | Same |
+| `apt-key` | `<root>/usr/share/keyrings/<name>`, or else `<root>/etc/apt/keyrings/<name>`, compared by content | None: system keyrings hold plenty of stock keys, so only listed keys are checked |
+
+- **Two sources for apt.** "Present" and "chosen" differ on purpose. A listed package marked auto, such as `dconf-cli`, stays
+  quiet, and a dependency never counts as extra. `apt-mark` names lose any `:arch` suffix.
+- **npm reads folders.** `npm` isn't called, because which `npm` runs depends on the shell, and the wrong one lists a
+  different tree with no error.
+- **`drift-ignore.txt`.** `<manager> <name>` lines. They take a name out of the "chosen" check for that manager only. Lint
+  fails on a name that is both listed and ignored.
+- **`DRIFT_ROOT`.** `<root>` is `${DRIFT_ROOT:-}`, a test-only variable that moves the `apt-source` and `apt-key` lookups, which
+  are read-only.
+
+| Case | Status | Label | Note |
+|---|---|---|---|
+| Listed, not present | `DRIFT` | `<manager>/<name>` | `in packages/linux/<file>, not installed` |
+| Chosen, not listed or ignored | `DRIFT` | `<manager>/<name>` | `installed, not in packages/linux/<file>` |
+| Source or key differs | `DRIFT` | `<manager>/<name>` | `differs from packages/linux/apt-sources` |
+| Tool missing | `SKIPPED` | The list | `<tool> not installed` |
+| Tool fails | `SKIPPED` | The list | `<tool> failed` |
+| nvm folder missing | `SKIPPED` | `packages/linux/npm.txt` | `nvm not installed` |
+
+For `apt-source` and `apt-key`, `<file>` is `apt-sources`, and a listed source or key that can't be read counts as not
+installed. A failing tool never stops the rest of the report. A missing font or extension folder means nothing is present, so
+it isn't `SKIPPED`.
+
+**Leak scan.** An extension UUID has the shape of an address, so a whole well-formed line of
+`packages/linux/gnome-extensions.txt` is exempt from the email rule. An address anywhere else in that file still fails, and so
+does the same line in any other file.
+
 ## Up-to-date check
 
 Export and import start by checking whether the repo is behind `origin/master`:
@@ -313,6 +361,8 @@ the machine.
 
 - The engine copies `dotfiles/`, `sync-config.json`, `.user-values.json` and itself to a temp folder, runs a normal
   export there, and compares the result with `HEAD`. Changes exported earlier but not yet committed therefore show too.
+- The bash engine also copies `packages/`, so the [drift report](#package-drift) runs. The diff and the leak scan cover
+  `dotfiles/` and `sync-config.json` only, so a hand edit to `packages/` doesn't show.
 - Status lines are the same as in a real export, followed by a `--stat` summary and the full diff. Text is sanitized,
   so the diff holds placeholders, not real values.
 - The temp folder is removed at the end, also after a failure. A placeholder value answered during a preview is not
@@ -344,6 +394,7 @@ or `gh` on Linux, exits 1 and names what's wrong.
 | End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes |
 | `detectLinkedPaths` | supported | not supported |
 | `type: dconf` | validated, never run | supported |
+| [Package drift](#package-drift) | not yet: phase 8 adds a list to compare | supported |
 | `-User <name>` (import into another profile, elevated) | supported | not supported |
 | File modes | not kept | kept (`cp -p`; mode copied for written text) |
 | Status line layout | `[WORD      ] label`, colored | `WORD       label` |
@@ -372,3 +423,4 @@ had the behavior.
 | Stop after a pull | step 18b | step 18a | |
 | Commit: branch + PR, stages `dotfiles/ packages/ sync-config.json` | yes | yes | phase 1 |
 | `type: dconf` | validates only | phase 5 | kept as a known difference |
+| Package drift | phase 8 | phase 6 | a known difference until then |
