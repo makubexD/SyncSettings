@@ -576,6 +576,10 @@ step_plugins() {
 The two queries read `$keep`, not `settings.json`, because `add` rewrites that file. A state file that's absent means everything is
 missing.
 
+`plugin install` runs with `PATH="$HOME/.bun/bin:$PATH"`. The shell that started bootstrap hasn't loaded the restored `.bashrc`, and
+without bun on `PATH`, Claude installs a plugin that needs bun with no `node_modules`, reports success, and records it, so a rerun
+never repairs it. The step 12 container run found this.
+
 `step_preview`: with `NO_SESSION` set, return 0. Otherwise `./sync preview </dev/null || return 1`.
 
 `print_summary`: with `NO_SESSION` set, the last line is
@@ -603,6 +607,7 @@ missing.
 | `restore-plugins-partial` | One of two plugins in the state file | One `plugin install` |
 | `restore-plugins-no-state` | No state files | Every marketplace and plugin installed |
 | `restore-plugins-dry-run` | State files name everything | No `WOULD` line, no `claude` call |
+| `restore-plugins-bun-on-path` | `claude` stub saves its `PATH` on `plugin install` | That `PATH` holds `~/.bun/bin` |
 | `restore-idempotent` | Whole fixture, run twice | The second run's `$t/calls` holds no `install`, `curl`, `ln` or `git fetch` line |
 
 Test: `tests/linux/bootstrap.sh restore`, `tests/linux/engine.sh import`, shellcheck.
@@ -738,10 +743,10 @@ Expected:
 | Snaps | `SKIPPED`, and `step_vscode` `SKIPPED` |
 | `dry-run` output | No `WOULD` line, `SKIPPED` for snaps and VS Code |
 | Second run | Everything `UNCHANGED`. No `INSTALLED` line |
-| Preview | Drift only for the snaps and VS Code, and no changed file |
+| Preview | `SKIPPED` for the snaps and VS Code, no changed file. `DRIFT` only for packages the base image marks manual, and `sudo` and `dbus` from `e2e.sh` |
 | `.bashrc` | Equal to the hydrated repo file, so no installer edited it |
 | `~/.claude/settings.json` | Equal to the hydrated repo file, `autoUpdate` still there |
-| `claude plugin list` | Both plugins enabled |
+| `claude plugin list` | Both plugins enabled, and no `Note:` about missing packages |
 | `rtk --version`, `bun --version`, `copilot --version`, `node --version` | All run |
 
 A failure here goes back to the step that owns it, as a rejection, with a new stub case that reproduces it.
