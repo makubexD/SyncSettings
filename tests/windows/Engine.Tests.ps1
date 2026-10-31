@@ -552,6 +552,100 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/windows/foo..bar.txt')
     }
 
+    It 'dconf-entry-ignored' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath = 'dotfiles/linux/dconf/app.ini'
+            path     = '/test/app/'
+            type     = 'dconf'
+            platform = 'linux'
+        })
+
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\linux\dconf\app.ini'
+        $null = New-Item -ItemType Directory -Path (Split-Path $repoFile -Parent) -Force
+        [IO.File]::WriteAllText($repoFile, "[/]`nkey=1`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('app.ini'))
+        $script:EngineOut | Should -Not -Match 'ORPHAN'
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('app.ini'))
+    }
+
+    It 'dconf-path-missing' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath = 'dotfiles/linux/dconf/app.ini'
+            type     = 'dconf'
+            platform = 'linux'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.'
+    }
+
+    It 'dconf-path-no-slash' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath = 'dotfiles/linux/dconf/app.ini'
+            path     = '/org/gnome'
+            type     = 'dconf'
+            platform = 'linux'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.'
+    }
+
+    It 'dconf-path-root' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath = 'dotfiles/linux/dconf/app.ini'
+            path     = '/'
+            type     = 'dconf'
+            platform = 'linux'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.'
+    }
+
+    It 'dconf-path-dotdot' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath = 'dotfiles/linux/dconf/app.ini'
+            path     = '/org/../etc/'
+            type     = 'dconf'
+            platform = 'linux'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.'
+    }
+
+    It 'dconf-platform-common' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath = 'dotfiles/linux/dconf/app.ini'
+            path     = '/test/app/'
+            type     = 'dconf'
+            platform = 'common'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.'
+    }
+
+    It 'dconf-repo-unsafe' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath = 'dotfiles/../app.ini'
+            path     = '/test/app/'
+            type     = 'dconf'
+            platform = 'linux'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/../app.ini has an unsafe path.'
+    }
+
     It 'escape-import' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
