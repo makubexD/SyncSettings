@@ -14,18 +14,32 @@ if [[ ! -e $CONFIG ]]; then
 fi
 
 jq -r --arg file "$CONFIG" '
+def bad_keys:
+    (.keys | type) as $t
+    | if $t != "array" then true
+      elif (.keys | length) == 0 then true
+      else ([.keys[] | select(type != "string")] | length) > 0
+      end;
 (.files | map(select(.type == "dir") | .repoPath | rtrimstr("/"))) as $dirs
 | [
-  (.files[] | select((.repoPath // "") == "" or (.localPath // "") == "") | .repoPath // "<missing repoPath>"),
+  (.files[] | select((.repoPath // "") == "" or (.type != "dconf" and (.localPath // "") == "")) | .repoPath // "<missing repoPath>"),
   (.files | group_by(.repoPath)[] | select(length > 1) | .[0].repoPath | select(. != null and . != "")),
   (.files[] | select((.platform // "") | IN("common", "windows", "linux") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "linux") | select((.repoPath // "") | startswith("dotfiles/linux/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "common") | select((.repoPath // "") | startswith("dotfiles/common/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "windows") | select((.repoPath // "") | startswith("dotfiles/windows/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "common") | select((.localPath // "") | startswith("~/") | not) | .repoPath // "<missing repoPath>"),
-  (.files[] | select(has("type") and ((.type == "file" or .type == "dir") | not)) | .repoPath // "<missing repoPath>"),
+  (.files[] | select(has("type") and ((.type == "file" or .type == "dir" or .type == "dconf") | not)) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.type == "dir") | select(has("sanitizeRules") or has("detectLinkedPaths")) | .repoPath // "<missing repoPath>"),
-  (.files[] | .repoPath as $p | select(any($dirs[]; . as $d | ($p // "") | startswith($d + "/"))) | $p)
+  (.files[] | .repoPath as $p | select(any($dirs[]; . as $d | ($p // "") | startswith($d + "/"))) | $p),
+  (.files[] | select(.type == "dconf") | select(
+      (.platform // "") != "linux"
+      or has("localPath") or has("sanitizeRules") or has("detectLinkedPaths")
+      or (((.path // "") | test("^(/[A-Za-z0-9._-]+)+/$")) | not)
+      or ((.path // "") | contains("/../"))
+  ) | .repoPath // "<missing repoPath>"),
+  (.files[] | select(.type != "dconf") | select(has("path") or has("keys")) | .repoPath // "<missing repoPath>"),
+  (.files[] | select(has("keys")) | select(bad_keys) | .repoPath // "<missing repoPath>")
 ] | unique as $bad
 | if ($bad | length) == 0
   then "\($file): OK"

@@ -55,6 +55,11 @@ path_fail() {
     exit 1
 }
 
+dconf_fail() {
+    printf 'ERROR: sync-config.json: entry %s needs "platform": "linux" and a dconf path like /org/gnome/shell/.\n' "$1" >&2
+    exit 1
+}
+
 default_env_fail() {
     printf 'ERROR: sync-config.json: entry %s has an invalid defaultEnv.\n' "$1" >&2
     exit 1
@@ -63,11 +68,23 @@ default_env_fail() {
 # Every path must stay inside dotfiles/ and the home directory, on any platform,
 # and no symlink may sit under dotfiles/. Stop before any file is touched.
 check_paths() {
-    local repo_path local_path
+    local repo_path local_path dconf_path platform
     while IFS= read -r -d '' repo_path && IFS= read -r -d '' local_path; do
         path_is_safe "$repo_path" repo || path_fail "$repo_path"
         path_is_safe "$local_path" local || path_fail "$repo_path"
-    done < <(jq -j '.files[] | (.repoPath // ""), "\u0000", (.localPath // ""), "\u0000"' "$CONFIG")
+    done < <(jq -j '.files[] | select(.type != "dconf")
+        | (.repoPath // ""), "\u0000", (.localPath // ""), "\u0000"' "$CONFIG")
+
+    # A dconf entry has no local file: it owns its repoPath and names a dconf
+    # folder instead. Refuse a bad one before anything is dumped or loaded.
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' dconf_path \
+        && IFS= read -r -d '' platform; do
+        path_is_safe "$repo_path" repo || path_fail "$repo_path"
+        [[ $platform == linux ]] || dconf_fail "$repo_path"
+        [[ $dconf_path =~ ^(/[A-Za-z0-9._-]+)+/$ ]] || dconf_fail "$repo_path"
+        [[ $dconf_path != */../* ]] || dconf_fail "$repo_path"
+    done < <(jq -j '.files[] | select(.type == "dconf")
+        | (.repoPath // ""), "\u0000", (.path // ""), "\u0000", (.platform // ""), "\u0000"' "$CONFIG")
 
     # A defaultEnv is read as a variable name, so it must be a valid shell name.
     local default_env env_name_re='^[A-Za-z_][A-Za-z0-9_]*$'
@@ -86,7 +103,7 @@ check_paths() {
     while IFS= read -r -d '' link; do
         name=${link#"$REPO_ROOT"/}
         path_fail "$(jq -j --arg name "$name" '
-            ([.files[] | select((.type // "file") == "file") | select(.repoPath == $name) | .repoPath] +
+            ([.files[] | select(.type != "dir") | select(.repoPath == $name) | .repoPath] +
              [.files[] | select(.type == "dir") | .repoPath as $r | select($name == $r or ($name | startswith($r + "/"))) | $r] +
              [.files[] | select(.detectLinkedPaths == true) | .repoPath as $r | select($name | startswith($r + ".linked/")) | $r])
             | .[0] // $name' "$CONFIG")"
@@ -410,10 +427,10 @@ report_orphans() {
     local -a owned=() dir_prefixes=() linked_prefixes=()
     local p prefix is_owned
 
-    # A file entry owns its repoPath exactly.
+    # A file or dconf entry owns its repoPath exactly.
     while IFS= read -r -d '' p; do
         owned+=("$p")
-    done < <(jq -j '.files[] | select((.type // "file") == "file") | .repoPath, "\u0000"' "$CONFIG")
+    done < <(jq -j '.files[] | select(.type != "dir") | .repoPath, "\u0000"' "$CONFIG")
     # A dir entry owns everything under <repoPath>/.
     while IFS= read -r -d '' prefix; do
         dir_prefixes+=("$prefix")

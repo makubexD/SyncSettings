@@ -2153,9 +2153,218 @@ EOF
     fi
 }
 
+# Add the base dconf entry to the fixture config. $1 is an optional jq filter
+# applied to it, so a case can break exactly one field.
+add_dconf_entry() {
+    local filter=${1:-.}
+    add_entry "$(jq -c "$filter" <<<'{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux"}')"
+}
+
+# The exact line scripts/linux/sync.sh prints for an invalid dconf entry.
+dconf_error() {
+    printf 'ERROR: sync-config.json: entry %s needs "platform": "linux" and a dconf path like /org/gnome/shell/.' "$1"
+}
+
+# A dconf entry is valid config: both engines accept it and write nothing.
+case_dconf_config_valid() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_dconf_entry
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    if grep -Fq 'has an unsafe path' "$out"; then fail "export rejected the valid dconf entry"; fi
+    if grep -Fq 'dconf path' "$out"; then fail "export rejected the valid dconf path"; fi
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -Fq 'has an unsafe path' "$out"; then fail "import rejected the valid dconf entry"; fi
+    if grep -Fq 'dconf path' "$out"; then fail "import rejected the valid dconf path"; fi
+}
+
+# One dconf entry with a bad "path" or platform: both engines must stop.
+assert_dconf_stop() {
+    local filter=$1
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_dconf_entry "$filter"
+    assert_path_stop "$(dconf_error dotfiles/linux/dconf/app.ini)"
+}
+
+case_dconf_path_missing() {
+    assert_dconf_stop 'del(.path)'
+}
+
+case_dconf_path_relative() {
+    assert_dconf_stop '.path = "org/gnome/"'
+}
+
+case_dconf_path_no_slash() {
+    assert_dconf_stop '.path = "/org/gnome"'
+}
+
+case_dconf_path_root() {
+    assert_dconf_stop '.path = "/"'
+}
+
+case_dconf_path_double_slash() {
+    assert_dconf_stop '.path = "/org//gnome/"'
+}
+
+case_dconf_path_dotdot() {
+    assert_dconf_stop '.path = "/org/../etc/"'
+}
+
+case_dconf_path_space() {
+    assert_dconf_stop '.path = "/org/gno me/"'
+}
+
+case_dconf_platform_common() {
+    assert_dconf_stop '.platform = "common"'
+}
+
+case_dconf_platform_windows() {
+    assert_dconf_stop '.platform = "windows"'
+}
+
+case_dconf_repo_unsafe() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_dconf_entry '.repoPath = "dotfiles/../app.ini"'
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/../app.ini has an unsafe path.'
+}
+
+case_dconf_symlink_named() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/linux/dconf" "$t/home"
+    add_dconf_entry
+    ln -s nowhere "$t/repo/dotfiles/linux/dconf/app.ini"
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini has an unsafe path.'
+}
+
+case_dconf_orphan_owned() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    add_dconf_entry
+    printf '[/]\na=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    if grep -qE '^  ORPHAN[[:space:]]' "$out"; then
+        fail "an ORPHAN line was printed for the dconf entry's repo file"
+    fi
+}
+
+# The base dconf entry the lint cases add to the real config.
+lint_dconf() {
+    lint_run ".files += [$1]"
+}
+
+case_lint_dconf_ok() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux"}'
+
+    (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+}
+
+case_lint_dconf_path() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/org/gnome", "type": "dconf", "platform": "linux"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_root() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/", "type": "dconf", "platform": "linux"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_platform() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/common/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "common"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/common/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_localpath() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "localPath": "~/x"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_rules() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "sanitizeRules": []}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_linked() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "detectLinkedPaths": true}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_keys_empty() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "keys": []}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_dconf_keys_type() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "dconf", "platform": "linux", "keys": "font-name"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
+case_lint_keys_on_file() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .keys = ["x"] else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the entry"
+}
+
+case_lint_path_on_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/dd", "localPath": "~/dd", "platform": "linux", "type": "dir", "path": "/x/"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dd' "$out" || fail "output does not name the entry"
+}
+
+case_lint_type_unknown() {
+    new_tmp
+    lint_dconf '{"repoPath": "dotfiles/linux/dconf/app.ini", "path": "/test/app/", "type": "gsettings", "platform": "linux"}'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/dconf/app.ini' "$out" || fail "output does not name the entry"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored dconf-test-bus; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -2271,6 +2480,31 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-missing-tool) case_sync_missing_tool ;;
         host-git-config-ignored) case_host_git_config_ignored ;;
         dconf-test-bus) case_dconf_test_bus ;;
+        dconf-config-valid) case_dconf_config_valid ;;
+        dconf-path-missing) case_dconf_path_missing ;;
+        dconf-path-relative) case_dconf_path_relative ;;
+        dconf-path-no-slash) case_dconf_path_no_slash ;;
+        dconf-path-root) case_dconf_path_root ;;
+        dconf-path-double-slash) case_dconf_path_double_slash ;;
+        dconf-path-dotdot) case_dconf_path_dotdot ;;
+        dconf-path-space) case_dconf_path_space ;;
+        dconf-platform-common) case_dconf_platform_common ;;
+        dconf-platform-windows) case_dconf_platform_windows ;;
+        dconf-repo-unsafe) case_dconf_repo_unsafe ;;
+        dconf-symlink-named) case_dconf_symlink_named ;;
+        dconf-orphan-owned) case_dconf_orphan_owned ;;
+        lint-dconf-ok) case_lint_dconf_ok ;;
+        lint-dconf-path) case_lint_dconf_path ;;
+        lint-dconf-root) case_lint_dconf_root ;;
+        lint-dconf-platform) case_lint_dconf_platform ;;
+        lint-dconf-localpath) case_lint_dconf_localpath ;;
+        lint-dconf-rules) case_lint_dconf_rules ;;
+        lint-dconf-linked) case_lint_dconf_linked ;;
+        lint-dconf-keys-empty) case_lint_dconf_keys_empty ;;
+        lint-dconf-keys-type) case_lint_dconf_keys_type ;;
+        lint-keys-on-file) case_lint_keys_on_file ;;
+        lint-path-on-dir) case_lint_path_on_dir ;;
+        lint-type-unknown) case_lint_type_unknown ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
