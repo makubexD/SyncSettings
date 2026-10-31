@@ -23,5 +23,14 @@
     },
     "installLocation": "<HOME>/.claude/plugins/marketplaces/addy-agent-skills",
     "lastUpdated": "2026-10-27T22:32:58.800Z"
+  },
+  "sigil": {
+    "source": {
+      "source": "github",
+      "repo": "<YOUR_GH_USERNAME>/sigil",
+      "ref": "marketplace"
+    },
+    "installLocation": "<HOME>/.claude/plugins/marketplaces/sigil",
+    "lastUpdated": "2026-10-30T23:52:12.866Z"
   }
 }

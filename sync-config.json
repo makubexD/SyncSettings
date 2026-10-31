@@ -192,6 +192,10 @@
           "placeholder": "<HOME>",
           "prompt": "Home directory",
           "defaultEnv": "HOME"
+        },
+        {
+          "placeholder": "<YOUR_GH_USERNAME>",
+          "prompt": "GitHub username"
         }
       ]
     }
