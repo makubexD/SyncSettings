@@ -208,13 +208,15 @@ setup_case() {
     cp -a "$REPO/scripts" "$t/repo/"
     mkdir -p "$t/repo/packages"
     cp -a "$REPO/packages/linux" "$t/repo/packages/"
-    # Entry points used by later steps: log their arguments, do nothing else.
-    # import exits with $t/stub/import.rc, so a case can make it fail.
+    # Entry points used by later steps: log their arguments, then print
+    # $t/stub/import.out and exit with $t/stub/import.rc, so a case can make it
+    # fail or report a file in ERROR.
     cat > "$t/repo/import.sh" <<EOF
 #!/bin/sh
 printf 'import' >> "$t/calls"
 for a in "\$@"; do printf ' %s' "\$a" >> "$t/calls"; done
 printf '\n' >> "$t/calls"
+cat "$t/stub/import.out" 2>/dev/null
 rc=\$(cat "$t/stub/import.rc" 2>/dev/null || echo 0)
 [ "\$rc" -eq 0 ] || exit "\$rc"
 EOF
@@ -240,7 +242,7 @@ EOF
     # which is the format dpkg_installed parses.
     : > "$t/stub/dpkg-query.out"
     local p
-    for tool in bash awk sed grep sort comm cmp cp mv rm mkdir mktemp chmod ln cat tar unzip sha256sum install env dirname basename tr cut head tail find jq xz gzip ls wc readlink; do
+    for tool in bash awk sed grep sort comm cmp cp mv rm mkdir mktemp chmod ln cat tar unzip sha256sum install env dirname basename tr cut head tail tee find jq xz gzip ls wc readlink; do
         p=$(command -v "$tool") || fail "$tool is not installed"
         ln -s "$p" "$t/sysbin/$tool"
     done
@@ -1454,6 +1456,15 @@ case_restore_import_fails() {
     output_has_status ERROR import 'failed' || fail 'summary does not name import'
 }
 
+case_restore_import_error_line() {
+    setup_case
+    seed_restore
+    printf '  ERROR      dotfiles/x  (cannot write)\n' > "$t/stub/import.out"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR import 'failed' || fail 'summary does not name import'
+}
+
 case_restore_no_session() {
     setup_case
     seed_restore
@@ -1718,7 +1729,7 @@ case_restore_idempotent() {
     output_has_status UNCHANGED plugins || fail 'second run did not report plugins unchanged'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-import-error-line restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1802,6 +1813,7 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         vscode-dry-run) case_vscode_dry_run ;;
         restore-import-runs) case_restore_import_runs ;;
         restore-import-fails) case_restore_import_fails ;;
+        restore-import-error-line) case_restore_import_error_line ;;
         restore-no-session) case_restore_no_session ;;
         restore-order) case_restore_order ;;
         restore-link-new) case_restore_link_new ;;

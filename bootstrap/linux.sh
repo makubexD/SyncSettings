@@ -604,8 +604,12 @@ step_import() {
     if (( DRY_RUN )); then
         return 0
     fi
-    # Stdin stays the terminal, so import's overwrite prompts work.
-    ./import.sh || return 1
+    # Stdin stays the terminal, so import's overwrite prompts work. Import exits 0
+    # with a file in ERROR, by contract, so its status lines are the only signal.
+    ./import.sh | tee "$WORK/import.out" || return 1
+    if grep -q '^  ERROR ' "$WORK/import.out"; then
+        return 1
+    fi
 }
 
 step_links() {
