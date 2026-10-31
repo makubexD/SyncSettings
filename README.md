@@ -19,32 +19,42 @@ On Windows, use `.\sync preview` in PowerShell or `sync preview` in cmd. Options
 
 ## What gets synced
 
+**Both systems**
+
+| File | Description |
+|---|---|
+| `~/.gitconfig` | Git global configuration, which includes `~/.gitconfig.local` |
+| `~/.claude/RTK.md` | Instructions for Claude Code on command output |
+| `~/.claude/docs/token-routing-map.html` | Workflow guide page |
+
 **Windows**
 
 | File | Description |
 |---|---|
-| `~\.gitconfig` | Git global configuration |
+| `~\.gitconfig.local` | Git credentials for Windows |
 | `~\.bashrc` | Bash run commands |
 | `~\.bash_profile` | Bash login profile |
 | `~\AppData\Local\...\WindowsTerminal\settings.json` | Windows Terminal settings |
 
-**Linux: Claude Code setup (`~/.claude`)**
+**Linux**
+
+`~/.gitconfig.local` holds the Git credentials for Linux. The rest is the Claude Code setup in `~/.claude`:
 
 | File | Description |
 |---|---|
-| `CLAUDE.md`, `RTK.md` | Global instructions for Claude Code |
+| `CLAUDE.md` | Global instructions for Claude Code |
 | `settings.json` | Hooks, plugins, permissions (home path and GitHub username sanitized) |
 | `statusline.sh` | Status line script |
 | `skills/mk-delegate/`, `skills/mk-check/` | `/mk-delegate` and `/mk-check` slash commands |
-| `hooks/` | context-mode hook and the worker-mode guard |
-| `bin/mk-exec`, `bin/workflow-report`, `bin/worker-mode` | Worker wrapper (headless Claude Code on the paid DeepSeek API), run report, worker-mode switch |
+| `hooks/` | context-mode hook, the worker-mode guard and metrics capture |
+| `bin/mk-exec`, `bin/workflow-report`, `bin/worker-mode`, `bin/metrics-archive` | Worker wrapper (headless Claude Code on the paid DeepSeek API), run report, worker-mode switch, metrics archive |
 | `plugins/installed_plugins.json`, `known_marketplaces.json` | Which plugins are installed (home path sanitized) |
-| `docs/token-routing-map.html`, `sampleGrok.md` | Workflow guide page, old Windows Grok setup for reference |
+| `sampleGrok.md` | Old Windows Grok setup for reference |
 | `~/.claude-worker/CLAUDE.md`, `settings.json` | The worker's own config dir: its rules and permissions (no credentials) |
 
 Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, caches.
 
-Add or remove files by editing `sync-config.json`.
+Add or remove files by editing `sync-config.json`. [Repository layout](docs/layout.md) says where a new file goes.
 
 ---
 
@@ -53,6 +63,7 @@ Add or remove files by editing `sync-config.json`.
 - [Daily workflow](docs/daily-workflow.md): export → PR → review → merge → import on the other machine
 - [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
 - [Configuration reference](docs/configuration.md): every `sync-config.json` field, with examples
+- [Repository layout](docs/layout.md): where a file goes under `dotfiles/`, and why
 - [Sync contract](docs/sync-contract.md): the rules both engines follow
 
 ---
@@ -178,7 +189,7 @@ Set `"detectLinkedPaths": true` on any file entry in `sync-config.json` to enabl
 
 ```json
 {
-  "repoPath": "dotfiles/.bashrc",
+  "repoPath": "dotfiles/windows/shell/.bashrc",
   "localPath": "~\\.bashrc",
   "platform": "windows",
   "detectLinkedPaths": true
@@ -189,7 +200,7 @@ The script reads the file content, finds all directory paths (both Unix-style `/
 
 **Export** backs up detected directories into the repo:
 ```
-dotfiles/
+dotfiles/windows/shell/
 ├── .bashrc
 └── .bashrc.linked/
     └── MakuCustomAlias/   <- backed up from C:\MakuCustomAlias
@@ -200,7 +211,7 @@ dotfiles/
 
 If you have multiple referenced directories, all of them are detected and grouped under `<filename>.linked/`:
 ```
-dotfiles/.bashrc.linked/
+dotfiles/windows/shell/.bashrc.linked/
     MakuCustomAlias/
     AnotherFolder/
     YetAnotherPath/
@@ -215,7 +226,7 @@ Files with `sanitizeRules` in `sync-config.json` are never stored raw in the rep
 | Direction | What happens |
 |---|---|
 | **Export** | Reads your local `.gitconfig`, replaces `Jane Doe` → `<YOUR_NAME>`, `jane@example.com` → `<YOUR_EMAIL>`, etc., then saves the sanitized version to `dotfiles/` |
-| **Import** | Reads the sanitized `dotfiles/.gitconfig`, prompts you for each `<PLACEHOLDER>` value, writes the hydrated file to your profile |
+| **Import** | Reads the sanitized `dotfiles/common/git/.gitconfig`, prompts you for each `<PLACEHOLDER>` value, writes the hydrated file to your profile |
 | **Change detection** | Only structural/non-sensitive changes are detected. Adding a new alias = change. Changing your email = no change (it's sanitized away) |
 
 Actual values are cached in `.user-values.json` (gitignored, never committed). Use `-ResetValues` on either export or import to re-enter them.
@@ -228,13 +239,12 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
 {
   "files": [
     {
-      "repoPath": "dotfiles/.gitconfig",
-      "localPath": "~\\.gitconfig",
+      "repoPath": "dotfiles/windows/git/.gitconfig.local",
+      "localPath": "~\\.gitconfig.local",
       "platform": "windows",
-      "description": "Git global configuration",
+      "description": "Git credentials for Windows, included by .gitconfig",
       "sanitizeRules": [                        // optional — omit for plain files
-        { "placeholder": "<YOUR_NAME>", "prompt": "Full name for git commits" },
-        { "placeholder": "<YOUR_EMAIL>", "prompt": "Email for git commits" },
+        { "placeholder": "<YOUR_GH_USERNAME>", "prompt": "GitHub username" },
         {
           "placeholder": "<GH_CLI_PATH>",
           "prompt": "Path to GitHub CLI executable",
@@ -244,7 +254,7 @@ Actual values are cached in `.user-values.json` (gitignored, never committed). U
       ]
     },
     {
-      "repoPath": "dotfiles/.bashrc",
+      "repoPath": "dotfiles/windows/shell/.bashrc",
       "localPath": "~\\.bashrc",
       "platform": "windows",
       "description": "Bash run commands",
@@ -278,21 +288,20 @@ SyncSettings/
 ├── import.sh               Linux: apply repo files → machine
 ├── docs/
 │   ├── daily-workflow.md   Export → PR → review → merge → import
+│   ├── layout.md           Where a file goes under dotfiles/
 │   ├── review-gate.md      The PR checks and the `reviewed` label
 │   └── plan-*.md           Plans the scripts were built from
 ├── scripts/
-│   ├── SyncHelpers.ps1     Shared functions (sanitization, hashing, linked paths, etc.)
-│   ├── Export-Settings.ps1
-│   ├── Commit-Settings.ps1
-│   ├── Import-Settings.ps1
-│   └── sync.sh             Linux: shared bash helpers
+│   ├── ci/                 Config lint and leak scan
+│   ├── linux/sync.sh       Linux: shared bash helpers
+│   └── windows/
+│       ├── SyncHelpers.ps1 Shared functions (sanitization, hashing, linked paths, etc.)
+│       ├── Export-Settings.ps1
+│       ├── Commit-Settings.ps1
+│       └── Import-Settings.ps1
 └── dotfiles/               Repo copies of all synced files
-    ├── linux/claude/       Linux: the ~/.claude setup (see "What gets synced")
-    ├── .gitconfig
-    ├── .bashrc
-    ├── .bashrc.linked/     Auto-generated: directories referenced inside .bashrc
-    │   └── MakuCustomAlias/
-    │       └── vs.bat
-    └── WindowsTerminal/
-        └── settings.json
+    ├── common/             Both systems: git/.gitconfig, shared Claude files
+    ├── linux/              Linux: git/.gitconfig.local, claude/, claude-worker/
+    └── windows/            Windows: git/.gitconfig.local, windows-terminal/, shell/
+        └── shell/.bashrc.linked/  Auto-generated: directories referenced inside .bashrc
 ```

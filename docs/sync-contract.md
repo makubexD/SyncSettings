@@ -75,7 +75,7 @@ ERROR: sync-config.json: entry <repoPath> has an invalid defaultEnv.
 | Form | Example | Works on |
 |---|---|---|
 | `~/` + forward slashes | `~/.config/git/ignore` | both. PowerShell turns `/` into `\` after expanding `~` |
-| `~\` + backslashes | `~\.gitconfig` | Windows only |
+| `~\` + backslashes | `~\.gitconfig.local` | Windows only |
 
 `~` is the user's home: `$HOME` on Linux, the profile folder on Windows (`$env:USERPROFILE`, or the target user's
 profile with `-User`). A `common` entry must use the `~/` form. Every `localPath` must use one of these two forms: an
@@ -193,6 +193,7 @@ An entry with `"type": "dir"` syncs a whole folder, recursively.
   path is followed.
 - `excludePatterns` apply to every file. `sanitizeRules` and `detectLinkedPaths` are not allowed on a `dir`
   entry (lint fails).
+- No entry may have its `repoPath` inside a `dir` entry's `repoPath`, including another `dir` entry (lint fails).
 - If the local folder is missing on export, the entry is `SKIPPED` with the note `local folder not found: <path>`.
 - If no local file passes the symlink and exclude checks (an empty folder, or one holding only symlinks or excluded
   files) while the repo folder still holds at least one file, the entry is `SKIPPED` with the note

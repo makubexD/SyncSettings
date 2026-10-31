@@ -13,7 +13,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 - Windows logic lives in `scripts/windows/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
 - Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` entries are bash-only, and `"common"` entries run on both (`Test-WindowsEntry` and `platform_entries` filter). A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
-- `dotfiles/` is the staging area inside the repo; it mirrors the logical file set
+- `dotfiles/` is the staging area inside the repo; files live under `dotfiles/<platform>/<tool>/` (`docs/layout.md`)
 
 ## Entry Points
 
@@ -70,7 +70,7 @@ Set `"detectLinkedPaths": true` on any file entry. The script automatically pars
 
 ```json
 {
-  "repoPath": "dotfiles/.bashrc",
+  "repoPath": "dotfiles/windows/shell/.bashrc",
   "localPath": "~\\.bashrc",
   "platform": "windows",
   "detectLinkedPaths": true
@@ -79,7 +79,7 @@ Set `"detectLinkedPaths": true` on any file entry. The script automatically pars
 
 Detected directories are stored under `<repoPath>.linked/<foldername>/`:
 ```
-dotfiles/.bashrc.linked/MakuCustomAlias/vs.bat
+dotfiles/windows/shell/.bashrc.linked/MakuCustomAlias/vs.bat
 ```
 
 - `Find-LinkedPaths` in `SyncHelpers.ps1` does the parsing — filters out system dirs, user profile, temp
@@ -90,11 +90,11 @@ dotfiles/.bashrc.linked/MakuCustomAlias/vs.bat
 
 ## Adding New Files to Sync
 
-Add an entry to the `files` array in `sync-config.json`. `platform` is required; `docs/configuration.md` covers every field.
+Add an entry to the `files` array in `sync-config.json`. `platform` is required; `docs/configuration.md` covers every field and `docs/layout.md` says where a file goes.
 
 ```json
 {
-  "repoPath": "dotfiles/<filename>",
+  "repoPath": "dotfiles/windows/<tool>/<filename>",
   "localPath": "~\\<path-relative-to-userprofile>",
   "platform": "windows",
   "description": "What this file configures"
@@ -105,9 +105,9 @@ For files containing sensitive data, add `sanitizeRules`:
 
 ```json
 {
-  "repoPath": "dotfiles/.gitconfig",
-  "localPath": "~\\.gitconfig",
-  "platform": "windows",
+  "repoPath": "dotfiles/common/git/.gitconfig",
+  "localPath": "~/.gitconfig",
+  "platform": "common",
   "description": "Git global configuration",
   "sanitizeRules": [
     { "placeholder": "<YOUR_NAME>", "prompt": "Full name for git commits" },
@@ -118,7 +118,7 @@ For files containing sensitive data, add `sanitizeRules`:
 
 Then run `export.bat` to pull it into the repo for the first time.
 
-For a Linux file, use `"platform": "linux"`, put it under `dotfiles/linux/`, and use a `~/` path. A file shared by both systems uses `"platform": "common"`, `dotfiles/common/` and a `~/` path:
+For a Linux file, use `"platform": "linux"`, put it under `dotfiles/linux/<tool>/`, and use a `~/` path. A file shared by both systems uses `"platform": "common"`, `dotfiles/common/<tool>/` and a `~/` path:
 
 ```json
 {
