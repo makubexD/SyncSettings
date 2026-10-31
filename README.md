@@ -43,16 +43,15 @@ On Windows, use `.\sync preview` in PowerShell or `sync preview` in cmd. Options
 | File | Description |
 |---|---|
 | `CLAUDE.md` | Global instructions for Claude Code |
-| `settings.json` | Hooks, plugins, permissions (home path and GitHub username sanitized) |
+| `settings.json` | Hooks, plugin declarations, permissions (home path and GitHub username sanitized) |
 | `statusline.sh` | Status line script |
 | `skills/mk-delegate/`, `skills/mk-check/` | `/mk-delegate` and `/mk-check` slash commands |
 | `hooks/` | context-mode hook, the worker-mode guard and metrics capture |
 | `bin/mk-exec`, `bin/workflow-report`, `bin/worker-mode`, `bin/metrics-archive` | Worker wrapper (headless Claude Code on the paid DeepSeek API), run report, worker-mode switch, metrics archive |
-| `plugins/installed_plugins.json`, `known_marketplaces.json` | Which plugins are installed (home path sanitized) |
 | `sampleGrok.md` | Old Windows Grok setup for reference |
 | `~/.claude-worker/CLAUDE.md`, `settings.json` | The worker's own config dir: its rules and permissions (no credentials) |
 
-Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, caches.
+Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, plugin install state, caches.
 
 Add or remove files by editing `sync-config.json`. [Repository layout](docs/layout.md) says where a new file goes.
 

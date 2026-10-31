@@ -168,36 +168,6 @@
       "localPath": "~/.claude/bin/worker-mode",
       "platform": "linux",
       "description": "worker-mode on|off|status switch"
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/plugins/installed_plugins.json",
-      "localPath": "~/.claude/plugins/installed_plugins.json",
-      "platform": "linux",
-      "description": "Installed Claude Code plugins",
-      "sanitizeRules": [
-        {
-          "placeholder": "<HOME>",
-          "prompt": "Home directory",
-          "defaultEnv": "HOME"
-        }
-      ]
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/plugins/known_marketplaces.json",
-      "localPath": "~/.claude/plugins/known_marketplaces.json",
-      "platform": "linux",
-      "description": "Known plugin marketplaces",
-      "sanitizeRules": [
-        {
-          "placeholder": "<HOME>",
-          "prompt": "Home directory",
-          "defaultEnv": "HOME"
-        },
-        {
-          "placeholder": "<YOUR_GH_USERNAME>",
-          "prompt": "GitHub username"
-        }
-      ]
     }
   ],
   "excludePatterns": [

@@ -676,6 +676,7 @@ case_real_config_roundtrip() {
         fail ".gitconfig still holds an unfilled placeholder"
     fi
     [[ ! -e "$t/home/.bashrc" ]] || fail ".bashrc was imported from a windows entry"
+    [[ ! -e "$t/home/.claude/plugins" ]] || fail ".claude/plugins was imported"
     [[ ! -e "$t/home/.gitconfig.bak" ]] || fail ".gitconfig.bak was created"
     [[ -x "$t/home/.claude/hooks/worker-mode-guard.sh" ]] \
         || fail "worker-mode-guard.sh is not executable"
