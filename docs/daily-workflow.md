@@ -101,6 +101,43 @@ Import asks before overwriting each file, and it always saves the old file as `<
 `--force`. If you import a newer change over the same file later, that `.bak` is replaced. Import never deletes a local
 file: one the repo doesn't have is reported as `EXTRA` and kept.
 
+## Moving a machine to the new layout
+
+The re-layout moved every file under `dotfiles/<platform>/<tool>/` and split `.gitconfig` into a shared file and a
+`.gitconfig.local` per system ([layout.md](layout.md)). A machine that hasn't caught up still has the whole `.gitconfig`,
+so **import first, then export**. Do this once on each machine, before any export:
+
+```bash
+git switch master
+git pull
+./sync import
+```
+
+Import asks for any value it doesn't have cached, so run it in a terminal. It rewrites `~/.gitconfig`, keeps the old
+file as `~/.gitconfig.bak` and creates `~/.gitconfig.local`. Then check that git still works, and that the repo and the
+machine agree:
+
+```bash
+git config --global user.email
+git config --global --includes --get-all credential.https://github.com.helper
+git ls-remote origin HEAD
+./sync preview
+```
+
+The second command prints the `gh` line. `./sync preview` is safe at any time, and until you import it shows `.gitconfig`
+as changed.
+
+If you exported first, nothing is lost as long as you don't commit it. Drop the export, then import:
+
+```bash
+git restore dotfiles
+./sync import
+```
+
+On Windows, the export copies the whole `.gitconfig`, credentials included, into the shared file, and `commit` stops at
+the cached-value check. On Linux, the export deletes lines from the shared file instead, and `commit` doesn't stop, so
+don't rely on it: read the diff.
+
 ## When `commit.sh` stops
 
 | Message | What to do |

@@ -2,3 +2,5 @@ tests/fixtures/** -text
 *.sh text eol=lf
 sync text eol=lf
 *.cmd text eol=crlf
+dotfiles/common/** text eol=lf
+dotfiles/linux/** text eol=lf

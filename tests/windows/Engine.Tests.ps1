@@ -747,6 +747,80 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' "local folder not found: $localDir")
     }
 
+    It 'dir-export-empty-keeps-repo' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $localDir = Join-Path $script:HomeDir '.config\fixture\dir'
+        Get-ChildItem -LiteralPath $localDir -Force | Remove-Item -Recurse -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' 'local folder is empty; repo files kept')
+        $script:EngineOut | Should -Not -Match '\[REMOVED'
+        foreach ($rel in @('a\b.txt', 'c.txt')) {
+            $repoFile = Join-Path $script:RepoDir "dotfiles\common\dir\$rel"
+            $want = Join-Path $Script:Fixtures "repo\dotfiles\common\dir\$rel"
+            ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        }
+    }
+
+    It 'dir-export-only-excluded' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        $localDir = Join-Path $script:HomeDir '.config\fixture\dir'
+        Get-ChildItem -LiteralPath $localDir -Force | Remove-Item -Recurse -Force
+        [IO.File]::WriteAllText((Join-Path $localDir 'x.secret'), "x`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/x.secret' 'matches exclude pattern')
+        $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' 'local folder is empty; repo files kept')
+        $script:EngineOut | Should -Not -Match '\[REMOVED'
+        foreach ($rel in @('a\b.txt', 'c.txt')) {
+            $repoFile = Join-Path $script:RepoDir "dotfiles\common\dir\$rel"
+            $want = Join-Path $Script:Fixtures "repo\dotfiles\common\dir\$rel"
+            ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+        }
+    }
+
+    It 'dir-export-one-left' {
+        Copy-EngineToRepo
+        Copy-RepoDotfiles
+        Copy-HomeFiles
+
+        Remove-Item -LiteralPath (Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt') -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match (Get-StatusPattern 'REMOVED' 'dotfiles/common/dir/a/b.txt' 'no longer in source')
+        (Join-Path $script:RepoDir 'dotfiles\common\dir\a\b.txt') | Should -Not -Exist
+        $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/c.txt')
+        $repoC = Join-Path $script:RepoDir 'dotfiles\common\dir\c.txt'
+        $wantC = Join-Path $Script:Fixtures 'repo\dotfiles\common\dir\c.txt'
+        ([IO.File]::ReadAllBytes($repoC) -join ',') | Should -Be ([IO.File]::ReadAllBytes($wantC) -join ',')
+    }
+
+    It 'dir-export-empty-both' {
+        Copy-EngineToRepo
+        Copy-HomeFiles
+
+        $localDir = Join-Path $script:HomeDir '.config\fixture\dir'
+        Get-ChildItem -LiteralPath $localDir -Force | Remove-Item -Recurse -Force
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/common/dir/' 'local folder is empty; repo files kept')
+        $script:EngineOut | Should -Not -Match '\[REMOVED'
+    }
+
     It 'dir-import-creates' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
@@ -1000,6 +1074,134 @@ Describe 'Windows engine' {
             ([IO.File]::ReadAllBytes((Join-Path $toolDir 'local.txt')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("mine`n") -join ',')
             ([IO.File]::ReadAllBytes((Join-Path $toolDir 'x.bak')) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("x`n") -join ',')
         } finally {
+            if (Test-Path -LiteralPath $linkedRoot) {
+                Remove-Item -LiteralPath $linkedRoot -Recurse -Force
+            }
+        }
+    }
+
+    It 'linked-export-empty-keeps-repo' {
+        Copy-EngineToRepo
+
+        # A linked folder lives on the system drive, outside the system paths
+        # Find-LinkedPaths filters out (C:\Windows, C:\Program Files, C:\Users, ...).
+        $linkedRoot = "$env:SystemDrive\SyncSettingsTest-$([guid]::NewGuid().ToString('N'))"
+        $toolDir    = "$linkedRoot\tool"
+        $null = New-Item -ItemType Directory -Path $toolDir -Force
+
+        try {
+            $configPath = Join-Path $script:RepoDir 'sync-config.json'
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            $linkedEntry = [pscustomobject]@{
+                repoPath          = 'dotfiles/windows/linked.sh'
+                localPath         = '~\linked.sh'
+                platform          = 'windows'
+                detectLinkedPaths = $true
+            }
+            $config.files = @($config.files) + $linkedEntry
+            [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+            $winDir = Join-Path $script:RepoDir 'dotfiles\windows'
+            $null = New-Item -ItemType Directory -Path $winDir -Force
+            [IO.File]::WriteAllText((Join-Path $winDir 'linked.sh'), "script`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+            $linkRepo = Join-Path $winDir 'linked.sh.linked\tool'
+            $null = New-Item -ItemType Directory -Path $linkRepo -Force
+            $repoA = Join-Path $linkRepo 'a.txt'
+            [IO.File]::WriteAllText($repoA, "repo-a`n", [System.Text.UTF8Encoding]::new($false))
+
+            # The entry file points at the folder, but the local folder is empty.
+            [IO.File]::WriteAllText((Join-Path $script:HomeDir 'linked.sh'), "script`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/windows/linked.sh.linked/tool/' 'local folder is empty; repo files kept')
+            $script:EngineOut | Should -Not -Match '\[REMOVED'
+            ([IO.File]::ReadAllBytes($repoA) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("repo-a`n") -join ',')
+        } finally {
+            if (Test-Path -LiteralPath $linkedRoot) {
+                Remove-Item -LiteralPath $linkedRoot -Recurse -Force
+            }
+        }
+    }
+
+    It 'real-config-roundtrip' {
+        Copy-EngineToRepo
+        Copy-Item -Path (Join-Path $Script:TestRepo 'sync-config.json') -Destination (Join-Path $script:RepoDir 'sync-config.json') -Force
+        Copy-Item -Path (Join-Path $Script:TestRepo 'dotfiles') -Destination $script:RepoDir -Recurse -Force
+
+        # Fake values for the real config's placeholders; never reads the real
+        # .user-values.json. <GH_CLI_PATH> is cached un-doubled, as on a real machine.
+        $valuesPath = Join-Path $script:RepoDir '.user-values.json'
+        [IO.File]::WriteAllText(
+            $valuesPath,
+            '{"<YOUR_NAME>":"Fixture User","<YOUR_EMAIL>":"fixture@example.com","<YOUR_GH_USERNAME>":"fixture-user","<YOUR_GH_ORG>":"fixture-org","<GH_CLI_PATH>":"C:\\Tools\\gh.exe"}',
+            [System.Text.UTF8Encoding]::new($false))
+
+        # Point .bashrc at a throwaway linked folder on the system drive, so this
+        # test never touches the real C:\MakuCustomAlias (the suite also runs on
+        # the real machine). The leaf name stays MakuCustomAlias, so the repo's
+        # .bashrc.linked\MakuCustomAlias folder still matches.
+        $guid       = [guid]::NewGuid().ToString('N')
+        $linkedRoot = "$env:SystemDrive\SyncSettingsTest-$guid"
+        $drive      = $env:SystemDrive[0].ToString().ToLowerInvariant()
+        $bashrc     = Join-Path $script:RepoDir 'dotfiles\windows\shell\.bashrc'
+        $content    = [IO.File]::ReadAllText($bashrc)
+        $content    = $content.Replace('/c/MakuCustomAlias', "/$drive/SyncSettingsTest-$guid/MakuCustomAlias")
+        [IO.File]::WriteAllText($bashrc, $content, [System.Text.UTF8Encoding]::new($false))
+
+        # Git for Windows resolves the [include] path = ~/.gitconfig.local with
+        # HOME, so the git config check below needs HOME to be the temp home.
+        $savedHome = $env:HOME
+        $env:HOME = $script:HomeDir
+
+        try {
+            # Import skips a missing target folder, so create the two folders whose
+            # parents don't exist in a fresh home.
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir 'AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState') -Force
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir '.claude\docs') -Force
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            $importExit = $script:EngineExit
+            $importOut  = $script:EngineOut
+
+            $importExit | Should -Be 0
+            $importOut | Should -Not -Match '\[ERROR'
+
+            foreach ($rel in @('.bashrc', '.bash_profile', '.gitconfig', '.gitconfig.local', '.claude\RTK.md', '.claude\docs\token-routing-map.html')) {
+                (Join-Path $script:HomeDir $rel) | Should -Exist
+            }
+            (Join-Path $script:HomeDir 'AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json') | Should -Exist
+            (Join-Path $linkedRoot 'MakuCustomAlias\vs.bat') | Should -Exist
+
+            (Join-Path $script:HomeDir '.claude\CLAUDE.md') | Should -Not -Exist
+            (Join-Path $script:HomeDir '.claude\hooks') | Should -Not -Exist
+            (Join-Path $script:HomeDir '.claude-worker') | Should -Not -Exist
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+            $exportExit = $script:EngineExit
+            $exportOut  = $script:EngineOut
+
+            $exportExit | Should -Be 0
+            $exportOut | Should -Match ([regex]::Escape('Repo is up to date'))
+            $exportOut | Should -Not -Match '\[(MODIFIED|ADDED|REMOVED|ORPHAN|ERROR)\s*\]'
+
+            # The file holds doubled backslashes; git undoes them, so the last
+            # helper is the single-backslash form. Proves ~/.gitconfig.local resolves.
+            $ErrorActionPreference = 'Continue'
+            $helpers = @(git config --file (Join-Path $script:HomeDir '.gitconfig') --includes --get-all credential.https://github.com.helper 2>$null)
+            $helpers[-1] | Should -Be "!'C:\Tools\gh.exe' auth git-credential"
+
+            # RTK.md is dotfiles/common/** (eol=lf), so no CR byte survives the
+            # runner's core.autocrlf=true checkout. Check bytes, not text.
+            $rtkBytes = [IO.File]::ReadAllBytes((Join-Path $script:HomeDir '.claude\RTK.md'))
+            $rtkBytes | Should -Not -Contain 13
+        } finally {
+            if ($null -eq $savedHome) {
+                Remove-Item Env:\HOME -ErrorAction SilentlyContinue
+            } else {
+                $env:HOME = $savedHome
+            }
             if (Test-Path -LiteralPath $linkedRoot) {
                 Remove-Item -LiteralPath $linkedRoot -Recurse -Force
             }

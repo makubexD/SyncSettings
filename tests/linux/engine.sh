@@ -134,6 +134,15 @@ add_sync() {
     cp -a "$REPO/sync" "$t/repo/"
 }
 
+# Run the config lint on the repo's real sync-config.json after applying a jq
+# filter to it; stores the exit code in rc and the output in $out.
+lint_run() {
+    local filter=$1
+    jq "$filter" "$REPO/sync-config.json" > "$t/config.json"
+    rc=0
+    "$REPO/scripts/ci/check-config.sh" "$t/config.json" > "$out" 2>&1 || rc=$?
+}
+
 # A stub GH that logs each invocation to $t/gh.log and prints a fixed URL.
 make_gh_stub() {
     mkdir -p "$t/bin"
@@ -618,6 +627,173 @@ case_path_real_config() {
     fi
 }
 
+case_real_config_roundtrip() {
+    new_tmp
+    setup_repo
+    cp "$REPO/sync-config.json" "$t/repo/sync-config.json"
+    cp -a "$REPO/dotfiles" "$t/before"
+    cp -a "$REPO/dotfiles" "$t/repo/"
+    mkdir -p "$t/home"
+
+    # Fake values, escaped by jq, so the round trip never reads the real home.
+    jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
+        --arg gh 'fixture-user' --arg home "$t/home" \
+        '{ "<YOUR_NAME>": $name, "<YOUR_EMAIL>": $email,
+           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home }' > "$t/repo/.user-values.json"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -Fq 'ERROR' "$out"; then
+        fail "import printed an ERROR line"
+    fi
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    grep -Fq 'Repo is up to date' "$out" || fail "export did not print 'Repo is up to date'"
+    if grep -qE '^  (MODIFIED|ADDED|REMOVED|ORPHAN)[[:space:]]|ERROR' "$out"; then
+        fail "export printed a changed status or an error"
+    fi
+
+    if ! diff -r "$t/before" "$t/repo/dotfiles" > "$t/dotfiles.diff" 2>&1; then
+        fail "dotfiles changed during the round trip: $(head -n 3 "$t/dotfiles.diff")"
+    fi
+
+    local name helpers
+    name=$(HOME="$t/home" git config --file "$t/home/.gitconfig" --includes --get user.name)
+    [[ $name == 'Fixture User' ]] || fail "user.name is '$name', want 'Fixture User'"
+
+    helpers=$(HOME="$t/home" git config --file "$t/home/.gitconfig" --includes \
+        --get-all credential.https://github.com.helper)
+    [[ $(printf '%s\n' "$helpers" | tail -n 1) == '!/usr/bin/gh auth git-credential' ]] \
+        || fail "the last credential.https://github.com.helper value is not the gh helper"
+
+    if grep -Fq '<YOUR_' "$t/home/.gitconfig"; then
+        fail ".gitconfig still holds an unfilled placeholder"
+    fi
+    [[ ! -e "$t/home/.bashrc" ]] || fail ".bashrc was imported from a windows entry"
+    [[ ! -e "$t/home/.gitconfig.bak" ]] || fail ".gitconfig.bak was created"
+    [[ -x "$t/home/.claude/hooks/worker-mode-guard.sh" ]] \
+        || fail "worker-mode-guard.sh is not executable"
+}
+
+case_lint_real_config() {
+    new_tmp
+
+    # No argument: the default file and the default output line.
+    rc=0
+    (cd "$REPO" && scripts/ci/check-config.sh) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+    grep -Fqx 'sync-config.json: OK' "$out" || fail "missing 'sync-config.json: OK' line"
+}
+
+case_lint_platform_missing() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then del(.platform) else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the repoPath"
+}
+
+case_lint_platform_bad() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .platform = "mac" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the repoPath"
+}
+
+case_lint_linux_prefix() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .repoPath = "dotfiles/x/CLAUDE.md" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/x/CLAUDE.md' "$out" || fail "output does not name the new repoPath"
+}
+
+case_lint_dir_with_rules() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir", "sanitizeRules": []}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d' "$out" || fail "output does not name the dir entry"
+}
+
+case_lint_file_in_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/x.txt", "localPath": "~/d/x.txt", "platform": "linux"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/x.txt' "$out" || fail "output does not name the file entry"
+}
+
+case_lint_typed_file_in_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/x.txt", "localPath": "~/d/x.txt", "platform": "linux", "type": "file"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/x.txt' "$out" || fail "output does not name the file entry"
+}
+
+case_lint_dir_in_dir() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/e", "localPath": "~/d/e", "platform": "linux", "type": "dir"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/e' "$out" || fail "output does not name the nested dir entry"
+}
+
+case_lint_dir_trailing_slash() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d/", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d/x.txt", "localPath": "~/d/x.txt", "platform": "linux"}]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/d/x.txt' "$out" || fail "output does not name the file entry"
+}
+
+case_lint_sibling_prefix() {
+    new_tmp
+    lint_run '.files += [{"repoPath": "dotfiles/linux/d", "localPath": "~/d", "platform": "linux", "type": "dir"},
+                         {"repoPath": "dotfiles/linux/d-old/x.txt", "localPath": "~/d-old/x.txt", "platform": "linux"}]'
+
+    (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+    if grep -Fq 'd-old' "$out"; then fail "output names the sibling entry"; fi
+}
+
+case_lint_windows_root() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/windows/shell/.bashrc" then .repoPath = "dotfiles/.bashrc" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/.bashrc' "$out" || fail "output does not name the new repoPath"
+}
+
+case_lint_windows_sibling() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/windows/shell/.bashrc" then .repoPath = "dotfiles/windows-old/.bashrc" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/windows-old/.bashrc' "$out" || fail "output does not name the new repoPath"
+}
+
+case_lint_windows_linux_prefix() {
+    new_tmp
+    lint_run '.files |= map(if .repoPath == "dotfiles/windows/shell/.bashrc" then .repoPath = "dotfiles/linux/.bashrc" else . end)'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+    grep -Fqx 'dotfiles/linux/.bashrc' "$out" || fail "output does not name the new repoPath"
+}
+
+case_lint_windows_ok() {
+    new_tmp
+    lint_run '.'
+
+    (( rc == 0 )) || fail "check-config.sh exited $rc, want 0"
+}
+
 case_path_dotted_name() {
     new_tmp
     setup_repo
@@ -995,6 +1171,113 @@ case_dir_export_symlink() {
         || fail "missing SKIPPED (symlink) line for dir/link.txt"
     [[ ! -e "$t/repo/dotfiles/common/dir/link.txt" && ! -L "$t/repo/dotfiles/common/dir/link.txt" ]] \
         || fail "link.txt was copied to the repo"
+}
+
+case_dir_export_empty_keeps_repo() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+    [[ -z $(find "$t/home/.config/fixture/dir" -mindepth 1) ]] || fail "local dir/ is not empty"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept' \
+        || fail "missing SKIPPED (empty folder) line for the dir entry"
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line for an empty local folder"
+    fi
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_only_excluded() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+    printf 'x\n' > "$t/home/.config/fixture/dir/x.secret"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED dotfiles/common/dir/x.secret 'matches exclude pattern' \
+        || fail "missing SKIPPED (exclude) line for dir/x.secret"
+    output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept' \
+        || fail "missing SKIPPED (empty folder) line for the dir entry"
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line for a folder holding only excluded files"
+    fi
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_only_symlink() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+    ln -s c.txt "$t/home/.config/fixture/dir/link.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status SKIPPED dotfiles/common/dir/link.txt symlink \
+        || fail "missing SKIPPED (symlink) line for dir/link.txt"
+    output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept' \
+        || fail "missing SKIPPED (empty folder) line for the dir entry"
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line for a folder holding only a symlink"
+    fi
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/a/b.txt" "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dotfiles/common/dir/a/b.txt differs from fixture"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_one_left() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    rm "$t/home/.config/fixture/dir/a/b.txt"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    output_has_status REMOVED dotfiles/common/dir/a/b.txt 'no longer in source' \
+        || fail "missing REMOVED line for dir/a/b.txt"
+    [[ ! -e "$t/repo/dotfiles/common/dir/a/b.txt" ]] || fail "repo dir/a/b.txt still exists"
+    output_has_status UNCHANGED dotfiles/common/dir/c.txt || fail "missing UNCHANGED line for dir/c.txt"
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
+        || fail "dotfiles/common/dir/c.txt differs from fixture"
+}
+
+case_dir_export_empty_both() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+    rm -rf "$t/home/.config/fixture/dir"/*
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    if output_has_status SKIPPED 'dotfiles/common/dir/' 'local folder is empty; repo files kept'; then
+        fail "printed a SKIPPED line for a folder empty on both sides"
+    fi
+    if grep -Fq 'REMOVED' "$out"; then
+        fail "output has a REMOVED line with no repo folder"
+    fi
+    [[ ! -e "$t/repo/dotfiles/common/dir" ]] || fail "repo dir/ was created"
 }
 
 case_dir_root_symlink() {
@@ -1754,7 +2037,7 @@ case_sync_missing_tool() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1786,6 +2069,21 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         path-local-absolute) case_path_local_absolute ;;
         path-repo-symlink) case_path_repo_symlink ;;
         path-real-config) case_path_real_config ;;
+        real-config-roundtrip) case_real_config_roundtrip ;;
+        lint-real-config) case_lint_real_config ;;
+        lint-platform-missing) case_lint_platform_missing ;;
+        lint-platform-bad) case_lint_platform_bad ;;
+        lint-linux-prefix) case_lint_linux_prefix ;;
+        lint-dir-with-rules) case_lint_dir_with_rules ;;
+        lint-file-in-dir) case_lint_file_in_dir ;;
+        lint-typed-file-in-dir) case_lint_typed_file_in_dir ;;
+        lint-dir-in-dir) case_lint_dir_in_dir ;;
+        lint-dir-trailing-slash) case_lint_dir_trailing_slash ;;
+        lint-sibling-prefix) case_lint_sibling_prefix ;;
+        lint-windows-root) case_lint_windows_root ;;
+        lint-windows-sibling) case_lint_windows_sibling ;;
+        lint-windows-linux-prefix) case_lint_windows_linux_prefix ;;
+        lint-windows-ok) case_lint_windows_ok ;;
         path-dotted-name) case_path_dotted_name ;;
         escape-import) case_escape_import ;;
         escape-export) case_escape_export ;;
@@ -1804,6 +2102,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         dir-export-excluded) case_dir_export_excluded ;;
         dir-export-missing) case_dir_export_missing ;;
         dir-export-symlink) case_dir_export_symlink ;;
+        dir-export-empty-keeps-repo) case_dir_export_empty_keeps_repo ;;
+        dir-export-only-excluded) case_dir_export_only_excluded ;;
+        dir-export-only-symlink) case_dir_export_only_symlink ;;
+        dir-export-one-left) case_dir_export_one_left ;;
+        dir-export-empty-both) case_dir_export_empty_both ;;
         dir-root-symlink) case_dir_root_symlink ;;
         dir-symlink-removed) case_dir_symlink_removed ;;
         dir-import-creates) case_dir_import_creates ;;

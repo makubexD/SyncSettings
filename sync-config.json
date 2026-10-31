@@ -3,9 +3,9 @@
   "defaultUser": null,
   "files": [
     {
-      "repoPath": "dotfiles/.gitconfig",
-      "localPath": "~\\.gitconfig",
-      "platform": "windows",
+      "repoPath": "dotfiles/common/git/.gitconfig",
+      "localPath": "~/.gitconfig",
+      "platform": "common",
       "description": "Git global configuration",
       "sanitizeRules": [
         {
@@ -15,7 +15,15 @@
         {
           "placeholder": "<YOUR_EMAIL>",
           "prompt": "Email for git commits"
-        },
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/windows/git/.gitconfig.local",
+      "localPath": "~\\.gitconfig.local",
+      "platform": "windows",
+      "description": "Git credentials for Windows, included by .gitconfig",
+      "sanitizeRules": [
         {
           "placeholder": "<YOUR_GH_USERNAME>",
           "prompt": "GitHub username"
@@ -33,20 +41,26 @@
       ]
     },
     {
-      "repoPath": "dotfiles/.bashrc",
+      "repoPath": "dotfiles/linux/git/.gitconfig.local",
+      "localPath": "~/.gitconfig.local",
+      "platform": "linux",
+      "description": "Git credentials for Linux, included by .gitconfig"
+    },
+    {
+      "repoPath": "dotfiles/windows/shell/.bashrc",
       "localPath": "~\\.bashrc",
       "platform": "windows",
       "description": "Bash run commands",
       "detectLinkedPaths": true
     },
     {
-      "repoPath": "dotfiles/.bash_profile",
+      "repoPath": "dotfiles/windows/shell/.bash_profile",
       "localPath": "~\\.bash_profile",
       "platform": "windows",
       "description": "Bash login profile"
     },
     {
-      "repoPath": "dotfiles/WindowsTerminal/settings.json",
+      "repoPath": "dotfiles/windows/windows-terminal/settings.json",
       "localPath": "~\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
       "platform": "windows",
       "description": "Windows Terminal settings"
@@ -58,9 +72,9 @@
       "description": "Claude Code global instructions"
     },
     {
-      "repoPath": "dotfiles/linux/claude/RTK.md",
+      "repoPath": "dotfiles/common/claude/RTK.md",
       "localPath": "~/.claude/RTK.md",
-      "platform": "linux",
+      "platform": "common",
       "description": "RTK command-output notes (imported by CLAUDE.md)"
     },
     {
@@ -93,39 +107,30 @@
       "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
     },
     {
-      "repoPath": "dotfiles/linux/claude/hooks/context-mode-cache-heal.mjs",
-      "localPath": "~/.claude/hooks/context-mode-cache-heal.mjs",
+      "repoPath": "dotfiles/linux/claude/hooks",
+      "localPath": "~/.claude/hooks",
       "platform": "linux",
-      "description": "context-mode SessionStart hook"
+      "type": "dir",
+      "description": "Claude Code hook scripts"
     },
     {
-      "repoPath": "dotfiles/linux/claude/hooks/node.sh",
-      "localPath": "~/.claude/hooks/node.sh",
+      "repoPath": "dotfiles/linux/claude/skills/mk-delegate",
+      "localPath": "~/.claude/skills/mk-delegate",
       "platform": "linux",
-      "description": "Runs hook scripts with the nvm Node"
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/hooks/worker-mode-guard.sh",
-      "localPath": "~/.claude/hooks/worker-mode-guard.sh",
-      "platform": "linux",
-      "description": "Blocks Claude edits while worker mode is on"
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/skills/mk-delegate/SKILL.md",
-      "localPath": "~/.claude/skills/mk-delegate/SKILL.md",
-      "platform": "linux",
+      "type": "dir",
       "description": "/mk-delegate slash command"
     },
     {
-      "repoPath": "dotfiles/linux/claude/skills/mk-check/SKILL.md",
-      "localPath": "~/.claude/skills/mk-check/SKILL.md",
+      "repoPath": "dotfiles/linux/claude/skills/mk-check",
+      "localPath": "~/.claude/skills/mk-check",
       "platform": "linux",
+      "type": "dir",
       "description": "/mk-check slash command"
     },
     {
-      "repoPath": "dotfiles/linux/claude/docs/token-routing-map.html",
+      "repoPath": "dotfiles/common/claude/docs/token-routing-map.html",
       "localPath": "~/.claude/docs/token-routing-map.html",
-      "platform": "linux",
+      "platform": "common",
       "description": "Workflow guide page source"
     },
     {
@@ -139,6 +144,12 @@
       "localPath": "~/.claude/bin/workflow-report",
       "platform": "linux",
       "description": "Read-only report of delegated vs inline steps and worker runs for a repo"
+    },
+    {
+      "repoPath": "dotfiles/linux/claude/bin/metrics-archive",
+      "localPath": "~/.claude/bin/metrics-archive",
+      "platform": "linux",
+      "description": "Archives workflow metrics"
     },
     {
       "repoPath": "dotfiles/linux/claude-worker/CLAUDE.md",

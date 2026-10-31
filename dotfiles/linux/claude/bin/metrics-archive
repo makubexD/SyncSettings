@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Keep a zstd copy of every Claude Code transcript and worker stream.
+
+Usage: metrics-archive [--claude-dir DIR] [--dest DIR] [--dry-run | --verify]
+Sources: <claude-dir>/projects/**/*.jsonl and <claude-dir>/state/mk-worker-logs/*/stream.jsonl
+(regular files only; symlinks and everything else are ignored). Each copy lands at
+<dest>/<YYYY-MM>/<rel>.zst, with <rel> relative to <claude-dir>, and is tracked in
+<dest>/index.json. Defaults: --claude-dir ~/.claude, --dest <claude-dir>/state/metrics/archive.
+Nothing in <dest> is ever deleted or moved, so vanished sources stay archived.
+--dry-run reports what would change and writes nothing; --verify re-hashes every archived file.
+Exit 0 when there are no errors or verify failures, 1 otherwise.
+"""
+import sys
+
+try:
+    import compression.zstd as zstd
+except ImportError:  # Python < 3.14
+    sys.exit("metrics-archive: needs Python 3.14+ (compression.zstd)")
+
+import argparse, hashlib, json, os, stat, time
+
+LEVEL = 10
+
+
+def sources(claude_dir, on_error):
+    """(rel, path) of every regular source file, sorted by rel. on_error gets (rel, exception)."""
+    found = {}
+
+    def report(e):
+        # Missing paths are normal: a fresh dir, or a file that vanished mid-run.
+        if not isinstance(e, (FileNotFoundError, NotADirectoryError)):
+            on_error(relpath(e.filename, claude_dir), e)
+
+    def add_if_regular(path):
+        try:
+            if stat.S_ISREG(os.lstat(path).st_mode):
+                found[relpath(path, claude_dir)] = path
+        except OSError as e:
+            report(e)
+
+    proj = os.path.join(claude_dir, "projects")
+    for root, _, files in os.walk(proj, onerror=report):
+        for name in files:
+            if name.endswith(".jsonl"):
+                add_if_regular(os.path.join(root, name))
+
+    logs = os.path.join(claude_dir, "state", "mk-worker-logs")
+    try:
+        with os.scandir(logs) as it:
+            entries = sorted(it, key=lambda e: e.name)
+    except OSError as e:
+        report(e)
+        entries = []
+    for entry in entries:
+        if entry.is_dir(follow_symlinks=False):
+            add_if_regular(os.path.join(entry.path, "stream.jsonl"))
+
+    return sorted(found.items())
+
+
+def relpath(path, claude_dir):
+    return os.path.relpath(path, claude_dir).replace(os.sep, "/")
+
+
+def ensure_dir(path):
+    """mkdir -p, giving every directory it creates mode 0700."""
+    if os.path.isdir(path):
+        return
+    parent = os.path.dirname(path)
+    if parent and parent != path:
+        ensure_dir(parent)
+    try:
+        os.mkdir(path, 0o700)
+    except FileExistsError:
+        if not os.path.isdir(path):
+            raise
+        return
+    os.chmod(path, 0o700)
+
+
+def write_file(path, data):
+    """Write bytes to path via <path>.tmp and os.replace, mode 0600."""
+    ensure_dir(os.path.dirname(path))
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def load_index(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError("index.json is not a JSON object")
+    return data
+
+
+def write_index(path, index):
+    write_file(path, (json.dumps(index, sort_keys=True, indent=2) + "\n").encode("utf-8"))
+
+
+def process(path, rel, entry, dest, dry_run):
+    """Return (status, new_entry) for one source. status is added/updated/unchanged."""
+    st = os.stat(path)
+    if entry and entry.get("size") == st.st_size and entry.get("mtime_ns") == st.st_mtime_ns:
+        return "unchanged", entry
+
+    with open(path, "rb") as f:
+        data = f.read()
+    sha = hashlib.sha256(data).hexdigest()
+
+    if entry and entry.get("sha256") == sha:
+        # Same content: refresh the stat only, never rewrite the copy.
+        return "unchanged", {"archive": entry["archive"], "size": len(data),
+                             "mtime_ns": st.st_mtime_ns, "sha256": sha}
+
+    if entry:
+        archive, status = entry["archive"], "updated"
+    else:
+        month = time.strftime("%Y-%m", time.localtime(st.st_mtime))
+        archive, status = f"{month}/{rel}.zst", "added"
+
+    if not dry_run:
+        write_file(os.path.join(dest, archive), zstd.compress(data, level=LEVEL))
+    return status, {"archive": archive, "size": len(data),
+                    "mtime_ns": st.st_mtime_ns, "sha256": sha}
+
+
+def decompress(blob):
+    # Every frame we write carries its content size, so no output limit is needed.
+    return zstd.ZstdDecompressor().decompress(blob)
+
+
+def verify(dest, index):
+    ok = failed = 0
+    for rel in sorted(index):
+        entry = index[rel]
+        archive = os.path.join(dest, str(entry.get("archive", "")))
+        try:
+            with open(archive, "rb") as f:
+                blob = f.read()
+            data = decompress(blob)
+        except Exception as e:
+            print(f"verify FAIL {rel}: {e}", file=sys.stderr)
+            failed += 1
+            continue
+        if hashlib.sha256(data).hexdigest() != entry.get("sha256"):
+            print(f"verify FAIL {rel}: sha256 mismatch", file=sys.stderr)
+            failed += 1
+            continue
+        ok += 1
+    print(f"verified {ok}, failed {failed}")
+    return 0 if failed == 0 else 1
+
+
+def archive_size(dest):
+    total = 0
+    for root, _, files in os.walk(dest):
+        for name in files:
+            if name.endswith(".zst"):
+                try:
+                    total += os.stat(os.path.join(root, name)).st_size
+                except OSError:
+                    pass
+    return total
+
+
+def main(argv):
+    p = argparse.ArgumentParser(prog="metrics-archive", description=__doc__.splitlines()[0])
+    p.add_argument("--claude-dir", default="~/.claude", help="Claude Code config dir")
+    p.add_argument("--dest", help="archive dir (default <claude-dir>/state/metrics/archive)")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="report only, write nothing")
+    mode.add_argument("--verify", action="store_true", help="re-hash the archived files")
+    args = p.parse_args(argv)
+
+    claude_dir = os.path.abspath(os.path.expanduser(args.claude_dir))
+    dest = args.dest or os.path.join(claude_dir, "state", "metrics", "archive")
+    dest = os.path.abspath(os.path.expanduser(dest))
+    index_path = os.path.join(dest, "index.json")
+
+    try:
+        index = load_index(index_path)
+    except Exception as e:
+        print(f"error {index_path}: {e}", file=sys.stderr)
+        return 1
+
+    if args.verify:
+        return verify(dest, index)
+
+    counts = {"added": 0, "updated": 0, "unchanged": 0, "errors": 0}
+
+    def report_error(rel, e):
+        print(f"error {rel}: {e}", file=sys.stderr)
+        counts["errors"] += 1
+
+    for rel, path in sources(claude_dir, report_error):
+        try:
+            status, entry = process(path, rel, index.get(rel), dest, args.dry_run)
+        except Exception as e:
+            report_error(rel, e)
+            continue
+        index[rel] = entry
+        counts[status] += 1
+
+    if args.dry_run:
+        print(f"would add {counts['added']}, would update {counts['updated']}, "
+              f"unchanged {counts['unchanged']}")
+        return 0 if counts["errors"] == 0 else 1
+
+    try:
+        write_index(index_path, index)
+    except Exception as e:
+        print(f"error {index_path}: {e}", file=sys.stderr)
+        counts["errors"] += 1
+
+    print(f"metrics-archive: added {counts['added']}, updated {counts['updated']}, "
+          f"unchanged {counts['unchanged']}, errors {counts['errors']}; "
+          f"archive {archive_size(dest) / 1_000_000:.1f} MB")
+    return 0 if counts["errors"] == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

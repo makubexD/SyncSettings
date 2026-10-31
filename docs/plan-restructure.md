@@ -52,7 +52,7 @@ Decision: keep two native engines (PowerShell 5.1 ships with Windows; bash on Li
 | Item | Target |
 |---|---|
 | `~/.bashrc` (nvm, bun, fzf, zoxide, starship, `fd`, `cproj`), `~/.profile` | linux/shell; guard the unguarded `. omniroute.env` (breaks a fresh machine; OmniRoute unused) |
-| Linux gitconfig bits (`/usr/bin/gh` helper), `init.defaultBranch=main` | linux/git/.gitconfig.local; `defaultBranch` → common |
+| Linux gitconfig bits (`/usr/bin/gh` helper), `init.defaultBranch=main` | Done in phase 3: linux/git/.gitconfig.local; `defaultBranch` → common |
 | `~/.config/git/ignore` | common/git/ignore |
 | `.tmux.conf`, `starship.toml`, `wezterm.lua`, `htoprc` | linux/{tmux,starship,wezterm,htop} |
 | `~/.config/gh/config.yml`, `pypoetry/config.toml` | linux/{gh,poetry} |
@@ -144,7 +144,7 @@ don't rot. Each phase updates the docs it touches; repo `CLAUDE.md` is trimmed t
    write `docs/sync-contract.md`; required `platform` with `common`; parity items from the table; fixture tests
    for both engines wired into `ci.yml`.
 3. **Re-layout existing files**: `git mv` to platform → tool, rewrite `sync-config.json`, split `.gitconfig`
-   (`[inline]`), `.gitattributes` (`dotfiles/{common,linux}/** text eol=lf`).
+   (`[inline]`), `.gitattributes` (`dotfiles/common/** text eol=lf` and `dotfiles/linux/** text eol=lf`).
 4. **Linux configs** from the inventory (+ `.bashrc` guard); `grep -rl "$HOME" dotfiles` empty.
 5. **dconf** entries (`{path, repoPath}`): dump on export, load on import.
 6. **Packages + drift report** (`packages/linux/*`, curated; drift in `export.sh`).

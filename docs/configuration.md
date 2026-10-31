@@ -1,7 +1,8 @@
 # Configuration reference
 
 `sync-config.json` lists every file and folder SyncSettings keeps in the repo. This page covers each field and how to
-add an entry. For what the engines do with those fields, see [sync-contract.md](sync-contract.md).
+add an entry. For what the engines do with those fields, see [sync-contract.md](sync-contract.md). For where a new file
+belongs, see [layout.md](layout.md).
 
 ## File layout
 
@@ -11,7 +12,7 @@ add an entry. For what the engines do with those fields, see [sync-contract.md](
   "defaultUser": null,
   "files": [
     {
-      "repoPath": "dotfiles/common/editorconfig",
+      "repoPath": "dotfiles/common/editorconfig/.editorconfig",
       "localPath": "~/.editorconfig",
       "platform": "common",
       "description": "Editor defaults"
@@ -48,14 +49,14 @@ stops both engines with exit code 1 before they touch a file. CI lint also fails
 |---|---|---|---|
 | `common` | both | under `dotfiles/common/` | `~/` form only |
 | `linux` | Linux | under `dotfiles/linux/` | `~/` form |
-| `windows` | Windows | under `dotfiles/`, not in `linux/` or `common/` | either form |
+| `windows` | Windows | under `dotfiles/windows/` | either form |
 
 ## `localPath`
 
 | Form | JSON example | Works on |
 |---|---|---|
 | `~/` with forward slashes | `"~/.config/git/ignore"` | both |
-| `~\` with backslashes | `"~\\.gitconfig"` | Windows only |
+| `~\` with backslashes | `"~\\.gitconfig.local"` | Windows only |
 
 `~` is `$HOME` on Linux and the profile folder on Windows, or the target user's profile with `-User`. Backslashes are
 doubled in JSON. An absolute path, or a path with a `..` segment, stops every command before it touches a file.
@@ -67,12 +68,12 @@ value in the file, and import puts it back, so pick values specific enough not t
 
 ```json
 {
-  "repoPath": "dotfiles/.gitconfig",
-  "localPath": "~\\.gitconfig",
+  "repoPath": "dotfiles/windows/git/.gitconfig.local",
+  "localPath": "~\\.gitconfig.local",
   "platform": "windows",
-  "description": "Git global configuration",
+  "description": "Git credentials for Windows, included by .gitconfig",
   "sanitizeRules": [
-    { "placeholder": "<YOUR_NAME>", "prompt": "Full name for git commits" },
+    { "placeholder": "<YOUR_GH_USERNAME>", "prompt": "GitHub username" },
     {
       "placeholder": "<GH_CLI_PATH>",
       "prompt": "Path to GitHub CLI executable",
@@ -136,12 +137,15 @@ Syncs a whole folder, recursively.
 - Import never deletes. It lists local files the repo doesn't have as `EXTRA` and keeps them.
 - Symlinks are skipped, and `excludePatterns` apply to every file inside.
 - `sanitizeRules` and `detectLinkedPaths` are not allowed on a `dir` entry. CI lint fails if either is set.
+- A `dir` entry can't contain another entry, not even another `dir`. CI lint fails if an entry's `repoPath` is inside
+  a `dir` entry's `repoPath`.
+- A local folder with nothing to sync keeps the repo files: the entry is `SKIPPED` and nothing is deleted.
 
 ## `detectLinkedPaths`
 
 ```json
 {
-  "repoPath": "dotfiles/.bashrc",
+  "repoPath": "dotfiles/windows/shell/.bashrc",
   "localPath": "~\\.bashrc",
   "platform": "windows",
   "description": "Bash run commands",
@@ -151,7 +155,8 @@ Syncs a whole folder, recursively.
 
 The Windows engine scans the file for folder paths (`/c/Tools` or `C:\Tools`) and syncs each folder that exists.
 System folders and anything under the user profile are ignored. Copies live in the repo under
-`<repoPath>.linked/<folder name>/`, for example `dotfiles/.bashrc.linked/Tools/`. The bash engine ignores this field.
+`<repoPath>.linked/<folder name>/`, for example `dotfiles/windows/shell/.bashrc.linked/Tools/`. The bash engine ignores
+this field.
 
 Import never deletes from a linked folder. It asks before overwriting a file and keeps a `.bak`, and a local file the
 repo doesn't have is reported as `EXTRA` and kept.
@@ -165,7 +170,7 @@ Keep `*.bak` in the list. It stops the backups that import writes inside a synce
 
 ## Adding an entry
 
-1. Add the entry to `files` in `sync-config.json`.
+1. Add the entry to `files` in `sync-config.json`, with its `repoPath` where [layout.md](layout.md) says.
 2. Check that the file still parses:
 
    ```bash
