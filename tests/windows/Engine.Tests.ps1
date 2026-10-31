@@ -1125,6 +1125,89 @@ Describe 'Windows engine' {
         }
     }
 
+    It 'real-config-roundtrip' {
+        Copy-EngineToRepo
+        Copy-Item -Path (Join-Path $Script:TestRepo 'sync-config.json') -Destination (Join-Path $script:RepoDir 'sync-config.json') -Force
+        Copy-Item -Path (Join-Path $Script:TestRepo 'dotfiles') -Destination $script:RepoDir -Recurse -Force
+
+        # Fake values for the real config's placeholders; never reads the real
+        # .user-values.json. <GH_CLI_PATH> is cached un-doubled, as on a real machine.
+        $valuesPath = Join-Path $script:RepoDir '.user-values.json'
+        [IO.File]::WriteAllText(
+            $valuesPath,
+            '{"<YOUR_NAME>":"Fixture User","<YOUR_EMAIL>":"fixture@example.com","<YOUR_GH_USERNAME>":"fixture-user","<YOUR_GH_ORG>":"fixture-org","<GH_CLI_PATH>":"C:\\Tools\\gh.exe"}',
+            [System.Text.UTF8Encoding]::new($false))
+
+        # Point .bashrc at a throwaway linked folder on the system drive, so this
+        # test never touches the real C:\MakuCustomAlias (the suite also runs on
+        # the real machine). The leaf name stays MakuCustomAlias, so the repo's
+        # .bashrc.linked\MakuCustomAlias folder still matches.
+        $guid       = [guid]::NewGuid().ToString('N')
+        $linkedRoot = "$env:SystemDrive\SyncSettingsTest-$guid"
+        $drive      = $env:SystemDrive[0].ToString().ToLowerInvariant()
+        $bashrc     = Join-Path $script:RepoDir 'dotfiles\windows\shell\.bashrc'
+        $content    = [IO.File]::ReadAllText($bashrc)
+        $content    = $content.Replace('/c/MakuCustomAlias', "/$drive/SyncSettingsTest-$guid/MakuCustomAlias")
+        [IO.File]::WriteAllText($bashrc, $content, [System.Text.UTF8Encoding]::new($false))
+
+        # Git for Windows resolves the [include] path = ~/.gitconfig.local with
+        # HOME, so the git config check below needs HOME to be the temp home.
+        $savedHome = $env:HOME
+        $env:HOME = $script:HomeDir
+
+        try {
+            # Import skips a missing target folder, so create the two folders whose
+            # parents don't exist in a fresh home.
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir 'AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState') -Force
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir '.claude\docs') -Force
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            $importExit = $script:EngineExit
+            $importOut  = $script:EngineOut
+
+            $importExit | Should -Be 0
+            $importOut | Should -Not -Match '\[ERROR'
+
+            foreach ($rel in @('.bashrc', '.bash_profile', '.gitconfig', '.gitconfig.local', '.claude\RTK.md', '.claude\docs\token-routing-map.html')) {
+                (Join-Path $script:HomeDir $rel) | Should -Exist
+            }
+            (Join-Path $script:HomeDir 'AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json') | Should -Exist
+            (Join-Path $linkedRoot 'MakuCustomAlias\vs.bat') | Should -Exist
+
+            (Join-Path $script:HomeDir '.claude\CLAUDE.md') | Should -Not -Exist
+            (Join-Path $script:HomeDir '.claude\hooks') | Should -Not -Exist
+            (Join-Path $script:HomeDir '.claude-worker') | Should -Not -Exist
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+            $exportExit = $script:EngineExit
+            $exportOut  = $script:EngineOut
+
+            $exportExit | Should -Be 0
+            $exportOut | Should -Match ([regex]::Escape('Repo is up to date'))
+            $exportOut | Should -Not -Match '\[(MODIFIED|ADDED|REMOVED|ORPHAN|ERROR)\s*\]'
+
+            # The file holds doubled backslashes; git undoes them, so the last
+            # helper is the single-backslash form. Proves ~/.gitconfig.local resolves.
+            $ErrorActionPreference = 'Continue'
+            $helpers = @(git config --file (Join-Path $script:HomeDir '.gitconfig') --includes --get-all credential.https://github.com.helper 2>$null)
+            $helpers[-1] | Should -Be "!'C:\Tools\gh.exe' auth git-credential"
+
+            # RTK.md is dotfiles/common/** (eol=lf), so no CR byte survives the
+            # runner's core.autocrlf=true checkout. Check bytes, not text.
+            $rtkBytes = [IO.File]::ReadAllBytes((Join-Path $script:HomeDir '.claude\RTK.md'))
+            $rtkBytes | Should -Not -Contain 13
+        } finally {
+            if ($null -eq $savedHome) {
+                Remove-Item Env:\HOME -ErrorAction SilentlyContinue
+            } else {
+                $env:HOME = $savedHome
+            }
+            if (Test-Path -LiteralPath $linkedRoot) {
+                Remove-Item -LiteralPath $linkedRoot -Recurse -Force
+            }
+        }
+    }
+
     It 'upstream-none' {
         Copy-EngineToRepo
         Copy-RepoDotfiles
