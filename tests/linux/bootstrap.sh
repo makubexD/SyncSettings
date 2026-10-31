@@ -96,6 +96,72 @@ EOF
     chmod +x "$t/bin/curl"
 }
 
+# git: init and fetch only log. checkout fills the tree a real extension commit
+# has, so the step's recipe has something to copy, and install.sh writes a marker
+# that proves the step never runs it. rev-parse prints $t/stub/git-rev.out.
+make_git_stub() {
+    cat > "$t/bin/git" <<EOF
+#!/bin/sh
+printf 'git %s\n' "\$*" >> "$t/calls"
+dir=''
+while [ "\$#" -gt 0 ]; do
+    case \$1 in
+        -C) dir=\$2; shift 2 ;;
+        -c) shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+rc() { cat "$t/stub/\$1.rc" 2>/dev/null || echo 0; }
+case \$1 in
+    init|fetch) exit "\$(rc git-\$1)" ;;
+    checkout)
+        [ "\$(rc git-checkout)" -eq 0 ] || exit "\$(rc git-checkout)"
+        uuid=\${dir##*/}
+        mkdir -p "\$dir/src/modern" "\$dir/src/legacy" "\$dir/schemas"
+        printf 'export default class {}\n' > "\$dir/src/modern/extension.js"
+        printf '// legacy\n' > "\$dir/src/legacy/old.js"
+        printf '#!/bin/sh\ntouch "$t/install-sh-ran"\n' > "\$dir/install.sh"
+        printf '{"uuid":"%s","shell-version":["50"]}\n' "\$uuid" > "\$dir/metadata.json"
+        printf '/* stylesheet */\n' > "\$dir/stylesheet.css"
+        printf '<schema/>\n' > "\$dir/schemas/x.xml"
+        exit 0 ;;
+    rev-parse) cat "$t/stub/git-rev.out" 2>/dev/null; exit 0 ;;
+esac
+exit 0
+EOF
+    chmod +x "$t/bin/git"
+}
+
+# snap: a plain `snap list` passes unless $t/stub/snap.rc says otherwise. A
+# `snap list <name>` passes only when $t/stub/snap-present/<name> exists. wait
+# and install succeed unless their rc file says otherwise.
+make_snap_stub() {
+    cat > "$t/bin/snap" <<EOF
+#!/bin/sh
+printf 'snap %s\n' "\$*" >> "$t/calls"
+case \$1 in
+    list)
+        shift
+        if [ "\$#" -eq 0 ]; then
+            cat "$t/stub/snap.out" 2>/dev/null
+            exit "\$(cat "$t/stub/snap.rc" 2>/dev/null || echo 0)"
+        fi
+        if [ -f "$t/stub/snap-present/\$1" ]; then
+            printf '%s 1.0 1 latest/stable\n' "\$1"
+            exit 0
+        fi
+        printf 'error: no matching snaps installed\n' >&2
+        exit 1 ;;
+    install) exit "\$(cat "$t/stub/snap-install.rc" 2>/dev/null || echo 0)" ;;
+    wait) exit "\$(cat "$t/stub/snap-wait.rc" 2>/dev/null || echo 0)" ;;
+esac
+exit 0
+EOF
+    chmod +x "$t/bin/snap"
+    mkdir -p "$t/stub/snap-present"
+}
+
 # Build $t/repo from the real bootstrap/, scripts/ and packages/linux/, plus a
 # stub home, a fake root holding /etc/os-release, and the tool stubs. Cases
 # overwrite stub outputs/rc files or package lists before running.
@@ -121,11 +187,13 @@ EOF
     printf '1000\n' > "$t/stub/id.out"
     printf 'x86_64\n' > "$t/stub/uname.out"
     local tool
-    for tool in apt-get dpkg-query dpkg-deb snap code pipx git claude glib-compile-schemas fc-cache id uname; do
+    for tool in apt-get dpkg-query dpkg-deb code pipx claude glib-compile-schemas fc-cache id uname; do
         make_stub "$tool"
     done
     make_sudo_stub
     make_curl_stub
+    make_git_stub
+    make_snap_stub
     # Nothing is installed unless a case writes `installed <name>` lines here,
     # which is the format dpkg_installed parses.
     : > "$t/stub/dpkg-query.out"
@@ -183,6 +251,30 @@ seed_sources() {
         cp "$key" "$t/root/usr/share/keyrings/${key##*/}"
         cp "$key" "$t/root/etc/apt/keyrings/${key##*/}"
     done
+}
+
+# Put the release asset in $t/net and write fonts.txt pinned to its hash. The
+# archive is a real .tar.xz holding one font file, unless $4 is `raw`, which
+# writes $3 as the asset so the hash matches but tar can't unpack it.
+make_font_release() {
+    local asset=$1 tag=$2 body=${3:-font bytes} kind=${4:-tar} sha
+    rm -rf "$t/font-fixture"
+    mkdir -p "$t/font-fixture"
+    if [[ $kind == tar ]]; then
+        printf '%s\n' "$body" > "$t/font-fixture/$asset.ttf"
+        tar -cJf "$t/net/$asset.tar.xz" -C "$t/font-fixture" "$asset.ttf"
+    else
+        printf '%s\n' "$body" > "$t/net/$asset.tar.xz"
+    fi
+    sha=$(sha256sum "$t/net/$asset.tar.xz" | cut -d' ' -f1)
+    printf '%s %s %s\n' "$asset" "$tag" "$sha" > "$t/repo/packages/linux/fonts.txt"
+}
+
+# Write one gnome-extensions.txt line and the commit its rev-parse should print.
+make_extension_list() {
+    local uuid=$1 url=$2 commit=$3
+    printf '%s %s %s\n' "$uuid" "$url" "$commit" > "$t/repo/packages/linux/gnome-extensions.txt"
+    printf '%s\n' "$commit" > "$t/stub/git-rev.out"
 }
 
 # -- Cases ---------------------------------------------------------------------
@@ -510,7 +602,202 @@ case_deb_loop_keeps_going() {
     ! grep -Eq 'apt-get install -y .*bad\.deb' "$t/calls" || fail 'bad.deb was installed'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going; do
+# -- Desktop: snaps, fonts, extensions -----------------------------------------
+
+case_desktop_snap_args() {
+    setup_case
+    make_packages
+    printf 'code classic\npostman channel=v11/stable\n' > "$t/repo/packages/linux/snap.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'sudo snap install code --classic' "$t/calls" || fail 'code was not installed with --classic'
+    grep -Fxq 'sudo snap install postman --channel=v11/stable' "$t/calls" \
+        || fail 'postman was not installed from its channel'
+    output_has_status INSTALLED snap/code || fail 'missing INSTALLED snap/code'
+    output_has_status INSTALLED snap/postman || fail 'missing INSTALLED snap/postman'
+    [[ $(grep -m1 -E '^sudo snap (wait|install)' "$t/calls") == 'sudo snap wait system seed.loaded' ]] \
+        || fail 'snap wait did not come before the first install'
+}
+
+case_desktop_snap_both_options() {
+    setup_case
+    make_packages
+    printf 'code classic channel=latest/edge\n' > "$t/repo/packages/linux/snap.txt"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'sudo snap install code --classic --channel=latest/edge' "$t/calls" \
+        || fail "wrong install line: $(grep 'snap install' "$t/calls")"
+}
+
+case_desktop_snap_failure_continues() {
+    setup_case
+    make_packages
+    printf 'a\nb\n' > "$t/repo/packages/linux/snap.txt"
+    printf '1\n' > "$t/stub/snap-install.rc"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR snap/a 'install failed' || fail 'missing ERROR snap/a'
+    grep -Fxq 'sudo snap install b' "$t/calls" || fail 'the loop stopped at the failed snap'
+}
+
+case_desktop_snap_present() {
+    setup_case
+    make_packages
+    printf 'code classic\n' > "$t/repo/packages/linux/snap.txt"
+    : > "$t/stub/snap-present/code"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -Fq 'snap install code' "$t/calls" || fail 'code was installed again'
+    output_has_status UNCHANGED snap/code || fail 'missing UNCHANGED snap/code'
+}
+
+case_desktop_snap_down() {
+    setup_case
+    make_packages
+    printf 'code classic\n' > "$t/repo/packages/linux/snap.txt"
+    printf '1\n' > "$t/stub/snap.rc"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED packages/linux/snap.txt 'snapd not running' \
+        || fail 'missing SKIPPED for the snap list'
+    ! grep -Fq 'snap install' "$t/calls" || fail 'snap install was called'
+}
+
+case_desktop_font_installs() {
+    setup_case
+    make_packages
+    make_font_release TestFont v1.0.0
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    local dest=$t/home/.local/share/fonts/NerdFonts/TestFont
+    [[ -f $dest/TestFont.ttf ]] || fail 'the font was not unpacked'
+    [[ $(grep -c '^fc-cache -f' "$t/calls") == 1 ]] || fail 'fc-cache -f did not run exactly once'
+    output_has_status INSTALLED font/TestFont || fail 'missing INSTALLED font/TestFont'
+}
+
+case_desktop_font_bad_hash() {
+    setup_case
+    make_packages
+    make_font_release TestFont v1.0.0
+    printf 'TestFont v1.0.0 %064d\n' 0 > "$t/repo/packages/linux/fonts.txt"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR font/TestFont 'download or hash failed' || fail 'missing ERROR for the bad hash'
+    [[ ! -d $t/home/.local/share/fonts/NerdFonts/TestFont ]] || fail 'a font folder was left behind'
+    ! grep -q '^fc-cache' "$t/calls" || fail 'fc-cache ran'
+}
+
+case_desktop_font_bad_archive() {
+    setup_case
+    make_packages
+    make_font_release TestFont v1.0.0 'not a tarball' raw
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR font/TestFont 'unpack failed' || fail 'missing ERROR for the bad archive'
+    [[ ! -d $t/home/.local/share/fonts/NerdFonts/TestFont ]] || fail 'a font folder was left behind'
+    ! grep -q '^fc-cache' "$t/calls" || fail 'fc-cache ran'
+}
+
+case_desktop_font_present() {
+    setup_case
+    make_packages
+    make_font_release TestFont v1.0.0
+    mkdir -p "$t/home/.local/share/fonts/NerdFonts/TestFont"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^curl ' "$t/calls" || fail 'curl was called'
+    output_has_status UNCHANGED font/TestFont || fail 'missing UNCHANGED font/TestFont'
+}
+
+case_desktop_ext_installs() {
+    setup_case
+    make_packages
+    make_extension_list test@example.com https://github.com/owner/repo 1111111111111111111111111111111111111111
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    local dest=$t/home/.local/share/gnome-shell/extensions/test@example.com f
+    for f in extension.js metadata.json stylesheet.css schemas/x.xml; do
+        [[ -f $dest/$f ]] || fail "missing $f"
+    done
+    for f in old.js install.sh src; do
+        [[ ! -e $dest/$f ]] || fail "$f should not be copied"
+    done
+    grep -Fq 'glib-compile-schemas' "$t/calls" || fail 'glib-compile-schemas was not called'
+    output_has_status INSTALLED extension/test@example.com || fail 'missing INSTALLED extension line'
+}
+
+case_desktop_ext_wrong_commit() {
+    setup_case
+    make_packages
+    make_extension_list test@example.com https://github.com/owner/repo 1111111111111111111111111111111111111111
+    printf '2222222222222222222222222222222222222222\n' > "$t/stub/git-rev.out"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR extension/test@example.com 'wrong commit' || fail 'missing ERROR for the wrong commit'
+    [[ ! -d $t/home/.local/share/gnome-shell/extensions/test@example.com ]] || fail 'a folder was left behind'
+}
+
+case_desktop_ext_no_install_sh() {
+    setup_case
+    make_packages
+    make_extension_list test@example.com https://github.com/owner/repo 1111111111111111111111111111111111111111
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    [[ ! -e $t/install-sh-ran ]] || fail 'the extension installer ran'
+}
+
+case_desktop_ext_present() {
+    setup_case
+    make_packages
+    make_extension_list test@example.com https://github.com/owner/repo 1111111111111111111111111111111111111111
+    mkdir -p "$t/home/.local/share/gnome-shell/extensions/test@example.com"
+    : > "$t/home/.local/share/gnome-shell/extensions/test@example.com/metadata.json"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -q '^git ' "$t/calls" || fail 'git was called'
+    output_has_status UNCHANGED extension/test@example.com || fail 'missing UNCHANGED extension line'
+}
+
+case_desktop_ext_partial_folder() {
+    setup_case
+    make_packages
+    make_extension_list test@example.com https://github.com/owner/repo 1111111111111111111111111111111111111111
+    local dest=$t/home/.local/share/gnome-shell/extensions/test@example.com
+    mkdir -p "$dest"
+    : > "$dest/leftover"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR extension/test@example.com 'move failed' || fail 'missing ERROR for the move'
+    [[ ! -e $dest/test@example.com ]] || fail 'the build was nested in the folder'
+}
+
+case_desktop_ext_fetch_fails() {
+    setup_case
+    make_packages
+    make_extension_list test@example.com https://github.com/owner/repo 1111111111111111111111111111111111111111
+    printf '1\n' > "$t/stub/git-fetch.rc"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    output_has_status ERROR extension/test@example.com 'fetch failed' || fail 'missing ERROR for the fetch'
+    [[ ! -d $t/home/.local/share/gnome-shell/extensions/test@example.com ]] || fail 'a folder was left behind'
+}
+
+case_desktop_dry_run() {
+    setup_case
+    make_packages
+    printf 'code classic\n' > "$t/repo/packages/linux/snap.txt"
+    make_font_release TestFont v1.0.0
+    make_extension_list test@example.com https://github.com/owner/repo 1111111111111111111111111111111111111111
+    run_bootstrap --dry-run
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status WOULD snap/code || fail 'missing WOULD snap/code'
+    output_has_status WOULD font/TestFont || fail 'missing WOULD font/TestFont'
+    output_has_status WOULD extension/test@example.com || fail 'missing WOULD extension line'
+    ! grep -Eq '^(sudo snap install|sudo snap wait|curl |git )' "$t/calls" \
+        || fail 'a step ran under --dry-run'
+}
+
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -546,6 +833,22 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         deb-wrong-package) case_deb_wrong_package ;;
         deb-already-installed) case_deb_already_installed ;;
         deb-loop-keeps-going) case_deb_loop_keeps_going ;;
+        desktop-snap-args) case_desktop_snap_args ;;
+        desktop-snap-both-options) case_desktop_snap_both_options ;;
+        desktop-snap-failure-continues) case_desktop_snap_failure_continues ;;
+        desktop-snap-present) case_desktop_snap_present ;;
+        desktop-snap-down) case_desktop_snap_down ;;
+        desktop-font-installs) case_desktop_font_installs ;;
+        desktop-font-bad-hash) case_desktop_font_bad_hash ;;
+        desktop-font-bad-archive) case_desktop_font_bad_archive ;;
+        desktop-font-present) case_desktop_font_present ;;
+        desktop-ext-installs) case_desktop_ext_installs ;;
+        desktop-ext-wrong-commit) case_desktop_ext_wrong_commit ;;
+        desktop-ext-no-install-sh) case_desktop_ext_no_install_sh ;;
+        desktop-ext-present) case_desktop_ext_present ;;
+        desktop-ext-partial-folder) case_desktop_ext_partial_folder ;;
+        desktop-ext-fetch-fails) case_desktop_ext_fetch_fails ;;
+        desktop-dry-run) case_desktop_dry_run ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         printf 'ok   %s\n' "$case_name"

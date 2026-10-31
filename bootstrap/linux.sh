@@ -230,9 +230,148 @@ step_debs() {
     return "$rc"
 }
 
-step_snaps() { return 0; }
-step_fonts() { return 0; }
-step_extensions() { return 0; }
+step_snaps() {
+    local name extra option rc=0
+    local -a cmd=()
+    # snapd may be absent in a container. `snap list` is a read-only guard.
+    if ! snap list </dev/null >/dev/null 2>&1; then
+        boot_skipped packages/linux/snap.txt 'snapd not running'
+        return 0
+    fi
+    if (( DRY_RUN == 0 )); then
+        "${SUDO[@]}" snap wait system seed.loaded </dev/null || return 1
+    fi
+    while read -r name extra <&3; do
+        [[ -n $name ]] || continue
+        if snap list "$name" </dev/null >/dev/null 2>&1; then
+            boot_unchanged "snap/$name"
+            continue
+        fi
+        if (( DRY_RUN )); then
+            status WOULD "snap/$name"
+            continue
+        fi
+        cmd=("${SUDO[@]}" snap install "$name")
+        for option in $extra; do
+            case $option in
+                classic) cmd+=(--classic) ;;
+                channel=*) cmd+=("--channel=${option#channel=}") ;;
+            esac
+        done
+        if ! "${cmd[@]}" </dev/null; then
+            status ERROR "snap/$name" 'install failed'
+            rc=1
+            continue
+        fi
+        boot_installed "snap/$name"
+    done 3< <(list_lines "$PACKAGES_DIR/snap.txt")
+    return "$rc"
+}
+
+step_fonts() {
+    local asset tag sha dest fetched rc=0 added=0
+    while read -r asset tag sha <&3; do
+        [[ -n $asset ]] || continue
+        dest=$HOME/.local/share/fonts/NerdFonts/$asset
+        if [[ -d $dest ]]; then
+            boot_unchanged "font/$asset"
+            continue
+        fi
+        if (( DRY_RUN )); then
+            status WOULD "font/$asset"
+            continue
+        fi
+        fetched=$WORK/$asset.tar.xz
+        if ! fetch_verified \
+            "https://github.com/ryanoasis/nerd-fonts/releases/download/$tag/$asset.tar.xz" \
+            "$sha" "$fetched" </dev/null; then
+            status ERROR "font/$asset" 'download or hash failed'
+            rc=1
+            continue
+        fi
+        # Build under $WORK and move only the finished folder, so a failed
+        # unpack can't leave a folder a rerun would count as installed.
+        if ! mkdir -p "$WORK/$asset" \
+            || ! tar -xJf "$fetched" -C "$WORK/$asset" </dev/null; then
+            status ERROR "font/$asset" 'unpack failed'
+            rc=1
+            continue
+        fi
+        if ! mkdir -p "${dest%/*}" || ! mv "$WORK/$asset" "$dest"; then
+            status ERROR "font/$asset" 'move failed'
+            rc=1
+            continue
+        fi
+        boot_installed "font/$asset"
+        added=1
+    done 3< <(list_lines "$PACKAGES_DIR/fonts.txt")
+    if (( added )); then
+        fc-cache -f </dev/null || return 1
+    fi
+    return "$rc"
+}
+
+step_extensions() {
+    local uuid url commit dest checkout build rc=0
+    if ! command -v glib-compile-schemas >/dev/null 2>&1; then
+        boot_skipped packages/linux/gnome-extensions.txt 'glib-compile-schemas not installed'
+        return 0
+    fi
+    while read -r uuid url commit <&3; do
+        [[ -n $uuid ]] || continue
+        dest=$HOME/.local/share/gnome-shell/extensions/$uuid
+        if [[ -f $dest/metadata.json ]]; then
+            boot_unchanged "extension/$uuid"
+            continue
+        fi
+        if (( DRY_RUN )); then
+            status WOULD "extension/$uuid"
+            continue
+        fi
+        checkout=$WORK/git/$uuid
+        build=$WORK/build/$uuid
+        if ! mkdir -p "$checkout"; then
+            status ERROR "extension/$uuid" 'checkout folder failed'
+            rc=1
+            continue
+        fi
+        if ! git -C "$checkout" init -q </dev/null \
+            || ! git -C "$checkout" fetch -q --depth 1 "$url" "$commit" </dev/null \
+            || ! git -C "$checkout" -c advice.detachedHead=false checkout -q FETCH_HEAD </dev/null; then
+            status ERROR "extension/$uuid" 'fetch failed'
+            rc=1
+            continue
+        fi
+        if [[ $(git -C "$checkout" rev-parse HEAD </dev/null) != "$commit" ]]; then
+            status ERROR "extension/$uuid" 'wrong commit'
+            rc=1
+            continue
+        fi
+        # The pinned recipe: metadata, stylesheet, schemas, and the modern
+        # scripts flat. Never the extension's own install.sh.
+        if ! mkdir -p "$build" \
+            || ! cp -p "$checkout/metadata.json" "$checkout/stylesheet.css" "$build/" \
+            || ! cp -p "$checkout"/src/modern/*.js "$build/" \
+            || ! cp -a "$checkout/schemas" "$build/schemas"; then
+            status ERROR "extension/$uuid" 'build failed'
+            rc=1
+            continue
+        fi
+        if ! glib-compile-schemas "$build/schemas" </dev/null; then
+            status ERROR "extension/$uuid" 'schema compile failed'
+            rc=1
+            continue
+        fi
+        # -T: a folder left there without metadata.json must fail, not nest the build.
+        if ! mkdir -p "${dest%/*}" || ! mv -T "$build" "$dest"; then
+            status ERROR "extension/$uuid" 'move failed'
+            rc=1
+            continue
+        fi
+        boot_installed "extension/$uuid"
+    done 3< <(list_lines "$PACKAGES_DIR/gnome-extensions.txt")
+    return "$rc"
+}
 step_node() { return 0; }
 step_npm() { return 0; }
 step_pipx() { return 0; }
