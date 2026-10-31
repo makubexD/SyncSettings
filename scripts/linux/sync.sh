@@ -611,16 +611,101 @@ drift_vscode() {
     drift_extra vscode vscode-extensions.txt "$listed" "$present"
 }
 
+# Names of the folders directly inside a dir. A loose file isn't a package, and
+# a missing dir means nothing is present, not a skipped tool.
+drift_folders() {
+    local dir=$1 name
+    [[ -d $dir ]] || return 0
+    for name in "$dir"/*; do
+        [[ -d $name ]] || continue
+        printf '%s\n' "${name##*/}"
+    done | LC_ALL=C sort -u
+}
+
+drift_font() {
+    local listed present
+    listed=$(package_names "$PACKAGES_DIR/fonts.txt")
+    present=$(drift_folders "$HOME/.local/share/fonts/NerdFonts")
+    drift_missing font fonts.txt "$listed" "$present"
+    drift_extra font fonts.txt "$listed" "$present"
+}
+
+drift_extension() {
+    local listed present
+    listed=$(package_names "$PACKAGES_DIR/gnome-extensions.txt")
+    present=$(drift_folders "$HOME/.local/share/gnome-shell/extensions")
+    drift_missing extension gnome-extensions.txt "$listed" "$present"
+    drift_extra extension gnome-extensions.txt "$listed" "$present"
+}
+
+# Basenames of the files directly in a dir, optionally only *.sources/*.list.
+drift_source_names() {
+    local dir=$1 only_lists=${2:-} name
+    [[ -d $dir ]] || return 0
+    for name in "$dir"/*; do
+        [[ -f $name ]] || continue
+        if [[ -n $only_lists && $name != *.sources && $name != *.list ]]; then
+            continue
+        fi
+        printf '%s\n' "${name##*/}"
+    done | LC_ALL=C sort -u
+}
+
+drift_apt_source() {
+    local repo_dir=$PACKAGES_DIR/apt-sources system_dir=$root/etc/apt/sources.list.d
+    local listed present name
+    listed=$(drift_source_names "$repo_dir" lists)
+    present=$(drift_source_names "$system_dir")
+    drift_missing apt-source apt-sources "$listed" "$present"
+    drift_extra apt-source apt-sources "$listed" "$present"
+
+    # A source that is present but can't be read counts as not installed.
+    while IFS= read -r name; do
+        [[ -z $name ]] && continue
+        [[ -f $system_dir/$name ]] || continue
+        if [[ ! -r $repo_dir/$name || ! -r $system_dir/$name ]]; then
+            status DRIFT "apt-source/$name" 'in packages/linux/apt-sources, not installed'
+        elif ! cmp -s "$repo_dir/$name" "$system_dir/$name"; then
+            status DRIFT "apt-source/$name" 'differs from packages/linux/apt-sources'
+        fi
+    done <<<"$listed"
+}
+
+drift_apt_key() {
+    local key_dir=$PACKAGES_DIR/apt-sources/keyrings path name target
+    [[ -d $key_dir ]] || return 0
+    for path in "$key_dir"/*.gpg; do
+        [[ -f $path ]] || continue
+        name=${path##*/}
+        target=
+        if [[ -f $root/usr/share/keyrings/$name ]]; then
+            target=$root/usr/share/keyrings/$name
+        elif [[ -f $root/etc/apt/keyrings/$name ]]; then
+            target=$root/etc/apt/keyrings/$name
+        fi
+        if [[ -z $target || ! -r $path || ! -r $target ]]; then
+            status DRIFT "apt-key/$name" 'in packages/linux/apt-sources, not installed'
+        elif ! cmp -s "$path" "$target"; then
+            status DRIFT "apt-key/$name" 'differs from packages/linux/apt-sources'
+        fi
+    done
+}
+
 # Report drift between the package lists and what this machine has installed.
 # Report only: never writes a list, never changes a count or the exit code.
 report_drift() {
     PACKAGES_DIR=$REPO_ROOT/packages/linux
     [[ -d $PACKAGES_DIR ]] || return 0
+    root=${DRIFT_ROOT:-}
     drift_apt
     drift_snap
     drift_npm
     drift_pipx
     drift_vscode
+    drift_font
+    drift_extension
+    drift_apt_source
+    drift_apt_key
 }
 
 # -- Status output --------------------------------------------------------------

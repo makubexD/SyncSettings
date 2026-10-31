@@ -3810,6 +3810,211 @@ case_drift_vscode() {
         || fail "missing DRIFT vscode/c.d line"
 }
 
+case_drift_font_ok() {
+    setup_drift_case
+    printf 'NerdFont v1.2.3 %s\n' "$PACKAGES_HASH" > "$t/repo/packages/linux/fonts.txt"
+    mkdir -p "$t/home/.local/share/fonts/NerdFonts/NerdFont"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_font_missing() {
+    setup_drift_case
+    printf 'NerdFont v1.2.3 %s\n' "$PACKAGES_HASH" > "$t/repo/packages/linux/fonts.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT font/NerdFont 'in packages/linux/fonts.txt, not installed' \
+        || fail "missing DRIFT font/NerdFont line"
+}
+
+case_drift_font_extra() {
+    setup_drift_case
+    mkdir -p "$t/home/.local/share/fonts/NerdFonts/Other"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT font/Other 'installed, not in packages/linux/fonts.txt' \
+        || fail "missing DRIFT font/Other line"
+}
+
+case_drift_font_loose_file() {
+    setup_drift_case
+    mkdir -p "$t/home/.local/share/fonts/NerdFonts"
+    printf 'not a package\n' > "$t/home/.local/share/fonts/NerdFonts/.uuid"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_extension_ok() {
+    setup_drift_case
+    printf 'uuid@example https://github.com/a/b %s\n' "${PACKAGES_HASH:0:40}" \
+        > "$t/repo/packages/linux/gnome-extensions.txt"
+    mkdir -p "$t/home/.local/share/gnome-shell/extensions/uuid@example"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_extension_missing() {
+    setup_drift_case
+    printf 'uuid@example https://github.com/a/b %s\n' "${PACKAGES_HASH:0:40}" \
+        > "$t/repo/packages/linux/gnome-extensions.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT extension/uuid@example 'in packages/linux/gnome-extensions.txt, not installed' \
+        || fail "missing DRIFT extension/uuid@example line"
+}
+
+case_drift_extension_extra() {
+    setup_drift_case
+    mkdir -p "$t/home/.local/share/gnome-shell/extensions/uuid@example"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT extension/uuid@example 'installed, not in packages/linux/gnome-extensions.txt' \
+        || fail "missing DRIFT extension/uuid@example line"
+}
+
+case_drift_no_folders() {
+    setup_drift_case
+    : > "$t/repo/packages/linux/fonts.txt"
+    : > "$t/repo/packages/linux/gnome-extensions.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+    if grep -qE '^  SKIPPED' "$out"; then
+        fail "unexpected SKIPPED line for a missing folder"
+    fi
+}
+
+case_drift_source_ok() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources" "$t/root/etc/apt/sources.list.d"
+    printf 'Types: deb\nURIs: https://example.com/repo\n' \
+        > "$t/repo/packages/linux/apt-sources/example.sources"
+    printf 'Types: deb\nURIs: https://example.com/repo\n' \
+        > "$t/root/etc/apt/sources.list.d/example.sources"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_source_differs() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources" "$t/root/etc/apt/sources.list.d"
+    printf 'Types: deb\nURIs: https://example.com/repo\n' \
+        > "$t/repo/packages/linux/apt-sources/example.sources"
+    printf 'Types: deb\nURIs: https://example.com/repoo\n' \
+        > "$t/root/etc/apt/sources.list.d/example.sources"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt-source/example.sources 'differs from packages/linux/apt-sources' \
+        || fail "missing DRIFT apt-source/example.sources differs line"
+}
+
+case_drift_source_missing() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources"
+    printf 'Types: deb\nURIs: https://example.com/repo\n' \
+        > "$t/repo/packages/linux/apt-sources/example.sources"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt-source/example.sources 'in packages/linux/apt-sources, not installed' \
+        || fail "missing DRIFT apt-source/example.sources line"
+}
+
+case_drift_source_extra() {
+    setup_drift_case
+    mkdir -p "$t/root/etc/apt/sources.list.d"
+    printf 'Types: deb\nURIs: https://example.com/repo\n' \
+        > "$t/root/etc/apt/sources.list.d/example.sources"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt-source/example.sources 'installed, not in packages/linux/apt-sources' \
+        || fail "missing DRIFT apt-source/example.sources extra line"
+}
+
+case_drift_source_ignored() {
+    setup_drift_case
+    mkdir -p "$t/root/etc/apt/sources.list.d"
+    printf 'Types: deb\nURIs: https://example.com/repo\n' \
+        > "$t/root/etc/apt/sources.list.d/example.sources"
+    printf 'apt-source example.sources\n' > "$t/repo/packages/linux/drift-ignore.txt"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_key_usr_share() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources/keyrings" "$t/root/usr/share/keyrings"
+    printf 'key\n' > "$t/repo/packages/linux/apt-sources/keyrings/example.gpg"
+    printf 'key\n' > "$t/root/usr/share/keyrings/example.gpg"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_key_etc_apt() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources/keyrings" "$t/root/etc/apt/keyrings"
+    printf 'key\n' > "$t/repo/packages/linux/apt-sources/keyrings/example.gpg"
+    printf 'key\n' > "$t/root/etc/apt/keyrings/example.gpg"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
+case_drift_key_differs() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources/keyrings" "$t/root/usr/share/keyrings"
+    printf 'key\n' > "$t/repo/packages/linux/apt-sources/keyrings/example.gpg"
+    printf 'kex\n' > "$t/root/usr/share/keyrings/example.gpg"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt-key/example.gpg 'differs from packages/linux/apt-sources' \
+        || fail "missing DRIFT apt-key/example.gpg differs line"
+}
+
+case_drift_key_missing() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources/keyrings"
+    printf 'key\n' > "$t/repo/packages/linux/apt-sources/keyrings/example.gpg"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    output_has_status DRIFT apt-key/example.gpg 'in packages/linux/apt-sources, not installed' \
+        || fail "missing DRIFT apt-key/example.gpg line"
+}
+
+case_drift_key_stock_ignored() {
+    setup_drift_case
+    mkdir -p "$t/repo/packages/linux/apt-sources/keyrings" "$t/root/usr/share/keyrings"
+    printf 'key\n' > "$t/repo/packages/linux/apt-sources/keyrings/example.gpg"
+    printf 'key\n' > "$t/root/usr/share/keyrings/example.gpg"
+    printf 'stock\n' > "$t/root/usr/share/keyrings/stock.gpg"
+
+    run_drift
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    assert_no_drift
+}
+
 case_drift_tool_missing() {
     setup_drift_case
     # A PATH with every tool export.sh needs but none of the drift tools, so the
@@ -3911,7 +4116,7 @@ case_drift_import_silent() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-preview drift-import-silent; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-preview drift-import-silent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -4173,6 +4378,24 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         drift-npm-no-nvm) case_drift_npm_no_nvm ;;
         drift-pipx) case_drift_pipx ;;
         drift-vscode) case_drift_vscode ;;
+        drift-font-ok) case_drift_font_ok ;;
+        drift-font-missing) case_drift_font_missing ;;
+        drift-font-extra) case_drift_font_extra ;;
+        drift-font-loose-file) case_drift_font_loose_file ;;
+        drift-extension-ok) case_drift_extension_ok ;;
+        drift-extension-missing) case_drift_extension_missing ;;
+        drift-extension-extra) case_drift_extension_extra ;;
+        drift-no-folders) case_drift_no_folders ;;
+        drift-source-ok) case_drift_source_ok ;;
+        drift-source-differs) case_drift_source_differs ;;
+        drift-source-missing) case_drift_source_missing ;;
+        drift-source-extra) case_drift_source_extra ;;
+        drift-source-ignored) case_drift_source_ignored ;;
+        drift-key-usr-share) case_drift_key_usr_share ;;
+        drift-key-etc-apt) case_drift_key_etc_apt ;;
+        drift-key-differs) case_drift_key_differs ;;
+        drift-key-missing) case_drift_key_missing ;;
+        drift-key-stock-ignored) case_drift_key_stock_ignored ;;
         drift-tool-missing) case_drift_tool_missing ;;
         drift-tool-fails) case_drift_tool_fails ;;
         drift-counts-unchanged) case_drift_counts_unchanged ;;
