@@ -590,7 +590,57 @@ step_tools() {
 step_import() { return 0; }
 step_links() { return 0; }
 step_plugins() { return 0; }
-step_vscode() { return 0; }
+
+step_vscode() {
+    local name code out present listed rc=0
+    local -a missing=()
+    # The snap may have been skipped, or code may be installed another way.
+    code=$(command -v code 2>/dev/null) || code=''
+    if [[ -z $code && -x $ROOT/snap/bin/code ]]; then
+        code=$ROOT/snap/bin/code
+    fi
+    if [[ -z $code ]]; then
+        boot_skipped packages/linux/vscode-extensions.txt 'code not installed'
+        return 0
+    fi
+    # A read-only guard: no extensions can be listed without a working code.
+    if ! out=$("$code" --list-extensions </dev/null 2>/dev/null); then
+        boot_skipped packages/linux/vscode-extensions.txt 'code failed'
+        return 0
+    fi
+    # The list file is lowercase; code may print ids in any case.
+    present=$(tr '[:upper:]' '[:lower:]' <<<"$out" | LC_ALL=C sort -u)
+    listed=$(package_names "$PACKAGES_DIR/vscode-extensions.txt")
+    while IFS= read -r name <&3; do
+        if [[ -z $name ]]; then
+            continue
+        fi
+        if grep -Fxq "$name" <<<"$present"; then
+            boot_unchanged "vscode/$name"
+        else
+            missing+=("$name")
+        fi
+    done 3< <(printf '%s\n' "$listed")
+    if (( ${#missing[@]} == 0 )); then
+        return 0
+    fi
+    if (( DRY_RUN )); then
+        for name in "${missing[@]}"; do
+            status WOULD "vscode/$name"
+        done
+        return 0
+    fi
+    for name in "${missing[@]}"; do
+        if ! "$code" --install-extension "$name" </dev/null; then
+            status ERROR "vscode/$name" 'install failed'
+            rc=1
+            continue
+        fi
+        boot_installed "vscode/$name"
+    done
+    return "$rc"
+}
+
 step_preview() { return 0; }
 
 print_summary() {

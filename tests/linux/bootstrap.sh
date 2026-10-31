@@ -147,6 +147,27 @@ EOF
     chmod +x "$t/bin/git"
 }
 
+# code: --list-extensions prints $t/stub/code.out and exits with the rc in
+# $t/stub/code-list.rc (0 unless a case writes one). An install succeeds unless
+# $t/stub/code-fail/<id> exists, so one id can fail without the others.
+make_code_stub() {
+    cat > "$t/bin/code" <<EOF
+#!/bin/sh
+printf 'code %s\n' "\$*" >> "$t/calls"
+case \$1 in
+    --list-extensions)
+        cat "$t/stub/code.out" 2>/dev/null
+        exit "\$(cat "$t/stub/code-list.rc" 2>/dev/null || echo 0)" ;;
+    --install-extension)
+        [ ! -f "$t/stub/code-fail/\$2" ] || exit 1
+        exit 0 ;;
+esac
+exit 0
+EOF
+    chmod +x "$t/bin/code"
+    mkdir -p "$t/stub/code-fail"
+}
+
 # snap: a plain `snap list` passes unless $t/stub/snap.rc says otherwise. A
 # `snap list <name>` passes only when $t/stub/snap-present/<name> exists. wait
 # and install succeed unless their rc file says otherwise.
@@ -201,9 +222,10 @@ EOF
     printf '1000\n' > "$t/stub/id.out"
     printf 'x86_64\n' > "$t/stub/uname.out"
     local tool
-    for tool in apt-get dpkg-query dpkg-deb code pipx claude glib-compile-schemas fc-cache id uname nvm; do
+    for tool in apt-get dpkg-query dpkg-deb pipx claude glib-compile-schemas fc-cache id uname nvm; do
         make_stub "$tool"
     done
+    make_code_stub
     make_npm_stub
     make_sudo_stub
     make_curl_stub
@@ -1247,7 +1269,93 @@ case_tools_dry_run() {
     [[ ! -e $t/home/.bun && ! -e $t/home/.local/bin ]] || fail 'a dry run wrote a target'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-nvm-skipped tools-dry-run; do
+# -- VS Code extensions --------------------------------------------------------
+
+case_vscode_installs_missing() {
+    setup_case
+    make_packages
+    printf 'baz.qux\nfoo.bar\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+    printf 'foo.bar\n' > "$t/stub/code.out"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'code --install-extension baz.qux' "$t/calls" || fail 'baz.qux was not installed'
+    [[ $(grep -c '^code --install-extension' "$t/calls") == 1 ]] || fail 'more than one install ran'
+    output_has_status UNCHANGED vscode/foo.bar || fail 'missing UNCHANGED vscode/foo.bar'
+    output_has_status INSTALLED vscode/baz.qux || fail 'missing INSTALLED vscode/baz.qux'
+}
+
+# code may print an id in a different case than the lowercase list.
+case_vscode_case_insensitive() {
+    setup_case
+    make_packages
+    printf 'foo.bar\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+    printf 'Foo.Bar\n' > "$t/stub/code.out"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    ! grep -Fq -- '--install-extension' "$t/calls" || fail 'foo.bar was installed again'
+    output_has_status UNCHANGED vscode/foo.bar || fail 'missing UNCHANGED vscode/foo.bar'
+}
+
+case_vscode_one_fails() {
+    setup_case
+    make_packages
+    printf 'aa.one\nbb.two\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+    : > "$t/stub/code.out"
+    : > "$t/stub/code-fail/aa.one"
+    run_bootstrap
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    grep -Fxq 'code --install-extension aa.one' "$t/calls" || fail 'aa.one was not tried'
+    grep -Fxq 'code --install-extension bb.two' "$t/calls" || fail 'the loop stopped at the failed id'
+    output_has_status ERROR vscode/aa.one 'install failed' || fail 'missing ERROR vscode/aa.one'
+    output_has_status INSTALLED vscode/bb.two || fail 'missing INSTALLED vscode/bb.two'
+}
+
+case_vscode_no_code() {
+    setup_case
+    make_packages
+    printf 'foo.bar\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+    rm "$t/bin/code"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED packages/linux/vscode-extensions.txt 'code not installed' \
+        || fail 'missing SKIPPED for the missing code'
+    ! grep -q '^code ' "$t/calls" || fail 'code was called'
+}
+
+case_vscode_snap_path() {
+    setup_case
+    make_packages
+    printf 'foo.bar\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+    rm "$t/bin/code"
+    mkdir -p "$t/root/snap/bin"
+    cat > "$t/root/snap/bin/code" <<EOF
+#!/bin/sh
+printf 'snapcode %s\n' "\$*" >> "$t/calls"
+exit 0
+EOF
+    chmod +x "$t/root/snap/bin/code"
+    run_bootstrap
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'snapcode --list-extensions' "$t/calls" || fail 'the snap code was not used to list'
+    grep -Fxq 'snapcode --install-extension foo.bar' "$t/calls" || fail 'the snap code was not used to install'
+    ! grep -q '^code ' "$t/calls" || fail 'a PATH code was called'
+    output_has_status INSTALLED vscode/foo.bar || fail 'missing INSTALLED vscode/foo.bar'
+}
+
+case_vscode_dry_run() {
+    setup_case
+    make_packages
+    printf 'baz.qux\nfoo.bar\n' > "$t/repo/packages/linux/vscode-extensions.txt"
+    printf 'foo.bar\n' > "$t/stub/code.out"
+    run_bootstrap --dry-run
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status WOULD vscode/baz.qux || fail 'missing WOULD vscode/baz.qux'
+    ! output_has_status WOULD vscode/foo.bar || fail 'WOULD printed for an installed id'
+    [[ $(grep -c 'WOULD[[:space:]]*vscode/' "$out") == 1 ]] || fail 'not exactly one WOULD vscode line'
+    ! grep -Fq -- '--install-extension' "$t/calls" || fail 'an install ran under --dry-run'
+}
+
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues apt-sources-fresh apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1322,6 +1430,12 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         tools-claude-fails) case_tools_claude_fails ;;
         tools-nvm-skipped) case_tools_nvm_skipped ;;
         tools-dry-run) case_tools_dry_run ;;
+        vscode-installs-missing) case_vscode_installs_missing ;;
+        vscode-case-insensitive) case_vscode_case_insensitive ;;
+        vscode-one-fails) case_vscode_one_fails ;;
+        vscode-no-code) case_vscode_no_code ;;
+        vscode-snap-path) case_vscode_snap_path ;;
+        vscode-dry-run) case_vscode_dry_run ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         printf 'ok   %s\n' "$case_name"
