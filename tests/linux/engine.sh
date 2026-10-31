@@ -683,6 +683,13 @@ case_real_config_roundtrip() {
     cp -a "$REPO/dotfiles" "$t/repo/"
     mkdir -p "$t/home"
 
+    # The real dconf entries, read from the config so a new one is covered too.
+    local -a dconf_repo_paths=() dconf_paths=()
+    mapfile -d '' dconf_repo_paths < <(jq -j '.files[] | select(.type == "dconf") | .repoPath, "\u0000"' "$t/repo/sync-config.json")
+    mapfile -d '' dconf_paths < <(jq -j '.files[] | select(.type == "dconf") | .path, "\u0000"' "$t/repo/sync-config.json")
+    (( ${#dconf_repo_paths[@]} == 10 )) \
+        || fail "sync-config.json has ${#dconf_repo_paths[@]} dconf entries, want 10"
+
     # Fake values, escaped by jq, so the round trip never reads the real home.
     jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
         --arg gh 'fixture-user' --arg home "$t/home" \
@@ -696,12 +703,29 @@ case_real_config_roundtrip() {
         fail "import printed an ERROR line"
     fi
 
+    # Without a private bus the guard refuses every dconf entry, and no backup.
+    local i
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status SKIPPED "${dconf_repo_paths[$i]}" \
+            'HOME is not the login home; dconf left alone' \
+            || fail "import: missing guarded SKIPPED line for ${dconf_repo_paths[$i]}"
+    done
+    [[ ! -e "$t/home/.local/state/sync-settings" ]] \
+        || fail "a dconf backup was written under the throwaway HOME"
+
     run_engine "$t/home" export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     grep -Fq 'Repo is up to date' "$out" || fail "export did not print 'Repo is up to date'"
     if grep -qE '^  (MODIFIED|ADDED|REMOVED|ORPHAN)[[:space:]]|ERROR' "$out"; then
         fail "export printed a changed status or an error"
     fi
+    # Export reads the database under XDG_CONFIG_HOME, which is /nonexistent
+    # here, so every dconf path comes back empty.
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status SKIPPED "${dconf_repo_paths[$i]}" \
+            "no settings under ${dconf_paths[$i]}" \
+            || fail "export: missing empty SKIPPED line for ${dconf_repo_paths[$i]}"
+    done
 
     if ! diff -r "$t/before" "$t/repo/dotfiles" > "$t/dotfiles.diff" 2>&1; then
         fail "dotfiles changed during the round trip: $(head -n 3 "$t/dotfiles.diff")"
@@ -754,6 +778,79 @@ case_real_config_roundtrip() {
     leftover=$(grep -rlE '<(HOME|YOUR_[A-Z_]+)>' "$t/home" || true)
     leftover=${leftover%%$'\n'*}
     [[ -z $leftover ]] || fail "unfilled placeholder in $leftover"
+}
+
+# The real dconf entries restored on a private bus: the first import creates
+# every key, and import and export then settle on UNCHANGED.
+case_real_config_dconf_restore() {
+    new_tmp
+    setup_repo
+    cp "$REPO/sync-config.json" "$t/repo/sync-config.json"
+    cp -a "$REPO/dotfiles" "$t/before"
+    cp -a "$REPO/dotfiles" "$t/repo/"
+    setup_dconf_bus
+
+    # Fake values, escaped by jq, so the round trip never reads the real home.
+    jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
+        --arg gh 'fixture-user' --arg home "$t/home" \
+        '{ "<YOUR_NAME>": $name, "<YOUR_EMAIL>": $email,
+           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home,
+           "<YOUR_WORK_MARKETPLACE>": "https://example.com/plugins" }' > "$t/repo/.user-values.json"
+
+    # The real dconf entries, read from the config so a new one is covered too.
+    local -a dconf_repo_paths=() dconf_paths=()
+    mapfile -d '' dconf_repo_paths < <(jq -j '.files[] | select(.type == "dconf") | .repoPath, "\u0000"' "$t/repo/sync-config.json")
+    mapfile -d '' dconf_paths < <(jq -j '.files[] | select(.type == "dconf") | .path, "\u0000"' "$t/repo/sync-config.json")
+    (( ${#dconf_repo_paths[@]} == 10 )) \
+        || fail "sync-config.json has ${#dconf_repo_paths[@]} dconf entries, want 10"
+
+    local i repo_path dconf_path line dump
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status CREATED "${dconf_repo_paths[$i]}" \
+            || fail "import: missing CREATED line for ${dconf_repo_paths[$i]}"
+    done
+
+    # The key the plan names; its expected value comes from the repo file.
+    local wm_repo expected got
+    wm_repo=$(jq -r '.files[] | select(.type == "dconf" and .path == "/org/gnome/desktop/wm/keybindings/") | .repoPath' \
+        "$t/repo/sync-config.json")
+    expected=$(sed -n 's/^switch-to-workspace-up=//p' "$t/repo/$wm_repo")
+    got=$(on_test_bus dconf read /org/gnome/desktop/wm/keybindings/switch-to-workspace-up)
+    [[ $got == "$expected" ]] \
+        || fail "switch-to-workspace-up is '$got', want '$expected'"
+
+    # Every key line in each repo file must be in the dump of its path.
+    for i in "${!dconf_repo_paths[@]}"; do
+        repo_path=${dconf_repo_paths[$i]}
+        dconf_path=${dconf_paths[$i]}
+        dump=$(on_test_bus dconf dump "$dconf_path") \
+            || fail "dconf dump $dconf_path failed"
+        while IFS= read -r line; do
+            [[ $line == *=* ]] || continue
+            grep -Fqx -- "$line" <<<"$dump" \
+                || fail "$repo_path: $line is missing from the dump of $dconf_path"
+        done < "$t/repo/$repo_path"
+    done
+
+    run_engine_bus /dev/null import.sh
+    (( rc == 0 )) || fail "second import.sh exited $rc, want 0"
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status UNCHANGED "${dconf_repo_paths[$i]}" \
+            || fail "second import: missing UNCHANGED line for ${dconf_repo_paths[$i]}"
+    done
+
+    run_engine_bus /dev/null export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    for i in "${!dconf_repo_paths[@]}"; do
+        output_has_status UNCHANGED "${dconf_repo_paths[$i]}" \
+            || fail "export: missing UNCHANGED line for ${dconf_repo_paths[$i]}"
+    done
+    grep -Fq 'Repo is up to date' "$out" || fail "export did not print 'Repo is up to date'"
+    if ! diff -r "$t/before" "$t/repo/dotfiles" > "$t/dotfiles.diff" 2>&1; then
+        fail "dotfiles changed during the restore: $(head -n 3 "$t/dotfiles.diff")"
+    fi
 }
 
 case_lint_real_config() {
@@ -2978,7 +3075,7 @@ case_dconf_roundtrip_settles() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -3011,6 +3108,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         path-repo-symlink) case_path_repo_symlink ;;
         path-real-config) case_path_real_config ;;
         real-config-roundtrip) case_real_config_roundtrip ;;
+        real-config-dconf-restore) case_real_config_dconf_restore ;;
         lint-real-config) case_lint_real_config ;;
         lint-platform-missing) case_lint_platform_missing ;;
         lint-platform-bad) case_lint_platform_bad ;;
