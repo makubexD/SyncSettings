@@ -1,0 +1,4 @@
+bun https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64.zip bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
+copilot https://github.com/github/copilot-cli/releases/download/v1.0.105/copilot-linux-x64.tar.gz aba1f06f27bc0447656647f76e0a4cf58b4b2a341c75ff04a750982b6aeb6bd2
+nvm https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh 48a0eee9a60e07422dce0eb5774754c83889570ca1ee2566c516acbe8af03a9e
+rtk https://github.com/rtk-ai/rtk/releases/download/v1.1.0/rtk-x86_64-unknown-linux-musl.tar.gz 9454ad1b9489daa57ab0a9f4ebe2faaf4dc82b8a0f26c9e5135151abd7c9378d
