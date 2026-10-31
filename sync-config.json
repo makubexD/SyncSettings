@@ -66,6 +66,18 @@
       "description": "Bash login profile"
     },
     {
+      "repoPath": "dotfiles/linux/shell/.bashrc",
+      "localPath": "~/.bashrc",
+      "platform": "linux",
+      "description": "Bash run commands"
+    },
+    {
+      "repoPath": "dotfiles/linux/shell/.profile",
+      "localPath": "~/.profile",
+      "platform": "linux",
+      "description": "Login shell profile"
+    },
+    {
       "repoPath": "dotfiles/windows/windows-terminal/settings.json",
       "localPath": "~\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
       "platform": "windows",

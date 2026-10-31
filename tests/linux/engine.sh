@@ -675,7 +675,8 @@ case_real_config_roundtrip() {
     if grep -Fq '<YOUR_' "$t/home/.gitconfig"; then
         fail ".gitconfig still holds an unfilled placeholder"
     fi
-    [[ ! -e "$t/home/.bashrc" ]] || fail ".bashrc was imported from a windows entry"
+    cmp -s "$t/home/.bashrc" "$t/repo/dotfiles/linux/shell/.bashrc" \
+        || fail ".bashrc does not match the linux entry"
     [[ ! -e "$t/home/.claude/plugins" ]] || fail ".claude/plugins was imported"
     [[ ! -e "$t/home/.gitconfig.bak" ]] || fail ".gitconfig.bak was created"
     [[ -x "$t/home/.claude/hooks/worker-mode-guard.sh" ]] \
