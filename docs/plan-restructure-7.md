@@ -765,6 +765,16 @@ A failure here goes back to the step that owns it, as a rejection, with a new st
 6. Stop for your label: the PR touches `.github/workflows/`, so auto-approval doesn't apply.
 7. Ask whether to add `bootstrap-check` to the required checks. That's a `gh api` call on repo settings, so it needs your yes.
 
+Review follow-ups, done between items 5 and 6, each `[worker]` and committed on its own:
+
+| # | Change | Files | New cases |
+|---|---|---|---|
+| a | `import.sh` exits 0 with `ERROR` lines, and `docs/sync-contract.md` says it must, so `step_import` can't see a failed file and bootstrap exits 0. Run `./import.sh \| tee "$WORK/import.out"`, keeping `\|\| return 1`, then return 1 if a line matches `^  ERROR `. Only stdin decides whether import prompts, so the pipe leaves prompts alone | `bootstrap/linux.sh`, `tests/linux/bootstrap.sh` | `restore-import-error-line`: stub prints an `ERROR` status line and exits 0; exit 1, summary names import |
+| b | Steps after snaps run unpinned code (npm scripts, the Claude installer, plugins) while the sudo ticket is live. Run `sudo -k` right after the snaps step, except in a dry run. If it fails, print `ERROR sudo` and add `sudo` to `FAILED`, and go on | `bootstrap/linux.sh`, `tests/linux/bootstrap.sh` | `guard-sudo-dropped`: `sudo -k` comes after the last `sudo snap` line and before the first `npm` line in `$t/calls` |
+| c | `source_keys` reads lines the lint skips, so a commented path reaches `sudo install`. Skip comment lines, and in `step_apt_sources` refuse a path outside `/usr/share/keyrings/` and `/etc/apt/keyrings/` before writing it | `bootstrap/linux.sh`, `tests/linux/bootstrap.sh` | `apt-sources-comment-ignored`: a commented `signed-by` installs nothing. `apt-sources-bad-key-path`: `X-Note: Signed-By: /etc/cron.d/x.gpg` gives `ERROR`, no write there, exit 1 |
+| d | apt reads a trailing `-` as "remove", and `--` doesn't stop that. The `apt.txt` and `deb.txt` name patterns must end in a letter, digit or `+` | `scripts/ci/check-packages.sh`, `tests/linux/engine.sh` | `apt.txt` line `nano-` and `deb.txt` name `nano-` are both rejected, and `g++` still passes |
+| e | Two mutations survived: the `-x` check at the end of the Claude install, and a failed preview | `tests/linux/bootstrap.sh` | `tools-claude-not-executable`: installer leaves a non-executable file; `ERROR`, exit 1. `restore-preview-fails`: preview exits 1; exit 1, summary names preview |
+
 ### 14. Check this machine `[inline: the real machine]`
 
 After the merge: `git switch master && git pull`. You run these, because they use `sudo` on the real system.
