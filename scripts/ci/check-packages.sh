@@ -30,9 +30,10 @@ KNOWN_LISTS=(
 
 # Names start with a letter or digit, so a line can't reach a root command as an
 # option (--dangerous) or a path (..).
+# A name ends in a letter, digit or +, because apt reads a trailing - as remove.
 declare -A LIST_PATTERNS=(
-    [apt.txt]='^[a-z0-9][a-z0-9+.-]*$'
-    [deb.txt]='^[a-z0-9][a-z0-9+.-]* https://[A-Za-z0-9./_~+-]+\.deb [0-9a-f]{64}$'
+    [apt.txt]='^[a-z0-9][a-z0-9+.-]*[a-z0-9+]$'
+    [deb.txt]='^[a-z0-9][a-z0-9+.-]*[a-z0-9+] https://[A-Za-z0-9./_~+-]+\.deb [0-9a-f]{64}$'
     [snap.txt]='^[a-z0-9][a-z0-9-]*( classic)?( channel=[a-z0-9./-]+)?$'
     [npm.txt]='^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$'
     [pipx.txt]='^[A-Za-z0-9][A-Za-z0-9._-]*$'
