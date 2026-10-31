@@ -1262,6 +1262,10 @@ Describe 'Windows engine' {
 
             $importExit | Should -Be 0
             $importOut | Should -Not -Match '\[ERROR'
+            # The real dotfiles include dotfiles/linux/gnome/dconf/**. Those
+            # entries are platform linux, so the Windows engine must leave them
+            # alone and never mention them.
+            $importOut | Should -Not -Match 'dconf'
 
             foreach ($rel in @('.bashrc', '.bash_profile', '.gitconfig', '.gitconfig.local', '.claude\RTK.md', '.claude\docs\token-routing-map.html', '.config\git\ignore')) {
                 (Join-Path $script:HomeDir $rel) | Should -Exist
@@ -1283,6 +1287,9 @@ Describe 'Windows engine' {
             $exportExit | Should -Be 0
             $exportOut | Should -Match ([regex]::Escape('Repo is up to date'))
             $exportOut | Should -Not -Match '\[(MODIFIED|ADDED|REMOVED|ORPHAN|ERROR)\s*\]'
+            # The ORPHAN check above now covers dotfiles/linux/gnome/dconf/ too,
+            # since those files are copied in with the real dotfiles.
+            $exportOut | Should -Not -Match 'dconf'
 
             # The file holds doubled backslashes; git undoes them, so the last
             # helper is the single-backslash form. Proves ~/.gitconfig.local resolves.
