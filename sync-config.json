@@ -360,7 +360,11 @@
         "disable-padding", "enable-a11y", "enable-zoom-scroll-ctrl", "font-name", "ignore-osc-title", "inhibit-logout",
         "interface-style", "new-tab-position", "profile-uuids", "prompt-on-close", "restore-session", "restore-window-size",
         "scrollbar-policy", "tab-middle-click", "text-blink-mode", "toast-on-copy-clipboard", "use-system-font", "visual-bell",
-        "visual-process-leader", "word-char-exceptions", "Profiles/*"
+        "visual-process-leader", "word-char-exceptions", "Profiles/*/backspace-binding", "Profiles/*/bold-is-bright",
+        "Profiles/*/cell-height-scale", "Profiles/*/cell-width-scale", "Profiles/*/cjk-ambiguous-width",
+        "Profiles/*/delete-binding", "Profiles/*/exit-action", "Profiles/*/label", "Profiles/*/limit-scrollback",
+        "Profiles/*/login-shell", "Profiles/*/opacity", "Profiles/*/palette", "Profiles/*/preserve-directory",
+        "Profiles/*/scroll-on-keystroke", "Profiles/*/scroll-on-output", "Profiles/*/scrollback-lines", "Profiles/*/use-proxy"
       ]
     },
     {

@@ -118,7 +118,7 @@ entry names its `keys`, and a setting nobody named stays out.
 | `/org/gnome/desktop/session/` | `session.ini` | none | Screen blank delay |
 | `/org/gnome/settings-daemon/plugins/power/` | `power.ini` | none | Dimming, no sleep on AC |
 | `/org/gnome/shell/` | `shell.ini` | `favorite-apps`, `enabled-extensions`, `disabled-extensions`, `keybindings/*` | Dock, extensions, shell shortcuts |
-| `/org/gnome/Ptyxis/` | `ptyxis.ini` | Every preference except `window-size`, and `Profiles/*` | Font, profile |
+| `/org/gnome/Ptyxis/` | `ptyxis.ini` | Every preference except `window-size`, and the named `Profiles/*/` keys | Font, profile |
 | `/org/gnome/nautilus/preferences/` | `nautilus.ini` | none | Default view |
 | `/org/gtk/gtk4/settings/file-chooser/` | `file-chooser.ini` | `show-*`, `sort-directories-first` | Hidden files, folders first |
 
@@ -126,6 +126,7 @@ Left out on purpose:
 
 | Path or key | Why |
 |---|---|
+| `Profiles/*/custom-command`, `use-custom-command`, `custom-links`, `default-container`, `preserve-container` | Can hold commands, paths and URLs, and the repo is public |
 | `settings-daemon/plugins/color/` | Holds coordinates. Night Light isn't configured, so nothing is lost |
 | `portal/filechooser/`, `control-center/`, `nautilus/window-state/`, `app-picker-layout`, `window-size` | Window state and history |
 | `apps/update-manager/`, `com/ubuntu/update-notifier/`, `net/nokyan/Resources/`, `evolution-data-server/`, `shell/world-clocks/`, `shell/extensions/ding/`, `welcome-dialog-last-shown-version` | Generated state, nothing set by hand |
