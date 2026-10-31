@@ -231,15 +231,16 @@ Comment lines (`^[[:space:]]*#`) and blank lines are skipped. Each data line mus
 |---|---|
 | `apt.txt` | `^[a-z0-9][a-z0-9+.-]*$` |
 | `deb.txt` | `^[a-z0-9][a-z0-9+.-]* https://[A-Za-z0-9./_~+-]+\.deb [0-9a-f]{64}$` |
-| `snap.txt` | `^[a-z0-9-]+( classic)?( channel=[a-z0-9./-]+)?$` |
-| `npm.txt` | `^(@[a-z0-9._-]+/)?[a-z0-9._-]+$` |
-| `pipx.txt` | `^[A-Za-z0-9._-]+$` |
-| `vscode-extensions.txt` | `^[a-z0-9-]+\.[a-z0-9-]+$` |
+| `snap.txt` | `^[a-z0-9][a-z0-9-]*( classic)?( channel=[a-z0-9./-]+)?$` |
+| `npm.txt` | `^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$` |
+| `pipx.txt` | `^[A-Za-z0-9][A-Za-z0-9._-]*$` |
+| `vscode-extensions.txt` | `^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$` |
 | `fonts.txt` | `^[A-Za-z0-9]+ v[0-9]+\.[0-9]+\.[0-9]+ [0-9a-f]{64}$` |
-| `gnome-extensions.txt` | `^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+ https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+ [0-9a-f]{40}$` |
+| `gnome-extensions.txt` | `^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9._-]+ https://github\.com/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]* [0-9a-f]{40}$` |
 | `drift-ignore.txt` | `^(apt\|snap\|npm\|pipx\|vscode\|font\|extension\|apt-source) [A-Za-z0-9@][A-Za-z0-9@/+._-]*$` |
 
-The patterns are strict because phase 7 hands these fields to root commands, and a public repo takes PRs.
+The patterns are strict because phase 7 hands these fields to root commands, and a public repo takes PRs. The step 8 review
+tightened five of them: a name must start with a letter or digit, so a line can't reach a root command as an option or a path.
 
 More rules:
 

@@ -286,7 +286,8 @@ done < <(platform_entries)
 report_orphans
 
 # Report drift between the package lists and what this machine has installed.
-report_drift
+# In a || list so nothing in the report can stop the export or change its exit code.
+report_drift || true
 
 # -- Summary ---------------------------------------------------------------------
 
