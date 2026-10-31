@@ -22,6 +22,8 @@ jobs:
         run: jq empty sync-config.json
       - name: Config sanity
         run: scripts/ci/check-config.sh
+      - name: Plugin sanity
+        run: scripts/ci/check-plugins.sh
       - name: PSScriptAnalyzer
         shell: pwsh
         run: |
