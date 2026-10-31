@@ -119,6 +119,13 @@
         "source": "github",
         "repo": "addyosmani/agent-skills"
       }
+    },
+    "sigil": {
+      "source": {
+        "source": "github",
+        "repo": "<YOUR_GH_USERNAME>/sigil",
+        "ref": "marketplace"
+      }
     }
   },
   "effortLevel": "medium",
