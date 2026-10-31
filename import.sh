@@ -230,10 +230,84 @@ import_dir() {
     return 0
 }
 
+# Sync a type:dconf entry: load the repo file into its dconf path. The dump is
+# merged, not reset, so keys the repo does not name stay as they are. The backup
+# is a raw dump of the path, stored before each update.
+import_dconf() {
+    local entry=$1
+    local repo_path dconf_path repo_file current answer backup_dir backup
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    dconf_path=$(jq -r '.path' <<<"$entry")
+    repo_file=$REPO_ROOT/$repo_path
+
+    # In this order: repo file missing, dconf missing, dconf_home_ok fails. Each is a
+    # SKIPPED line from the table in the plan, and SKIPPED=$((SKIPPED + 1)).
+    if [[ ! -f $repo_file ]]; then
+        status SKIPPED "$repo_path" 'not found in repo'
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    if ! command -v dconf > /dev/null; then
+        status SKIPPED "$repo_path" 'dconf not installed'
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    if ! dconf_home_ok; then
+        status SKIPPED "$repo_path" 'HOME is not the login home; dconf left alone'
+        SKIPPED=$((SKIPPED + 1))
+        return 0
+    fi
+
+    if ! current=$(dconf dump "$dconf_path" 2>/dev/null); then
+        status ERROR "$repo_path" 'dconf dump failed'
+        return 0
+    fi
+
+    if [[ -n $current ]]; then
+        if [[ -z $(dconf_unapplied "$repo_file" "$current") ]]; then
+            status UNCHANGED "$repo_path"
+            return 0
+        fi
+        # Same prompt as a file, with $dconf_path as the name. Answering no is SKIPPED 'user skipped'.
+        if (( ! FORCE )); then
+            printf '  Overwrite %s? [Y/n] ' "$dconf_path"
+            answer=''
+            read -r answer || answer=''
+            if [[ -n $answer && $answer != [Yy]* ]]; then
+                status SKIPPED "$repo_path" 'user skipped'
+                SKIPPED=$((SKIPPED + 1))
+                return 0
+            fi
+        fi
+        backup_dir=$HOME/.local/state/sync-settings/dconf
+        backup=$backup_dir/${repo_path##*/}.bak
+        if ! mkdir -p "$backup_dir" || ! printf '%s\n' "$current" > "$backup"; then
+            status ERROR "$repo_path" 'cannot create backup'
+            return 0
+        fi
+    fi
+
+    if ! dconf load "$dconf_path" < "$repo_file" 2>/dev/null; then
+        status ERROR "$repo_path" 'dconf load failed'
+        return 0
+    fi
+    if [[ -n $current ]]; then
+        status UPDATED "$repo_path" "backup saved as ${repo_path##*/}.bak"
+    else
+        status CREATED "$repo_path"
+    fi
+    APPLIED=$((APPLIED + 1))
+    return 0
+}
+
 # Entries arrive on fd 3 so the overwrite prompt inside process_entry reads the user's answer from stdin.
 while IFS= read -r entry <&3; do
     if [[ $(jq -r '.type // "file"' <<<"$entry") == dir ]]; then
         import_dir "$entry"
+    elif [[ $(jq -r '.type // "file"' <<<"$entry") == dconf ]]; then
+        import_dconf "$entry"
     elif ! process_entry "$entry"; then
         # process_entry already printed an ERROR line for this file.
         :

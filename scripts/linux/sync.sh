@@ -440,6 +440,23 @@ dconf_filter() {
     done
 }
 
+# dconf writes go over the session bus to a service that keeps the login
+# session's HOME, so a throwaway HOME would still change the real desktop.
+dconf_home_ok() {
+    [[ $HOME == "$(getent passwd "$(id -u)" | cut -d: -f6)" ]]
+}
+
+# One "[section] key=value" line per key, so two dumps compare key by key.
+dconf_flat() {
+    awk '/^\[.*\]$/ { s = $0; next } NF { print s " " $0 }'
+}
+
+# Keys in the repo file ($1) that the dump ($2) doesn't have with that value.
+# Keys only the dump has don't count: dconf load leaves them alone.
+dconf_unapplied() {
+    LC_ALL=C comm -23 <(dconf_flat < "$1" | LC_ALL=C sort) <(dconf_flat <<<"$2" | LC_ALL=C sort)
+}
+
 # -- Status output --------------------------------------------------------------
 
 status() {
