@@ -51,13 +51,16 @@ Decision: keep two native engines (PowerShell 5.1 ships with Windows; bash on Li
 
 | Item | Target |
 |---|---|
-| `~/.bashrc` (nvm, bun, fzf, zoxide, starship, `fd`, `cproj`), `~/.profile` | linux/shell; guard the unguarded `. omniroute.env` (breaks a fresh machine; OmniRoute unused) |
+| `~/.bashrc` (nvm, bun, fzf, zoxide, starship, `fd`, `cproj`), `~/.profile` | Done in phase 4: linux/shell, `omniroute.env` line guarded |
 | Linux gitconfig bits (`/usr/bin/gh` helper), `init.defaultBranch=main` | Done in phase 3: linux/git/.gitconfig.local; `defaultBranch` → common |
-| `~/.config/git/ignore` | common/git/ignore |
-| `.tmux.conf`, `starship.toml`, `wezterm.lua`, `htoprc` | linux/{tmux,starship,wezterm,htop} |
-| `~/.config/gh/config.yml`, `pypoetry/config.toml` | linux/{gh,poetry} |
-| VS Code `settings.json`, `snippets/` (+ 73 extensions) | linux/vscode; extensions in packages |
-| `mimeapps.list`, dconf (Ptyxis, favorites, `clipboard-history` extension, tiling-assistant, nautilus) | linux/gnome |
+| `~/.config/git/ignore` | Done in phase 4: common/git/ignore |
+| `.tmux.conf`, `starship.toml`, `wezterm.lua`, `htoprc` | Done in phase 4: linux/{tmux,starship,wezterm,htop} |
+| `~/.config/gh/config.yml`, `~/.config/rtk/` | Done in phase 4: linux/{gh,rtk} |
+| VS Code default profile: `settings.json`, `snippets/` | Done in phase 4: linux/vscode |
+| VS Code extensions (73) | packages; named profiles stay with Settings Sync |
+| `mimeapps.list`, GTK bookmarks, `disco-datos` and `mis-discos` launchers | Done in phase 4: linux/gnome |
+| `wezterm-xwayland` and its launcher | Done in phase 4: linux/wezterm |
+| dconf (Ptyxis, favorites, `clipboard-history` extension, tiling-assistant, nautilus) | linux/gnome |
 | Nerd Fonts | packages/linux/fonts.txt (downloaded, not stored) |
 | `~/.local/bin` links to `~/.claude/bin/*` | created by bootstrap |
 | apt (+ brave, chrome, gh, wezterm sources), snap (code, postman), npm globals, pipx poetry, bun, rtk, claude, copilot, dotnet-sdk-10 | packages/linux/* |
@@ -71,7 +74,7 @@ Windows candidates (inventory on that machine, phase 8): `winget export`, PowerS
 ```
 dotfiles/
   common/   git/.gitconfig  git/ignore  claude/RTK.md  claude/docs/token-routing-map.html
-  linux/    shell/  git/.gitconfig.local  tmux/  starship/  wezterm/  htop/  gh/  poetry/
+  linux/    shell/  git/.gitconfig.local  tmux/  starship/  wezterm/  htop/  gh/  rtk/
             vscode/  gnome/  claude/  claude-worker/
   windows/  shell/(.bashrc .bash_profile .bashrc.linked/)  git/.gitconfig.local  windows-terminal/  (+ phase 8)
 packages/   linux/{apt.txt,apt-sources/,snap.txt,npm.txt,pipx.txt,vscode-extensions.txt,fonts.txt}  windows/winget.json
@@ -150,6 +153,13 @@ don't rot. Each phase updates the docs it touches; repo `CLAUDE.md` is trimmed t
 6. **Packages + drift report** (`packages/linux/*`, curated; drift in `export.sh`).
 7. **`bootstrap/linux.sh` + `docs/restore.md`**: idempotent install (apt sources/keyrings, apt, snap, nvm + node + npm
    globals, pipx, bun, rtk, claude, fonts, VS Code extensions) → `import.sh` → links; bootstrap dry-run in CI.
+   - Plugins: read `extraKnownMarketplaces` and `enabledPlugins` from `settings.json`, run `claude plugin marketplace add`
+     for each source, then `claude plugin install` for each plugin. `sigil` needs its `ref`, so check how `add` takes
+     one. `add` dropped `autoUpdate: true` from `settings.json` in testing, so run this before the import that writes
+     `settings.json`, or import again after it, and end on a clean `./sync preview`.
+   - CI lint: `enabledPlugins` must name a declared marketplace.
+   - `docs/restore.md`: Settings Sync sign-in for VS Code profiles and extensions; the `/mnt/Data` mount that the
+     launchers and bookmark use; ssh keys depend on the machine, and this one has none today.
 8. **Windows**: inventory on the Windows machine, add its configs, `winget.json`, `bootstrap/windows.ps1`.
 9. **Cleanup + docs polish**: drop `sampleGrok.md`, `docs/plan-linux.md`; final README landing page, fill any
    `docs/` gaps, Mermaid diagrams, badges, markdownlint + link check in CI, trim repo `CLAUDE.md`

@@ -16,6 +16,11 @@ t=''
 out=''
 rc=0
 
+# Cases build repos with git outside the throwaway HOME. Keep the host's git
+# config, ignore and attributes files out of them: core.autocrlf=input rewrites
+# fixture line endings in the commit.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME=/nonexistent
+
 # -- Helpers -------------------------------------------------------------------
 
 fail() {
@@ -639,7 +644,8 @@ case_real_config_roundtrip() {
     jq -n --arg name 'Fixture User' --arg email 'fixture@example.com' \
         --arg gh 'fixture-user' --arg home "$t/home" \
         '{ "<YOUR_NAME>": $name, "<YOUR_EMAIL>": $email,
-           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home }' > "$t/repo/.user-values.json"
+           "<YOUR_GH_USERNAME>": $gh, "<HOME>": $home,
+           "<YOUR_WORK_MARKETPLACE>": "https://example.com/plugins" }' > "$t/repo/.user-values.json"
 
     run_engine "$t/home" import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
@@ -670,10 +676,41 @@ case_real_config_roundtrip() {
     if grep -Fq '<YOUR_' "$t/home/.gitconfig"; then
         fail ".gitconfig still holds an unfilled placeholder"
     fi
-    [[ ! -e "$t/home/.bashrc" ]] || fail ".bashrc was imported from a windows entry"
+    cmp -s "$t/home/.bashrc" "$t/repo/dotfiles/linux/shell/.bashrc" \
+        || fail ".bashrc does not match the linux entry"
+    [[ ! -e "$t/home/.claude/plugins" ]] || fail ".claude/plugins was imported"
     [[ ! -e "$t/home/.gitconfig.bak" ]] || fail ".gitconfig.bak was created"
     [[ -x "$t/home/.claude/hooks/worker-mode-guard.sh" ]] \
         || fail "worker-mode-guard.sh is not executable"
+
+    cmp -s "$t/home/.config/git/ignore" "$t/repo/dotfiles/common/git/ignore" \
+        || fail ".config/git/ignore does not match the repo"
+    [[ -x "$t/home/.local/bin/wezterm-xwayland" ]] || fail "wezterm-xwayland is not executable"
+    grep -Fq "Exec=$t/home/.local/bin/wezterm-xwayland" \
+        "$t/home/.local/share/applications/wezterm-xwayland.desktop" \
+        || fail "wezterm-xwayland.desktop has no Exec line for the launcher"
+    if grep -Fq '<HOME>' "$t/home/.local/share/applications/wezterm-xwayland.desktop"; then
+        fail "wezterm-xwayland.desktop still holds <HOME>"
+    fi
+    grep -Fq "file://$t/home/Documents" "$t/home/.config/gtk-3.0/bookmarks" \
+        || fail "bookmarks has no file:// line for Documents"
+    if grep -Fq '<HOME>' "$t/home/.config/gtk-3.0/bookmarks"; then
+        fail "bookmarks still holds <HOME>"
+    fi
+    grep -Fq 'https://example.com/plugins' "$t/home/.config/Code/User/settings.json" \
+        || fail "settings.json has no marketplace URL"
+    if grep -Fq '<YOUR_' "$t/home/.config/Code/User/settings.json"; then
+        fail "settings.json still holds a <YOUR_ placeholder"
+    fi
+    compgen -G "$t/home/.config/Code/User/snippets/*" > /dev/null \
+        || fail "no snippet files were imported"
+    [[ ! -e "$t/home/.config/gh/hosts.yml" ]] || fail "gh/hosts.yml was imported"
+    [[ -e "$t/home/.config/rtk/config.toml" ]] || fail "rtk/config.toml was not imported"
+
+    local leftover
+    leftover=$(grep -rlE '<(HOME|YOUR_[A-Z_]+)>' "$t/home" || true)
+    leftover=${leftover%%$'\n'*}
+    [[ -z $leftover ]] || fail "unfilled placeholder in $leftover"
 }
 
 case_lint_real_config() {
@@ -2035,9 +2072,17 @@ case_sync_missing_tool() {
         || fail "missing jq error"
 }
 
+case_host_git_config_ignored() {
+    local config scope
+    config=$(git config --list --show-scope)
+    if scope=$(grep -Em1 '^(global|system)' <<< "$config"); then
+        fail "host ${scope%%$'\t'*} config is not ignored"
+    fi
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -2151,6 +2196,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-routes-import) case_sync_routes_import ;;
         sync-routes-preview) case_sync_routes_preview ;;
         sync-missing-tool) case_sync_missing_tool ;;
+        host-git-config-ignored) case_host_git_config_ignored ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then

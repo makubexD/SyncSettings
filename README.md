@@ -24,6 +24,7 @@ On Windows, use `.\sync preview` in PowerShell or `sync preview` in cmd. Options
 | File | Description |
 |---|---|
 | `~/.gitconfig` | Git global configuration, which includes `~/.gitconfig.local` |
+| `~/.config/git/ignore` | Global git ignore rules |
 | `~/.claude/RTK.md` | Instructions for Claude Code on command output |
 | `~/.claude/docs/token-routing-map.html` | Workflow guide page |
 
@@ -38,21 +39,31 @@ On Windows, use `.\sync preview` in PowerShell or `sync preview` in cmd. Options
 
 **Linux**
 
-`~/.gitconfig.local` holds the Git credentials for Linux. The rest is the Claude Code setup in `~/.claude`:
+| File | Description |
+|---|---|
+| `~/.gitconfig.local` | Git credentials for Linux |
+| `~/.bashrc`, `~/.profile` | Shell setup |
+| `~/.tmux.conf`, `~/.config/starship.toml` | tmux and the Starship prompt |
+| `~/.config/wezterm/wezterm.lua`, `~/.local/bin/wezterm-xwayland` | WezTerm, with its XWayland launcher |
+| `~/.config/htop/htoprc`, `~/.config/gh/config.yml`, `~/.config/rtk/` | htop, GitHub CLI and RTK settings |
+| `~/.config/Code/User/settings.json`, `snippets/` | VS Code default profile (home path and a work marketplace URL sanitized) |
+| `~/.config/mimeapps.list`, `~/.config/gtk-3.0/bookmarks` | Default apps and Files bookmarks (home path sanitized) |
+| `~/.local/share/applications/` | The `disco-datos`, `mis-discos` and `wezterm-xwayland` launchers |
+
+The rest is the Claude Code setup in `~/.claude`:
 
 | File | Description |
 |---|---|
 | `CLAUDE.md` | Global instructions for Claude Code |
-| `settings.json` | Hooks, plugins, permissions (home path and GitHub username sanitized) |
+| `settings.json` | Hooks, plugin declarations, permissions (home path and GitHub username sanitized) |
 | `statusline.sh` | Status line script |
 | `skills/mk-delegate/`, `skills/mk-check/` | `/mk-delegate` and `/mk-check` slash commands |
 | `hooks/` | context-mode hook, the worker-mode guard and metrics capture |
 | `bin/mk-exec`, `bin/workflow-report`, `bin/worker-mode`, `bin/metrics-archive` | Worker wrapper (headless Claude Code on the paid DeepSeek API), run report, worker-mode switch, metrics archive |
-| `plugins/installed_plugins.json`, `known_marketplaces.json` | Which plugins are installed (home path sanitized) |
 | `sampleGrok.md` | Old Windows Grok setup for reference |
 | `~/.claude-worker/CLAUDE.md`, `settings.json` | The worker's own config dir: its rules and permissions (no credentials) |
 
-Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, caches.
+Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, plugin install state, caches, the GitHub CLI's `hosts.yml`, VS Code's named profiles.
 
 Add or remove files by editing `sync-config.json`. [Repository layout](docs/layout.md) says where a new file goes.
 
@@ -164,10 +175,11 @@ Export and import ask once for each placeholder value and cache the answers in `
 (gitignored). `<HOME>` defaults to your `$HOME`, so pressing Enter is usually enough. Without a terminal,
 a missing value is an error: nothing is written with a placeholder left unfilled.
 
-### New Linux machine: restore the Claude Code setup
+### New Linux machine: restore your setup
 
 1. Install the tools: `git`, `jq`, `python3`, Claude Code, [nvm](https://github.com/nvm-sh/nvm) with Node and
-   [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`.
+   [`rtk`](https://github.com/rtk-ai/rtk) in `~/.local/bin`. The restored `.bashrc` also needs `zoxide` and `starship`,
+   or every new shell prints `command not found`.
 2. Open Claude Code once so `~/.claude` exists, then install the plugins with `/plugin`
    (`context-mode`, `agent-skills`).
 3. Clone this repo and run `./import.sh`.

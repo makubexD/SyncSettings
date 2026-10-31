@@ -11,7 +11,16 @@ dotfiles/
 ├── linux/     Linux only
 │   ├── claude/
 │   ├── claude-worker/
-│   └── git/
+│   ├── gh/
+│   ├── git/
+│   ├── gnome/
+│   ├── htop/
+│   ├── rtk/
+│   ├── shell/
+│   ├── starship/
+│   ├── tmux/
+│   ├── vscode/
+│   └── wezterm/
 └── windows/   Windows only
     ├── git/
     ├── shell/
@@ -36,6 +45,8 @@ the `~/` form of `localPath`, because the other form only works on Windows.
 - Name the folder after the tool, in lowercase with dashes: `windows-terminal`, `claude-worker`.
 - Keep the file's real name, leading dot included: `.gitconfig`, `settings.json`.
 - Below the tool folder, mirror the local folders: `~/.claude/bin/mk-exec` is `linux/claude/bin/mk-exec`.
+- A launcher stays with its tool, wherever it lives locally: `~/.local/bin/wezterm-xwayland` is
+  `linux/wezterm/wezterm-xwayland`. That's why `wezterm.lua` has a file entry, not a `dir` entry for the folder.
 
 ## Line endings
 
@@ -67,6 +78,30 @@ so each script has a file entry and `bin/tests/` stays out of the repo.
 An entry can't sit inside a `dir` entry, not even another `dir`. Export makes a `dir` entry's repo folder match its local
 folder, so it would delete the inner entry's files from the repo unless they also exist in that local folder. CI lint
 fails on it.
+
+## Why plugin state isn't synced
+
+`linux/claude/settings.json` declares what Claude Code should have: `extraKnownMarketplaces` and `enabledPlugins`.
+`~/.claude/plugins/installed_plugins.json` and `known_marketplaces.json` record what it installed: versions, commit SHAs,
+timestamps and paths into a cache of about 200 MB that the repo doesn't hold.
+
+Claude Code rewrites those two files on its own, so they would show up as changes nobody made. Restoring them without
+the cache doesn't work either: every plugin fails to load. To get plugins back, add each marketplace with
+`claude plugin marketplace add` and install each plugin with `claude plugin install`. You get the latest versions, not
+the ones last exported.
+
+## VS Code and Settings Sync
+
+The repo holds the default profile only: `settings.json` and `snippets/`. Named profiles stay with VS Code's Settings
+Sync, so a full restore needs a Settings Sync sign-in.
+
+Import can overwrite `settings.json`, and Settings Sync then spreads that to your other machine. Before you accept that
+file at the import prompt, check that the repo copy is the one you want everywhere.
+
+The local `settings.json` uses CRLF and the repo copy uses LF. The file is left that way on purpose, because Settings
+Sync could carry a conversion to the other machine or bring CRLF back. Its `sanitizeRules` make the comparison ignore
+line endings, so CRLF doesn't count as a change. Those rules cover the home path and a work marketplace URL. A new
+machine prompts for the URL, which has no default.
 
 ## Linked folders
 

@@ -1,0 +1,20 @@
+"$schema" = "https://starship.rs/config-schema.json"
+
+add_newline = true
+scan_timeout = 30
+command_timeout = 500
+
+[git_status]
+format = '([$all_status$ahead_behind]($style) )'
+style = 'bold red'
+modified = '!'
+staged = '+'
+untracked = '?'
+ahead = '⇡${count}'
+behind = '⇣${count}'
+diverged = '⇕'
+conflicted = '='
+
+[character]
+success_symbol = '[❯](bold green)'
+error_symbol = '[❯](bold red)'

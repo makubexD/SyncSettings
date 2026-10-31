@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Disco de datos
+Comment=Abrir el disco duro de datos
+Exec=nautilus --new-window /mnt/Data
+Icon=drive-harddisk
+Terminal=false
+Categories=System;FileTools;

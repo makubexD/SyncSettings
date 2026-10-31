@@ -19,6 +19,12 @@
       ]
     },
     {
+      "repoPath": "dotfiles/common/git/ignore",
+      "localPath": "~/.config/git/ignore",
+      "platform": "common",
+      "description": "Global git ignore rules"
+    },
+    {
       "repoPath": "dotfiles/windows/git/.gitconfig.local",
       "localPath": "~\\.gitconfig.local",
       "platform": "windows",
@@ -58,6 +64,129 @@
       "localPath": "~\\.bash_profile",
       "platform": "windows",
       "description": "Bash login profile"
+    },
+    {
+      "repoPath": "dotfiles/linux/shell/.bashrc",
+      "localPath": "~/.bashrc",
+      "platform": "linux",
+      "description": "Bash run commands"
+    },
+    {
+      "repoPath": "dotfiles/linux/shell/.profile",
+      "localPath": "~/.profile",
+      "platform": "linux",
+      "description": "Login shell profile"
+    },
+    {
+      "repoPath": "dotfiles/linux/tmux/.tmux.conf",
+      "localPath": "~/.tmux.conf",
+      "platform": "linux",
+      "description": "tmux configuration"
+    },
+    {
+      "repoPath": "dotfiles/linux/starship/starship.toml",
+      "localPath": "~/.config/starship.toml",
+      "platform": "linux",
+      "description": "Starship prompt"
+    },
+    {
+      "repoPath": "dotfiles/linux/wezterm/wezterm.lua",
+      "localPath": "~/.config/wezterm/wezterm.lua",
+      "platform": "linux",
+      "description": "WezTerm terminal"
+    },
+    {
+      "repoPath": "dotfiles/linux/htop/htoprc",
+      "localPath": "~/.config/htop/htoprc",
+      "platform": "linux",
+      "description": "htop settings"
+    },
+    {
+      "repoPath": "dotfiles/linux/gh/config.yml",
+      "localPath": "~/.config/gh/config.yml",
+      "platform": "linux",
+      "description": "GitHub CLI settings (hosts.yml stays out)"
+    },
+    {
+      "repoPath": "dotfiles/linux/rtk",
+      "localPath": "~/.config/rtk",
+      "platform": "linux",
+      "type": "dir",
+      "description": "RTK configuration and filters"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/mimeapps.list",
+      "localPath": "~/.config/mimeapps.list",
+      "platform": "linux",
+      "description": "Default applications"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/bookmarks",
+      "localPath": "~/.config/gtk-3.0/bookmarks",
+      "platform": "linux",
+      "description": "Files sidebar bookmarks",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/applications/disco-datos.desktop",
+      "localPath": "~/.local/share/applications/disco-datos.desktop",
+      "platform": "linux",
+      "description": "Launcher for the data disk"
+    },
+    {
+      "repoPath": "dotfiles/linux/gnome/applications/mis-discos.desktop",
+      "localPath": "~/.local/share/applications/mis-discos.desktop",
+      "platform": "linux",
+      "description": "Launcher for the computer's drives"
+    },
+    {
+      "repoPath": "dotfiles/linux/wezterm/wezterm-xwayland",
+      "localPath": "~/.local/bin/wezterm-xwayland",
+      "platform": "linux",
+      "description": "Runs WezTerm under XWayland"
+    },
+    {
+      "repoPath": "dotfiles/linux/wezterm/wezterm-xwayland.desktop",
+      "localPath": "~/.local/share/applications/wezterm-xwayland.desktop",
+      "platform": "linux",
+      "description": "Launcher for the XWayland WezTerm",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/vscode/settings.json",
+      "localPath": "~/.config/Code/User/settings.json",
+      "platform": "linux",
+      "description": "VS Code settings, default profile",
+      "sanitizeRules": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        },
+        {
+          "placeholder": "<YOUR_WORK_MARKETPLACE>",
+          "prompt": "Work plugin marketplace URL"
+        }
+      ]
+    },
+    {
+      "repoPath": "dotfiles/linux/vscode/snippets",
+      "localPath": "~/.config/Code/User/snippets",
+      "platform": "linux",
+      "type": "dir",
+      "description": "VS Code snippets, default profile"
     },
     {
       "repoPath": "dotfiles/windows/windows-terminal/settings.json",
@@ -168,36 +297,6 @@
       "localPath": "~/.claude/bin/worker-mode",
       "platform": "linux",
       "description": "worker-mode on|off|status switch"
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/plugins/installed_plugins.json",
-      "localPath": "~/.claude/plugins/installed_plugins.json",
-      "platform": "linux",
-      "description": "Installed Claude Code plugins",
-      "sanitizeRules": [
-        {
-          "placeholder": "<HOME>",
-          "prompt": "Home directory",
-          "defaultEnv": "HOME"
-        }
-      ]
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/plugins/known_marketplaces.json",
-      "localPath": "~/.claude/plugins/known_marketplaces.json",
-      "platform": "linux",
-      "description": "Known plugin marketplaces",
-      "sanitizeRules": [
-        {
-          "placeholder": "<HOME>",
-          "prompt": "Home directory",
-          "defaultEnv": "HOME"
-        },
-        {
-          "placeholder": "<YOUR_GH_USERNAME>",
-          "prompt": "GitHub username"
-        }
-      ]
     }
   ],
   "excludePatterns": [

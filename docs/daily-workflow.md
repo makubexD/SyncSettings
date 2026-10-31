@@ -58,6 +58,19 @@ On Windows, the commands are the same: `.\sync preview` in PowerShell, or `sync 
 
 `./export.sh`, `./commit.sh`, `export.bat` and `commit.bat` still work.
 
+### Changes you didn't make
+
+Some tools rewrite their own settings, so preview can show a file you never opened:
+
+| File | Rewritten by |
+|---|---|
+| `dotfiles/linux/htop/htoprc` | htop, when you change a setting in its interface |
+| `dotfiles/linux/gnome/mimeapps.list` | The desktop, when a default app changes |
+| `dotfiles/linux/vscode/settings.json` | VS Code Settings Sync, with changes from your other machine |
+
+These are real settings, so read the diff rather than reverting it. To keep one out of a PR, run `git restore <file>`
+after the export; preview keeps showing it until you send it.
+
 ### Machine alias
 
 `<alias>` names this machine in branch names and PR bodies, so the hostname never appears there. The first
