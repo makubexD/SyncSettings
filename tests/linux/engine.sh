@@ -2134,6 +2134,19 @@ case_dconf_test_bus() {
     [[ -e "$t/home/.config/dconf/user" ]] \
         || fail "$t/home/.config/dconf/user was not created"
 
+    # The engine must see $t/home as both HOME and the login home on this bus.
+    mkdir -p "$t/repo"
+    cat > "$t/repo/probe.sh" <<'EOF'
+#!/bin/sh
+getent passwd "$(id -u)" | cut -d: -f6
+echo "$HOME"
+EOF
+    chmod +x "$t/repo/probe.sh"
+    run_engine_bus /dev/null probe.sh
+    (( rc == 0 )) || fail "probe on the test bus exited $rc"
+    [[ $(grep -cFx "$t/home" "$out") == 2 ]] \
+        || fail "HOME and the login home aren't both $t/home on the test bus"
+
     if [[ -n $real_before ]]; then
         real_after=$(sha256sum "$real_db")
         [[ $real_after == "$real_before" ]] || fail "the real dconf database changed"
