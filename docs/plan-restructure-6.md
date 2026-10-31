@@ -251,6 +251,14 @@ More rules:
   - Every source has `Signed-By:` or `signed-by=`, under `/usr/share/keyrings/` or `/etc/apt/keyrings/`, and that basename
     exists in `keyrings/`.
   - Every key in `keyrings/` is named by a source.
+  - The URL and signature rules hold per entry: each stanza of a `.sources` file, each line of a `.list` file. Field names
+    are case-insensitive, a line starting with whitespace continues the field before it, and comment lines don't end a
+    stanza. A `.list` line is `deb` or `deb-src`, or it fails.
+  - `Trusted`, `Allow-Insecure`, `Allow-Weak` and `Allow-Downgrade-To-Insecure` fail in either format, in any case, because
+    each turns signature checks off.
+  - A `Signed-By` path is exactly `<keyring folder>/<basename>`, with the basename matching `[A-Za-z0-9._-]+`, on one line.
+- A symlink anywhere in the folder fails, with reason `symlink`. A folder directly in it other than `apt-sources`, and any
+  file deeper than `apt-sources/*` and `keyrings/*`, fails with `unknown list`.
 
 Write the cases first. `lint_packages_run` builds a valid folder under `$t`, one line per list, one source and its key, applies
 the change, and runs the script. Valid data uses invented names, no real address, and a 64-hex and 40-hex string.
@@ -289,6 +297,24 @@ the change, and runs the script. Valid data uses invented names, no real address
 | `lint-packages-source-key-elsewhere` | `Signed-By: /tmp/k.gpg` | Exit 1, names the source |
 | `lint-packages-key-unused` | A key no source names | Exit 1, names the key |
 | `lint-packages-source-other-file` | `apt-sources/notes.md` | Exit 1, `unknown list` |
+| `lint-packages-source-real-shapes` | A `.sources` with a leading comment, an `X-` field and a comment between fields, and a `.list` with `[arch=amd64 signed-by=…]` | Exit 0 |
+| `lint-packages-source-uris-lowercase` | `uris: http://…` | Exit 1, names the source |
+| `lint-packages-source-uri-continuation` | `URIs: https://…`, next line ` http://…` | Exit 1, names the source |
+| `lint-packages-source-second-stanza` | A second stanza with no `Signed-By` | Exit 1, names the source |
+| `lint-packages-source-trusted` | `Trusted: yes` | Exit 1, names the source |
+| `lint-packages-source-key-dotdot` | `Signed-By: /usr/share/keyrings/../../tmp/example.gpg` | Exit 1, names the source |
+| `lint-packages-source-key-empty` | `Signed-By: /usr/share/keyrings/` | Exit 1, names the source, no `bad array subscript` |
+| `lint-packages-source-key-continuation` | A `Signed-By` with a second path on the next line | Exit 1, names the source |
+| `lint-packages-source-allow-insecure` | `Allow-Insecure: yes` | Exit 1, names the source |
+| `lint-packages-source-field-space` | `URIs : http://…` | Exit 1, names the source |
+| `lint-packages-list-allow-insecure` | `[Allow-Insecure=yes signed-by=…]` | Exit 1, names the source |
+| `lint-packages-list-second-line` | A second `deb` line with no `signed-by` | Exit 1, names the source |
+| `lint-packages-list-deb-src-http` | `deb-src` line with `http://` | Exit 1, names the source |
+| `lint-packages-list-trusted` | `[trusted=yes signed-by=…]` | Exit 1, names the source |
+| `lint-packages-list-other-line` | A line that isn't `deb` or `deb-src` | Exit 1, names the source |
+| `lint-packages-symlink` | `extra.txt` as a symlink | Exit 1, `symlink` |
+| `lint-packages-other-dir` | `other/n.txt` | Exit 1, `unknown list` |
+| `lint-packages-key-deep` | `apt-sources/keyrings/sub/n.gpg` | Exit 1, `unknown list` |
 
 Test: `tests/linux/engine.sh lint-packages` green; shellcheck clean. In the review, drop `[0-9a-f]{64}` to `[0-9a-f]+` and see
 `lint-packages-deb-short-hash` fail.
