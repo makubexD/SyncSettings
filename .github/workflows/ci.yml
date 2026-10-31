@@ -53,3 +53,10 @@ jobs:
         run: |
           Import-Module Pester -MinimumVersion 5.5.0
           Invoke-Pester -Path tests/windows -CI
+  bootstrap-check:
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the lists on a clean Ubuntu
+        run: scripts/ci/bootstrap-check.sh
