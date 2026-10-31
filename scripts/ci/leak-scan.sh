@@ -53,7 +53,7 @@ scan_rule() {
 # One disallowed address is enough, even when the line also has an allowed one.
 scan_email() {
     local pattern=$1
-    local out status=0 hit rest addr text bad
+    local out status=0 hit file rest addr text bad
     out=$(grep -rnIE -- "$pattern" "${PATHS[@]}") || status=$?
     if (( status > 1 )); then
         printf 'ERROR: scan failed for rule email\n' >&2
@@ -61,8 +61,13 @@ scan_email() {
     fi
     [[ -n $out ]] || return 0
     while IFS= read -r hit; do
+        file=${hit%%:*}
         rest=${hit#*:}
         text=${rest#*:}
+        # Extension UUIDs look like addresses; only these two keys hold them.
+        if [[ $file == *dotfiles/linux/gnome/dconf/*.ini && $text =~ ^(enabled|disabled)-extensions= ]]; then
+            continue
+        fi
         bad=0
         while [[ $text =~ $pattern ]]; do
             addr=${BASH_REMATCH[0],,}

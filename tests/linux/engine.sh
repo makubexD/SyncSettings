@@ -179,6 +179,18 @@ lint_run() {
     "$REPO/scripts/ci/check-config.sh" "$t/config.json" > "$out" 2>&1 || rc=$?
 }
 
+# Write one line to a file under $t and run the leak scan on it. $1 is the
+# repo-relative path, $2 the line; rc and $out hold the result. The scan reads
+# $t/dotfiles, not the file alone: grep -r prints no filename for a lone file,
+# and the scan parses hits as "<file>:<line>: <text>".
+leak_scan_on() {
+    local rel=$1 line=$2
+    mkdir -p "$t/${rel%/*}"
+    printf '%s\n' "$line" > "$t/$rel"
+    rc=0
+    "$REPO/scripts/ci/leak-scan.sh" "$t/dotfiles" > "$out" 2>&1 || rc=$?
+}
+
 # A stub GH that logs each invocation to $t/gh.log and prints a fixed URL.
 make_gh_stub() {
     mkdir -p "$t/bin"
@@ -1786,6 +1798,45 @@ case_preview_leak_found() {
     fi
 }
 
+# Extension UUIDs have the shape of an address. Only the two extension keys in
+# dconf .ini files are exempt; everything else must still be reported.
+case_leak_extension_enabled() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.ini \
+        "enabled-extensions=['clip@someone.github.io']"
+    (( rc == 0 )) || fail "leak-scan exited $rc, want 0"
+    [[ ! -s $out ]] || fail "leak-scan reported a hit"
+}
+
+case_leak_extension_disabled() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.ini \
+        "disabled-extensions=['ding@rastersoft.com']"
+    (( rc == 0 )) || fail "leak-scan exited $rc, want 0"
+    [[ ! -s $out ]] || fail "leak-scan reported a hit"
+}
+
+case_leak_email_other_key() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.ini "label='person@gmail.com'"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_email_other_file() {
+    new_tmp
+    leak_scan_on dotfiles/linux/tool/shell.ini "enabled-extensions=['person@gmail.com']"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
+case_leak_email_other_suffix() {
+    new_tmp
+    leak_scan_on dotfiles/linux/gnome/dconf/shell.txt "enabled-extensions=['person@gmail.com']"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    grep -Fq 'email' "$out" || fail "missing email hit"
+}
+
 case_preview_cleans_up() {
     new_tmp
     mkdir -p "$t/tmp"
@@ -2927,7 +2978,7 @@ case_dconf_roundtrip_settles() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip lint-real-config lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -3042,6 +3093,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-routes-preview) case_sync_routes_preview ;;
         sync-missing-tool) case_sync_missing_tool ;;
         host-git-config-ignored) case_host_git_config_ignored ;;
+        leak-extension-enabled) case_leak_extension_enabled ;;
+        leak-extension-disabled) case_leak_extension_disabled ;;
+        leak-email-other-key) case_leak_email_other_key ;;
+        leak-email-other-file) case_leak_email_other_file ;;
+        leak-email-other-suffix) case_leak_email_other_suffix ;;
         dconf-test-bus) case_dconf_test_bus ;;
         dconf-config-valid) case_dconf_config_valid ;;
         dconf-path-missing) case_dconf_path_missing ;;
