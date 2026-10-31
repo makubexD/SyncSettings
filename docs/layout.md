@@ -14,6 +14,7 @@ dotfiles/
 │   ├── gh/
 │   ├── git/
 │   ├── gnome/
+│   │   └── dconf/
 │   ├── htop/
 │   ├── rtk/
 │   ├── shell/
@@ -102,6 +103,36 @@ The local `settings.json` uses CRLF and the repo copy uses LF. The file is left 
 Sync could carry a conversion to the other machine or bring CRLF back. Its `sanitizeRules` make the comparison ignore
 line endings, so CRLF doesn't count as a change. Those rules cover the home path and a work marketplace URL. A new
 machine prompts for the URL, which has no default.
+
+## Which dconf settings are synced
+
+Each folder has one `type: dconf` entry and one file under `dotfiles/linux/gnome/dconf/`. The repo is public, so a filtered
+entry names its `keys`, and a setting nobody named stays out.
+
+| `path` | File | `keys` | Holds |
+|---|---|---|---|
+| `/org/gnome/desktop/interface/` | `interface.ini` | none | Accent, dark scheme, GTK and icon theme |
+| `/org/gnome/desktop/input-sources/` | `input-sources.ini` | `sources`, `xkb-options`, `per-window` | Keyboard layouts |
+| `/org/gnome/desktop/wm/keybindings/` | `wm-keybindings.ini` | none | Workspace shortcuts |
+| `/org/gnome/desktop/privacy/` | `privacy.ini` | none | Problem reporting off |
+| `/org/gnome/desktop/session/` | `session.ini` | none | Screen blank delay |
+| `/org/gnome/settings-daemon/plugins/power/` | `power.ini` | none | Dimming, no sleep on AC |
+| `/org/gnome/shell/` | `shell.ini` | `favorite-apps`, `enabled-extensions`, `disabled-extensions`, `keybindings/*` | Dock, extensions, shell shortcuts |
+| `/org/gnome/Ptyxis/` | `ptyxis.ini` | Every preference except `window-size`, and `Profiles/*` | Font, profile |
+| `/org/gnome/nautilus/preferences/` | `nautilus.ini` | none | Default view |
+| `/org/gtk/gtk4/settings/file-chooser/` | `file-chooser.ini` | `show-*`, `sort-directories-first` | Hidden files, folders first |
+
+Left out on purpose:
+
+| Path or key | Why |
+|---|---|
+| `settings-daemon/plugins/color/` | Holds coordinates. Night Light isn't configured, so nothing is lost |
+| `portal/filechooser/`, `control-center/`, `nautilus/window-state/`, `app-picker-layout`, `window-size` | Window state and history |
+| `apps/update-manager/`, `com/ubuntu/update-notifier/`, `net/nokyan/Resources/`, `evolution-data-server/`, `shell/world-clocks/`, `shell/extensions/ding/`, `welcome-dialog-last-shown-version` | Generated state, nothing set by hand |
+| `shell/extensions/tiling-assistant/`, `mutter/`, `mutter/keybindings/` | Written by the extension when it starts |
+| `desktop/notifications/`, `desktop/app-folders/`, `desktop/peripherals/keyboard/` | Generated lists, stock folders, and the live Num Lock state |
+| `system/location/` | Restoring it would turn location on without the question a fresh install asks |
+| `settings-daemon/plugins/media-keys/` | Empty here. [configuration.md](configuration.md#adding-a-dconf-folder) shows how to add a folder like it |
 
 ## Linked folders
 

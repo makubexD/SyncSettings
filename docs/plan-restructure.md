@@ -60,7 +60,7 @@ Decision: keep two native engines (PowerShell 5.1 ships with Windows; bash on Li
 | VS Code extensions (73) | packages; named profiles stay with Settings Sync |
 | `mimeapps.list`, GTK bookmarks, `disco-datos` and `mis-discos` launchers | Done in phase 4: linux/gnome |
 | `wezterm-xwayland` and its launcher | Done in phase 4: linux/wezterm |
-| dconf (Ptyxis, favorites, `clipboard-history` extension, tiling-assistant, nautilus) | linux/gnome |
+| dconf (Ptyxis, favorites, `clipboard-history` extension, tiling-assistant, nautilus) | Done in phase 5: linux/gnome/dconf. `tiling-assistant` dropped, since the extension writes those keys itself. `clipboard-history` has no settings of its own, so only `enabled-extensions` is synced, and its code moved to phase 6 |
 | Nerd Fonts | packages/linux/fonts.txt (downloaded, not stored) |
 | `~/.local/bin` links to `~/.claude/bin/*` | created by bootstrap |
 | apt (+ brave, chrome, gh, wezterm sources), snap (code, postman), npm globals, pipx poetry, bun, rtk, claude, copilot, dotnet-sdk-10 | packages/linux/* |
@@ -151,8 +151,13 @@ don't rot. Each phase updates the docs it touches; repo `CLAUDE.md` is trimmed t
 4. **Linux configs** from the inventory (+ `.bashrc` guard); `grep -rl "$HOME" dotfiles` empty.
 5. **dconf** entries (`{path, repoPath}`): dump on export, load on import.
 6. **Packages + drift report** (`packages/linux/*`, curated; drift in `export.sh`).
+   - `dconf-cli` in `apt.txt`.
+   - `packages/linux/gnome-extensions.txt`: `clipboard-history` from its GitHub repo, schema compile included. Until then
+     a restored `enabled-extensions` names an extension that isn't installed, and GNOME Shell ignores it.
 7. **`bootstrap/linux.sh` + `docs/restore.md`**: idempotent install (apt sources/keyrings, apt, snap, nvm + node + npm
    globals, pipx, bun, rtk, claude, fonts, VS Code extensions) → `import.sh` → links; bootstrap dry-run in CI.
+   - Import must run inside the graphical session, because `dconf load` needs the session bus. From a text console, each
+     dconf entry reports `ERROR`.
    - Plugins: read `extraKnownMarketplaces` and `enabledPlugins` from `settings.json`, run `claude plugin marketplace add`
      for each source, then `claude plugin install` for each plugin. `sigil` needs its `ref`, so check how `add` takes
      one. `add` dropped `autoUpdate: true` from `settings.json` in testing, so run this before the import that writes

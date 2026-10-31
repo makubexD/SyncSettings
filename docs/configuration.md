@@ -33,11 +33,13 @@ belongs, see [layout.md](layout.md).
 | Field | Required | Meaning |
 |---|---|---|
 | `repoPath` | yes | Where the file lives in this repo, with forward slashes. No trailing slash, also for folders. Unique across entries |
-| `localPath` | yes | Where it lives on the machine ([forms](#localpath)) |
+| `localPath` | yes, except on a `dconf` entry | Where it lives on the machine ([forms](#localpath)) |
 | `platform` | yes | `common`, `windows` or `linux` ([details](#platform)) |
 | `description` | no | A note for people. The engines don't read it |
 | `sanitizeRules` | no | Placeholders that keep private values out of the repo ([details](#sanitizerules)) |
-| `type` | no | `file` (default) or `dir` ([details](#type-dir)) |
+| `type` | no | `file` (default), `dir` ([details](#type-dir)) or `dconf` ([details](#type-dconf)) |
+| `path` | on a `dconf` entry | The dconf folder to sync ([details](#type-dconf)) |
+| `keys` | no | `dconf` entries only: which keys to keep ([details](#choosing-keys)) |
 | `detectLinkedPaths` | no | Windows only: also sync folders the file mentions ([details](#detectlinkedpaths)) |
 
 ## `platform`
@@ -140,6 +142,60 @@ Syncs a whole folder, recursively.
 - A `dir` entry can't contain another entry, not even another `dir`. CI lint fails if an entry's `repoPath` is inside
   a `dir` entry's `repoPath`.
 - A local folder with nothing to sync keeps the repo files: the entry is `SKIPPED` and nothing is deleted.
+
+## `type: dconf`
+
+Syncs one folder of GNOME settings with one `.ini` file. Linux only. It needs `dconf-cli`.
+
+```json
+{
+  "repoPath": "dotfiles/linux/gnome/dconf/shell.ini",
+  "path": "/org/gnome/shell/",
+  "type": "dconf",
+  "platform": "linux",
+  "description": "Dock favorites, extensions, shell shortcuts",
+  "keys": ["favorite-apps", "enabled-extensions", "disabled-extensions", "keybindings/*"]
+}
+```
+
+| Field | Rule |
+|---|---|
+| `path` | Starts and ends with `/`, with letters, digits, `.`, `_` or `-` in its segments and no `..` segment. `/` alone is refused |
+| `platform` | Must be `linux` |
+| `repoPath` | One `.ini` file under `dotfiles/linux/`. Export owns it, so don't edit it by hand |
+| `localPath`, `sanitizeRules`, `detectLinkedPaths` | Not allowed. CI lint fails if any is set |
+
+Import merges the file into the folder: it asks before changing anything, saves a backup in
+`~/.local/state/sync-settings/dconf/`, and leaves keys the file doesn't name. It has to run in a terminal on the desktop,
+because `dconf load` needs the session bus. [sync-contract.md](sync-contract.md#dconf-entries-type-dconf) has the full rules.
+
+### Choosing `keys`
+
+`keys` is a list of globs matched against a key's name relative to `path`: `font-name`, or `Profiles/abc/label` in a
+subfolder. `*` also matches `/`, so `keybindings/*` covers everything below `keybindings`. Without `keys`, the whole
+folder goes.
+
+Leave `keys` out only for a narrow folder that holds nothing but preferences.
+
+> [!WARNING]
+> The repo is public, and the leak scan can't recognize coordinates or shell history. Don't sync a folder without reading
+> its dump first: `/org/gnome/settings-daemon/plugins/color/` holds your latitude and longitude, and `/org/gnome/shell/`
+> can hold `command-history`.
+
+> [!NOTE]
+> A filtered entry won't pick up a new key. Add it to `keys`, then export.
+
+### Adding a dconf folder
+
+To find a key's real name, run `dconf watch /`, change the setting in its app, and read the path it prints. Read the folder
+before you add it:
+
+```bash
+dconf dump /org/gnome/settings-daemon/plugins/media-keys/
+```
+
+Add an entry for it, such as `media-keys.ini` with that `path`, then follow [Adding an entry](#adding-an-entry).
+[layout.md](layout.md#which-dconf-settings-are-synced) lists what's synced and what's left out on purpose.
 
 ## `detectLinkedPaths`
 

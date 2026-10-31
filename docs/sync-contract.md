@@ -28,6 +28,8 @@ flowchart LR
 - **Import** reads every selected entry's repo file and hydrates its placeholders. If the local file differs, import
   asks before overwriting it (unless forced) and keeps a `.bak` copy of the old file.
 
+A [dconf entry](#dconf-entries-type-dconf) follows the same flow with a dconf folder in place of the local file.
+
 ## Entry selection
 
 Each entry in `files` has a required `platform`:
@@ -61,6 +63,14 @@ touches a file:
 
 ```text
 ERROR: sync-config.json: entry <repoPath> has an unsafe path.
+```
+
+A dconf entry has no `localPath`. Instead its `platform` must be `linux`, and its `path` must start and end with `/`, hold
+at least one segment of letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody
+dumps the whole database by accident.
+
+```text
+ERROR: sync-config.json: entry <repoPath> needs "platform": "linux" and a dconf path like /org/gnome/shell/.
 ```
 
 The bash engine also checks that `defaultEnv` matches `^[A-Za-z_][A-Za-z0-9_]*$`, because it uses the name to look up a
@@ -98,6 +108,9 @@ them.
 | Same content | `UNCHANGED` | |
 | Different content | `MODIFIED` | `sanitized` if the entry has rules |
 | `type: dir`: repo file no longer present locally | `REMOVED` | `no longer in source` |
+| `type: dconf`: `dconf` isn't installed | `SKIPPED` | `dconf not installed` |
+| `type: dconf`: nothing left after `keys` | `SKIPPED` | `no settings under <path>`; a repo file stays as it is |
+| `type: dconf`: `dconf dump` failed | `ERROR` | `dconf dump failed` |
 | Read, write or copy failed | `ERROR` | the reason |
 
 ### Import
@@ -111,6 +124,11 @@ them.
 | Different content, overwrite accepted | `UPDATED` | `backup saved as <name>.bak` |
 | Different content, user answered no | `SKIPPED` | `user skipped` |
 | `type: dir` or linked folder: local file not in the repo | `EXTRA` | `not in repo; kept` |
+| `type: dconf`: `dconf` isn't installed | `SKIPPED` | `dconf not installed` |
+| `type: dconf`: `HOME` isn't the login home | `SKIPPED` | `HOME is not the login home; dconf left alone` |
+| `type: dconf`: nothing set under `path` yet | `CREATED` | no prompt, no backup |
+| `type: dconf`: every repo key already has that value | `UNCHANGED` | nothing is loaded |
+| `type: dconf`: dump, backup or load failed | `ERROR` | `dconf dump failed`, `cannot create backup`, `dconf load failed` |
 | Read, write or copy failed | `ERROR` | the reason |
 
 ### Both
@@ -128,7 +146,7 @@ failed [check before pushing](#checks-before-pushing).
 Unless `--force` (bash) or `-Force` (PowerShell) is given, import asks `Overwrite <file>? [Y/n]` before it replaces a
 local file whose content differs. An empty answer means yes. In bash, end of input (for example `< /dev/null`) also
 counts as an empty answer, so a non-interactive run without `--force` overwrites. The `.bak` copy is still written.
-Force skips only the prompt, never the `.bak`.
+Force skips only the prompt, never the `.bak`. For a dconf entry, `<file>` is the entry's `path`.
 
 ## Sanitize and hydrate
 
@@ -180,6 +198,10 @@ Text is written byte for byte: no BOM, and trailing newlines are kept.
 Import copies the old local file to `<file>.bak` before overwriting it, replacing any older `.bak`, in every entry type.
 `*.bak` is in `excludePatterns`, so a `.bak` inside a synced directory is never exported.
 
+A dconf entry has no local file to sit next to, so its backup is `~/.local/state/sync-settings/dconf/<file>.bak`, where
+`<file>` is the name of the repo file. It holds the raw dump of `path`, written before each `UPDATED`. Loading it back
+restores the old values, but a key that had no value before keeps the repo's value, because a load never removes a key.
+
 ## Exclude patterns
 
 `excludePatterns` are globs matched against the local path's file name, or the end of the path. A match is skipped
@@ -214,6 +236,32 @@ PowerShell only. A folder detected in an entry's file is stored under `<repoPath
 - Each file inside follows the same compare, prompt and `.bak` rules as a plain entry on import, and `excludePatterns`
   apply to it.
 
+## dconf entries (`type: dconf`)
+
+Bash only. An entry with `"type": "dconf"` syncs one dconf folder with one `.ini` file. The Windows engine validates these
+entries and never runs them.
+
+- **Repo file.** Export owns it, so it is byte for byte what `dconf dump` prints, filtered by `keys`.
+- **`keys`.** An allowlist of shell globs matched against a key's name relative to `path`, such as `font-name` or
+  `Profiles/abc/label`. `*` also matches `/`. Without `keys`, the whole subtree goes. A section left with no keys is
+  dropped. A key nobody named stays out on purpose, because the repo is public and the leak scan can't recognize
+  coordinates or shell history.
+- **Export.** Compares bytes with the repo file. An empty result is `SKIPPED` and never touches the repo file. A failed
+  repo write is an `ERROR` for that entry, and the run moves on.
+- **Import merges; it never resets.** `dconf load` leaves keys the file doesn't name, so a key only the machine has
+  doesn't count as a difference. A key reset to its default on one machine disappears from the repo file, and another
+  machine keeps its old value.
+- **Login-home guard.** Import won't load when `$HOME` isn't the home in `getent passwd`. dconf writes go over the session
+  bus to a service that keeps the login session's `HOME`, so `HOME=$(mktemp -d) ./import.sh` would otherwise change the
+  real desktop. Export needs no guard: `dconf dump` reads the file under `$XDG_CONFIG_HOME`.
+- **Session bus.** Import needs the graphical session. From a text console, each entry that has to load reports `ERROR`
+  with `dconf load failed`. Export works without a bus.
+- **Bad repo file.** One invalid value fails the whole load, so no key of that entry is written.
+- **No `sanitizeRules` or `detectLinkedPaths`.** Lint fails on them, and on a `localPath`. A home path in a dump stops at
+  the leak scan.
+- **Leak scan.** An extension UUID has the shape of an address, so the `enabled-extensions` and `disabled-extensions` lines
+  of an `.ini` under `dotfiles/linux/gnome/dconf/` are exempt from the email rule. Every other line, file and suffix isn't.
+
 ## Checks before pushing
 
 Commit runs these after the check for changes outside the sync paths, and before it creates a branch or a commit. A
@@ -239,7 +287,7 @@ A search that cannot finish stops the commit too, with `ERROR: could not search 
 ## Orphan report
 
 At the end of an export, each engine lists every file under `dotfiles/` that no entry owns, as `ORPHAN`. A file is
-owned if it is an entry's `repoPath`, lies under a `dir` entry's `repoPath/`, or lies under `<repoPath>.linked/` of
+owned if it is the `repoPath` of a file or dconf entry, lies under a `dir` entry's `repoPath/`, or lies under `<repoPath>.linked/` of
 an entry with `detectLinkedPaths`. Entries for all platforms count, so both engines print the same list. The report
 never deletes anything, and never changes the change count or the exit code.
 
@@ -294,6 +342,7 @@ or `gh` on Linux, exits 1 and names what's wrong.
 | Exclude patterns | case-insensitive (`-like`) | case-sensitive |
 | End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes |
 | `detectLinkedPaths` | supported | not supported |
+| `type: dconf` | validated, never run | supported |
 | `-User <name>` (import into another profile, elevated) | supported | not supported |
 | File modes | not kept | kept (`cp -p`; mode copied for written text) |
 | Status line layout | `[WORD      ] label`, colored | `WORD       label` |
@@ -321,3 +370,4 @@ had the behavior.
 | Up-to-date check | step 18 | step 17 | |
 | Stop after a pull | step 18b | step 18a | |
 | Commit: branch + PR, stages `dotfiles/ packages/ sync-config.json` | yes | yes | phase 1 |
+| `type: dconf` | validates only | phase 5 | kept as a known difference |
