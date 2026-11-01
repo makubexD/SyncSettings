@@ -11,7 +11,12 @@ Out of scope: changes to bootstrap before the run. Fixes come from what the run 
 1. **GNOME Boxes on this PC.** A container already runs in CI and has no snaps or desktop session. A headless VM has no
    desktop session, so import and preview are skipped. Running on this PC isn't a fresh machine and changes the real setup.
 2. **The VM gets no secrets.** No DeepSeek key, SSH keys or GPG keys. Their steps are recorded as not tested, not as failures.
-3. **The run is manual.** It needs a desktop, a `sudo` password and personal values, so no step goes to the worker.
+3. **Claude drives the run.** Amended 2026-10-31 at the user's request, replacing a manual run. Claude builds the VM with
+   an unattended install in libvirt's session, so it also shows up in Boxes, and runs bootstrap in a terminal on the VM's
+   desktop, with SSH as the control channel. No step goes to the worker. The VM user is `vmtest`, so a hard-coded home
+   shows up. It has passwordless `sudo`, so the `sudo` prompt is not tested. `.user-values.json` is copied in with `<HOME>`
+   rewritten, so the value prompts are not tested either; the `Overwrite` prompts take Enter from end of input.
+   Only the `claude` and `gh` sign-ins stay with the user.
 
 ## Checked on this PC, 2026-10-31
 
@@ -37,10 +42,11 @@ sha256sum ubuntu-26.04.1-desktop-amd64.iso
 
 Expected: `601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f`.
 
-In Boxes, create a VM from the ISO with 4 CPUs, 6 GB RAM and a 60 GB disk. Install Ubuntu, sign in to the desktop, and
-take a snapshot in the VM's properties.
+Claude creates the VM from the ISO with 4 CPUs, 6 GB RAM and a 60 GB disk, installs Ubuntu with autoinstall, logs in to
+the desktop automatically, and takes a snapshot.
 
-Done when: the snapshot exists, and it's a clean desktop with nothing else installed.
+Done when: the snapshot exists, and it's a clean desktop with nothing else installed beyond `openssh-server`, which is
+the control channel.
 
 ### 2. Run bootstrap `[inline: manual, in the VM]`
 
