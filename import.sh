@@ -325,8 +325,6 @@ done 3< <(platform_entries)
 printf '\n  %s\n' "--------------------------------------------------"
 
 printf '\n  %d file(s) applied.\n\n' "$APPLIED"
-printf '  Link the scripts:\n'
-printf '    ln -sf ~/.claude/bin/* ~/.local/bin/\n'
 printf '  Then add DEEPSEEK_API_KEY to ~/.config/claude-workers/env (chmod 600).\n'
 
 printf '\n  %s\n\n' "--------------------------------------------------"

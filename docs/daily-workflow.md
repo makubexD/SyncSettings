@@ -108,7 +108,7 @@ Open the PR link. `review-gate` is red until you review it:
 
 1. Read the diff. Go through the checklist in the PR description.
 2. Add the `reviewed` label.
-3. When all three checks are green, merge.
+3. When all four checks are green, merge.
 
 Then update `master` on this machine:
 
