@@ -122,7 +122,7 @@ The first run on a clean VM passed at commit `3554ef1`, with no bootstrap bug fo
 | Fonts | 96 Nerd Font entries |
 | Links | `~/.local/bin` links point to `~/.claude/bin/*` |
 | `claude` | Starts, and `claude plugin list` shows the plugins without a sign-in |
-| `claude` and `gh auth login` sign-ins | Not tested, they need the user |
+| `claude` and `gh auth login` sign-ins | Done by the user in the VM. `claude` replied, and `gh auth status` shows the account logged in |
 
 What the unattended VM needs, for a rerun from the `clean-desktop` snapshot. The files are in `~/.local/share/bootstrap-vm`:
 
