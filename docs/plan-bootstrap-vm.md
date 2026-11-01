@@ -106,6 +106,34 @@ open a PR.
 
 Done when: the PR is merged, and phase 7 has no open items.
 
+## Result, 2026-10-31
+
+The first run on a clean VM passed at commit `3554ef1`, with no bootstrap bug found: exit 0, 136 installed, 0 skipped, no
+`ERROR`.
+
+| Check | Result |
+|---|---|
+| `./sync preview` after a reboot | Exit 0, leak scan clean, nothing to send. One `DRIFT`: `openssh-server`, the VM's control channel |
+| `--dry-run` | 0 `WOULD` lines |
+| Rerun of `./bootstrap/linux.sh` | Exit 0, 0 installed, 103 already there |
+| Snaps | `code` and `postman` installed |
+| VS Code | Opens, 73 of 73 extensions |
+| GNOME | Favorites and `clipboard-history` are back |
+| Fonts | 96 Nerd Font entries |
+| Links | `~/.local/bin` links point to `~/.claude/bin/*` |
+| `claude` | Starts, and `claude plugin list` shows the plugins without a sign-in |
+| `claude` and `gh auth login` sign-ins | Not tested, they need the user |
+
+What the unattended VM needs, for a rerun from the `clean-desktop` snapshot. The files are in `~/.local/share/bootstrap-vm`:
+
+- **Network:** libvirt's `passt` backend gave the guest no IPv4 address, so the VM uses QEMU user networking. The SSH forward
+  is added by `start.sh` and lasts as long as the VM process.
+- **`sudo`:** Ubuntu 26.04 ships `sudo-rs`, where `sudo -v` still asks for a password unless every matching rule has
+  `NOPASSWD`, so `%sudo` needs it too. This is not in the snapshot. Apply it before bootstrap, or the run stops at `sudo -v`.
+- **Desktop terminal:** a terminal started over SSH doesn't get the session's `PATH`, so check `claude` with the session's
+  environment. VS Code also needs `DISPLAY`, from `systemctl --user show-environment`.
+- **Autologin:** the keyring prompt in VS Code comes from autologin, with no login password to unlock it.
+
 ## After this
 
 Not part of this plan. Listed so the order survives a restart:
