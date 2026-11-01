@@ -33,8 +33,8 @@ If `export.bat` runs before W1, the whole `.gitconfig` lands in the common file 
 
 ## Fresh VM run of bootstrap
 
-- [ ] Fresh VM run of `./bootstrap/linux.sh`, ending in a clean `./sync preview` and the `docs/restore.md` checklist. Snaps,
-      VS Code and the desktop session can't run in the container check, so this is their first real test.
+- [ ] Sign in to `claude` and run `gh auth login` in the `bootstrap-vm` VM. The rest of the run passed on 2026-10-31; see
+      the result in `docs/plan-bootstrap-vm.md`.
 
 ## Roll back Claude auto-approval when development is done
 

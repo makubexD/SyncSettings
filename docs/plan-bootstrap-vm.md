@@ -11,7 +11,12 @@ Out of scope: changes to bootstrap before the run. Fixes come from what the run 
 1. **GNOME Boxes on this PC.** A container already runs in CI and has no snaps or desktop session. A headless VM has no
    desktop session, so import and preview are skipped. Running on this PC isn't a fresh machine and changes the real setup.
 2. **The VM gets no secrets.** No DeepSeek key, SSH keys or GPG keys. Their steps are recorded as not tested, not as failures.
-3. **The run is manual.** It needs a desktop, a `sudo` password and personal values, so no step goes to the worker.
+3. **Claude drives the run.** Amended 2026-10-31 at the user's request, replacing a manual run. Claude builds the VM with
+   an unattended install in libvirt's session, so it also shows up in Boxes, and runs bootstrap in a terminal on the VM's
+   desktop, with SSH as the control channel. No step goes to the worker. The VM user is `vmtest`, so a hard-coded home
+   shows up. It has passwordless `sudo`, so the `sudo` prompt is not tested. `.user-values.json` is copied in with `<HOME>`
+   rewritten, so the value prompts are not tested either; the `Overwrite` prompts take Enter from end of input.
+   Only the `claude` and `gh` sign-ins stay with the user.
 
 ## Checked on this PC, 2026-10-31
 
@@ -37,10 +42,11 @@ sha256sum ubuntu-26.04.1-desktop-amd64.iso
 
 Expected: `601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f`.
 
-In Boxes, create a VM from the ISO with 4 CPUs, 6 GB RAM and a 60 GB disk. Install Ubuntu, sign in to the desktop, and
-take a snapshot in the VM's properties.
+Claude creates the VM from the ISO with 4 CPUs, 6 GB RAM and a 60 GB disk, installs Ubuntu with autoinstall, logs in to
+the desktop automatically, and takes a snapshot.
 
-Done when: the snapshot exists, and it's a clean desktop with nothing else installed.
+Done when: the snapshot exists, and it's a clean desktop with nothing else installed beyond `openssh-server`, which is
+the control channel.
 
 ### 2. Run bootstrap `[inline: manual, in the VM]`
 
@@ -99,6 +105,34 @@ On a branch, remove the "Fresh VM run of bootstrap" section from `TODO.md` and a
 open a PR.
 
 Done when: the PR is merged, and phase 7 has no open items.
+
+## Result, 2026-10-31
+
+The first run on a clean VM passed at commit `3554ef1`, with no bootstrap bug found: exit 0, 136 installed, 0 skipped, no
+`ERROR`.
+
+| Check | Result |
+|---|---|
+| `./sync preview` after a reboot | Exit 0, leak scan clean, nothing to send. One `DRIFT`: `openssh-server`, the VM's control channel |
+| `--dry-run` | 0 `WOULD` lines |
+| Rerun of `./bootstrap/linux.sh` | Exit 0, 0 installed, 103 already there |
+| Snaps | `code` and `postman` installed |
+| VS Code | Opens, 73 of 73 extensions |
+| GNOME | Favorites and `clipboard-history` are back |
+| Fonts | 96 Nerd Font entries |
+| Links | `~/.local/bin` links point to `~/.claude/bin/*` |
+| `claude` | Starts, and `claude plugin list` shows the plugins without a sign-in |
+| `claude` and `gh auth login` sign-ins | Not tested, they need the user |
+
+What the unattended VM needs, for a rerun from the `clean-desktop` snapshot. The files are in `~/.local/share/bootstrap-vm`:
+
+- **Network:** libvirt's `passt` backend gave the guest no IPv4 address, so the VM uses QEMU user networking. The SSH forward
+  is added by `start.sh` and lasts as long as the VM process.
+- **`sudo`:** Ubuntu 26.04 ships `sudo-rs`, where `sudo -v` still asks for a password unless every matching rule has
+  `NOPASSWD`, so `%sudo` needs it too. This is not in the snapshot. Apply it before bootstrap, or the run stops at `sudo -v`.
+- **Desktop terminal:** a terminal started over SSH doesn't get the session's `PATH`, so check `claude` with the session's
+  environment. VS Code also needs `DISPLAY`, from `systemctl --user show-environment`.
+- **Autologin:** the keyring prompt in VS Code comes from autologin, with no login password to unlock it.
 
 ## After this
 
