@@ -3,7 +3,7 @@
 ## Windows checks after phases 3 and 4
 
 CI runs the engines on a fake profile, so these need the real Windows machine. Run them in this order: W0 can only pass
-before W1. `docs/plan-restructure-3.md` has the full table.
+before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expected results.
 
 - [ ] **W0** Old layout still matches the machine, which also covers substep 5 of step 18 in
       `docs/plan-safety-fixes.md` and step 20.7 of `docs/plan-restructure-2.md`. Run `git fetch`,
@@ -17,11 +17,12 @@ before W1. `docs/plan-restructure-3.md` has the full table.
 - [ ] **W3** Round trip. Run `export.bat`. Expect "Repo is up to date" and no `ORPHAN`, including the `common` Claude
       files.
 - [ ] **W4** Apps. Open Git Bash and run `vs`; open Windows Terminal. Expect the alias to work and the settings to load.
-- [ ] **W5** PR flow. With the next real change, run `export.bat`, `commit.bat`. Expect a PR from a `sync/windows-…`
-      branch with `dotfiles/windows/` paths in it.
+- [ ] **W5** PR flow. With a test edit to `~/.bashrc`, run `export.bat`, `commit.bat`. Expect a PR from a `sync/windows-…`
+      branch with `dotfiles/windows/` paths in it. Close it without merging and undo the edit.
 - [ ] **W6** Global git ignore, from phase 4. Create `~/.config/git`, run `import.bat`, and expect `CREATED` or
       `UNCHANGED` for `dotfiles/common/git/ignore`. Then `git check-ignore -v` on a path named
-      `.claude/settings.local.json` shows the rule. If the folder is missing, import reports `SKIPPED`.
+      `.claude/settings.local.json`, in a throwaway repo, shows the rule. In this repo it shows `.gitignore` instead. If
+      the folder is missing, import reports `SKIPPED`.
 - [ ] Delete this section when all of them pass.
 
 If W0 reports changes, those are Windows edits the repo doesn't have. Note the files, run `git restore dotfiles`,
