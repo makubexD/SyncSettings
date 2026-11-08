@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
-# One command for the sync flow: preview, export, commit, import.
+# One command for the sync flow: status, doctor, preview, export, commit, import.
 set -euo pipefail
 
-cd "$(dirname "$0")"
+# Resolve the script through a symlink (mksync on PATH) before changing the
+# working directory, so every relative path below is the repo's.
+cd "$(dirname "$(readlink -f "$0")")"
+REPO_ROOT=$PWD
 
 usage() {
-    printf 'usage: ./sync <preview|export|commit|import> [options]\n'
+    printf 'usage: mksync [command] [options]\n'
+    printf '  (none)   show where this machine stands and what to run next\n'
+    printf '  doctor   check the tools and the setup\n'
+    printf '  setup    first run on this machine\n'
+    printf '  pull     get the latest repo and apply it here\n'
+    printf "  push     send this machine's changes as a PR\n"
+    printf '  preview | export | commit | import   the single steps\n'
 }
 
 # Windows shells hand over to the batch wrapper; cmd.exe needs // so it does not
@@ -17,8 +26,8 @@ case $(uname -s 2>/dev/null || printf 'Linux') in
 esac
 
 if (( $# == 0 )); then
-    usage
-    printf '  Detected: linux\n'
+    source "$REPO_ROOT/scripts/linux/front.sh"
+    front_status
     exit 0
 fi
 
@@ -30,6 +39,23 @@ case $COMMAND in
         usage
         printf '  Detected: linux\n'
         exit 0
+        ;;
+    status)
+        source "$REPO_ROOT/scripts/linux/front.sh"
+        front_status
+        exit 0
+        ;;
+    doctor)
+        # No require_tool before this: doctor must run with tools missing.
+        source "$REPO_ROOT/scripts/linux/front.sh"
+        if front_doctor; then
+            exit 0
+        fi
+        exit 1
+        ;;
+    setup|pull|push)
+        printf 'Not implemented yet.\n'
+        exit 1
         ;;
     preview|export|import|commit) ;;
     *)
@@ -48,7 +74,7 @@ require_tool() {
 
 require_tool git
 require_tool jq
-if [[ $COMMAND == commit ]]; then
+if [[ $COMMAND == commit || $COMMAND == push ]]; then
     require_tool gh
 fi
 
