@@ -54,8 +54,11 @@ case $COMMAND in
         exit 1
         ;;
     setup)
-        printf 'Not implemented yet.\n'
-        exit 1
+        # Runs before require_tool, like doctor: setup reports missing tools
+        # itself and needs no gh.
+        source "$REPO_ROOT/scripts/linux/front.sh"
+        front_setup "$@"
+        exit 0
         ;;
     preview|export|import|commit|pull|push) ;;
     *)

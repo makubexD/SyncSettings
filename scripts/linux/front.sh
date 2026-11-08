@@ -276,6 +276,71 @@ front_push() {
     exec "$REPO_ROOT/commit.sh"
 }
 
+# First run on this machine: doctor, the read-only import check, the optional
+# Ubuntu bootstrap, then apply the check's changes unless declined. `--yes`
+# answers the apply question only; bootstrap uses sudo, so it takes --bootstrap
+# or a real yes.
+front_setup() {
+    local apply_yes=0 bootstrap=0 apply=1 answer='' rc=0 os_id='' check_rc=0
+
+    while (( $# > 0 )); do
+        case $1 in
+            --yes) apply_yes=1; shift ;;
+            --bootstrap) bootstrap=1; shift ;;
+            *)
+                printf 'Unknown option: %s\n' "$1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    rc=0
+    front_doctor || rc=$?
+    if (( rc != 0 )); then
+        exit 1
+    fi
+
+    rc=0
+    "$REPO_ROOT/import.sh" --check < /dev/null || rc=$?
+    case $rc in
+        0|3) check_rc=$rc ;;
+        *) exit 1 ;;
+    esac
+
+    os_id=$(front_os_release_value ID)
+    if [[ $os_id == ubuntu && -x $REPO_ROOT/bootstrap/linux.sh ]]; then
+        if (( bootstrap )); then
+            exec "$REPO_ROOT/bootstrap/linux.sh"
+        fi
+        printf '  Also restore apps and packages from packages/linux (uses sudo)? [y/N] '
+        read -r answer || answer=''
+        if [[ -n $answer && $answer == [Yy]* ]]; then
+            exec "$REPO_ROOT/bootstrap/linux.sh"
+        fi
+    fi
+
+    if (( check_rc == 3 )); then
+        if (( ! apply_yes )); then
+            printf '  Apply these changes? [Y/n] '
+            read -r answer || answer=''
+            if [[ -n $answer && $answer != [Yy]* ]]; then
+                printf '  Nothing applied.\n'
+                apply=0
+            fi
+        fi
+        if (( apply )); then
+            rc=0
+            "$REPO_ROOT/import.sh" --force || rc=$?
+            if (( rc != 0 )); then
+                exit "$rc"
+            fi
+        fi
+    fi
+
+    printf '  Setup done. Run mksync any time to see where this machine stands.\n'
+    return 0
+}
+
 # One OK, WARN or MISSING line per check. Returns 1 when a MISSING line printed.
 front_doctor() {
     local missing=0 tool pkg hint gh_bin version count
