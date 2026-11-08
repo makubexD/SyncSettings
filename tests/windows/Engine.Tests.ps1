@@ -2410,6 +2410,255 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Not -Match ([regex]::Escape('IMPORT CHECK'))
         }
     }
+
+    # -- Installer --------------------------------------------------------------
+
+    Context 'Installer' {
+        BeforeAll {
+            # Engine + fixtures + wrappers + install.ps1 committed on master and
+            # pushed to a bare origin the installer clones from. The install
+            # folder and its bin folder are separate temp paths.
+            function Initialize-InstallRepo {
+                Copy-EngineToRepo
+                Copy-RepoDotfiles
+                Copy-SyncWrappers
+                Copy-Item -Path (Join-Path $Script:TestRepo 'install.ps1') -Destination $script:RepoDir -Force
+                New-GitRepo
+                $script:InstallOrigin = Join-Path $script:T 'origin.git'
+                $script:InstallDir = Join-Path $script:T 'install'
+                $script:InstallBin = Join-Path $script:T 'install-bin'
+            }
+
+            # Points every SYNCSETTINGS_* variable at the temp folders. A $null
+            # in -Settings removes that variable (the setup case clears
+            # SYNCSETTINGS_NO_SETUP); yes is the default, so no case prompts.
+            function Set-InstallSettings {
+                param([hashtable]$Settings = @{})
+                $config = @{
+                    SYNCSETTINGS_REPO_URL = $script:InstallOrigin
+                    SYNCSETTINGS_DIR = $script:InstallDir
+                    SYNCSETTINGS_REF = 'master'
+                    SYNCSETTINGS_BIN = $script:InstallBin
+                    SYNCSETTINGS_YES = '1'
+                    SYNCSETTINGS_NO_SETUP = '1'
+                }
+                foreach ($name in @($Settings.Keys)) {
+                    $config[$name] = $Settings[$name]
+                }
+                foreach ($name in @($config.Keys)) {
+                    if ($null -eq $config[$name]) {
+                        [Environment]::SetEnvironmentVariable($name, $null)
+                    } else {
+                        [Environment]::SetEnvironmentVariable($name, [string]$config[$name])
+                    }
+                }
+            }
+
+            # Runs install.ps1 the way the tests can: powershell.exe -File, so
+            # its last line exits with Install-SyncSettings' code.
+            function Invoke-Install {
+                param([hashtable]$Settings = @{})
+                Set-InstallSettings -Settings $Settings
+                $script:InstallScriptPath = Join-Path $script:RepoDir 'install.ps1'
+                $script:InstallOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:InstallScriptPath 2>&1 | Out-String
+                $script:InstallExit = $LASTEXITCODE
+            }
+
+            # A cut-off download: every line but the last call runs through
+            # Invoke-Expression, so the child sees $PSCommandPath unset.
+            function Invoke-InstallPartial {
+                Set-InstallSettings
+                $text = [IO.File]::ReadAllText((Join-Path $script:RepoDir 'install.ps1')).TrimEnd("`r", "`n")
+                $lines = $text -split "`r?`n"
+                $partialPath = Join-Path $script:T 'install-cut-off.ps1'
+                $partial = $lines[0..($lines.Count - 2)] -join "`r`n"
+                [IO.File]::WriteAllText($partialPath, $partial, [System.Text.UTF8Encoding]::new($false))
+                $env:SYNC_INSTALL_PARTIAL = $partialPath
+                try {
+                    $script:InstallOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'Invoke-Expression ([IO.File]::ReadAllText($env:SYNC_INSTALL_PARTIAL))' 2>&1 | Out-String
+                    $script:InstallExit = $LASTEXITCODE
+                } finally {
+                    Remove-Item Env:\SYNC_INSTALL_PARTIAL -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        BeforeEach {
+            # The installer writes the bin folder into the user Path; keep the
+            # real one and put it back after every case.
+            $script:SavedUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+            $script:SavedLocalAppData = $env:LOCALAPPDATA
+            $script:SavedWingetLog = $env:WINGET_LOG
+            $script:SavedInstallEnv = @{}
+            foreach ($name in @('SYNCSETTINGS_REPO_URL', 'SYNCSETTINGS_DIR', 'SYNCSETTINGS_REF',
+                    'SYNCSETTINGS_BIN', 'SYNCSETTINGS_YES', 'SYNCSETTINGS_NO_SETUP')) {
+                $script:SavedInstallEnv[$name] = [Environment]::GetEnvironmentVariable($name)
+            }
+            $env:LOCALAPPDATA = Join-Path $script:T 'localappdata'
+            $null = New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force
+
+            # A winget that only logs its arguments, first on PATH: no case can
+            # reach the real winget or the network behind it.
+            $script:WingetBinDir = Join-Path $script:T 'winget-bin'
+            $null = New-Item -ItemType Directory -Path $script:WingetBinDir -Force
+            $script:WingetLog = Join-Path $script:T 'winget.log'
+            $body = "@echo off`r`necho %*>> `"%WINGET_LOG%`"`r`n"
+            [IO.File]::WriteAllText((Join-Path $script:WingetBinDir 'winget.cmd'), $body, [Text.Encoding]::ASCII)
+            $env:WINGET_LOG = $script:WingetLog
+            $env:PATH = "$script:WingetBinDir;$env:PATH"
+
+            # A stub gh as well, so no case reaches the real one; the
+            # missing-gh case builds its own PATH without this folder.
+            New-GhStub
+        }
+
+        AfterEach {
+            if ($null -eq $script:SavedUserPath) {
+                [Environment]::SetEnvironmentVariable('Path', $null, 'User')
+            } else {
+                [Environment]::SetEnvironmentVariable('Path', $script:SavedUserPath, 'User')
+            }
+            if ($null -eq $script:SavedLocalAppData) {
+                Remove-Item Env:\LOCALAPPDATA -ErrorAction SilentlyContinue
+            } else {
+                $env:LOCALAPPDATA = $script:SavedLocalAppData
+            }
+            if ($null -eq $script:SavedWingetLog) {
+                Remove-Item Env:\WINGET_LOG -ErrorAction SilentlyContinue
+            } else {
+                $env:WINGET_LOG = $script:SavedWingetLog
+            }
+            foreach ($name in @($script:SavedInstallEnv.Keys)) {
+                [Environment]::SetEnvironmentVariable($name, $script:SavedInstallEnv[$name])
+            }
+        }
+
+        It 'install fresh' {
+            Initialize-InstallRepo
+
+            Invoke-Install -Settings @{ SYNCSETTINGS_NO_SETUP = '1' }
+
+            $script:InstallExit | Should -Be 0
+            $script:InstallOut | Should -Match ([regex]::Escape('Cloned into'))
+            $script:InstallOut | Should -Match ([regex]::Escape('Installed.'))
+
+            $launcher = Join-Path $script:InstallBin 'mksync.cmd'
+            $launcher | Should -Exist
+            $lines = [IO.File]::ReadAllLines($launcher)
+            $lines[0].Trim() | Should -Be '@echo off'
+            $lines[1].Trim() | Should -Be 'rem SyncSettings launcher'
+
+            $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+            $userPath | Should -Match ([regex]::Escape($script:InstallBin))
+        }
+
+        It 'install update' {
+            Initialize-InstallRepo
+
+            Invoke-Install -Settings @{ SYNCSETTINGS_NO_SETUP = '1' }
+            $script:InstallExit | Should -Be 0
+
+            # A second clone pushes one commit, so the install folder is behind.
+            $ErrorActionPreference = 'Continue'
+            $other = Join-Path $script:T 'other'
+            git clone -q $script:InstallOrigin $other 2>$null
+            [IO.File]::WriteAllText(
+                (Join-Path $other 'update.txt'),
+                "second`n",
+                [System.Text.UTF8Encoding]::new($false))
+            git -C $other add -A 2>$null
+            git -C $other -c user.name=t -c user.email=t@example.com commit -q -m second 2>$null
+            git -C $other push -q origin master 2>$null
+
+            Invoke-Install -Settings @{ SYNCSETTINGS_NO_SETUP = '1' }
+
+            $script:InstallExit | Should -Be 0
+            $script:InstallOut | Should -Match ([regex]::Escape('Updated'))
+            $head = (git -C $script:InstallDir rev-parse HEAD 2>$null | Out-String).Trim()
+            $originHead = (git -C $other rev-parse HEAD 2>$null | Out-String).Trim()
+            $head | Should -Be $originHead
+        }
+
+        It 'install not a clone' {
+            Initialize-InstallRepo
+
+            $null = New-Item -ItemType Directory -Path $script:InstallDir -Force
+            $keep = Join-Path $script:InstallDir 'keep.txt'
+            [IO.File]::WriteAllText($keep, "keep`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Install -Settings @{ SYNCSETTINGS_NO_SETUP = '1' }
+
+            $script:InstallExit | Should -Be 1
+            $script:InstallOut | Should -Match ([regex]::Escape("exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR"))
+            ([IO.File]::ReadAllText($keep)) | Should -BeExactly "keep`n"
+        }
+
+        It 'install launcher conflict' {
+            Initialize-InstallRepo
+
+            $null = New-Item -ItemType Directory -Path $script:InstallBin -Force
+            $launcher = Join-Path $script:InstallBin 'mksync.cmd'
+            $original = "@echo off`r`necho mine`r`n"
+            [IO.File]::WriteAllText($launcher, $original, [Text.Encoding]::ASCII)
+
+            Invoke-Install -Settings @{ SYNCSETTINGS_NO_SETUP = '1' }
+
+            $script:InstallExit | Should -Be 1
+            $script:InstallOut | Should -Match ([regex]::Escape('already exists; remove it and run this again.'))
+            ([IO.File]::ReadAllText($launcher)) | Should -BeExactly $original
+        }
+
+        It 'install missing gh yes' {
+            Initialize-InstallRepo
+
+            # A PATH with git and the winget stub but no gh, so only gh is
+            # missing and the yes answer installs it.
+            $gitCommand = Get-Command git -CommandType Application | Select-Object -First 1
+            $gitDir = Split-Path -Parent $gitCommand.Source
+            $savedPath = $env:PATH
+            $env:PATH = @(
+                $script:WingetBinDir,
+                $gitDir,
+                (Join-Path $env:SystemRoot 'System32'),
+                (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0')
+            ) -join ';'
+            try {
+                Invoke-Install -Settings @{ SYNCSETTINGS_YES = '1'; SYNCSETTINGS_NO_SETUP = '1' }
+            } finally {
+                $env:PATH = $savedPath
+            }
+
+            $script:InstallExit | Should -Be 0
+            (Get-Content -LiteralPath $script:WingetLog -Raw) | Should -Match ([regex]::Escape('GitHub.cli'))
+        }
+
+        It 'install partial' {
+            Initialize-InstallRepo
+
+            Invoke-InstallPartial
+
+            $script:InstallExit | Should -Be 0
+            $script:InstallDir | Should -Not -Exist
+            (Join-Path $script:InstallBin 'mksync.cmd') | Should -Not -Exist
+        }
+
+        It 'install runs setup' {
+            Initialize-InstallRepo
+
+            # The temp profile has the fixture folder but not the file, so setup
+            # applies a CREATE. (Windows import skips a missing folder.)
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            $null = New-Item -ItemType Directory -Path (Split-Path $winConf -Parent) -Force
+            $winConf | Should -Not -Exist
+
+            Invoke-Install -Settings @{ SYNCSETTINGS_YES = '1'; SYNCSETTINGS_NO_SETUP = $null }
+
+            $script:InstallExit | Should -Be 0
+            $script:InstallOut | Should -Match ([regex]::Escape('Setup done.'))
+            $script:InstallOut | Should -Match ([regex]::Escape('Installed.'))
+            $winConf | Should -Exist
+        }
+    }
 }
 
 Describe 'Request-MissingValues' {
