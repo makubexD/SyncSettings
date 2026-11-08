@@ -7,22 +7,36 @@ source scripts/linux/sync.sh
 
 FORCE=0
 RESET_VALUES=0
+CHECK=0
 for arg in "$@"; do
     case $arg in
         --force) FORCE=1 ;;
         --reset-values) RESET_VALUES=1 ;;
-        *) printf 'Unknown option: %s\nUsage: import.sh [--force] [--reset-values]\n' "$arg" >&2; exit 1 ;;
+        --check) CHECK=1 ;;
+        *) printf 'Unknown option: %s\nUsage: import.sh [--force] [--reset-values] [--check]\n' "$arg" >&2; exit 1 ;;
     esac
 done
 
+if (( CHECK && RESET_VALUES )); then
+    printf 'ERROR: --check cannot be combined with --reset-values.\n' >&2
+    exit 1
+fi
+
 APPLIED=0
 SKIPPED=0
+CHANGED=0
 
-printf '\n  SyncSettings -- IMPORT (linux)\n\n'
+if (( CHECK )); then
+    printf '\n  SyncSettings -- IMPORT CHECK (linux)\n\n'
+else
+    printf '\n  SyncSettings -- IMPORT (linux)\n\n'
+fi
 printf '  HOME       : %s\n' "$HOME"
 printf '  Repo root  : %s\n\n' "$REPO_ROOT"
 
-check_upstream
+if (( ! CHECK )); then
+    check_upstream
+fi
 
 # -- Collect sanitize rules from linux entries whose repo file exists -----------
 
@@ -38,13 +52,43 @@ while IFS= read -r entry; do
     fi
 done < <(platform_entries)
 
+# In a check, values still missing take the rule's default, then its defaultEnv
+# value, in memory only: no prompt and no .user-values.json write.
+apply_value_defaults() {
+    local rules=$1 placeholder rule_default rule_defenv
+    while IFS= read -r -d '' placeholder <&4 && IFS= read -r -d '' rule_default <&4 &&
+          IFS= read -r -d '' rule_defenv <&4; do
+        [[ -n $placeholder ]] || continue
+        [[ -z ${USER_VALUES[$placeholder]:-} ]] || continue
+        if [[ -n $rule_default ]]; then
+            USER_VALUES[$placeholder]=$rule_default
+        elif [[ -n $rule_defenv && -n ${!rule_defenv:-} ]]; then
+            USER_VALUES[$placeholder]=${!rule_defenv}
+        fi
+    done 4< <(jq -j '.[] | .placeholder, "\u0000", (.default // "" | tostring), "\u0000",
+                          (.defaultEnv // ""), "\u0000"' <<<"$rules")
+}
+
+# True when every placeholder in the rules has a value, so hydrate can fill it.
+values_ready() {
+    local rules=$1 placeholder
+    while IFS= read -r -d '' placeholder; do
+        [[ -n ${USER_VALUES[$placeholder]:-} ]] || return 1
+    done < <(jq -j '.[] | .placeholder, "\u0000"' <<<"$rules")
+    return 0
+}
+
 load_values
 if [[ $ALL_RULES != '[]' ]]; then
     if [[ $RESET_VALUES != 1 ]]; then
         infer_values "$(platform_entries)"
     fi
-    request_values import "$RESET_VALUES" "$ALL_RULES"
-    save_values
+    if (( CHECK )); then
+        apply_value_defaults "$ALL_RULES"
+    else
+        request_values import "$RESET_VALUES" "$ALL_RULES"
+        save_values
+    fi
 fi
 
 # -- Process each entry ---------------------------------------------------------
@@ -60,6 +104,12 @@ apply_plain() {
     if [[ -f $local_file ]]; then
         if cmp -s "$repo_file" "$local_file"; then
             status UNCHANGED "$label"
+            return 0
+        fi
+
+        if (( CHECK )); then
+            status UPDATE "$label"
+            CHANGED=$((CHANGED + 1))
             return 0
         fi
 
@@ -86,6 +136,11 @@ apply_plain() {
         status UPDATED "$label" "backup saved as ${backup##*/}"
         APPLIED=$((APPLIED + 1))
     else
+        if (( CHECK )); then
+            status CREATE "$label"
+            CHANGED=$((CHANGED + 1))
+            return 0
+        fi
         if ! cp -p "$repo_file" "$local_file"; then
             status ERROR "$label" 'cannot copy from repo'
             return 1
@@ -120,7 +175,7 @@ process_entry() {
     fi
 
     local_dir=${local_file%/*}
-    if [[ ! -d $local_dir ]]; then
+    if (( ! CHECK )) && [[ ! -d $local_dir ]]; then
         if ! mkdir -p "$local_dir"; then
             status ERROR "$label" "cannot create $local_dir"
             return 1
@@ -128,6 +183,12 @@ process_entry() {
     fi
 
     if [[ $rules != '[]' ]]; then
+        if (( CHECK )) && ! values_ready "$rules"; then
+            status SKIPPED "$label" 'needs values: run mksync setup'
+            CHANGED=$((CHANGED + 1))
+            return 0
+        fi
+
         local repo_text
         read_text repo_text "$repo_file" || { status ERROR "$label" 'cannot read repo file'; return 1; }
         hydrated=$(hydrate "$repo_text" "$rules"; printf x)
@@ -137,6 +198,12 @@ process_entry() {
             read_text local_text "$local_file" || { status ERROR "$label" 'cannot read local file'; return 1; }
             if same_normalized "$hydrated" "$local_text"; then
                 status UNCHANGED "$label"
+                return 0
+            fi
+
+            if (( CHECK )); then
+                status UPDATE "$label"
+                CHANGED=$((CHANGED + 1))
                 return 0
             fi
 
@@ -160,6 +227,11 @@ process_entry() {
             status UPDATED "$label" "backup saved as ${backup##*/}"
             APPLIED=$((APPLIED + 1))
         else
+            if (( CHECK )); then
+                status CREATE "$label"
+                CHANGED=$((CHANGED + 1))
+                return 0
+            fi
             write_text hydrated "$local_file" || { status ERROR "$label" 'cannot write local file'; return 1; }
             if ! chmod --reference="$repo_file" "$local_file"; then
                 status ERROR "$label" 'cannot copy file mode'
@@ -203,7 +275,7 @@ import_dir() {
             continue
         fi
 
-        if ! mkdir -p "${local_file%/*}"; then
+        if (( ! CHECK )) && ! mkdir -p "${local_file%/*}"; then
             status ERROR "$label" "cannot create ${local_file%/*}"
             continue
         fi
@@ -271,6 +343,19 @@ import_dconf() {
         return 0
     fi
 
+    if (( CHECK )); then
+        if [[ -z $current ]]; then
+            status CREATE "$repo_path"
+        elif [[ -n $(dconf_unapplied "$repo_file" "$current") ]]; then
+            status UPDATE "$repo_path"
+        else
+            status UNCHANGED "$repo_path"
+            return 0
+        fi
+        CHANGED=$((CHANGED + 1))
+        return 0
+    fi
+
     if [[ -n $current ]]; then
         if [[ -z $(dconf_unapplied "$repo_file" "$current") ]]; then
             status UNCHANGED "$repo_path"
@@ -323,6 +408,17 @@ done 3< <(platform_entries)
 # -- Summary ---------------------------------------------------------------------
 
 printf '\n  %s\n' "--------------------------------------------------"
+
+if (( CHECK )); then
+    if (( CHANGED == 0 )); then
+        printf '\n  This machine matches the repo.\n'
+        printf '\n  %s\n\n' "--------------------------------------------------"
+        exit 0
+    fi
+    printf '\n  %d file(s) would change. Run mksync pull to apply.\n' "$CHANGED"
+    printf '\n  %s\n\n' "--------------------------------------------------"
+    exit 3
+fi
 
 printf '\n  %d file(s) applied.\n\n' "$APPLIED"
 printf '  Then add DEEPSEEK_API_KEY to ~/.config/claude-workers/env (chmod 600).\n'

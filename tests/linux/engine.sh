@@ -546,6 +546,202 @@ case_import_eof_overwrites() {
         || fail "plain.txt.bak does not contain the old content"
 }
 
+# The check is a dry run: the same home and repo bytes before and after, with no
+# backup and no .user-values.json write.
+assert_check_dry() {
+    local home_before=$1 repo_before=$2
+    [[ $(tree_hash "$t/home") == "$home_before" ]] || fail "home changed during the check"
+    [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed during the check"
+    [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
+}
+
+case_import_check_writes_nothing() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+    rm "$t/home/.config/fixture/no-trailing.txt"
+
+    local home_before repo_before values_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+    values_before=$(sha256sum "$t/repo/.user-values.json")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status UPDATE dotfiles/linux/plain.txt || fail "missing UPDATE line for plain.txt"
+    output_has_status CREATE dotfiles/linux/no-trailing.txt || fail "missing CREATE line for no-trailing.txt"
+    grep -Fqx '  2 file(s) would change. Run mksync pull to apply.' "$out" \
+        || fail "missing the 'would change' summary line"
+
+    assert_check_dry "$home_before" "$repo_before"
+    [[ $(sha256sum "$t/repo/.user-values.json") == "$values_before" ]] \
+        || fail ".user-values.json changed during the check"
+}
+
+case_import_check_matches() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 0 )) || fail "import.sh --check exited $rc, want 0"
+    grep -Fq '  This machine matches the repo.' "$out" \
+        || fail "missing the 'matches the repo' summary line"
+    if grep -qE '^  (CREATE|UPDATE)[[:space:]]' "$out"; then
+        fail "check printed a changed status"
+    fi
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_sanitized() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 0 )) || fail "import.sh --check exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/named.conf \
+        || fail "missing UNCHANGED line for named.conf"
+
+    printf 'name = Someone Else\n' > "$t/home/.config/fixture/named.conf"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+    output_has_status UPDATE dotfiles/linux/named.conf \
+        || fail "missing UPDATE line for named.conf"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_needs_values() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    rm "$t/repo/.user-values.json"
+    mkdir -p "$t/home"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status SKIPPED dotfiles/linux/named.conf 'needs values: run mksync setup' \
+        || fail "missing the needs-values SKIPPED line"
+    if grep -Fq 'Enter values' "$out"; then
+        fail "check prompted for values"
+    fi
+    [[ ! -e "$t/repo/.user-values.json" ]] || fail ".user-values.json was created"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_dir() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'changed\n' > "$t/home/.config/fixture/dir/c.txt"
+    printf 'extra\n' > "$t/home/.config/fixture/dir/extra.txt"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status UPDATE dotfiles/common/dir/c.txt || fail "missing UPDATE line for dir/c.txt"
+    output_has_status EXTRA dotfiles/common/dir/extra.txt 'not in repo; kept' \
+        || fail "missing EXTRA line for dir/extra.txt"
+    grep -Fqx '  1 file(s) would change. Run mksync pull to apply.' "$out" \
+        || fail "EXTRA counted as a change"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_dconf() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    local home_before repo_before dump_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+    dump_before=$(on_test_bus dconf dump /test/app/)
+
+    run_engine_bus /dev/null import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+    output_has_status UPDATE dotfiles/linux/dconf/app.ini \
+        || fail "missing UPDATE line for the dconf entry"
+
+    [[ $(on_test_bus dconf dump /test/app/) == "$dump_before" ]] \
+        || fail "the dconf path changed during the check"
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_reset_rejected() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check --reset-values
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fq 'ERROR: --check cannot be combined with --reset-values.' "$out" \
+        || fail "missing the --check/--reset-values error"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_no_prompt() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine_input "$t/home" n import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+    if grep -Fq 'Overwrite ' "$out"; then
+        fail "check prompted"
+    fi
+    output_has_status UPDATE dotfiles/linux/plain.txt || fail "missing UPDATE line for plain.txt"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
 case_crlf_unchanged() {
     new_tmp
     setup_repo
@@ -4377,7 +4573,7 @@ case_drift_import_silent() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-no-prompt crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -4399,6 +4595,14 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         values-mode-tightened) case_values_mode_tightened ;;
         error-continues) case_error_continues ;;
         import-eof-overwrites) case_import_eof_overwrites ;;
+        import-check-writes-nothing) case_import_check_writes_nothing ;;
+        import-check-matches) case_import_check_matches ;;
+        import-check-sanitized) case_import_check_sanitized ;;
+        import-check-needs-values) case_import_check_needs_values ;;
+        import-check-dir) case_import_check_dir ;;
+        import-check-dconf) case_import_check_dconf ;;
+        import-check-reset-rejected) case_import_check_reset_rejected ;;
+        import-check-no-prompt) case_import_check_no_prompt ;;
         crlf-unchanged) case_crlf_unchanged ;;
         common-import) case_common_import ;;
         common-export) case_common_export ;;
