@@ -381,8 +381,74 @@ the machine.
 resolves to the right script for the OS, so `sync` and `sync.cmd` are the two front doors, and Git Bash on Windows hands
 over to `sync.cmd`. Options pass through unchanged. The `.sh` and `.bat` entry points still work.
 
-With no command, `sync` prints the usage and the detected OS and exits 0. An unknown command, or a missing `git`, `jq`
-or `gh` on Linux, exits 1 and names what's wrong.
+On Linux, `help` prints the usage and the detected OS and exits 0, and no command shows the [status](#front-door). An
+unknown command, or a missing `git`, `jq` or `gh` on Linux, exits 1 and names what's wrong. `doctor` runs before the
+tool checks, so it works with tools missing. On Windows, no command still prints the usage until phase 2 of
+[plan-easy-install.md](plan-easy-install.md).
+
+## Import check
+
+`import.sh --check` (bash only until phase 2) reports what an import would change and writes nothing: no file, folder,
+backup, mode, `.user-values.json` or dconf key, and no prompt.
+
+- The header says `IMPORT CHECK`. The up-to-date check doesn't run.
+- Values come from `.user-values.json` and inference from the local files, as in an import. A placeholder still
+  without a value takes the rule's `default`, then its `defaultEnv` value, in memory only. An entry with a placeholder
+  that still has no value is `SKIPPED` with `needs values: run mksync setup`, and counts as a change.
+- A file import would create is `CREATE`, one it would overwrite is `UPDATE`; both count as changes. A file in a
+  missing folder is a `CREATE`. `UNCHANGED`, `SKIPPED` and `EXTRA` are as in an import.
+- dconf runs the import's checks and `dconf dump`, which only reads. An empty dump is `CREATE`, keys the repo would
+  change are `UPDATE`.
+- No changes: `This machine matches the repo.` and exit 0. Changes: `<n> file(s) would change. Run mksync pull to
+  apply.` and exit 3. A failure exits 1.
+- `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing.
+
+## Front door
+
+`mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named `mksync` so it
+doesn't hide coreutils `sync`. Linux only until phase 2. Every `[Y/n]` prompt takes an empty answer or end of input as
+yes, every `[y/N]` prompt as no.
+
+| Command | Does | Exit |
+|---|---|---|
+| `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
+| `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. A `MISSING` line names the install command | 0, or 1 with a `MISSING` line |
+| `mksync pull [--yes]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then asks `Apply these changes? [Y/n]` and runs `import.sh --force` | 0, or 1 on an error |
+| `mksync push [--yes] [-m <msg>]` | Runs `export.sh`. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
+| `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull` | 0, or 1 on an error |
+
+`pull` and `push` need the clone on `master` with an `origin` remote. `--yes` answers the `[Y/n]` questions. It never
+answers the bootstrap question, because bootstrap uses `sudo`; `--bootstrap` does.
+
+Status lines and the next command, in this order of precedence:
+
+| State | Next |
+|---|---|
+| Not a git clone, or no origin | `run mksync doctor.` |
+| Origin has updates | `mksync pull` |
+| Exported changes not sent | `mksync push` |
+| The machine differs from the repo | `mksync pull to take the repo's version, or mksync push to send this machine's.` |
+| Otherwise | `nothing to do.` |
+
+`install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`:
+
+- Linux only; macOS, Windows shells and other systems stop with a message, exit 1.
+- Missing `git`, `jq` or `cmp`: offers `sudo apt-get install` where `apt-get` exists. Otherwise it names the packages
+  and exits 1.
+- Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone, or a
+  `mksync` that isn't its link, stops it without touching either.
+- Links `mksync`, prints the `PATH` line if needed, then runs `mksync setup` unless `--no-setup`.
+- The script is functions with `main "$@"` as its last line, so a cut-off download runs nothing.
+- Answers come from the terminal (`/dev/tty`) when stdin is the piped script.
+
+| Variable | Default |
+|---|---|
+| `SYNCSETTINGS_REPO_URL` | `https://github.com/makubexD/SyncSettings.git` |
+| `SYNCSETTINGS_DIR` | `$HOME/SyncSettings` |
+| `SYNCSETTINGS_REF` | `master` |
+| `SYNCSETTINGS_BIN` | `$HOME/.local/bin` |
+| `SYNCSETTINGS_TTY` | stdin if it's a terminal, else `/dev/tty` if readable, else `/dev/null` |
+| `SYNC_OS_RELEASE` (status, setup) | `/etc/os-release` |
 
 ## Known differences
 
