@@ -381,15 +381,16 @@ the machine.
 resolves to the right script for the OS, so `sync` and `sync.cmd` are the two front doors, and Git Bash on Windows hands
 over to `sync.cmd`. Options pass through unchanged. The `.sh` and `.bat` entry points still work.
 
-On Linux, `help` prints the usage and the detected OS and exits 0, and no command shows the [status](#front-door). An
-unknown command, or a missing `git`, `jq` or `gh` on Linux, exits 1 and names what's wrong. `doctor` runs before the
-tool checks, so it works with tools missing. On Windows, no command still prints the usage until phase 2 of
-[plan-easy-install.md](plan-easy-install.md).
+`help` prints the usage and the detected OS and exits 0, and no command shows the [status](#front-door), on both
+systems. An unknown command, or a missing `git`, `jq` or `gh` on Linux, exits 1 and names what's wrong. `doctor` runs
+before the tool checks, so it works with tools missing. On Windows, `sync.cmd` hands `status`, `doctor`, `setup`, `pull`
+and `push` to `scripts/windows/Front.ps1`, and maps `--yes` and `-m <msg>` to `-Yes` and `-Message <msg>`, so the Linux
+spelling works too.
 
 ## Import check
 
-`import.sh --check` (bash only until phase 2) reports what an import would change and writes nothing: no file, folder,
-backup, mode, `.user-values.json` or dconf key, and no prompt.
+`import.sh --check` and `Import-Settings.ps1 -Check` report what an import would change and write nothing: no file,
+folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
 
 - The header says `IMPORT CHECK`. The up-to-date check doesn't run.
 - Values come from `.user-values.json` and inference from the local files, as in an import. A placeholder still
@@ -402,23 +403,31 @@ backup, mode, `.user-values.json` or dconf key, and no prompt.
 - No changes: `This machine matches the repo.` and exit 0. Changes: `<n> file(s) would change. Run mksync pull to
   apply.` and exit 3. Any `ERROR` line ends with `<n> error(s); see the ERROR lines above.` and exit 1, so an entry
   that couldn't be checked never reads as a match.
-- `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing.
+- `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing. The PowerShell spellings
+  are `-Check`, `-ResetValues` and `-Force`.
+- Windows only: a target folder that's missing stays `SKIPPED` with `WARNING: target folder not found: <dir>` and is not
+  a change, because an import skips it too. `-Check` with `-User` naming another profile stops before the elevation
+  code with `ERROR: -Check works on your own profile only.` and exit 1.
 
 ## Front door
 
-`mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named `mksync` so it
-doesn't hide coreutils `sync`. Linux only until phase 2. Every `[Y/n]` prompt takes an empty answer or end of input as
-yes, every `[y/N]` prompt as no.
+On Linux, `mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named
+`mksync` so it doesn't hide coreutils `sync`. On Windows, `mksync` is `mksync.cmd` in the installer's bin folder, a
+four-line launcher that calls the clone's `sync.cmd`; its second line, `rem SyncSettings launcher`, marks it as ours.
+Every `[Y/n]` prompt takes an empty answer or end of input as yes, every `[y/N]` prompt as no. Commands, wording and exit
+codes are the same on both systems, except where this section says otherwise.
 
 | Command | Does | Exit |
 |---|---|---|
 | `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
-| `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. A `MISSING` line names the install command | 0, or 1 with a `MISSING` line |
+| `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
 | `mksync pull [--yes]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then asks `Apply these changes? [Y/n]` and runs `import.sh --force` | 0, or 1 on an error |
 | `mksync push [--yes] [-m <msg>]` | Runs `export.sh`. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
-| `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull` | 0, or 1 on an error |
+| `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
 
-`pull` and `push` need the clone on `master` with an `origin` remote. `--yes` answers the `[Y/n]` questions. It never
+`pull` and `push` need the clone on `master` with an `origin` remote. On Windows, `pull` re-runs itself in a new
+`powershell.exe` after a fast-forward, since PowerShell has no `exec`, and the status fetch has a 15-second timeout as on
+Linux. The status's OS name comes from `SYNC_OS_NAME` if set, else the Windows caption. `--yes` answers the `[Y/n]` questions. It never
 answers the bootstrap question, because bootstrap uses `sudo`; `--bootstrap` does.
 
 Status lines and the next command, in this order of precedence:
@@ -451,6 +460,30 @@ Status lines and the next command, in this order of precedence:
 | `SYNCSETTINGS_TTY` | stdin if it's a terminal, else `/dev/tty` if readable, else `/dev/null` |
 | `SYNC_OS_RELEASE` (status, setup) | `/etc/os-release` |
 
+`install.ps1`, run in PowerShell as
+`irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex`:
+
+- Windows only; elsewhere it points to the bash installer, exit 1. It needs PowerShell 5.1. Errors are thrown and caught
+  at the top, so `iex` never closes the user's window.
+- Missing `git` (required) or `gh` (for push): offers `winget install --id Git.Git` / `GitHub.cli` where `winget` exists,
+  then reloads `Path` for the session. Git still missing stops it; gh missing is a warning.
+- Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone, or a
+  `mksync.cmd` without the launcher marker, stops it without touching either.
+- Writes `mksync.cmd`, adds the bin folder to the user `Path` if missing (new windows pick it up), then runs
+  `mksync setup` unless `SYNCSETTINGS_NO_SETUP=1`.
+- The script is one function called on its last line, so a cut-off download runs nothing. It takes no parameters, since
+  `iex` can't pass any; settings come from the environment.
+
+| Variable | Default |
+|---|---|
+| `SYNCSETTINGS_REPO_URL` | `https://github.com/makubexD/SyncSettings.git` |
+| `SYNCSETTINGS_DIR` | `%USERPROFILE%\SyncSettings` |
+| `SYNCSETTINGS_REF` | `master` |
+| `SYNCSETTINGS_BIN` | `%LOCALAPPDATA%\SyncSettings\bin` |
+| `SYNCSETTINGS_YES` | unset; `1` answers the `[Y/n]` questions |
+| `SYNCSETTINGS_NO_SETUP` | unset; `1` skips `mksync setup` |
+| `SYNC_OS_NAME` (status) | the Windows caption |
+
 ## Known differences
 
 | Behavior | Windows (PowerShell) | Linux (bash) |
@@ -467,6 +500,11 @@ Status lines and the next command, in this order of precedence:
 | Status line layout | `[WORD      ] label`, colored | `WORD       label` |
 | Sanitized text that isn't valid UTF-8 | invalid bytes are replaced when read | bytes are kept |
 | `defaultEnv` name check | none needed | stops the run on an invalid name |
+| Import check, target folder missing | `SKIPPED`, not a change | `CREATE` |
+| Import check for another profile | `-Check -User <other>` is an error | not supported |
+| `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu |
+| `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` |
+| Installer | `install.ps1`, `irm … \| iex`, winget | `install.sh`, `curl … \| bash`, apt-get |
 
 ## Parity
 
