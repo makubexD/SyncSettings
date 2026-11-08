@@ -14,19 +14,28 @@
     Skip per-file confirmation prompts and overwrite without asking.
 .PARAMETER ResetValues
     Force re-prompting for all sanitized placeholder values, even if cached.
+.PARAMETER Check
+    Report what an import would change, and write nothing.
 .EXAMPLE
     .\Import-Settings.ps1
     .\Import-Settings.ps1 -Force
     .\Import-Settings.ps1 -User johndoe
     .\Import-Settings.ps1 -ResetValues
+    .\Import-Settings.ps1 -Check
 #>
 param(
     [string]$User = $env:USERNAME,
     [switch]$Force,
-    [switch]$ResetValues
+    [switch]$ResetValues,
+    [switch]$Check
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($Check -and $ResetValues) {
+    Write-Host 'ERROR: -Check cannot be combined with -ResetValues.' -ForegroundColor Red
+    exit 1
+}
 
 . "$PSScriptRoot\SyncHelpers.ps1"
 
@@ -40,6 +49,11 @@ try { $profileRoot = Resolve-UserProfile -Username $User } catch {
 }
 
 $isOtherUser = ($profileRoot -ne $env:USERPROFILE)
+
+if ($Check -and $isOtherUser) {
+    Write-Host 'ERROR: -Check works on your own profile only.' -ForegroundColor Red
+    exit 1
+}
 
 if ($isOtherUser -and -not (Test-IsAdmin)) {
     Write-Host
@@ -58,7 +72,11 @@ if ($isOtherUser -and -not (Test-IsAdmin)) {
 
 Write-Host
 Write-Host '+==========================================+' -ForegroundColor Cyan
-Write-Host '|        SyncSettings -- IMPORT             |' -ForegroundColor Cyan
+if ($Check) {
+    Write-Host '|     SyncSettings -- IMPORT CHECK          |' -ForegroundColor Cyan
+} else {
+    Write-Host '|        SyncSettings -- IMPORT             |' -ForegroundColor Cyan
+}
 Write-Host '+==========================================+' -ForegroundColor Cyan
 Write-Host
 
@@ -72,7 +90,7 @@ try {
     Assert-SafePaths -RepoRoot $repoRoot -Files $config.files
     $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
 
-    if (Test-RepoUpToDate -RepoRoot $repoRoot) { exit 0 }
+    if (-not $Check -and (Test-RepoUpToDate -RepoRoot $repoRoot)) { exit 0 }
 
     Write-Host "  Target user   : $User" -ForegroundColor White
     Write-Host "  Profile path  : $profileRoot" -ForegroundColor White
@@ -146,14 +164,33 @@ try {
             }
         }
 
-        $rvParams = @{ Rules = $unique; UserValues = $userValues; Direction = 'import' }
-        if ($ResetValues) { $rvParams.ForceAll = $true }
-        Request-MissingValues @rvParams
-        $valuesDirty = $true
+        if ($Check) {
+            # Never prompt or save here: fall back to the rule default, then its
+            # defaultEnv variable, in memory only, in the order the prompt shows.
+            foreach ($rule in $unique) {
+                $cached = $userValues[$rule.placeholder]
+                if (-not $cached -or $cached.Length -eq 0) {
+                    if ($rule.PSObject.Properties['default'] -and $rule.default) {
+                        $userValues[$rule.placeholder] = $rule.default
+                    } elseif ($rule.PSObject.Properties['defaultEnv'] -and $rule.defaultEnv) {
+                        $envDefault = [Environment]::GetEnvironmentVariable($rule.defaultEnv)
+                        if ($envDefault) { $userValues[$rule.placeholder] = $envDefault }
+                    }
+                }
+            }
+            $valuesDirty = $false
+        } else {
+            $rvParams = @{ Rules = $unique; UserValues = $userValues; Direction = 'import' }
+            if ($ResetValues) { $rvParams.ForceAll = $true }
+            Request-MissingValues @rvParams
+            $valuesDirty = $true
+        }
     }
 
     # -- Process each file ------------------------------------------------
     $applied = 0
+    $changed = 0
+    $errors  = 0
 
     foreach ($entry in $config.files) {
         $repoFile  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
@@ -166,7 +203,8 @@ try {
             if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
                 $repoDir  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
                 $localDir = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
-                $applied += Import-DirEntry -RepoDir $repoDir -LocalDir $localDir -Label $label -ExcludePatterns $config.excludePatterns -Force ([bool]$Force)
+                $dirCount = Import-DirEntry -RepoDir $repoDir -LocalDir $localDir -Label $label -ExcludePatterns $config.excludePatterns -Force ([bool]$Force) -Check ([bool]$Check) -ErrorCount ([ref]$errors)
+                if ($Check) { $changed += $dirCount } else { $applied += $dirCount }
                 continue
             }
 
@@ -193,6 +231,19 @@ try {
 
             if ($hasSanitize) {
                 # -- Hydrate placeholders -----------------------------
+                if ($Check) {
+                    $missingValue = $false
+                    foreach ($rule in $entry.sanitizeRules) {
+                        $v = $userValues[$rule.placeholder]
+                        if (-not $v -or $v.Length -eq 0) { $missingValue = $true; break }
+                    }
+                    if ($missingValue) {
+                        Write-StatusLine 'SKIPPED' $label 'needs values: run mksync setup'
+                        $changed++
+                        continue
+                    }
+                }
+
                 $repoContent = [IO.File]::ReadAllText($repoFile)
                 $hydParams = @{ Content = $repoContent; Rules = $entry.sanitizeRules; UserValues = $userValues }
                 $hydrated  = ConvertFrom-Sanitized @hydParams
@@ -204,35 +255,49 @@ try {
                         continue
                     }
 
-                    # Files differ -- confirm unless -Force
-                    if (-not $Force) {
-                        Write-Host
-                        Write-Host "  File differs: $localFile" -ForegroundColor Yellow
-                        $answer = Read-Host '  Overwrite? [Y/n]'
-                        if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
-                            Write-StatusLine 'SKIPPED' $label 'user skipped'
+                    if ($Check) {
+                        Write-StatusLine 'UPDATE' $label
+                        $changed++
+                    } else {
+                        # Files differ -- confirm unless -Force
+                        if (-not $Force) {
                             Write-Host
-                            continue
+                            Write-Host "  File differs: $localFile" -ForegroundColor Yellow
+                            $answer = Read-Host '  Overwrite? [Y/n]'
+                            if ($answer -ne '' -and $answer -notmatch '^[Yy]') {
+                                Write-StatusLine 'SKIPPED' $label 'user skipped'
+                                Write-Host
+                                continue
+                            }
+                            Write-Host
                         }
-                        Write-Host
-                    }
 
-                    # Backup existing file
-                    Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
-                    Write-Utf8File -Path $localFile -Content $hydrated
-                    Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
-                    $applied++
+                        # Backup existing file
+                        Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
+                        Write-Utf8File -Path $localFile -Content $hydrated
+                        Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
+                        $applied++
+                    }
                 } else {
-                    Write-Utf8File -Path $localFile -Content $hydrated
-                    Write-StatusLine 'CREATED' $label
-                    $applied++
+                    if ($Check) {
+                        Write-StatusLine 'CREATE' $label
+                        $changed++
+                    } else {
+                        Write-Utf8File -Path $localFile -Content $hydrated
+                        Write-StatusLine 'CREATED' $label
+                        $applied++
+                    }
                 }
             } else {
                 # -- Direct copy --------------------------------------
-                $result = Copy-RepoFileToLocal -RepoFile $repoFile -LocalFile $localFile -Label $label -Force ([bool]$Force)
-                # A skipped file also skips its linked paths, as before the refactor.
-                if ($result -eq 'SKIPPED') { continue }
-                if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+                $result = Copy-RepoFileToLocal -RepoFile $repoFile -LocalFile $localFile -Label $label -Force ([bool]$Force) -Check ([bool]$Check)
+                if ($Check) {
+                    if ($result -eq 'CREATE' -or $result -eq 'UPDATE') { $changed++ }
+                } else {
+                    # A skipped file also skips its linked paths, as before the refactor.
+                    if ($result -eq 'SKIPPED') { continue }
+                    if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+                }
             }
 
             # -- Auto-detect linked paths (import: repo -> local) --------
@@ -265,28 +330,41 @@ try {
                             continue
                         }
 
-                        if (-not (Test-Path $linkLocal)) {
+                        if (-not $Check -and -not (Test-Path $linkLocal)) {
                             Write-Host "  Creating linked directory: $linkLocal" -ForegroundColor Cyan
                         }
 
-                        $applied += Import-LinkedDirectory -SourceDir $linkRepoFull -DestDir $linkLocal -Label $linkLabel -ExcludePatterns $config.excludePatterns -Force ([bool]$Force)
+                        $linkCount = Import-LinkedDirectory -SourceDir $linkRepoFull -DestDir $linkLocal -Label $linkLabel -ExcludePatterns $config.excludePatterns -Force ([bool]$Force) -Check ([bool]$Check) -ErrorCount ([ref]$errors)
+                        if ($Check) { $changed += $linkCount } else { $applied += $linkCount }
                     }
                 }
             }
         } catch {
             Write-StatusLine 'ERROR' $label $_.Exception.Message
+            $errors++
         }
     }
 
     # Save user values cache
-    if ($valuesDirty) {
+    if ($valuesDirty -and -not $Check) {
         Save-UserValues -RepoRoot $repoRoot -Values $userValues
     }
 
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray
 
-    if ($applied -gt 0) {
+    if ($Check) {
+        if ($errors -gt 0) {
+            Write-Host "  $errors error(s); see the ERROR lines above." -ForegroundColor Red
+            $exitCode = 1
+        } elseif ($changed -eq 0) {
+            Write-Host '  This machine matches the repo.' -ForegroundColor Green
+            $exitCode = 0
+        } else {
+            Write-Host "  $changed file(s) would change. Run mksync pull to apply." -ForegroundColor Yellow
+            $exitCode = 3
+        }
+    } elseif ($applied -gt 0) {
         Write-Host "  $applied file(s) applied to $profileRoot" -ForegroundColor Green
     } else {
         Write-Host '  No files were changed. Machine is already up to date.' -ForegroundColor Green
@@ -294,6 +372,8 @@ try {
 
     Write-Host ('-' * 50) -ForegroundColor DarkGray
     Write-Host
+
+    if ($Check) { exit $exitCode }
 
 } catch {
     Write-Host
