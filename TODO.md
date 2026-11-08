@@ -23,6 +23,24 @@ before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expe
       `UNCHANGED` for `dotfiles/common/git/ignore`. Then `git check-ignore -v` on a path named
       `.claude/settings.local.json`, in a throwaway repo, shows the rule. In this repo it shows `.gitignore` instead. If
       the folder is missing, import reports `SKIPPED`.
+- [ ] **W7** The installer and `mksync`, from step 10 of `docs/plan-easy-install-2.md`, after W0-W6 pass. In PowerShell
+      (the branch is merged by then, so use `master`):
+
+      ```powershell
+      $env:SYNCSETTINGS_DIR = "$env:TEMP\ss-try"; $env:SYNCSETTINGS_NO_SETUP = '1'
+      irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
+      mksync doctor
+      ```
+
+      | Check | Expected |
+      |---|---|
+      | Install | `Cloned into`, the PATH line, `Installed.` |
+      | Same line again | `Updated` |
+      | `mksync doctor` | No `MISSING` line |
+      | `mksync` in the real clone | Exit 0, `Origin` up to date |
+
+      Then remove `$env:TEMP\ss-try` and run the installer again with `SYNCSETTINGS_DIR` set to the real clone (and
+      `SYNCSETTINGS_NO_SETUP` removed), so `mksync` points at it.
 - [ ] Delete this section when all of them pass.
 
 If W0 reports changes, those are Windows edits the repo doesn't have. Note the files, run `git restore dotfiles`,
