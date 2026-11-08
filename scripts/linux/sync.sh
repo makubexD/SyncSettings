@@ -726,9 +726,15 @@ report_drift() {
 
 # -- Status output --------------------------------------------------------------
 
+STATUS_ERRORS=0
+
 status() {
     # usage: status <STATUS> <label> [note]
+    # Counts ERROR lines in STATUS_ERRORS, so a caller can tell a clean run apart.
     local s=$1 label=$2 note=${3:-}
+    if [[ $s == ERROR ]]; then
+        STATUS_ERRORS=$((STATUS_ERRORS + 1))
+    fi
     printf '  %-10s %s%s\n' "$s" "$label" "${note:+  ($note)}"
 }
 

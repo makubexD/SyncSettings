@@ -410,6 +410,12 @@ done 3< <(platform_entries)
 printf '\n  %s\n' "--------------------------------------------------"
 
 if (( CHECK )); then
+    # An entry that could not be checked must not read as "matches".
+    if (( STATUS_ERRORS > 0 )); then
+        printf '\n  %d error(s); see the ERROR lines above.\n' "$STATUS_ERRORS"
+        printf '\n  %s\n\n' "--------------------------------------------------"
+        exit 1
+    fi
     if (( CHANGED == 0 )); then
         printf '\n  This machine matches the repo.\n'
         printf '\n  %s\n\n' "--------------------------------------------------"

@@ -400,7 +400,8 @@ backup, mode, `.user-values.json` or dconf key, and no prompt.
 - dconf runs the import's checks and `dconf dump`, which only reads. An empty dump is `CREATE`, keys the repo would
   change are `UPDATE`.
 - No changes: `This machine matches the repo.` and exit 0. Changes: `<n> file(s) would change. Run mksync pull to
-  apply.` and exit 3. A failure exits 1.
+  apply.` and exit 3. Any `ERROR` line ends with `<n> error(s); see the ERROR lines above.` and exit 1, so an entry
+  that couldn't be checked never reads as a match.
 - `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing.
 
 ## Front door

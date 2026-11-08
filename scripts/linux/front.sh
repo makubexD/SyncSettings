@@ -78,7 +78,7 @@ front_status() {
     if (( ! is_git )); then
         unsent_text='not checked'
     else
-        unsent=$(front_git status --porcelain -- dotfiles packages sync-config.json 2>/dev/null | wc -l)
+        unsent=$(front_git status --porcelain --untracked-files=all -- dotfiles packages sync-config.json 2>/dev/null | wc -l)
         unsent=${unsent//[[:space:]]/}
         if (( unsent > 0 )); then
             unsent_text="$unsent changed file(s) not sent yet"
