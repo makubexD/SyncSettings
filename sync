@@ -53,11 +53,11 @@ case $COMMAND in
         fi
         exit 1
         ;;
-    setup|pull|push)
+    setup)
         printf 'Not implemented yet.\n'
         exit 1
         ;;
-    preview|export|import|commit) ;;
+    preview|export|import|commit|pull|push) ;;
     *)
         printf 'Unknown command: %s\n' "$COMMAND" >&2
         usage >&2
@@ -83,4 +83,12 @@ case $COMMAND in
     export) exec ./export.sh "$@" ;;
     import) exec ./import.sh "$@" ;;
     commit) exec ./commit.sh "$@" ;;
+    pull)
+        source "$REPO_ROOT/scripts/linux/front.sh"
+        front_pull "$@"
+        ;;
+    push)
+        source "$REPO_ROOT/scripts/linux/front.sh"
+        front_push "$@"
+        ;;
 esac

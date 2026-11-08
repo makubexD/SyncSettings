@@ -133,6 +133,149 @@ front_status() {
     return 0
 }
 
+# Pull and push only make sense in the clone, on master, with somewhere to
+# fetch from and push to. Prints the error and exits 1 otherwise.
+front_require_clone() {
+    local command=$1 branch=''
+
+    if ! front_git rev-parse --is-inside-work-tree > /dev/null 2>&1 ||
+        ! front_git remote get-url origin > /dev/null 2>&1; then
+        printf 'ERROR: %s needs the repo clone on master with an origin remote.\n' "$command" >&2
+        exit 1
+    fi
+
+    branch=$(front_git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'unknown')
+    if [[ $branch != master ]]; then
+        printf 'ERROR: %s needs the repo clone on master with an origin remote.\n' "$command" >&2
+        exit 1
+    fi
+}
+
+# Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
+# the new code, then the import check and, unless declined, the import.
+front_pull() {
+    local apply_yes=0 no_fetch=0 updates answer='' rc=0
+
+    while (( $# > 0 )); do
+        case $1 in
+            --yes) apply_yes=1; shift ;;
+            --no-fetch) no_fetch=1; shift ;;
+            *)
+                printf 'Unknown option: %s\n' "$1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    front_require_clone pull
+
+    if [[ -n $(front_git status --porcelain -- dotfiles packages sync-config.json 2>/dev/null) ]]; then
+        printf 'ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.\n' >&2
+        exit 1
+    fi
+
+    if (( ! no_fetch )); then
+        if ! front_git fetch -q origin master; then
+            printf 'ERROR: could not reach origin.\n' >&2
+            exit 1
+        fi
+        updates=$(front_git rev-list --count HEAD..origin/master 2>/dev/null || printf '0')
+        if (( updates > 0 )); then
+            if ! front_git pull --ff-only -q; then
+                printf 'ERROR: pull failed; resolve it and rerun.\n' >&2
+                exit 1
+            fi
+            printf '  Pulled %s commit(s).\n' "$updates"
+            # Run the just-pulled code, not the copy this process started with.
+            if (( apply_yes )); then
+                exec "$REPO_ROOT/sync" pull --no-fetch --yes
+            fi
+            exec "$REPO_ROOT/sync" pull --no-fetch
+        fi
+    fi
+
+    "$REPO_ROOT/import.sh" --check < /dev/null || rc=$?
+    case $rc in
+        0) exit 0 ;;
+        3) ;;
+        *) exit 1 ;;
+    esac
+
+    if (( ! apply_yes )); then
+        printf '  Apply these changes? [Y/n] '
+        read -r answer || answer=''
+        if [[ -n $answer && $answer != [Yy]* ]]; then
+            printf '  Nothing applied.\n'
+            exit 0
+        fi
+    fi
+
+    exec "$REPO_ROOT/import.sh" --force
+}
+
+# Send this machine's changes as a PR: export, show the diff and, unless
+# declined, run the commit flow.
+front_push() {
+    local apply_yes=0 message='' answer='' changes='' rc=0
+
+    while (( $# > 0 )); do
+        case $1 in
+            --yes) apply_yes=1; shift ;;
+            -m)
+                if (( $# < 2 )); then
+                    printf 'Missing value for -m\n' >&2
+                    exit 1
+                fi
+                message=$2
+                shift 2
+                ;;
+            *)
+                printf 'Unknown option: %s\n' "$1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    front_require_clone push
+
+    # A repo behind origin would make export.sh offer its own pull and stop, and
+    # push would then report nothing to send. Ask for a pull first instead.
+    if front_git fetch -q origin master 2>/dev/null &&
+        (( $(front_git rev-list --count HEAD..origin/master 2>/dev/null || printf '0') > 0 )); then
+        printf 'ERROR: origin has updates; run mksync pull first.\n' >&2
+        exit 1
+    fi
+
+    # Stdin stays attached so export.sh can ask for missing values.
+    rc=0
+    "$REPO_ROOT/export.sh" || rc=$?
+    if (( rc != 0 )); then
+        exit "$rc"
+    fi
+
+    changes=$(front_git status --porcelain -- dotfiles packages sync-config.json 2>/dev/null || true)
+    if [[ -z $changes ]]; then
+        printf '  Nothing to send: the repo matches this machine.\n'
+        exit 0
+    fi
+
+    front_git status --short -- dotfiles packages sync-config.json || true
+
+    if (( ! apply_yes )); then
+        printf '  Open a PR with these changes? [Y/n] '
+        read -r answer || answer=''
+        if [[ -n $answer && $answer != [Yy]* ]]; then
+            printf '  Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.\n'
+            exit 0
+        fi
+    fi
+
+    if [[ -n $message ]]; then
+        exec "$REPO_ROOT/commit.sh" -m "$message"
+    fi
+    exec "$REPO_ROOT/commit.sh"
+}
+
 # One OK, WARN or MISSING line per check. Returns 1 when a MISSING line printed.
 front_doctor() {
     local missing=0 tool pkg hint gh_bin version count
