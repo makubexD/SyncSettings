@@ -40,7 +40,7 @@ function Get-OsName {
 
 # git as an executable, or $null when it is not installed.
 function Get-GitCommand {
-    return Get-Command git -CommandType Application -ErrorAction SilentlyContinue
+    return Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 
 # Run git in the repo without a terminal prompt. Returns its output and exit
@@ -55,27 +55,38 @@ function Invoke-GitQuiet {
 
 # Fetch origin master, giving up after 15 seconds. Returns $true on success.
 function Invoke-GitFetch {
-    $ErrorActionPreference = 'Continue'
-    $env:GIT_TERMINAL_PROMPT = '0'
-    $job = $null
+    # A plain child process with a 15-second wait: background jobs in Windows
+    # PowerShell 5.1 start slowly and lose the exit code. Output is discarded
+    # (the fetch is quiet), so nothing reaches the caller's stderr.
+    $git = Get-GitCommand
+    if ($null -eq $git) {
+        return $false
+    }
+    $process = $null
     try {
-        $job = Start-Job -ScriptBlock {
-            param([string]$Root)
-            $env:GIT_TERMINAL_PROMPT = '0'
-            & git -C $Root fetch -q origin master 2>$null
-            return $LASTEXITCODE
-        } -ArgumentList $script:RepoRoot
-        if (-not (Wait-Job -Job $job -Timeout 15)) {
+        $info = New-Object System.Diagnostics.ProcessStartInfo
+        $info.FileName = $git.Source
+        $info.Arguments = '-C "' + $script:RepoRoot + '" fetch -q origin master'
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $info.EnvironmentVariables['GIT_TERMINAL_PROMPT'] = '0'
+        $process = [System.Diagnostics.Process]::Start($info)
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(15000)) {
+            try { $process.Kill() } catch { }
             return $false
         }
-        $result = @(Receive-Job -Job $job)
-        return ($result.Count -gt 0 -and $result[-1] -eq 0)
+        [void]$stdout.Wait(1000)
+        [void]$stderr.Wait(1000)
+        return ($process.ExitCode -eq 0)
     } catch {
         return $false
     } finally {
-        if ($null -ne $job) {
-            Stop-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        if ($null -ne $process) {
+            $process.Dispose()
         }
     }
 }

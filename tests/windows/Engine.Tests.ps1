@@ -179,6 +179,8 @@ BeforeAll {
     # -Root picks another checkout (the clone); -InputText pipes stdin to it.
     function Invoke-SyncCmd {
         param([string[]]$CmdArgs = @(), [string]$Root = '', [string]$InputText = $null)
+        # git in the front door writes progress to stderr, which must not fail the test.
+        $ErrorActionPreference = 'Continue'
         if ($Root) {
             $script:EngineScript = Join-Path $Root 'sync.cmd'
         } else {
@@ -2156,6 +2158,7 @@ Describe 'Windows engine' {
                 (Join-Path $script:HomeDir '.config\fixture\win.conf'),
                 "user = Someone Else`r`n",
                 [System.Text.UTF8Encoding]::new($false))
+            Copy-SyncWrappers
 
             $repoBefore = Get-TreeHash $script:RepoDir
             $homeBefore = Get-TreeHash $script:HomeDir
