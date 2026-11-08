@@ -2365,6 +2365,51 @@ Describe 'Windows engine' {
             (git -C $script:CloneDir status --porcelain -- dotfiles 2>$null | Out-String).Trim() | Should -Not -Be ''
         }
     }
+
+    # -- Front door: setup ------------------------------------------------------
+
+    Context 'Front door setup' {
+        It 'setup applies' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            New-GitRepo
+
+            # The temp profile has the fixture folder but not the file, so the
+            # check reports a CREATE and setup applies it. (Windows import skips
+            # a file whose folder is missing.)
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            $null = New-Item -ItemType Directory -Path (Split-Path $winConf -Parent) -Force
+            $winConf | Should -Not -Exist
+
+            Invoke-SyncCmd -CmdArgs @('setup', '--yes')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Setup done.'))
+            $winConf | Should -Exist
+        }
+
+        It 'setup doctor fails' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            New-GitRepo
+
+            # A PATH with only the system folders: git is gone, but cmd.exe and
+            # powershell.exe stay reachable for sync.cmd and the front door.
+            $savedPath = $env:PATH
+            $env:PATH = @(
+                (Join-Path $env:SystemRoot 'System32'),
+                (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0')
+            ) -join ';'
+            try {
+                Invoke-SyncCmd -CmdArgs @('setup', '--yes')
+            } finally {
+                $env:PATH = $savedPath
+            }
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('IMPORT CHECK'))
+        }
+    }
 }
 
 Describe 'Request-MissingValues' {

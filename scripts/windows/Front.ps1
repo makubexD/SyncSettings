@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-    Front door for sync.cmd on Windows: status, doctor, pull and push.
+    Front door for sync.cmd on Windows: status, doctor, setup, pull and push.
 .DESCRIPTION
     Called by sync.cmd. Status shows where this machine stands and what to run
-    next; doctor runs the Windows checks from docs/sync-contract.md; pull gets
-    the latest repo and applies it; push sends this machine's changes as a PR.
-    setup prints a placeholder until its step lands.
+    next; doctor runs the Windows checks from docs/sync-contract.md; setup is
+    the first run on this machine; pull gets the latest repo and applies it;
+    push sends this machine's changes as a PR.
 #>
 param(
     [Parameter(Position = 0)][string]$Command,
@@ -140,6 +140,52 @@ function Read-Answer {
     return Read-Host $Prompt
 }
 
+# Run the read-only import check in a child PowerShell, with stdin redirected,
+# show its output, and return its exit code.
+function Invoke-ImportCheck {
+    $checkScript = Join-Path $script:WindowsDir 'Import-Settings.ps1'
+    $ErrorActionPreference = 'Continue'
+    $output = '' | & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File $checkScript -Check 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    Write-Host $output
+    return $code
+}
+
+# First run on this machine: doctor, then the import check and, unless
+# declined, the import. There is no bootstrap question on Windows.
+function Invoke-Setup {
+    if (-not (Invoke-Doctor)) {
+        exit 1
+    }
+
+    $ErrorActionPreference = 'Continue'
+    $code = Invoke-ImportCheck
+    if ($code -ne 0 -and $code -ne 3) {
+        exit 1
+    }
+
+    $apply = $true
+    if ($code -eq 3) {
+        if (-not $Yes) {
+            $answer = Read-Answer '  Apply these changes? [Y/n]'
+            if (-not [string]::IsNullOrEmpty($answer) -and $answer -notmatch '^y') {
+                Write-Host '  Nothing applied.'
+                $apply = $false
+            }
+        }
+        if ($apply) {
+            & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WindowsDir 'Import-Settings.ps1') -Force
+            $importCode = $LASTEXITCODE
+            if ($importCode -ne 0) {
+                exit $importCode
+            }
+        }
+    }
+
+    Write-Host '  Setup done. Run mksync any time to see where this machine stands.'
+    exit 0
+}
+
 # Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
 # the new code, then the import check and, unless declined, the import.
 function Invoke-Pull {
@@ -177,11 +223,8 @@ function Invoke-Pull {
         }
     }
 
-    $checkScript = Join-Path $script:WindowsDir 'Import-Settings.ps1'
     $ErrorActionPreference = 'Continue'
-    $output = '' | & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File $checkScript -Check 2>&1 | Out-String
-    $code = $LASTEXITCODE
-    Write-Host $output
+    $code = Invoke-ImportCheck
 
     if ($code -eq 0) {
         exit 0
@@ -509,8 +552,7 @@ switch ($Command.ToLowerInvariant()) {
         exit 1
     }
     'setup' {
-        Write-Host 'Not implemented yet.'
-        exit 1
+        Invoke-Setup
     }
     'pull' {
         Invoke-Pull
