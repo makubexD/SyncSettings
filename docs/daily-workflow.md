@@ -25,6 +25,17 @@ sequenceDiagram
     Note over B: dotfiles/ → local files, placeholders filled
 ```
 
+## The short version (Linux)
+
+```bash
+mksync        # where this machine stands, and what to run next
+mksync push   # on the machine you changed: export, show, open the PR
+mksync pull   # on the other machine, after the merge: pull, show, apply
+```
+
+`mksync` names the next command, so you don't have to remember the order. The rest of this page is the same flow step by
+step, which is also how it works on Windows until `mksync` gets there.
+
 ## On the machine where you changed something
 
 Start on an up-to-date `master` with no unrelated changes:
@@ -123,6 +134,9 @@ git switch master
 git pull
 ./sync import
 ```
+
+On Linux, `mksync pull` does all three, and shows what will change before asking. `./import.sh --check` shows the same
+list without applying it.
 
 Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
 `--force`. If you import a newer change over the same file later, that `.bak` is replaced. Import never deletes a local

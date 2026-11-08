@@ -35,7 +35,7 @@ flushes disks. Inside the repo, `./sync` keeps working.
 
 ## Phases
 
-### Phase 1: Linux `docs/plan-easy-install-1.md`
+### Phase 1: Linux `docs/plan-easy-install-1.md` (done 2026-11-08)
 
 `import.sh --check`, the `mksync` commands, `install.sh` (`curl … | bash`), docs. Proven on this machine with a
 throwaway `HOME`.

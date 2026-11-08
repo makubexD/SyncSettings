@@ -28,11 +28,12 @@ Install Ubuntu 26.04 and sign in to the desktop. Open a terminal on the desktop,
 settings need your desktop session. Then run:
 
 ```bash
-sudo apt install git
-git clone https://github.com/makubexD/SyncSettings.git
-cd SyncSettings
-./bootstrap/linux.sh
+curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash
 ```
+
+It installs `git` and `jq` if needed (it asks first), clones the repo to `~/SyncSettings`, and runs `mksync setup`. Answer
+yes to `Also restore apps and packages from packages/linux (uses sudo)?`; that runs `./bootstrap/linux.sh`, described
+below. You can also run it yourself from the clone.
 
 Run it as your own user, not with `sudo`. It installs packages, tools and configs, links the scripts, adds the Claude plugins, and
 ends with `./sync preview`, so the last thing on screen is the state of the machine. Expect it to take a while.

@@ -316,3 +316,9 @@ HOME=$H "$H/.local/bin/mksync" doctor
 
 Then, in the real repo, read-only: `./sync` and `./sync doctor`. Expect `Origin    : up to date`, no `MISSING`, and
 `dconf list /test/` empty. Then `rm -rf "$H"`.
+
+Result, 2026-11-08: the one-liner from the branch cloned, a second run printed `Updated`, both rc 0, and `doctor` printed
+`Ready.` with no `MISSING` line (WARN for gh sign-in, the link not on `PATH`, and 4 unset values, all expected in a
+throwaway `HOME`). In the real repo, status ran with rc 0 (`Origin` said `on branch feat/easy-install-linux, not master`,
+as expected on the branch) and reported 9 files newer on this machine than in the repo, all `UPDATE`. `dconf list /test/`
+was empty.

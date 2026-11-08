@@ -165,9 +165,12 @@ preview_change_default() {
     rm -f "$t/home/.config/fixture/dir/c.txt"
 }
 
-# The sync wrapper is not part of the engine copy; the sync cases add it.
+# The sync wrapper is not part of the engine copy; the sync cases add it,
+# together with the front-door helpers it sources.
 add_sync() {
     cp -a "$REPO/sync" "$t/repo/"
+    mkdir -p "$t/repo/scripts/linux"
+    cp -a "$REPO/scripts/linux/front.sh" "$t/repo/scripts/linux/"
 }
 
 # Run the config lint on the repo's real sync-config.json after applying a jq
@@ -206,6 +209,7 @@ EOF
 # pushed to a bare origin, plus a fresh clone where commit.sh actually runs.
 setup_commit_repo() {
     setup_repo
+    add_sync
     mkdir -p "$t/repo/scripts/ci"
     cp -a "$REPO/scripts/ci/." "$t/repo/scripts/ci/"
     setup_repo_fixture
@@ -224,6 +228,100 @@ run_commit() {
     shift
     rc=0
     (cd "$t/clone" && HOME="$home" GH="$t/bin/gh" GH_LOG="$t/gh.log" ./commit.sh "$@" < /dev/null) > "$out" 2>&1 || rc=$?
+}
+
+# Run the front door inside the clone, with the stub GH first on PATH and a
+# throwaway HOME. stdin is /dev/null.
+run_sync_clone() {
+    local home=$1
+    shift
+    rc=0
+    (cd "$t/clone" && PATH="$t/bin:$PATH" HOME="$home" GH="$t/bin/gh" GH_LOG="$t/gh.log" \
+        ./sync "$@" < /dev/null) > "$out" 2>&1 || rc=$?
+}
+
+# Same, but feed a line on stdin so a prompt reads a real answer.
+run_sync_clone_input() {
+    local home=$1 input=$2
+    shift 2
+    rc=0
+    (cd "$t/clone" && printf '%s\n' "$input" | PATH="$t/bin:$PATH" HOME="$home" GH="$t/bin/gh" GH_LOG="$t/gh.log" \
+        ./sync "$@") > "$out" 2>&1 || rc=$?
+}
+
+# Import the clone's repo onto the throwaway home, so it starts in sync.
+import_into_home() {
+    rc=0
+    (cd "$t/clone" && HOME="$t/home" ./import.sh --force < /dev/null) > "$out" 2>&1 || rc=$?
+}
+
+# A second clone changes dotfiles/linux/plain.txt and pushes the commit.
+push_plain_from_other() {
+    local text=$1
+    git clone -q "$t/origin.git" "$t/other"
+    git -C "$t/other" config user.name t
+    git -C "$t/other" config user.email t@example.com
+    printf '%s\n' "$text" > "$t/other/dotfiles/linux/plain.txt"
+    git -C "$t/other" commit -qam "$text"
+    git -C "$t/other" push -q origin master
+}
+
+# Bare origin for the install cases: the engine entry points, sync and its
+# helpers, install.sh and the fixtures, pushed to $t/origin.git. install.sh
+# clones it into a throwaway HOME.
+setup_install_origin() {
+    new_tmp
+    setup_repo
+    add_sync
+    cp -a "$REPO/install.sh" "$t/repo/"
+    setup_repo_fixture
+    make_git_repo
+    mkdir -p "$t/home" "$t/stub"
+}
+
+# Stubs for the install cases: sudo and apt-get log their arguments (the
+# install one links the real jq into the stub folder) and gh is signed in.
+make_install_stubs() {
+    cat > "$t/stub/sudo" <<EOF
+#!/bin/sh
+printf 'sudo %s\n' "\$*" >> "$t/stub/log"
+exec "\$@"
+EOF
+    chmod +x "$t/stub/sudo"
+    cat > "$t/stub/apt-get" <<EOF
+#!/bin/sh
+printf 'apt-get %s\n' "\$*" >> "$t/stub/log"
+if [ "\$1" = install ]; then
+    ln -sf "$(command -v jq)" "$t/stub/jq"
+fi
+exit 0
+EOF
+    chmod +x "$t/stub/apt-get"
+    cat > "$t/stub/gh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$t/stub/gh"
+}
+
+# A PATH with only the tools install.sh itself runs, and no jq, so the
+# missing-tool branch is the one that runs.
+make_install_path() {
+    local tool
+    for tool in bash env uname git cmp mkdir ln readlink; do
+        ln -sf "$(command -v "$tool")" "$t/stub/$tool"
+    done
+}
+
+# Run install.sh against the bare origin with a throwaway HOME. $1 is the PATH,
+# $2 the answers source, and the rest are installer arguments.
+run_install() {
+    local path=$1 tty=$2
+    shift 2
+    rc=0
+    (cd "$t" && PATH="$path" HOME="$t/home" GH="$t/stub/gh" \
+        SYNCSETTINGS_REPO_URL="$t/origin.git" SYNCSETTINGS_TTY="$tty" \
+        GIT_TERMINAL_PROMPT=0 "$REPO/install.sh" "$@") > "$out" 2>&1 || rc=$?
 }
 
 # Refnames of every branch on the bare origin.
@@ -544,6 +642,246 @@ case_import_eof_overwrites() {
     printf 'old\n' > "$t/expected.bak"
     cmp -s "$t/expected.bak" "$t/home/.config/fixture/plain.txt.bak" \
         || fail "plain.txt.bak does not contain the old content"
+}
+
+# The check is a dry run: the same home and repo bytes before and after, with no
+# backup and no .user-values.json write.
+assert_check_dry() {
+    local home_before=$1 repo_before=$2
+    [[ $(tree_hash "$t/home") == "$home_before" ]] || fail "home changed during the check"
+    [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed during the check"
+    [[ -z "$(find "$t/home" -name '*.bak')" ]] || fail "a .bak file was created"
+}
+
+case_import_check_writes_nothing() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+    rm "$t/home/.config/fixture/no-trailing.txt"
+
+    local home_before repo_before values_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+    values_before=$(sha256sum "$t/repo/.user-values.json")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status UPDATE dotfiles/linux/plain.txt || fail "missing UPDATE line for plain.txt"
+    output_has_status CREATE dotfiles/linux/no-trailing.txt || fail "missing CREATE line for no-trailing.txt"
+    grep -Fqx '  2 file(s) would change. Run mksync pull to apply.' "$out" \
+        || fail "missing the 'would change' summary line"
+
+    assert_check_dry "$home_before" "$repo_before"
+    [[ $(sha256sum "$t/repo/.user-values.json") == "$values_before" ]] \
+        || fail ".user-values.json changed during the check"
+}
+
+case_import_check_matches() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 0 )) || fail "import.sh --check exited $rc, want 0"
+    grep -Fq '  This machine matches the repo.' "$out" \
+        || fail "missing the 'matches the repo' summary line"
+    if grep -qE '^  (CREATE|UPDATE)[[:space:]]' "$out"; then
+        fail "check printed a changed status"
+    fi
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_sanitized() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 0 )) || fail "import.sh --check exited $rc, want 0"
+    output_has_status UNCHANGED dotfiles/linux/named.conf \
+        || fail "missing UNCHANGED line for named.conf"
+
+    printf 'name = Someone Else\n' > "$t/home/.config/fixture/named.conf"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+    output_has_status UPDATE dotfiles/linux/named.conf \
+        || fail "missing UPDATE line for named.conf"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_needs_values() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    rm "$t/repo/.user-values.json"
+    mkdir -p "$t/home"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status SKIPPED dotfiles/linux/named.conf 'needs values: run mksync setup' \
+        || fail "missing the needs-values SKIPPED line"
+    if grep -Fq 'Enter values' "$out"; then
+        fail "check prompted for values"
+    fi
+    [[ ! -e "$t/repo/.user-values.json" ]] || fail ".user-values.json was created"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_dir() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'changed\n' > "$t/home/.config/fixture/dir/c.txt"
+    printf 'extra\n' > "$t/home/.config/fixture/dir/extra.txt"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status UPDATE dotfiles/common/dir/c.txt || fail "missing UPDATE line for dir/c.txt"
+    output_has_status EXTRA dotfiles/common/dir/extra.txt 'not in repo; kept' \
+        || fail "missing EXTRA line for dir/extra.txt"
+    grep -Fqx '  1 file(s) would change. Run mksync pull to apply.' "$out" \
+        || fail "EXTRA counted as a change"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_dconf() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    local home_before repo_before dump_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+    dump_before=$(on_test_bus dconf dump /test/app/)
+
+    run_engine_bus /dev/null import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+    output_has_status UPDATE dotfiles/linux/dconf/app.ini \
+        || fail "missing UPDATE line for the dconf entry"
+
+    [[ $(on_test_bus dconf dump /test/app/) == "$dump_before" ]] \
+        || fail "the dconf path changed during the check"
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_check_reset_rejected() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" import.sh --check --reset-values
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fq 'ERROR: --check cannot be combined with --reset-values.' "$out" \
+        || fail "missing the --check/--reset-values error"
+
+    assert_check_dry "$home_before" "$repo_before"
+}
+
+# An empty home: every file is a CREATE, and the check must not create the
+# folders an import would.
+case_import_check_missing_folder() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    local home_before
+    home_before=$(tree_hash "$t/home")
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status CREATE dotfiles/linux/plain.txt || fail "missing CREATE line for plain.txt"
+    [[ $(tree_hash "$t/home") == "$home_before" ]] || fail "home changed during the check"
+    [[ -z $(find "$t/home" -mindepth 1 -print -quit) ]] || fail "the check created something in the home"
+}
+
+# A file the check can't read is an ERROR, and the check must not then report
+# that the machine matches.
+case_import_check_error() {
+    if (( EUID == 0 )); then
+        printf '__SKIP_ROOT__\n'
+        return 0
+    fi
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    chmod 000 "$t/home/.config/fixture/named.conf"
+
+    run_engine "$t/home" import.sh --check
+    chmod 600 "$t/home/.config/fixture/named.conf"
+    (( rc == 1 )) || fail "import.sh --check exited $rc, want 1"
+
+    grep -qE '^  ERROR +dotfiles/linux/named\.conf' "$out" || fail "missing ERROR line for named.conf"
+    grep -Fq '1 error(s); see the ERROR lines above.' "$out" || fail "missing the error summary"
+    if grep -Fq 'This machine matches the repo.' "$out"; then
+        fail "the check reported a match despite an ERROR"
+    fi
+}
+
+case_import_check_no_prompt() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine_input "$t/home" n import.sh --check
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+    if grep -Fq 'Overwrite ' "$out"; then
+        fail "check prompted"
+    fi
+    output_has_status UPDATE dotfiles/linux/plain.txt || fail "missing UPDATE line for plain.txt"
+
+    assert_check_dry "$home_before" "$repo_before"
 }
 
 case_crlf_unchanged() {
@@ -2825,11 +3163,10 @@ case_sync_usage() {
     setup_repo
     add_sync
 
-    run_engine "$t/home" sync
-    (( rc == 0 )) || fail "sync exited $rc, want 0"
+    run_engine "$t/home" sync help
+    (( rc == 0 )) || fail "sync help exited $rc, want 0"
 
-    grep -Fq 'usage: ./sync <preview|export|commit|import> [options]' "$out" \
-        || fail "missing usage line"
+    grep -Fq 'usage: mksync [command] [options]' "$out" || fail "missing usage line"
     grep -Fq 'Detected: linux' "$out" || fail "missing 'Detected: linux' line"
 }
 
@@ -2892,10 +3229,10 @@ case_sync_missing_tool() {
     new_tmp
     mkdir -p "$t/repo" "$t/stub"
     add_sync
-    # A PATH with bash and git but no jq. uname and dirname are there so the
-    # script gets past its first lines to the tool checks.
+    # A PATH with bash and git but no jq. readlink, uname and dirname are there
+    # so the script gets past its first lines to the tool checks.
     local tool
-    for tool in bash git uname dirname; do
+    for tool in bash git readlink uname dirname; do
         ln -s "$(command -v "$tool")" "$t/stub/$tool"
     done
 
@@ -2905,6 +3242,589 @@ case_sync_missing_tool() {
 
     grep -Fq 'ERROR: jq is not installed. Install it and run the command again.' "$out" \
         || fail "missing jq error"
+}
+
+# A stub PATH for the doctor cases: links to the real tools a run needs. gh is
+# added by each case, because its sign-in answer differs.
+make_doctor_stub() {
+    mkdir -p "$t/stub" "$t/home"
+    local tool
+    for tool in bash readlink dirname uname git jq cmp; do
+        if command -v "$tool" > /dev/null 2>&1; then
+            ln -sf "$(command -v "$tool")" "$t/stub/$tool"
+        fi
+    done
+}
+
+# A gh stub whose `auth status` exits with the given code.
+make_doctor_gh() {
+    local status=$1
+    cat > "$t/stub/gh" <<EOF
+#!/bin/sh
+if [ "\$1" = auth ] && [ "\$2" = status ]; then
+    exit $status
+fi
+exit 0
+EOF
+    chmod +x "$t/stub/gh"
+}
+
+# Run sync from $t/repo with only the stub tools on PATH.
+run_sync_stub() {
+    local home=$1
+    shift
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" GH="$t/stub/gh" HOME="$home" ./sync "$@") > "$out" 2>&1 || rc=$?
+}
+
+case_sync_doctor_ready() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_doctor_stub
+    make_doctor_gh 0
+    ln -s "$t/repo/sync" "$t/stub/mksync"
+
+    run_sync_stub "$t/home" doctor
+    (( rc == 0 )) || fail "sync doctor exited $rc, want 0"
+
+    grep -Fqx '  Ready.' "$out" || fail "missing the Ready line"
+    grep -Fqx '  OK       mksync on PATH' "$out" || fail "missing the link OK line"
+}
+
+case_sync_doctor_missing_jq() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_doctor_stub
+    rm "$t/stub/jq"
+    make_doctor_gh 0
+    cat > "$t/stub/apt-get" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$t/stub/apt-get"
+
+    run_sync_stub "$t/home" doctor
+    (( rc == 1 )) || fail "sync doctor exited $rc, want 1"
+
+    grep -Fq 'MISSING  jq: install with sudo apt-get install jq' "$out" \
+        || fail "missing the jq MISSING line"
+}
+
+case_sync_doctor_gh_signed_out() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_doctor_stub
+    make_doctor_gh 1
+
+    run_sync_stub "$t/home" doctor
+    (( rc == 0 )) || fail "sync doctor exited $rc, want 0"
+
+    grep -Fq 'WARN     gh: not signed in; run gh auth login' "$out" \
+        || fail "missing the gh signed-out WARN line"
+}
+
+case_sync_doctor_no_link() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_doctor_stub
+    make_doctor_gh 0
+
+    run_sync_stub "$t/home" doctor
+    (( rc == 0 )) || fail "sync doctor exited $rc, want 0"
+
+    grep -Fq 'WARN     mksync not on PATH; run: ln -s' "$out" \
+        || fail "missing the link WARN line"
+}
+
+case_sync_status_clean() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    make_git_repo
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fqx '  Origin    : up to date' "$out" || fail "missing the up-to-date origin line"
+    grep -Fqx '  Unsent    : none' "$out" || fail "missing the none unsent line"
+    grep -Fqx '  Machine   : matches the repo' "$out" || fail "missing the matches machine line"
+    grep -Fqx '  Next: nothing to do.' "$out" || fail "missing the nothing-to-do next line"
+}
+
+case_sync_status_behind() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    make_git_repo
+
+    git clone -q "$t/origin.git" "$t/other"
+    git -C "$t/other" config user.name t
+    git -C "$t/other" config user.email t@example.com
+    printf 'behind\n' > "$t/other/dotfiles/linux/plain.txt"
+    git -C "$t/other" commit -qam behind
+    git -C "$t/other" push -q origin master
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fqx '  Origin    : 1 update(s) waiting' "$out" \
+        || fail "missing the updates-waiting origin line"
+    grep -Fqx '  Next: mksync pull' "$out" || fail "missing the pull next line"
+}
+
+case_sync_status_unsent() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    make_git_repo
+    printf 'unsent\n' > "$t/repo/dotfiles/linux/plain.txt"
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fqx '  Unsent    : 1 changed file(s) not sent yet' "$out" \
+        || fail "missing the unsent line"
+    grep -Fqx '  Next: mksync push' "$out" || fail "missing the push next line"
+}
+
+case_sync_status_differs() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    make_git_repo
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    printf 'changed\n' > "$t/home/.config/fixture/plain.txt"
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fqx '  Machine   : 1 file(s) differ from the repo' "$out" \
+        || fail "missing the differs machine line"
+}
+
+case_sync_status_not_git() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fqx '  Origin    : not a git clone' "$out" || fail "missing the not-a-clone origin line"
+    grep -Fqx '  Next: run mksync doctor.' "$out" || fail "missing the doctor next line"
+}
+
+case_sync_status_writes_nothing() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    make_git_repo
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    printf 'changed\n' > "$t/home/.config/fixture/plain.txt"
+
+    local home_before repo_before
+    home_before=$(tree_hash "$t/home")
+    repo_before=$(tree_hash "$t/repo")
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    [[ $(tree_hash "$t/home") == "$home_before" ]] || fail "home changed during status"
+    [[ $(tree_hash "$t/repo") == "$repo_before" ]] || fail "repo changed during status"
+}
+
+case_sync_status_os_name() {
+    new_tmp
+    setup_repo
+    add_sync
+    mkdir -p "$t/home"
+    printf 'PRETTY_NAME="Test OS 1"\nID=debian\n' > "$t/os-release"
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" SYNC_OS_RELEASE="$t/os-release" ./sync) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fq '  SyncSettings  linux (Test OS 1)' "$out" \
+        || fail "missing the os-release PRETTY_NAME line"
+}
+
+case_sync_symlink() {
+    new_tmp
+    setup_repo
+    add_sync
+    mkdir -p "$t/bin" "$t/home"
+    ln -s "$t/repo/sync" "$t/bin/mksync"
+
+    rc=0
+    (cd "$t" && HOME="$t/home" "$t/bin/mksync" help) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "mksync help exited $rc, want 0"
+
+    grep -Fq 'usage: mksync [command] [options]' "$out" \
+        || fail "missing the usage line through the symlink"
+}
+
+case_sync_pull_applies() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+
+    push_plain_from_other 'new text'
+
+    run_sync_clone "$t/home" pull --yes
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    [[ $(git -C "$t/clone" rev-parse HEAD) == $(git --git-dir="$t/origin.git" rev-parse master) ]] \
+        || fail "the clone is not at origin's HEAD"
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'new text' ]] \
+        || fail "the home file does not hold the new text"
+    [[ -f "$t/home/.config/fixture/plain.txt.bak" ]] || fail "missing plain.txt.bak"
+    grep -Fq 'Pulled 1 commit(s).' "$out" || fail "missing the pulled line"
+}
+
+case_sync_pull_matches() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+
+    run_sync_clone "$t/home" pull --yes
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    grep -Fq 'This machine matches the repo.' "$out" || fail "missing the matches line"
+}
+
+case_sync_pull_declined() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    printf 'local change\n' > "$t/home/.config/fixture/plain.txt"
+
+    run_sync_clone_input "$t/home" n pull
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    grep -Fq 'Nothing applied.' "$out" || fail "missing the nothing-applied line"
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'local change' ]] \
+        || fail "the local file changed"
+}
+
+case_sync_pull_dirty() {
+    new_tmp
+    setup_commit_repo
+    local head_before
+    head_before=$(git -C "$t/clone" rev-parse HEAD)
+    printf 'dirty\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    run_sync_clone "$t/home" pull --yes
+    (( rc == 1 )) || fail "sync pull exited $rc, want 1"
+
+    grep -Fq 'ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.' "$out" \
+        || fail "missing the dirty-repo error"
+    [[ $(git -C "$t/clone" rev-parse HEAD) == "$head_before" ]] || fail "the clone's HEAD moved"
+}
+
+case_sync_pull_not_master() {
+    new_tmp
+    setup_commit_repo
+    git -C "$t/clone" switch -q -c feature
+
+    run_sync_clone "$t/home" pull --yes
+    (( rc == 1 )) || fail "sync pull exited $rc, want 1"
+
+    grep -Fq 'ERROR: pull needs the repo clone on master with an origin remote.' "$out" \
+        || fail "missing the not-master error"
+}
+
+case_sync_push_nothing() {
+    new_tmp
+    setup_commit_repo
+
+    run_sync_clone "$t/home" push --yes
+    (( rc == 0 )) || fail "sync push exited $rc, want 0"
+
+    grep -Fq 'Nothing to send' "$out" || fail "missing the nothing-to-send line"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_sync_push_behind() {
+    new_tmp
+    setup_commit_repo
+    push_plain_from_other 'new text'
+    local head
+    head=$(git -C "$t/clone" rev-parse HEAD)
+
+    run_sync_clone "$t/home" push --yes
+    (( rc == 1 )) || fail "sync push exited $rc, want 1"
+
+    grep -Fq 'ERROR: origin has updates; run mksync pull first.' "$out" || fail "missing the pull-first error"
+    [[ $(git -C "$t/clone" rev-parse HEAD) == "$head" ]] || fail "push moved the clone's HEAD"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+}
+
+case_sync_push_opens_pr() {
+    new_tmp
+    setup_commit_repo
+    mkdir -p "$t/home/.config/fixture"
+    printf 'changed\n' > "$t/home/.config/fixture/plain.txt"
+
+    run_sync_clone "$t/home" push --yes
+    (( rc == 0 )) || fail "sync push exited $rc, want 0"
+
+    grep -Fq 'pr create' "$t/gh.log" || fail "the GH stub did not open a PR"
+    origin_branches | grep -q '^refs/heads/sync/linux-' || fail "no sync branch on origin"
+}
+
+case_sync_push_declined() {
+    new_tmp
+    setup_commit_repo
+    mkdir -p "$t/home/.config/fixture"
+    printf 'changed\n' > "$t/home/.config/fixture/plain.txt"
+
+    run_sync_clone_input "$t/home" n push
+    (( rc == 0 )) || fail "sync push exited $rc, want 0"
+
+    grep -Fq 'Kept in the repo' "$out" || fail "missing the kept-in-the-repo line"
+    [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
+    git -C "$t/clone" status --porcelain -- dotfiles/linux/plain.txt | grep -q . \
+        || fail "the change is not in the working tree"
+}
+
+case_sync_setup_applies() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home"
+    printf 'PRETTY_NAME="Test OS"\nID=debian\n' > "$t/os-release"
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" SYNC_OS_RELEASE="$t/os-release" ./sync setup --yes) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync setup exited $rc, want 0"
+
+    [[ -f "$t/home/.config/fixture/plain.txt" ]] || fail "plain.txt was not created"
+    grep -Fq 'Setup done.' "$out" || fail "missing the Setup done line"
+    if grep -Fq 'Also restore apps' "$out"; then
+        fail "the bootstrap question was asked on debian"
+    fi
+}
+
+case_sync_setup_offers_bootstrap() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home" "$t/repo/bootstrap"
+    printf 'PRETTY_NAME="Test OS"\nID=ubuntu\n' > "$t/os-release"
+    cat > "$t/repo/bootstrap/linux.sh" <<'EOF'
+#!/bin/sh
+printf 'BOOTSTRAP RAN\n'
+EOF
+    chmod +x "$t/repo/bootstrap/linux.sh"
+
+    rc=0
+    (cd "$t/repo" && printf 'y\n' |
+        HOME="$t/home" SYNC_OS_RELEASE="$t/os-release" ./sync setup --yes) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync setup exited $rc, want 0"
+
+    grep -Fq 'Also restore apps and packages from packages/linux (uses sudo)? [y/N] ' "$out" \
+        || fail "missing the bootstrap question"
+    grep -Fq 'BOOTSTRAP RAN' "$out" || fail "the bootstrap script did not run"
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" SYNC_OS_RELEASE="$t/os-release" ./sync setup --yes < /dev/null) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync setup with empty input exited $rc, want 0"
+
+    if grep -Fq 'BOOTSTRAP RAN' "$out"; then
+        fail "bootstrap ran on an empty answer"
+    fi
+}
+
+case_sync_setup_doctor_fails() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_doctor_stub
+    rm "$t/stub/jq"
+    make_doctor_gh 0
+    cat > "$t/stub/apt-get" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$t/stub/apt-get"
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" GH="$t/stub/gh" HOME="$t/home" ./sync setup --yes) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync setup exited $rc, want 1"
+
+    if grep -Fq 'IMPORT CHECK' "$out"; then
+        fail "setup ran the import check after a failed doctor"
+    fi
+}
+
+case_install_fresh() {
+    setup_install_origin
+
+    run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    grep -Fq "  Cloned into $t/home/SyncSettings" "$out" || fail "missing the Cloned into line"
+    [[ -d $t/home/SyncSettings/.git ]] || fail "the clone was not created"
+    [[ -L $t/home/.local/bin/mksync ]] || fail "mksync is not a symlink"
+    [[ $(readlink -f "$t/home/.local/bin/mksync") == "$(readlink -f "$t/home/SyncSettings/sync")" ]] \
+        || fail "mksync does not resolve to the clone's sync"
+    grep -Fq "export PATH=\"$t/home/.local/bin:\$PATH\"" "$out" || fail "missing the PATH hint"
+}
+
+case_install_update() {
+    setup_install_origin
+    run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "the first install exited $rc, want 0"
+
+    printf 'updated\n' > "$t/repo/dotfiles/linux/plain.txt"
+    git -C "$t/repo" -c user.name=t -c user.email=t@example.com commit -qam update
+    git -C "$t/repo" push -q origin master
+
+    run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "the second install exited $rc, want 0"
+
+    grep -Fq "  Updated $t/home/SyncSettings" "$out" || fail "missing the Updated line"
+    [[ $(git -C "$t/home/SyncSettings" rev-parse HEAD) == $(git --git-dir="$t/origin.git" rev-parse master) ]] \
+        || fail "the clone is not at origin's HEAD"
+}
+
+case_install_not_a_clone() {
+    setup_install_origin
+    mkdir -p "$t/home/SyncSettings"
+    printf 'keep\n' > "$t/home/SyncSettings/file.txt"
+
+    run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    grep -Fq "ERROR: $t/home/SyncSettings exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR." "$out" \
+        || fail "missing the not-a-clone error"
+    [[ $(cat "$t/home/SyncSettings/file.txt") == keep ]] || fail "the folder was touched"
+}
+
+case_install_link_conflict() {
+    setup_install_origin
+    mkdir -p "$t/home/.local/bin"
+    printf 'mine\n' > "$t/home/.local/bin/mksync"
+
+    run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    grep -Fq "ERROR: $t/home/.local/bin/mksync already exists; remove it and run this again." "$out" \
+        || fail "missing the link-conflict error"
+    [[ $(cat "$t/home/.local/bin/mksync") == mine ]] || fail "the existing file was touched"
+}
+
+case_install_missing_jq_yes() {
+    setup_install_origin
+    make_install_stubs
+    make_install_path
+
+    run_install "$t/stub" /dev/null --yes --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    grep -Fq 'apt-get install -y jq' "$t/stub/log" || fail "the apt-get stub did not install jq"
+    [[ -L $t/home/.local/bin/mksync ]] || fail "the link was not made"
+}
+
+case_install_missing_jq_no_answer() {
+    setup_install_origin
+    make_install_stubs
+    make_install_path
+    printf 'n\n' > "$t/answers"
+
+    run_install "$t/stub" "$t/answers" --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: install jq with your package manager, then run this again.' "$out" \
+        || fail "missing the package-manager error"
+    [[ ! -e $t/stub/log ]] || fail "the apt-get stub was called"
+}
+
+# Nobody to answer (EOF): the installer must not run sudo unattended.
+case_install_missing_jq_eof() {
+    setup_install_origin
+    make_install_stubs
+    make_install_path
+
+    run_install "$t/stub" /dev/null --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: install jq with your package manager, then run this again.' "$out" \
+        || fail "missing the package-manager error"
+    [[ ! -e $t/stub/log ]] || fail "the apt-get stub was called"
+}
+
+case_install_macos() {
+    setup_install_origin
+    cat > "$t/stub/uname" <<'EOF'
+#!/bin/sh
+printf 'Darwin\n'
+EOF
+    chmod +x "$t/stub/uname"
+
+    run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    grep -Fq "ERROR: macOS isn't supported yet." "$out" || fail "missing the macOS error"
+    [[ ! -e $t/home/SyncSettings ]] || fail "the installer cloned on macOS"
+}
+
+case_install_runs_setup() {
+    setup_install_origin
+    make_install_stubs
+    printf 'PRETTY_NAME="Test OS"\nID=debian\n' > "$t/os-release"
+    export SYNC_OS_RELEASE="$t/os-release"
+
+    run_install "$t/stub:$PATH" /dev/null --yes
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    [[ -f $t/home/.config/fixture/plain.txt ]] || fail "setup did not import plain.txt"
+    grep -Fq 'Setup done.' "$out" || fail "missing the Setup done line"
+    grep -Fq 'Installed. Run mksync any time.' "$out" || fail "missing the Installed line"
+}
+
+case_install_partial() {
+    setup_install_origin
+    head -n -1 "$REPO/install.sh" > "$t/install-partial.sh"
+
+    rc=0
+    (cd "$t" && PATH="$t/stub:$PATH" HOME="$t/home" \
+        SYNCSETTINGS_REPO_URL="$t/origin.git" SYNCSETTINGS_TTY=/dev/null \
+        GIT_TERMINAL_PROMPT=0 bash "$t/install-partial.sh" --no-setup) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "the partial download exited $rc, want 0"
+
+    [[ ! -e $t/home/SyncSettings ]] || fail "the partial download cloned"
+    [[ ! -e $t/home/.local/bin/mksync ]] || fail "the partial download linked mksync"
 }
 
 case_host_git_config_ignored() {
@@ -4377,7 +5297,7 @@ case_drift_import_silent() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-missing-folder import-check-error import-check-no-prompt crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool sync-doctor-ready sync-doctor-missing-jq sync-doctor-gh-signed-out sync-doctor-no-link sync-status-clean sync-status-behind sync-status-unsent sync-status-differs sync-status-not-git sync-status-writes-nothing sync-status-os-name sync-symlink sync-pull-applies sync-pull-matches sync-pull-declined sync-pull-dirty sync-pull-not-master sync-push-nothing sync-push-behind sync-push-opens-pr sync-push-declined sync-setup-applies sync-setup-offers-bootstrap sync-setup-doctor-fails install-fresh install-update install-not-a-clone install-link-conflict install-missing-jq-yes install-missing-jq-no-answer install-missing-jq-eof install-macos install-runs-setup install-partial host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -4399,6 +5319,16 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         values-mode-tightened) case_values_mode_tightened ;;
         error-continues) case_error_continues ;;
         import-eof-overwrites) case_import_eof_overwrites ;;
+        import-check-writes-nothing) case_import_check_writes_nothing ;;
+        import-check-matches) case_import_check_matches ;;
+        import-check-sanitized) case_import_check_sanitized ;;
+        import-check-needs-values) case_import_check_needs_values ;;
+        import-check-dir) case_import_check_dir ;;
+        import-check-dconf) case_import_check_dconf ;;
+        import-check-reset-rejected) case_import_check_reset_rejected ;;
+        import-check-missing-folder) case_import_check_missing_folder ;;
+        import-check-error) case_import_check_error ;;
+        import-check-no-prompt) case_import_check_no_prompt ;;
         crlf-unchanged) case_crlf_unchanged ;;
         common-import) case_common_import ;;
         common-export) case_common_export ;;
@@ -4574,6 +5504,40 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-routes-import) case_sync_routes_import ;;
         sync-routes-preview) case_sync_routes_preview ;;
         sync-missing-tool) case_sync_missing_tool ;;
+        sync-doctor-ready) case_sync_doctor_ready ;;
+        sync-doctor-missing-jq) case_sync_doctor_missing_jq ;;
+        sync-doctor-gh-signed-out) case_sync_doctor_gh_signed_out ;;
+        sync-doctor-no-link) case_sync_doctor_no_link ;;
+        sync-status-clean) case_sync_status_clean ;;
+        sync-status-behind) case_sync_status_behind ;;
+        sync-status-unsent) case_sync_status_unsent ;;
+        sync-status-differs) case_sync_status_differs ;;
+        sync-status-not-git) case_sync_status_not_git ;;
+        sync-status-writes-nothing) case_sync_status_writes_nothing ;;
+        sync-status-os-name) case_sync_status_os_name ;;
+        sync-symlink) case_sync_symlink ;;
+        sync-pull-applies) case_sync_pull_applies ;;
+        sync-pull-matches) case_sync_pull_matches ;;
+        sync-pull-declined) case_sync_pull_declined ;;
+        sync-pull-dirty) case_sync_pull_dirty ;;
+        sync-pull-not-master) case_sync_pull_not_master ;;
+        sync-push-nothing) case_sync_push_nothing ;;
+        sync-push-behind) case_sync_push_behind ;;
+        sync-push-opens-pr) case_sync_push_opens_pr ;;
+        sync-push-declined) case_sync_push_declined ;;
+        sync-setup-applies) case_sync_setup_applies ;;
+        sync-setup-offers-bootstrap) case_sync_setup_offers_bootstrap ;;
+        sync-setup-doctor-fails) case_sync_setup_doctor_fails ;;
+        install-fresh) case_install_fresh ;;
+        install-update) case_install_update ;;
+        install-not-a-clone) case_install_not_a_clone ;;
+        install-link-conflict) case_install_link_conflict ;;
+        install-missing-jq-yes) case_install_missing_jq_yes ;;
+        install-missing-jq-no-answer) case_install_missing_jq_no_answer ;;
+        install-missing-jq-eof) case_install_missing_jq_eof ;;
+        install-macos) case_install_macos ;;
+        install-runs-setup) case_install_runs_setup ;;
+        install-partial) case_install_partial ;;
         host-git-config-ignored) case_host_git_config_ignored ;;
         leak-extension-enabled) case_leak_extension_enabled ;;
         leak-extension-disabled) case_leak_extension_disabled ;;

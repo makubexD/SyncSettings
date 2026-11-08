@@ -3,19 +3,34 @@
 Keep your dotfiles and config files in sync across machines via a git repository. Windows uses the
 PowerShell scripts (`.bat` entry points). Linux uses the bash scripts (`.sh` entry points), see [Linux](#linux).
 
-## Commands
+## Install
 
-One command on every system. It picks the right scripts for your OS.
+On Linux, paste this in a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash
+```
+
+It installs `git`, `jq` and `diffutils` if they're missing (it asks first), clones the repo to `~/SyncSettings`, puts the
+`mksync` command in `~/.local/bin`, and runs `mksync setup`. Run the same line again to update. Windows gets its own
+one-liner in a later phase, and macOS isn't supported yet; see [the roadmap](docs/plan-easy-install.md).
+
+## Commands
 
 | Command | Does |
 |---|---|
-| `./sync preview` | Shows exactly what would be sent to the repo. Changes nothing |
-| `./sync export` | Copies your changed files into the repo, sanitized |
-| `./sync commit` | Commits on a new branch and opens a pull request |
-| `./sync import` | Applies the repo's files to this machine, keeping a `.bak` of every file it replaces |
+| `mksync` | Shows where this machine stands: updates waiting, changes not sent, files that differ, and what to run next |
+| `mksync pull` | Gets the latest repo, which also updates the tool, then shows what changes here and applies it |
+| `mksync push` | Copies this machine's changes into the repo, shows them, and opens a pull request |
+| `mksync setup` | First run on a machine. On Ubuntu it also offers to restore your apps and packages |
+| `mksync doctor` | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing |
 
-On Windows, use `.\sync preview` in PowerShell or `sync preview` in cmd. Options pass through, for example
-`./sync import --force` (`-Force` on Windows). Run `./sync` alone to see the usage and the detected OS.
+`pull` and `push` ask before they change anything; `--yes` answers for you. `mksync push` needs `gh auth login` once.
+
+The single steps are still there: `./sync preview` (shows exactly what would be sent, changes nothing), `./sync export`,
+`./sync commit` and `./sync import` (keeps a `.bak` of every file it replaces). On Windows, use `.\sync preview` in
+PowerShell or `sync preview` in cmd; `mksync` and its commands come to Windows in a later phase. Options pass through, for
+example `./sync import --force` (`-Force` on Windows).
 
 ## What gets synced
 
@@ -180,14 +195,8 @@ a missing value is an error: nothing is written with a placeholder left unfilled
 
 ### New Linux machine: restore your setup
 
-On Ubuntu 26.04, sign in to the desktop and run this in a terminal there:
-
-```bash
-sudo apt install git
-git clone https://github.com/makubexD/SyncSettings.git
-cd SyncSettings
-./bootstrap/linux.sh
-```
+On Ubuntu 26.04, sign in to the desktop, open a terminal there, run the [install line](#install), and answer yes when
+setup offers to restore your apps and packages. To run the restore yourself, use `./bootstrap/linux.sh` from the clone.
 
 Bootstrap installs the packages and tools, imports your configs, links the scripts and adds the Claude plugins. Running it again
 is safe. [Restore a machine](docs/restore.md) says what it asks and what each line means. Then finish the
