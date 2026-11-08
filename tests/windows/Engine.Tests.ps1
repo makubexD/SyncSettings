@@ -183,6 +183,22 @@ BeforeAll {
         $script:EngineExit = $LASTEXITCODE
     }
 
+    # Runs `sync.cmd status` with a fixed OS name, restoring the variable after.
+    function Invoke-SyncStatus {
+        param([string]$OsName = 'Test OS')
+        $saved = $env:SYNC_OS_NAME
+        $env:SYNC_OS_NAME = $OsName
+        try {
+            Invoke-SyncCmd -CmdArgs @('status')
+        } finally {
+            if ($null -eq $saved) {
+                Remove-Item Env:\SYNC_OS_NAME -ErrorAction SilentlyContinue
+            } else {
+                $env:SYNC_OS_NAME = $saved
+            }
+        }
+    }
+
     # Runs Export-Settings.ps1 -Preview in the temp repo.
     function Invoke-Preview {
         param([switch]$ResetValues)
@@ -199,15 +215,19 @@ BeforeAll {
 
     # A stub gh.cmd that logs each invocation to $script:GhLog and prints a fixed
     # URL, placed first on PATH so Commit-Settings.ps1 finds it instead of gh.
+    # -SignedOut makes `gh auth status` exit 1, for the doctor case.
     function New-GhStub {
+        param([switch]$SignedOut)
         $script:BinDir = Join-Path $script:T 'bin'
         $null = New-Item -ItemType Directory -Path $script:BinDir -Force
         $script:GhLog = Join-Path $script:T 'gh.log'
         $stub = Join-Path $script:BinDir 'gh.cmd'
-        [IO.File]::WriteAllText(
-            $stub,
-            "@echo off`r`necho %*>> `"%GH_LOG%`"`r`necho https://github.com/example/pr/1`r`n",
-            [Text.Encoding]::ASCII)
+        $body = "@echo off`r`necho %*>> `"%GH_LOG%`"`r`n"
+        if ($SignedOut) {
+            $body += "if /i `"%1`"==`"auth`" exit /b 1`r`n"
+        }
+        $body += "echo https://github.com/example/pr/1`r`n"
+        [IO.File]::WriteAllText($stub, $body, [Text.Encoding]::ASCII)
         $env:GH_LOG = $script:GhLog
         $env:PATH = "$script:BinDir;$env:PATH"
     }
@@ -1753,10 +1773,10 @@ Describe 'Windows engine' {
         Copy-EngineToRepo
         Copy-SyncWrappers
 
-        Invoke-SyncCmd
+        Invoke-SyncCmd -CmdArgs @('help')
 
         $script:EngineExit | Should -Be 0
-        $script:EngineOut | Should -Match ([regex]::Escape('usage: sync.cmd <preview|export|commit|import> [options]'))
+        $script:EngineOut | Should -Match ([regex]::Escape('usage: mksync [command] [options]'))
         $script:EngineOut | Should -Match ([regex]::Escape('Detected: windows'))
     }
 
@@ -1829,7 +1849,7 @@ Describe 'Windows engine' {
         # executable there. The output proves which one ran.
         Push-Location $script:RepoDir
         try {
-            $script:EngineOut = & .\sync 2>&1 | Out-String
+            $script:EngineOut = & .\sync help 2>&1 | Out-String
             $script:EngineExit = $LASTEXITCODE
         } finally {
             Pop-Location
@@ -2035,6 +2055,156 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match ([regex]::Escape('1 error(s); see the ERROR lines above.'))
             (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
             (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+    }
+
+    # -- Front door -------------------------------------------------------------
+
+    Context 'Front door' {
+        It 'sync help' {
+            Copy-EngineToRepo
+            Copy-SyncWrappers
+
+            Invoke-SyncCmd -CmdArgs @('help')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('usage: mksync [command] [options]'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Detected: windows'))
+        }
+
+        It 'status clean' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            New-GitRepo
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            Invoke-SyncStatus
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Origin    : up to date'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Unsent    : none'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Machine   : matches the repo'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Next: nothing to do.'))
+        }
+
+        It 'status behind' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            New-GitRepo
+
+            # A second clone pushes one commit, so origin is ahead of this clone.
+            $ErrorActionPreference = 'Continue'
+            $other = Join-Path $script:T 'other'
+            git clone -q (Join-Path $script:T 'origin.git') $other 2>$null
+            [IO.File]::WriteAllText(
+                (Join-Path $other 'dotfiles\windows\extra.conf'),
+                "extra`n",
+                [System.Text.UTF8Encoding]::new($false))
+            git -C $other add -A 2>$null
+            git -C $other -c user.name=t -c user.email=t@example.com commit -q -m second 2>$null
+            git -C $other push -q origin master 2>$null
+
+            Invoke-SyncStatus
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Origin    : 1 update(s) waiting'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Next: mksync pull'))
+        }
+
+        It 'status unsent' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            New-GitRepo
+
+            [IO.File]::WriteAllText(
+                (Join-Path $script:RepoDir 'dotfiles\windows\win.conf'),
+                "user = Fixture User`r`n# unsent`r`n",
+                [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncStatus
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Unsent    : 1 changed file(s) not sent yet'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Next: mksync push'))
+        }
+
+        It 'status differs' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            New-GitRepo
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            [IO.File]::WriteAllText(
+                (Join-Path $script:HomeDir '.config\fixture\win.conf'),
+                "user = Someone Else`r`n",
+                [System.Text.UTF8Encoding]::new($false))
+
+            $repoBefore = Get-TreeHash $script:RepoDir
+            $homeBefore = Get-TreeHash $script:HomeDir
+
+            Invoke-SyncStatus
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Machine   : 1 file(s) differ from the repo'))
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+        }
+
+        It 'status not git' {
+            Copy-EngineToRepo
+
+            Invoke-SyncStatus
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Origin    : not a git clone'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Next: run mksync doctor.'))
+        }
+
+        It 'status os name' {
+            Copy-EngineToRepo
+
+            Invoke-SyncStatus -OsName 'Test OS 1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('SyncSettings  windows (Test OS 1)'))
+        }
+
+        It 'doctor ready' {
+            Copy-EngineToRepo
+            New-GitRepo
+            New-GhStub
+            [IO.File]::WriteAllText(
+                (Join-Path $script:BinDir 'mksync.cmd'),
+                "@echo off`r`n`"$script:RepoDir\sync.cmd`" %*`r`n",
+                [Text.Encoding]::ASCII)
+
+            Invoke-SyncCmd -CmdArgs @('doctor')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Ready.'))
+        }
+
+        It 'doctor gh signed out' {
+            Copy-EngineToRepo
+            New-GitRepo
+            New-GhStub -SignedOut
+
+            Invoke-SyncCmd -CmdArgs @('doctor')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('gh: not signed in; run gh auth login'))
+        }
+
+        It 'doctor no launcher' {
+            Copy-EngineToRepo
+            New-GitRepo
+            New-GhStub
+
+            Invoke-SyncCmd -CmdArgs @('doctor')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('mksync not on PATH; run the installer again'))
         }
     }
 }
