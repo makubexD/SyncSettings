@@ -176,10 +176,21 @@ BeforeAll {
 
     # Runs sync.cmd through cmd /c. Each argument is a separate element, so one
     # holding a space reaches the batch file quoted, as a real user would type it.
+    # -Root picks another checkout (the clone); -InputText pipes stdin to it.
     function Invoke-SyncCmd {
-        param([string[]]$CmdArgs = @())
-        $script:EngineScript = Join-Path $script:RepoDir 'sync.cmd'
-        $script:EngineOut = & cmd.exe /c $script:EngineScript @CmdArgs 2>&1 | Out-String
+        param([string[]]$CmdArgs = @(), [string]$Root = '', [string]$InputText = $null)
+        if ($Root) {
+            $script:EngineScript = Join-Path $Root 'sync.cmd'
+        } else {
+            $script:EngineScript = Join-Path $script:RepoDir 'sync.cmd'
+        }
+        # The front-door cases run sync.cmd in the temp repo; copy it in when a case didn't.
+        if (-not (Test-Path -LiteralPath $script:EngineScript)) { Copy-SyncWrappers }
+        if ($null -ne $InputText) {
+            $script:EngineOut = $InputText | & cmd.exe /c $script:EngineScript @CmdArgs 2>&1 | Out-String
+        } else {
+            $script:EngineOut = & cmd.exe /c $script:EngineScript @CmdArgs 2>&1 | Out-String
+        }
         $script:EngineExit = $LASTEXITCODE
     }
 
@@ -234,10 +245,16 @@ BeforeAll {
 
     # Engine + fixtures + scripts/ci committed on master and pushed to a bare
     # origin, plus a fresh clone where Commit-Settings.ps1 actually runs.
+    # -WithWrappers also commits sync and sync.cmd, as the real repo has them,
+    # so the clone can run sync.cmd with a clean tree.
     function New-CommitRepo {
+        param([switch]$WithWrappers)
         Copy-EngineToRepo
         Copy-CiToRepo
         Copy-RepoDotfiles
+        if ($WithWrappers) {
+            Copy-SyncWrappers
+        }
         New-GitRepo
         $ErrorActionPreference = 'Continue'
         $script:CloneDir = Join-Path $script:T 'clone'
@@ -2205,6 +2222,144 @@ Describe 'Windows engine' {
 
             $script:EngineExit | Should -Be 0
             $script:EngineOut | Should -Match ([regex]::Escape('mksync not on PATH; run the installer again'))
+        }
+    }
+
+    # -- Front door: pull and push ----------------------------------------------
+
+    Context 'Front door pull and push' {
+        BeforeAll {
+            # A clone the front door can run in. The real repo never tracks the
+            # values file, but New-CommitRepo commits it, so drop it and ignore
+            # it as New-CommitValuesRepo does. Then apply the clone's repo to
+            # the temp profile, so the machine matches the clone whatever the
+            # runner's line-ending settings are.
+            function Initialize-FrontRepo {
+                New-CommitRepo -WithWrappers
+                $ErrorActionPreference = 'Continue'
+                git -C $script:CloneDir rm -q --cached .user-values.json 2>$null
+                git -C $script:CloneDir -c user.name=t -c user.email=t@example.com commit -qm 'stop tracking the values' 2>$null
+                git -C $script:CloneDir push -q origin master 2>$null
+                Add-Content -LiteralPath (Join-Path $script:CloneDir '.git\info\exclude') -Value '.user-values.json'
+
+                $importScript = Join-Path $script:CloneDir 'scripts\windows\Import-Settings.ps1'
+                $null = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $importScript -Force 2>&1 | Out-String
+            }
+        }
+
+        It 'pull applies' {
+            Initialize-FrontRepo
+
+            # A second clone pushes one commit that changes the Windows fixture.
+            $ErrorActionPreference = 'Continue'
+            $other = Join-Path $script:T 'other'
+            git clone -q (Join-Path $script:T 'origin.git') $other 2>$null
+            [IO.File]::WriteAllText(
+                (Join-Path $other 'dotfiles\windows\win.conf'),
+                "user = <NAME>`r`n# pulled`r`n",
+                [System.Text.UTF8Encoding]::new($false))
+            git -C $other add -A 2>$null
+            git -C $other -c user.name=t -c user.email=t@example.com commit -q -m second 2>$null
+            git -C $other push -q origin master 2>$null
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Pulled 1 commit(s).'))
+
+            $head = (git -C $script:CloneDir rev-parse HEAD 2>$null | Out-String).Trim()
+            $origin = (git -C $script:CloneDir rev-parse origin/master 2>$null | Out-String).Trim()
+            $head | Should -Be $origin
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('# pulled'))
+            "$winConf.bak" | Should -Exist
+        }
+
+        It 'pull matches' {
+            Initialize-FrontRepo
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('This machine matches the repo.'))
+        }
+
+        It 'pull declined' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull') -InputText 'n'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Nothing applied.'))
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('Someone Else'))
+        }
+
+        It 'pull dirty' {
+            Initialize-FrontRepo
+
+            $winRepo = Join-Path $script:CloneDir 'dotfiles\windows\win.conf'
+            [IO.File]::WriteAllText($winRepo, "user = <NAME>`r`n# local edit`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            $headBefore = (git -C $script:CloneDir rev-parse HEAD 2>$null | Out-String).Trim()
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.'))
+            (git -C $script:CloneDir rev-parse HEAD 2>$null | Out-String).Trim() | Should -Be $headBefore
+        }
+
+        It 'pull not master' {
+            Initialize-FrontRepo
+
+            $ErrorActionPreference = 'Continue'
+            git -C $script:CloneDir switch -q -c other 2>$null
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('ERROR: pull needs the repo clone on master with an origin remote.'))
+        }
+
+        It 'push nothing' {
+            Initialize-FrontRepo
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('push')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Nothing to send: the repo matches this machine.'))
+            $script:GhLog | Should -Not -Exist
+        }
+
+        It 'push opens pr' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Fixture User`r`n# sent`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('push', '--yes')
+
+            $script:EngineExit | Should -Be 0
+            (Get-Content -LiteralPath $script:GhLog -Raw) | Should -Match ([regex]::Escape('pr create'))
+            Get-OriginBranches | Should -Match 'refs/heads/sync/windows-'
+        }
+
+        It 'push declined' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Fixture User`r`n# sent`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('push') -InputText 'n'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.'))
+            $script:GhLog | Should -Not -Exist
+            (git -C $script:CloneDir status --porcelain -- dotfiles 2>$null | Out-String).Trim() | Should -Not -Be ''
         }
     }
 }

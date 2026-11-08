@@ -11,11 +11,30 @@ if /i "%COMMAND%"=="help" goto usage
 if /i "%COMMAND%"=="-h" goto usage
 
 rem Re-quote the remaining arguments so a value with spaces stays one argument.
+rem FRONT_ARGS also maps the Linux spellings pull, push and setup accept.
 set "REST="
+set "FRONT_ARGS="
 shift
 :gather
 if "%~1"=="" goto gathered
+set "ARG=%~1"
+set "FRONT_ARG="
+if /i "%ARG%"=="--yes" set "FRONT_ARG=-Yes"
+if /i "%ARG%"=="--no-fetch" set "FRONT_ARG=-NoFetch"
+if /i not "%ARG%"=="-m" goto gather_plain
+rem -m <msg> becomes -Message <msg> for Front.ps1.
 set "REST=%REST% "%~1""
+set "FRONT_ARGS=%FRONT_ARGS% "-Message""
+shift
+if "%~1"=="" goto gathered
+set "REST=%REST% "%~1""
+set "FRONT_ARGS=%FRONT_ARGS% "%~1""
+shift
+goto gather
+:gather_plain
+if not defined FRONT_ARG set "FRONT_ARG=%ARG%"
+set "REST=%REST% "%~1""
+set "FRONT_ARGS=%FRONT_ARGS% "%FRONT_ARG%""
 shift
 goto gather
 :gathered
@@ -28,7 +47,7 @@ if /i "%COMMAND%"=="import"  set "SCRIPT=Import-Settings.ps1"
 if defined SCRIPT goto engine
 
 rem Everything else is the front door: status, doctor, setup, pull, push, or an
-rem unknown command that Front.ps1 rejects. No command shows the status.
+rem unknown command, which stops here. No command shows the status.
 set "FRONT="
 if /i "%COMMAND%"=="status" set "FRONT=status"
 if /i "%COMMAND%"=="doctor" set "FRONT=doctor"
@@ -36,8 +55,7 @@ if /i "%COMMAND%"=="setup"  set "FRONT=setup"
 if /i "%COMMAND%"=="pull"   set "FRONT=pull"
 if /i "%COMMAND%"=="push"   set "FRONT=push"
 if not defined COMMAND set "FRONT=status"
-if not defined FRONT set "FRONT=%COMMAND%"
-set "FRONT_ARGS=%REST%"
+if not defined FRONT goto unknown
 if /i "%FRONT%"=="status" set "FRONT_ARGS="
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\Front.ps1" %FRONT% %FRONT_ARGS%
 set "RC=%ERRORLEVEL%"
@@ -47,6 +65,11 @@ goto done
 if /i "%COMMAND%"=="preview" set "REST=-Preview %REST%"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\%SCRIPT%" %REST%
 set "RC=%ERRORLEVEL%"
+goto done
+
+:unknown
+echo Unknown command: %COMMAND%
+echo usage: mksync [command] [options]; run sync.cmd help
 goto done
 
 :usage

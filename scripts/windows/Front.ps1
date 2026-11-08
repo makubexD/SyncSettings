@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-    Front door for sync.cmd on Windows: status and doctor.
+    Front door for sync.cmd on Windows: status, doctor, pull and push.
 .DESCRIPTION
     Called by sync.cmd. Status shows where this machine stands and what to run
-    next; doctor runs the Windows checks from docs/sync-contract.md. setup,
-    pull and push print a placeholder until their steps land.
+    next; doctor runs the Windows checks from docs/sync-contract.md; pull gets
+    the latest repo and applies it; push sends this machine's changes as a PR.
+    setup prints a placeholder until its step lands.
 #>
 param(
     [Parameter(Position = 0)][string]$Command,
@@ -17,6 +18,10 @@ $ErrorActionPreference = 'Stop'
 
 $script:WindowsDir = $PSScriptRoot
 $script:RepoRoot = Split-Path (Split-Path $script:WindowsDir -Parent) -Parent
+
+# The Windows PowerShell to run a child step with. Front.ps1 itself runs under
+# it, so the command is always there.
+$script:PowerShellExe = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 
 # The OS name in the status line: SYNC_OS_NAME, else the Windows caption.
 function Get-OsName {
@@ -73,6 +78,157 @@ function Invoke-GitFetch {
             Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
         }
     }
+}
+
+# Lines git reports as changed among the sync paths.
+function Get-SyncChanges {
+    $result = Invoke-GitQuiet @('status', '--porcelain', '--', 'dotfiles', 'packages', 'sync-config.json')
+    if ($result.Code -ne 0 -or $null -eq $result.Output) {
+        return @()
+    }
+    return @($result.Output | Where-Object { $null -ne $_ -and ([string]$_).Trim() -ne '' })
+}
+
+# Stop unless this clone is on master with an origin remote, which pull and
+# push both need.
+function Assert-CloneReady {
+    param([string]$Name)
+    $ready = $false
+    if ($null -ne (Get-GitCommand)) {
+        $inside = Invoke-GitQuiet @('rev-parse', '--is-inside-work-tree')
+        if ($inside.Code -eq 0) {
+            $origin = Invoke-GitQuiet @('remote', 'get-url', 'origin')
+            if ($origin.Code -eq 0) {
+                $branch = Invoke-GitQuiet @('rev-parse', '--abbrev-ref', 'HEAD')
+                if ($branch.Code -eq 0 -and $null -ne $branch.Output) {
+                    if (([string]@($branch.Output)[0]).Trim() -eq 'master') {
+                        $ready = $true
+                    }
+                }
+            }
+        }
+    }
+    if (-not $ready) {
+        Write-Host "ERROR: $Name needs the repo clone on master with an origin remote."
+        exit 1
+    }
+}
+
+# Ask a [Y/n] question: Read-Host at a terminal, else one line from the
+# redirected stdin. An empty answer or end of input means yes.
+function Read-Answer {
+    param([string]$Prompt)
+    if ([Console]::IsInputRedirected) {
+        Write-Host $Prompt -NoNewline
+        $line = [Console]::In.ReadLine()
+        if ($null -eq $line) {
+            return ''
+        }
+        return $line
+    }
+    return Read-Host $Prompt
+}
+
+# Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
+# the new code, then the import check and, unless declined, the import.
+function Invoke-Pull {
+    Assert-CloneReady 'pull'
+
+    if (@(Get-SyncChanges).Count -gt 0) {
+        Write-Host 'ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.'
+        exit 1
+    }
+
+    if (-not $NoFetch) {
+        if (-not (Invoke-GitFetch)) {
+            Write-Host 'ERROR: could not reach origin.'
+            exit 1
+        }
+        $updates = 0
+        $countResult = Invoke-GitQuiet @('rev-list', '--count', 'HEAD..origin/master')
+        if ($countResult.Code -eq 0 -and $null -ne $countResult.Output) {
+            [void][int]::TryParse(([string]@($countResult.Output)[0]).Trim(), [ref]$updates)
+        }
+        if ($updates -gt 0) {
+            $pullResult = Invoke-GitQuiet @('pull', '--ff-only', '-q')
+            if ($pullResult.Code -ne 0) {
+                Write-Host 'ERROR: pull failed; resolve it and rerun.'
+                exit 1
+            }
+            Write-Host ('  Pulled {0} commit(s).' -f $updates)
+            # Run the just-pulled code, not the copy this process started with.
+            $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Front.ps1'), 'pull', '-NoFetch')
+            if ($Yes) {
+                $arguments += '-Yes'
+            }
+            & $script:PowerShellExe.Source @arguments
+            exit $LASTEXITCODE
+        }
+    }
+
+    $checkScript = Join-Path $script:WindowsDir 'Import-Settings.ps1'
+    $ErrorActionPreference = 'Continue'
+    $output = '' | & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File $checkScript -Check 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    Write-Host $output
+
+    if ($code -eq 0) {
+        exit 0
+    }
+    if ($code -ne 3) {
+        exit 1
+    }
+
+    if (-not $Yes) {
+        $answer = Read-Answer '  Apply these changes? [Y/n]'
+        if (-not [string]::IsNullOrEmpty($answer) -and $answer -notmatch '^y') {
+            Write-Host '  Nothing applied.'
+            exit 0
+        }
+    }
+
+    & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WindowsDir 'Import-Settings.ps1') -Force
+    exit $LASTEXITCODE
+}
+
+# Send this machine's changes as a PR: export, show the diff and, unless
+# declined, run the commit flow.
+function Invoke-Push {
+    Assert-CloneReady 'push'
+
+    # Stdin stays attached so the export can ask for missing values.
+    & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WindowsDir 'Export-Settings.ps1')
+    $code = $LASTEXITCODE
+    if ($code -ne 0) {
+        exit $code
+    }
+
+    if (@(Get-SyncChanges).Count -eq 0) {
+        Write-Host '  Nothing to send: the repo matches this machine.'
+        exit 0
+    }
+
+    $statusResult = Invoke-GitQuiet @('status', '--short', '--', 'dotfiles', 'packages', 'sync-config.json')
+    foreach ($line in @($statusResult.Output)) {
+        if ($null -ne $line) {
+            Write-Host $line
+        }
+    }
+
+    if (-not $Yes) {
+        $answer = Read-Answer '  Open a PR with these changes? [Y/n]'
+        if (-not [string]::IsNullOrEmpty($answer) -and $answer -notmatch '^y') {
+            Write-Host '  Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.'
+            exit 0
+        }
+    }
+
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Commit-Settings.ps1'))
+    if ($Message) {
+        $arguments += @('-Message', $Message)
+    }
+    & $script:PowerShellExe.Source @arguments
+    exit $LASTEXITCODE
 }
 
 # Run the read-only import check in a child PowerShell, with stdin redirected,
@@ -346,12 +502,10 @@ switch ($Command.ToLowerInvariant()) {
         exit 1
     }
     'pull' {
-        Write-Host 'Not implemented yet.'
-        exit 1
+        Invoke-Pull
     }
     'push' {
-        Write-Host 'Not implemented yet.'
-        exit 1
+        Invoke-Push
     }
     default {
         [Console]::Error.WriteLine("Unknown command: $Command")
