@@ -213,9 +213,18 @@ the stub `PATH` → exit 1, no `IMPORT CHECK` header).
 
 Test: the parse check on `Front.ps1`, then `engine-windows` green.
 
-### 7. `install.ps1` `[worker:high: installer for a system the worker can't run, with PATH and winget edge cases]`
+### 7. `install.ps1` `[worker]`
 
 Files: `install.ps1` (new), `tests/windows/Engine.Tests.ps1`.
+
+Split on 2026-11-08 after the first run timed out (exit 124): send 7a, review it, then 7b, each at `medium`. The
+timed-out attempt is in `git stash` as "step 7 partial"; read it for ideas, but don't apply it unreviewed.
+
+- **7a:** `install.ps1` only, items 1 to 6 below. Test: the parse check and PSScriptAnalyzer on `install.ps1`.
+- **7b:** the cases below in `tests/windows/Engine.Tests.ps1` only. Test: `engine-windows` green.
+
+Under `iex`, the script never calls `exit`; when run with `-File` (the tests), its last line exits with the code
+`Install-SyncSettings` returns.
 
 Run as `irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex`, so it takes no
 parameters. The whole script is one function, `Install-SyncSettings`, and its last line calls it, so a cut-off download
