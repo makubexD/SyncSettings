@@ -67,6 +67,17 @@ BeforeAll {
         $script:EngineExit = $LASTEXITCODE
     }
 
+    # Runs Import-Settings.ps1 -Check with stdin redirected, so it can never prompt.
+    function Invoke-ImportCheck {
+        param([switch]$ResetValues, [string]$User = '')
+        $script:EngineScript = Join-Path $script:RepoDir 'scripts\windows\Import-Settings.ps1'
+        $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript, '-Check')
+        if ($ResetValues) { $argList += '-ResetValues' }
+        if ($User) { $argList += @('-User', $User) }
+        $script:EngineOut = "" | & powershell.exe @argList 2>&1 | Out-String
+        $script:EngineExit = $LASTEXITCODE
+    }
+
     # Builds a regex for Write-StatusLine output: "[WORD      ] label" with an
     # optional "  (note)" suffix. Labels use forward slashes (the repoPath).
     function Get-StatusPattern {
@@ -1826,6 +1837,205 @@ Describe 'Windows engine' {
 
         $script:EngineExit | Should -Be 0
         $script:EngineOut | Should -Match ([regex]::Escape('Detected: windows'))
+    }
+
+    # -- Import check -----------------------------------------------------------
+
+    Context 'Import check' {
+        It 'import check writes nothing' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+            Remove-Item -LiteralPath (Join-Path $script:HomeDir '.config\fixture\shared.conf') -Force
+
+            $valuesPath = Join-Path $script:RepoDir '.user-values.json'
+            $valuesBefore = ([IO.File]::ReadAllBytes($valuesPath) -join ',')
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATE' 'dotfiles/windows/win.conf')
+            $script:EngineOut | Should -Match (Get-StatusPattern 'CREATE' 'dotfiles/common/shared.conf')
+            $script:EngineOut | Should -Match 'file\(s\) would change\. Run mksync pull to apply\.'
+            @(Get-ChildItem -Path $script:HomeDir -Recurse -Filter '*.bak' -File).Count | Should -Be 0
+            ([IO.File]::ReadAllBytes($valuesPath) -join ',') | Should -Be $valuesBefore
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check matches' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            $script:EngineExit | Should -Be 0
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('This machine matches the repo.'))
+            $script:EngineOut | Should -Not -Match '\[(CREATE|UPDATE)\s*\]'
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check sanitized' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            $script:EngineExit | Should -Be 0
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/windows/win.conf')
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::AppendAllText($winConf, "editor = vim`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATE' 'dotfiles/windows/win.conf')
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check needs values' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            $valuesPath = Join-Path $script:RepoDir '.user-values.json'
+            Remove-Item -LiteralPath $valuesPath -Force
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/windows/win.conf' 'needs values: run mksync setup')
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('missing value for'))
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('Enter values to fill placeholders'))
+            $valuesPath | Should -Not -Exist
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check dir' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            $localC = Join-Path $script:HomeDir '.config\fixture\dir\c.txt'
+            [IO.File]::WriteAllText($localC, "c2`n", [System.Text.UTF8Encoding]::new($false))
+            $mine = Join-Path $script:HomeDir '.config\fixture\dir\mine.txt'
+            [IO.File]::WriteAllText($mine, "mine`n", [System.Text.UTF8Encoding]::new($false))
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATE' 'dotfiles/common/dir/c.txt')
+            $script:EngineOut | Should -Match (Get-StatusPattern 'EXTRA' 'dotfiles/common/dir/mine.txt' 'not in repo; kept')
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check missing folder' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            Add-FixtureEntry ([pscustomobject]@{
+                repoPath    = 'dotfiles/windows/ghost.conf'
+                localPath   = '~\.config\ghost\ghost.conf'
+                platform    = 'windows'
+                description = 'missing target folder fixture'
+            })
+            [IO.File]::WriteAllText((Join-Path $script:RepoDir 'dotfiles\windows\ghost.conf'), "ghost`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            $ghostDir = Join-Path $script:HomeDir '.config\ghost'
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/windows/ghost.conf' "WARNING: target folder not found: $ghostDir")
+            $script:EngineOut | Should -Match ([regex]::Escape('This machine matches the repo.'))
+            (Test-Path -LiteralPath $ghostDir) | Should -BeFalse
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check reset rejected' {
+            Copy-EngineToRepo
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck -ResetValues
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('ERROR: -Check cannot be combined with -ResetValues.'))
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check other user' {
+            Copy-EngineToRepo
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck -User 'nobody-here'
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('Requesting elevation'))
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
+
+        It 'import check error' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            # A folder where the dir entry expects the repo's c.txt file. The
+            # per-file catch inside Import-DirEntry turns that into an ERROR line.
+            $localC = Join-Path $script:HomeDir '.config\fixture\dir\c.txt'
+            $null = New-Item -ItemType Directory -Path $localC -Force
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+            $repoBefore = Get-TreeHash $script:RepoDir
+
+            Invoke-ImportCheck
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match (Get-StatusPattern 'ERROR' 'dotfiles/common/dir/c.txt')
+            $script:EngineOut | Should -Match ([regex]::Escape('1 error(s); see the ERROR lines above.'))
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+            (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        }
     }
 }
 
