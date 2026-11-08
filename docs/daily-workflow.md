@@ -25,7 +25,9 @@ sequenceDiagram
     Note over B: dotfiles/ → local files, placeholders filled
 ```
 
-## The short version (Linux)
+## The short version
+
+Linux and Windows run the same commands:
 
 ```bash
 mksync        # where this machine stands, and what to run next
@@ -34,7 +36,8 @@ mksync pull   # on the other machine, after the merge: pull, show, apply
 ```
 
 `mksync` names the next command, so you don't have to remember the order. The rest of this page is the same flow step by
-step, which is also how it works on Windows until `mksync` gets there.
+step, with the single scripts underneath. If `mksync` stops with something you don't recognize, see
+[Troubleshooting `mksync`](#troubleshooting-mksync).
 
 ## On the machine where you changed something
 
@@ -202,6 +205,21 @@ don't rely on it: read the diff.
 | `push failed; you are on <branch>.` | Fix the cause (network, auth), run the `git push -u origin <branch>` it prints, then `git switch master` |
 | `PR creation failed; branch <branch> is pushed.` | Run the `gh pr create --base master --head <branch>` it prints, then `git switch master` |
 | `gh is not found in PATH.` | Install the [GitHub CLI](https://cli.github.com/), then run `gh auth login` |
+
+## Troubleshooting `mksync`
+
+| What you see | What to do |
+|---|---|
+| Windows: `running scripts is disabled on this system` | You don't need to change the execution policy: `mksync`, `sync.cmd` and the `.bat` files start PowerShell with `-ExecutionPolicy Bypass`, and the installer runs through `iex`. Start from those, not by running a `.ps1` directly |
+| Windows: the installer prints `ERROR: install Git from https://git-scm.com, …` | There's no `winget` on this machine (it comes with App Installer from the Microsoft Store). Install Git from that link, open a new window, and run the installer again. `gh` can come later; `doctor` says how |
+| `mksync` is not recognized, or `command not found` | The window was open before the install changed `PATH`. Open a new one. On Windows, if a new window still can't find it, run the installer again; on Linux, `doctor` prints the `ln -s` line that links it |
+| `WARN gh: not signed in; run gh auth login` | Run `gh auth login` once. Only `mksync push` needs it, to open the pull request |
+| `SKIPPED … needs values: run mksync setup` | A file has a placeholder (your name, email, a path) with no value yet. Run `mksync setup`; it asks for each one and saves it in `.user-values.json`, which never leaves the machine |
+| `WARN <n> value(s) not set; mksync setup asks for them` | The same thing, seen from `doctor` |
+| `./import.sh --check` (or `Import-Settings.ps1 -Check`) exits with 3 | Not an error: it means `<n> file(s) would change`. Read the list, then run `mksync pull` to apply it. Exit 0 means the machine matches, and exit 1 means a check couldn't run (see its `ERROR` lines) |
+| `ERROR: the repo has changes not sent yet; run mksync push first, …` | `pull` won't mix your unsent changes with the repo's. Send them with `mksync push`, or drop them with `git restore`, then pull |
+| `ERROR: <dir> exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR.` | The installer won't write into a folder it didn't make. Move that folder, or set `SYNCSETTINGS_DIR` to another place and run it again |
+| Windows: `ERROR: …\mksync.cmd already exists; remove it and run this again.` | Another `mksync.cmd` is in the installer's bin folder. Remove or rename it if it isn't yours to keep, then run the installer again |
 
 ## Cleaning up
 

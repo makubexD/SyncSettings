@@ -50,7 +50,7 @@ Docs are part of every phase, not an afterthought:
 `import.sh --check`, the `mksync` commands, `install.sh` (`curl … | bash`), docs. Proven on this machine with a
 throwaway `HOME`.
 
-### Phase 2: Windows `docs/plan-easy-install-2.md`
+### Phase 2: Windows `docs/plan-easy-install-2.md` (code done 2026-11-08; the real run on Windows is pending)
 
 `install.ps1` (`irm … | iex`) installs Git and gh with winget after asking, clones, and puts `mksync.cmd` on the user
 `PATH`. `Import-Settings.ps1 -Check`, and the same commands in a PowerShell front door. The PowerShell engine doesn't use
