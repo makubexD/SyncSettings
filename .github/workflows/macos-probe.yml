@@ -1,0 +1,87 @@
+name: macos-probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/macos]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [system, gnu]
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+      - name: Install tools (${{ matrix.leg }})
+        continue-on-error: true
+        run: |
+          if [ "${{ matrix.leg }}" = "system" ]; then
+            brew install jq
+            # Scripts start with `#!/usr/bin/env bash`; put macOS's own bash 3.2
+            # first so no newer bash on the image is picked up.
+            mkdir -p "$RUNNER_TEMP/sysbin"
+            ln -sf /bin/bash "$RUNNER_TEMP/sysbin/bash"
+            echo "$RUNNER_TEMP/sysbin" >> "$GITHUB_PATH"
+          else
+            brew install bash coreutils findutils gnu-sed jq
+            {
+              echo "$(brew --prefix coreutils)/libexec/gnubin"
+              echo "$(brew --prefix findutils)/libexec/gnubin"
+              echo "$(brew --prefix gnu-sed)/libexec/gnubin"
+              echo "$(brew --prefix)/bin"
+            } >> "$GITHUB_PATH"
+          fi
+      - name: Bash version (${{ matrix.leg }})
+        continue-on-error: true
+        run: |
+          set +e
+          sw_vers
+          bash --version | head -n 1
+          which bash
+          env bash -c 'echo "env bash: $BASH_VERSION"'
+          # The tools docs/macos-research.md flags, as this leg sees them.
+          for t in readlink realpath timeout sha256sum getent jq cmp; do
+            printf '%-10s %s\n' "$t" "$(command -v "$t" || echo MISSING)"
+          done
+          readlink -f / && echo 'readlink -f: ok'
+          printf 'v1.10\nv1.9\n' | sort -V && echo 'sort -V: ok'
+          find . -maxdepth 0 -printf '%f\n' && echo 'find -printf: ok'
+          touch probe.ref && chmod --reference=probe.ref probe.ref && echo 'chmod --reference: ok'
+      - name: Engine tests (${{ matrix.leg }})
+        continue-on-error: true
+        run: |
+          set +e
+          set -o pipefail
+          bash tests/linux/engine.sh 2>&1 | tee "probe-${{ matrix.leg }}-engine.log"
+          exit "${PIPESTATUS[0]}"
+      - name: Bootstrap tests (${{ matrix.leg }})
+        continue-on-error: true
+        run: |
+          set +e
+          set -o pipefail
+          bash tests/linux/bootstrap.sh 2>&1 | tee "probe-${{ matrix.leg }}-bootstrap.log"
+          exit "${PIPESTATUS[0]}"
+      - name: Sync doctor (${{ matrix.leg }})
+        continue-on-error: true
+        run: |
+          set +e
+          set -o pipefail
+          bash ./sync doctor 2>&1 | tee "probe-${{ matrix.leg }}-doctor.log"
+          exit "${PIPESTATUS[0]}"
+      - name: Sync status (${{ matrix.leg }})
+        continue-on-error: true
+        run: |
+          set +e
+          set -o pipefail
+          bash ./sync 2>&1 | tee "probe-${{ matrix.leg }}-status.log"
+          exit "${PIPESTATUS[0]}"
+      - name: Upload probe logs (${{ matrix.leg }})
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.leg }}
+          path: probe-*.log
