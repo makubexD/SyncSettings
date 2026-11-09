@@ -41,6 +41,18 @@ before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expe
 
       Then remove `$env:TEMP\ss-try` and run the installer again with `SYNCSETTINGS_DIR` set to the real clone (and
       `SYNCSETTINGS_NO_SETUP` removed), so `mksync` points at it.
+- [ ] **W8** `mksync diff` and the pull guard, from `docs/plan-docs-dryrun-2.md`, after W7, in the real clone:
+
+      | Check | Expected |
+      |---|---|
+      | `mksync diff` before any pull | `Last sync  : none recorded on this machine`; differing files marked `?`; exit 3, or exit 0 with `agree` |
+      | `mksync pull` once | Ends with `Sync point : <short>`; `%LOCALAPPDATA%\SyncSettings\last-sync` holds the full SHA |
+      | Edit `~/.bashrc`, then `mksync diff` | `[OUT       ] dotfiles/windows/shell/.bashrc`, `1 out`, exit 3 |
+      | `mksync` | Machine `1 file(s) differ: 0 in, 1 out, 0 both`, Next `mksync push` |
+      | `mksync pull` with that edit | The `OUT` line and the `ERROR: 1 file(s) changed on this machine …` line; exit 1; the edit is still there |
+      | `mksync push`, then `mksync diff` before the merge | Still `OUT`; after the merge and a fetch, `agree` |
+
+      Then undo the test edit.
 - [ ] Once W0-W6 pass, delete `export.bat`, `import.bat` and `commit.bat`, and their mentions; `sync.cmd` and `mksync`
       cover them.
 - [ ] Delete this section when all of them pass.

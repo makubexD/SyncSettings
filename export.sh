@@ -19,13 +19,24 @@ source scripts/linux/sync.sh
 
 RESET_VALUES=0
 PREVIEW=0
+DIFF=0
 for arg in "$@"; do
     case $arg in
         --reset-values) RESET_VALUES=1 ;;
         --preview) PREVIEW=1 ;;
-        *) printf 'Unknown option: %s\nUsage: export.sh [--preview] [--reset-values]\n' "$arg" >&2; exit 1 ;;
+        --diff) DIFF=1 ;;
+        *) printf 'Unknown option: %s\nUsage: export.sh [--diff] [--preview] [--reset-values]\n' "$arg" >&2; exit 1 ;;
     esac
 done
+
+if (( DIFF )); then
+    if (( PREVIEW || RESET_VALUES )); then
+        printf 'ERROR: --diff cannot be combined with --preview or --reset-values.\n' >&2
+        exit 1
+    fi
+    run_diff
+    exit $?
+fi
 
 if (( PREVIEW )); then
     if (( RESET_VALUES )); then

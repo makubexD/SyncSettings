@@ -445,6 +445,89 @@ folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
   a change, because an import skips it too. `-Check` with `-User` naming another profile stops before the elevation
   code with `ERROR: -Check works on your own profile only.` and exit 1.
 
+## Sync point
+
+A per-machine file remembers the repo commit the machine last agreed with: on Linux and macOS,
+`${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/last-sync`; on Windows,
+`%LOCALAPPDATA%\SyncSettings\last-sync`. It holds one line, the full SHA.
+
+It is read only when that line is 40 hex characters and the commit exists in the clone; anything else counts as no
+sync point.
+
+A real import writes it, with `HEAD`, when the run had no `ERROR` line, no `SKIPPED` line noted `user skipped`, `HEAD`
+resolves, and `git status --porcelain -- dotfiles sync-config.json` is empty (so `HEAD` is what was imported). The
+summary then prints `Sync point : <first 7 of the SHA>` after the `file(s) applied` line. A check (`--check`) writes
+nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree.
+
+`commit.sh` writes it after the PR opens and the clone is back on `master`, with the sync commit's parent (the
+`master` commit the branch starts from), not the sync commit itself: until the PR merges, `origin/master` still has
+the old files, and with the sync commit as the base they would read as `IN` and a pull would undo the push. A run
+that failed before that (commit, push or PR) writes nothing.
+
+On Windows, `Import-Settings.ps1` and `Commit-Settings.ps1` follow the same rules, and an import for another user's
+profile (`-User`) never writes it, because the file belongs to whoever runs the script.
+
+A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
+
+## Diff
+
+`export.sh --diff` (`Export-Settings.ps1 -Diff`) says which side changed each file, without writing anything. It
+builds three trees of `dotfiles/` in a temp folder:
+
+- `base`: `git archive` of the sync point. With no sync point, `theirs` stands in for `base`.
+- `theirs`: `git archive` of `origin/master` when that ref exists, else `HEAD`. The engine never fetches; the front
+  door fetches first.
+- `mine`: a copy of `base` plus the current `sync-config.json`, `export.sh`, `scripts/`, `packages/` and
+  `.user-values.json`, with a preview export run inside it (`SYNC_PREVIEW=1`, stdin from `/dev/null`, output to a log
+  in the temp folder). Starting from `base` means any file export doesn't touch still equals `base`.
+
+Only paths this OS's entries own are compared: a file or dconf entry owns its `repoPath`, a file entry also owns the
+`<repoPath>.linked/` prefix, and a dir entry owns the `<repoPath>/` prefix. A missing file counts as a version, and
+each owned path in the union of the three trees gets at most one label:
+
+| `mine` vs `base` | `theirs` vs `base` | Label |
+|---|---|---|
+| same | same | none |
+| same | differs | `IN`: only the repo changed, a pull takes it |
+| differs | same | `OUT`: only this machine changed, a push sends it |
+| differs | differs, `mine` = `theirs` | none: both made the same change |
+| differs | differs, `mine` ≠ `theirs` | `BOTH`: merge by hand |
+| no sync point, `mine` ≠ `theirs` | | `?` |
+
+The lines print through the normal status formatter (`OUT        dotfiles/…`) and are sorted with `LC_ALL=C sort`.
+The header names the sync point (`Last sync  : <short> (<date>)`, or `none recorded on this machine`) and the ref
+compared (`Repo       : origin/master <short>` or `Repo       : HEAD <short>`).
+
+```text
+  SyncSettings -- DIFF (linux)
+
+  Last sync  : 1a2b3c4 (2026-11-01)
+  Repo       : origin/master 5d6e7f8
+
+  OUT        dotfiles/linux/shell/.bashrc
+  IN         dotfiles/common/git/.gitconfig
+
+  --------------------------------------------------
+
+  2 file(s) differ: 1 in, 1 out, 0 both.
+  IN: mksync pull takes them. OUT: mksync push sends them.
+```
+
+The hint line names only the labels present; `BOTH` adds `BOTH: changed on both sides; merge by hand.` With no sync
+point the summary reads `N file(s) differ. No sync is recorded on this machine, so the newer side is unknown.` and
+`Run mksync pull or mksync push once to record one.` When nothing differs it prints `This machine and the repo agree.`
+
+The exit code is 0 when nothing differs, 3 when something does, and 1 on an error: a failed export prints its log
+and `ERROR: the export for the diff failed; see above.`; a failed `git archive` also exits 1. `--diff` cannot be
+combined with `--preview` or `--reset-values` (error, exit 1). The diff writes no repo file, no sync point and no
+`.user-values.json`, and its temp folder is removed on every exit.
+
+On Windows the rules, labels, text and exit codes are the same, with three mechanical differences: the `mine`
+export is a child `powershell.exe` running `scripts\windows\Export-Settings.ps1` (stdout to the log, stderr to a
+second log printed after it), `mine` copies `scripts/` in place of `export.sh`, and paths sort with ordinal
+comparison instead of `LC_ALL=C sort`. The status lines use the `[OUT      ] path` layout in
+[Known differences](#known-differences).
+
 ## Front door
 
 On Linux, `mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named
@@ -455,12 +538,22 @@ codes are the same on both systems, except where this section says otherwise.
 
 | Command | Does | Exit |
 |---|---|---|
-| `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
+| `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
 | `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
-| `mksync pull [--yes]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then asks `Apply these changes? [Y/n]` and runs `import.sh --force` | 0, or 1 on an error |
-| `mksync push [--yes] [-m <msg>]` | Runs `export.sh`. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
+| `mksync pull [--yes] [--force]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then (unless `--force`) the diff, which stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` (`Import-Settings.ps1 -Force` on Windows) | 0, or 1 on an error |
+| `mksync push [--yes] [-m <msg>]` | Runs `export.sh` (`Export-Settings.ps1` on Windows). Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
+| `mksync diff` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
+
+`mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
+sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
+since the last sync, and a pull would overwrite them.` and `Run mksync push first, or mksync pull --force to overwrite
+them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block, and without a sync point the diff doesn't run at all, since every
+label would be `?`.
+A diff that fails (exit 1) stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
+or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it.
+On Windows the guard recognises the same labels in the `[OUT      ]` status-line layout ([Known differences](#known-differences)).
 
 `pull` and `push` need the clone on `master` with an `origin` remote. On Windows, `pull` re-runs itself in a new
 `powershell.exe` after a fast-forward, since PowerShell has no `exec`, and the status fetch has a 15-second timeout as on
@@ -610,3 +703,6 @@ had the behavior.
 | Commit: branch + PR, stages `dotfiles/ packages/ sync-config.json` | yes | yes | phase 1 |
 | `type: dconf` | validates only | phase 5 | kept as a known difference |
 | Package drift | phase 8 | phase 6 | a known difference until then |
+| Sync point (import, commit) | docs-dryrun-2 step 7 | steps 1-2 | |
+| `--diff` / `-Diff` | step 8 | step 3 | |
+| `mksync diff`, pull guard, status labels | step 9 | steps 4-6 | |

@@ -191,6 +191,7 @@ try {
     $applied = 0
     $changed = 0
     $errors  = 0
+    $syncPoint = $null
 
     foreach ($entry in $config.files) {
         $repoFile  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
@@ -350,6 +351,28 @@ try {
         Save-UserValues -RepoRoot $repoRoot -Values $userValues
     }
 
+    # Record the sync point: the repo commit this machine now agrees with. Only
+    # a real import that applied everything it found, from a clean tree, knows it.
+    if (-not $Check -and -not $isOtherUser -and $errors -eq 0 -and $script:UserSkips -eq 0) {
+        # git writes to stderr outside a clone ("not a git repository"), which
+        # must not throw on PowerShell 5.1: it means "no sync point", not an error.
+        $savedPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $head = "$(git -C $repoRoot rev-parse -q --verify HEAD 2>$null)".Trim()
+            if ($LASTEXITCODE -eq 0 -and $head) {
+                $dirty = @(git -C $repoRoot status --porcelain -- dotfiles sync-config.json 2>$null |
+                    Where-Object { $_ -match '\S' })
+                if ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) {
+                    Write-LastSync -Sha $head
+                    $syncPoint = $head
+                }
+            }
+        } finally {
+            $ErrorActionPreference = $savedPreference
+        }
+    }
+
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray
 
@@ -369,6 +392,10 @@ try {
         Write-Host "  $applied file(s) applied to $profileRoot" -ForegroundColor Green
     } else {
         Write-Host '  No files were changed. Machine is already up to date.' -ForegroundColor Green
+    }
+
+    if ($syncPoint) {
+        Write-Host "  Sync point : $($syncPoint.Substring(0, 7))" -ForegroundColor White
     }
 
     Write-Host ('-' * 50) -ForegroundColor DarkGray

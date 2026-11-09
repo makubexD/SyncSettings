@@ -70,13 +70,16 @@ In `doctor`, `WARN` is worth fixing and `MISSING` stops `setup`; each line says 
 | `mksync` | How many updates, unsent changes and differing files there are | both |
 | `mksync check` | Every file the clone would change on this machine. It doesn't fetch: if `mksync` shows updates waiting, a pull changes more | repo → machine |
 | `mksync preview` | Exactly what a push would send, as a diff | machine → repo |
+| `mksync diff` | Which side changed each file since this machine last synced, after a fetch | both |
 
-All three write nothing. In the check, `CREATE` is a file this machine doesn't have yet, `UPDATE` one the pull would
+All four write nothing. In the check, `CREATE` is a file this machine doesn't have yet, `UPDATE` one the pull would
 overwrite (keeping a `.bak`), and `EXTRA` a local file the repo doesn't have, which is kept. In the preview, `ADDED`,
 `MODIFIED` and `REMOVED` say what would change in the repo.
 
-The check can't tell which side is newer yet. A file you edited on this machine shows up as `UPDATE` too, so if the
-list names one of yours, run `mksync push` first, or the pull replaces your edit (its `.bak` still has it).
+The check can't tell which side is newer; `mksync diff` can. It marks each file `IN` (only the repo changed: pull
+takes it), `OUT` (only this machine changed: push sends it) or `BOTH` (merge by hand). `mksync pull` stops before it
+overwrites an `OUT` or `BOTH` file unless you add `--force`. Until this machine's first pull or push, the diff marks
+differing files `?`, because it has no sync to compare against.
 
 ## Run from a clone
 

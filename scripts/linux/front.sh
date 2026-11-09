@@ -34,6 +34,13 @@ front_os_release_value() {
 }
 
 # Run git against the repo, never asking for credentials on a terminal.
+# The recorded sync point, or nothing. read_last_sync lives in the engine; run
+# it in its own shell so the engine's globals and shell options stay out.
+front_sync_point() {
+    (cd "$REPO_ROOT" && SYNC_LIB_ONLY=1 "${BASH:-bash}" -c \
+        'source scripts/linux/sync.sh && read_last_sync' 2>/dev/null) || true
+}
+
 front_git() {
     GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" "$@"
 }
@@ -93,6 +100,8 @@ front_status() {
     local pretty origin_text unsent_text machine_text next
     local is_git=0 has_origin=0 branch='' updates=0 unsent=0
     local machine_state=unknown machine_n='' tmp='' rc=0
+    local sync_sha='' diff_tmp='' diff_rc=0 diff_summary='' diff_in='' diff_out='' diff_both=''
+    local differ_next="mksync pull to take the repo's version, or mksync push to send this machine's."
 
     if [[ $SYNC_PLATFORM == macos ]]; then
         pretty=$(sw_vers -productVersion 2>/dev/null || printf 'unknown')
@@ -160,6 +169,35 @@ front_status() {
         rm -f "$tmp"
     fi
 
+    # With a sync point, the diff says which side changed the differing files,
+    # so the machine line can give the split and the next step can be exact.
+    # No sync point, a failed diff or a diff that agrees keeps the text above.
+    if [[ $machine_state == differ ]]; then
+        sync_sha=$(front_sync_point)
+        if [[ -n $sync_sha ]]; then
+            diff_tmp=$(mktemp) || diff_tmp=''
+            if [[ -n $diff_tmp ]]; then
+                diff_rc=0
+                "$REPO_ROOT/export.sh" --diff < /dev/null > "$diff_tmp" 2>&1 || diff_rc=$?
+                if (( diff_rc == 3 )) &&
+                    diff_summary=$(sed -nE \
+                        's/^  ([0-9]+ file\(s\) differ: ([0-9]+) in, ([0-9]+) out, ([0-9]+) both)\.$/\1|\2|\3|\4/p' \
+                        "$diff_tmp" | head -n 1) &&
+                    [[ -n $diff_summary ]]; then
+                    IFS='|' read -r machine_text diff_in diff_out diff_both <<< "$diff_summary"
+                    if (( diff_both > 0 || (diff_in > 0 && diff_out > 0) )); then
+                        differ_next='mksync diff, then push or pull file by file.'
+                    elif (( diff_out > 0 )); then
+                        differ_next='mksync push'
+                    elif (( diff_in > 0 )); then
+                        differ_next='mksync pull'
+                    fi
+                fi
+                rm -f "$diff_tmp"
+            fi
+        fi
+    fi
+
     if (( ! is_git || ! has_origin )); then
         next='run mksync doctor.'
     elif (( updates > 0 )); then
@@ -167,7 +205,7 @@ front_status() {
     elif (( unsent > 0 )); then
         next='mksync push'
     elif [[ $machine_state == differ ]]; then
-        next="mksync pull to take the repo's version, or mksync push to send this machine's."
+        next=$differ_next
     elif [[ $machine_state == unknown ]]; then
         next='the machine check failed; run ./import.sh --check to see why.'
     else
@@ -203,15 +241,29 @@ front_require_clone() {
     fi
 }
 
+# Show which side changed each file, after a fetch so the repo side is current.
+# The fetch has the status's timeout; offline keeps comparing with the last one.
+front_diff() {
+    if front_git remote get-url origin > /dev/null 2>&1; then
+        if ! GIT_TERMINAL_PROMPT=0 run_with_timeout "${SYNC_FETCH_TIMEOUT:-15}" \
+            git -C "$REPO_ROOT" fetch -q origin master > /dev/null 2>&1; then
+            printf '  Offline: comparing with the last fetch.\n'
+        fi
+    fi
+    exec "$REPO_ROOT/export.sh" --diff "$@"
+}
+
 # Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
 # the new code, then the import check and, unless declined, the import.
 front_pull() {
-    local apply_yes=0 no_fetch=0 updates answer='' rc=0
+    local apply_yes=0 no_fetch=0 force=0 updates answer='' rc=0
+    local diff_tmp='' diff_rc=0 blocked='' count=0
 
     while (( $# > 0 )); do
         case $1 in
             --yes) apply_yes=1; shift ;;
             --no-fetch) no_fetch=1; shift ;;
+            --force) force=1; shift ;;
             *)
                 printf 'Unknown option: %s\n' "$1" >&2
                 exit 1
@@ -240,7 +292,13 @@ front_pull() {
             printf '  Pulled %s commit(s).\n' "$updates"
             # Run the just-pulled code, not the copy this process started with.
             if (( apply_yes )); then
+                if (( force )); then
+                    exec "$REPO_ROOT/sync" pull --no-fetch --yes --force
+                fi
                 exec "$REPO_ROOT/sync" pull --no-fetch --yes
+            fi
+            if (( force )); then
+                exec "$REPO_ROOT/sync" pull --no-fetch --force
             fi
             exec "$REPO_ROOT/sync" pull --no-fetch
         fi
@@ -252,6 +310,36 @@ front_pull() {
         3) ;;
         *) exit 1 ;;
     esac
+
+    # A pull overwrites this machine's version of every changed file, so ask
+    # the diff which side changed them first. OUT and BOTH would be lost.
+    # Without a sync point every label is '?', which never blocks: skip it.
+    if (( ! force )) && [[ -n $(front_sync_point) ]]; then
+        diff_tmp=$(mktemp) || diff_tmp=''
+        if [[ -z $diff_tmp ]]; then
+            printf '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.\n' >&2
+            exit 1
+        fi
+        diff_rc=0
+        "$REPO_ROOT/export.sh" --diff < /dev/null > "$diff_tmp" 2>&1 || diff_rc=$?
+        blocked=$(grep -E '^  (OUT|BOTH) ' "$diff_tmp" || true)
+        rm -f "$diff_tmp"
+        case $diff_rc in
+            0|3) ;;
+            *)
+                printf '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.\n' >&2
+                exit 1
+                ;;
+        esac
+        if [[ -n $blocked ]]; then
+            printf '%s\n' "$blocked"
+            count=$(printf '%s\n' "$blocked" | wc -l)
+            count=${count//[[:space:]]/}
+            printf '  ERROR: %s file(s) changed on this machine since the last sync, and a pull would overwrite them.\n' "$count" >&2
+            printf '  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).\n' >&2
+            exit 1
+        fi
+    fi
 
     if (( ! apply_yes )); then
         printf '  Apply these changes? [Y/n] '

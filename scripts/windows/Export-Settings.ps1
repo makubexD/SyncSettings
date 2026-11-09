@@ -13,16 +13,21 @@
     Force re-prompting for all sanitized placeholder values, even if cached.
 .PARAMETER Preview
     Show what a commit would send without writing to the repo, then exit.
+.PARAMETER Diff
+    Show which side changed each file this machine owns, without writing
+    anything, then exit with 0 (nothing differs), 3 (something does) or 1.
 .EXAMPLE
     .\Export-Settings.ps1
     .\Export-Settings.ps1 -User johndoe
     .\Export-Settings.ps1 -ResetValues
     .\Export-Settings.ps1 -Preview
+    .\Export-Settings.ps1 -Diff
 #>
 param(
     [string]$User = $env:USERNAME,
     [switch]$ResetValues,
-    [switch]$Preview
+    [switch]$Preview,
+    [switch]$Diff
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,6 +44,12 @@ Write-Host
 
 try {
     $repoRoot   = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    if ($Diff) {
+        if ($Preview -or $ResetValues) {
+            throw '--diff cannot be combined with --preview or --reset-values.'
+        }
+        exit (Invoke-ExportDiff -RepoRoot $repoRoot -User $User)
+    }
     if ($Preview) {
         if ($ResetValues) {
             throw '--preview cannot be combined with --reset-values.'

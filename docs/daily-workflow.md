@@ -41,9 +41,10 @@ step, with the single scripts underneath. If `mksync` stops with something you d
 
 ## Before you pull or push
 
-Two dry runs show what would happen, and neither writes anything:
+Three dry runs show what would happen, and none of them writes anything:
 
 ```bash
+mksync diff      # both ways: which side changed each file since this machine last synced
 mksync check     # repo → this machine: every file an import would create or overwrite
 mksync preview   # this machine → repo: the diff a push would send
 ```
@@ -51,9 +52,22 @@ mksync preview   # this machine → repo: the diff a push would send
 The check compares this clone with the machine and doesn't fetch. If `mksync` shows `Origin : <n> update(s) waiting`,
 a pull brings those too, and its own list (shown before it asks) is the one to read.
 
-The check can't tell which side is newer yet. If it lists a file you edited on this machine, run `mksync push` first
-and let that change merge, or the pull replaces your edit. The replaced file is still in its `.bak`, until the next
-pull over the same file.
+The check can't tell which side is newer; the diff can. It fetches first, then gives each differing file one label:
+
+| Label | Meaning | Next |
+|---|---|---|
+| `IN` | Only the repo changed it | `mksync pull` takes it |
+| `OUT` | Only this machine changed it | `mksync push` sends it |
+| `BOTH` | Both changed it, differently | Merge by hand, then push |
+| `?` | This machine has no sync recorded yet | Decide by hand; the next pull or push records one |
+
+Each machine remembers the repo commit it last agreed with (`~/.local/state/sync-settings/last-sync`, or
+`%LOCALAPPDATA%\SyncSettings\last-sync` on Windows). A full pull records it, and so does a push once its PR opens. Files
+you pushed read `OUT` until the PR merges, then drop out of the list.
+
+`mksync pull` runs the diff before it applies anything and stops if a file is `OUT` or `BOTH`, so it can't replace an
+edit you haven't sent. Run `mksync push` first, or `mksync pull --force` to overwrite anyway (each file keeps its
+`.bak`, until the next pull over the same file).
 
 ## On the machine where you changed something
 
@@ -242,6 +256,8 @@ don't rely on it: read the diff.
 | `SKIPPED … needs values: run mksync setup` | A file has a placeholder (your name, email, a path) with no value yet. Run `mksync setup`; it asks for each one and saves it in `.user-values.json`, which never leaves the machine |
 | `WARN <n> value(s) not set; mksync setup asks for them` | The same thing, seen from `doctor` |
 | `./import.sh --check` (or `Import-Settings.ps1 -Check`) exits with 3 | Not an error: it means `<n> file(s) would change`. Read the list. If you changed any of those files on this machine, run `mksync push` first; otherwise `mksync pull` applies it. Exit 0 means the machine matches, and exit 1 means a check couldn't run (see its `ERROR` lines) |
+| `ERROR: <n> file(s) changed on this machine since the last sync, and a pull would overwrite them.` | The pull found `OUT` or `BOTH` files (listed above the error). Run `mksync push` to send them, or `mksync pull --force` to replace them with the repo's version (each keeps a `.bak`) |
+| `ERROR: could not tell which side is newer; …` | The diff couldn't run. Run `mksync diff` and read its `ERROR` line; `mksync pull --force` skips the diff |
 | `ERROR: the repo has changes not sent yet; run mksync push first, …` | `pull` won't mix your unsent changes with the repo's. Send them with `mksync push`, or drop them with `git restore`, then pull |
 | `ERROR: <dir> exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR.` | The installer won't write into a folder it didn't make. Move that folder, or set `SYNCSETTINGS_DIR` to another place and run it again |
 | Windows: `ERROR: …\mksync.cmd already exists; remove it and run this again.` | Another `mksync.cmd` is in the installer's bin folder. Remove or rename it if it isn't yours to keep, then run the installer again |

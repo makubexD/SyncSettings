@@ -252,6 +252,11 @@ try {
     git commit -m $commitMsg
     if ($LASTEXITCODE -ne 0) { throw 'git commit failed.' }
 
+    # The sync commit's parent is the master commit this branch starts from.
+    # Recording it as the sync point means the pushed files read OUT until the
+    # PR merges.
+    $parent = "$(git rev-parse HEAD^ 2>$null)".Trim()
+
     # Push the branch.
     git push -u origin $branch
     if ($LASTEXITCODE -ne 0) {
@@ -281,6 +286,9 @@ try {
     # Return to master.
     git switch master
     if ($LASTEXITCODE -ne 0) { throw 'git switch failed.' }
+
+    # Record the parent only now: a failed commit, push or PR leaves no sync point.
+    Write-LastSync -Sha $parent
 
     Write-Host "  PR opened: $prUrl" -ForegroundColor Green
     Write-Host "  Review it, add the 'reviewed' label, merge, then: git pull" -ForegroundColor White

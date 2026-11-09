@@ -37,6 +37,7 @@ fi
 APPLIED=0
 SKIPPED=0
 CHANGED=0
+SYNC_POINT=''
 
 if (( CHECK )); then
     printf '\n  SyncSettings -- IMPORT CHECK (%s)\n\n' "$SYNC_PLATFORM"
@@ -417,6 +418,16 @@ while IFS= read -r entry <&3; do
     fi
 done 3< <(platform_entries)
 
+# Record the sync point: the repo commit this machine now agrees with. Only a
+# real import that applied everything it found, from a clean tree, knows it.
+if (( ! CHECK && STATUS_ERRORS == 0 && STATUS_USER_SKIPS == 0 )); then
+    if head_sha=$(git -C "$REPO_ROOT" rev-parse -q --verify HEAD 2>/dev/null) \
+        && [[ -z $(git -C "$REPO_ROOT" status --porcelain -- dotfiles sync-config.json 2>/dev/null) ]]; then
+        write_last_sync "$head_sha"
+        SYNC_POINT=$head_sha
+    fi
+fi
+
 # -- Summary ---------------------------------------------------------------------
 
 printf '\n  %s\n' "--------------------------------------------------"
@@ -440,6 +451,9 @@ if (( CHECK )); then
 fi
 
 printf '\n  %d file(s) applied.\n\n' "$APPLIED"
+if [[ -n $SYNC_POINT ]]; then
+    printf '  Sync point : %s\n\n' "${SYNC_POINT:0:7}"
+fi
 printf '  Then add DEEPSEEK_API_KEY to ~/.config/claude-workers/env (chmod 600).\n'
 
 printf '\n  %s\n\n' "--------------------------------------------------"
