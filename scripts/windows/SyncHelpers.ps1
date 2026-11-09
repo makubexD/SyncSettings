@@ -241,6 +241,147 @@ function Resolve-LocalPath {
     return $path -replace '/', '\'
 }
 
+# -- Picking files (-Only) ----------------------------------------------------
+
+function Resolve-OnlyPaths {
+    <#
+    .SYNOPSIS
+        Turns repo or local paths into the repo paths this OS's entries own.
+    .DESCRIPTION
+        Mirrors resolve_only in scripts/linux/sync.sh. A path that starts with
+        dotfiles/ (or dotfiles\) is a repo path, compared ordinally with each
+        entry's repoPath, or a file under a dir entry or a file entry's .linked/
+        folder. Anything else is a local path: ~\ and ~/ become UserProfile, a
+        relative path joins $env:SYNC_CALLER_PWD (or the current folder), then
+        the path is normalized and compared case-insensitively with each entry's
+        resolved localPath. A path that matches no entry throws, so the caller
+        exits 1 before any file is touched.
+    #>
+    param(
+        [string[]]$Paths,
+        [array]$Files,
+        [string]$UserProfile
+    )
+
+    if ($null -eq $Paths -or $Paths.Count -eq 0) { return @() }
+
+    # Resolve each entry once: its repoPath, its kind, and its normalized local
+    # path (empty for dconf, which has no local file and matches by repo only).
+    $entries = @()
+    foreach ($entry in $Files) {
+        $repoPath = [string]$entry.repoPath
+        $kind = 'file'
+        if ($entry.PSObject.Properties['type'] -and $entry.type) {
+            if ([string]$entry.type -ceq 'dir') { $kind = 'dir' }
+            elseif ([string]$entry.type -ceq 'dconf') { $kind = 'dconf' }
+        }
+        $localPath = ''
+        if ($kind -cne 'dconf') {
+            $localPath = [IO.Path]::GetFullPath((Resolve-LocalPath -Template ([string]$entry.localPath) -ProfileRoot $UserProfile))
+        }
+        $entries += [PSCustomObject]@{ repoPath = $repoPath; kind = $kind; localPath = $localPath }
+    }
+
+    $selected = @()
+    foreach ($arg in $Paths) {
+        $p = [string]$arg
+
+        # Drop trailing separators, as resolve_only drops trailing slashes.
+        while ($p.Length -gt 3 -and ($p.EndsWith('\') -or $p.EndsWith('/'))) {
+            $p = $p.Substring(0, $p.Length - 1)
+        }
+
+        if ($p.StartsWith('dotfiles/', [StringComparison]::Ordinal) -or
+            $p.StartsWith('dotfiles\', [StringComparison]::Ordinal)) {
+            $p = $p -replace '\\', '/'
+            $found = $false
+            foreach ($e in $entries) {
+                if ([string]::Equals($p, $e.repoPath, [StringComparison]::Ordinal)) {
+                    $found = $true
+                } elseif ($e.kind -ceq 'dir' -and $p.StartsWith($e.repoPath + '/', [StringComparison]::Ordinal)) {
+                    $found = $true
+                } elseif ($e.kind -ceq 'file' -and $p.StartsWith($e.repoPath + '.linked/', [StringComparison]::Ordinal)) {
+                    $found = $true
+                }
+                if ($found) { break }
+            }
+            if (-not $found) {
+                throw ('{0} is not synced on this machine.' -f $arg)
+            }
+            $selected += $p
+            continue
+        }
+
+        # Local path: expand ~, make it absolute against the caller's folder,
+        # then normalize . and .. so it compares with the entries' paths.
+        if ($p -ceq '~') {
+            $p = $UserProfile
+        } elseif ($p.StartsWith('~/') -or $p.StartsWith('~\')) {
+            if ($p.Length -gt 2) {
+                $p = $UserProfile.TrimEnd('\') + '\' + $p.Substring(2)
+            } else {
+                $p = $UserProfile.TrimEnd('\')
+            }
+        }
+        if (-not [IO.Path]::IsPathRooted($p)) {
+            $caller = $env:SYNC_CALLER_PWD
+            if ([string]::IsNullOrEmpty($caller)) { $caller = (Get-Location).Path }
+            $p = Join-Path $caller $p
+        }
+        $p = [IO.Path]::GetFullPath($p)
+
+        $found = $false
+        foreach ($e in $entries) {
+            if ($e.kind -cne 'dconf' -and [string]::Equals($p, $e.localPath, [StringComparison]::OrdinalIgnoreCase)) {
+                $selected += $e.repoPath
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) {
+            foreach ($e in $entries) {
+                if ($e.kind -ceq 'dir' -and $p.StartsWith($e.localPath + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                    $rest = $p.Substring($e.localPath.Length + 1) -replace '\\', '/'
+                    $selected += ($e.repoPath + '/' + $rest)
+                    $found = $true
+                    break
+                }
+            }
+        }
+        if (-not $found) {
+            throw ('{0} is not synced on this machine.' -f $arg)
+        }
+    }
+
+    return $selected
+}
+
+function Test-OnlySelected {
+    <#
+    .SYNOPSIS
+        True when a repo path is picked by the -Only selection.
+    .DESCRIPTION
+        Mirrors only_selected and entry_selected in scripts/linux/sync.sh: with
+        no selection every path is picked; otherwise the path equals a selected
+        path, lies under one (including its .linked/ folder), or a selected path
+        lies under it. Comparisons are ordinal (case-sensitive), like the Linux
+        version.
+    #>
+    param([string]$RepoPath, [string[]]$Selected)
+
+    if ($null -eq $Selected -or $Selected.Count -eq 0) { return $true }
+
+    foreach ($sel in $Selected) {
+        if ($null -eq $sel) { continue }
+        if ([string]::Equals($RepoPath, $sel, [StringComparison]::Ordinal)) { return $true }
+        if ($RepoPath.StartsWith($sel + '/', [StringComparison]::Ordinal)) { return $true }
+        if ($RepoPath.StartsWith($sel + '.linked/', [StringComparison]::Ordinal)) { return $true }
+        if ($sel.StartsWith($RepoPath + '/', [StringComparison]::Ordinal)) { return $true }
+        if ($sel.StartsWith($RepoPath + '.linked/', [StringComparison]::Ordinal)) { return $true }
+    }
+    return $false
+}
+
 # -- Exclude pattern check ----------------------------------------------------
 
 function Test-Excluded {
