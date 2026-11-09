@@ -12,7 +12,7 @@ yet, so `macos-latest` in CI is the proof; a real run on a Mac goes to `TODO.md`
   nothing past it needs to run on 3.2.
 - No GNU-only tool or flag on a path macOS runs: no `chmod --reference`, `timeout`, `find -printf`, `getent`, `mv -T`,
   `sed -i`, `stat -c`. Linux-only paths (dconf, package drift, `bootstrap/linux.sh`) may keep them.
-- The OS comes from one function, `sync_os` (step 2): `SYNC_OS` when set, else `uname -s` (`Linux` → `linux`, `Darwin`
+- The OS comes from one function, `sync_os` (step 3): `SYNC_OS` when set, else `uname -s` (`Linux` → `linux`, `Darwin`
   → `macos`). Tests set `SYNC_OS=macos` on Linux to cover macOS behaviour; the `engine-macos` job (step 10) runs the
   same cases for real.
 - Each step's test is its own filter of `tests/linux/engine.sh <filter>` (bash) or the parse check plus the
@@ -31,6 +31,8 @@ Files: `docs/sync-contract.md`, `docs/configuration.md`, `docs/layout.md`.
   both engines before a file is touched, with the same error naming the four values.
 - **`localPaths`** (optional): an object keyed by `linux`, `macos` or `windows`, each value a `~/` (or `~\` on Windows)
   path that replaces `localPath` on that OS. Same safety check as `localPath`. Any other key is an error.
+- **Minimum macOS**: 13 (Ventura). `readlink -f` (`sync:7`, `install.sh`, `front.sh`) arrived in 12.3, and Homebrew
+  supports the three newest releases. `mksync doctor` prints `WARN macOS <v> is older than 13` below it.
 - **OS detection**: `sync_os` as in the shared rules. Any other `uname -s` →
   `ERROR: SyncSettings runs on Linux, macOS and Windows; this is <uname>.` exit 1.
 - **Layout**: `dotfiles/common/<tool>/` holds any file used by more than one OS, and the entry's `platform` says which;
@@ -42,26 +44,7 @@ Files: `docs/sync-contract.md`, `docs/configuration.md`, `docs/layout.md`.
   bootstrap. `install.sh` on macOS: step 8.
 - Known differences: add the macOS rows.
 
-### 2. Platform selection in the bash engine `[worker]`
-
-Files: `scripts/linux/sync.sh`.
-
-- New `sync_os`: prints `${SYNC_OS:-}` when set and one of `linux`/`macos`, else maps `uname -s` (`Linux` → `linux`,
-  `Darwin` → `macos`); anything else prints the step 1 error to stderr and exits 1. `SYNC_OS` set to another value is the
-  same error with its value. Called once at load into `SYNC_OS_NAME` (not under `SYNC_LIB_ONLY`'s skip: tests need it).
-- `check_platforms` accepts the step 1 values and arrays; its error text becomes
-  `entry %s needs "platform": "common", "windows", "linux", "macos" or a list of the last three.`
-- `check_paths` also checks every `localPaths` value with `path_is_safe … local` and rejects keys other than
-  `linux`/`macos`/`windows` (`ERROR: sync-config.json: entry %s has an unknown localPaths key %s.`).
-- `platform_entries` selects `common`, the OS's own value, and arrays containing it, and rewrites
-  `.localPath = (.localPaths[$os] // .localPath)` in the same `jq`, so `export.sh`, `import.sh` and `sync.sh:248`
-  keep reading `.localPath` unchanged.
-- The dconf placeholder query in `scripts/linux/front.sh` (`front_doctor`, `select(.platform == "linux" or …)`) uses the
-  same selection; move it to a `platform_select` jq snippet in `sync.sh` that both use.
-
-Test: `tests/linux/engine.sh platform` (step 3's cases; the step is accepted after step 3 passes).
-
-### 3. Platform cases `[worker]`
+### 2. Platform cases `[worker]`
 
 Files: `tests/linux/engine.sh`.
 
@@ -80,15 +63,35 @@ Each case runs on the existing fixture with a config edited by `jq` in the case:
 | `localpaths-bad-key` | key `bsd` | exit 1, `unknown localPaths key bsd` |
 | `localpaths-spaces` | `~/Library/Application Support/Code/User/settings.json` | import and `--check` handle the space |
 
-Test: `tests/linux/engine.sh platform` and `tests/linux/engine.sh localpaths`; every case fails before step 2 for the
-right reason (unknown platform or path).
+Test: `tests/linux/engine.sh platform` and `tests/linux/engine.sh localpaths`; every case except
+`platform-array-windows-only`'s Linux run fails for the right reason (unknown platform, `SYNC_OS` ignored, or
+`localPaths` ignored) until step 3.
+
+### 3. Platform selection in the bash engine `[worker]`
+
+Files: `scripts/linux/sync.sh`.
+
+- New `sync_os`: prints `${SYNC_OS:-}` when set and one of `linux`/`macos`, else maps `uname -s` (`Linux` → `linux`,
+  `Darwin` → `macos`); anything else prints the step 1 error to stderr and exits 1. `SYNC_OS` set to another value is the
+  same error with its value. Called once at load into `SYNC_OS_NAME` (not under `SYNC_LIB_ONLY`'s skip: tests need it).
+- `check_platforms` accepts the step 1 values and arrays; its error text becomes
+  `entry %s needs "platform": "common", "windows", "linux", "macos" or a list of the last three.`
+- `check_paths` also checks every `localPaths` value with `path_is_safe … local` and rejects keys other than
+  `linux`/`macos`/`windows` (`ERROR: sync-config.json: entry %s has an unknown localPaths key %s.`).
+- `platform_entries` selects `common`, the OS's own value, and arrays containing it, and rewrites
+  `.localPath = (.localPaths[$os] // .localPath)` in the same `jq`, so `export.sh`, `import.sh` and `sync.sh:248`
+  keep reading `.localPath` unchanged.
+- The dconf placeholder query in `scripts/linux/front.sh` (`front_doctor`, `select(.platform == "linux" or …)`) uses the
+  same selection; move it to a `platform_select` jq snippet in `sync.sh` that both use.
+
+Test: `tests/linux/engine.sh platform` and `tests/linux/engine.sh localpaths` (step 2's cases) all pass.
 
 ### 4. Platform selection in PowerShell `[worker]`
 
 Files: `scripts/windows/SyncHelpers.ps1`, `tests/windows/Engine.Tests.ps1`.
 
-`Assert-ValidPlatform` accepts the step 1 values and arrays (same error text as step 2). `Test-WindowsEntry` is true for
-`windows`, `common`, or an array containing `windows`. `localPaths` is validated as in step 2 and `localPaths.windows`
+`Assert-ValidPlatform` accepts the step 1 values and arrays (same error text as step 3). `Test-WindowsEntry` is true for
+`windows`, `common`, or an array containing `windows`. `localPaths` is validated as in step 3 and `localPaths.windows`
 replaces `localPath` where the scripts resolve it. Pester cases: `macos` entry skipped, `["linux","macos"]` skipped,
 `["windows","macos"]` used, empty array and unknown `localPaths` key throw, `localPaths.windows` used.
 
@@ -136,7 +139,8 @@ Files: `scripts/linux/front.sh`.
 - OS label: `macos <sw_vers -productVersion>` when `SYNC_OS_NAME` is `macos`; `/etc/os-release` otherwise.
 - `front_install_hint` on macOS: `brew install <pkg>` (`cmp` → nothing to install, it ships with macOS); bash's hint
   `brew install bash`.
-- `front_doctor` on macOS adds `brew` (MISSING: `brew: install from https://brew.sh`).
+- `front_doctor` on macOS adds `brew` (MISSING: `brew: install from https://brew.sh`). Below macOS 13 it prints
+  `WARN macOS <v> is older than 13`.
 - `front_setup` on macOS doesn't ask about the bootstrap; `--bootstrap` →
   `ERROR: --bootstrap is Ubuntu only.` exit 1.
 - The status's `Next: nothing to do.` after a failed machine check becomes
@@ -170,7 +174,8 @@ Files: `tests/linux/engine.sh`, `tests/linux/bootstrap.sh`.
   `script --version` fails (BSD).
 - The `tools-claude-file-first` stub reads `/proc/self/fd/0`: use `[ -t 0 ]` and a read with `-t 0` instead.
 - Cases that need dconf or apt (`dconf-*`, `real-config-roundtrip`'s dconf lines, drift cases) print `SKIP <case>
-  (linux only)` when `SYNC_OS_NAME` is `macos`; the summary counts skips separately and they don't fail the run.
+  (linux only)` when the OS is macOS; the harness computes it the same way as `sync_os` (`SYNC_OS`, else `uname -s`),
+  because `SYNC_OS_NAME` lives in `sync.sh`, which the harness doesn't source; the summary counts skips separately and they don't fail the run.
 
 Test: `tests/linux/engine.sh prompt-empty-stops`, `defaultenv-valid`, `upstream-behind-pull` and
 `tests/linux/bootstrap.sh tools-claude-file-first` pass on Linux; `SYNC_OS=macos tests/linux/engine.sh dconf` prints only

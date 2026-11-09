@@ -159,24 +159,25 @@ gate (`scripts/linux/front.sh:350`); on macOS its hint becomes `brew install bas
   Windows skips it like `linux`.
 - **`common` entries apply on macOS as they are.** All four use `~/` paths that are the same on a Mac:
   `~/.gitconfig`, `~/.config/git/ignore`, `~/.claude/RTK.md`, `~/.claude/docs/token-routing-map.html`.
-- **Files under `dotfiles/macos/<tool>/`** only when the content differs from Linux. Where the file is the same and
-  only the platform differs, the entry moves to `common` (same `repoPath` under `dotfiles/common/`) rather than getting a
-  twin, so one edit reaches both machines.
+- **Files under `dotfiles/macos/<tool>/`** only when the content differs from Linux. Where the file is the same on Linux
+  and macOS, the entry takes the platform list `["linux", "macos"]` and moves to `dotfiles/common/<tool>/` rather than
+  getting a twin, so one edit reaches both machines. Not `common`: that value also runs on Windows, which would write
+  tmux or htop files into `%USERPROFILE%`.
 - **Tools already synced, by where they'd live on a Mac:**
 
 | Tool | Linux entries | macOS `localPath` | Proposal |
 |---|---|---|---|
 | git | `~/.gitconfig` (common), `~/.gitconfig.local` | same | `.gitconfig.local` stays per-OS (it holds OS paths) |
-| Claude Code | 11 `~/.claude/…` entries, 2 `~/.claude-worker` | same paths | Move to `common` the ones that are OS-neutral (`CLAUDE.md`, skills, docs); `settings.json`, `hooks`, `statusline.sh` and `bin/` call Linux paths and tools, so they stay `linux` until a Mac copy is written. `mk-exec` and the worker setup are Linux-only for now |
+| Claude Code | 11 `~/.claude/…` entries, 2 `~/.claude-worker` | same paths | Move to `["linux", "macos"]` the ones that are OS-neutral (`CLAUDE.md`, skills, docs); `settings.json`, `hooks`, `statusline.sh` and `bin/` call Linux paths and tools, so they stay `linux` until a Mac copy is written. `mk-exec` and the worker setup are Linux-only for now |
 | shell | `~/.bashrc`, `~/.profile` | macOS defaults to zsh: `~/.zshrc`, `~/.zprofile` | `dotfiles/macos/shell/` with zsh files, not the bash ones |
-| VS Code | `~/.config/Code/User/{settings,keybindings}.json` | `~/Library/Application Support/Code/User/` | `common` content, two `localPath`s: needs a per-OS path, below |
-| tmux, starship, wezterm, htop, gh | `~/.config/…`, `~/.tmux.conf` | same paths | `common` |
+| VS Code | `~/.config/Code/User/settings.json`, `snippets` | `~/Library/Application Support/Code/User/` | Shared content, two `localPath`s: needs a per-OS path, below |
+| tmux, starship, wezterm, htop, gh | `~/.config/…`, `~/.tmux.conf` | same paths | `["linux", "macos"]` |
 | rtk | `~/.config/rtk` | likely `~/Library/Application Support/rtk` (Rust `dirs` default); check on the Mac | per-OS path |
 | GNOME, dconf | 14 + dconf entries | n/a | stay `linux` |
 
 - **Per-OS `localPath`.** VS Code (and maybe rtk) has the same content in another folder. Either a `macos` twin entry
   pointing at the same `repoPath` (no schema change, but two entries to keep in step and export would see both), or an
-  optional `localPaths: { "macos": "…" }` override on a `common` entry. The override is the cleaner contract; it's a
+  optional `localPaths: { "macos": "…" }` override on a shared entry. The override is the cleaner contract; it's a
   schema change on both engines.
 - **`mksync setup` and `doctor` on macOS.** `doctor`: bash ≥ 4 (hint `brew install bash`), `git`, `jq`, `cmp`
   (hints `brew install …`), `brew` itself (MISSING with the install URL), `gh`. No `dconf` check. `setup`: no
@@ -193,5 +194,5 @@ gate (`scripts/linux/front.sh:350`); on macOS its hint becomes `brew install bas
   portable helpers; a macOS CI job (Homebrew bash, no `gnubin`) keeps GNU-only flags out.
 - **No Mac in use yet.** The macOS work is proven by CI on `macos-latest`, not on a real machine. Anything that can only
   be checked on a Mac (rtk's config folder, zsh startup order on a real login) is marked as such, not guessed.
-- **First tools, all four groups:** git and Claude Code's OS-neutral files (`common`), VS Code (per-OS `localPath`),
-  tmux, starship, wezterm, htop and gh (`common`), and zsh under `dotfiles/macos/shell/`.
+- **First tools, all four groups:** git and Claude Code's OS-neutral files, VS Code (per-OS `localPath`), tmux,
+  starship, wezterm, htop and gh, all as `["linux", "macos"]` entries, and zsh under `dotfiles/macos/shell/`.
