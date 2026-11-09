@@ -266,7 +266,8 @@ function Invoke-Pull {
 
     # A pull overwrites this machine's version of every changed file, so ask
     # the diff which side changed them first. OUT and BOTH would be lost.
-    if (-not $Force) {
+    # Without a sync point every label is '?', which never blocks: skip it.
+    if (-not $Force -and (Read-LastSync -RepoRoot $script:RepoRoot)) {
         $diff = Invoke-ExportDiffChild
         if ($diff.Code -ne 0 -and $diff.Code -ne 3) {
             Write-Host '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.'

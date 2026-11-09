@@ -546,10 +546,11 @@ codes are the same on both systems, except where this section says otherwise.
 | `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
 
-`mksync pull` protects this machine's own changes: when the import check finds changes and `--force` isn't given, it
-runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
+`mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
+sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
 since the last sync, and a pull would overwrite them.` and `Run mksync push first, or mksync pull --force to overwrite
-them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` and `?` lines never block.
+them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block, and without a sync point the diff doesn't run at all, since every
+label would be `?`.
 A diff that fails (exit 1) stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
 or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it.
 On Windows the guard recognises the same labels in the `[OUT      ]` status-line layout ([Known differences](#known-differences)).

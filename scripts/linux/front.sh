@@ -34,6 +34,13 @@ front_os_release_value() {
 }
 
 # Run git against the repo, never asking for credentials on a terminal.
+# The recorded sync point, or nothing. read_last_sync lives in the engine; run
+# it in its own shell so the engine's globals and shell options stay out.
+front_sync_point() {
+    (cd "$REPO_ROOT" && SYNC_LIB_ONLY=1 "${BASH:-bash}" -c \
+        'source scripts/linux/sync.sh && read_last_sync' 2>/dev/null) || true
+}
+
 front_git() {
     GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" "$@"
 }
@@ -166,10 +173,7 @@ front_status() {
     # so the machine line can give the split and the next step can be exact.
     # No sync point, a failed diff or a diff that agrees keeps the text above.
     if [[ $machine_state == differ ]]; then
-        # read_last_sync lives in the engine; run it in its own shell so the
-        # engine's globals and shell options stay out of the status.
-        sync_sha=$(cd "$REPO_ROOT" && SYNC_LIB_ONLY=1 "${BASH:-bash}" -c \
-            'source scripts/linux/sync.sh && read_last_sync' 2>/dev/null) || sync_sha=''
+        sync_sha=$(front_sync_point)
         if [[ -n $sync_sha ]]; then
             diff_tmp=$(mktemp) || diff_tmp=''
             if [[ -n $diff_tmp ]]; then
@@ -309,7 +313,8 @@ front_pull() {
 
     # A pull overwrites this machine's version of every changed file, so ask
     # the diff which side changed them first. OUT and BOTH would be lost.
-    if (( ! force )); then
+    # Without a sync point every label is '?', which never blocks: skip it.
+    if (( ! force )) && [[ -n $(front_sync_point) ]]; then
         diff_tmp=$(mktemp) || diff_tmp=''
         if [[ -z $diff_tmp ]]; then
             printf '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.\n' >&2
