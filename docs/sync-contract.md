@@ -464,6 +464,9 @@ nothing, and neither does an import that skipped a prompt, hit an error, or ran 
 the old files, and with the sync commit as the base they would read as `IN` and a pull would undo the push. A run
 that failed before that (commit, push or PR) writes nothing.
 
+On Windows, `Import-Settings.ps1` and `Commit-Settings.ps1` follow the same rules, and an import for another user's
+profile (`-User`) never writes it, because the file belongs to whoever runs the script.
+
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
 ## Diff
@@ -699,3 +702,6 @@ had the behavior.
 | Commit: branch + PR, stages `dotfiles/ packages/ sync-config.json` | yes | yes | phase 1 |
 | `type: dconf` | validates only | phase 5 | kept as a known difference |
 | Package drift | phase 8 | phase 6 | a known difference until then |
+| Sync point (import, commit) | docs-dryrun-2 step 7 | steps 1-2 | |
+| `--diff` / `-Diff` | step 8 | step 3 | |
+| `mksync diff`, pull guard, status labels | step 9 | steps 4-6 | |
