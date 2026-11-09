@@ -8,3 +8,6 @@ for f in /c/MakuCustomAlias/*.bat; do
 done
 
 # alias vs='vs.bat'
+
+# Machine-only setup that SyncSettings never syncs.
+[ -f "$HOME/.bashrc.local" ] && . "$HOME/.bashrc.local"
