@@ -218,24 +218,24 @@ BeforeAll {
 
     # Runs Export-Settings.ps1 -Preview in the temp repo.
     function Invoke-Preview {
-        param([switch]$ResetValues)
+        param([switch]$ResetValues, [string]$Only = '')
         $script:EngineScript = Join-Path $script:RepoDir 'scripts\windows\Export-Settings.ps1'
-        if ($ResetValues) {
-            $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript -Preview -ResetValues 2>&1 | Out-String
-        } else {
-            $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript -Preview 2>&1 | Out-String
-        }
+        $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript, '-Preview')
+        if ($ResetValues) { $argList += '-ResetValues' }
+        if ($Only) { $argList += @('-Only', $Only) }
+        $script:EngineOut = & powershell.exe @argList 2>&1 | Out-String
         $script:EngineExit = $LASTEXITCODE
     }
 
     # Runs Export-Settings.ps1 -Diff in the temp repo. Stdin is redirected, so
     # the run can never prompt; -Preview and -ResetValues add the flags it refuses.
     function Invoke-Diff {
-        param([switch]$Preview, [switch]$ResetValues)
+        param([switch]$Preview, [switch]$ResetValues, [string]$Only = '')
         $script:EngineScript = Join-Path $script:RepoDir 'scripts\windows\Export-Settings.ps1'
         $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript, '-Diff')
         if ($Preview) { $argList += '-Preview' }
         if ($ResetValues) { $argList += '-ResetValues' }
+        if ($Only) { $argList += @('-Only', $Only) }
         $script:EngineOut = "" | & powershell.exe @argList 2>&1 | Out-String
         $script:EngineExit = $LASTEXITCODE
     }
@@ -2484,6 +2484,83 @@ Describe 'Windows engine' {
             $wantShared = Join-Path $Script:Fixtures 'home\.config\fixture\shared.conf'
             ([IO.File]::ReadAllBytes($sharedConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($wantShared) -join ',')
             ([IO.File]::ReadAllText($pathsIni)) | Should -Be "gh = local`r`n"
+        }
+
+        It 'export-only-one' {
+            New-PreviewRepo
+            $ErrorActionPreference = 'Continue'
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "local win change`r`n", [System.Text.UTF8Encoding]::new($false))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            [IO.File]::WriteAllText($sharedConf, "local shared change`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1' -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 0
+            # Only dotfiles/ is checked: the export also rewrites .user-values.json.
+            (git -C $script:RepoDir status --porcelain -- dotfiles 2>$null | Out-String).Trim() |
+                Should -Be ' M dotfiles/windows/win.conf'
+        }
+
+        It 'export-only-dir-removed' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            $localB = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+            [IO.File]::WriteAllText($localB, "changed`n", [System.Text.UTF8Encoding]::new($false))
+            Remove-Item -Path (Join-Path $script:HomeDir '.config\fixture\dir\c.txt') -Force
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1' -Only 'dotfiles/common/dir/a/b.txt'
+
+            $script:EngineExit | Should -Be 0
+            ([IO.File]::ReadAllText((Join-Path $script:RepoDir 'dotfiles\common\dir\a\b.txt'))) | Should -Be "changed`n"
+            (Join-Path $script:RepoDir 'dotfiles\common\dir\c.txt') | Should -Exist
+        }
+
+        It 'export-only-no-reports' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            # Without -Only this would print an ORPHAN line.
+            $stray = Join-Path $script:RepoDir 'dotfiles\linux\stray.txt'
+            [IO.File]::WriteAllText($stray, "stray`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1' -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Not -Match '\[ORPHAN'
+        }
+
+        It 'diff-only' {
+            New-PreviewRepo
+            $ErrorActionPreference = 'Continue'
+            $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+            Set-DiffSyncPoint $head
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "local win change`r`n", [System.Text.UTF8Encoding]::new($false))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            [IO.File]::WriteAllText($sharedConf, "local shared change`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Diff -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/win.conf')
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/common/shared.conf'))
+            $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 0 in, 1 out, 0 both.'))
+        }
+
+        It 'export-only-preview' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            Invoke-Preview -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --preview cannot be combined with --only.'))
         }
     }
 
