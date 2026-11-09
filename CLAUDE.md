@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4+, `jq`, `git`, `cmp`. The Linux side syncs the shell, terminal tools, VS Code's default profile, desktop files, GNOME settings (dconf) and the Claude Code setup in `~/.claude`.
+Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4+, `jq`, `git`, `cmp`. macOS 13+: the same bash engine under Homebrew's bash and `jq` (`/bin/bash` 3.2 only reaches the re-exec guard at the top of each entry script). The Linux side syncs the shell, terminal tools, VS Code's default profile, desktop files, GNOME settings (dconf) and the Claude Code setup in `~/.claude`.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 - `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/linux/sync.sh`
 - `mksync` is the front door: status, `doctor`, `setup`, `pull`, `push`. On Linux it's `sync` linked on `PATH`, in `scripts/linux/front.sh`; on Windows it's `mksync.cmd` calling `sync.cmd`, in `scripts/windows/Front.ps1`. Both call the entry points and never sync a file themselves, with the same wording and exit codes. `install.sh` (`curl … | bash`) and `install.ps1` (`irm … | iex`) are the installers. All of them are in the "Front door" section of `docs/sync-contract.md`
 - Windows logic lives in `scripts/windows/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
-- Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` entries are bash-only, and `"common"` entries run on both (`Test-WindowsEntry` and `platform_entries` filter). A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
+- Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` and `"macos"` entries are bash-only on that OS, `"common"` entries run everywhere, and a list such as `["linux", "macos"]` names several. The bash OS comes from `sync_os` (`scripts/linux/os.sh`: `SYNC_OS`, else `uname -s`) into `SYNC_PLATFORM`; `localPaths.<os>` overrides `localPath` there. A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
 - `dotfiles/` is the staging area inside the repo; files live under `dotfiles/<platform>/<tool>/` (`docs/layout.md`)
 - `packages/linux/` holds hand-edited package lists (`docs/packages.md`), including `tools.txt`, the pinned downloads for tools with no apt source. No entry owns them, and export never writes them

@@ -469,7 +469,8 @@ Status lines and the next command, in this order of precedence:
 
 - Linux and macOS ([macOS](#macos) has its own rules); Windows shells and other systems stop with a message, exit 1.
 - Missing `git`, `jq` or `cmp`: offers `sudo apt-get install` where `apt-get` exists. Otherwise it names the packages
-  and exits 1.
+  and exits 1. Unlike the `[Y/n]` rule below, end of input at this question is no: nobody is there to answer, so it
+  installs nothing and exits 1.
 - Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone, or a
   `mksync` that isn't its link, stops it without touching either.
 - Links `mksync`, prints the `PATH` line if needed, then runs `mksync setup` unless `--no-setup`.
@@ -535,7 +536,8 @@ uses is there. The reasons and the options weighed are in [macos-research.md](ma
   https://brew.sh`), `gh` and its sign-in, the origin remote, the `mksync` link and unset values. `setup` has no
   bootstrap question, and `--bootstrap` stops with `ERROR: --bootstrap is Ubuntu only.`, exit 1.
 - **`install.sh`**: without `brew`, it stops with `ERROR: install Homebrew first: https://brew.sh`, exit 1. A missing `jq`
-  or Homebrew bash 4 gets `Install with Homebrew: brew install bash jq [Y/n]` (end of input is yes), never `sudo`. The
+  or Homebrew bash 4 gets `Install with Homebrew: brew install bash jq [Y/n]`, never `sudo`. End of input is no, as at the apt question: it
+  installs nothing and exits 1. The
   link, the `PATH` hint and `mksync setup` work as on Linux, under Homebrew's bash. It reads `SYNC_OS` like `sync_os`.
 - **Layout**: `dotfiles/macos/<tool>/` holds macOS-only files. Files shared with Linux live in `dotfiles/common/<tool>/`
   with `"platform": ["linux", "macos"]` ([layout.md](layout.md)).

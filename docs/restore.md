@@ -4,6 +4,7 @@ This page takes a new machine back to your setup. Bootstrap handles everything t
 list, because this repo is public and secrets never go in it.
 
 On Ubuntu, run `./bootstrap/linux.sh`. On Windows, the one-line installer restores your settings; see [Windows](#windows).
+On a Mac, see [macOS](#macos): there is no bootstrap, so apps come from Homebrew.
 
 ## Before you lose the machine
 
@@ -145,3 +146,15 @@ The Windows checks in [`TODO.md`](../TODO.md) were written for the machine that 
 machine W0 (old layout) and W1 (the first migrating import) don't apply, because the one-liner's setup is that import.
 W2 (git works), W3 (the round trip, now `mksync` showing nothing to do), W4 (apps), W5 (the PR flow, now `mksync push`)
 and W6 (the global git ignore) still tell you it worked.
+
+## macOS
+
+There is no bootstrap on a Mac: the package lists in `packages/linux/` are Ubuntu packages. Install Homebrew and run the
+[install line](../README.md#install), which installs `bash` and `jq`, clones the repo and runs `mksync setup`. Setup
+imports the files whose platform includes `macos` (shell, git credentials, terminal tools, VS Code, `CLAUDE.md`); install
+the apps behind them (`brew install tmux starship htop gh`, WezTerm, VS Code) yourself. Then restore the files from
+[Before you lose the machine](#before-you-lose-the-machine) and sign in to `gh`.
+
+What's left on Linux only: GNOME settings, the package drift report, and the rest of the Claude Code setup in `~/.claude`
+(settings, hooks, scripts), which still assumes Linux paths. [README: macOS](../README.md#macos) has the troubleshooting
+table.

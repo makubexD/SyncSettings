@@ -1,7 +1,8 @@
 # SyncSettings
 
 Keep your dotfiles and config files in sync across machines via a git repository. Windows uses the
-PowerShell scripts (`.bat` entry points). Linux uses the bash scripts (`.sh` entry points), see [Linux](#linux).
+PowerShell scripts (`.bat` entry points). Linux and macOS use the bash scripts (`.sh` entry points), see [Linux](#linux)
+and [macOS](#macos).
 
 ## Install
 
@@ -13,6 +14,15 @@ curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/instal
 
 It installs `git`, `jq` and `diffutils` if they're missing (it asks first), clones the repo to `~/SyncSettings`, puts the
 `mksync` command in `~/.local/bin`, and runs `mksync setup`.
+
+On macOS 13 or newer, install [Homebrew](https://brew.sh) first, then paste the same line in Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash
+```
+
+macOS ships bash 3.2 and no `jq`, so the installer asks to run `brew install bash jq` (no `sudo`), then clones, links
+`mksync` and runs setup under Homebrew's bash, as on Linux.
 
 On Windows, paste this in PowerShell (5.1, the one that comes with Windows, is enough):
 
@@ -29,7 +39,7 @@ On both systems, run the same line again to update: it pulls the clone instead o
 change the defaults, for example for a fork or another folder: `SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR`,
 `SYNCSETTINGS_REF` and `SYNCSETTINGS_BIN` (where `mksync` goes). To answer yes or skip setup, Linux takes flags
 (`… | bash -s -- --yes --no-setup`) and Windows takes `SYNCSETTINGS_YES=1` and `SYNCSETTINGS_NO_SETUP=1`, since `iex` can't
-pass any. macOS isn't supported yet; see [the roadmap](docs/plan-easy-install.md).
+pass any. macOS takes the same flags as Linux.
 
 ## Commands
 
@@ -114,31 +124,44 @@ PowerShell or `sync preview` in cmd. Options pass through, for example `./sync i
 | `~\.bash_profile` | Bash login profile |
 | `~\AppData\Local\...\WindowsTerminal\settings.json` | Windows Terminal settings |
 
+**Linux and macOS**
+
+| File | Description |
+|---|---|
+| `~/.tmux.conf`, `~/.config/starship.toml` | tmux and the Starship prompt |
+| `~/.config/wezterm/wezterm.lua` | WezTerm |
+| `~/.config/htop/htoprc`, `~/.config/gh/config.yml` | htop and GitHub CLI settings |
+| `~/.config/Code/User/settings.json`, `snippets/` | VS Code default profile (home path and a work marketplace URL sanitized). On macOS: `~/Library/Application Support/Code/User/` |
+| `~/.claude/CLAUDE.md`, `~/.claude/sampleGrok.md` | Global instructions for Claude Code, and an old Grok setup for reference |
+
+**macOS**
+
+| File | Description |
+|---|---|
+| `~/.gitconfig.local` | Git credentials for macOS (`gh auth git-credential`) |
+| `~/.zshrc`, `~/.zprofile` | Zsh setup: Homebrew and `~/.local/bin` on `PATH`, aliases, nvm, bun, Starship |
+
 **Linux**
 
 | File | Description |
 |---|---|
 | `~/.gitconfig.local` | Git credentials for Linux |
 | `~/.bashrc`, `~/.profile` | Shell setup |
-| `~/.tmux.conf`, `~/.config/starship.toml` | tmux and the Starship prompt |
-| `~/.config/wezterm/wezterm.lua`, `~/.local/bin/wezterm-xwayland` | WezTerm, with its XWayland launcher |
-| `~/.config/htop/htoprc`, `~/.config/gh/config.yml`, `~/.config/rtk/` | htop, GitHub CLI and RTK settings |
-| `~/.config/Code/User/settings.json`, `snippets/` | VS Code default profile (home path and a work marketplace URL sanitized) |
+| `~/.local/bin/wezterm-xwayland` | WezTerm's XWayland launcher |
+| `~/.config/rtk/` | RTK settings |
 | `~/.config/mimeapps.list`, `~/.config/gtk-3.0/bookmarks` | Default apps and Files bookmarks (home path sanitized) |
 | `~/.local/share/applications/` | The `disco-datos`, `mis-discos` and `wezterm-xwayland` launchers |
 | GNOME settings (dconf) | Theme, keyboard, shortcuts, dock, power, Ptyxis, Files and the file dialog ([what's in and out](docs/layout.md#which-dconf-settings-are-synced)) |
 
-The rest is the Claude Code setup in `~/.claude`:
+The rest is the Claude Code setup in `~/.claude`, Linux only for now:
 
 | File | Description |
 |---|---|
-| `CLAUDE.md` | Global instructions for Claude Code |
 | `settings.json` | Hooks, plugin declarations, permissions (home path and GitHub username sanitized) |
 | `statusline.sh` | Status line script |
 | `skills/mk-delegate/`, `skills/mk-check/` | `/mk-delegate` and `/mk-check` slash commands |
 | `hooks/` | context-mode hook, the worker-mode guard and metrics capture |
 | `bin/mk-exec`, `bin/workflow-report`, `bin/worker-mode`, `bin/metrics-archive` | Worker wrapper (headless Claude Code on the paid DeepSeek API), run report, worker-mode switch, metrics archive |
-| `sampleGrok.md` | Old Windows Grok setup for reference |
 | `~/.claude-worker/CLAUDE.md`, `settings.json` | The worker's own config dir: its rules and permissions (no credentials) |
 
 Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, plugin install state, caches, the GitHub CLI's `hosts.yml`, VS Code's named profiles, GNOME location, window sizes and history.
@@ -163,6 +186,8 @@ Add or remove files by editing `sync-config.json`. [Repository layout](docs/layo
 
 - **Windows:** Windows 10 or 11, PowerShell 5.1+, Git (in PATH)
 - **Linux:** bash 4+, `jq`, `git`, `cmp` (diffutils). `dconf-cli` for the GNOME settings; without it they're skipped
+- **macOS:** 13 (Ventura) or newer, [Homebrew](https://brew.sh), and from it `bash` (4+) and `jq`. `git` and `cmp` come with
+  the system
 - **Both, for committing:** the [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`
 
 ---
@@ -265,6 +290,46 @@ is safe. [Restore a machine](docs/restore.md) says what it asks and what each li
 [steps it can't do](docs/restore.md#finish-by-hand), including your DeepSeek key and `/mk-check`.
 
 Not supported on Linux: `detectLinkedPaths` and importing into another user's profile.
+
+---
+
+## macOS
+
+The same bash scripts and commands as [Linux](#linux), run by Homebrew's bash. They handle entries whose `platform` is
+`"macos"`, `"common"`, or a list that names `macos`; an entry's `localPaths.macos` replaces its `localPath` on a Mac (VS
+Code keeps its settings in `~/Library/Application Support/Code/User/`).
+
+`mksync doctor` on a ready Mac:
+
+```
+  OK       bash 5.3.3(1)-release
+  OK       git
+  OK       jq
+  OK       cmp
+  OK       brew
+  OK       gh (signed in)
+  OK       repo clone with origin
+  OK       mksync on PATH
+  OK       values
+  Ready.
+```
+
+Skipped on macOS, because each one is built on Ubuntu tools:
+
+- GNOME settings (dconf): their entries are `linux`, so a Mac never sees them.
+- The package drift report at the end of an export or preview: it reads `apt`, `snap` and GNU `find`.
+- `mksync setup --bootstrap` and `bootstrap/linux.sh`: the restore installs Ubuntu packages. On a Mac, install your apps
+  with Homebrew and run `mksync pull`.
+
+### Troubleshooting on macOS
+
+| You see | Do |
+|---|---|
+| `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | `brew install bash`. The scripts switch to Homebrew's bash by themselves once it's in `/opt/homebrew/bin` or `/usr/local/bin` |
+| `ERROR: install Homebrew first: https://brew.sh` | Install Homebrew with the line on its site, open a new Terminal, and run the install line again |
+| `MISSING  jq: install with brew install jq` | `brew install jq` |
+| `brew` not found right after installing it | Homebrew isn't on `PATH` yet. Apple silicon Macs use `/opt/homebrew`, Intel Macs `/usr/local`; the synced `~/.zprofile` loads whichever exists, or run `eval "$(/opt/homebrew/bin/brew shellenv)"` (`/usr/local/bin/brew` on Intel) |
+| `WARN  macOS 12.7 is older than 13` | Update macOS. Older releases may work, but Homebrew and the CI run only cover 13 and newer |
 
 ---
 
