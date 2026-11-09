@@ -53,6 +53,24 @@
       "description": "Git credentials for Linux, included by .gitconfig"
     },
     {
+      "repoPath": "dotfiles/macos/git/.gitconfig.local",
+      "localPath": "~/.gitconfig.local",
+      "platform": "macos",
+      "description": "Git credentials for macOS, included by .gitconfig"
+    },
+    {
+      "repoPath": "dotfiles/macos/shell/.zshrc",
+      "localPath": "~/.zshrc",
+      "platform": "macos",
+      "description": "Zsh run commands for macOS"
+    },
+    {
+      "repoPath": "dotfiles/macos/shell/.zprofile",
+      "localPath": "~/.zprofile",
+      "platform": "macos",
+      "description": "Zsh login profile for macOS: Homebrew and ~/.local/bin on PATH"
+    },
+    {
       "repoPath": "dotfiles/windows/shell/.bashrc",
       "localPath": "~\\.bashrc",
       "platform": "windows",
