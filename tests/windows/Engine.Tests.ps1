@@ -2512,7 +2512,8 @@ Describe 'Windows engine' {
 
             $script:EngineExit | Should -Be 0
             # Only dotfiles/ is checked: the export also rewrites .user-values.json.
-            (git -C $script:RepoDir status --porcelain -- dotfiles 2>$null | Out-String).Trim() |
+            # TrimEnd only: the porcelain line starts with a space (' M').
+            (git -C $script:RepoDir status --porcelain -- dotfiles 2>$null | Out-String).TrimEnd() |
                 Should -Be ' M dotfiles/windows/win.conf'
         }
 
