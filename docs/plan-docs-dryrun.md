@@ -41,9 +41,11 @@ the Windows checks W0-W6 in `TODO.md` pass, because those checks run them; then 
 `mksync check` for the repo → machine dry run, check output that warns before a pull overwrites local edits, the
 PowerShell hints moved to `mksync`, a short README, and the finished plans out of `docs/`.
 
-## Phase 2: which side is newer (`mksync diff`)
+## Phase 2: which side is newer (`mksync diff`) (`docs/plan-docs-dryrun-2.md`) (done 2026-11-09)
 
-Design, to be planned when phase 1 is merged:
+Done as planned, with two changes to the sketch below: no `NEW` label (a one-sided file is `IN` or `OUT`), and a push
+records its branch's parent, so pushed files read `OUT` until the merge. The Windows side is checked by CI and by W8
+in `TODO.md`. The sketch as written before the phase:
 
 - After a successful import or export, each engine writes the repo commit it synced at to a per-machine state file
   (`~/.local/state/sync-settings/last-sync` on Linux and macOS, `%LOCALAPPDATA%\SyncSettings\last-sync` on Windows).
