@@ -40,6 +40,7 @@ def bad_keys:
   (.files[] | select((.platform | type) == "array") | select((.repoPath // "") | startswith("dotfiles/common/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(.platform == "common") | select((.localPath // "") | startswith("~/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select((.platform | type) == "array") | select((.localPath // "") | startswith("~/") | not) | .repoPath // "<missing repoPath>"),
+  (.files[] | select(.platform == "linux" or .platform == "macos") | select(.type != "dconf") | select((.localPath // "") | startswith("~/") | not) | .repoPath // "<missing repoPath>"),
   (.files[] | select(has("localPaths")) | select((.localPaths | type) != "object") | .repoPath // "<missing repoPath>"),
   (.files[] | select((.localPaths | type) == "object") | select([.localPaths | keys[] | select(. != "linux" and . != "macos" and . != "windows")] | length > 0) | .repoPath // "<missing repoPath>"),
   (.files[] | select((.localPaths | type) == "object") | select([.localPaths | to_entries[] | select(.key == "linux" or .key == "macos") | select((.value | type) != "string" or (.value | startswith("~/") | not))] | length > 0) | .repoPath // "<missing repoPath>"),
