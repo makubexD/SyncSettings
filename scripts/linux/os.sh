@@ -31,7 +31,7 @@ sync_os() {
 
 # A jq function that selects the entries for one system: `common`, the system's
 # own value, or a list holding it. Callers pass --arg os and this prefix.
-if [[ -z ${PLATFORM_SELECT_JQ:-} ]]; then
+if [[ $(declare -p PLATFORM_SELECT_JQ 2>/dev/null) != "declare -r"* ]]; then
     # shellcheck disable=SC2016  # $os is a jq parameter, not a shell variable
     PLATFORM_SELECT_JQ='def selected($os): (.platform == "common") or (.platform == $os) or (((.platform | type) == "array") and ((.platform | index($os)) != null));'
     readonly PLATFORM_SELECT_JQ
