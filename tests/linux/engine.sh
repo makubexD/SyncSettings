@@ -11,10 +11,26 @@ FIXTURES=$REPO/tests/fixtures
 
 filter=${1:-}
 failed=0
+passed=0
+failed_cases=0
+skipped=0
 case_name=''
 t=''
 out=''
 rc=0
+
+# The OS the cases run for, resolved the same way as sync_os in
+# scripts/linux/os.sh. The harness does not source the engine, so the mapping is
+# repeated here: SYNC_OS when set, else uname -s (Linux, Darwin -> macos).
+if [[ -n ${SYNC_OS:-} ]]; then
+    HARNESS_OS=$SYNC_OS
+else
+    case $(uname -s 2>/dev/null) in
+        Darwin) HARNESS_OS=macos ;;
+        *) HARNESS_OS=linux ;;
+    esac
+fi
+readonly HARNESS_OS
 
 # Cases build repos with git outside the throwaway HOME. Keep the host's git
 # config, ignore and attributes files out of them: core.autocrlf=input rewrites
@@ -49,6 +65,16 @@ status_line() {
 output_has_status() {
     local word=$1 label=$2 note=${3:-}
     grep -Fqx "$(status_line "$word" "$label" "$note")" "$out"
+}
+
+# Cases that need dconf or apt never run on macOS: the engine's dconf entries
+# and package drift are Linux-only. Matching the name also covers the
+# import-check-dconf and lint-dconf-* cases, which exercise the same entries.
+linux_only_case() {
+    case $1 in
+        *dconf*|drift-*|real-config-roundtrip) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # Fresh throwaway working dir; removed when this case's subshell exits.
@@ -103,6 +129,19 @@ run_engine_input() {
     shift 3
     rc=0
     (cd "$t/repo" && printf '%s\n' "$input" | HOME="$home" "./$script" "$@") > "$out" 2>&1 || rc=$?
+}
+
+# Run a shell command on a pseudo-terminal. util-linux script takes the command
+# as one string and needs -e to pass its exit code through; BSD script (macOS)
+# takes a command plus its arguments. Stdin and stdout stay the caller's, so the
+# prompts read the piped answers and the output goes to $out.
+run_in_pty() {
+    local cmd=$1
+    if script --version > /dev/null 2>&1; then
+        script -qec "$cmd" /dev/null
+    else
+        script -q /dev/null bash -c "$cmd"
+    fi
 }
 
 # dconf writes go over the session bus, not through $HOME, so every dconf case
@@ -518,9 +557,9 @@ case_prompt_empty_stops() {
 
     # Run on a pseudo-terminal and answer the <NAME> prompt with an empty line.
     # <NAME> has no default, so the empty answer must stop the run, not count as
-    # a value. script -e propagates import.sh's exit code.
+    # a value. run_in_pty propagates import.sh's exit code.
     rc=0
-    printf '\n' | script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+    printf '\n' | run_in_pty "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" \
         > "$out" 2>&1 || rc=$?
     (( rc == 1 )) || fail "import.sh exited $rc, want 1"
     grep -Fq 'missing value for <NAME>: add it to .user-values.json' "$out" \
@@ -577,7 +616,7 @@ case_defaultenv_valid() {
     # its default. Answer it with Enter on a pseudo-terminal, as a user would.
     rc=0
     printf '\n' | FIXTURE_NAME='Env Value' \
-        script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+        run_in_pty "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" \
         > "$out" 2>&1 || rc=$?
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
     printf 'name = Env Value\n' > "$t/expected"
@@ -2827,7 +2866,7 @@ case_upstream_behind_pull() {
 
     # Run on a pseudo-terminal so the pull prompt sees a real answer.
     rc=0
-    printf 'y\n' | script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./export.sh" /dev/null \
+    printf 'y\n' | run_in_pty "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./export.sh" \
         > "$out" 2>&1 || rc=$?
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
 
@@ -5783,6 +5822,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
+    if [[ $HARNESS_OS == macos ]] && linux_only_case "$case_name"; then
+        printf 'SKIP %s (linux only)\n' "$case_name"
+        skipped=$((skipped + 1))
+        continue
+    fi
     # Each case runs in a subshell so its EXIT trap (new_tmp) cleans up its temp dir.
     # set -e is off inside this command substitution (it is an if condition), so
     # every assertion must end in || fail.
@@ -6167,14 +6211,19 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
-            printf 'ok   %s (skipped: root)\n' "$case_name"
+            printf 'SKIP %s (root)\n' "$case_name"
+            skipped=$((skipped + 1))
         else
             printf 'ok   %s\n' "$case_name"
+            passed=$((passed + 1))
         fi
     else
         printf '%s\n' "$out_text"
         failed=1
+        failed_cases=$((failed_cases + 1))
     fi
 done
+
+printf '%d passed, %d failed, %d skipped\n' "$passed" "$failed_cases" "$skipped"
 
 exit "$failed"
