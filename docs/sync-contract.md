@@ -406,7 +406,7 @@ the machine.
 - With no differences: `Nothing would be sent: the repo matches HEAD.`
 - `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
 - The up-to-date check does not run.
-- A preview ends with `Nothing was written. Run mksync push to send it.` on Linux and macOS (`Run export.bat to apply.` on Windows).
+- A preview ends with `Nothing was written. Run mksync push to send it.` on every system.
 
 ## One command
 

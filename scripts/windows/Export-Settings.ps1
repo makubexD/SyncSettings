@@ -229,14 +229,14 @@ try {
         } else {
             Write-Host "  $changed file(s) copied to the repo." -ForegroundColor Green
             Write-Host
-            Write-Host '  Review the changes, then run  commit.bat  to commit and push.' -ForegroundColor Cyan
+            Write-Host '  Review the changes, then run  mksync push' -ForegroundColor Cyan
         }
     } else {
         Write-Host '  Repo is up to date. No changes detected.' -ForegroundColor Green
         if ($skipped -gt 0) {
             Write-Host
             Write-Host "  Note: $skipped file(s) skipped because they don't exist locally." -ForegroundColor DarkYellow
-            Write-Host '  If this is a new machine, run  import.bat  to apply repo settings first.' -ForegroundColor DarkYellow
+            Write-Host '  If this is a new machine, run  mksync pull  to apply repo settings first.' -ForegroundColor DarkYellow
         }
     }
 

@@ -2007,6 +2007,7 @@ Describe 'Windows engine' {
         $script:EngineExit | Should -Be 0
         $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/common/dir/a/b.txt')
         $script:EngineOut | Should -Match ([regex]::Escape('Nothing was written.'))
+        $script:EngineOut | Should -Match ([regex]::Escape("Run mksync push to send it."))
     }
 
     It 'sync-cmd-check' {
