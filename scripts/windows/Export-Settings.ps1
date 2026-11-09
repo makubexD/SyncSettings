@@ -16,21 +16,31 @@
 .PARAMETER Diff
     Show which side changed each file this machine owns, without writing
     anything, then exit with 0 (nothing differs), 3 (something does) or 1.
+.PARAMETER Only
+    Restrict the export to the picked files, given as repo paths (dotfiles\...) or
+    local paths. Repeatable.
 .EXAMPLE
     .\Export-Settings.ps1
     .\Export-Settings.ps1 -User johndoe
     .\Export-Settings.ps1 -ResetValues
     .\Export-Settings.ps1 -Preview
     .\Export-Settings.ps1 -Diff
+    .\Export-Settings.ps1 -Only dotfiles\windows\shell\.bashrc
 #>
 param(
     [string]$User = $env:USERNAME,
     [switch]$ResetValues,
     [switch]$Preview,
-    [switch]$Diff
+    [switch]$Diff,
+    [string[]]$Only
 )
 
 $ErrorActionPreference = 'Stop'
+
+# A caller may pass several picks in one '|'-joined value; split them apart.
+if ($null -ne $Only) {
+    $Only = @($Only | ForEach-Object { $_ -split '\|' } | Where-Object { $_ -ne '' })
+}
 
 . "$PSScriptRoot\SyncHelpers.ps1"
 
@@ -44,18 +54,7 @@ Write-Host
 
 try {
     $repoRoot   = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-    if ($Diff) {
-        if ($Preview -or $ResetValues) {
-            throw '--diff cannot be combined with --preview or --reset-values.'
-        }
-        exit (Invoke-ExportDiff -RepoRoot $repoRoot -User $User)
-    }
-    if ($Preview) {
-        if ($ResetValues) {
-            throw '--preview cannot be combined with --reset-values.'
-        }
-        exit (Invoke-ExportPreview -RepoRoot $repoRoot -User $User)
-    }
+
     $configPath = Join-Path $repoRoot 'sync-config.json'
     if (-not (Test-Path $configPath)) {
         throw "sync-config.json not found at: $configPath"
@@ -66,9 +65,38 @@ try {
     $allEntries = @($config.files)
     $config.files = @(Select-WindowsEntries -Files $config.files)
 
+    $profileRoot = Resolve-UserProfile -Username $User
+
+    # Resolve -Only picks to repo paths before any entry is processed or a value
+    # is requested, so an unknown path stops the run before it touches a file.
+    $selected = @()
+    if ($null -ne $Only -and $Only.Count -gt 0) {
+        try {
+            $selected = @(Resolve-OnlyPaths -Paths $Only -Files $config.files -UserProfile $profileRoot)
+        } catch {
+            Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    if ($Diff) {
+        if ($Preview -or $ResetValues) {
+            throw '--diff cannot be combined with --preview or --reset-values.'
+        }
+        exit (Invoke-ExportDiff -RepoRoot $repoRoot -User $User -Only $selected)
+    }
+    if ($Preview) {
+        if ($ResetValues) {
+            throw '--preview cannot be combined with --reset-values.'
+        }
+        if ($null -ne $Only -and $Only.Count -gt 0) {
+            throw '--preview cannot be combined with --only.'
+        }
+        exit (Invoke-ExportPreview -RepoRoot $repoRoot -User $User)
+    }
+
     if (Test-RepoUpToDate -RepoRoot $repoRoot) { exit 0 }
 
-    $profileRoot = Resolve-UserProfile -Username $User
     Write-Host "  Target user   : $User" -ForegroundColor White
     Write-Host "  Profile path  : $profileRoot" -ForegroundColor White
     Write-Host "  Repo root     : $repoRoot" -ForegroundColor White
@@ -85,6 +113,7 @@ try {
     # no point prompting for values when the file isn't on this machine yet.
     $allRules = @()
     foreach ($entry in $config.files) {
+        if (-not (Test-OnlySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
         $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
         if ($hasSanitize) {
             $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
@@ -111,6 +140,8 @@ try {
 
     # -- Process each file ------------------------------------------------
     foreach ($entry in $config.files) {
+        if (-not (Test-OnlySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+
         $repoFile  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
         $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
         $label     = $entry.repoPath
@@ -129,6 +160,7 @@ try {
                         Label           = $entry.repoPath
                         ExcludePatterns = $config.excludePatterns
                         Recursive       = $true
+                        Only            = $selected
                     }
                     $dirStats = Sync-LinkedDirectory @dirParams
                     $changed += ($dirStats.added + $dirStats.modified + $dirStats.removed)
@@ -136,6 +168,23 @@ try {
                 continue
             }
 
+            # With -Only, the entry's own file is exported only when its repo
+            # path is picked (exactly or under a picked folder); a pick inside
+            # its .linked/ folder selects only the linked files below (mirror
+            # only_selected on Linux).
+            $applyEntryFile = $true
+            if ($selected.Count -gt 0) {
+                $applyEntryFile = $false
+                foreach ($sel in $selected) {
+                    if ([string]::Equals($entry.repoPath, $sel, [StringComparison]::Ordinal) -or
+                        $entry.repoPath.StartsWith($sel + '/', [StringComparison]::Ordinal)) {
+                        $applyEntryFile = $true
+                        break
+                    }
+                }
+            }
+
+            if ($applyEntryFile) {
             # Exclude-pattern safety check
             if (Test-Excluded -FilePath $localFile -Patterns $config.excludePatterns) {
                 Write-StatusLine 'SKIPPED' $label 'matches exclude pattern'
@@ -196,6 +245,7 @@ try {
                     $changed++
                 }
             }
+            }
 
             # -- Auto-detect linked paths (export: local -> repo) --------
             $detectLinked = $entry.PSObject.Properties['detectLinkedPaths'] -and $entry.detectLinkedPaths -eq $true
@@ -213,6 +263,7 @@ try {
                         Label           = $linkLabel
                         ExcludePatterns = $config.excludePatterns
                         Recursive       = $false
+                        Only            = $selected
                     }
                     $linkStats = Sync-LinkedDirectory @syncParams
                     $changed += ($linkStats.added + $linkStats.modified)
@@ -228,8 +279,12 @@ try {
         Save-UserValues -RepoRoot $repoRoot -Values $userValues
     }
 
-    # Repo files no entry owns (all platforms); informational only.
-    Write-OrphanReport -RepoRoot $repoRoot -Entries $allEntries
+    # A --only run sees part of the repo, not all of it, so the whole-repo
+    # orphan report would be wrong: skip it.
+    if ($selected.Count -eq 0) {
+        # Repo files no entry owns (all platforms); informational only.
+        Write-OrphanReport -RepoRoot $repoRoot -Entries $allEntries
+    }
 
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray
