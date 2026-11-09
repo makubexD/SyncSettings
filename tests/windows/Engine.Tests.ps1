@@ -49,13 +49,12 @@ BeforeAll {
     }
 
     function Invoke-Engine {
-        param([string]$ScriptName, [switch]$Force)
+        param([string]$ScriptName, [switch]$Force, [string]$Only = '')
         $script:EngineScript = Join-Path $script:RepoDir "scripts\windows\$ScriptName"
-        if ($Force) {
-            $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript -Force 2>&1 | Out-String
-        } else {
-            $script:EngineOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:EngineScript 2>&1 | Out-String
-        }
+        $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript)
+        if ($Force) { $argList += '-Force' }
+        if ($Only) { $argList += @('-Only', $Only) }
+        $script:EngineOut = & powershell.exe @argList 2>&1 | Out-String
         $script:EngineExit = $LASTEXITCODE
     }
 
@@ -73,11 +72,12 @@ BeforeAll {
 
     # Runs Import-Settings.ps1 -Check with stdin redirected, so it can never prompt.
     function Invoke-ImportCheck {
-        param([switch]$ResetValues, [string]$User = '')
+        param([switch]$ResetValues, [string]$User = '', [string]$Only = '')
         $script:EngineScript = Join-Path $script:RepoDir 'scripts\windows\Import-Settings.ps1'
         $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript, '-Check')
         if ($ResetValues) { $argList += '-ResetValues' }
         if ($User) { $argList += @('-User', $User) }
+        if ($Only) { $argList += @('-Only', $Only) }
         $script:EngineOut = "" | & powershell.exe @argList 2>&1 | Out-String
         $script:EngineExit = $LASTEXITCODE
     }
@@ -286,13 +286,14 @@ BeforeAll {
     # Runs Import-Settings.ps1 in the clone: the checkout a sync-point run
     # records from. Stdin is always redirected, so a prompt cannot block.
     function Invoke-CloneImport {
-        param([switch]$Check, [switch]$Force, [string]$InputText = '', [string]$User = '')
+        param([switch]$Check, [switch]$Force, [string]$InputText = '', [string]$User = '', [string]$Only = '')
         $ErrorActionPreference = 'Continue'
         $script:EngineScript = Join-Path $script:CloneDir 'scripts\windows\Import-Settings.ps1'
         $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript)
         if ($Check) { $argList += '-Check' }
         if ($Force) { $argList += '-Force' }
         if ($User) { $argList += @('-User', $User) }
+        if ($Only) { $argList += @('-Only', $Only) }
         $script:EngineOut = $InputText | & powershell.exe @argList 2>&1 | Out-String
         $script:EngineExit = $LASTEXITCODE
     }
@@ -2282,6 +2283,207 @@ Describe 'Windows engine' {
                 Where-Object { $_ -match '^refs/heads/sync/windows-testbox-' })
             $branches.Count | Should -Be 1
             (git --git-dir=$origin rev-parse "$($branches[0])^" 2>$null | Out-String).Trim() | Should -Be $master
+        }
+    }
+
+    # -- Only (-Only picking) -----------------------------------------------------
+
+    Context 'Only' {
+        It 'only-repo-path' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            $result = @(Resolve-OnlyPaths -Paths @('dotfiles/windows/win.conf') -Files $files -UserProfile $script:HomeDir)
+
+            ($result -join "`n") | Should -Be 'dotfiles/windows/win.conf'
+        }
+
+        It 'only-local-tilde' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            $result = @(Resolve-OnlyPaths -Paths @('~\.config\fixture\win.conf') -Files $files -UserProfile $script:HomeDir)
+
+            ($result -join "`n") | Should -Be 'dotfiles/windows/win.conf'
+        }
+
+        It 'only-local-relative' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            $saved = $env:SYNC_CALLER_PWD
+            $env:SYNC_CALLER_PWD = $script:HomeDir
+            try {
+                $result = @(Resolve-OnlyPaths -Paths @('.config\fixture\win.conf') -Files $files -UserProfile $script:HomeDir)
+            } finally {
+                if ($null -eq $saved) {
+                    Remove-Item Env:\SYNC_CALLER_PWD -ErrorAction SilentlyContinue
+                } else {
+                    $env:SYNC_CALLER_PWD = $saved
+                }
+            }
+
+            ($result -join "`n") | Should -Be 'dotfiles/windows/win.conf'
+        }
+
+        It 'only-dir-file' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            $result = @(Resolve-OnlyPaths -Paths @('~\.config\fixture\dir\a\b.txt') -Files $files -UserProfile $script:HomeDir)
+
+            ($result -join "`n") | Should -Be 'dotfiles/common/dir/a/b.txt'
+        }
+
+        It 'only-dir-root' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            $result = @(Resolve-OnlyPaths -Paths @('~\.config\fixture\dir') -Files $files -UserProfile $script:HomeDir)
+
+            ($result -join "`n") | Should -Be 'dotfiles/common/dir'
+        }
+
+        It 'only-unknown' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            { Resolve-OnlyPaths -Paths @('~\.not-synced') -Files $files -UserProfile $script:HomeDir } |
+                Should -Throw '~\.not-synced is not synced on this machine.'
+        }
+
+        It 'only-other-platform' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            { Resolve-OnlyPaths -Paths @('dotfiles/linux/plain.txt') -Files $files -UserProfile $script:HomeDir } |
+                Should -Throw 'dotfiles/linux/plain.txt is not synced on this machine.'
+        }
+
+        It 'only-selected' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+
+            Test-OnlySelected -RepoPath 'dotfiles/common/dir/a/b.txt' -Selected @('dotfiles/common/dir') | Should -BeTrue
+            Test-OnlySelected -RepoPath 'dotfiles/common/dirx/a' -Selected @('dotfiles/common/dir') | Should -BeFalse
+            Test-OnlySelected -RepoPath 'dotfiles/windows/win.conf.linked/x' -Selected @('dotfiles/windows/win.conf') | Should -BeTrue
+            Test-OnlySelected -RepoPath 'dotfiles/windows/win.conf2' -Selected @('dotfiles/windows/win.conf') | Should -BeFalse
+            Test-OnlySelected -RepoPath 'dotfiles/windows/win.conf' -Selected @() | Should -BeTrue
+        }
+
+        It 'import-only-one' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            [IO.File]::WriteAllText($sharedConf, "owner = local`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/windows/win.conf' 'backup saved as win.conf.bak')
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/common/shared.conf'))
+
+            $want = Join-Path $Script:Fixtures 'home\.config\fixture\win.conf'
+            ([IO.File]::ReadAllBytes($winConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+            ([IO.File]::ReadAllText($sharedConf)) | Should -Be "owner = local`r`n"
+        }
+
+        It 'import-only-check' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            [IO.File]::WriteAllText($sharedConf, "owner = local`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-ImportCheck -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATE' 'dotfiles/windows/win.conf')
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/common/shared.conf'))
+            $script:EngineOut | Should -Match ([regex]::Escape('1 file(s) would change. mksync pull overwrites them (each keeps a .bak).'))
+        }
+
+        It 'import-only-dir-file' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            $localC = Join-Path $script:HomeDir '.config\fixture\dir\c.txt'
+            [IO.File]::WriteAllText($localC, "changed`n", [System.Text.UTF8Encoding]::new($false))
+            $localB = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+            [IO.File]::WriteAllText($localB, "changed deep`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force -Only 'dotfiles/common/dir/c.txt'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/common/dir/c.txt' 'backup saved as c.txt.bak')
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/common/dir/a/b.txt'))
+
+            $want = Join-Path $Script:Fixtures 'repo\dotfiles\common\dir\c.txt'
+            ([IO.File]::ReadAllBytes($localC) -join ',') | Should -Be ([IO.File]::ReadAllBytes($want) -join ',')
+            ([IO.File]::ReadAllText($localB)) | Should -Be "changed deep`n"
+        }
+
+        It 'import-only-no-sync-point' {
+            New-CommitRepo
+
+            Invoke-CloneImport -Force -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 0
+            Get-SyncPointFile | Should -Not -Exist
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('  Sync point :'))
+        }
+
+        It 'import-only-unknown' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            $homeBefore = Get-TreeHash $script:HomeDir
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force -Only '~\.not-synced'
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('ERROR: ~\.not-synced is not synced on this machine.'))
+            (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+        }
+
+        It 'import-only-split' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            [IO.File]::WriteAllText($sharedConf, "owner = local`r`n", [System.Text.UTF8Encoding]::new($false))
+            $pathsIni = Join-Path $script:HomeDir '.config\fixture\paths.ini'
+            [IO.File]::WriteAllText($pathsIni, "gh = local`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force -Only 'dotfiles/windows/win.conf|dotfiles/common/shared.conf'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/windows/win.conf' 'backup saved as win.conf.bak')
+            $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATED' 'dotfiles/common/shared.conf' 'backup saved as shared.conf.bak')
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/common/paths.ini'))
+
+            $wantWin = Join-Path $Script:Fixtures 'home\.config\fixture\win.conf'
+            ([IO.File]::ReadAllBytes($winConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($wantWin) -join ',')
+            $wantShared = Join-Path $Script:Fixtures 'home\.config\fixture\shared.conf'
+            ([IO.File]::ReadAllBytes($sharedConf) -join ',') | Should -Be ([IO.File]::ReadAllBytes($wantShared) -join ',')
+            ([IO.File]::ReadAllText($pathsIni)) | Should -Be "gh = local`r`n"
         }
     }
 
