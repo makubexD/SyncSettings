@@ -238,7 +238,8 @@ placeholders. On import, hydrating puts the values back.
 
 `--reset-values` (bash) or `-ResetValues` (PowerShell) prompts again for every placeholder and skips inference.
 New values are saved back to `.user-values.json`. Each save leaves the file readable by the current user only: mode 600
-on Linux, also tightening an existing file, and no inherited access on Windows.
+on Linux, also tightening an existing file, and no inherited access on Windows. The Windows save doesn't need a domain
+controller, so it works on a domain laptop that's off the network.
 
 **Inference on import.** For each entry with rules whose local and repo files both exist, the engine compares the
 two files line by line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder,
