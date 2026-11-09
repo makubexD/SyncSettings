@@ -8,6 +8,19 @@ REPO_ROOT=$PWD
 CONFIG=$REPO_ROOT/sync-config.json
 VALUES_FILE=$REPO_ROOT/.user-values.json
 
+# The system this run is for, resolved once from SYNC_OS or uname -s.
+SYNC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/linux/os.sh
+source "$SYNC_DIR/os.sh"
+
+if ! SYNC_PLATFORM=$(sync_os); then
+    # A sourced library (bootstrap/linux.sh) returns instead of ending the caller.
+    if [[ -n ${SYNC_LIB_ONLY:-} ]]; then
+        return 1
+    fi
+    exit 1
+fi
+
 declare -A USER_VALUES=()
 
 # -- Config -------------------------------------------------------------------
@@ -16,10 +29,19 @@ declare -A USER_VALUES=()
 check_platforms() {
     local repo_path
     while IFS= read -r -d '' repo_path; do
-        printf 'ERROR: sync-config.json: entry %s needs "platform": "common", "windows" or "linux".\n' "$repo_path" >&2
+        printf 'ERROR: sync-config.json: entry %s needs "platform": "common", "windows", "linux", "macos" or a list of the last three.\n' "$repo_path" >&2
         exit 1
-    done < <(jq -j '.files[]
-        | select((.platform == "common" or .platform == "windows" or .platform == "linux") | not)
+    done < <(jq -j '
+        def valid_platform:
+            if type == "string" then
+                . == "common" or . == "windows" or . == "linux" or . == "macos"
+            elif type == "array" then
+                length > 0
+                and ((unique | length) == length)
+                and all(.[]; type == "string" and (. == "windows" or . == "linux" or . == "macos"))
+            else false end;
+        .files[]
+        | select((.platform | valid_platform) | not)
         | .repoPath, "\u0000"' "$CONFIG")
 }
 
@@ -75,6 +97,32 @@ check_paths() {
     done < <(jq -j '.files[] | select(.type != "dconf")
         | (.repoPath // ""), "\u0000", (.localPath // ""), "\u0000"' "$CONFIG")
 
+    # localPaths is an optional object of per-system paths. A value follows the
+    # localPath rule, and a key names a system the engine knows.
+    local lp_key lp_value lp_type
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' lp_type; do
+        [[ $lp_type == object ]] || path_fail "$repo_path"
+    done < <(jq -j '.files[]
+        | select(has("localPaths"))
+        | .repoPath, "\u0000", (.localPaths | type), "\u0000"' "$CONFIG")
+
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' lp_key \
+        && IFS= read -r -d '' lp_value; do
+        case $lp_key in
+            linux|macos|windows) ;;
+            *)
+                printf 'ERROR: sync-config.json: entry %s has an unknown localPaths key %s.\n' "$repo_path" "$lp_key" >&2
+                exit 1
+                ;;
+        esac
+        path_is_safe "$lp_value" local || path_fail "$repo_path"
+    done < <(jq -j '.files[]
+        | select(has("localPaths"))
+        | select((.localPaths | type) == "object")
+        | .repoPath as $r
+        | .localPaths | to_entries[]
+        | $r, "\u0000", .key, "\u0000", (.value // ""), "\u0000"' "$CONFIG")
+
     # A dconf entry has no local file: it owns its repoPath and names a dconf
     # folder instead. Refuse a bad one before anything is dumped or loaded.
     while IFS= read -r -d '' repo_path && IFS= read -r -d '' dconf_path \
@@ -84,7 +132,8 @@ check_paths() {
         [[ $dconf_path =~ ^(/[A-Za-z0-9._-]+)+/$ ]] || dconf_fail "$repo_path"
         [[ $dconf_path != */../* ]] || dconf_fail "$repo_path"
     done < <(jq -j '.files[] | select(.type == "dconf")
-        | (.repoPath // ""), "\u0000", (.path // ""), "\u0000", (.platform // ""), "\u0000"' "$CONFIG")
+        | (.repoPath // ""), "\u0000", (.path // ""), "\u0000",
+          (.platform | if type == "array" then "list" else (. // "") end), "\u0000"' "$CONFIG")
 
     # A defaultEnv is read as a variable name, so it must be a valid shell name.
     local default_env env_name_re='^[A-Za-z_][A-Za-z0-9_]*$'
@@ -116,7 +165,9 @@ if [[ -z ${SYNC_LIB_ONLY:-} ]]; then
 fi
 
 platform_entries() {
-    jq -c '.files[] | select(.platform == "linux" or .platform == "common")' "$CONFIG"
+    jq -c --arg os "$SYNC_PLATFORM" "$PLATFORM_SELECT_JQ"' .files[]
+        | select(selected($os))
+        | if ((.localPaths // {})[$os]) != null then .localPath = .localPaths[$os] else . end' "$CONFIG"
 }
 
 resolve_local() {

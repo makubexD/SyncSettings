@@ -2,6 +2,11 @@
 # Front-door helpers for `sync`: status, doctor, and later setup, pull and push.
 # Sourced after `cd` into the repo root; it defines functions and does no work.
 
+# OS detection, shared with the engine.
+FRONT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/linux/os.sh
+source "$FRONT_DIR/os.sh"
+
 # A value from the os-release file (`PRETTY_NAME`, `ID`), or `unknown`. The
 # value may be quoted; SYNC_OS_RELEASE overrides the path.
 front_os_release_value() {
@@ -343,7 +348,7 @@ front_setup() {
 
 # One OK, WARN or MISSING line per check. Returns 1 when a MISSING line printed.
 front_doctor() {
-    local missing=0 tool pkg hint gh_bin version count
+    local missing=0 tool pkg hint gh_bin version count sync_platform
     local config values_file link_path repo_link placeholder
 
     version=${BASH_VERSION:-unknown}
@@ -394,7 +399,7 @@ front_doctor() {
         printf '  %-8s %s\n' WARN "mksync not on PATH; run: ln -s \"$REPO_ROOT/sync\" ~/.local/bin/mksync"
     fi
 
-    if command -v jq > /dev/null 2>&1; then
+    if command -v jq > /dev/null 2>&1 && sync_platform=$(sync_os 2>/dev/null); then
         config=$REPO_ROOT/sync-config.json
         values_file=$REPO_ROOT/.user-values.json
         count=0
@@ -405,8 +410,8 @@ front_doctor() {
                         "$values_file" > /dev/null 2>&1; then
                     count=$((count + 1))
                 fi
-            done < <(jq -j '[.files[]
-                | select(.platform == "linux" or .platform == "common")
+            done < <(jq -j --arg os "$sync_platform" "$PLATFORM_SELECT_JQ"' [.files[]
+                | select(selected($os))
                 | (.sanitizeRules // [])[]
                 | select(((.default // "") | tostring) == ""
                     and ((.defaultEnv // "") | tostring) == "")
