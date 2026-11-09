@@ -7,8 +7,8 @@ the user, and the next plan file.
 ## Shared rules
 
 - Branch `research/macos`, one commit per step, one PR at the end (auto-merged when every check is green).
-- No macOS machine is at hand, so the evidence comes from GitHub's `macos-latest` runner. A probe job is
-  `workflow_dispatch` only and never a required check, so it can't block a PR.
+- No macOS machine is at hand, so the evidence comes from GitHub's `macos-latest` runner. The probe runs on
+  `workflow_dispatch` and on pushes to `research/macos`, is never a required check, and always ends green.
 - Never `[worker]` a step whose output is judgment (classifying failures, choosing an option); the worker may write the
   probe workflow.
 - The research doc cites `file:line` for every claim about the code, and the probe run's URL for every claim about
@@ -36,8 +36,9 @@ Test: every `file:line` in the doc resolves (`grep -n` spot check of each).
 
 Files: `.github/workflows/macos-probe.yml` (new).
 
-`on: workflow_dispatch` only. One job on `macos-latest`, a matrix of two legs, `fail-fast: false`, each step
-`continue-on-error: true`:
+`on: workflow_dispatch` and `push` to `research/macos` only: GitHub can dispatch a workflow only once it is on the default
+branch, so the branch push is what runs it during this phase. Every step is `continue-on-error: true`, so the job is
+always green and never blocks a PR. One job on `macos-latest`, a matrix of two legs, `fail-fast: false`:
 
 - `system`: macOS's own `/bin/bash` 3.2 and BSD tools. `brew install jq` only (the engine needs it either way).
 - `gnu`: `brew install bash coreutils findutils gnu-sed jq`, with the `gnubin` folders and Homebrew's `bash` first on
@@ -48,8 +49,8 @@ Each leg prints `bash --version`, then runs `tests/linux/engine.sh` and `tests/l
 `sync` front door: `./sync doctor` and `./sync` (status), also logged.
 
 Test: `actionlint .github/workflows/macos-probe.yml` if installed, else
-`python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' .github/workflows/macos-probe.yml`; then push the branch
-and `gh workflow run macos-probe.yml --ref research/macos` (the dispatch is the real test, step 3 reads it).
+`python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' .github/workflows/macos-probe.yml`. The push of the
+branch runs it; step 3 reads that run.
 
 ### 3. Run and classify `[inline: research]`
 
