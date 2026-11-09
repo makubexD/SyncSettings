@@ -51,20 +51,20 @@ Files: `tests/linux/engine.sh`.
 
 Each case runs on the existing fixture with a config edited by `jq` in the case:
 
-| Case | Setup | Expected |
-|---|---|---|
-| `platform-macos-value` | one entry `"platform": "macos"`, `SYNC_OS=macos` | export copies it; with `SYNC_OS=linux` it's not mentioned |
-| `platform-array` | `["linux", "macos"]` | copied under both `SYNC_OS` values |
-| `platform-array-empty` | `[]` | exit 1, the new error, no file written |
-| `platform-array-repeat` | `["linux", "linux"]` | exit 1, the new error |
-| `platform-array-common` | `["common", "linux"]` | exit 1, the new error |
-| `platform-array-windows-only` | `["windows"]` | skipped on both `SYNC_OS` values, exit 0 |
-| `platform-bad-sync-os` | `SYNC_OS=bsd` | exit 1, `this is bsd` in stderr |
-| `localpaths-macos` | `localPaths.macos` set to another `~/` path | `SYNC_OS=macos` import writes there; `SYNC_OS=linux` writes `localPath` |
-| `localpaths-unsafe` | `localPaths.macos` = `~/../x` | exit 1 before any write |
-| `localpaths-bad-key` | key `bsd` | exit 1, `unknown localPaths key bsd` |
-| `check-config-macos` | lint on a config with a `macos` entry under `dotfiles/macos/`, a list entry under `dotfiles/common/`, and one bad of each (`macos` under `dotfiles/linux/`, list with `~\` path, `localPaths` key `bsd`) | the three bad `repoPath`s listed, exit 1 |
-| `localpaths-spaces` | `~/Library/Application Support/Code/User/settings.json` | import and `--check` handle the space |
+| Case                          | Setup                                                                                                                                                                                                    | Expected                                                                |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `platform-macos-value`        | one entry `"platform": "macos"`, `SYNC_OS=macos`                                                                                                                                                         | export copies it; with `SYNC_OS=linux` it's not mentioned               |
+| `platform-array`              | `["linux", "macos"]`                                                                                                                                                                                     | copied under both `SYNC_OS` values                                      |
+| `platform-array-empty`        | `[]`                                                                                                                                                                                                     | exit 1, the new error, no file written                                  |
+| `platform-array-repeat`       | `["linux", "linux"]`                                                                                                                                                                                     | exit 1, the new error                                                   |
+| `platform-array-common`       | `["common", "linux"]`                                                                                                                                                                                    | exit 1, the new error                                                   |
+| `platform-array-windows-only` | `["windows"]`                                                                                                                                                                                            | skipped on both `SYNC_OS` values, exit 0                                |
+| `platform-bad-sync-os`        | `SYNC_OS=bsd`                                                                                                                                                                                            | exit 1, `this is bsd` in stderr                                         |
+| `localpaths-macos`            | `localPaths.macos` set to another `~/` path                                                                                                                                                              | `SYNC_OS=macos` import writes there; `SYNC_OS=linux` writes `localPath` |
+| `localpaths-unsafe`           | `localPaths.macos` = `~/../x`                                                                                                                                                                            | exit 1 before any write                                                 |
+| `localpaths-bad-key`          | key `bsd`                                                                                                                                                                                                | exit 1, `unknown localPaths key bsd`                                    |
+| `check-config-macos`          | lint on a config with a `macos` entry under `dotfiles/macos/`, a list entry under `dotfiles/common/`, and one bad of each (`macos` under `dotfiles/linux/`, list with `~\` path, `localPaths` key `bsd`) | the three bad `repoPath`s listed, exit 1                                |
+| `localpaths-spaces`           | `~/Library/Application Support/Code/User/settings.json`                                                                                                                                                  | import and `--check` handle the space                                   |
 
 Test: `tests/linux/engine.sh platform` and `tests/linux/engine.sh localpaths`; every case except
 `platform-array-windows-only`'s Linux run fails for the right reason (unknown platform, `SYNC_OS` ignored, or
@@ -182,7 +182,7 @@ Files: `tests/linux/engine.sh`, `tests/linux/bootstrap.sh`.
   `script --version` fails (BSD).
 - The `tools-claude-file-first` stub reads `/proc/self/fd/0`: use `[ -t 0 ]` and a read with `-t 0` instead.
 - Cases that need dconf or apt (`dconf-*`, `real-config-roundtrip`'s dconf lines, drift cases) print `SKIP <case>
-  (linux only)` when the OS is macOS; the harness computes it the same way as `sync_os` (`SYNC_OS`, else `uname -s`),
+(linux only)` when the OS is macOS; the harness computes it the same way as `sync_os` (`SYNC_OS`, else `uname -s`),
   because `SYNC_PLATFORM` lives in `sync.sh`, which the harness doesn't source; the summary counts skips separately and they don't fail the run.
 
 Test: `tests/linux/engine.sh prompt-empty-stops`, `defaultenv-valid`, `upstream-behind-pull` and
@@ -201,7 +201,25 @@ says so at review. Delete the probe workflow.
 
 Test: `actionlint .github/workflows/ci.yml` (or the YAML parse from phase 3), then the job on the pushed branch.
 
-### 11. Shared entries `[worker]`
+### 11. Harness on macOS `[worker]`
+
+Files: `tests/linux/engine.sh`, `scripts/ci/check-packages.sh` only if its cases stay on macOS (they don't, see below).
+
+The first `engine-macos` run failed 77 of 377 cases (user's call at review: pin `SYNC_OS=linux`):
+
+- **Platform**: on Darwin the engine picks `macos` and drops the fixtures' `"linux"` entries. The runner exports
+  `SYNC_OS=linux` for every case when it isn't set, after `HARNESS_OS` is computed from the real `uname -s`, so the job
+  tests the engine's logic on BSD tools and Homebrew bash. Cases that set `SYNC_OS=macos` themselves keep it.
+- **GNU tools in the harness**: `stat -c %a` (`file_mode` helper: `stat -c %a || stat -f %Lp`), `sha256sum`
+  (`sha256sum || shasum -a 256`), and counts from `wc -l` compared as strings (strip the padding BSD adds).
+- **`lint-packages-*`** read `scripts/ci/check-packages.sh`, which uses `find -printf` and only runs in Linux CI: add
+  them to the harness's linux-only skips.
+
+Test: on Linux `tests/linux/engine.sh` filters `import-creates`, `commit-happy`, `dir-export-adds`, `lint-packages-ok`;
+`SYNC_OS=macos tests/linux/engine.sh lint-packages` prints only `SKIP` lines; then the `engine-macos` job is green on
+the pushed branch.
+
+### 12. Shared entries `[worker]`
 
 Files: `sync-config.json`, `dotfiles/` (moves).
 
@@ -219,7 +237,7 @@ The rest of `claude/` (settings, hooks, statusline, `bin/`, skills that call `mk
 Test: `tests/linux/engine.sh real-config`; then on this machine `./import.sh --check` reports the same count as before
 the step (no new differences), and `./sync preview` shows only the renames.
 
-### 12. macOS-only files `[inline: user-facing config, written from the Linux files by judgment]`
+### 13. macOS-only files `[inline: user-facing config, written from the Linux files by judgment]`
 
 Files: `dotfiles/macos/shell/.zshrc`, `dotfiles/macos/shell/.zprofile`, `dotfiles/macos/git/.gitconfig.local`,
 `sync-config.json`.
@@ -233,7 +251,7 @@ Files: `dotfiles/macos/shell/.zshrc`, `dotfiles/macos/shell/.zprofile`, `dotfile
 Test: `zsh -n` on both files if `zsh` is installed, `git config -f dotfiles/macos/git/.gitconfig.local -l`, and
 `SYNC_OS=macos HOME=$(mktemp -d) ./import.sh --check < /dev/null` lists the three files.
 
-### 13. Docs `[inline: user-facing docs]`
+### 14. Docs `[inline: user-facing docs]`
 
 Files: `README.md`, `docs/daily-workflow.md`, `docs/restore.md`, `CLAUDE.md`, `docs/sync-contract.md`, `TODO.md`.
 
