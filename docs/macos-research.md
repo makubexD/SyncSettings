@@ -1,6 +1,6 @@
 # macOS research
 
-Phase 3 of [the easy-install roadmap](plan-easy-install.md), step plan [plan-easy-install-3.md](plan-easy-install-3.md).
+Phase 3 of [the easy-install roadmap](plan-easy-install.md), step plan [plan-easy-install-3.md](archive/plan-easy-install-3.md).
 The question: how does SyncSettings run on macOS? This page holds the evidence, the options and, once made, the decision.
 Every claim about the code cites `file:line` as of 2026-11-08; every claim about macOS cites the probe run (step 3).
 

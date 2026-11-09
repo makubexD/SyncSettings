@@ -6,7 +6,7 @@ CI runs the engines on a fake profile, so these need the real Windows machine. R
 before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expected results.
 
 - [ ] **W0** Old layout still matches the machine, which also covers substep 5 of step 18 in
-      `docs/plan-safety-fixes.md` and step 20.7 of `docs/plan-restructure-2.md`. Run `git fetch`,
+      `docs/archive/plan-safety-fixes.md` and step 20.7 of `docs/archive/plan-restructure-2.md`. Run `git fetch`,
       `git switch --detach b404e4d`, `export.bat`, `import.bat`, `git switch master`. Expect no changes, all `UNCHANGED`.
 - [ ] **W1** Migrate. Run `git pull --ff-only`, then `import.bat`, first. Expect `UPDATED` `.gitconfig` with `.bak`,
       `CREATED` `.gitconfig.local`, `UNCHANGED` for shell and Windows Terminal, and `CREATED`, `UPDATED` or `SKIPPED`
@@ -23,7 +23,7 @@ before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expe
       `UNCHANGED` for `dotfiles/common/git/ignore`. Then `git check-ignore -v` on a path named
       `.claude/settings.local.json`, in a throwaway repo, shows the rule. In this repo it shows `.gitignore` instead. If
       the folder is missing, import reports `SKIPPED`.
-- [ ] **W7** The installer and `mksync`, from step 10 of `docs/plan-easy-install-2.md`, after W0-W6 pass. In PowerShell
+- [ ] **W7** The installer and `mksync`, from step 10 of `docs/archive/plan-easy-install-2.md`, after W0-W6 pass. In PowerShell
       (the branch is merged by then, so use `master`):
 
       ```powershell

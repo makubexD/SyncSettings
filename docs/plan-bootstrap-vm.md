@@ -1,6 +1,6 @@
 # Fresh VM run of bootstrap
 
-Goal: the last open item of phase 7 in `docs/plan-restructure.md`. Run `./bootstrap/linux.sh` on a fresh Ubuntu 26.04
+Goal: the last open item of phase 7 in `docs/archive/plan-restructure.md`. Run `./bootstrap/linux.sh` on a fresh Ubuntu 26.04
 desktop in a VM, and end in a clean `./sync preview` and the checks in `docs/restore.md`. Snaps, VS Code and the desktop
 session can't run in the `bootstrap-check` container, so this is their first real test.
 

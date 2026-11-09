@@ -588,8 +588,8 @@ macOS runs the bash engine, so it has the Linux column's behavior except for the
 
 ## Parity
 
-Every gap listed in [plan-restructure.md](plan-restructure.md) is closed. A step number is the step of
-[plan-restructure-2.md](plan-restructure-2.md) that closed the gap in that engine, and `yes` means the engine already
+Every gap listed in [plan-restructure.md](archive/plan-restructure.md) is closed. A step number is the step of
+[plan-restructure-2.md](archive/plan-restructure-2.md) that closed the gap in that engine, and `yes` means the engine already
 had the behavior.
 
 | Behavior | Windows | Linux | Note |
