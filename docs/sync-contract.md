@@ -98,6 +98,10 @@ ERROR: <path> is not synced on this machine.
 Then a repo file is selected when there is no `--only`, or its repo path equals a selected path, or starts with
 `<selected>/` or `<selected>.linked/`.
 
+`import.sh --only` handles only the selected files: every other entry and file gets no status line and no count, and
+`--check --only` lists only the selected files. A run with `--only` never records the sync point, because the machine
+agrees with only part of the repo. `--only` with no path after it is an error, exit 1.
+
 ## Path safety
 
 Right after the `platform` check, each engine checks every entry, on any platform, and stops with exit code 1 before it
@@ -482,7 +486,8 @@ sync point.
 A real import writes it, with `HEAD`, when the run had no `ERROR` line, no `SKIPPED` line noted `user skipped`, `HEAD`
 resolves, and `git status --porcelain -- dotfiles sync-config.json` is empty (so `HEAD` is what was imported). The
 summary then prints `Sync point : <first 7 of the SHA>` after the `file(s) applied` line. A check (`--check`) writes
-nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree.
+nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree. A run with `--only`
+writes nothing either, because the machine agrees with only part of the repo.
 
 `commit.sh` writes it after the PR opens and the clone is back on `master`, with the sync commit's parent (the
 `master` commit the branch starts from), not the sync commit itself: until the PR merges, `origin/master` still has

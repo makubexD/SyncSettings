@@ -20,18 +20,34 @@ source scripts/linux/sync.sh
 FORCE=0
 RESET_VALUES=0
 CHECK=0
-for arg in "$@"; do
-    case $arg in
+only_args=()
+while (( $# > 0 )); do
+    case $1 in
         --force) FORCE=1 ;;
         --reset-values) RESET_VALUES=1 ;;
         --check) CHECK=1 ;;
-        *) printf 'Unknown option: %s\nUsage: import.sh [--force] [--reset-values] [--check]\n' "$arg" >&2; exit 1 ;;
+        --only)
+            if (( $# < 2 )); then
+                printf 'ERROR: --only needs a path.\n' >&2
+                exit 1
+            fi
+            only_args+=("$2")
+            shift
+            ;;
+        *) printf 'Unknown option: %s\nUsage: import.sh [--force] [--reset-values] [--check] [--only <path>]...\n' "$1" >&2; exit 1 ;;
     esac
+    shift
 done
 
 if (( CHECK && RESET_VALUES )); then
     printf 'ERROR: --check cannot be combined with --reset-values.\n' >&2
     exit 1
+fi
+
+# Turn the --only picks into repo paths before any entry is processed or a
+# value is requested, so an unknown path stops the run before it touches a file.
+if (( ${#only_args[@]} > 0 )); then
+    resolve_only "${only_args[@]}" || exit 1
 fi
 
 APPLIED=0
@@ -164,12 +180,31 @@ apply_plain() {
     return 0
 }
 
+# True when a --only pick can select something under this entry: the entry
+# itself, a file inside a dir entry, or a linked folder of a file entry. With
+# no --only every entry is selected.
+entry_selected() {
+    local repo_path=$1 selected
+    if only_selected "$repo_path"; then
+        return 0
+    fi
+    for selected in "${ONLY_PATHS[@]}"; do
+        if [[ $selected == "$repo_path/"* || $selected == "$repo_path.linked/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 process_entry() {
     local entry=$1
     local repo_path local_path label rules repo_file local_file local_dir
     local hydrated local_text answer backup
 
     repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! only_selected "$repo_path"; then
+        return 0
+    fi
     local_path=$(jq -r '.localPath' <<<"$entry")
     label=$repo_path
     repo_file=$REPO_ROOT/$repo_path
@@ -281,6 +316,9 @@ import_dir() {
     while IFS= read -r -d '' f <&5; do
         rel=${f#"$repo_dir"/}
         label="$repo_path/$rel"
+        if ! only_selected "$label"; then
+            continue
+        fi
         local_file=$local_dir/$rel
 
         if is_excluded "$local_file"; then
@@ -302,6 +340,9 @@ import_dir() {
         while IFS= read -r -d '' f <&5; do
             rel=${f#"$local_dir"/}
             label="$repo_path/$rel"
+            if ! only_selected "$label"; then
+                continue
+            fi
             if [[ -f $repo_dir/$rel ]]; then
                 continue
             fi
@@ -322,6 +363,9 @@ import_dconf() {
     local entry=$1
     local repo_path dconf_path repo_file current answer backup_dir backup
     repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! only_selected "$repo_path"; then
+        return 0
+    fi
     dconf_path=$(jq -r '.path' <<<"$entry")
     repo_file=$REPO_ROOT/$repo_path
 
@@ -408,6 +452,10 @@ import_dconf() {
 
 # Entries arrive on fd 3 so the overwrite prompt inside process_entry reads the user's answer from stdin.
 while IFS= read -r entry <&3; do
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! entry_selected "$repo_path"; then
+        continue
+    fi
     if [[ $(jq -r '.type // "file"' <<<"$entry") == dir ]]; then
         import_dir "$entry"
     elif [[ $(jq -r '.type // "file"' <<<"$entry") == dconf ]]; then
@@ -419,8 +467,10 @@ while IFS= read -r entry <&3; do
 done 3< <(platform_entries)
 
 # Record the sync point: the repo commit this machine now agrees with. Only a
-# real import that applied everything it found, from a clean tree, knows it.
-if (( ! CHECK && STATUS_ERRORS == 0 && STATUS_USER_SKIPS == 0 )); then
+# real import that applied everything it found, from a clean tree, knows it. A
+# --only run agrees with part of the repo, not the whole of it, so it records
+# nothing.
+if (( ! CHECK && STATUS_ERRORS == 0 && STATUS_USER_SKIPS == 0 && ${#ONLY_PATHS[@]} == 0 )); then
     if head_sha=$(git -C "$REPO_ROOT" rev-parse -q --verify HEAD 2>/dev/null) \
         && [[ -z $(git -C "$REPO_ROOT" status --porcelain -- dotfiles sync-config.json 2>/dev/null) ]]; then
         write_last_sync "$head_sha"
