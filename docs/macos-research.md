@@ -184,3 +184,14 @@ gate (`scripts/linux/front.sh:350`); on macOS its hint becomes `brew install bas
   installer's `Darwin` gate (`install.sh:42`) becomes a check that `brew` exists, then offers `brew install bash jq`.
 - **Later, not this phase:** `defaults export` allowlists (the dconf counterpart), a `Brewfile` with `brew bundle check`
   as the package list and drift report.
+
+## Decision
+
+2026-11-08, by the user:
+
+- **Option C.** Homebrew `bash` and `jq` are required; the bash 4 code stays; `chmod --reference` and `timeout` get
+  portable helpers; a macOS CI job (Homebrew bash, no `gnubin`) keeps GNU-only flags out.
+- **No Mac in use yet.** The macOS work is proven by CI on `macos-latest`, not on a real machine. Anything that can only
+  be checked on a Mac (rtk's config folder, zsh startup order on a real login) is marked as such, not guessed.
+- **First tools, all four groups:** git and Claude Code's OS-neutral files (`common`), VS Code (per-OS `localPath`),
+  tmux, starship, wezterm, htop and gh (`common`), and zsh under `dotfiles/macos/shell/`.
