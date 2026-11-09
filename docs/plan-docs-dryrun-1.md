@@ -19,7 +19,7 @@ Phase 1 of [the docs and dry-run roadmap](plan-docs-dryrun.md). The findings are
 
 ## Step 1: `mksync check` on Linux and macOS `[worker]`
 
-Files: `sync`, `tests/linux/engine.sh`.
+Files: `sync`, `tests/linux/engine.sh`, `docs/sync-contract.md` (front door section: `check` runs the import check).
 
 Add `check` to `sync`: `./sync check [options]` runs `exec ./import.sh --check "$@"`. Put it in the allowed-commands
 `case` next to `preview|export|import|commit|pull|push`, and in `usage` change the last line to
@@ -35,7 +35,7 @@ Test command: `tests/linux/engine.sh sync-` (all pass) and the CI `shellcheck` l
 
 ## Step 2: `mksync check` on Windows `[worker]`
 
-Files: `sync.cmd`, `tests/windows/Engine.Tests.ps1`.
+Files: `sync.cmd`, `tests/windows/Engine.Tests.ps1`, `docs/sync-contract.md` (front door: `sync.cmd check` too).
 
 Add `check` to `sync.cmd`: it runs `Import-Settings.ps1` with `-Check` in front of the other arguments, the way
 `preview` runs `Export-Settings.ps1` with `-Preview` (`if /i "%COMMAND%"=="check" set "SCRIPT=Import-Settings.ps1"` and
@@ -51,7 +51,8 @@ Test command: the `pwsh` parse of `tests/windows/Engine.Tests.ps1` (parses); `en
 
 ## Step 3: the check warns before a pull overwrites local edits `[worker]`
 
-Files: `import.sh`, `scripts/windows/Import-Settings.ps1`, `tests/linux/engine.sh`, `tests/windows/Engine.Tests.ps1`.
+Files: `import.sh`, `scripts/windows/Import-Settings.ps1`, `tests/linux/engine.sh`, `tests/windows/Engine.Tests.ps1`,
+`docs/sync-contract.md` (the import check's summary text).
 
 Replace the check's summary line `  N file(s) would change. Run mksync pull to apply.` in both engines with two lines:
 
@@ -145,7 +146,7 @@ Files: `CLAUDE.md`, `docs/sync-contract.md`, `docs/daily-workflow.md`, `TODO.md`
 
 - `CLAUDE.md`: the entry-points table gets `./sync check`; the `.bat` rows say they're kept only until the Windows
   checks pass.
-- `docs/sync-contract.md`, front door section: `check` and the two-line check summary.
+- `docs/sync-contract.md`: read the front door and import check sections once more; steps 1-3 already updated them.
 - `docs/daily-workflow.md`: a short "Before you pull or push" section with `mksync check` and `mksync preview`, and the
   rule "edited here: push first".
 - `TODO.md`: add "Delete `export.bat`, `import.bat` and `commit.bat`, and their mentions, once W0-W6 pass".
