@@ -2093,7 +2093,8 @@ Describe 'Windows engine' {
             $script:EngineExit | Should -Be 3
             $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATE' 'dotfiles/windows/win.conf')
             $script:EngineOut | Should -Match (Get-StatusPattern 'CREATE' 'dotfiles/common/shared.conf')
-            $script:EngineOut | Should -Match 'file\(s\) would change\. Run mksync pull to apply\.'
+            $script:EngineOut | Should -Match ([regex]::Escape('file(s) would change. mksync pull overwrites them (each keeps a .bak).'))
+            $script:EngineOut | Should -Match ([regex]::Escape('If you changed them on this machine, run mksync push first.'))
             @(Get-ChildItem -Path $script:HomeDir -Recurse -Filter '*.bak' -File).Count | Should -Be 0
             ([IO.File]::ReadAllBytes($valuesPath) -join ',') | Should -Be $valuesBefore
             (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore

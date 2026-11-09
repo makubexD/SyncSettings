@@ -816,8 +816,10 @@ case_import_check_writes_nothing() {
 
     output_has_status UPDATE dotfiles/linux/plain.txt || fail "missing UPDATE line for plain.txt"
     output_has_status CREATE dotfiles/linux/no-trailing.txt || fail "missing CREATE line for no-trailing.txt"
-    grep -Fqx '  2 file(s) would change. Run mksync pull to apply.' "$out" \
+    grep -Fqx '  2 file(s) would change. mksync pull overwrites them (each keeps a .bak).' "$out" \
         || fail "missing the 'would change' summary line"
+    grep -Fqx '  If you changed them on this machine, run mksync push first.' "$out" \
+        || fail "missing the 'push first' summary line"
 
     assert_check_dry "$home_before" "$repo_before"
     [[ $(sha256_of "$t/repo/.user-values.json") == "$values_before" ]] \
@@ -918,8 +920,10 @@ case_import_check_dir() {
     output_has_status UPDATE dotfiles/common/dir/c.txt || fail "missing UPDATE line for dir/c.txt"
     output_has_status EXTRA dotfiles/common/dir/extra.txt 'not in repo; kept' \
         || fail "missing EXTRA line for dir/extra.txt"
-    grep -Fqx '  1 file(s) would change. Run mksync pull to apply.' "$out" \
+    grep -Fqx '  1 file(s) would change. mksync pull overwrites them (each keeps a .bak).' "$out" \
         || fail "EXTRA counted as a change"
+    grep -Fqx '  If you changed them on this machine, run mksync push first.' "$out" \
+        || fail "missing the 'push first' summary line"
 
     assert_check_dry "$home_before" "$repo_before"
 }

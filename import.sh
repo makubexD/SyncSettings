@@ -433,7 +433,8 @@ if (( CHECK )); then
         printf '\n  %s\n\n' "--------------------------------------------------"
         exit 0
     fi
-    printf '\n  %d file(s) would change. Run mksync pull to apply.\n' "$CHANGED"
+    printf '\n  %d file(s) would change. mksync pull overwrites them (each keeps a .bak).\n' "$CHANGED"
+    printf '  If you changed them on this machine, run mksync push first.\n'
     printf '\n  %s\n\n' "--------------------------------------------------"
     exit 3
 fi
