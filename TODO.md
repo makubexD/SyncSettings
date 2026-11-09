@@ -63,13 +63,6 @@ CI runs the engine on `macos-latest`; nobody has run it on a real Mac yet.
       gets a `localPaths.macos`.
 - [ ] Delete this section when all of them pass.
 
-Review follow-ups from phase 4 (PR #44), not blocking:
-
-- [ ] `scripts/windows/SyncHelpers.ps1`: a dconf entry with `"platform": ["linux"]` passes PowerShell's check
-      (`[string]` turns the one-item list into `linux`), while bash and lint reject it. Reject `-is [array]` first.
-- [ ] `scripts/ci/check-config.sh`: check the `~/` form for string `macos` and `linux` entries, as for `common` and lists.
-- [ ] `scripts/linux/os.sh`: `PLATFORM_SELECT_JQ` is taken from the environment when already set; use a private guard.
-
 ## Roll back Claude auto-approval when development is done
 
 Added 2026-10-30 to speed up development: Claude adds the `reviewed` label and merges its own PRs. When the

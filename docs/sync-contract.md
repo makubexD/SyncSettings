@@ -69,6 +69,10 @@ ERROR: SyncSettings runs on Linux, macOS and Windows; this is <value>.
 
 The PowerShell engine is always `windows`.
 
+`os.sh` also defines `PLATFORM_SELECT_JQ`, the jq filter that picks the entries for a system. It's internal: a value
+inherited from the environment is overwritten, and only a second `source` in the same shell, where the variable is
+already `readonly`, keeps it.
+
 ## Path safety
 
 Right after the `platform` check, each engine checks every entry, on any platform, and stops with exit code 1 before it
@@ -79,12 +83,16 @@ touches a file:
 - Each [`localPaths`](#localpath) value follows the same rule, and its keys are `linux`, `macos` or `windows`.
 - Nothing under `dotfiles/` is a symlink.
 
+CI lint (`scripts/ci/check-config.sh`) is stricter: every `common` entry, every list entry, and every non-dconf
+`linux` or `macos` entry needs a `localPath` in the `~/` form.
+
 ```text
 ERROR: sync-config.json: entry <repoPath> has an unsafe path.
 ERROR: sync-config.json: entry <repoPath> has an unknown localPaths key <key>.
 ```
 
-A dconf entry has no `localPath`. Instead its `platform` must be `linux`, and its `path` must start and end with `/`, hold
+A dconf entry has no `localPath`. Instead its `platform` must be the string `linux` (a list, even `["linux"]`, stops
+both engines), and its `path` must start and end with `/`, hold
 at least one segment of letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody
 dumps the whole database by accident.
 
