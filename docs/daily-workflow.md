@@ -39,6 +39,19 @@ mksync pull   # on the other machine, after the merge: pull, show, apply
 step, with the single scripts underneath. If `mksync` stops with something you don't recognize, see
 [Troubleshooting `mksync`](#troubleshooting-mksync).
 
+## Before you pull or push
+
+Two dry runs show what would happen, and neither writes anything:
+
+```bash
+mksync check     # repo → this machine: every file a pull would create or overwrite
+mksync preview   # this machine → repo: the diff a push would send
+```
+
+The check can't tell which side is newer yet. If it lists a file you edited on this machine, run `mksync push` first
+and let that change merge, or the pull replaces your edit. The replaced file is still in its `.bak`, until the next
+pull over the same file.
+
 ## On the machine where you changed something
 
 Start on an up-to-date `master` with no unrelated changes:

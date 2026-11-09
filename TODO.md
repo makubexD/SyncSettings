@@ -41,6 +41,8 @@ before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expe
 
       Then remove `$env:TEMP\ss-try` and run the installer again with `SYNCSETTINGS_DIR` set to the real clone (and
       `SYNCSETTINGS_NO_SETUP` removed), so `mksync` points at it.
+- [ ] Once W0-W6 pass, delete `export.bat`, `import.bat` and `commit.bat`, and their mentions; `sync.cmd` and `mksync`
+      cover them.
 - [ ] Delete this section when all of them pass.
 
 If W0 reports changes, those are Windows edits the repo doesn't have. Note the files, run `git restore dotfiles`,
