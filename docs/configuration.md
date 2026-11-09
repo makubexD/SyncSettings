@@ -51,14 +51,15 @@ stops both engines with exit code 1 before they touch a file. CI lint also fails
 | `platform` | Runs on | `repoPath` must be | `localPath` |
 |---|---|---|---|
 | `common` | Windows, Linux and macOS | under `dotfiles/common/` | `~/` form only |
-| `linux` | Linux | under `dotfiles/linux/` | `~/` form |
-| `macos` | macOS | under `dotfiles/macos/` | `~/` form |
+| `linux` | Linux | under `dotfiles/linux/` | `~/` form only |
+| `macos` | macOS | under `dotfiles/macos/` | `~/` form only |
 | `windows` | Windows | under `dotfiles/windows/` | either form |
 | a list, e.g. `["linux", "macos"]` | each system listed | under `dotfiles/common/` | `~/` form only |
 
 A list holds two or three of `windows`, `linux` and `macos`, each once. Use it for a file two systems share and the third
 doesn't have: tmux's config is the same on Linux and macOS, but `common` would also write it on Windows. A one-item list
-works but says the same as the plain value, so write the plain value.
+works but says the same as the plain value, so write the plain value. A dconf entry needs the plain string `linux`: a
+list stops the run.
 
 ## `localPath`
 
