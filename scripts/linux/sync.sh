@@ -1223,6 +1223,9 @@ run_diff() {
     local -a diff_lines=()
     while IFS= read -r path; do
         [[ -n $path ]] || continue
+        if ! only_selected "$path"; then
+            continue
+        fi
 
         local owned_here=0
         for prefix in "${owned_exact[@]:-}"; do

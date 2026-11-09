@@ -102,6 +102,11 @@ Then a repo file is selected when there is no `--only`, or its repo path equals 
 `--check --only` lists only the selected files. A run with `--only` never records the sync point, because the machine
 agrees with only part of the repo. `--only` with no path after it is an error, exit 1.
 
+`export.sh --only` writes only the selected files. It removes a repo file gone from a `dir` entry's folder only when
+that file is selected, and skips the orphan and package drift reports: a partial run doesn't see the whole repo.
+`--diff --only` labels only the selected paths, and its counts and hints cover only them. `--preview` with `--only` is
+an error, exit 1.
+
 ## Path safety
 
 Right after the `platform` check, each engine checks every entry, on any platform, and stops with exit code 1 before it
@@ -512,8 +517,9 @@ builds three trees of `dotfiles/` in a temp folder:
   in the temp folder). Starting from `base` means any file export doesn't touch still equals `base`.
 
 Only paths this OS's entries own are compared: a file or dconf entry owns its `repoPath`, a file entry also owns the
-`<repoPath>.linked/` prefix, and a dir entry owns the `<repoPath>/` prefix. A missing file counts as a version, and
-each owned path in the union of the three trees gets at most one label:
+`<repoPath>.linked/` prefix, and a dir entry owns the `<repoPath>/` prefix. With `--only`, only the selected paths are
+labeled and counted. A missing file counts as a version, and each owned path in the union of the three trees gets at
+most one label:
 
 | `mine` vs `base` | `theirs` vs `base` | Label |
 |---|---|---|
