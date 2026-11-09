@@ -883,15 +883,21 @@ function Copy-RepoFileToLocal {
         Creates the file when it is missing, compares by hash when it exists,
         and otherwise prompts before overwriting (unless -Force), keeping a .bak
         of the old file. Returns the status word: CREATED, UPDATED, UNCHANGED or SKIPPED.
+        With -Check it writes nothing and returns CREATE or UPDATE instead.
     #>
     param(
         [string]$RepoFile,
         [string]$LocalFile,
         [string]$Label,
-        [bool]$Force = $false
+        [bool]$Force = $false,
+        [bool]$Check = $false
     )
 
     if (-not (Test-Path -LiteralPath $LocalFile)) {
+        if ($Check) {
+            Write-StatusLine 'CREATE' $Label
+            return 'CREATE'
+        }
         Copy-Item -LiteralPath $RepoFile -Destination $LocalFile -Force
         Write-StatusLine 'CREATED' $Label
         return 'CREATED'
@@ -899,6 +905,10 @@ function Copy-RepoFileToLocal {
         Write-StatusLine 'UNCHANGED' $Label
         return 'UNCHANGED'
     } else {
+        if ($Check) {
+            Write-StatusLine 'UPDATE' $Label
+            return 'UPDATE'
+        }
         if (-not $Force) {
             Write-Host
             Write-Host "  File differs: $LocalFile" -ForegroundColor Yellow
@@ -925,13 +935,16 @@ function Import-DirEntry {
         Import never deletes: a local file the repo does not have is reported as
         EXTRA and kept. Each repo file follows the same compare / prompt / .bak /
         copy flow as a plain file entry. Returns the number of files applied.
+        With -Check it writes nothing and returns the number of files that would change.
     #>
     param(
         [string]$RepoDir,
         [string]$LocalDir,
         [string]$Label,
         [string[]]$ExcludePatterns,
-        [bool]$Force = $false
+        [bool]$Force = $false,
+        [bool]$Check = $false,
+        $ErrorCount = $null
     )
 
     if (-not (Test-Path -LiteralPath $RepoDir -PathType Container)) {
@@ -945,7 +958,7 @@ function Import-DirEntry {
         return 0
     }
 
-    if (-not (Test-Path -LiteralPath $LocalDir)) {
+    if (-not $Check -and -not (Test-Path -LiteralPath $LocalDir)) {
         New-Item -ItemType Directory -Path $LocalDir -Force | Out-Null
     }
 
@@ -962,14 +975,15 @@ function Import-DirEntry {
 
         try {
             $localFileParent = Split-Path $localFile -Parent
-            if (-not (Test-Path -LiteralPath $localFileParent)) {
+            if (-not $Check -and -not (Test-Path -LiteralPath $localFileParent)) {
                 New-Item -ItemType Directory -Path $localFileParent -Force | Out-Null
             }
 
-            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
-            if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force -Check $Check
+            if ($result -eq 'CREATED' -or $result -eq 'UPDATED' -or $result -eq 'CREATE' -or $result -eq 'UPDATE') { $applied++ }
         } catch {
             Write-StatusLine 'ERROR' $itemLabel $_.Exception.Message
+            if ($null -ne $ErrorCount) { $ErrorCount.Value++ }
         }
     }
 
@@ -1000,13 +1014,16 @@ function Import-LinkedDirectory {
         copy flow as a plain file entry, so -Force skips only the prompt. Linked
         folders are non-recursive, matching the current import call. Returns the
         number of files applied.
+        With -Check it writes nothing and returns the number of files that would change.
     #>
     param(
         [string]$SourceDir,
         [string]$DestDir,
         [string]$Label,
         [string[]]$ExcludePatterns,
-        [bool]$Force = $false
+        [bool]$Force = $false,
+        [bool]$Check = $false,
+        $ErrorCount = $null
     )
 
     if (-not (Test-Path -LiteralPath $SourceDir -PathType Container)) {
@@ -1014,7 +1031,7 @@ function Import-LinkedDirectory {
         return 0
     }
 
-    if (-not (Test-Path -LiteralPath $DestDir)) {
+    if (-not $Check -and -not (Test-Path -LiteralPath $DestDir)) {
         New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
     }
 
@@ -1034,10 +1051,11 @@ function Import-LinkedDirectory {
         }
 
         try {
-            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force
-            if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
+            $result = Copy-RepoFileToLocal -RepoFile $file.FullName -LocalFile $localFile -Label $itemLabel -Force $Force -Check $Check
+            if ($result -eq 'CREATED' -or $result -eq 'UPDATED' -or $result -eq 'CREATE' -or $result -eq 'UPDATE') { $applied++ }
         } catch {
             Write-StatusLine 'ERROR' $itemLabel $_.Exception.Message
+            if ($null -ne $ErrorCount) { $ErrorCount.Value++ }
         }
     }
 
@@ -1066,6 +1084,8 @@ function Write-StatusLine {
         'MODIFIED'  { 'Yellow' }
         'CREATED'   { 'Green' }
         'UPDATED'   { 'Yellow' }
+        'CREATE'    { 'Cyan' }
+        'UPDATE'    { 'Yellow' }
         'UNCHANGED' { 'DarkGray' }
         'SKIPPED'   { 'DarkYellow' }
         'EXTRA'     { 'DarkYellow' }

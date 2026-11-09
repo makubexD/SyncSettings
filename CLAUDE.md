@@ -10,7 +10,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 
 - `.bat` files are the Windows entry points — they set the working directory and invoke the corresponding PowerShell script
 - `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/linux/sync.sh`
-- `sync` (linked on `PATH` as `mksync`) is the Linux front door: status, `doctor`, `setup`, `pull`, `push`, in `scripts/linux/front.sh`. It calls the entry points and never syncs a file itself. `install.sh` is the `curl … | bash` installer. Both are in the "Front door" section of `docs/sync-contract.md`
+- `mksync` is the front door: status, `doctor`, `setup`, `pull`, `push`. On Linux it's `sync` linked on `PATH`, in `scripts/linux/front.sh`; on Windows it's `mksync.cmd` calling `sync.cmd`, in `scripts/windows/Front.ps1`. Both call the entry points and never sync a file themselves, with the same wording and exit codes. `install.sh` (`curl … | bash`) and `install.ps1` (`irm … | iex`) are the installers. All of them are in the "Front door" section of `docs/sync-contract.md`
 - Windows logic lives in `scripts/windows/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
 - Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` entries are bash-only, and `"common"` entries run on both (`Test-WindowsEntry` and `platform_entries` filter). A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
 - `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
@@ -29,8 +29,9 @@ Sync user dotfiles and config files between a machine and this git repository. W
 | `./export.sh` | `scripts/linux/sync.sh` | Linux: copy changed local files → repo |
 | `./commit.sh` | (self-contained) | Linux: commit `dotfiles/` on a `sync/linux-…` branch, open a PR (never pushes to `master`) |
 | `./import.sh` | `scripts/linux/sync.sh` | Linux: copy repo files → local machine |
-| `mksync [status\|doctor\|setup\|pull\|push]` | `scripts/linux/front.sh` | Linux: where the machine stands and the next step; pull applies the repo, push opens the PR |
+| `mksync [status\|doctor\|setup\|pull\|push]` | `scripts/linux/front.sh`, `scripts/windows/Front.ps1` | Where the machine stands and the next step; pull applies the repo, push opens the PR |
 | `install.sh` | (self-contained) | Linux: install or update with one line, link `mksync`, run setup |
+| `install.ps1` | (self-contained) | Windows: install or update with one line (`irm … \| iex`, settings from `SYNCSETTINGS_*` variables), write `mksync.cmd` on the user `PATH`, run setup |
 | `./import.sh --check` | `scripts/linux/sync.sh` | Linux: list what import would change; writes nothing, exit 3 when something differs |
 | `./bootstrap/linux.sh` | `scripts/linux/sync.sh` | Linux: restore a new machine from `packages/linux/`, then import, links and plugins (`docs/restore.md`). `--dry-run` changes nothing |
 

@@ -3,7 +3,7 @@
 This page takes a new machine back to your setup. Bootstrap handles everything the repo can hold. The rest is a short manual
 list, because this repo is public and secrets never go in it.
 
-On Ubuntu, run `./bootstrap/linux.sh`. Windows comes in a later phase; see [Windows](#windows).
+On Ubuntu, run `./bootstrap/linux.sh`. On Windows, the one-line installer restores your settings; see [Windows](#windows).
 
 ## Before you lose the machine
 
@@ -125,5 +125,23 @@ until it updates.
 
 ## Windows
 
-There's no Windows bootstrap yet. It comes in phase 8 of [the roadmap](plan-restructure.md). Until then, install Git, clone the
-repo and run `import.bat`.
+A new Windows machine starts from one line in PowerShell, as your own user:
+
+```powershell
+irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
+```
+
+It offers to install Git and the GitHub CLI with `winget` (it asks first), clones the repo to `%USERPROFILE%\SyncSettings`,
+puts `mksync` on your user `PATH`, and runs `mksync setup`. Setup runs `doctor`, shows what the import would change, and
+applies it after you say yes, asking for the values the configs need on the way (your name and email for git, for
+example). It keeps a `.bak` of every file it replaces. Then open a new window and run `mksync`; `Machine : matches the repo` means
+it worked.
+
+There's no Windows package restore: apps aren't installed for you, only their settings. Install the apps first (VS Code,
+Windows Terminal, Git Bash comes with Git), then run setup again, or `mksync pull`, so settings whose folder was missing
+get created. Import skips a file whose folder doesn't exist yet.
+
+The Windows checks in [`TODO.md`](../TODO.md) were written for the machine that already had the old layout. On a new
+machine W0 (old layout) and W1 (the first migrating import) don't apply, because the one-liner's setup is that import.
+W2 (git works), W3 (the round trip, now `mksync` showing nothing to do), W4 (apps), W5 (the PR flow, now `mksync push`)
+and W6 (the global git ignore) still tell you it worked.

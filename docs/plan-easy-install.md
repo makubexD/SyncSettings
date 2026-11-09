@@ -33,6 +33,16 @@ flushes disks. Inside the repo, `./sync` keeps working.
 | `mksync push` | Export this machine's changes, show them, then open the PR |
 | `preview`, `export`, `commit`, `import` | Unchanged |
 
+## Docs rule
+
+Docs are part of every phase, not an afterthought:
+
+- A step that changes behavior updates `docs/sync-contract.md` in the same commit.
+- Every phase plan ends with a docs step that brings `README.md`, `docs/daily-workflow.md`, `docs/restore.md` and
+  `CLAUDE.md` up to date, and enriches them: sample output, troubleshooting for the errors a user can hit, and what each
+  command writes where.
+- The finish checks that no doc still describes the old behavior (`grep` for the phase's "until phase N" notes).
+
 ## Phases
 
 ### Phase 1: Linux `docs/plan-easy-install-1.md` (done 2026-11-08)
@@ -40,11 +50,14 @@ flushes disks. Inside the repo, `./sync` keeps working.
 `import.sh --check`, the `mksync` commands, `install.sh` (`curl … | bash`), docs. Proven on this machine with a
 throwaway `HOME`.
 
-### Phase 2: Windows
+### Phase 2: Windows `docs/plan-easy-install-2.md` (code done 2026-11-08; the real run on Windows is W7 in `TODO.md`)
 
-`install.ps1` (`irm … | iex`) installs Git, jq and gh with winget after asking, clones, and puts `mksync.cmd` on the user
-`PATH`. `Import-Settings.ps1 -Check`, and the same commands in a PowerShell front door. Pester cases in CI, then a run on
-the real Windows machine. Starts after the W0-W6 checks in `TODO.md` pass.
+`install.ps1` (`irm … | iex`) installs Git and gh with winget after asking, clones, and puts `mksync.cmd` on the user
+`PATH`. `Import-Settings.ps1 -Check`, and the same commands in a PowerShell front door. The PowerShell engine doesn't use
+jq, so Windows doesn't install it. Pester cases in CI, then a run on the real Windows machine.
+
+On 2026-11-08 the user chose to start this phase before the W0-W6 checks in `TODO.md` ran. They still gate the real run on
+Windows, the last step of the phase.
 
 ### Phase 3: macOS, gated on research
 

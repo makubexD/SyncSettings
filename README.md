@@ -12,8 +12,24 @@ curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/instal
 ```
 
 It installs `git`, `jq` and `diffutils` if they're missing (it asks first), clones the repo to `~/SyncSettings`, puts the
-`mksync` command in `~/.local/bin`, and runs `mksync setup`. Run the same line again to update. Windows gets its own
-one-liner in a later phase, and macOS isn't supported yet; see [the roadmap](docs/plan-easy-install.md).
+`mksync` command in `~/.local/bin`, and runs `mksync setup`.
+
+On Windows, paste this in PowerShell (5.1, the one that comes with Windows, is enough):
+
+```powershell
+irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
+```
+
+It offers to install Git and the GitHub CLI with `winget` if they're missing (it asks first; Windows doesn't need `jq`),
+clones the repo to `%USERPROFILE%\SyncSettings`, writes the `mksync` launcher to `%LOCALAPPDATA%\SyncSettings\bin`, adds
+that folder to your user `PATH`, and runs `mksync setup`. A window that was already open won't find `mksync`; open a new
+one. If something goes wrong it prints an `ERROR:` line and leaves your window open.
+
+On both systems, run the same line again to update: it pulls the clone instead of cloning again. Environment variables
+change the defaults, for example for a fork or another folder: `SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR`,
+`SYNCSETTINGS_REF` and `SYNCSETTINGS_BIN` (where `mksync` goes). To answer yes or skip setup, Linux takes flags
+(`… | bash -s -- --yes --no-setup`) and Windows takes `SYNCSETTINGS_YES=1` and `SYNCSETTINGS_NO_SETUP=1`, since `iex` can't
+pass any. macOS isn't supported yet; see [the roadmap](docs/plan-easy-install.md).
 
 ## Commands
 
@@ -25,12 +41,58 @@ one-liner in a later phase, and macOS isn't supported yet; see [the roadmap](doc
 | `mksync setup` | First run on a machine. On Ubuntu it also offers to restore your apps and packages |
 | `mksync doctor` | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing |
 
-`pull` and `push` ask before they change anything; `--yes` answers for you. `mksync push` needs `gh auth login` once.
+The commands, their wording and their exit codes are the same on Linux and Windows. `pull` and `push` ask before they
+change anything; `--yes` answers for you. `mksync push` needs `gh auth login` once.
+
+What good looks like on Linux, with the clone on `master` and nothing to do (`mksync`, then `mksync doctor`):
+
+```text
+  SyncSettings  linux (Ubuntu 26.04.1 LTS)
+  Repo      : /home/you/SyncSettings
+  Origin    : up to date
+  Unsent    : none
+  Machine   : matches the repo
+
+  Next: nothing to do.
+
+  OK       bash 5.3.9(1)-release
+  OK       git
+  OK       jq
+  OK       cmp
+  OK       gh (signed in)
+  OK       repo clone with origin
+  OK       mksync on PATH
+  OK       values
+  Ready.
+```
+
+And on Windows:
+
+```text
+  SyncSettings  windows (Microsoft Windows 11 Pro)
+  Repo      : C:\Users\you\SyncSettings
+  Origin    : up to date
+  Unsent    : none
+  Machine   : matches the repo
+
+  Next: nothing to do.
+
+  OK       PowerShell 5.1.26100.1
+  OK       git
+  OK       gh (signed in)
+  OK       repo clone with origin
+  OK       mksync on PATH
+  OK       values
+  Ready.
+```
+
+Other things you may see: `Origin : 2 update(s) waiting` (run `mksync pull`), `Unsent : 3 changed file(s) not sent yet`
+(run `mksync push`), `Machine : 4 file(s) differ from the repo` (`Next` names both ways). In `doctor`, `WARN` is worth
+fixing and `MISSING` stops `setup`; each line says how to fix it.
 
 The single steps are still there: `./sync preview` (shows exactly what would be sent, changes nothing), `./sync export`,
 `./sync commit` and `./sync import` (keeps a `.bak` of every file it replaces). On Windows, use `.\sync preview` in
-PowerShell or `sync preview` in cmd; `mksync` and its commands come to Windows in a later phase. Options pass through, for
-example `./sync import --force` (`-Force` on Windows).
+PowerShell or `sync preview` in cmd. Options pass through, for example `./sync import --force` (`-Force` on Windows).
 
 ## What gets synced
 
