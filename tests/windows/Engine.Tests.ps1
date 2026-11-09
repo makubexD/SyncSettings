@@ -2678,7 +2678,7 @@ Describe 'Windows engine' {
         Invoke-SyncCmd -CmdArgs @('help')
 
         $script:EngineExit | Should -Be 0
-        $script:EngineOut | Should -Match ([regex]::Escape('diff     which side changed each file, after a fetch'))
+        $script:EngineOut | Should -Match ([regex]::Escape('  diff [path...]   which side changed each file, after a fetch'))
     }
 
     It 'sync-cmd-message-quotes' {
@@ -3116,6 +3116,21 @@ Describe 'Windows engine' {
                 $importScript = Join-Path $script:CloneDir 'scripts\windows\Import-Settings.ps1'
                 $null = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $importScript -Force 2>&1 | Out-String
             }
+
+            # A second clone writes each repo file to its new text and pushes one
+            # commit, so a pull can fast-forward the front door's clone.
+            function Push-OtherFiles {
+                param([hashtable]$Files)
+                $ErrorActionPreference = 'Continue'
+                $other = Join-Path $script:T 'other'
+                git clone -q (Join-Path $script:T 'origin.git') $other 2>$null
+                foreach ($path in @($Files.Keys)) {
+                    [IO.File]::WriteAllText((Join-Path $other $path), $Files[$path], [System.Text.UTF8Encoding]::new($false))
+                }
+                git -C $other add -A 2>$null
+                git -C $other -c user.name=t -c user.email=t@example.com commit -q -m other 2>$null
+                git -C $other push -q origin master 2>$null
+            }
         }
 
         It 'pull applies' {
@@ -3158,14 +3173,14 @@ Describe 'Windows engine' {
 
         It 'pull declined' {
             Initialize-FrontRepo
-            # No sync point, so the edit is '?' and the pull guard lets it
-            # through to the apply question this case declines.
+            # No sync point, so the first-pull guard would refuse; --force skips
+            # it and the edit reaches the apply question this case declines.
             Remove-Item -LiteralPath (Get-SyncPointFile) -Force
 
             $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
             [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
 
-            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull') -InputText 'n'
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--force') -InputText 'n'
 
             $script:EngineExit | Should -Be 0
             $script:EngineOut | Should -Match ([regex]::Escape('Nothing applied.'))
@@ -3243,7 +3258,8 @@ Describe 'Windows engine' {
             $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
             [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
 
-            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+            # Without a sync point the first pull refuses unless --force.
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes', '--force')
 
             $script:EngineExit | Should -Be 0
             "$winConf.bak" | Should -Exist
@@ -3297,6 +3313,220 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match ([regex]::Escape('Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.'))
             $script:GhLog | Should -Not -Exist
             (git -C $script:CloneDir status --porcelain -- dotfiles 2>$null | Out-String).Trim() | Should -Not -Be ''
+        }
+
+        It 'front-pull-only' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+            Push-OtherFiles @{
+                'dotfiles\windows\win.conf' = "user = <NAME>`r`n# pulled`r`n"
+                'dotfiles\common\shared.conf' = "owner = <NAME>`n# pulled`n"
+            }
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes', '--force', 'dotfiles/windows/win.conf')
+
+            $script:EngineExit | Should -Be 0
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('# pulled'))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            (Get-Content -LiteralPath $sharedConf -Raw) | Should -Not -Match ([regex]::Escape('# pulled'))
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'front-pull-only-guard' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes', 'dotfiles/windows/win.conf')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/win.conf')
+            $script:EngineOut | Should -Match ([regex]::Escape('  ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.'))
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('Someone Else'))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes', '--force', 'dotfiles/windows/win.conf')
+
+            $script:EngineExit | Should -Be 0
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('Fixture User'))
+            "$winConf.bak" | Should -Exist
+            (Get-Content -LiteralPath "$winConf.bak" -Raw) | Should -Match ([regex]::Escape('Someone Else'))
+        }
+
+        It 'front-pull-first-yes' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+            Push-OtherFiles @{ 'dotfiles\windows\win.conf' = "user = <NAME>`r`n# pulled`r`n" }
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape("  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files."))
+            $script:EngineOut | Should -Match ([regex]::Escape('  Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).'))
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Not -Match ([regex]::Escape('# pulled'))
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'front-pull-first-force' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+            Push-OtherFiles @{ 'dotfiles\windows\win.conf' = "user = <NAME>`r`n# pulled`r`n" }
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes', '--force')
+
+            $script:EngineExit | Should -Be 0
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('# pulled'))
+            "$winConf.bak" | Should -Exist
+            $head = (git -C $script:CloneDir rev-parse HEAD 2>$null | Out-String).Trim()
+            (Get-Content -LiteralPath (Get-SyncPointFile) -Raw).Trim() | Should -Be $head
+        }
+
+        It 'front-pull-first-empty' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+            Push-OtherFiles @{ 'dotfiles\windows\win.conf' = "user = <NAME>`r`n# pulled`r`n" }
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull') -InputText ''
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Apply these changes? [y/N]'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Nothing applied.'))
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Not -Match ([regex]::Escape('# pulled'))
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'front-pull-first-y' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+            Push-OtherFiles @{ 'dotfiles\windows\win.conf' = "user = <NAME>`r`n# pulled`r`n" }
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull') -InputText 'y'
+
+            $script:EngineExit | Should -Be 0
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('# pulled'))
+            "$winConf.bak" | Should -Exist
+            Get-SyncPointFile | Should -Exist
+        }
+
+        It 'front-pull-first-match' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('Apply these changes?'))
+            $head = (git -C $script:CloneDir rev-parse HEAD 2>$null | Out-String).Trim()
+            (Get-Content -LiteralPath (Get-SyncPointFile) -Raw).Trim() | Should -Be $head
+        }
+
+        It 'front-pull-match-only' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes', 'dotfiles/windows/win.conf')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('Apply these changes?'))
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'front-pull-recorded' {
+            Initialize-FrontRepo
+            Push-OtherFiles @{ 'dotfiles\windows\win.conf' = "user = <NAME>`r`n# pulled`r`n" }
+            Get-SyncPointFile | Should -Exist
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull') -InputText 'n'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Apply these changes? [Y/n]'))
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('No sync is recorded'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Nothing applied.'))
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Not -Match ([regex]::Escape('# pulled'))
+        }
+
+        It 'front-push-only' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Fixture User`r`n# sent`r`n", [System.Text.UTF8Encoding]::new($false))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            [IO.File]::WriteAllText($sharedConf, "owner = Fixture User`n# sent`n", [System.Text.UTF8Encoding]::new($false))
+
+            $pointBefore = (Get-Content -LiteralPath (Get-SyncPointFile) -Raw).Trim()
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('push', '--yes', 'dotfiles/windows/win.conf')
+
+            $script:EngineExit | Should -Be 0
+            (Get-Content -LiteralPath $script:GhLog -Raw) | Should -Match ([regex]::Escape('pr create'))
+            Get-OriginBranches | Should -Match 'refs/heads/sync/windows-'
+
+            $origin = Join-Path $script:T 'origin.git'
+            $branch = (git --git-dir=$origin for-each-ref --format='%(refname)' refs/heads/sync 2>$null | Out-String).Trim()
+            $branch | Should -Match 'refs/heads/sync/windows-'
+            $names = @((git --git-dir=$origin show --name-only --format='' $branch 2>$null | Out-String) -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+            ($names -join ',') | Should -Be 'dotfiles/windows/win.conf'
+
+            (Get-Content -LiteralPath (Get-SyncPointFile) -Raw).Trim() | Should -Be $pointBefore
+        }
+
+        It 'front-diff-only' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+            $sharedConf = Join-Path $script:HomeDir '.config\fixture\shared.conf'
+            [IO.File]::WriteAllText($sharedConf, "owner = Someone Else`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('diff', 'dotfiles/windows/win.conf')
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/win.conf')
+            $script:EngineOut | Should -Not -Match (Get-StatusPattern 'OUT' 'dotfiles/common/shared.conf')
+            $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 0 in, 1 out, 0 both.'))
+        }
+
+        It 'front-only-relative' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            # Relative to the caller's folder (the temp profile).
+            Push-Location $script:HomeDir
+            try {
+                Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('diff', '.config\fixture\win.conf')
+            } finally {
+                Pop-Location
+            }
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/win.conf')
+
+            # The literal ~ is the point: the engine expands it, not the shell.
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('diff', '~\.config\fixture\win.conf')
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/win.conf')
+        }
+
+        It 'front-usage-paths' {
+            Copy-EngineToRepo
+            Copy-SyncWrappers
+
+            Invoke-SyncCmd -CmdArgs @('help')
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('  pull [path...]   get the latest repo and apply it here'))
+            $script:EngineOut | Should -Match ([regex]::Escape("  push [path...]   send this machine's changes as a PR"))
+            $script:EngineOut | Should -Match ([regex]::Escape('  diff [path...]   which side changed each file, after a fetch'))
         }
     }
 
