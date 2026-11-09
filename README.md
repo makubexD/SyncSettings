@@ -35,6 +35,7 @@ change the defaults, for example for a fork; the [front door section](docs/sync-
 | `mksync push` | Copies this machine's changes into the repo, shows them, and opens a pull request after you say yes |
 | `mksync setup` | First run on a machine. On Ubuntu it also offers to restore your apps and packages |
 | `mksync doctor` | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing |
+| `mksync pull <path>`, `mksync push <path>` | Takes or sends only the files you name, such as `mksync pull ~/.bashrc` |
 
 The commands, their wording and their exit codes are the same on every system. `--yes` answers the questions for you,
 and `mksync push` needs `gh auth login` once.

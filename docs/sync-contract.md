@@ -772,3 +772,7 @@ had the behavior.
 | Sync point (import, commit) | docs-dryrun-2 step 7 | steps 1-2 | |
 | `--diff` / `-Diff` | step 8 | step 3 | |
 | `mksync diff`, pull guard, status labels | step 9 | steps 4-6 | |
+| `--only` / `-Only` on import, export and `--diff` | safe-sync step 8 | safe-sync steps 1-3 | |
+| Paths on `mksync pull`, `push`, `diff`; `commit --partial` / `-Partial` | safe-sync step 9 | safe-sync step 4 | |
+| First-pull guard | safe-sync step 9 | safe-sync step 5 | |
+| Dated backups, kept for 20 runs | safe-sync step 9 | safe-sync step 6 | no dconf on Windows |

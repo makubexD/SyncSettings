@@ -46,13 +46,24 @@ before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expe
       | Check | Expected |
       |---|---|
       | `mksync diff` before any pull | `Last sync  : none recorded on this machine`; differing files marked `?`; exit 3, or exit 0 with `agree` |
-      | `mksync pull` once | Ends with `Sync point : <short>`; `%LOCALAPPDATA%\SyncSettings\last-sync` holds the full SHA |
+      | `mksync pull` once, answering `y` to `[y/N]` | Ends with `Sync point : <short>`; `%LOCALAPPDATA%\SyncSettings\last-sync` holds the full SHA |
       | Edit `~/.bashrc`, then `mksync diff` | `[OUT       ] dotfiles/windows/shell/.bashrc`, `1 out`, exit 3 |
       | `mksync` | Machine `1 file(s) differ: 0 in, 1 out, 0 both`, Next `mksync push` |
       | `mksync pull` with that edit | The `OUT` line and the `ERROR: 1 file(s) changed on this machine …` line; exit 1; the edit is still there |
       | `mksync push`, then `mksync diff` before the merge | Still `OUT`; after the merge and a fetch, `agree` |
 
       Then undo the test edit.
+- [ ] **W9** picked files, the first-pull guard and dated backups, from `docs/plan-safe-sync.md`, after W8, in the real
+      clone:
+
+      | Check | Expected |
+      |---|---|
+      | Rename `%LOCALAPPDATA%\SyncSettings\last-sync` aside, then `mksync pull --yes` with a file differing | The two `ERROR: no sync is recorded …` lines; exit 1; nothing changed. Put the file back |
+      | Change one synced file in the repo, then `mksync pull <its local path>` | Only that file listed and updated; its `.bak` written; no `Sync point` line |
+      | After that pull | `Backups    : …\SyncSettings\backups\<run>` printed; the folder holds the old version under its repo path |
+      | `mksync diff <path>` on a file you edited | Only that file labeled; exit 3 |
+
+      Then undo the test edits.
 - [ ] Once W0-W6 pass, delete `export.bat`, `import.bat` and `commit.bat`, and their mentions; `sync.cmd` and `mksync`
       cover them.
 - [ ] Delete this section when all of them pass.
