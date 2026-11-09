@@ -9,14 +9,18 @@
     Custom commit message. If omitted, a message is generated from the changed files.
 .PARAMETER Push
     Accepted for backward compatibility; commits now open a PR instead of pushing.
+.PARAMETER Partial
+    Commit picked files only, so no sync point is recorded for the rest.
 .EXAMPLE
     .\Commit-Settings.ps1
     .\Commit-Settings.ps1 -Push
     .\Commit-Settings.ps1 -Message "update work laptop settings" -Push
+    .\Commit-Settings.ps1 -Partial
 #>
 param(
     [string]$Message = '',
-    [switch]$Push
+    [switch]$Push,
+    [switch]$Partial
 )
 
 $ErrorActionPreference = 'Stop'
@@ -288,7 +292,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'git switch failed.' }
 
     # Record the parent only now: a failed commit, push or PR leaves no sync point.
-    Write-LastSync -Sha $parent
+    # A partial push covers part of the repo only, so it records none.
+    if (-not $Partial) {
+        Write-LastSync -Sha $parent
+    }
 
     Write-Host "  PR opened: $prUrl" -ForegroundColor Green
     Write-Host "  Review it, add the 'reviewed' label, merge, then: git pull" -ForegroundColor White

@@ -3,6 +3,8 @@ rem One command for the sync flow on Windows: status, doctor, setup, pull,
 rem push, diff, and the single steps preview, check, export, commit, import.
 rem The bash sync wrapper hands over here on Git Bash, MSYS and Cygwin.
 setlocal EnableExtensions
+rem Keep the caller's folder so the engines can resolve the paths it was given.
+set "SYNC_CALLER_PWD=%CD%"
 pushd "%~dp0"
 
 set "RC=1"
@@ -81,9 +83,9 @@ echo usage: mksync [command] [options]
 echo   ^(none^)   show where this machine stands and what to run next
 echo   doctor   check the tools and the setup
 echo   setup    first run on this machine
-echo   pull     get the latest repo and apply it here
-echo   push     send this machine's changes as a PR
-echo   diff     which side changed each file, after a fetch
+echo   pull [path...]   get the latest repo and apply it here
+echo   push [path...]   send this machine's changes as a PR
+echo   diff [path...]   which side changed each file, after a fetch
 echo   preview ^| check ^| export ^| commit ^| import   the single steps
 echo   Detected: windows
 set "RC=0"
