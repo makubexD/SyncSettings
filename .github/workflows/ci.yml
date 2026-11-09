@@ -42,6 +42,40 @@ jobs:
         run: tests/linux/engine.sh
       - name: Bootstrap tests (bash)
         run: tests/linux/bootstrap.sh
+  engine-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash and jq
+        run: brew install bash jq
+      - name: Engine contract tests (bash, macOS)
+        run: /opt/homebrew/bin/bash tests/linux/engine.sh
+      - name: System bash reaches the guard
+        shell: bash
+        run: |
+          set -u
+
+          doctor_status=0
+          doctor_out=$(/bin/bash ./sync doctor 2>&1) || doctor_status=$?
+          printf '%s\n' "$doctor_out"
+          printf 'doctor exit status: %s\n' "$doctor_status"
+          if printf '%s\n' "$doctor_out" | grep -q 'MISSING.*bash 4 or newer'; then
+            echo 'system-bash: doctor reports MISSING bash 4 (guard reached, no re-exec)'
+          elif printf '%s\n' "$doctor_out" | grep -qE 'declare: -A|invalid option|syntax error|needs bash 4'; then
+            echo 'FAIL: /bin/bash did not re-exec into Homebrew bash for doctor'
+            exit 1
+          else
+            echo 'system-bash: doctor re-exec into Homebrew bash'
+          fi
+
+          export_status=0
+          export_out=$(HOME="$(mktemp -d)" /bin/bash ./export.sh < /dev/null 2>&1) || export_status=$?
+          printf '%s\n' "$export_out"
+          printf 'export exit status: %s\n' "$export_status"
+          if printf '%s\n' "$export_out" | grep -qE 'declare: -A|invalid option|needs bash 4'; then
+            echo 'FAIL: /bin/bash did not re-exec into Homebrew bash for export.sh'
+            exit 1
+          fi
   engine-windows:
     runs-on: windows-latest
     steps:
