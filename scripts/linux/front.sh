@@ -203,6 +203,18 @@ front_require_clone() {
     fi
 }
 
+# Show which side changed each file, after a fetch so the repo side is current.
+# The fetch has the status's timeout; offline keeps comparing with the last one.
+front_diff() {
+    if front_git remote get-url origin > /dev/null 2>&1; then
+        if ! GIT_TERMINAL_PROMPT=0 run_with_timeout "${SYNC_FETCH_TIMEOUT:-15}" \
+            git -C "$REPO_ROOT" fetch -q origin master > /dev/null 2>&1; then
+            printf '  Offline: comparing with the last fetch.\n'
+        fi
+    fi
+    exec "$REPO_ROOT/export.sh" --diff "$@"
+}
+
 # Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
 # the new code, then the import check and, unless declined, the import.
 front_pull() {
