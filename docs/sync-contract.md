@@ -73,6 +73,31 @@ The PowerShell engine is always `windows`.
 inherited from the environment is overwritten, and only a second `source` in the same shell, where the variable is
 already `readonly`, keeps it.
 
+## Picking files
+
+Every command that walks entries takes a repeatable `--only <path>` (PowerShell: `-Only <string[]>`). A path is
+either a repo path or a local path:
+
+- A path starting with `dotfiles/` is a repo path. It is accepted when an entry selected for this OS owns it: the path
+  equals its `repoPath`, starts with `<repoPath>/` for a `dir` entry, or starts with `<repoPath>.linked/` for a file
+  entry. A trailing `/` is dropped.
+- Any other path is a local path. A leading `~/` becomes `$HOME/` (a lone `~` becomes `$HOME`), a path that doesn't
+  start with `/` is joined to the caller's folder (`$SYNC_CALLER_PWD`, else `$PWD`), and `.` and `..` segments are
+  folded lexically, without following links.
+
+A local path resolves to a repo path by comparing it with each selected entry's resolved `localPath`, folded
+the same way: equal to a file entry gives its `repoPath`; equal to a `dir` entry's folder gives its `repoPath`, and
+inside that folder gives `<repoPath>/<rest>`. A `dconf` entry has no local path and is matched by its `repoPath` only.
+
+A path that matches no entry for this OS stops the run before it touches any file:
+
+```text
+ERROR: <path> is not synced on this machine.
+```
+
+Then a repo file is selected when there is no `--only`, or its repo path equals a selected path, or starts with
+`<selected>/` or `<selected>.linked/`.
+
 ## Path safety
 
 Right after the `platform` check, each engine checks every entry, on any platform, and stops with exit code 1 before it
