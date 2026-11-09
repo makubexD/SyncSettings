@@ -1290,6 +1290,7 @@ case_os_select_env_ignored() {
 
     # A value exported by the caller must not survive the source.
     got=$( (
+        # shellcheck disable=SC2030,SC2016  # subshell-local on purpose; $os is a jq parameter
         export PLATFORM_SELECT_JQ='def selected($os): true;'
         source "$REPO/scripts/linux/os.sh"
         printf '%s' "$PLATFORM_SELECT_JQ"
