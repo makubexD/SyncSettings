@@ -79,6 +79,7 @@
 
 	# --- Self-documentation ---	
 	la = !git config -l | grep alias | cut -c 7-
+	chBrancher = "!f() { git fetch origin \"$1\" && git checkout -b \"$1\" \"origin/$1\"; }; f"
 	
 # ===== INIT =====
 [init]
@@ -87,3 +88,5 @@
 # ===== MACHINE-SPECIFIC =====
 [include]
 	path = ~/.gitconfig.local
+	# Machine-only settings that SyncSettings never syncs; git skips it if missing.
+	path = ~/.gitconfig.machine
