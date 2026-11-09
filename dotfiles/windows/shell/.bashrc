@@ -11,3 +11,4 @@ done
 
 # Machine-only setup that SyncSettings never syncs.
 [ -f "$HOME/.bashrc.local" ] && . "$HOME/.bashrc.local"
+# W5 test
