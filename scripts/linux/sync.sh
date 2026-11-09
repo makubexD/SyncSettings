@@ -779,16 +779,55 @@ report_drift() {
     drift_apt_key
 }
 
+# -- Sync point ------------------------------------------------------------------
+
+# Where this machine records the repo commit it last agreed with.
+last_sync_file() {
+    printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/last-sync"
+}
+
+# Print the recorded SHA and return 0 when the file's first line is 40 hex
+# characters and names a commit in this clone. Anything else is "no sync
+# point": print nothing and return 1.
+read_last_sync() {
+    local file sha
+    file=$(last_sync_file)
+    [[ -f $file ]] || return 1
+    IFS= read -r sha < "$file" || return 1
+    [[ $sha =~ ^[0-9a-f]{40}$ ]] || return 1
+    git -C "$REPO_ROOT" cat-file -e "${sha}^{commit}" 2>/dev/null || return 1
+    printf '%s\n' "$sha"
+}
+
+# Record a SHA as this machine's sync point. A failure prints a WARNING and
+# returns 0: the sync point is a convenience, never a reason to fail a run.
+write_last_sync() {
+    local sha=$1 file dir tmp
+    file=$(last_sync_file)
+    dir=${file%/*}
+    tmp=$dir/.last-sync.$$
+    if { mkdir -p "$dir" && printf '%s\n' "$sha" > "$tmp" && mv -f "$tmp" "$file"; } 2>/dev/null; then
+        return 0
+    fi
+    rm -f "$tmp" 2>/dev/null || true
+    printf '  WARNING: could not record the sync point in %s.\n' "$file"
+    return 0
+}
+
 # -- Status output --------------------------------------------------------------
 
 STATUS_ERRORS=0
+STATUS_USER_SKIPS=0
 
 status() {
     # usage: status <STATUS> <label> [note]
-    # Counts ERROR lines in STATUS_ERRORS, so a caller can tell a clean run apart.
+    # Counts ERROR lines in STATUS_ERRORS and SKIPPED lines noted "user skipped"
+    # in STATUS_USER_SKIPS, so a caller can tell a clean, unattended run apart.
     local s=$1 label=$2 note=${3:-}
     if [[ $s == ERROR ]]; then
         STATUS_ERRORS=$((STATUS_ERRORS + 1))
+    elif [[ $s == SKIPPED && $note == 'user skipped' ]]; then
+        STATUS_USER_SKIPS=$((STATUS_USER_SKIPS + 1))
     fi
     printf '  %-10s %s%s\n' "$s" "$label" "${note:+  ($note)}"
 }

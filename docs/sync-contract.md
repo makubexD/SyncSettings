@@ -445,6 +445,21 @@ folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
   a change, because an import skips it too. `-Check` with `-User` naming another profile stops before the elevation
   code with `ERROR: -Check works on your own profile only.` and exit 1.
 
+## Sync point
+
+A per-machine file remembers the repo commit the machine last agreed with: on Linux and macOS,
+`${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/last-sync`. It holds one line, the full SHA.
+
+It is read only when that line is 40 hex characters and the commit exists in the clone; anything else counts as no
+sync point.
+
+A real import writes it, with `HEAD`, when the run had no `ERROR` line, no `SKIPPED` line noted `user skipped`, `HEAD`
+resolves, and `git status --porcelain -- dotfiles sync-config.json` is empty (so `HEAD` is what was imported). The
+summary then prints `Sync point : <first 7 of the SHA>` after the `file(s) applied` line. A check (`--check`) writes
+nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree.
+
+A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
+
 ## Front door
 
 On Linux, `mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named
