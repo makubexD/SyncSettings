@@ -154,7 +154,7 @@ apply_plain() {
         fi
 
         backup=$local_file.bak
-        if ! cp -p "$local_file" "$backup"; then
+        if ! backup_file "$local_file" "$backup" "$label"; then
             status ERROR "$label" 'cannot create backup'
             return 1
         fi
@@ -267,7 +267,7 @@ process_entry() {
             fi
 
             backup=$local_file.bak
-            if ! cp -p "$local_file" "$backup"; then
+            if ! backup_file "$local_file" "$backup" "$label"; then
                 status ERROR "$label" 'cannot create backup'
                 return 1
             fi
@@ -435,6 +435,7 @@ import_dconf() {
             status ERROR "$repo_path" 'cannot create backup'
             return 0
         fi
+        backup_dated "$backup" "$repo_path"
     fi
 
     if ! dconf load "$dconf_path" < "$repo_file" 2>/dev/null; then
@@ -478,6 +479,16 @@ if (( ! CHECK && STATUS_ERRORS == 0 && STATUS_USER_SKIPS == 0 && ${#ONLY_PATHS[@
     fi
 fi
 
+# Keep only the newest 20 backup runs, sorted by name. Only a run that kept a
+# dated copy has a folder to look at.
+if (( ! CHECK && BACKUP_MADE )); then
+    backup_root=${BACKUP_RUN_DIR%/*}
+    mapfile -t backup_runs < <(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -print | sort)
+    for (( i = 0; i < ${#backup_runs[@]} - 20; i++ )); do
+        rm -rf -- "${backup_runs[i]}"
+    done
+fi
+
 # -- Summary ---------------------------------------------------------------------
 
 printf '\n  %s\n' "--------------------------------------------------"
@@ -501,6 +512,9 @@ if (( CHECK )); then
 fi
 
 printf '\n  %d file(s) applied.\n\n' "$APPLIED"
+if (( BACKUP_MADE )); then
+    printf '  Backups    : %s\n\n' "$BACKUP_RUN_DIR"
+fi
 if [[ -n $SYNC_POINT ]]; then
     printf '  Sync point : %s\n\n' "${SYNC_POINT:0:7}"
 fi

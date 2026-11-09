@@ -272,6 +272,17 @@ A dconf entry has no local file to sit next to, so its backup is `~/.local/state
 `<file>` is the name of the repo file. It holds the raw dump of `path`, written before each `UPDATED`. Loading it back
 restores the old values, but a key that had no value before keeps the repo's value, because a load never removes a key.
 
+Every import that overwrites a file also copies the old version into a folder for that run:
+
+- Linux and macOS: `${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/backups/<run>/<repoPath>`
+- Windows: `%LOCALAPPDATA%\SyncSettings\backups\<run>\<repoPath>`, with `\` separators
+
+`<run>` is `YYYYMMDD-HHMMSS-<pid>` in local time. The folder is created at the first backup of the run, so a run that
+overwrites nothing makes none, and a `--check` run never makes one. After the run the newest 20 run folders are kept
+and older ones removed, sorted by name. When the run made a dated copy, the summary adds `  Backups    : <folder>`. A
+failed dated copy prints a `WARNING` line and doesn't change the exit code; the `.bak` stays the backup that must
+succeed.
+
 ## Exclude patterns
 
 `excludePatterns` are globs matched against the local path's file name, or the end of the path. A match is skipped

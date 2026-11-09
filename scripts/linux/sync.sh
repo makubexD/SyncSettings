@@ -919,6 +919,47 @@ last_sync_file() {
     printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/last-sync"
 }
 
+# -- Dated backups ---------------------------------------------------------------
+
+# The folder this run keeps its dated backups in, made once per run. It is
+# printed, and cached in BACKUP_RUN_DIR so every backup of one run lands
+# together even when the run crosses a second.
+BACKUP_RUN_DIR=''
+BACKUP_MADE=0
+
+backup_run_dir() {
+    if [[ -z $BACKUP_RUN_DIR ]]; then
+        BACKUP_RUN_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/backups/$(date +%Y%m%d-%H%M%S)-$$"
+    fi
+    printf '%s\n' "$BACKUP_RUN_DIR"
+}
+
+# Copy an old local version into this run's folder. A failure prints a WARNING
+# and still returns 0: the .bak is the backup that must succeed.
+backup_dated() {
+    local src=$1 repo_path=$2 dir dst
+    backup_run_dir > /dev/null
+    dir=$BACKUP_RUN_DIR
+    dst=$dir/$repo_path
+    if mkdir -p "${dst%/*}" && cp -p "$src" "$dst"; then
+        # shellcheck disable=SC2034  # read by import.sh's prune and summary
+        BACKUP_MADE=1
+        return 0
+    fi
+    printf '  WARNING: could not keep a dated backup of %s.\n' "$repo_path"
+    return 0
+}
+
+# Write the .bak that must succeed, then the dated copy that only warns.
+backup_file() {
+    local src=$1 bak=$2 repo_path=$3
+    if ! cp -p "$src" "$bak"; then
+        return 1
+    fi
+    backup_dated "$src" "$repo_path"
+    return 0
+}
+
 # Print the recorded SHA and return 0 when the file's first line is 40 hex
 # characters and names a commit in this clone. Anything else is "no sync
 # point": print nothing and return 1.
