@@ -928,7 +928,7 @@ function Invoke-ExportPreview {
                 }
             }
 
-            Write-Host '  Nothing was written. Run export.bat to apply.'
+            Write-Host '  Nothing was written. Run mksync push to send it.'
             return $leakFound
         } finally {
             Pop-Location

@@ -1,6 +1,6 @@
 @echo off
 rem One command for the sync flow on Windows: status, doctor, setup, pull,
-rem push, and the single steps preview, export, commit, import.
+rem push, and the single steps preview, check, export, commit, import.
 rem The bash sync wrapper hands over here on Git Bash, MSYS and Cygwin.
 setlocal EnableExtensions
 pushd "%~dp0"
@@ -41,6 +41,7 @@ goto gather
 
 set "SCRIPT="
 if /i "%COMMAND%"=="preview" set "SCRIPT=Export-Settings.ps1"
+if /i "%COMMAND%"=="check"   set "SCRIPT=Import-Settings.ps1"
 if /i "%COMMAND%"=="export"  set "SCRIPT=Export-Settings.ps1"
 if /i "%COMMAND%"=="commit"  set "SCRIPT=Commit-Settings.ps1"
 if /i "%COMMAND%"=="import"  set "SCRIPT=Import-Settings.ps1"
@@ -63,6 +64,7 @@ goto done
 
 :engine
 if /i "%COMMAND%"=="preview" set "REST=-Preview %REST%"
+if /i "%COMMAND%"=="check" set "REST=-Check %REST%"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\%SCRIPT%" %REST%
 set "RC=%ERRORLEVEL%"
 goto done
@@ -79,7 +81,7 @@ echo   doctor   check the tools and the setup
 echo   setup    first run on this machine
 echo   pull     get the latest repo and apply it here
 echo   push     send this machine's changes as a PR
-echo   preview ^| export ^| commit ^| import   the single steps
+echo   preview ^| check ^| export ^| commit ^| import   the single steps
 echo   Detected: windows
 set "RC=0"
 goto done

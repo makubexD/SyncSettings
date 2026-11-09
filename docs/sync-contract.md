@@ -406,13 +406,15 @@ the machine.
 - With no differences: `Nothing would be sent: the repo matches HEAD.`
 - `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
 - The up-to-date check does not run.
-- A preview ends with `Nothing was written. Run ./export.sh to apply.` (`export.bat` on Windows).
+- A preview ends with `Nothing was written. Run mksync push to send it.` on every system.
 
 ## One command
 
-`./sync <preview|export|commit|import> [options]` on Linux and Git Bash, `.\sync` in PowerShell, `sync` in cmd. The name
+`./sync <preview|check|export|commit|import> [options]` on Linux and Git Bash, `.\sync` in PowerShell, `sync` in cmd. The name
 resolves to the right script for the OS, so `sync` and `sync.cmd` are the two front doors, and Git Bash on Windows hands
 over to `sync.cmd`. Options pass through unchanged. The `.sh` and `.bat` entry points still work.
+`./sync check` runs `./import.sh --check`, and `sync.cmd check` runs `Import-Settings.ps1 -Check`: each lists what an
+import would change, writes nothing, and exits 3 when something differs.
 
 `help` prints the usage and the detected OS and exits 0, and no command shows the [status](#front-door), on both
 systems. An unknown command, or a missing `git`, `jq` or `gh` on Linux, exits 1 and names what's wrong. `doctor` runs
@@ -433,9 +435,10 @@ folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
   missing folder is a `CREATE`. `UNCHANGED`, `SKIPPED` and `EXTRA` are as in an import.
 - dconf runs the import's checks and `dconf dump`, which only reads. An empty dump is `CREATE`, keys the repo would
   change are `UPDATE`.
-- No changes: `This machine matches the repo.` and exit 0. Changes: `<n> file(s) would change. Run mksync pull to
-  apply.` and exit 3. Any `ERROR` line ends with `<n> error(s); see the ERROR lines above.` and exit 1, so an entry
-  that couldn't be checked never reads as a match.
+- No changes: `This machine matches the repo.` and exit 0. Changes: `<n> file(s) would change. mksync pull
+  overwrites them (each keeps a .bak).` then `If you changed them on this machine, run mksync push first.` and
+  exit 3. Any `ERROR` line ends with `<n> error(s); see the ERROR lines above.` and exit 1, so an entry that
+  couldn't be checked never reads as a match.
 - `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing. The PowerShell spellings
   are `-Check`, `-ResetValues` and `-Force`.
 - Windows only: a target folder that's missing stays `SKIPPED` with `WARNING: target folder not found: <dir>` and is not
@@ -456,6 +459,7 @@ codes are the same on both systems, except where this section says otherwise.
 | `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
 | `mksync pull [--yes]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then asks `Apply these changes? [Y/n]` and runs `import.sh --force` | 0, or 1 on an error |
 | `mksync push [--yes] [-m <msg>]` | Runs `export.sh`. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
+| `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
 
 `pull` and `push` need the clone on `master` with an `origin` remote. On Windows, `pull` re-runs itself in a new
@@ -585,8 +589,8 @@ macOS runs the bash engine, so it has the Linux column's behavior except for the
 
 ## Parity
 
-Every gap listed in [plan-restructure.md](plan-restructure.md) is closed. A step number is the step of
-[plan-restructure-2.md](plan-restructure-2.md) that closed the gap in that engine, and `yes` means the engine already
+Every gap listed in [plan-restructure.md](archive/plan-restructure.md) is closed. A step number is the step of
+[plan-restructure-2.md](archive/plan-restructure-2.md) that closed the gap in that engine, and `yes` means the engine already
 had the behavior.
 
 | Behavior | Windows | Linux | Note |

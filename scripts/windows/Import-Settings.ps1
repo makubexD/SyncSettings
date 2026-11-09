@@ -361,7 +361,8 @@ try {
             Write-Host '  This machine matches the repo.' -ForegroundColor Green
             $exitCode = 0
         } else {
-            Write-Host "  $changed file(s) would change. Run mksync pull to apply." -ForegroundColor Yellow
+            Write-Host "  $changed file(s) would change. mksync pull overwrites them (each keeps a .bak)." -ForegroundColor Yellow
+            Write-Host '  If you changed them on this machine, run mksync push first.' -ForegroundColor Yellow
             $exitCode = 3
         }
     } elseif ($applied -gt 0) {

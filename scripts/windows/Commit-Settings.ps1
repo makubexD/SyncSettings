@@ -215,7 +215,7 @@ try {
     $branchCurrent = git symbolic-ref --short HEAD 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git symbolic-ref failed: $branchCurrent" }
     if ($branchCurrent -ne 'master') {
-        throw "run commit.bat from master (current: $branchCurrent)."
+        throw "run mksync push from master (current: $branchCurrent)."
     }
 
     # Bring local master up to date; refuse to leave unpushed commits behind.

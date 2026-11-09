@@ -936,7 +936,7 @@ run_preview() {
         fi
     fi
 
-    printf '  Nothing was written. Run ./export.sh to apply.\n'
+    printf '  Nothing was written. Run mksync push to send it.\n'
 
     return "$leak_found"
 }

@@ -1,60 +1,45 @@
 # SyncSettings
 
-Keep your dotfiles and config files in sync across machines via a git repository. Windows uses the
-PowerShell scripts (`.bat` entry points). Linux and macOS use the bash scripts (`.sh` entry points), see [Linux](#linux)
-and [macOS](#macos).
+Keeps dotfiles and app settings the same on Linux, macOS and Windows machines. The files live in this git repo, every
+change arrives as a pull request, and nothing reaches `master` until the PR is reviewed and merged.
 
 ## Install
 
-On Linux, paste this in a terminal:
+Linux and macOS, in a terminal. On macOS 13 or newer, install [Homebrew](https://brew.sh) first; the installer then asks to
+run `brew install bash jq`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash
 ```
 
-It installs `git`, `jq` and `diffutils` if they're missing (it asks first), clones the repo to `~/SyncSettings`, puts the
-`mksync` command in `~/.local/bin`, and runs `mksync setup`.
-
-On macOS 13 or newer, install [Homebrew](https://brew.sh) first, then paste the same line in Terminal:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash
-```
-
-macOS ships bash 3.2 and no `jq`, so the installer asks to run `brew install bash jq` (no `sudo`), then clones, links
-`mksync` and runs setup under Homebrew's bash, as on Linux.
-
-On Windows, paste this in PowerShell (5.1, the one that comes with Windows, is enough):
+Windows, in PowerShell (the 5.1 that comes with Windows is enough):
 
 ```powershell
 irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
 ```
 
-It offers to install Git and the GitHub CLI with `winget` if they're missing (it asks first; Windows doesn't need `jq`),
-clones the repo to `%USERPROFILE%\SyncSettings`, writes the `mksync` launcher to `%LOCALAPPDATA%\SyncSettings\bin`, adds
-that folder to your user `PATH`, and runs `mksync setup`. A window that was already open won't find `mksync`; open a new
-one. If something goes wrong it prints an `ERROR:` line and leaves your window open.
+Each one asks before installing a missing tool (`git`, `jq` and `diffutils` on Linux, `bash` and `jq` on macOS, Git
+and the GitHub CLI on Windows), clones the repo to `~/SyncSettings`
+(`%USERPROFILE%\SyncSettings`), puts the `mksync` command on your `PATH`, and runs `mksync setup`. On Windows, open a
+new window afterwards so it finds `mksync`.
 
-On both systems, run the same line again to update: it pulls the clone instead of cloning again. Environment variables
-change the defaults, for example for a fork or another folder: `SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR`,
-`SYNCSETTINGS_REF` and `SYNCSETTINGS_BIN` (where `mksync` goes). To answer yes or skip setup, Linux takes flags
-(`… | bash -s -- --yes --no-setup`) and Windows takes `SYNCSETTINGS_YES=1` and `SYNCSETTINGS_NO_SETUP=1`, since `iex` can't
-pass any. macOS takes the same flags as Linux.
+Run the same line again to update. `SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR` and the other `SYNCSETTINGS_*` variables
+change the defaults, for example for a fork; the [front door section](docs/sync-contract.md#front-door) lists them all.
 
-## Commands
+## Every day
 
 | Command | Does |
 |---|---|
 | `mksync` | Shows where this machine stands: updates waiting, changes not sent, files that differ, and what to run next |
-| `mksync pull` | Gets the latest repo, which also updates the tool, then shows what changes here and applies it |
-| `mksync push` | Copies this machine's changes into the repo, shows them, and opens a pull request |
+| `mksync pull` | Gets the latest repo, shows what changes here, and applies it after you say yes |
+| `mksync push` | Copies this machine's changes into the repo, shows them, and opens a pull request after you say yes |
 | `mksync setup` | First run on a machine. On Ubuntu it also offers to restore your apps and packages |
 | `mksync doctor` | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing |
 
-The commands, their wording and their exit codes are the same on Linux and Windows. `pull` and `push` ask before they
-change anything; `--yes` answers for you. `mksync push` needs `gh auth login` once.
+The commands, their wording and their exit codes are the same on every system. `--yes` answers the questions for you,
+and `mksync push` needs `gh auth login` once.
 
-What good looks like on Linux, with the clone on `master` and nothing to do (`mksync`, then `mksync doctor`):
+What good looks like on Linux (`mksync`, then `mksync doctor`):
 
 ```text
   SyncSettings  linux (Ubuntu 26.04.1 LTS)
@@ -76,390 +61,78 @@ What good looks like on Linux, with the clone on `master` and nothing to do (`mk
   Ready.
 ```
 
-And on Windows:
+In `doctor`, `WARN` is worth fixing and `MISSING` stops `setup`; each line says how to fix it.
 
-```text
-  SyncSettings  windows (Microsoft Windows 11 Pro)
-  Repo      : C:\Users\you\SyncSettings
-  Origin    : up to date
-  Unsent    : none
-  Machine   : matches the repo
+## See before you change anything
 
-  Next: nothing to do.
+| Command | Shows | Direction |
+|---|---|---|
+| `mksync` | How many updates, unsent changes and differing files there are | both |
+| `mksync check` | Every file the clone would change on this machine. It doesn't fetch: if `mksync` shows updates waiting, a pull changes more | repo → machine |
+| `mksync preview` | Exactly what a push would send, as a diff | machine → repo |
 
-  OK       PowerShell 5.1.26100.1
-  OK       git
-  OK       gh (signed in)
-  OK       repo clone with origin
-  OK       mksync on PATH
-  OK       values
-  Ready.
+All three write nothing. In the check, `CREATE` is a file this machine doesn't have yet, `UPDATE` one the pull would
+overwrite (keeping a `.bak`), and `EXTRA` a local file the repo doesn't have, which is kept. In the preview, `ADDED`,
+`MODIFIED` and `REMOVED` say what would change in the repo.
+
+The check can't tell which side is newer yet. A file you edited on this machine shows up as `UPDATE` too, so if the
+list names one of yours, run `mksync push` first, or the pull replaces your edit (its `.bak` still has it).
+
+## Run from a clone
+
+Without the installer:
+
+```bash
+git clone https://github.com/makubexD/SyncSettings.git
+cd SyncSettings
+./sync setup
 ```
 
-Other things you may see: `Origin : 2 update(s) waiting` (run `mksync pull`), `Unsent : 3 changed file(s) not sent yet`
-(run `mksync push`), `Machine : 4 file(s) differ from the repo` (`Next` names both ways). In `doctor`, `WARN` is worth
-fixing and `MISSING` stops `setup`; each line says how to fix it.
+On Windows, run `.\sync setup` in PowerShell or `sync setup` in cmd. `./sync <command>` takes every `mksync` command,
+plus the single steps `export`, `commit` and `import`; options pass through (`./sync import --force`, `-Force` on
+Windows).
 
-The single steps are still there: `./sync preview` (shows exactly what would be sent, changes nothing), `./sync export`,
-`./sync commit` and `./sync import` (keeps a `.bak` of every file it replaces). On Windows, use `.\sync preview` in
-PowerShell or `sync preview` in cmd. Options pass through, for example `./sync import --force` (`-Force` on Windows).
+Contributors run both engines' tests: `tests/linux/engine.sh [case-name-filter]` on Linux, and
+`Invoke-Pester -Path tests/windows -CI` in Windows PowerShell 5.1 with Pester 5.
 
 ## What gets synced
 
-**Both systems**
-
-| File | Description |
+| What | Systems |
 |---|---|
-| `~/.gitconfig` | Git global configuration, which includes `~/.gitconfig.local` |
-| `~/.config/git/ignore` | Global git ignore rules |
-| `~/.claude/RTK.md` | Instructions for Claude Code on command output |
-| `~/.claude/docs/token-routing-map.html` | Workflow guide page |
+| Git: `~/.gitconfig`, the global ignore, and `~/.gitconfig.local` for each system's credentials | all |
+| `~/.claude/RTK.md` and the workflow guide page in `~/.claude/docs/` | all |
+| Git Bash: `~/.bashrc`, `~/.bash_profile`, and the folders `.bashrc` puts on `PATH` | Windows |
+| Windows Terminal settings | Windows |
+| tmux, Starship, WezTerm, htop and GitHub CLI settings | Linux, macOS |
+| VS Code's default profile: `settings.json` and `snippets/` (home path sanitized) | Linux, macOS |
+| `~/.claude/CLAUDE.md` | Linux, macOS |
+| Zsh: `~/.zshrc`, `~/.zprofile` | macOS |
+| Bash: `~/.bashrc`, `~/.profile`, and the WezTerm XWayland launcher | Linux |
+| RTK settings, default apps, Files bookmarks and desktop launchers | Linux |
+| GNOME settings through dconf: theme, keyboard, shortcuts, dock, power, Ptyxis, Files ([which keys](docs/layout.md#which-dconf-settings-are-synced)) | Linux |
+| The rest of the Claude Code setup: settings, status line, skills, hooks, the `mk-exec` worker scripts and its config | Linux |
 
-**Windows**
+Never synced: the DeepSeek key, `.credentials.json`, Claude history, transcripts, memory and plans, plugin install
+state, caches, the GitHub CLI's `hosts.yml`, VS Code's named profiles, and GNOME location, window sizes and history.
+Your name, email and paths are replaced with placeholders in the repo and filled back in on import.
 
-| File | Description |
-|---|---|
-| `~\.gitconfig.local` | Git credentials for Windows |
-| `~\.bashrc` | Bash run commands |
-| `~\.bash_profile` | Bash login profile |
-| `~\AppData\Local\...\WindowsTerminal\settings.json` | Windows Terminal settings |
-
-**Linux and macOS**
-
-| File | Description |
-|---|---|
-| `~/.tmux.conf`, `~/.config/starship.toml` | tmux and the Starship prompt |
-| `~/.config/wezterm/wezterm.lua` | WezTerm |
-| `~/.config/htop/htoprc`, `~/.config/gh/config.yml` | htop and GitHub CLI settings |
-| `~/.config/Code/User/settings.json`, `snippets/` | VS Code default profile (home path and a work marketplace URL sanitized). On macOS: `~/Library/Application Support/Code/User/` |
-| `~/.claude/CLAUDE.md`, `~/.claude/sampleGrok.md` | Global instructions for Claude Code, and an old Grok setup for reference |
-
-**macOS**
-
-| File | Description |
-|---|---|
-| `~/.gitconfig.local` | Git credentials for macOS (`gh auth git-credential`) |
-| `~/.zshrc`, `~/.zprofile` | Zsh setup: Homebrew and `~/.local/bin` on `PATH`, aliases, nvm, bun, Starship |
-
-**Linux**
-
-| File | Description |
-|---|---|
-| `~/.gitconfig.local` | Git credentials for Linux |
-| `~/.bashrc`, `~/.profile` | Shell setup |
-| `~/.local/bin/wezterm-xwayland` | WezTerm's XWayland launcher |
-| `~/.config/rtk/` | RTK settings |
-| `~/.config/mimeapps.list`, `~/.config/gtk-3.0/bookmarks` | Default apps and Files bookmarks (home path sanitized) |
-| `~/.local/share/applications/` | The `disco-datos`, `mis-discos` and `wezterm-xwayland` launchers |
-| GNOME settings (dconf) | Theme, keyboard, shortcuts, dock, power, Ptyxis, Files and the file dialog ([what's in and out](docs/layout.md#which-dconf-settings-are-synced)) |
-
-The rest is the Claude Code setup in `~/.claude`, Linux only for now:
-
-| File | Description |
-|---|---|
-| `settings.json` | Hooks, plugin declarations, permissions (home path and GitHub username sanitized) |
-| `statusline.sh` | Status line script |
-| `skills/mk-delegate/`, `skills/mk-check/` | `/mk-delegate` and `/mk-check` slash commands |
-| `hooks/` | context-mode hook, the worker-mode guard and metrics capture |
-| `bin/mk-exec`, `bin/workflow-report`, `bin/worker-mode`, `bin/metrics-archive` | Worker wrapper (headless Claude Code on the paid DeepSeek API), run report, worker-mode switch, metrics archive |
-| `~/.claude-worker/CLAUDE.md`, `settings.json` | The worker's own config dir: its rules and permissions (no credentials) |
-
-Never synced: the DeepSeek key (`~/.config/claude-workers/env`), `.credentials.json`, `history.jsonl`, conversation transcripts, memory, plans, plugin install state, caches, the GitHub CLI's `hosts.yml`, VS Code's named profiles, GNOME location, window sizes and history.
-
-Add or remove files by editing `sync-config.json`. [Repository layout](docs/layout.md) says where a new file goes.
-
----
-
-## Read next
-
-- [Daily workflow](docs/daily-workflow.md): export → PR → review → merge → import on the other machine
-- [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
-- [Configuration reference](docs/configuration.md): every `sync-config.json` field, with examples
-- [Repository layout](docs/layout.md): where a file goes under `dotfiles/`, and why
-- [Packages](docs/packages.md): the package lists, the drift report, and how to change a list or move a pin
-- [Restore a machine](docs/restore.md): bootstrap, what it asks, and what's left to do by hand
-- [Sync contract](docs/sync-contract.md): the rules both engines follow
-
----
+`sync-config.json` lists every file. [Configuration](docs/configuration.md) says how to add one.
 
 ## Requirements
 
-- **Windows:** Windows 10 or 11, PowerShell 5.1+, Git (in PATH)
 - **Linux:** bash 4+, `jq`, `git`, `cmp` (diffutils). `dconf-cli` for the GNOME settings; without it they're skipped
-- **macOS:** 13 (Ventura) or newer, [Homebrew](https://brew.sh), and from it `bash` (4+) and `jq`. `git` and `cmp` come with
-  the system
-- **Both, for committing:** the [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`
-
----
-
-## Usage
-
-### Scenario 1 — Export local changes to the repo
-
-Run when your local files have changed and you want to push them to the repo:
-
-```
-export.bat
-```
-
-This compares local files against the repo **by content** (not dates). Files with sanitize rules (like `.gitconfig`) have sensitive values stripped automatically — your name becomes `<YOUR_NAME>`, your email becomes `<YOUR_EMAIL>`, etc. On the first run you'll be prompted for your actual values; these are cached locally in `.user-values.json` (gitignored). Then review the diff and commit:
-
-```
-commit.bat
-```
-
-`commit.bat` auto-generates a descriptive commit message (e.g., `sync: update .gitconfig, .bashrc`), commits on a
-new `sync/windows-…` branch and opens a pull request. Review it, add the `reviewed` label, merge, then `git pull`.
-Needs the [GitHub CLI](https://cli.github.com/) (`gh auth login`). `-Push` is still accepted but does nothing.
-The first run asks for a machine alias (e.g. `desktop`) to use in branch names instead of the computer name.
-
-To use a custom commit message:
-
-```
-commit.bat -Message "update work laptop aliases"
-```
-
-If nothing changed, `export.bat` reports `Repo is up to date. No changes detected.`
-
-To re-enter your sanitized values (e.g., changed email):
-
-```
-export.bat -ResetValues
-```
-
----
-
-### Scenario 2 — Import repo settings to a new machine
-
-Clone the repo, then run:
-
-```
-import.bat
-```
-
-This copies every file from `dotfiles/` to the correct local path under your profile. For files with placeholders (like `.gitconfig`), you'll be prompted to enter your actual values (name, email, etc.) — or they'll be reused from cache if you've imported before. Before overwriting any existing file it:
-1. Asks for confirmation (unless `-Force`)
-2. Creates a `.bak` backup
-
-To skip confirmation prompts:
-
-```
-import.bat -Force
-```
-
-To re-enter all placeholder values (e.g., changed email on a new org):
-
-```
-import.bat -ResetValues
-```
-
----
-
-### Scenario 3 — Propagate settings to another user on the same machine
-
-```
-import.bat -User johndoe
-```
-
-If the target user is different from the current session, PowerShell will request a UAC elevation prompt automatically. No manual right-clicking needed.
-
----
-
-## Linux
-
-The bash scripts handle entries marked `"platform": "linux"` or `"common"`. The PowerShell scripts handle
-`"windows"` and `"common"`, so one repo serves both systems.
-
-| Command | Does |
-|---|---|
-| `./export.sh` | Copy changed local files → repo (sanitized). `--reset-values` re-asks for placeholder values |
-| `./commit.sh` | Commit `dotfiles/` on a new `sync/linux-…` branch and open a pull request (needs `gh`). The first run asks for a machine alias for branch names. `-m "<msg>"` sets the message |
-| `./import.sh` | Copy repo files → this machine, asking before each overwrite and saving `<file>.bak` first. `--force` skips the questions |
-
-Export and import ask once for each placeholder value and cache the answers in `.user-values.json`
-(gitignored). `<HOME>` defaults to your `$HOME`, so pressing Enter is usually enough. Without a terminal,
-a missing value is an error: nothing is written with a placeholder left unfilled.
-
-### New Linux machine: restore your setup
-
-On Ubuntu 26.04, sign in to the desktop, open a terminal there, run the [install line](#install), and answer yes when
-setup offers to restore your apps and packages. To run the restore yourself, use `./bootstrap/linux.sh` from the clone.
-
-Bootstrap installs the packages and tools, imports your configs, links the scripts and adds the Claude plugins. Running it again
-is safe. [Restore a machine](docs/restore.md) says what it asks and what each line means. Then finish the
-[steps it can't do](docs/restore.md#finish-by-hand), including your DeepSeek key and `/mk-check`.
-
-Not supported on Linux: `detectLinkedPaths` and importing into another user's profile.
-
----
-
-## macOS
-
-The same bash scripts and commands as [Linux](#linux), run by Homebrew's bash. They handle entries whose `platform` is
-`"macos"`, `"common"`, or a list that names `macos`; an entry's `localPaths.macos` replaces its `localPath` on a Mac (VS
-Code keeps its settings in `~/Library/Application Support/Code/User/`).
-
-`mksync doctor` on a ready Mac:
-
-```
-  OK       bash 5.3.3(1)-release
-  OK       git
-  OK       jq
-  OK       cmp
-  OK       brew
-  OK       gh (signed in)
-  OK       repo clone with origin
-  OK       mksync on PATH
-  OK       values
-  Ready.
-```
-
-Skipped on macOS, because each one is built on Ubuntu tools:
-
-- GNOME settings (dconf): their entries are `linux`, so a Mac never sees them.
-- The package drift report at the end of an export or preview: it reads `apt`, `snap` and GNU `find`.
-- `mksync setup --bootstrap` and `bootstrap/linux.sh`: the restore installs Ubuntu packages. On a Mac, install your apps
-  with Homebrew and run `mksync pull`.
-
-### Troubleshooting on macOS
-
-| You see | Do |
-|---|---|
-| `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | `brew install bash`. The scripts switch to Homebrew's bash by themselves once it's in `/opt/homebrew/bin` or `/usr/local/bin` |
-| `ERROR: install Homebrew first: https://brew.sh` | Install Homebrew with the line on its site, open a new Terminal, and run the install line again |
-| `MISSING  jq: install with brew install jq` | `brew install jq` |
-| `brew` not found right after installing it | Homebrew isn't on `PATH` yet. Apple silicon Macs use `/opt/homebrew`, Intel Macs `/usr/local`; the synced `~/.zprofile` loads whichever exists, or run `eval "$(/opt/homebrew/bin/brew shellenv)"` (`/usr/local/bin/brew` on Intel) |
-| `WARN  macOS 12.7 is older than 13` | Update macOS. Older releases may work, but Homebrew and the CI run only cover 13 and newer |
-
----
-
-## Linked Paths — Auto-Sync Referenced Directories
-
-Some config files reference external directories that hold important content. For example, `.bashrc` adds `/c/MakuCustomAlias` to `PATH` and auto-aliases every `.bat` file inside it. Without that folder, the settings are useless on a new machine.
-
-Set `"detectLinkedPaths": true` on any file entry in `sync-config.json` to enable automatic directory detection and sync:
-
-```json
-{
-  "repoPath": "dotfiles/windows/shell/.bashrc",
-  "localPath": "~\\.bashrc",
-  "platform": "windows",
-  "detectLinkedPaths": true
-}
-```
-
-The script reads the file content, finds all directory paths (both Unix-style `/c/...` and Windows-style `C:\...`), verifies they exist on disk, and syncs their contents automatically — no manual path listing needed.
-
-**Export** backs up detected directories into the repo:
-```
-dotfiles/windows/shell/
-├── .bashrc
-└── .bashrc.linked/
-    └── MakuCustomAlias/   <- backed up from C:\MakuCustomAlias
-        └── vs.bat
-```
-
-**Import** on a new machine creates the directory if it doesn't exist and copies files into it. On a machine that already has the directory, it asks before overwriting a file, keeps a `.bak`, and never deletes: a local file the repo doesn't have is reported as `EXTRA` and kept.
-
-If you have multiple referenced directories, all of them are detected and grouped under `<filename>.linked/`:
-```
-dotfiles/windows/shell/.bashrc.linked/
-    MakuCustomAlias/
-    AnotherFolder/
-    YetAnotherPath/
-```
-
----
-
-## Sanitization — How it Works
-
-Files with `sanitizeRules` in `sync-config.json` are never stored raw in the repo. Instead:
-
-| Direction | What happens |
-|---|---|
-| **Export** | Reads your local `.gitconfig`, replaces `Jane Doe` → `<YOUR_NAME>`, `jane@example.com` → `<YOUR_EMAIL>`, etc., then saves the sanitized version to `dotfiles/` |
-| **Import** | Reads the sanitized `dotfiles/common/git/.gitconfig`, prompts you for each `<PLACEHOLDER>` value, writes the hydrated file to your profile |
-| **Change detection** | Only structural/non-sensitive changes are detected. Adding a new alias = change. Changing your email = no change (it's sanitized away) |
-
-Actual values are cached in `.user-values.json` (gitignored, never committed). Use `-ResetValues` on either export or import to re-enter them.
-
----
-
-## Configuration (`sync-config.json`)
-
-```jsonc
-{
-  "files": [
-    {
-      "repoPath": "dotfiles/windows/git/.gitconfig.local",
-      "localPath": "~\\.gitconfig.local",
-      "platform": "windows",
-      "description": "Git credentials for Windows, included by .gitconfig",
-      "sanitizeRules": [                        // optional — omit for plain files
-        { "placeholder": "<YOUR_GH_USERNAME>", "prompt": "GitHub username" },
-        {
-          "placeholder": "<GH_CLI_PATH>",
-          "prompt": "Path to GitHub CLI executable",
-          "default": "C:\\Program Files\\GitHub CLI\\gh.exe",
-          "escapeBackslashes": true             // double backslashes when hydrating (for .gitconfig syntax)
-        }
-      ]
-    },
-    {
-      "repoPath": "dotfiles/windows/shell/.bashrc",
-      "localPath": "~\\.bashrc",
-      "platform": "windows",
-      "description": "Bash run commands",
-      "detectLinkedPaths": true                 // auto-detect and sync referenced directories
-    }
-  ],
-  "excludePatterns": ["*.pem", "*.key", "id_rsa*", ".env", ...]
-}
-```
-
-- `~` in `localPath` resolves to `C:\Users\<username>` at runtime
-- Files matching `excludePatterns` are **never copied** in either direction
-- `sanitizeRules` is optional — files without it are compared/copied as-is
-- `escapeBackslashes: true` on a sanitize rule doubles backslashes when hydrating (needed for `.gitconfig` where paths use `\\` escaping)
-- `detectLinkedPaths: true` — scans the file's content for directory references and automatically syncs them; no manual path listing required
-- `platform` is required: `windows`, `linux` or `common`. `linux` and `common` entries use `~/` and forward slashes in `localPath` (`~/.claude/settings.json`). An entry without a valid `platform` stops the scripts
-- `defaultEnv: "HOME"` on a sanitize rule — the prompt's default is that environment variable's value
-
----
-
-## Repository structure
-
-```
-SyncSettings/
-├── sync-config.json        File mapping configuration
-├── export.bat              Run to copy local changes → repo
-├── commit.bat              Run to commit on a branch and open a PR
-├── import.bat              Run to apply repo files → machine
-├── export.sh               Linux: copy local changes → repo
-├── commit.sh               Linux: commit on a branch and open a PR
-├── import.sh               Linux: apply repo files → machine
-├── bootstrap/
-│   └── linux.sh            Linux: restore a new machine
-├── docs/
-│   ├── daily-workflow.md   Export → PR → review → merge → import
-│   ├── layout.md           Where a file goes under dotfiles/
-│   ├── packages.md         The package lists and the drift report
-│   ├── restore.md          Restore a machine: bootstrap and the manual steps
-│   ├── review-gate.md      The PR checks and the `reviewed` label
-│   └── plan-*.md           Plans the scripts were built from
-├── packages/
-│   └── linux/              What this machine has installed, and where it came from
-├── scripts/
-│   ├── ci/                 Config, package and plugin lint, leak scan, clean-container check
-│   ├── linux/sync.sh       Linux: shared bash helpers
-│   └── windows/
-│       ├── SyncHelpers.ps1 Shared functions (sanitization, hashing, linked paths, etc.)
-│       ├── Export-Settings.ps1
-│       ├── Commit-Settings.ps1
-│       └── Import-Settings.ps1
-└── dotfiles/               Repo copies of all synced files
-    ├── common/             Both systems: git/.gitconfig, shared Claude files
-    ├── linux/              Linux: git/.gitconfig.local, claude/, claude-worker/
-    └── windows/            Windows: git/.gitconfig.local, windows-terminal/, shell/
-        └── shell/.bashrc.linked/  Auto-generated: directories referenced inside .bashrc
-```
+- **macOS:** 13 (Ventura) or newer, [Homebrew](https://brew.sh), and from it `bash` 4+ and `jq`
+- **Windows:** Windows 10 or 11, PowerShell 5.1+, Git on `PATH`
+- **To push:** the [GitHub CLI](https://cli.github.com/), signed in with `gh auth login`
+
+## Read next
+
+- [Daily workflow](docs/daily-workflow.md): push, review, merge, pull on the other machine, and troubleshooting
+- [Restore a machine](docs/restore.md): a new Ubuntu, Windows or Mac machine, and what's left to do by hand
+- [Configuration](docs/configuration.md): every `sync-config.json` field, placeholders and linked folders
+- [Repository layout](docs/layout.md): where a file goes under `dotfiles/`, and why
+- [Packages](docs/packages.md): the Ubuntu package lists and the drift report
+- [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
+- [Sync contract](docs/sync-contract.md): the rules both engines follow
+
+[`docs/archive/`](docs/archive/) keeps the finished plans the scripts were built from.

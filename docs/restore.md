@@ -156,5 +156,19 @@ the apps behind them (`brew install tmux starship htop gh`, WezTerm, VS Code) yo
 [Before you lose the machine](#before-you-lose-the-machine) and sign in to `gh`.
 
 What's left on Linux only: GNOME settings, the package drift report, and the rest of the Claude Code setup in `~/.claude`
-(settings, hooks, scripts), which still assumes Linux paths. [README: macOS](../README.md#macos) has the troubleshooting
-table.
+(settings, hooks, scripts), which still assumes Linux paths. `mksync setup --bootstrap` and `bootstrap/linux.sh` don't
+run on a Mac.
+
+The scripts handle entries whose `platform` is `"macos"`, `"common"`, or a list that names `macos`, and an entry's
+`localPaths.macos` replaces its `localPath` there (VS Code keeps its settings in
+`~/Library/Application Support/Code/User/`).
+
+### Troubleshooting on macOS
+
+| You see | Do |
+|---|---|
+| `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | `brew install bash`. The scripts switch to Homebrew's bash by themselves once it's in `/opt/homebrew/bin` or `/usr/local/bin` |
+| `ERROR: install Homebrew first: https://brew.sh` | Install Homebrew with the line on its site, open a new Terminal, and run the install line again |
+| `MISSING  jq: install with brew install jq` | `brew install jq` |
+| `brew` not found right after installing it | Homebrew isn't on `PATH` yet. Apple silicon Macs use `/opt/homebrew`, Intel Macs `/usr/local`; the synced `~/.zprofile` loads whichever exists, or run `eval "$(/opt/homebrew/bin/brew shellenv)"` (`/usr/local/bin/brew` on Intel) |
+| `WARN  macOS 12.7 is older than 13` | Update macOS. Older releases may work, but Homebrew and the CI run only cover 13 and newer |

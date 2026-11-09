@@ -27,7 +27,7 @@ sequenceDiagram
 
 ## The short version
 
-Linux and Windows run the same commands:
+Linux, macOS and Windows run the same commands:
 
 ```bash
 mksync        # where this machine stands, and what to run next
@@ -38,6 +38,22 @@ mksync pull   # on the other machine, after the merge: pull, show, apply
 `mksync` names the next command, so you don't have to remember the order. The rest of this page is the same flow step by
 step, with the single scripts underneath. If `mksync` stops with something you don't recognize, see
 [Troubleshooting `mksync`](#troubleshooting-mksync).
+
+## Before you pull or push
+
+Two dry runs show what would happen, and neither writes anything:
+
+```bash
+mksync check     # repo → this machine: every file an import would create or overwrite
+mksync preview   # this machine → repo: the diff a push would send
+```
+
+The check compares this clone with the machine and doesn't fetch. If `mksync` shows `Origin : <n> update(s) waiting`,
+a pull brings those too, and its own list (shown before it asks) is the one to read.
+
+The check can't tell which side is newer yet. If it lists a file you edited on this machine, run `mksync push` first
+and let that change merge, or the pull replaces your edit. The replaced file is still in its `.bak`, until the next
+pull over the same file.
 
 ## On the machine where you changed something
 
@@ -139,8 +155,8 @@ git pull
 ./sync import
 ```
 
-On Linux, `mksync pull` does all three, and shows what will change before asking. `./import.sh --check` shows the same
-list without applying it.
+`mksync pull` does all three, and shows what will change before asking. `mksync check` shows the same list without
+applying it.
 
 Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
 `--force`. If you import a newer change over the same file later, that `.bak` is replaced. Import never deletes a local
@@ -148,6 +164,12 @@ file: one the repo doesn't have is reported as `EXTRA` and kept.
 
 On Linux, run it in a terminal on the desktop, because GNOME settings load over the session bus. Their backups go in
 `~/.local/state/sync-settings/dconf/`, and a setting the repo doesn't name stays as it is.
+
+### Another user on the same Windows machine
+
+`import.bat -User <name>` applies the repo to that user's profile (`C:\Users\<name>`) instead of yours. When it isn't
+the user you're signed in as, the script asks Windows for an administrator window itself (the UAC prompt), so you don't
+need to start it elevated. Linux and macOS have no `-User`: run the import as that user.
 
 ## Moving a machine to the new layout
 
@@ -214,12 +236,12 @@ don't rely on it: read the diff.
 | Windows: `running scripts is disabled on this system` | You don't need to change the execution policy: `mksync`, `sync.cmd` and the `.bat` files start PowerShell with `-ExecutionPolicy Bypass`, and the installer runs through `iex`. Start from those, not by running a `.ps1` directly |
 | Windows: the installer prints `ERROR: install Git from https://git-scm.com, …` | There's no `winget` on this machine (it comes with App Installer from the Microsoft Store). Install Git from that link, open a new window, and run the installer again. `gh` can come later; `doctor` says how |
 | `mksync` is not recognized, or `command not found` | The window was open before the install changed `PATH`. Open a new one. On Windows, if a new window still can't find it, run the installer again; on Linux, `doctor` prints the `ln -s` line that links it |
-| macOS: `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | macOS's own bash is too old. Run `brew install bash`; after that the scripts switch to Homebrew's bash by themselves. More in [README: macOS](../README.md#troubleshooting-on-macos) |
+| macOS: `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | macOS's own bash is too old. Run `brew install bash`; after that the scripts switch to Homebrew's bash by themselves. More in [Restore: macOS](restore.md#troubleshooting-on-macos) |
 | `Next: the machine check failed; run ./import.sh --check to see why.` | The status couldn't compare the repo with this machine. Run the command it names and read its `ERROR` lines |
 | `WARN gh: not signed in; run gh auth login` | Run `gh auth login` once. Only `mksync push` needs it, to open the pull request |
 | `SKIPPED … needs values: run mksync setup` | A file has a placeholder (your name, email, a path) with no value yet. Run `mksync setup`; it asks for each one and saves it in `.user-values.json`, which never leaves the machine |
 | `WARN <n> value(s) not set; mksync setup asks for them` | The same thing, seen from `doctor` |
-| `./import.sh --check` (or `Import-Settings.ps1 -Check`) exits with 3 | Not an error: it means `<n> file(s) would change`. Read the list, then run `mksync pull` to apply it. Exit 0 means the machine matches, and exit 1 means a check couldn't run (see its `ERROR` lines) |
+| `./import.sh --check` (or `Import-Settings.ps1 -Check`) exits with 3 | Not an error: it means `<n> file(s) would change`. Read the list. If you changed any of those files on this machine, run `mksync push` first; otherwise `mksync pull` applies it. Exit 0 means the machine matches, and exit 1 means a check couldn't run (see its `ERROR` lines) |
 | `ERROR: the repo has changes not sent yet; run mksync push first, …` | `pull` won't mix your unsent changes with the repo's. Send them with `mksync push`, or drop them with `git restore`, then pull |
 | `ERROR: <dir> exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR.` | The installer won't write into a folder it didn't make. Move that folder, or set `SYNCSETTINGS_DIR` to another place and run it again |
 | Windows: `ERROR: …\mksync.cmd already exists; remove it and run this again.` | Another `mksync.cmd` is in the installer's bin folder. Remove or rename it if it isn't yours to keep, then run the installer again |

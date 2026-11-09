@@ -19,20 +19,20 @@ Sync user dotfiles and config files between a machine and this git repository. W
 
 ## Entry Points
 
-`./sync <preview|export|commit|import>` (`sync.cmd` on Windows) is the front door: it picks the OS and routes to the scripts below, which still work directly. `preview` runs a normal export in a temp copy and diffs it against `HEAD`, so it cannot write to the repo.
+`./sync <preview|check|export|commit|import>` (`sync.cmd` on Windows) is the front door: it picks the OS and routes to the scripts below, which still work directly. `preview` runs a normal export in a temp copy and diffs it against `HEAD`, so it cannot write to the repo.
 
 | Command | Script | Purpose |
 |---|---|---|
-| `export.bat` | `scripts/windows/Export-Settings.ps1` | Copy changed local files → repo |
-| `commit.bat` | `scripts/windows/Commit-Settings.ps1` | Commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`) |
-| `import.bat` | `scripts/windows/Import-Settings.ps1` | Copy repo files → local machine |
+| `export.bat` | `scripts/windows/Export-Settings.ps1` | Copy changed local files → repo (kept only until the Windows checks in `TODO.md` pass) |
+| `commit.bat` | `scripts/windows/Commit-Settings.ps1` | Commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`; kept only until the Windows checks pass) |
+| `import.bat` | `scripts/windows/Import-Settings.ps1` | Copy repo files → local machine (kept only until the Windows checks pass) |
 | `./export.sh` | `scripts/linux/sync.sh` | Linux: copy changed local files → repo |
 | `./commit.sh` | (self-contained) | Linux: commit `dotfiles/` on a `sync/linux-…` branch, open a PR (never pushes to `master`) |
 | `./import.sh` | `scripts/linux/sync.sh` | Linux: copy repo files → local machine |
 | `mksync [status\|doctor\|setup\|pull\|push]` | `scripts/linux/front.sh`, `scripts/windows/Front.ps1` | Where the machine stands and the next step; pull applies the repo, push opens the PR |
 | `install.sh` | (self-contained) | Linux: install or update with one line, link `mksync`, run setup |
 | `install.ps1` | (self-contained) | Windows: install or update with one line (`irm … \| iex`, settings from `SYNCSETTINGS_*` variables), write `mksync.cmd` on the user `PATH`, run setup |
-| `./import.sh --check` | `scripts/linux/sync.sh` | Linux: list what import would change; writes nothing, exit 3 when something differs |
+| `./sync check` (`mksync check`) | `import.sh --check`, `Import-Settings.ps1 -Check` | List what import would change; writes nothing, exit 3 when something differs |
 | `./bootstrap/linux.sh` | `scripts/linux/sync.sh` | Linux: restore a new machine from `packages/linux/`, then import, links and plugins (`docs/restore.md`). `--dry-run` changes nothing |
 
 Every change reaches `master` through a PR that the `review-gate` check holds red until it carries the

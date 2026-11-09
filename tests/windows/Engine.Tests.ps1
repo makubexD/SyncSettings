@@ -2007,6 +2007,38 @@ Describe 'Windows engine' {
         $script:EngineExit | Should -Be 0
         $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/common/dir/a/b.txt')
         $script:EngineOut | Should -Match ([regex]::Escape('Nothing was written.'))
+        $script:EngineOut | Should -Match ([regex]::Escape("Run mksync push to send it."))
+    }
+
+    It 'sync-cmd-check' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+        Copy-RepoDotfiles
+
+        $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-SyncCmd -CmdArgs @('check') -InputText ""
+
+        $syncExit = $script:EngineExit
+        $syncOut = $script:EngineOut
+
+        # check must route to Import-Settings.ps1 -Check with the same result.
+        Invoke-ImportCheck
+
+        $syncExit | Should -Be $script:EngineExit
+        $syncExit | Should -BeIn @(0, 3)
+        $syncOut | Should -Match ([regex]::Escape('IMPORT CHECK'))
+    }
+
+    It 'sync-cmd-help-lists-check' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+
+        Invoke-SyncCmd -CmdArgs @('help')
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('preview | check | export | commit | import'))
     }
 
     It 'sync-cmd-message-quotes' {
@@ -2062,7 +2094,8 @@ Describe 'Windows engine' {
             $script:EngineExit | Should -Be 3
             $script:EngineOut | Should -Match (Get-StatusPattern 'UPDATE' 'dotfiles/windows/win.conf')
             $script:EngineOut | Should -Match (Get-StatusPattern 'CREATE' 'dotfiles/common/shared.conf')
-            $script:EngineOut | Should -Match 'file\(s\) would change\. Run mksync pull to apply\.'
+            $script:EngineOut | Should -Match ([regex]::Escape('file(s) would change. mksync pull overwrites them (each keeps a .bak).'))
+            $script:EngineOut | Should -Match ([regex]::Escape('If you changed them on this machine, run mksync push first.'))
             @(Get-ChildItem -Path $script:HomeDir -Recurse -Filter '*.bak' -File).Count | Should -Be 0
             ([IO.File]::ReadAllBytes($valuesPath) -join ',') | Should -Be $valuesBefore
             (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
