@@ -310,17 +310,48 @@ function Invoke-Pull {
     $ErrorActionPreference = 'Continue'
     $code = Invoke-ImportCheck -Only $onlyValue
 
+    $importArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Import-Settings.ps1'), '-Force')
+    if ($onlyValue) {
+        $importArgs += @('-Only', $onlyValue)
+    }
+
     if ($code -eq 0) {
+        # Nothing to overwrite, but a full import still records the sync
+        # point, so this machine stops reading '?' in the next diff.
+        if (-not $onlyValue) {
+            '' | & $script:PowerShellExe.Source @importArgs
+            exit $LASTEXITCODE
+        }
         exit 0
     }
     if ($code -ne 3) {
         exit 1
     }
 
+    $point = Read-LastSync -RepoRoot $script:RepoRoot
+
+    # With no sync point every diff label is '?', so the pull can't tell which
+    # side changed these files. Refuse under --yes, and ask with the default
+    # no when interactive.
+    if (-not $Force -and -not $point) {
+        if ($Yes) {
+            Write-Host '  ERROR: no sync is recorded on this machine, so a pull can''t tell which side changed these files.'
+            Write-Host '  Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).'
+            exit 1
+        }
+        Write-Host '  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).'
+        $answer = Read-Answer '  Apply these changes? [y/N]'
+        if ($answer -notmatch '^y') {
+            Write-Host '  Nothing applied.'
+            exit 0
+        }
+        & $script:PowerShellExe.Source @importArgs
+        exit $LASTEXITCODE
+    }
+
     # A pull overwrites this machine's version of every changed file, so ask
     # the diff which side changed them first. OUT and BOTH would be lost.
-    # Without a sync point every label is '?', which never blocks: skip it.
-    if (-not $Force -and (Read-LastSync -RepoRoot $script:RepoRoot)) {
+    if (-not $Force -and $point) {
         $diff = Invoke-ExportDiffChild -Only $onlyValue
         if ($diff.Code -ne 0 -and $diff.Code -ne 3) {
             Write-Host '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.'
@@ -350,10 +381,6 @@ function Invoke-Pull {
         }
     }
 
-    $importArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Import-Settings.ps1'), '-Force')
-    if ($onlyValue) {
-        $importArgs += @('-Only', $onlyValue)
-    }
     & $script:PowerShellExe.Source @importArgs
     exit $LASTEXITCODE
 }
