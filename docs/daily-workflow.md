@@ -27,7 +27,7 @@ sequenceDiagram
 
 ## The short version
 
-Linux and Windows run the same commands:
+Linux, macOS and Windows run the same commands:
 
 ```bash
 mksync        # where this machine stands, and what to run next
@@ -44,9 +44,12 @@ step, with the single scripts underneath. If `mksync` stops with something you d
 Two dry runs show what would happen, and neither writes anything:
 
 ```bash
-mksync check     # repo → this machine: every file a pull would create or overwrite
+mksync check     # repo → this machine: every file an import would create or overwrite
 mksync preview   # this machine → repo: the diff a push would send
 ```
+
+The check compares this clone with the machine and doesn't fetch. If `mksync` shows `Origin : <n> update(s) waiting`,
+a pull brings those too, and its own list (shown before it asks) is the one to read.
 
 The check can't tell which side is newer yet. If it lists a file you edited on this machine, run `mksync push` first
 and let that change merge, or the pull replaces your edit. The replaced file is still in its `.bak`, until the next

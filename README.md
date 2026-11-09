@@ -68,7 +68,7 @@ In `doctor`, `WARN` is worth fixing and `MISSING` stops `setup`; each line says 
 | Command | Shows | Direction |
 |---|---|---|
 | `mksync` | How many updates, unsent changes and differing files there are | both |
-| `mksync check` | Every file a pull would change on this machine | repo → machine |
+| `mksync check` | Every file the clone would change on this machine. It doesn't fetch: if `mksync` shows updates waiting, a pull changes more | repo → machine |
 | `mksync preview` | Exactly what a push would send, as a diff | machine → repo |
 
 All three write nothing. In the check, `CREATE` is a file this machine doesn't have yet, `UPDATE` one the pull would
