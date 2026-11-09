@@ -13,6 +13,23 @@ Every step is manual, on the Windows machine, in this order. W0 can only pass be
 - At an `Overwrite? [Y/n]` prompt, press Enter, which means yes.
 - If a result doesn't match, stop there and send Claude Code the step and its output. Don't run the next step.
 
+## Tests while these checks run
+
+To keep PRs fast during W0-W9, CI runs only `lint`, `leak-scan` and `review-gate`. The other four jobs are off
+(`if: false`, see `TODO.md`), and a skipped job still satisfies a required check. Before a PR merges, run them on the
+committed branch on the Windows machine:
+
+| CI job | Run locally |
+|---|---|
+| `engine-windows` | `powershell.exe -NoProfile -Command "Import-Module Pester -MinimumVersion 5.5.0; Invoke-Pester -Path tests/windows -CI"`. On a machine whose domain trust is broken, `Set-Acl` fails, and so do about 96 cases (seen 2026-11-09). There, a run that matters needs CI |
+| `lint` | `leak-scan.sh`, `shellcheck -x …`, `jq empty sync-config.json`, `check-config.sh` and `check-plugins.sh` in an `ubuntu` container, plus `Invoke-ScriptAnalyzer -Severity Error` as in `ci.yml`. This one still runs in CI too |
+| `engine-linux` | In an `ubuntu` container (Podman or Docker) on a fresh `git clone` of the branch: install `git jq dconf-cli dconf-service dbus dbus-x11 diffutils unzip zip xz-utils curl python3` (CI's runner has them already), add a non-root user, then run `tests/linux/engine.sh` and `tests/linux/bootstrap.sh` as that user |
+| `bootstrap-check` | `scripts/ci/bootstrap-check.sh` in an `ubuntu:26.04` container, on a fresh clone |
+| `engine-macos` | Can't run on Windows. A PR that changes only `dotfiles/windows/` or Windows scripts doesn't reach the macOS engine; anything else waits until CI is back on |
+
+Run them on a clone, not the working folder. That way they test what is committed, the way CI does, and a test
+can't write into your checkout.
+
 ## Checked on Linux, 2026-10-31
 
 | Check | Result |
