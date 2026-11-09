@@ -3463,6 +3463,36 @@ run_sync_stub() {
     (cd "$t/repo" && PATH="$t/stub" GH="$t/stub/gh" HOME="$home" ./sync "$@") > "$out" 2>&1 || rc=$?
 }
 
+# Stub tools for the macOS front-door cases: links to the real tools a run
+# needs, an sw_vers printing $1 and, when $2 is `brew`, a no-op brew. $3 names
+# a tool to leave out (the hint cases hide jq). No real brew, apt-get or sudo
+# is reachable from the stub-only PATH.
+make_macos_front_stub() {
+    local version=$1 with_brew=${2:-} without=${3:-} tool
+    mkdir -p "$t/stub" "$t/home"
+    for tool in bash env readlink dirname uname git jq cmp sed head wc mktemp rm cat cp mkdir \
+        chmod stat sha256sum sort tr cut awk grep find basename date diff; do
+        if [[ $tool == "$without" ]]; then
+            continue
+        fi
+        if command -v "$tool" > /dev/null 2>&1; then
+            ln -sf "$(command -v "$tool")" "$t/stub/$tool"
+        fi
+    done
+    cat > "$t/stub/sw_vers" <<EOF
+#!/bin/sh
+printf '%s\n' "$version"
+EOF
+    chmod +x "$t/stub/sw_vers"
+    if [[ $with_brew == brew ]]; then
+        cat > "$t/stub/brew" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+        chmod +x "$t/stub/brew"
+    fi
+}
+
 case_sync_doctor_ready() {
     new_tmp
     setup_repo
@@ -3696,6 +3726,114 @@ EOF
     grep -Fqx '  Origin    : offline, not checked' "$out" \
         || fail "missing the offline origin line"
     (( elapsed < 5 )) || fail "sync took ${elapsed}s, want under 5"
+}
+
+case_front_macos_label() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    make_macos_front_stub 26.7.2
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub:$PATH" SYNC_OS=macos HOME="$t/home" ./sync status) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync status exited $rc, want 0"
+
+    grep -Fq '  SyncSettings  macos (26.7.2)' "$out" \
+        || fail "missing the macos 26.7.2 label"
+}
+
+case_front_macos_doctor_no_brew() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_macos_front_stub 26.7.2
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" SYNC_OS=macos HOME="$t/home" ./sync doctor) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync doctor exited $rc, want 1"
+
+    grep -Fq 'MISSING  brew: install from https://brew.sh' "$out" \
+        || fail "missing the brew MISSING line"
+}
+
+case_front_macos_hints() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_macos_front_stub 26.7.2 brew jq
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" SYNC_OS=macos HOME="$t/home" ./sync doctor) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync doctor exited $rc, want 1"
+
+    grep -Fq 'MISSING  jq: install with brew install jq' "$out" \
+        || fail "missing the brew jq hint"
+}
+
+case_front_macos_setup_no_bootstrap() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    make_macos_front_stub 26.7.2 brew
+    printf 'PRETTY_NAME="Test OS"\nID=ubuntu\n' > "$t/os-release"
+    mkdir -p "$t/repo/bootstrap"
+    cat > "$t/repo/bootstrap/linux.sh" <<'EOF'
+#!/bin/sh
+printf 'BOOTSTRAP RAN\n'
+EOF
+    chmod +x "$t/repo/bootstrap/linux.sh"
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub:$PATH" SYNC_OS=macos SYNC_OS_RELEASE="$t/os-release" \
+        HOME="$t/home" ./sync setup --yes) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync setup exited $rc, want 0"
+
+    if grep -Fq 'Also restore apps' "$out"; then
+        fail "the bootstrap question was asked on macOS"
+    fi
+    if grep -Fq 'BOOTSTRAP RAN' "$out"; then
+        fail "the bootstrap script ran on macOS"
+    fi
+    grep -Fq 'Setup done.' "$out" || fail "missing the Setup done line"
+}
+
+case_front_macos_bootstrap_flag() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_macos_front_stub 26.7.2
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" SYNC_OS=macos HOME="$t/home" ./sync setup --bootstrap) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync setup --bootstrap exited $rc, want 1"
+
+    grep -Fq 'ERROR: --bootstrap is Ubuntu only.' "$out" \
+        || fail "missing the --bootstrap error"
+}
+
+case_front_check_failed_next() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    add_sync
+    mkdir -p "$t/home"
+    jq '.files[0].platform = "bsd"' "$t/repo/sync-config.json" > "$t/config.json"
+    cp "$t/config.json" "$t/repo/sync-config.json"
+    make_git_repo
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fqx '  Machine   : not checked: run ./import.sh --check to see why' "$out" \
+        || fail "missing the not-checked machine line"
+    grep -Fqx '  Next: the machine check failed; run ./import.sh --check to see why.' "$out" \
+        || fail "missing the machine-check-failed next line"
 }
 
 case_sync_symlink() {
@@ -5561,7 +5699,7 @@ case_guard_reexec() {
 
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-missing-folder import-check-error import-check-no-prompt crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink platform-macos-value platform-array platform-array-empty platform-array-repeat platform-array-common platform-array-windows-only platform-bad-sync-os localpaths-macos localpaths-unsafe localpaths-bad-key localpaths-spaces path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad check-config-macos lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool sync-doctor-ready sync-doctor-missing-jq sync-doctor-gh-signed-out sync-doctor-no-link sync-status-clean sync-status-behind sync-status-unsent sync-status-differs sync-status-not-git sync-status-writes-nothing sync-status-os-name status-fetch-timeout-no-timeout-bin sync-symlink sync-pull-applies sync-pull-matches sync-pull-declined sync-pull-dirty sync-pull-not-master sync-push-nothing sync-push-behind sync-push-opens-pr sync-push-declined sync-setup-applies sync-setup-offers-bootstrap sync-setup-doctor-fails install-fresh install-update install-not-a-clone install-link-conflict install-missing-jq-yes install-missing-jq-no-answer install-missing-jq-eof install-macos install-runs-setup install-partial host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent guard-reexec; do
+for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-missing-folder import-check-error import-check-no-prompt crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink platform-macos-value platform-array platform-array-empty platform-array-repeat platform-array-common platform-array-windows-only platform-bad-sync-os localpaths-macos localpaths-unsafe localpaths-bad-key localpaths-spaces path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad check-config-macos lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool sync-doctor-ready sync-doctor-missing-jq sync-doctor-gh-signed-out sync-doctor-no-link sync-status-clean sync-status-behind sync-status-unsent sync-status-differs sync-status-not-git sync-status-writes-nothing sync-status-os-name front-macos-label front-macos-doctor-no-brew front-macos-hints front-macos-setup-no-bootstrap front-macos-bootstrap-flag front-check-failed-next status-fetch-timeout-no-timeout-bin sync-symlink sync-pull-applies sync-pull-matches sync-pull-declined sync-pull-dirty sync-pull-not-master sync-push-nothing sync-push-behind sync-push-opens-pr sync-push-declined sync-setup-applies sync-setup-offers-bootstrap sync-setup-doctor-fails install-fresh install-update install-not-a-clone install-link-conflict install-missing-jq-yes install-missing-jq-no-answer install-missing-jq-eof install-macos install-runs-setup install-partial host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent guard-reexec; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -5791,6 +5929,12 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-status-not-git) case_sync_status_not_git ;;
         sync-status-writes-nothing) case_sync_status_writes_nothing ;;
         sync-status-os-name) case_sync_status_os_name ;;
+        front-macos-label) case_front_macos_label ;;
+        front-macos-doctor-no-brew) case_front_macos_doctor_no_brew ;;
+        front-macos-hints) case_front_macos_hints ;;
+        front-macos-setup-no-bootstrap) case_front_macos_setup_no_bootstrap ;;
+        front-macos-bootstrap-flag) case_front_macos_bootstrap_flag ;;
+        front-check-failed-next) case_front_check_failed_next ;;
         status-fetch-timeout-no-timeout-bin) case_status_fetch_timeout_no_timeout_bin ;;
         sync-symlink) case_sync_symlink ;;
         sync-pull-applies) case_sync_pull_applies ;;

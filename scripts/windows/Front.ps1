@@ -379,6 +379,8 @@ function Show-Status {
         $next = 'mksync push'
     } elseif ($machine.State -eq 'differ') {
         $next = "mksync pull to take the repo's version, or mksync push to send this machine's."
+    } elseif ($machine.State -eq 'unknown') {
+        $next = 'the machine check failed; run Import-Settings.ps1 -Check to see why.'
     } else {
         $next = 'nothing to do.'
     }
