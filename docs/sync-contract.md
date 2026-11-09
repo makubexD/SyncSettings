@@ -519,6 +519,12 @@ and `ERROR: the export for the diff failed; see above.`; a failed `git archive` 
 combined with `--preview` or `--reset-values` (error, exit 1). The diff writes no repo file, no sync point and no
 `.user-values.json`, and its temp folder is removed on every exit.
 
+On Windows the rules, labels, text and exit codes are the same, with three mechanical differences: the `mine`
+export is a child `powershell.exe` running `scripts\windows\Export-Settings.ps1` (stdout to the log, stderr to a
+second log printed after it), `mine` copies `scripts/` in place of `export.sh`, and paths sort with ordinal
+comparison instead of `LC_ALL=C sort`. The status lines use the `[OUT      ] path` layout in
+[Known differences](#known-differences).
+
 ## Front door
 
 On Linux, `mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named

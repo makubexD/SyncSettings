@@ -945,6 +945,298 @@ function Invoke-ExportPreview {
     }
 }
 
+# -- Export diff ---------------------------------------------------------------
+
+function Invoke-ExportDiff {
+    <#
+    .SYNOPSIS
+        Says which side changed each file this machine owns, without writing anything.
+    .DESCRIPTION
+        Builds three trees of dotfiles/ in a throwaway folder: base (the sync
+        point), theirs (origin/master when it exists, else HEAD) and mine (base
+        plus the current engine and config, with a preview export run inside
+        it). Every owned path gets at most one label: IN, OUT, BOTH or ?.
+        Returns 0 when nothing differs, 3 when something does and 1 on an error.
+    #>
+    param([string]$RepoRoot, [string]$User)
+
+    # Native git/tar write to stderr, which must not throw.
+    $ErrorActionPreference = 'Continue'
+
+    git -C $RepoRoot rev-parse --verify -q HEAD 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'ERROR: --diff needs a git repo with a commit.' -ForegroundColor Red
+        return 1
+    }
+
+    $tmpDir    = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
+    $baseDir   = Join-Path $tmpDir 'base'
+    $theirsDir = Join-Path $tmpDir 'theirs'
+    $mineDir   = Join-Path $tmpDir 'mine'
+    $null = New-Item -ItemType Directory -Path $tmpDir -Force
+    $null = New-Item -ItemType Directory -Path $baseDir, $theirsDir, $mineDir -Force
+
+    # The Windows tar by full path: Git's GNU tar reads C: as a remote host.
+    $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+
+    $savedSyncPreview = $env:SYNC_PREVIEW
+    try {
+        # base: the tree this machine last agreed with (the sync point).
+        $haveBase = $false
+        $syncSha  = Read-LastSync -RepoRoot $RepoRoot
+        if ($syncSha) {
+            $haveBase = $true
+            $baseTar = Join-Path $tmpDir 'base.tar'
+            git -C $RepoRoot archive -o $baseTar $syncSha -- dotfiles
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "ERROR: git archive failed for $syncSha." -ForegroundColor Red
+                return 1
+            }
+            & $tar -xf $baseTar -C $baseDir
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host 'ERROR: tar failed.' -ForegroundColor Red
+                return 1
+            }
+        }
+
+        # theirs: the repo's side. The engine never fetches.
+        git -C $RepoRoot rev-parse --verify -q origin/master 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $repoRef = 'origin/master'
+        } else {
+            $repoRef = 'HEAD'
+        }
+        $repoSha = (git -C $RepoRoot log -1 --format=%h $repoRef 2>$null | Out-String).Trim()
+        $theirsTar = Join-Path $tmpDir 'theirs.tar'
+        git -C $RepoRoot archive -o $theirsTar $repoRef -- dotfiles
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: git archive failed for $repoRef." -ForegroundColor Red
+            return 1
+        }
+        & $tar -xf $theirsTar -C $theirsDir
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'ERROR: tar failed.' -ForegroundColor Red
+            return 1
+        }
+
+        # With no sync point the repo's tree stands in for the base, so every
+        # difference is machine against repo and no side can be called newer.
+        $theirsDotfiles = Join-Path $theirsDir 'dotfiles'
+        if (-not $haveBase -and (Test-Path -LiteralPath $theirsDotfiles -PathType Container)) {
+            Copy-Item -Path $theirsDotfiles -Destination $baseDir -Recurse -Force
+        }
+
+        # mine: the base plus the current engine and config, then a preview
+        # export inside it. A file export doesn't touch therefore still equals base.
+        $baseDotfiles = Join-Path $baseDir 'dotfiles'
+        if (Test-Path -LiteralPath $baseDotfiles -PathType Container) {
+            Copy-Item -Path $baseDotfiles -Destination $mineDir -Recurse -Force
+        }
+        Copy-Item -Path (Join-Path $RepoRoot 'sync-config.json') -Destination $mineDir -Force
+        Copy-Item -Path (Join-Path $RepoRoot 'scripts') -Destination $mineDir -Recurse -Force
+        $packagesDir = Join-Path $RepoRoot 'packages'
+        if (Test-Path -LiteralPath $packagesDir -PathType Container) {
+            Copy-Item -Path $packagesDir -Destination $mineDir -Recurse -Force
+        }
+        $valuesFile = Join-Path $RepoRoot '.user-values.json'
+        if (Test-Path -LiteralPath $valuesFile) {
+            Copy-Item -Path $valuesFile -Destination $mineDir -Force
+        }
+
+        # The export runs in a child process, stdin from an empty file and
+        # output to a log, so a prompt can never reach this terminal.
+        $env:SYNC_PREVIEW = '1'
+        $mineScript = Join-Path $mineDir 'scripts\windows\Export-Settings.ps1'
+        $exportLog  = Join-Path $tmpDir 'export.log'
+        $exportErr  = Join-Path $tmpDir 'export.err.log'
+        $emptyIn    = Join-Path $tmpDir 'stdin.txt'
+        [IO.File]::WriteAllText($emptyIn, '')
+        $childArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$mineScript`"", '-User', "`"$User`"")
+        $childParams = @{
+            FilePath               = 'powershell.exe'
+            ArgumentList           = $childArgs
+            NoNewWindow            = $true
+            Wait                   = $true
+            PassThru               = $true
+            RedirectStandardInput  = $emptyIn
+            RedirectStandardOutput = $exportLog
+            RedirectStandardError  = $exportErr
+        }
+        $child = Start-Process @childParams
+        if ($child.ExitCode -ne 0) {
+            if (Test-Path -LiteralPath $exportLog) { Get-Content -LiteralPath $exportLog | Out-Host }
+            if (Test-Path -LiteralPath $exportErr) { Get-Content -LiteralPath $exportErr | Out-Host }
+            Write-Host '  ERROR: the export for the diff failed; see above.' -ForegroundColor Red
+            return 1
+        }
+
+        # The paths this OS's entries own: a file or dconf entry its repoPath, a
+        # file entry also its .linked/ prefix, a dir entry its folder prefix.
+        $config  = Get-Content -LiteralPath (Join-Path $RepoRoot 'sync-config.json') -Raw | ConvertFrom-Json
+        $entries = @(Select-WindowsEntries -Files @($config.files))
+        $ownedExact  = @()
+        $ownedLinked = @()
+        $ownedDirs   = @()
+        foreach ($entry in $entries) {
+            $repoPath  = [string]$entry.repoPath
+            $entryType = 'file'
+            if ($entry.PSObject.Properties['type'] -and $entry.type) { $entryType = [string]$entry.type }
+            if ($entryType -eq 'dir') {
+                $ownedDirs += "$repoPath/"
+            } else {
+                $ownedExact += $repoPath
+                if ($entryType -eq 'file') {
+                    $ownedLinked += "$repoPath.linked/"
+                }
+            }
+        }
+
+        Write-Host
+        Write-Host '  SyncSettings -- DIFF (windows)'
+        Write-Host
+        if ($haveBase) {
+            $lastLine = (git -C $RepoRoot log -1 "--format=%h (%cs)" $syncSha 2>$null | Out-String).Trim()
+        } else {
+            $lastLine = 'none recorded on this machine'
+        }
+        Write-Host "  Last sync  : $lastLine"
+        Write-Host "  Repo       : $repoRef $repoSha"
+        Write-Host
+
+        # Every file in the union of the three trees, as dotfiles/ relative
+        # paths with / separators, sorted ordinally like LC_ALL=C sort.
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($tree in @($baseDir, $theirsDir, $mineDir)) {
+            $root = Get-Item -LiteralPath (Join-Path $tree 'dotfiles') -Force -ErrorAction SilentlyContinue
+            if (-not $root) { continue }
+            $prefix = $root.FullName.TrimEnd('\') + '\'
+            foreach ($file in Get-ChildItem -LiteralPath $root.FullName -Recurse -File -Force -ErrorAction SilentlyContinue) {
+                $rel = $file.FullName.Substring($prefix.Length) -replace '\\', '/'
+                $null = $seen.Add("dotfiles/$rel")
+            }
+        }
+        $paths = [System.Collections.Generic.List[string]]::new()
+        foreach ($item in $seen) { $paths.Add($item) }
+        $paths.Sort([System.StringComparer]::Ordinal)
+
+        # True when two paths under the diff's trees hold the same version. A
+        # path absent on both sides counts as the same version.
+        function Test-DiffPathSame {
+            param([string]$PathA, [string]$PathB)
+            $a = Test-Path -LiteralPath $PathA -PathType Leaf
+            $b = Test-Path -LiteralPath $PathB -PathType Leaf
+            if ($a -and $b) { return (Compare-FilesByHash -PathA $PathA -PathB $PathB) }
+            return (-not $a -and -not $b)
+        }
+
+        $inCount = 0
+        $outCount = 0
+        $bothCount = 0
+        $unknownCount = 0
+        $diffLines = [System.Collections.Generic.List[string]]::new()
+
+        foreach ($path in $paths) {
+            $ownedHere = $false
+            foreach ($prefix in $ownedExact) {
+                if ($path -ceq $prefix) { $ownedHere = $true; break }
+            }
+            if (-not $ownedHere) {
+                foreach ($prefix in $ownedLinked) {
+                    if ($path.StartsWith($prefix, [System.StringComparison]::Ordinal)) { $ownedHere = $true; break }
+                }
+            }
+            if (-not $ownedHere) {
+                foreach ($prefix in $ownedDirs) {
+                    if ($path.StartsWith($prefix, [System.StringComparison]::Ordinal)) { $ownedHere = $true; break }
+                }
+            }
+            if (-not $ownedHere) { continue }
+
+            $minePath   = Join-Path $mineDir $path
+            $basePath   = Join-Path $baseDir $path
+            $theirsPath = Join-Path $theirsDir $path
+
+            $mineBase   = Test-DiffPathSame $minePath $basePath
+            $theirsBase = Test-DiffPathSame $theirsPath $basePath
+
+            $label = ''
+            if ($haveBase) {
+                if ($mineBase -and $theirsBase) {
+                    $label = ''
+                } elseif ($mineBase) {
+                    $label = 'IN'
+                } elseif ($theirsBase) {
+                    $label = 'OUT'
+                } elseif (Test-DiffPathSame $minePath $theirsPath) {
+                    # Both sides made the same change.
+                    $label = ''
+                } else {
+                    $label = 'BOTH'
+                }
+            } elseif (-not (Test-DiffPathSame $minePath $theirsPath)) {
+                $label = '?'
+            }
+
+            switch ($label) {
+                'IN'   { $inCount++;      $diffLines.Add("IN $path") }
+                'OUT'  { $outCount++;     $diffLines.Add("OUT $path") }
+                'BOTH' { $bothCount++;    $diffLines.Add("BOTH $path") }
+                '?'    { $unknownCount++; $diffLines.Add("? $path") }
+            }
+        }
+
+        foreach ($line in $diffLines) {
+            $space = $line.IndexOf(' ')
+            Write-StatusLine $line.Substring(0, $space) $line.Substring($space + 1)
+        }
+        if (($unknownCount + $inCount + $outCount + $bothCount) -gt 0) {
+            Write-Host
+        }
+
+        Write-Host ('  ' + ('-' * 50))
+        Write-Host
+
+        if (($inCount + $outCount + $bothCount + $unknownCount) -eq 0) {
+            Write-Host '  This machine and the repo agree.'
+            Write-Host
+            return 0
+        }
+
+        if (-not $haveBase) {
+            Write-Host ("  {0} file(s) differ. No sync is recorded on this machine, so the newer side is unknown." -f $unknownCount)
+            Write-Host '  Run mksync pull or mksync push once to record one.'
+            Write-Host
+            return 3
+        }
+
+        $differCount = $inCount + $outCount + $bothCount
+        Write-Host ("  {0} file(s) differ: {1} in, {2} out, {3} both." -f $differCount, $inCount, $outCount, $bothCount)
+        $hints = ''
+        if ($inCount -gt 0) {
+            $hints = 'IN: mksync pull takes them.'
+        }
+        if ($outCount -gt 0) {
+            if ($hints) { $hints = "$hints OUT: mksync push sends them." } else { $hints = 'OUT: mksync push sends them.' }
+        }
+        if ($bothCount -gt 0) {
+            if ($hints) { $hints = "$hints BOTH: changed on both sides; merge by hand." } else { $hints = 'BOTH: changed on both sides; merge by hand.' }
+        }
+        Write-Host "  $hints"
+        Write-Host
+
+        return 3
+    } finally {
+        if ($null -eq $savedSyncPreview) {
+            Remove-Item Env:\SYNC_PREVIEW -ErrorAction SilentlyContinue
+        } else {
+            $env:SYNC_PREVIEW = $savedSyncPreview
+        }
+        if (Test-Path $tmpDir) {
+            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 # -- Import helpers ------------------------------------------------------------
 
 function Copy-RepoFileToLocal {

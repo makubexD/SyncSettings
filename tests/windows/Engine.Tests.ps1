@@ -224,6 +224,18 @@ BeforeAll {
         $script:EngineExit = $LASTEXITCODE
     }
 
+    # Runs Export-Settings.ps1 -Diff in the temp repo. Stdin is redirected, so
+    # the run can never prompt; -Preview and -ResetValues add the flags it refuses.
+    function Invoke-Diff {
+        param([switch]$Preview, [switch]$ResetValues)
+        $script:EngineScript = Join-Path $script:RepoDir 'scripts\windows\Export-Settings.ps1'
+        $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript, '-Diff')
+        if ($Preview) { $argList += '-Preview' }
+        if ($ResetValues) { $argList += '-ResetValues' }
+        $script:EngineOut = "" | & powershell.exe @argList 2>&1 | Out-String
+        $script:EngineExit = $LASTEXITCODE
+    }
+
     # -- Commit helpers ----------------------------------------------------------
 
     # A stub gh.cmd that logs each invocation to $script:GhLog and prints a fixed
@@ -284,6 +296,14 @@ BeforeAll {
     # The sync point file this run would write, under the temp LOCALAPPDATA.
     function Get-SyncPointFile {
         return (Join-Path $env:LOCALAPPDATA 'SyncSettings\last-sync')
+    }
+
+    # Writes the sync point the diff compares against, under the temp LOCALAPPDATA.
+    function Set-DiffSyncPoint {
+        param([string]$Sha)
+        $file = Get-SyncPointFile
+        $null = New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force
+        [IO.File]::WriteAllText($file, "$Sha`n")
     }
 
     # Runs Commit-Settings.ps1 in the clone with the stub gh on PATH.
@@ -1786,6 +1806,182 @@ Describe 'Windows engine' {
         $script:EngineExit | Should -Be 1
         $script:EngineOut | Should -Match ([regex]::Escape('ERROR: leak scan could not run; nothing was committed.'))
         $script:EngineOut | Should -Not -Match ([regex]::Escape('before/dotfiles'))
+    }
+
+    # -- Export-Settings.ps1 -Diff -----------------------------------------------
+
+    It 'diff-clean' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        Set-DiffSyncPoint $head
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('This machine and the repo agree.'))
+    }
+
+    It 'diff-out' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        Set-DiffSyncPoint $head
+        $local = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+        [IO.File]::WriteAllText($local, "local change`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 3
+        $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 0 in, 1 out, 0 both.'))
+        $script:EngineOut | Should -Match ([regex]::Escape('  OUT: mksync push sends them.'))
+    }
+
+    It 'diff-in' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $base = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\common\dir\a\b.txt'
+        [IO.File]::WriteAllText($repoFile, "repo change`n", [System.Text.UTF8Encoding]::new($false))
+        git -C $script:RepoDir -c user.name=t -c user.email=t@example.com commit -qam 'repo change' 2>$null
+        git -C $script:RepoDir push -q origin master 2>$null
+        Set-DiffSyncPoint $base
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 3
+        $script:EngineOut | Should -Match (Get-StatusPattern 'IN' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 1 in, 0 out, 0 both.'))
+        $script:EngineOut | Should -Match ([regex]::Escape('  IN: mksync pull takes them.'))
+    }
+
+    It 'diff-both' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $base = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\common\dir\a\b.txt'
+        [IO.File]::WriteAllText($repoFile, "repo change`n", [System.Text.UTF8Encoding]::new($false))
+        git -C $script:RepoDir -c user.name=t -c user.email=t@example.com commit -qam 'repo change' 2>$null
+        git -C $script:RepoDir push -q origin master 2>$null
+        Set-DiffSyncPoint $base
+        $local = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+        [IO.File]::WriteAllText($local, "machine change`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 3
+        $script:EngineOut | Should -Match (Get-StatusPattern 'BOTH' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match ([regex]::Escape('  BOTH: changed on both sides; merge by hand.'))
+    }
+
+    It 'diff-same-change' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $base = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\common\dir\a\b.txt'
+        [IO.File]::WriteAllText($repoFile, "same change`n", [System.Text.UTF8Encoding]::new($false))
+        git -C $script:RepoDir -c user.name=t -c user.email=t@example.com commit -qam 'same change' 2>$null
+        git -C $script:RepoDir push -q origin master 2>$null
+        Set-DiffSyncPoint $base
+        $local = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+        [IO.File]::WriteAllText($local, "same change`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('This machine and the repo agree.'))
+        $script:EngineOut | Should -Not -Match '(?m)^\s*\[(IN|OUT|BOTH|\?)\s*\]'
+    }
+
+    It 'diff-origin' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $base = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\common\dir\a\b.txt'
+        [IO.File]::WriteAllText($repoFile, "new text`n", [System.Text.UTF8Encoding]::new($false))
+        git -C $script:RepoDir -c user.name=t -c user.email=t@example.com commit -qam 'origin change' 2>$null
+        git -C $script:RepoDir push -q origin master 2>$null
+        # Put HEAD back behind the pushed commit, so origin/master is one ahead.
+        git -C $script:RepoDir reset --hard HEAD~1 2>$null | Out-Null
+        Set-DiffSyncPoint $base
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 3
+        $script:EngineOut | Should -Match (Get-StatusPattern 'IN' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match ([regex]::Escape('  Repo       : origin/master '))
+    }
+
+    It 'diff-no-record' {
+        New-PreviewRepo
+        $local = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+        [IO.File]::WriteAllText($local, "local change`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 3
+        $script:EngineOut | Should -Match (Get-StatusPattern '?' 'dotfiles/common/dir/a/b.txt')
+        $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ. No sync is recorded on this machine, so the newer side is unknown.'))
+        $script:EngineOut | Should -Match ([regex]::Escape('  Run mksync pull or mksync push once to record one.'))
+    }
+
+    It 'diff-other-platform' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $base = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        $linuxFile = Join-Path $script:RepoDir 'dotfiles\linux\plain.txt'
+        [IO.File]::WriteAllText($linuxFile, "linux change`n", [System.Text.UTF8Encoding]::new($false))
+        git -C $script:RepoDir -c user.name=t -c user.email=t@example.com commit -qam 'linux change' 2>$null
+        git -C $script:RepoDir push -q origin master 2>$null
+        Set-DiffSyncPoint $base
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/linux/'))
+        $script:EngineOut | Should -Match ([regex]::Escape('This machine and the repo agree.'))
+    }
+
+    It 'diff-writes-nothing' {
+        New-PreviewRepo
+        $ErrorActionPreference = 'Continue'
+        $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        Set-DiffSyncPoint $head
+        $local = Join-Path $script:HomeDir '.config\fixture\dir\a\b.txt'
+        [IO.File]::WriteAllText($local, "local change`n", [System.Text.UTF8Encoding]::new($false))
+
+        $env:TEMP = Join-Path $script:T 'tmp'
+        $env:TMP = Join-Path $script:T 'tmp'
+        $null = New-Item -ItemType Directory -Path $env:TEMP -Force
+
+        $repoBefore   = Get-TreeHash $script:RepoDir
+        $pointFile    = Get-SyncPointFile
+        $pointBefore  = [IO.File]::ReadAllText($pointFile)
+        $valuesFile   = Join-Path $script:RepoDir '.user-values.json'
+        $valuesBefore = (Get-FileHash -LiteralPath $valuesFile).Hash
+
+        Invoke-Diff
+
+        $script:EngineExit | Should -Be 3
+        (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
+        [IO.File]::ReadAllText($pointFile) | Should -Be $pointBefore
+        (Get-FileHash -LiteralPath $valuesFile).Hash | Should -Be $valuesBefore
+        @(Get-ChildItem -Path $env:TEMP -Force).Count | Should -Be 0
+    }
+
+    It 'diff-flags' {
+        New-PreviewRepo
+
+        Invoke-Diff -Preview
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --diff cannot be combined'))
+
+        Invoke-Diff -ResetValues
+
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --diff cannot be combined'))
     }
 
     # -- Commit-Settings.ps1 -----------------------------------------------------
