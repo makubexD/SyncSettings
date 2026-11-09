@@ -359,13 +359,12 @@ function Resolve-OnlyPaths {
 function Test-OnlySelected {
     <#
     .SYNOPSIS
-        True when a repo path is picked by the -Only selection.
+        True when a single repo path (a file) is picked by the -Only selection.
     .DESCRIPTION
-        Mirrors only_selected and entry_selected in scripts/linux/sync.sh: with
-        no selection every path is picked; otherwise the path equals a selected
-        path, lies under one (including its .linked/ folder), or a selected path
-        lies under it. Comparisons are ordinal (case-sensitive), like the Linux
-        version.
+        Mirrors only_selected in scripts/linux/sync.sh: with no selection every
+        path is picked; otherwise the path equals a selected path, or lies under
+        one (including its .linked/ folder). Comparisons are ordinal
+        (case-sensitive), like the Linux version.
     #>
     param([string]$RepoPath, [string[]]$Selected)
 
@@ -376,6 +375,26 @@ function Test-OnlySelected {
         if ([string]::Equals($RepoPath, $sel, [StringComparison]::Ordinal)) { return $true }
         if ($RepoPath.StartsWith($sel + '/', [StringComparison]::Ordinal)) { return $true }
         if ($RepoPath.StartsWith($sel + '.linked/', [StringComparison]::Ordinal)) { return $true }
+    }
+    return $false
+}
+
+function Test-OnlyEntrySelected {
+    <#
+    .SYNOPSIS
+        True when a config entry can contribute files under the -Only selection.
+    .DESCRIPTION
+        Mirrors entry_selected in scripts/linux/sync.sh: an entry is selected
+        when its own path is picked (Test-OnlySelected), or a selected path lies
+        under the entry's own path or its .linked/ folder. With no selection
+        every entry is selected.
+    #>
+    param([string]$RepoPath, [string[]]$Selected)
+
+    if (Test-OnlySelected -RepoPath $RepoPath -Selected $Selected) { return $true }
+
+    foreach ($sel in $Selected) {
+        if ($null -eq $sel) { continue }
         if ($sel.StartsWith($RepoPath + '/', [StringComparison]::Ordinal)) { return $true }
         if ($sel.StartsWith($RepoPath + '.linked/', [StringComparison]::Ordinal)) { return $true }
     }
@@ -1668,8 +1687,8 @@ function Save-DatedBackup {
         [string]$Source,
         [string]$RepoPath
     )
-    $dest = Join-Path (Get-BackupRunDir) ($RepoPath -replace '/', '\')
     try {
+        $dest = Join-Path (Get-BackupRunDir) ($RepoPath -replace '/', '\')
         $null = New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force -ErrorAction Stop
         Copy-Item -LiteralPath $Source -Destination $dest -Force -ErrorAction Stop
         $script:BackupMade = $true

@@ -143,7 +143,7 @@ try {
     # -- Collect all sanitize rules and prompt once upfront ----------------
     $allRules = @()
     foreach ($entry in $config.files) {
-        if (-not (Test-OnlySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+        if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
         $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
         if ($hasSanitize) {
             $repoFile = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
@@ -163,7 +163,7 @@ try {
         # Try to pre-populate from existing local files if no cache exists
         if (-not $ResetValues) {
             foreach ($entry in $config.files) {
-                if (-not (Test-OnlySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+                if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
                 $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
                 if (-not $hasSanitize) { continue }
                 $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
@@ -234,7 +234,7 @@ try {
     $syncPoint = $null
 
     foreach ($entry in $config.files) {
-        if (-not (Test-OnlySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+        if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
 
         $repoFile  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
         $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot

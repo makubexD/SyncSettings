@@ -113,7 +113,7 @@ try {
     # no point prompting for values when the file isn't on this machine yet.
     $allRules = @()
     foreach ($entry in $config.files) {
-        if (-not (Test-OnlySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+        if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
         $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
         if ($hasSanitize) {
             $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
@@ -140,7 +140,7 @@ try {
 
     # -- Process each file ------------------------------------------------
     foreach ($entry in $config.files) {
-        if (-not (Test-OnlySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+        if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
 
         $repoFile  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
         $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot

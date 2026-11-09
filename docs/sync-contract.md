@@ -97,7 +97,9 @@ ERROR: <path> is not synced on this machine.
 ```
 
 Then a repo file is selected when there is no `--only`, or its repo path equals a selected path, or starts with
-`<selected>/` or `<selected>.linked/`.
+`<selected>/` or `<selected>.linked/`. Selecting a whole entry is looser: an entry is walked when that file rule
+selects it, or when a pick lies under the entry's own path or `.linked/` folder, so the picked file inside it is
+still reached.
 
 `import.sh --only` handles only the selected files: every other entry and file gets no status line and no count, and
 `--check --only` lists only the selected files. With `--only` only the picked entries' values are requested, so a

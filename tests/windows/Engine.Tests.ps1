@@ -2375,6 +2375,19 @@ Describe 'Windows engine' {
             Test-OnlySelected -RepoPath 'dotfiles/windows/win.conf.linked/x' -Selected @('dotfiles/windows/win.conf') | Should -BeTrue
             Test-OnlySelected -RepoPath 'dotfiles/windows/win.conf2' -Selected @('dotfiles/windows/win.conf') | Should -BeFalse
             Test-OnlySelected -RepoPath 'dotfiles/windows/win.conf' -Selected @() | Should -BeTrue
+            # A pick under an entry's .linked/ (or under a dir entry) selects the
+            # picked file only, not the entry's own file.
+            Test-OnlySelected -RepoPath 'dotfiles/windows/win.conf' -Selected @('dotfiles/windows/win.conf.linked/x') | Should -BeFalse
+            Test-OnlySelected -RepoPath 'dotfiles/common/dir' -Selected @('dotfiles/common/dir/a') | Should -BeFalse
+        }
+
+        It 'only-entry-selected' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+
+            Test-OnlyEntrySelected -RepoPath 'dotfiles/windows/win.conf' -Selected @('dotfiles/windows/win.conf.linked/x') | Should -BeTrue
+            Test-OnlyEntrySelected -RepoPath 'dotfiles/common/dir' -Selected @('dotfiles/common/dir/a') | Should -BeTrue
+            Test-OnlyEntrySelected -RepoPath 'dotfiles/windows/win.conf2' -Selected @('dotfiles/windows/win.conf.linked/x') | Should -BeFalse
+            Test-OnlyEntrySelected -RepoPath 'dotfiles/windows/win.conf' -Selected @() | Should -BeTrue
         }
 
         It 'import-only-one' {
@@ -2553,6 +2566,60 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 0 in, 1 out, 0 both.'))
         }
 
+        It 'diff-only-linked-parent' {
+            Copy-EngineToRepo
+
+            # A linked folder on the system drive, outside the system paths
+            # Find-LinkedPaths filters out.
+            $linkedRoot = "$env:SystemDrive\SyncSettingsTest-$([guid]::NewGuid().ToString('N'))"
+            $toolDir    = "$linkedRoot\tool"
+            $null = New-Item -ItemType Directory -Path $toolDir -Force
+
+            try {
+                # A file entry whose own file and a linked file both differ, but
+                # only the linked file is picked: the parent file must not be
+                # labelled or counted.
+                $configPath = Join-Path $script:RepoDir 'sync-config.json'
+                $config = Get-Content $configPath -Raw | ConvertFrom-Json
+                $linkedEntry = [pscustomobject]@{
+                    repoPath          = 'dotfiles/windows/linked.sh'
+                    localPath         = '~\linked.sh'
+                    platform          = 'windows'
+                    detectLinkedPaths = $true
+                }
+                $config.files = @($config.files) + $linkedEntry
+                [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+
+                Copy-RepoDotfiles
+                $winDir = Join-Path $script:RepoDir 'dotfiles\windows'
+                $null = New-Item -ItemType Directory -Path $winDir -Force
+                [IO.File]::WriteAllText((Join-Path $winDir 'linked.sh'), "repo`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+                $linkRepo = Join-Path $winDir 'linked.sh.linked\tool'
+                $null = New-Item -ItemType Directory -Path $linkRepo -Force
+                [IO.File]::WriteAllText((Join-Path $linkRepo 'a.txt'), "repo-a`n", [System.Text.UTF8Encoding]::new($false))
+
+                New-GitRepo
+                $ErrorActionPreference = 'Continue'
+                $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+                Set-DiffSyncPoint $head
+
+                Copy-HomeFiles
+                [IO.File]::WriteAllText((Join-Path $script:HomeDir 'linked.sh'), "local`n$toolDir`n", [System.Text.UTF8Encoding]::new($false))
+                [IO.File]::WriteAllText((Join-Path $toolDir 'a.txt'), "local-a`n", [System.Text.UTF8Encoding]::new($false))
+
+                Invoke-Diff -Only 'dotfiles/windows/linked.sh.linked/tool/a.txt'
+
+                $script:EngineExit | Should -Be 3
+                $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/linked.sh.linked/tool/a.txt')
+                $script:EngineOut | Should -Not -Match '(?m)^\s*\[(OUT|IN|BOTH)\s*\] dotfiles/windows/linked\.sh\r?$'
+                $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 0 in, 1 out, 0 both.'))
+            } finally {
+                if (Test-Path -LiteralPath $linkedRoot) {
+                    Remove-Item -LiteralPath $linkedRoot -Recurse -Force
+                }
+            }
+        }
+
         It 'export-only-preview' {
             Copy-EngineToRepo
             Copy-RepoDotfiles
@@ -2692,6 +2759,26 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match ([regex]::Escape('WARNING: could not keep a dated backup of dotfiles/windows/win.conf.'))
             "$winConf.bak" | Should -Exist
             ([IO.File]::ReadAllBytes("$winConf.bak") -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("old`r`n") -join ',')
+        }
+
+        It 'backup-dated-no-localappdata' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+
+            # With no LOCALAPPDATA the run folder cannot be computed: the dated
+            # backup must still fail soft (a WARNING), never throw past the .bak.
+            $script:BackupRunDir = $null
+            $saved = $env:LOCALAPPDATA
+            Remove-Item Env:\LOCALAPPDATA -ErrorAction SilentlyContinue
+            try {
+                $out = @(Save-DatedBackup -Source (Join-Path $script:T 'no-such-file') -RepoPath 'dotfiles/windows/win.conf' 6>&1)
+                ($out | Out-String) | Should -Match ([regex]::Escape('WARNING: could not keep a dated backup of dotfiles/windows/win.conf.'))
+            } finally {
+                if ($null -eq $saved) {
+                    Remove-Item Env:\LOCALAPPDATA -ErrorAction SilentlyContinue
+                } else {
+                    $env:LOCALAPPDATA = $saved
+                }
+            }
         }
     }
 
