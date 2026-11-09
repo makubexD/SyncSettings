@@ -67,7 +67,46 @@ you pushed read `OUT` until the PR merges, then drop out of the list.
 
 `mksync pull` runs the diff before it applies anything and stops if a file is `OUT` or `BOTH`, so it can't replace an
 edit you haven't sent. Run `mksync push` first, or `mksync pull --force` to overwrite anyway (each file keeps its
-`.bak`, until the next pull over the same file).
+`.bak`, and a dated copy: see [Getting an old version back](#getting-an-old-version-back)).
+
+The first pull on a machine has no sync recorded, so it can't tell which side changed a file. It warns, and asks
+`Apply these changes? [y/N]`: Enter keeps your files, `y` applies the repo's. `mksync pull --yes` refuses outright,
+so a script never overwrites a machine it knows nothing about, even with paths. Take files one at a time without
+`--yes` instead (below), or
+`mksync pull --force`. A pull that finds nothing to change records the sync anyway, so the next diff has labels.
+`mksync setup` and the restore script still take the repo's files on a new machine without asking.
+
+## Take or send only some files
+
+`mksync pull`, `mksync push` and `mksync diff` take paths, so you can move one file and leave the rest:
+
+```bash
+mksync diff                          # see which files differ, and which side changed them
+mksync pull ~/.bashrc                # take the repo's version of this file only
+mksync push dotfiles/common/git/.gitconfig   # send this file only
+```
+
+A path is either where the file lives on this machine (`~/.bashrc`, or relative to the folder you're in) or its path in
+the repo (`dotfiles/...`). A folder entry takes a file inside it too. A path no entry syncs on this machine stops the
+command before anything changes. The pull guard still checks the picked files: an `OUT` or `BOTH` file needs `--force`.
+
+A pull or push of some files doesn't record a sync point, since the machine only agrees with part of the repo. Run a
+plain `mksync pull` when you want the labels to start from there.
+
+## Getting an old version back
+
+Every file a pull overwrites keeps two copies of the old version: `<file>.bak` next to it, replaced by the next pull of
+the same file, and a dated copy that stays for the last 20 pulls:
+
+- Linux and macOS: `~/.local/state/sync-settings/backups/<run>/<repo path>` (under `$XDG_STATE_HOME` when it's set)
+- Windows: `%LOCALAPPDATA%\SyncSettings\backups\<run>\<repo path>`
+
+`<run>` is the date and time of the pull, so the newest folder sorts last, and the pull prints it as `Backups : <folder>`.
+To restore a file, copy it back over the current one:
+
+```bash
+cp ~/.local/state/sync-settings/backups/20261109-153000-4242/dotfiles/common/git/.gitconfig ~/.gitconfig
+```
 
 ## On the machine where you changed something
 

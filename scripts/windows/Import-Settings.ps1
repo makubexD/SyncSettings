@@ -16,21 +16,31 @@
     Force re-prompting for all sanitized placeholder values, even if cached.
 .PARAMETER Check
     Report what an import would change, and write nothing.
+.PARAMETER Only
+    Restrict the import to the picked files, given as repo paths (dotfiles\...) or
+    local paths. Repeatable.
 .EXAMPLE
     .\Import-Settings.ps1
     .\Import-Settings.ps1 -Force
     .\Import-Settings.ps1 -User johndoe
     .\Import-Settings.ps1 -ResetValues
     .\Import-Settings.ps1 -Check
+    .\Import-Settings.ps1 -Only dotfiles\windows\shell\.bashrc
 #>
 param(
     [string]$User = $env:USERNAME,
     [switch]$Force,
     [switch]$ResetValues,
-    [switch]$Check
+    [switch]$Check,
+    [string[]]$Only
 )
 
 $ErrorActionPreference = 'Stop'
+
+# The elevated re-launch passes every pick in one '|'-joined value.
+if ($null -ne $Only) {
+    $Only = @($Only | ForEach-Object { $_ -split '\|' } | Where-Object { $_ -ne '' })
+}
 
 if ($Check -and $ResetValues) {
     Write-Host 'ERROR: -Check cannot be combined with -ResetValues.' -ForegroundColor Red
@@ -64,6 +74,22 @@ if ($isOtherUser -and -not (Test-IsAdmin)) {
     $argParts = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($MyInvocation.MyCommand.Path)`"", "-User `"$User`"")
     if ($Force)       { $argParts += '-Force' }
     if ($ResetValues) { $argParts += '-ResetValues' }
+    # -File binds one -Only value as a plain string, and the elevated process
+    # starts in another folder: pass one value, made absolute, joined by '|'
+    # (never valid in a Windows path); the script splits it again on entry.
+    if ($null -ne $Only -and $Only.Count -gt 0) {
+        $absOnly = @()
+        foreach ($o in $Only) {
+            if ($o.StartsWith('dotfiles/') -or $o.StartsWith('dotfiles\') -or $o.StartsWith('~') -or [IO.Path]::IsPathRooted($o)) {
+                $absOnly += $o
+            } else {
+                $base = $env:SYNC_CALLER_PWD
+                if ([string]::IsNullOrEmpty($base)) { $base = (Get-Location).Path }
+                $absOnly += (Join-Path $base $o)
+            }
+        }
+        $argParts += "-Only `"$($absOnly -join '|')`""
+    }
     Start-Process powershell.exe -ArgumentList ($argParts -join ' ') -Verb RunAs -Wait
     exit 0
 }
@@ -90,6 +116,18 @@ try {
     Assert-SafePaths -RepoRoot $repoRoot -Files $config.files
     $config.files = @(Select-WindowsEntries -Files $config.files)
 
+    # Resolve -Only picks to repo paths before any entry is processed or a value
+    # is requested, so an unknown path stops the run before it touches a file.
+    $selected = @()
+    if ($null -ne $Only -and $Only.Count -gt 0) {
+        try {
+            $selected = @(Resolve-OnlyPaths -Paths $Only -Files $config.files -UserProfile $profileRoot)
+        } catch {
+            Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+        }
+    }
+
     if (-not $Check -and (Test-RepoUpToDate -RepoRoot $repoRoot)) { exit 0 }
 
     Write-Host "  Target user   : $User" -ForegroundColor White
@@ -105,6 +143,7 @@ try {
     # -- Collect all sanitize rules and prompt once upfront ----------------
     $allRules = @()
     foreach ($entry in $config.files) {
+        if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
         $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
         if ($hasSanitize) {
             $repoFile = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
@@ -124,6 +163,7 @@ try {
         # Try to pre-populate from existing local files if no cache exists
         if (-not $ResetValues) {
             foreach ($entry in $config.files) {
+                if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
                 $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
                 if (-not $hasSanitize) { continue }
                 $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
@@ -194,6 +234,8 @@ try {
     $syncPoint = $null
 
     foreach ($entry in $config.files) {
+        if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+
         $repoFile  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
         $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
         $label     = $entry.repoPath
@@ -204,11 +246,28 @@ try {
             if ($entry.PSObject.Properties['type'] -and $entry.type -eq 'dir') {
                 $repoDir  = Join-Path $repoRoot ($entry.repoPath -replace '/', '\')
                 $localDir = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot
-                $dirCount = Import-DirEntry -RepoDir $repoDir -LocalDir $localDir -Label $label -ExcludePatterns $config.excludePatterns -Force ([bool]$Force) -Check ([bool]$Check) -ErrorCount ([ref]$errors)
+                $dirCount = Import-DirEntry -RepoDir $repoDir -LocalDir $localDir -Label $label -ExcludePatterns $config.excludePatterns -Force ([bool]$Force) -Check ([bool]$Check) -Only $selected -ErrorCount ([ref]$errors)
                 if ($Check) { $changed += $dirCount } else { $applied += $dirCount }
                 continue
             }
 
+            # With -Only, the entry's own file is applied only when its repo path
+            # is picked (exactly or under a picked folder); a pick inside its
+            # .linked/ folder selects only the linked files below (mirror
+            # only_selected on Linux).
+            $applyEntryFile = $true
+            if ($selected.Count -gt 0) {
+                $applyEntryFile = $false
+                foreach ($sel in $selected) {
+                    if ([string]::Equals($entry.repoPath, $sel, [StringComparison]::Ordinal) -or
+                        $entry.repoPath.StartsWith($sel + '/', [StringComparison]::Ordinal)) {
+                        $applyEntryFile = $true
+                        break
+                    }
+                }
+            }
+
+            if ($applyEntryFile) {
             # Exclude-pattern safety check
             if (Test-Excluded -FilePath $localFile -Patterns $config.excludePatterns) {
                 Write-StatusLine 'SKIPPED' $label 'matches exclude pattern'
@@ -275,6 +334,7 @@ try {
 
                         # Backup existing file
                         Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
+                        Save-DatedBackup -Source $localFile -RepoPath $label
                         Write-Utf8File -Path $localFile -Content $hydrated
                         Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
                         $applied++
@@ -299,6 +359,7 @@ try {
                     if ($result -eq 'SKIPPED') { continue }
                     if ($result -eq 'CREATED' -or $result -eq 'UPDATED') { $applied++ }
                 }
+            }
             }
 
             # -- Auto-detect linked paths (import: repo -> local) --------
@@ -335,7 +396,7 @@ try {
                             Write-Host "  Creating linked directory: $linkLocal" -ForegroundColor Cyan
                         }
 
-                        $linkCount = Import-LinkedDirectory -SourceDir $linkRepoFull -DestDir $linkLocal -Label $linkLabel -ExcludePatterns $config.excludePatterns -Force ([bool]$Force) -Check ([bool]$Check) -ErrorCount ([ref]$errors)
+                        $linkCount = Import-LinkedDirectory -SourceDir $linkRepoFull -DestDir $linkLocal -Label $linkLabel -ExcludePatterns $config.excludePatterns -Force ([bool]$Force) -Check ([bool]$Check) -Only $selected -ErrorCount ([ref]$errors)
                         if ($Check) { $changed += $linkCount } else { $applied += $linkCount }
                     }
                 }
@@ -353,7 +414,9 @@ try {
 
     # Record the sync point: the repo commit this machine now agrees with. Only
     # a real import that applied everything it found, from a clean tree, knows it.
-    if (-not $Check -and -not $isOtherUser -and $errors -eq 0 -and $script:UserSkips -eq 0) {
+    # A -Only run agrees with part of the repo, not the whole of it, so it records
+    # nothing.
+    if (-not $Check -and -not $isOtherUser -and $errors -eq 0 -and $script:UserSkips -eq 0 -and $selected.Count -eq 0) {
         # git writes to stderr outside a clone ("not a git repository"), which
         # must not throw on PowerShell 5.1: it means "no sync point", not an error.
         $savedPreference = $ErrorActionPreference
@@ -371,6 +434,12 @@ try {
         } finally {
             $ErrorActionPreference = $savedPreference
         }
+    }
+
+    # Keep only the newest 20 backup runs, sorted by name. Only a run that kept
+    # a dated copy has a folder to look at.
+    if (-not $Check -and $script:BackupMade) {
+        Remove-OldBackupRuns
     }
 
     Write-Host
@@ -392,6 +461,10 @@ try {
         Write-Host "  $applied file(s) applied to $profileRoot" -ForegroundColor Green
     } else {
         Write-Host '  No files were changed. Machine is already up to date.' -ForegroundColor Green
+    }
+
+    if ($script:BackupMade) {
+        Write-Host "  Backups    : $script:BackupRunDir" -ForegroundColor White
     }
 
     if ($syncPoint) {

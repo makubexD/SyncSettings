@@ -14,28 +14,42 @@ unset SYNC_REEXEC
 
 set -euo pipefail
 
+export SYNC_CALLER_PWD=${SYNC_CALLER_PWD:-$PWD}
 cd "$(dirname "$0")"
 source scripts/linux/sync.sh
 
 RESET_VALUES=0
 PREVIEW=0
 DIFF=0
-for arg in "$@"; do
-    case $arg in
+only_args=()
+while (( $# > 0 )); do
+    case $1 in
         --reset-values) RESET_VALUES=1 ;;
         --preview) PREVIEW=1 ;;
         --diff) DIFF=1 ;;
-        *) printf 'Unknown option: %s\nUsage: export.sh [--diff] [--preview] [--reset-values]\n' "$arg" >&2; exit 1 ;;
+        --only)
+            if (( $# < 2 )); then
+                printf 'ERROR: --only needs a path.\n' >&2
+                exit 1
+            fi
+            only_args+=("$2")
+            shift
+            ;;
+        *) printf 'Unknown option: %s\nUsage: export.sh [--diff] [--preview] [--reset-values] [--only <path>]...\n' "$1" >&2; exit 1 ;;
     esac
+    shift
 done
+
+if (( PREVIEW && ${#only_args[@]} > 0 )); then
+    printf 'ERROR: --preview cannot be combined with --only.\n' >&2
+    exit 1
+fi
 
 if (( DIFF )); then
     if (( PREVIEW || RESET_VALUES )); then
         printf 'ERROR: --diff cannot be combined with --preview or --reset-values.\n' >&2
         exit 1
     fi
-    run_diff
-    exit $?
 fi
 
 if (( PREVIEW )); then
@@ -43,6 +57,20 @@ if (( PREVIEW )); then
         printf 'ERROR: --preview cannot be combined with --reset-values.\n' >&2
         exit 1
     fi
+fi
+
+# Turn the --only picks into repo paths before any entry is processed or a
+# value is requested, so an unknown path stops the run before it touches a file.
+if (( ${#only_args[@]} > 0 )); then
+    resolve_only "${only_args[@]}" || exit 1
+fi
+
+if (( DIFF )); then
+    run_diff
+    exit $?
+fi
+
+if (( PREVIEW )); then
     run_preview
     exit
 fi
@@ -60,6 +88,10 @@ check_upstream
 
 ALL_RULES='[]'
 while IFS= read -r entry; do
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! entry_selected "$repo_path"; then
+        continue
+    fi
     rules_n=$(jq -r '(.sanitizeRules // []) | length' <<<"$entry")
     if (( rules_n == 0 )); then
         continue
@@ -83,6 +115,9 @@ process_entry() {
     local repo_path local_path label rules repo_file local_file repo_dir
 
     repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! only_selected "$repo_path"; then
+        return 0
+    fi
     local_path=$(jq -r '.localPath' <<<"$entry")
     label=$repo_path
     repo_file=$REPO_ROOT/$repo_path
@@ -183,6 +218,9 @@ export_dir() {
         fi
 
         files=$((files + 1))
+        if ! only_selected "$label"; then
+            continue
+        fi
         dst=$repo_dir/$rel
         if [[ ! -e $dst ]]; then
             if ! mkdir -p "${dst%/*}"; then
@@ -225,6 +263,9 @@ export_dir() {
             local_file=$local_dir/$rel
 
             if [[ ! -f $local_file || -L $local_file ]] || is_excluded "$local_file"; then
+                if ! only_selected "$label"; then
+                    continue
+                fi
                 if ! rm -f "$repo_file"; then
                     status ERROR "$label" 'cannot remove from repo'
                     continue
@@ -245,6 +286,9 @@ export_dconf() {
     local entry=$1
     local repo_path dconf_path repo_file repo_dir keys text repo_text
     repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! only_selected "$repo_path"; then
+        return 0
+    fi
     dconf_path=$(jq -r '.path' <<<"$entry")
     keys=$(jq -c '.keys // []' <<<"$entry")
     repo_file=$REPO_ROOT/$repo_path
@@ -294,6 +338,10 @@ export_dconf() {
 }
 
 while IFS= read -r entry; do
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! entry_selected "$repo_path"; then
+        continue
+    fi
     if [[ $(jq -r '.type // "file"' <<<"$entry") == dir ]]; then
         export_dir "$entry"
     elif [[ $(jq -r '.type // "file"' <<<"$entry") == dconf ]]; then
@@ -304,13 +352,17 @@ while IFS= read -r entry; do
     fi
 done < <(platform_entries)
 
-# Report files under dotfiles/ that no entry owns; this never changes the counts
-# or the exit code.
-report_orphans
+# A --only run sees part of the repo, not all of it, so the whole-repo reports
+# would be wrong: skip both.
+if (( ${#ONLY_PATHS[@]} == 0 )); then
+    # Report files under dotfiles/ that no entry owns; this never changes the
+    # counts or the exit code.
+    report_orphans
 
-# Report drift between the package lists and what this machine has installed.
-# In a || list so nothing in the report can stop the export or change its exit code.
-report_drift || true
+    # Report drift between the package lists and what this machine has installed.
+    # In a || list so nothing in the report can stop the export or change its exit code.
+    report_drift || true
+fi
 
 # -- Summary ---------------------------------------------------------------------
 

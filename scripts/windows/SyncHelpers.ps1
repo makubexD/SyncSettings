@@ -241,6 +241,166 @@ function Resolve-LocalPath {
     return $path -replace '/', '\'
 }
 
+# -- Picking files (-Only) ----------------------------------------------------
+
+function Resolve-OnlyPaths {
+    <#
+    .SYNOPSIS
+        Turns repo or local paths into the repo paths this OS's entries own.
+    .DESCRIPTION
+        Mirrors resolve_only in scripts/linux/sync.sh. A path that starts with
+        dotfiles/ (or dotfiles\) is a repo path, compared ordinally with each
+        entry's repoPath, or a file under a dir entry or a file entry's .linked/
+        folder. Anything else is a local path: ~\ and ~/ become UserProfile, a
+        relative path joins $env:SYNC_CALLER_PWD (or the current folder), then
+        the path is normalized and compared case-insensitively with each entry's
+        resolved localPath. A path that matches no entry throws, so the caller
+        exits 1 before any file is touched.
+    #>
+    param(
+        [string[]]$Paths,
+        [array]$Files,
+        [string]$UserProfile
+    )
+
+    if ($null -eq $Paths -or $Paths.Count -eq 0) { return @() }
+
+    # Resolve each entry once: its repoPath, its kind, and its normalized local
+    # path (empty for dconf, which has no local file and matches by repo only).
+    $entries = @()
+    foreach ($entry in $Files) {
+        $repoPath = [string]$entry.repoPath
+        $kind = 'file'
+        if ($entry.PSObject.Properties['type'] -and $entry.type) {
+            if ([string]$entry.type -ceq 'dir') { $kind = 'dir' }
+            elseif ([string]$entry.type -ceq 'dconf') { $kind = 'dconf' }
+        }
+        $localPath = ''
+        if ($kind -cne 'dconf') {
+            $localPath = [IO.Path]::GetFullPath((Resolve-LocalPath -Template ([string]$entry.localPath) -ProfileRoot $UserProfile))
+        }
+        $entries += [PSCustomObject]@{ repoPath = $repoPath; kind = $kind; localPath = $localPath }
+    }
+
+    $selected = @()
+    foreach ($arg in $Paths) {
+        $p = [string]$arg
+
+        # Drop trailing separators, as resolve_only drops trailing slashes.
+        while ($p.Length -gt 3 -and ($p.EndsWith('\') -or $p.EndsWith('/'))) {
+            $p = $p.Substring(0, $p.Length - 1)
+        }
+
+        if ($p.StartsWith('dotfiles/', [StringComparison]::Ordinal) -or
+            $p.StartsWith('dotfiles\', [StringComparison]::Ordinal)) {
+            $p = $p -replace '\\', '/'
+            $found = $false
+            foreach ($e in $entries) {
+                if ([string]::Equals($p, $e.repoPath, [StringComparison]::Ordinal)) {
+                    $found = $true
+                } elseif ($e.kind -ceq 'dir' -and $p.StartsWith($e.repoPath + '/', [StringComparison]::Ordinal)) {
+                    $found = $true
+                } elseif ($e.kind -ceq 'file' -and $p.StartsWith($e.repoPath + '.linked/', [StringComparison]::Ordinal)) {
+                    $found = $true
+                }
+                if ($found) { break }
+            }
+            if (-not $found) {
+                throw ('{0} is not synced on this machine.' -f $arg)
+            }
+            $selected += $p
+            continue
+        }
+
+        # Local path: expand ~, make it absolute against the caller's folder,
+        # then normalize . and .. so it compares with the entries' paths.
+        if ($p -ceq '~') {
+            $p = $UserProfile
+        } elseif ($p.StartsWith('~/') -or $p.StartsWith('~\')) {
+            if ($p.Length -gt 2) {
+                $p = $UserProfile.TrimEnd('\') + '\' + $p.Substring(2)
+            } else {
+                $p = $UserProfile.TrimEnd('\')
+            }
+        }
+        if (-not [IO.Path]::IsPathRooted($p)) {
+            $caller = $env:SYNC_CALLER_PWD
+            if ([string]::IsNullOrEmpty($caller)) { $caller = (Get-Location).Path }
+            $p = Join-Path $caller $p
+        }
+        $p = [IO.Path]::GetFullPath($p)
+
+        $found = $false
+        foreach ($e in $entries) {
+            if ($e.kind -cne 'dconf' -and [string]::Equals($p, $e.localPath, [StringComparison]::OrdinalIgnoreCase)) {
+                $selected += $e.repoPath
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) {
+            foreach ($e in $entries) {
+                if ($e.kind -ceq 'dir' -and $p.StartsWith($e.localPath + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                    $rest = $p.Substring($e.localPath.Length + 1) -replace '\\', '/'
+                    $selected += ($e.repoPath + '/' + $rest)
+                    $found = $true
+                    break
+                }
+            }
+        }
+        if (-not $found) {
+            throw ('{0} is not synced on this machine.' -f $arg)
+        }
+    }
+
+    return $selected
+}
+
+function Test-OnlySelected {
+    <#
+    .SYNOPSIS
+        True when a single repo path (a file) is picked by the -Only selection.
+    .DESCRIPTION
+        Mirrors only_selected in scripts/linux/sync.sh: with no selection every
+        path is picked; otherwise the path equals a selected path, or lies under
+        one (including its .linked/ folder). Comparisons are ordinal
+        (case-sensitive), like the Linux version.
+    #>
+    param([string]$RepoPath, [string[]]$Selected)
+
+    if ($null -eq $Selected -or $Selected.Count -eq 0) { return $true }
+
+    foreach ($sel in $Selected) {
+        if ($null -eq $sel) { continue }
+        if ([string]::Equals($RepoPath, $sel, [StringComparison]::Ordinal)) { return $true }
+        if ($RepoPath.StartsWith($sel + '/', [StringComparison]::Ordinal)) { return $true }
+        if ($RepoPath.StartsWith($sel + '.linked/', [StringComparison]::Ordinal)) { return $true }
+    }
+    return $false
+}
+
+function Test-OnlyEntrySelected {
+    <#
+    .SYNOPSIS
+        True when a config entry can contribute files under the -Only selection.
+    .DESCRIPTION
+        Mirrors entry_selected in scripts/linux/sync.sh: an entry is selected
+        when its own path is picked (Test-OnlySelected), or a selected path lies
+        under the entry's own path or its .linked/ folder. With no selection
+        every entry is selected.
+    #>
+    param([string]$RepoPath, [string[]]$Selected)
+
+    if (Test-OnlySelected -RepoPath $RepoPath -Selected $Selected) { return $true }
+
+    foreach ($sel in $Selected) {
+        if ($null -eq $sel) { continue }
+        if ($sel.StartsWith($RepoPath + '/', [StringComparison]::Ordinal)) { return $true }
+        if ($sel.StartsWith($RepoPath + '.linked/', [StringComparison]::Ordinal)) { return $true }
+    }
+    return $false
+}
+
 # -- Exclude pattern check ----------------------------------------------------
 
 function Test-Excluded {
@@ -610,7 +770,8 @@ function Sync-LinkedDirectory {
         [string]$DestDir,
         [string]$Label,
         [string[]]$ExcludePatterns,
-        [bool]$Recursive = $false
+        [bool]$Recursive = $false,
+        [string[]]$Only
     )
 
     $stats = @{ added = 0; modified = 0; unchanged = 0; skipped = 0; removed = 0 }
@@ -645,6 +806,9 @@ function Sync-LinkedDirectory {
             $stats.skipped++
             continue
         }
+
+        # A --only run copies only the picked files; everything else is left as-is.
+        if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
 
         $fileCount++
 
@@ -688,6 +852,10 @@ function Sync-LinkedDirectory {
         foreach ($df in $destFiles) {
             $relPath    = $df.FullName.Substring($DestDir.TrimEnd('\').Length + 1)
             $itemLabel  = "$Label/" + ($relPath -replace '\\', '/')
+
+            # A --only run removes only files inside the selection.
+            if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
+
             $sourceFile = Join-Path $SourceDir $relPath
 
             $remove = -not (Test-Path -LiteralPath $sourceFile)
@@ -958,7 +1126,7 @@ function Invoke-ExportDiff {
         it). Every owned path gets at most one label: IN, OUT, BOTH or ?.
         Returns 0 when nothing differs, 3 when something does and 1 on an error.
     #>
-    param([string]$RepoRoot, [string]$User)
+    param([string]$RepoRoot, [string]$User, [string[]]$Only)
 
     # Native git/tar write to stderr, which must not throw.
     $ErrorActionPreference = 'Continue'
@@ -1152,6 +1320,10 @@ function Invoke-ExportDiff {
             }
             if (-not $ownedHere) { continue }
 
+            # A --only diff labels only the picked paths, so the exit code
+            # (0/3) reflects the selection, not the whole machine.
+            if (-not (Test-OnlySelected -RepoPath $path -Selected $Only)) { continue }
+
             $minePath   = Join-Path $mineDir $path
             $basePath   = Join-Path $baseDir $path
             $theirsPath = Join-Path $theirsDir $path
@@ -1285,6 +1457,7 @@ function Copy-RepoFileToLocal {
             Write-Host
         }
         Copy-Item -LiteralPath $LocalFile -Destination "$LocalFile.bak" -Force
+        Save-DatedBackup -Source $LocalFile -RepoPath $Label
         Copy-Item -LiteralPath $RepoFile  -Destination $LocalFile      -Force
         Write-StatusLine 'UPDATED' $Label "backup saved as $(Split-Path "$LocalFile.bak" -Leaf)"
         return 'UPDATED'
@@ -1308,6 +1481,7 @@ function Import-DirEntry {
         [string[]]$ExcludePatterns,
         [bool]$Force = $false,
         [bool]$Check = $false,
+        [string[]]$Only,
         $ErrorCount = $null
     )
 
@@ -1330,6 +1504,7 @@ function Import-DirEntry {
     foreach ($file in (Get-ChildItem -LiteralPath $RepoDir -File -Recurse -Force)) {
         $rel = $file.FullName.Substring($RepoDir.TrimEnd('\').Length + 1)
         $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+        if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
         $localFile = Join-Path $LocalDir $rel
 
         if (Test-Excluded -FilePath $localFile -Patterns $ExcludePatterns) {
@@ -1355,6 +1530,7 @@ function Import-DirEntry {
         foreach ($file in (Get-ChildItem -LiteralPath $LocalDir -File -Recurse -Force)) {
             $rel = $file.FullName.Substring($LocalDir.TrimEnd('\').Length + 1)
             $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+            if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
             if (Test-Path -LiteralPath (Join-Path $RepoDir $rel)) {
                 continue
             }
@@ -1387,6 +1563,7 @@ function Import-LinkedDirectory {
         [string[]]$ExcludePatterns,
         [bool]$Force = $false,
         [bool]$Check = $false,
+        [string[]]$Only,
         $ErrorCount = $null
     )
 
@@ -1402,6 +1579,7 @@ function Import-LinkedDirectory {
     $applied = 0
     foreach ($file in (Get-ChildItem -LiteralPath $SourceDir -File -Force)) {
         $itemLabel = "$Label/" + $file.Name
+        if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
         $localFile = Join-Path $DestDir $file.Name
 
         if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -1426,6 +1604,7 @@ function Import-LinkedDirectory {
     if (Test-Path -LiteralPath $DestDir) {
         foreach ($file in (Get-ChildItem -LiteralPath $DestDir -File -Force)) {
             $itemLabel = "$Label/" + $file.Name
+            if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
             if (Test-Path -LiteralPath (Join-Path $SourceDir $file.Name)) {
                 continue
             }
@@ -1480,6 +1659,52 @@ function Write-LastSync {
     } catch {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
         Write-Host "  WARNING: could not record the sync point in $file." -ForegroundColor Yellow
+    }
+}
+
+# -- Dated backups -------------------------------------------------------------
+
+# The folder this run keeps its dated backups in, made once per process. It is
+# printed, and cached in $script:BackupRunDir so every backup of one run lands
+# together even when the run crosses a second.
+$script:BackupRunDir = $null
+# Set to $true when this run kept a dated copy, so the caller prunes old runs
+# and names the folder in the summary.
+$script:BackupMade = $false
+
+function Get-BackupRunDir {
+    if (-not $script:BackupRunDir) {
+        $run = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $script:BackupRunDir = Join-Path $env:LOCALAPPDATA ("SyncSettings\backups\$run-$PID")
+    }
+    return $script:BackupRunDir
+}
+
+# Copy an old local version into this run's folder. A failure prints a WARNING
+# and never throws: the .bak is the backup that must succeed.
+function Save-DatedBackup {
+    param(
+        [string]$Source,
+        [string]$RepoPath
+    )
+    try {
+        $dest = Join-Path (Get-BackupRunDir) ($RepoPath -replace '/', '\')
+        $null = New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force -ErrorAction Stop
+        Copy-Item -LiteralPath $Source -Destination $dest -Force -ErrorAction Stop
+        $script:BackupMade = $true
+    } catch {
+        Write-Host "  WARNING: could not keep a dated backup of $RepoPath." -ForegroundColor Yellow
+    }
+}
+
+# Keep only the newest 20 run folders under the backups folder, sorted by name
+# (the run name is a local-time timestamp, so name order is age order).
+function Remove-OldBackupRuns {
+    $backupRoot = Split-Path (Get-BackupRunDir) -Parent
+    if (-not (Test-Path -LiteralPath $backupRoot -PathType Container)) { return }
+    $runs = @(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | Sort-Object -Property Name)
+    for ($i = 0; $i -lt ($runs.Count - 20); $i++) {
+        Remove-Item -LiteralPath $runs[$i].FullName -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

@@ -73,6 +73,44 @@ The PowerShell engine is always `windows`.
 inherited from the environment is overwritten, and only a second `source` in the same shell, where the variable is
 already `readonly`, keeps it.
 
+## Picking files
+
+Every command that walks entries takes a repeatable `--only <path>` (PowerShell: `-Only <string[]>`). A path is
+either a repo path or a local path:
+
+- A path starting with `dotfiles/` is a repo path. It is accepted when an entry selected for this OS owns it: the path
+  equals its `repoPath`, starts with `<repoPath>/` for a `dir` entry, or starts with `<repoPath>.linked/` for a file
+  entry. A trailing `/` is dropped.
+- Any other path is a local path. A leading `~/` becomes `$HOME/` (a lone `~` becomes `$HOME`), a path that doesn't
+  start with `/` is joined to the caller's folder (`$SYNC_CALLER_PWD`, else `$PWD`), and `.` and `..` segments are
+  folded lexically, without following links. A relative pick is relative to the caller's folder on direct engine
+  calls too: `import.sh` and `export.sh` record `$PWD` before they `cd` to the repo root.
+
+A local path resolves to a repo path by comparing it with each selected entry's resolved `localPath`, folded
+the same way: equal to a file entry gives its `repoPath`; equal to a `dir` entry's folder gives its `repoPath`, and
+inside that folder gives `<repoPath>/<rest>`. A `dconf` entry has no local path and is matched by its `repoPath` only.
+
+A path that matches no entry for this OS stops the run before it touches any file:
+
+```text
+ERROR: <path> is not synced on this machine.
+```
+
+Then a repo file is selected when there is no `--only`, or its repo path equals a selected path, or starts with
+`<selected>/` or `<selected>.linked/`. Selecting a whole entry is looser: an entry is walked when that file rule
+selects it, or when a pick lies under the entry's own path or `.linked/` folder, so the picked file inside it is
+still reached.
+
+`import.sh --only` handles only the selected files: every other entry and file gets no status line and no count, and
+`--check --only` lists only the selected files. With `--only` only the picked entries' values are requested, so a
+missing value that only an unpicked entry needs does not stop the run. A run with `--only` never records the sync
+point, because the machine agrees with only part of the repo. `--only` with no path after it is an error, exit 1.
+
+`export.sh --only` writes only the selected files. It removes a repo file gone from a `dir` entry's folder only when
+that file is selected, and skips the orphan and package drift reports: a partial run doesn't see the whole repo.
+`--diff --only` labels only the selected paths, and its counts and hints cover only them. `--preview` with `--only` is
+an error, exit 1.
+
 ## Path safety
 
 Right after the `platform` check, each engine checks every entry, on any platform, and stops with exit code 1 before it
@@ -238,6 +276,17 @@ A dconf entry has no local file to sit next to, so its backup is `~/.local/state
 `<file>` is the name of the repo file. It holds the raw dump of `path`, written before each `UPDATED`. Loading it back
 restores the old values, but a key that had no value before keeps the repo's value, because a load never removes a key.
 
+Every import that overwrites a file also copies the old version into a folder for that run:
+
+- Linux and macOS: `${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/backups/<run>/<repoPath>`
+- Windows: `%LOCALAPPDATA%\SyncSettings\backups\<run>\<repoPath>`, with `\` separators
+
+`<run>` is `YYYYMMDD-HHMMSS-<pid>` in local time. The folder is created at the first backup of the run, so a run that
+overwrites nothing makes none, and a `--check` run never makes one. After the run the newest 20 run folders are kept
+and older ones removed, sorted by name. When the run made a dated copy, the summary adds `  Backups    : <folder>`. A
+failed dated copy prints a `WARNING` line and doesn't change the exit code; the `.bak` stays the backup that must
+succeed.
+
 ## Exclude patterns
 
 `excludePatterns` are globs matched against the local path's file name, or the end of the path. A match is skipped
@@ -310,6 +359,16 @@ the commit the same way a hit does.
 |---|---|
 | Exit 1 | `ERROR: the leak scan found the lines above; nothing was committed.` |
 | Script or bash missing, or any other exit code | `ERROR: leak scan could not run; nothing was committed.` |
+
+When a rule hits, the scan prints its hit lines, then a blank line, then one hint for each rule that hit, once per
+rule and in the order the rules run. A hint never repeats the matched text.
+
+| Rule | Hint |
+|---|---|
+| `home-path` | `write $HOME or ~ instead of the full path, or add a <HOME> sanitize rule (defaultEnv HOME) to the file's entry.` |
+| `windows-profile` | `write %USERPROFILE% or ~ instead of the full path, or add a sanitize rule to the file's entry.` |
+| `email` | `move it behind a sanitize rule placeholder, such as <YOUR_EMAIL>.` |
+| `private-key`, `github-token`, `api-key` | `remove it from the file; keep secrets in a file the repo doesn't sync.` |
 
 **Cached values.** The changed sync files are searched for each value in `.user-values.json`, ignoring case and including
 the backslash-doubled form. A placeholder on its own passes. The value never appears in arguments or output.
@@ -457,12 +516,15 @@ sync point.
 A real import writes it, with `HEAD`, when the run had no `ERROR` line, no `SKIPPED` line noted `user skipped`, `HEAD`
 resolves, and `git status --porcelain -- dotfiles sync-config.json` is empty (so `HEAD` is what was imported). The
 summary then prints `Sync point : <first 7 of the SHA>` after the `file(s) applied` line. A check (`--check`) writes
-nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree.
+nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree. A run with `--only`
+writes nothing either, because the machine agrees with only part of the repo.
 
 `commit.sh` writes it after the PR opens and the clone is back on `master`, with the sync commit's parent (the
 `master` commit the branch starts from), not the sync commit itself: until the PR merges, `origin/master` still has
 the old files, and with the sync commit as the base they would read as `IN` and a pull would undo the push. A run
-that failed before that (commit, push or PR) writes nothing.
+that failed before that (commit, push or PR) writes nothing. A partial commit (`commit.sh --partial`, which the front
+door uses when `mksync push` is given paths) writes nothing either, for the same reason as a partial import: part of
+the repo only was sent.
 
 On Windows, `Import-Settings.ps1` and `Commit-Settings.ps1` follow the same rules, and an import for another user's
 profile (`-User`) never writes it, because the file belongs to whoever runs the script.
@@ -482,8 +544,9 @@ builds three trees of `dotfiles/` in a temp folder:
   in the temp folder). Starting from `base` means any file export doesn't touch still equals `base`.
 
 Only paths this OS's entries own are compared: a file or dconf entry owns its `repoPath`, a file entry also owns the
-`<repoPath>.linked/` prefix, and a dir entry owns the `<repoPath>/` prefix. A missing file counts as a version, and
-each owned path in the union of the three trees gets at most one label:
+`<repoPath>.linked/` prefix, and a dir entry owns the `<repoPath>/` prefix. With `--only`, only the selected paths are
+labeled and counted. A missing file counts as a version, and each owned path in the union of the three trees gets at
+most one label:
 
 | `mine` vs `base` | `theirs` vs `base` | Label |
 |---|---|---|
@@ -540,19 +603,26 @@ codes are the same on both systems, except where this section says otherwise.
 |---|---|---|
 | `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
 | `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
-| `mksync pull [--yes] [--force]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then (unless `--force`) the diff, which stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` (`Import-Settings.ps1 -Force` on Windows) | 0, or 1 on an error |
-| `mksync push [--yes] [-m <msg>]` | Runs `export.sh` (`Export-Settings.ps1` on Windows). Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
-| `mksync diff` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
+| `mksync pull [--yes] [--force] [path…]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check. Nothing to change: a pull without paths still runs `import.sh --force` to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` (`Import-Settings.ps1 -Force` on Windows). Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point | 0, or 1 on an error |
+| `mksync push [--yes] [-m <msg>] [path…]` | Runs `export.sh` (`Export-Settings.ps1` on Windows). Picked paths go to it as `--only`, and any path makes `commit.sh` run with `--partial`, so a partial push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
+| `mksync diff [path…]` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
 
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
 sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
 since the last sync, and a pull would overwrite them.` and `Run mksync push first, or mksync pull --force to overwrite
-them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block, and without a sync point the diff doesn't run at all, since every
-label would be `?`.
+them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block.
 A diff that fails (exit 1) stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
 or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it.
+
+Without a sync point every label would be `?`, so the diff doesn't run and the first pull is guarded instead: with
+`--yes` it stops with `ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these
+files.` and `Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).`,
+exit 1; interactive it prints `No sync is recorded on this machine: if you changed these files here, a pull overwrites
+them (each keeps a .bak).` and asks `Apply these changes? [y/N]`, so only an answer starting with `y` or `Y` applies.
+When nothing differs, a pull without paths still runs the import, which records the sync point. `mksync setup` and
+`bootstrap/linux.sh` call the engine directly, so a new machine takes the repo's files unchanged.
 On Windows the guard recognises the same labels in the `[OUT      ]` status-line layout ([Known differences](#known-differences)).
 
 `pull` and `push` need the clone on `master` with an `origin` remote. On Windows, `pull` re-runs itself in a new
@@ -706,3 +776,7 @@ had the behavior.
 | Sync point (import, commit) | docs-dryrun-2 step 7 | steps 1-2 | |
 | `--diff` / `-Diff` | step 8 | step 3 | |
 | `mksync diff`, pull guard, status labels | step 9 | steps 4-6 | |
+| `--only` / `-Only` on import, export and `--diff` | safe-sync step 8 | safe-sync steps 1-3 | |
+| Paths on `mksync pull`, `push`, `diff`; `commit --partial` / `-Partial` | safe-sync step 9 | safe-sync step 4 | |
+| First-pull guard | safe-sync step 9 | safe-sync step 5 | |
+| Dated backups, kept for 20 runs | safe-sync step 9 | safe-sync step 6 | no dconf on Windows |

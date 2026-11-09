@@ -243,30 +243,58 @@ front_require_clone() {
 
 # Show which side changed each file, after a fetch so the repo side is current.
 # The fetch has the status's timeout; offline keeps comparing with the last one.
+# Anything not starting with "-" is a path to pick; the engines resolve it.
 front_diff() {
+    local -a only=()
+
+    while (( $# > 0 )); do
+        case $1 in
+            -*)
+                printf 'Unknown option: %s\n' "$1" >&2
+                exit 1
+                ;;
+            *)
+                only+=(--only "$1")
+                shift
+                ;;
+        esac
+    done
+
     if front_git remote get-url origin > /dev/null 2>&1; then
         if ! GIT_TERMINAL_PROMPT=0 run_with_timeout "${SYNC_FETCH_TIMEOUT:-15}" \
             git -C "$REPO_ROOT" fetch -q origin master > /dev/null 2>&1; then
             printf '  Offline: comparing with the last fetch.\n'
         fi
     fi
-    exec "$REPO_ROOT/export.sh" --diff "$@"
+    exec "$REPO_ROOT/export.sh" --diff "${only[@]}"
 }
 
 # Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
 # the new code, then the import check and, unless declined, the import.
 front_pull() {
-    local apply_yes=0 no_fetch=0 force=0 updates answer='' rc=0
+    local apply_yes=0 no_fetch=0 force=0 updates answer='' rc=0 point=''
     local diff_tmp='' diff_rc=0 blocked='' count=0
+    local -a paths=() only=()
 
     while (( $# > 0 )); do
         case $1 in
             --yes) apply_yes=1; shift ;;
             --no-fetch) no_fetch=1; shift ;;
             --force) force=1; shift ;;
-            *)
+            -*)
                 printf 'Unknown option: %s\n' "$1" >&2
                 exit 1
+                ;;
+            *)
+                # The re-exec after a git pull starts in the repo, so a relative
+                # path is made absolute against the caller's folder here.
+                # shellcheck disable=SC2088  # a literal '~/' typed by the caller
+                case $1 in
+                    /*|'~'|'~/'*|dotfiles/*) paths+=("$1") ;;
+                    *) paths+=("${SYNC_CALLER_PWD:-$PWD}/$1") ;;
+                esac
+                only+=(--only "${paths[-1]}")
+                shift
                 ;;
         esac
     done
@@ -293,35 +321,62 @@ front_pull() {
             # Run the just-pulled code, not the copy this process started with.
             if (( apply_yes )); then
                 if (( force )); then
-                    exec "$REPO_ROOT/sync" pull --no-fetch --yes --force
+                    exec "$REPO_ROOT/sync" pull --no-fetch --yes --force "${paths[@]}"
                 fi
-                exec "$REPO_ROOT/sync" pull --no-fetch --yes
+                exec "$REPO_ROOT/sync" pull --no-fetch --yes "${paths[@]}"
             fi
             if (( force )); then
-                exec "$REPO_ROOT/sync" pull --no-fetch --force
+                exec "$REPO_ROOT/sync" pull --no-fetch --force "${paths[@]}"
             fi
-            exec "$REPO_ROOT/sync" pull --no-fetch
+            exec "$REPO_ROOT/sync" pull --no-fetch "${paths[@]}"
         fi
     fi
 
-    "$REPO_ROOT/import.sh" --check < /dev/null || rc=$?
+    "$REPO_ROOT/import.sh" --check "${only[@]}" < /dev/null || rc=$?
     case $rc in
-        0) exit 0 ;;
+        0)
+            # Nothing to overwrite, but a full import still records the sync
+            # point, so this machine stops reading '?' in the next diff.
+            if (( ${#paths[@]} == 0 )); then
+                exec "$REPO_ROOT/import.sh" --force < /dev/null
+            fi
+            exit 0
+            ;;
         3) ;;
         *) exit 1 ;;
     esac
 
+    point=$(front_sync_point)
+
+    # With no sync point every diff label is '?', so the pull can't tell which
+    # side changed these files. Refuse under --yes, and ask with the default
+    # no when interactive.
+    if (( ! force )) && [[ -z $point ]]; then
+        if (( apply_yes )); then
+            printf "  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files.\n" >&2
+            printf '  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).\n' >&2
+            exit 1
+        fi
+        printf '  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).\n'
+        printf '  Apply these changes? [y/N] '
+        read -r answer || answer=''
+        if [[ $answer != [Yy]* ]]; then
+            printf '  Nothing applied.\n'
+            exit 0
+        fi
+        exec "$REPO_ROOT/import.sh" --force "${only[@]}"
+    fi
+
     # A pull overwrites this machine's version of every changed file, so ask
     # the diff which side changed them first. OUT and BOTH would be lost.
-    # Without a sync point every label is '?', which never blocks: skip it.
-    if (( ! force )) && [[ -n $(front_sync_point) ]]; then
+    if (( ! force )) && [[ -n $point ]]; then
         diff_tmp=$(mktemp) || diff_tmp=''
         if [[ -z $diff_tmp ]]; then
             printf '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.\n' >&2
             exit 1
         fi
         diff_rc=0
-        "$REPO_ROOT/export.sh" --diff < /dev/null > "$diff_tmp" 2>&1 || diff_rc=$?
+        "$REPO_ROOT/export.sh" --diff "${only[@]}" < /dev/null > "$diff_tmp" 2>&1 || diff_rc=$?
         blocked=$(grep -E '^  (OUT|BOTH) ' "$diff_tmp" || true)
         rm -f "$diff_tmp"
         case $diff_rc in
@@ -350,13 +405,14 @@ front_pull() {
         fi
     fi
 
-    exec "$REPO_ROOT/import.sh" --force
+    exec "$REPO_ROOT/import.sh" --force "${only[@]}"
 }
 
 # Send this machine's changes as a PR: export, show the diff and, unless
 # declined, run the commit flow.
 front_push() {
     local apply_yes=0 message='' answer='' changes='' rc=0
+    local -a paths=() only=() commit_args=()
 
     while (( $# > 0 )); do
         case $1 in
@@ -369,9 +425,14 @@ front_push() {
                 message=$2
                 shift 2
                 ;;
-            *)
+            -*)
                 printf 'Unknown option: %s\n' "$1" >&2
                 exit 1
+                ;;
+            *)
+                paths+=("$1")
+                only+=(--only "$1")
+                shift
                 ;;
         esac
     done
@@ -388,7 +449,7 @@ front_push() {
 
     # Stdin stays attached so export.sh can ask for missing values.
     rc=0
-    "$REPO_ROOT/export.sh" || rc=$?
+    "$REPO_ROOT/export.sh" "${only[@]}" || rc=$?
     if (( rc != 0 )); then
         exit "$rc"
     fi
@@ -410,10 +471,15 @@ front_push() {
         fi
     fi
 
-    if [[ -n $message ]]; then
-        exec "$REPO_ROOT/commit.sh" -m "$message"
+    # Picked files only: the commit covers part of the repo, so no sync point.
+    if (( ${#paths[@]} > 0 )); then
+        commit_args+=(--partial)
     fi
-    exec "$REPO_ROOT/commit.sh"
+
+    if [[ -n $message ]]; then
+        exec "$REPO_ROOT/commit.sh" -m "$message" "${commit_args[@]}"
+    fi
+    exec "$REPO_ROOT/commit.sh" "${commit_args[@]}"
 }
 
 # First run on this machine: doctor, the read-only import check, the optional

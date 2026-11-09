@@ -419,6 +419,22 @@ push_file_from_other() {
     git -C "$t/other" push -q origin master
 }
 
+# A second clone writes each <path> <text> pair and pushes one commit.
+push_files_from_other() {
+    local path text
+    git clone -q "$t/origin.git" "$t/other"
+    git -C "$t/other" config user.name t
+    git -C "$t/other" config user.email t@example.com
+    while (( $# >= 2 )); do
+        path=$1
+        text=$2
+        printf '%s\n' "$text" > "$t/other/$path"
+        shift 2
+    done
+    git -C "$t/other" commit -qam files
+    git -C "$t/other" push -q origin master
+}
+
 # Bare origin for the install cases: the engine entry points, sync and its
 # helpers, install.sh and the fixtures, pushed to $t/origin.git. install.sh
 # clones it into a throwaway HOME.
@@ -657,6 +673,158 @@ case_import_backup() {
     printf 'old\n' > "$t/expected.bak"
     cmp -s "$t/expected.bak" "$t/home/.config/fixture/plain.txt.bak" \
         || fail "plain.txt.bak does not contain the old content"
+}
+
+case_backup_dated() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'old tool\n' > "$t/home/.config/fixture/tool.sh"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    local root=$t/home/.local/state/sync-settings/backups run
+    [[ $(find "$root" -mindepth 1 -maxdepth 1 -type d | wc -l) -eq 1 ]] \
+        || fail "backups does not hold exactly one run folder"
+    run=$(find "$root" -mindepth 1 -maxdepth 1 -type d)
+    printf 'old\n' > "$t/expected"
+    cmp -s "$t/expected" "$run/dotfiles/linux/plain.txt" \
+        || fail "the dated copy of plain.txt does not hold the old content"
+    printf 'old tool\n' > "$t/expected"
+    cmp -s "$t/expected" "$run/dotfiles/linux/tool.sh" \
+        || fail "the dated copy of tool.sh does not hold the old content"
+    cmp -s "$t/expected" "$t/home/.config/fixture/tool.sh.bak" \
+        || fail "tool.sh.bak does not hold the old content"
+    grep -Fq "  Backups    : $run" "$out" || fail "missing the 'Backups    : <folder>' line"
+}
+
+case_backup_second_run() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'first\n' > "$t/home/.config/fixture/plain.txt"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "the first import exited $rc, want 0"
+
+    local root=$t/home/.local/state/sync-settings/backups first
+    [[ $(find "$root" -mindepth 1 -maxdepth 1 -type d | wc -l) -eq 1 ]] \
+        || fail "the first run did not make exactly one folder"
+    first=$(find "$root" -mindepth 1 -maxdepth 1 -type d)
+    printf 'second\n' > "$t/home/.config/fixture/plain.txt"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "the second import exited $rc, want 0"
+
+    [[ $(find "$root" -mindepth 1 -maxdepth 1 -type d | wc -l) -eq 2 ]] \
+        || fail "the second run did not make its own folder"
+    printf 'first\n' > "$t/expected"
+    cmp -s "$t/expected" "$first/dotfiles/linux/plain.txt" \
+        || fail "the first run's folder did not keep its old content"
+}
+
+case_backup_none() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    [[ ! -e $t/home/.local/state/sync-settings/backups ]] \
+        || fail "an import that overwrote nothing made a backups folder"
+    if grep -Fq '  Backups    :' "$out"; then
+        fail "an import that overwrote nothing printed a Backups line"
+    fi
+}
+
+case_backup_prune() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+
+    local root=$t/home/.local/state/sync-settings/backups i name
+    for (( i = 1; i <= 20; i++ )); do
+        printf -v name '%02d' "$i"
+        mkdir -p "$root/20200101-000000-$name"
+    done
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    local count
+    count=$(find "$root" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    [[ $count -eq 20 ]] || fail "the run left $count folders, want 20"
+    [[ ! -e $root/20200101-000000-01 ]] || fail "the oldest dummy folder was not pruned"
+    [[ -d $root/20200101-000000-20 ]] || fail "a newer dummy folder was pruned"
+}
+
+case_backup_xdg() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+    local state=$t/state
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" XDG_STATE_HOME="$state" ./import.sh --force < /dev/null) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    local run
+    run=$(find "$state/sync-settings/backups" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
+    [[ -n $run ]] || fail "no backups folder under XDG_STATE_HOME"
+    grep -Fq "  Backups    : $run" "$out" || fail "the Backups line does not name the XDG folder"
+    [[ ! -e $t/home/.local/state/sync-settings/backups ]] \
+        || fail "a backups folder was made under HOME despite XDG_STATE_HOME"
+}
+
+case_backup_dated_fails() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home/.config/fixture"
+    printf 'old\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'not a folder\n' > "$t/statefile"
+
+    rc=0
+    (cd "$t/repo" && HOME="$t/home" XDG_STATE_HOME="$t/statefile" ./import.sh --force < /dev/null) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    grep -Fqx '  WARNING: could not keep a dated backup of dotfiles/linux/plain.txt.' "$out" \
+        || fail "missing the WARNING line for the failed dated backup"
+    printf 'old\n' > "$t/expected"
+    cmp -s "$t/expected" "$t/home/.config/fixture/plain.txt.bak" \
+        || fail "plain.txt.bak does not hold the old content"
+}
+
+case_backup_dconf() {
+    setup_dconf_export_case
+    add_dconf_entry
+    mkdir -p "$t/repo/dotfiles/linux/dconf"
+    printf '[/]\na=2\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
+    printf '[/]\na=1\n' | dconf_seed /test/app/
+
+    run_engine_bus /dev/null import.sh --force
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    output_has_status UPDATED dotfiles/linux/dconf/app.ini 'backup saved as app.ini.bak' \
+        || fail "missing UPDATED (backup) line for the dconf entry"
+
+    local run
+    run=$(find "$t/home/.local/state/sync-settings/backups" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n 1)
+    [[ -n $run ]] || fail "the dconf update kept no dated backup"
+    printf '[/]\na=1\n' > "$t/expected"
+    cmp -s "$t/expected" "$run/dotfiles/linux/dconf/app.ini" \
+        || fail "the dated copy does not hold the old dump"
 }
 
 case_excluded() {
@@ -1094,6 +1262,194 @@ case_import_check_no_prompt() {
     output_has_status UPDATE dotfiles/linux/plain.txt || fail "missing UPDATE line for plain.txt"
 
     assert_check_dry "$home_before" "$repo_before"
+}
+
+case_import_only_one() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'local plain change\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'local tool change\n' > "$t/home/.config/fixture/tool.sh"
+
+    run_engine "$t/home" import.sh --force --only dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/repo/dotfiles/linux/plain.txt" "$t/home/.config/fixture/plain.txt" \
+        || fail "plain.txt was not updated"
+    grep -Fqx 'local tool change' "$t/home/.config/fixture/tool.sh" \
+        || fail "tool.sh was updated although --only picked plain.txt"
+    output_has_status UPDATED dotfiles/linux/plain.txt 'backup saved as plain.txt.bak' \
+        || fail "missing UPDATED (backup) line for plain.txt"
+    if grep -Fq 'dotfiles/linux/tool.sh' "$out"; then
+        fail "tool.sh got a status line although --only picked plain.txt"
+    fi
+}
+
+case_import_only_check() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'local plain change\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'local tool change\n' > "$t/home/.config/fixture/tool.sh"
+
+    run_engine "$t/home" import.sh --check --only dotfiles/linux/plain.txt
+    (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
+
+    output_has_status UPDATE dotfiles/linux/plain.txt || fail "missing UPDATE line for plain.txt"
+    if grep -Fq 'dotfiles/linux/tool.sh' "$out"; then
+        fail "tool.sh was listed although --only picked plain.txt"
+    fi
+    grep -Fqx '  1 file(s) would change. mksync pull overwrites them (each keeps a .bak).' "$out" \
+        || fail "the change count is not 1"
+}
+
+case_import_only_dir_file() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'changed\n' > "$t/home/.config/fixture/dir/c.txt"
+    printf 'changed deep\n' > "$t/home/.config/fixture/dir/a/b.txt"
+
+    run_engine "$t/home" import.sh --force --only dotfiles/common/dir/c.txt
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/home/.config/fixture/dir/c.txt" \
+        || fail "dir/c.txt was not updated"
+    grep -Fqx 'changed deep' "$t/home/.config/fixture/dir/a/b.txt" \
+        || fail "dir/a/b.txt was updated although --only picked dir/c.txt"
+    output_has_status UPDATED dotfiles/common/dir/c.txt 'backup saved as c.txt.bak' \
+        || fail "missing UPDATED (backup) line for dir/c.txt"
+    if grep -Fq 'dotfiles/common/dir/a/b.txt' "$out"; then
+        fail "dir/a/b.txt got a status line although --only picked dir/c.txt"
+    fi
+}
+
+case_import_only_no_sync_point() {
+    new_tmp
+    setup_sync_point_repo
+
+    run_clone_import "$t/home" --force --only dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+
+    [[ ! -e $t/home/.local/state/sync-settings/last-sync ]] \
+        || fail "a --only import wrote a sync point"
+    if grep -Fq '  Sync point :' "$out"; then
+        fail "the summary printed a sync point for a --only import"
+    fi
+}
+
+case_import_only_unknown() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    local home_before
+    home_before=$(tree_hash "$t/home")
+
+    # shellcheck disable=SC2088  # imported literally: the engine expands ~/
+    run_engine "$t/home" import.sh --force --only '~/not-synced'
+    (( rc == 1 )) || fail "an unknown --only path exited $rc, want 1"
+
+    grep -Fqx 'ERROR: ~/not-synced is not synced on this machine.' "$out" \
+        || fail "missing the unknown-path ERROR line"
+    [[ $(tree_hash "$t/home") == "$home_before" ]] || fail "home changed despite the unknown path"
+}
+
+case_import_only_missing_arg() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" import.sh --only
+    (( rc == 1 )) || fail "import.sh --only with no path exited $rc, want 1"
+
+    grep -Fqx 'ERROR: --only needs a path.' "$out" || fail "missing the missing-path ERROR line"
+}
+
+case_export_only_one() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    make_git_repo
+    printf 'local plain change\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'local tool change\n' > "$t/home/.config/fixture/tool.sh"
+
+    run_engine "$t/home" export.sh --only dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    # Only dotfiles/ is checked: the export also rewrites .user-values.json.
+    [[ $(git -C "$t/repo" status --porcelain -- dotfiles) == ' M dotfiles/linux/plain.txt' ]] \
+        || fail "the repo changed more than plain.txt although --only picked it"
+}
+
+case_export_only_dir_removed() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+    printf 'changed\n' > "$t/home/.config/fixture/dir/a/b.txt"
+    rm -f "$t/home/.config/fixture/dir/c.txt"
+
+    run_engine "$t/home" export.sh --only dotfiles/common/dir/a/b.txt
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    grep -Fqx 'changed' "$t/repo/dotfiles/common/dir/a/b.txt" \
+        || fail "dir/a/b.txt was not updated in the repo"
+    [[ -f $t/repo/dotfiles/common/dir/c.txt ]] \
+        || fail "dir/c.txt was removed although --only picked another file"
+}
+
+case_export_only_no_reports() {
+    setup_drift_case
+    # Without --only these two would print ORPHAN and DRIFT lines.
+    printf 'stray\n' > "$t/repo/dotfiles/linux/stray.txt"
+    printf 'foo\n' > "$t/stub/apt-mark.out"
+
+    PATH="$t/bin:$PATH" DRIFT_ROOT="$t/root" run_engine "$t/home" export.sh --only dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    if grep -qE '^  ORPHAN[[:space:]]' "$out"; then
+        fail "an ORPHAN line printed with --only"
+    fi
+    if grep -qE '^  DRIFT[[:space:]]' "$out"; then
+        fail "a DRIFT line printed with --only"
+    fi
+}
+
+case_diff_only() {
+    new_tmp
+    setup_diff_repo
+    set_sync_point "$(git -C "$t/clone" rev-parse HEAD)"
+    printf 'local plain change\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'local tool change\n' > "$t/home/.config/fixture/tool.sh"
+
+    run_clone_diff "$t/home" --only dotfiles/linux/plain.txt
+    (( rc == 3 )) || fail "export.sh --diff exited $rc, want 3"
+
+    output_has_status OUT dotfiles/linux/plain.txt || fail "missing OUT line for plain.txt"
+    if grep -Fq 'dotfiles/linux/tool.sh' "$out"; then
+        fail "tool.sh was labeled although --only picked plain.txt"
+    fi
+    grep -Fqx '  1 file(s) differ: 0 in, 1 out, 0 both.' "$out" || fail "wrong summary line"
+}
+
+case_export_only_preview() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    mkdir -p "$t/home"
+
+    run_engine "$t/home" export.sh --preview --only dotfiles/linux/plain.txt
+    (( rc == 1 )) || fail "export.sh --preview --only exited $rc, want 1"
+
+    grep -Fqx 'ERROR: --preview cannot be combined with --only.' "$out" \
+        || fail "missing the --preview/--only ERROR line"
 }
 
 case_crlf_unchanged() {
@@ -3325,6 +3681,62 @@ case_leak_gnome_other_file() {
     grep -Fq 'email' "$out" || fail "missing email hit"
 }
 
+# A hit is followed by a blank line and one hint for the rule that hit.
+case_leak_hint_home() {
+    new_tmp
+    leak_scan_on dotfiles/linux/tool/plain.txt '/home/someone/x'
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    (( $(grep -cF ': home-path' "$out") == 1 )) || fail "want one home-path hit"
+    local hit_line fix_line
+    hit_line=$(awk '/: home-path$/{print NR; exit}' "$out")
+    fix_line=$(awk '/^  fix home-path: /{print NR; exit}' "$out")
+    [[ -n $fix_line ]] || fail "missing home-path fix line"
+    (( fix_line == hit_line + 2 )) || fail "want a blank line between the hit and the fix"
+    grep -Fq "  fix home-path: write \$HOME or ~ instead of the full path, or add a <HOME> sanitize rule (defaultEnv HOME) to the file's entry." "$out" \
+        || fail "home-path fix text differs"
+}
+
+case_leak_hint_once() {
+    new_tmp
+    leak_scan_on dotfiles/linux/tool/plain.txt \
+        "$(printf '/home/someone/x\n/home/other/y')"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    (( $(grep -cF ': home-path' "$out") == 2 )) || fail "want two home-path hits"
+    (( $(grep -cF '  fix home-path: ' "$out") == 1 )) || fail "want one home-path fix line"
+}
+
+case_leak_hint_two_rules() {
+    new_tmp
+    local token
+    token="ghp_$(printf 'a%.0s' {1..36})"
+    leak_scan_on dotfiles/linux/tool/plain.txt "$(printf '/home/someone/x\n%s' "$token")"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    (( $(grep -cF '  fix home-path: ' "$out") == 1 )) || fail "missing home-path fix line"
+    (( $(grep -cF '  fix github-token: ' "$out") == 1 )) || fail "missing github-token fix line"
+    local home_line token_line
+    home_line=$(awk '/^  fix home-path: /{print NR; exit}' "$out")
+    token_line=$(awk '/^  fix github-token: /{print NR; exit}' "$out")
+    (( home_line < token_line )) || fail "want the home-path fix before the github-token fix"
+}
+
+case_leak_hint_no_secret() {
+    new_tmp
+    local token
+    token="ghp_$(printf 'a%.0s' {1..36})"
+    leak_scan_on dotfiles/linux/tool/plain.txt "$token"
+    (( rc == 1 )) || fail "leak-scan exited $rc, want 1"
+    if grep -Fq -- "$token" "$out"; then
+        fail "output leaked the token"
+    fi
+}
+
+case_leak_clean_silent() {
+    new_tmp
+    leak_scan_on dotfiles/linux/tool/plain.txt 'nothing to see here'
+    (( rc == 0 )) || fail "leak-scan exited $rc, want 0"
+    [[ ! -s $out ]] || fail "leak-scan printed output for a clean scan"
+}
+
 case_preview_cleans_up() {
     new_tmp
     mkdir -p "$t/tmp"
@@ -3792,7 +4204,7 @@ case_sync_help_lists_diff() {
     run_engine "$t/home" sync help
     (( rc == 0 )) || fail "sync help exited $rc, want 0"
 
-    grep -Fqx '  diff     which side changed each file, after a fetch' "$out" \
+    grep -Fqx '  diff [path...]  which side changed each file, after a fetch' "$out" \
         || fail "missing the diff usage line"
 }
 
@@ -4366,12 +4778,12 @@ case_sync_pull_declined() {
     new_tmp
     setup_commit_repo
     import_into_home
-    # No sync point, so the edit is '?' and the pull guard lets it through to
-    # the apply question this case declines.
+    # No sync point, so the first-pull guard would refuse; --force skips it and
+    # the edit reaches the apply question this case declines.
     rm -f "$t/home/.local/state/sync-settings/last-sync"
     printf 'local change\n' > "$t/home/.config/fixture/plain.txt"
 
-    run_sync_clone_input "$t/home" n pull
+    run_sync_clone_input "$t/home" n pull --force
     (( rc == 0 )) || fail "sync pull exited $rc, want 0"
 
     grep -Fq 'Nothing applied.' "$out" || fail "missing the nothing-applied line"
@@ -4481,7 +4893,8 @@ case_sync_pull_no_record() {
     rm -f "$t/home/.local/state/sync-settings/last-sync"
     printf 'local change\n' > "$t/home/.config/fixture/plain.txt"
 
-    run_sync_clone "$t/home" pull --yes
+    # Without a sync point the first pull refuses unless --force.
+    run_sync_clone "$t/home" pull --yes --force
     (( rc == 0 )) || fail "sync pull exited $rc, want 0"
 
     [[ $(cat "$t/home/.config/fixture/plain.txt") == 'plain' ]] \
@@ -4502,7 +4915,9 @@ case_sync_pull_no_record_skips_diff() {
     printf 'local change\n' > "$t/home/.config/fixture/plain.txt"
     break_clone_export
 
-    run_sync_clone "$t/home" pull --yes
+    # --force skips the first-pull guard, and the missing sync point still
+    # keeps the diff out of the way.
+    run_sync_clone "$t/home" pull --yes --force
     (( rc == 0 )) || fail "sync pull exited $rc, want 0 (no sync point must skip the diff)"
 
     [[ $(cat "$t/home/.config/fixture/plain.txt") == 'plain' ]] \
@@ -4577,6 +4992,235 @@ case_sync_push_declined() {
     [[ ! -e "$t/gh.log" ]] || fail "GH stub was called"
     git -C "$t/clone" status --porcelain -- dotfiles/linux/plain.txt | grep -q . \
         || fail "the change is not in the working tree"
+}
+
+case_front_usage_paths() {
+    new_tmp
+    setup_repo
+    add_sync
+
+    run_engine "$t/home" sync help
+    (( rc == 0 )) || fail "sync help exited $rc, want 0"
+
+    grep -Fqx '  pull [path...]  get the latest repo and apply it here' "$out" \
+        || fail "missing the pull paths line"
+    grep -Fqx "  push [path...]  send this machine's changes as a PR" "$out" \
+        || fail "missing the push paths line"
+    grep -Fqx '  diff [path...]  which side changed each file, after a fetch' "$out" \
+        || fail "missing the diff paths line"
+}
+
+case_front_pull_only() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    rm -f "$t/home/.local/state/sync-settings/last-sync"
+    push_files_from_other dotfiles/linux/plain.txt 'new plain' \
+        dotfiles/linux/no-trailing.txt 'new no-trailing'
+
+    run_sync_clone "$t/home" pull --yes --force dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'new plain' ]] \
+        || fail "the picked file was not applied"
+    cmp -s "$t/home/.config/fixture/no-trailing.txt" "$FIXTURES/home/.config/fixture/no-trailing.txt" \
+        || fail "the unpicked file was applied"
+    [[ ! -f "$t/home/.local/state/sync-settings/last-sync" ]] || fail "a partial pull wrote a sync point"
+}
+
+case_front_pull_only_guard() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    printf 'local change\n' > "$t/home/.config/fixture/plain.txt"
+
+    run_sync_clone "$t/home" pull --yes dotfiles/linux/plain.txt
+    (( rc == 1 )) || fail "sync pull exited $rc, want 1"
+
+    output_has_status OUT dotfiles/linux/plain.txt || fail "missing OUT line for the picked file"
+    grep -Fqx '  ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.' "$out" \
+        || fail "missing the overwrite error"
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'local change' ]] \
+        || fail "the local edit changed"
+
+    run_sync_clone "$t/home" pull --yes --force dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "sync pull --force exited $rc, want 0"
+
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'plain' ]] \
+        || fail "the repo version was not applied"
+    [[ $(cat "$t/home/.config/fixture/plain.txt.bak") == 'local change' ]] \
+        || fail "missing the backup of the local edit"
+}
+
+case_front_pull_first_yes() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    rm -f "$t/home/.local/state/sync-settings/last-sync"
+    push_plain_from_other 'new text'
+
+    run_sync_clone "$t/home" pull --yes
+    (( rc == 1 )) || fail "sync pull exited $rc, want 1"
+
+    grep -Fqx "  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files." "$out" \
+        || fail "missing the no-sync-record error"
+    grep -Fqx '  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).' "$out" \
+        || fail "missing the first-pull hint"
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'plain' ]] || fail "the local file changed"
+    [[ ! -f "$t/home/.local/state/sync-settings/last-sync" ]] || fail "a refused pull wrote a sync point"
+}
+
+case_front_pull_first_force() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    rm -f "$t/home/.local/state/sync-settings/last-sync"
+    push_plain_from_other 'new text'
+
+    run_sync_clone "$t/home" pull --yes --force
+    (( rc == 0 )) || fail "sync pull --force exited $rc, want 0"
+
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'new text' ]] \
+        || fail "the repo version was not applied"
+    [[ -f "$t/home/.config/fixture/plain.txt.bak" ]] || fail "missing plain.txt.bak"
+    [[ $(cat "$t/home/.local/state/sync-settings/last-sync") == "$(git --git-dir="$t/origin.git" rev-parse master)" ]] \
+        || fail "the pull did not record the sync point"
+}
+
+case_front_pull_first_empty() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    rm -f "$t/home/.local/state/sync-settings/last-sync"
+    push_plain_from_other 'new text'
+
+    run_sync_clone_input "$t/home" '' pull
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    grep -Fqx '  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).' "$out" \
+        || fail "missing the first-pull notice"
+    grep -Fq '  Apply these changes? [y/N] ' "$out" || fail "missing the no-default question"
+    grep -Fq '  Nothing applied.' "$out" || fail "missing the nothing-applied line"
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'plain' ]] || fail "the local file changed"
+    [[ ! -f "$t/home/.local/state/sync-settings/last-sync" ]] || fail "a declined pull wrote a sync point"
+}
+
+case_front_pull_first_y() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    rm -f "$t/home/.local/state/sync-settings/last-sync"
+    push_plain_from_other 'new text'
+
+    run_sync_clone_input "$t/home" y pull
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'new text' ]] \
+        || fail "the repo version was not applied"
+    [[ -f "$t/home/.config/fixture/plain.txt.bak" ]] || fail "missing plain.txt.bak"
+    [[ -f "$t/home/.local/state/sync-settings/last-sync" ]] || fail "the applied pull recorded no sync point"
+}
+
+case_front_pull_first_match() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    rm -f "$t/home/.local/state/sync-settings/last-sync"
+
+    run_sync_clone "$t/home" pull --yes
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    if grep -Fq 'Apply these changes?' "$out"; then fail "the matching pull asked a question"; fi
+    [[ $(cat "$t/home/.local/state/sync-settings/last-sync") == "$(git -C "$t/clone" rev-parse HEAD)" ]] \
+        || fail "the matching pull did not record the sync point"
+}
+
+case_front_pull_match_only() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    rm -f "$t/home/.local/state/sync-settings/last-sync"
+
+    run_sync_clone "$t/home" pull --yes dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    if grep -Fq 'Apply these changes?' "$out"; then fail "the matching pull asked a question"; fi
+    [[ ! -f "$t/home/.local/state/sync-settings/last-sync" ]] || fail "a partial pull wrote a sync point"
+}
+
+case_front_pull_recorded() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    push_plain_from_other 'new text'
+    [[ -f $t/home/.local/state/sync-settings/last-sync ]] || fail "setup: no sync point recorded"
+
+    run_sync_clone_input "$t/home" n pull
+    (( rc == 0 )) || fail "sync pull exited $rc, want 0"
+
+    grep -Fq '  Apply these changes? [Y/n] ' "$out" || fail "missing the default-yes question"
+    if grep -Fq 'No sync is recorded' "$out"; then fail "the first-pull notice printed with a sync point"; fi
+    grep -Fq '  Nothing applied.' "$out" || fail "missing the nothing-applied line"
+    [[ $(cat "$t/home/.config/fixture/plain.txt") == 'plain' ]] || fail "the local file changed"
+}
+
+case_front_push_only() {
+    new_tmp
+    setup_commit_repo
+    mkdir -p "$t/home/.config/fixture"
+    printf 'new plain\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'new no-trailing\n' > "$t/home/.config/fixture/no-trailing.txt"
+    local point branch files
+    set_sync_point "$(git -C "$t/clone" rev-parse HEAD)"
+    point=$(cat "$t/home/.local/state/sync-settings/last-sync")
+
+    run_sync_clone "$t/home" push --yes dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "sync push exited $rc, want 0"
+
+    grep -Fq 'pr create' "$t/gh.log" || fail "the GH stub did not open a PR"
+    branch=$(origin_branches | grep '^refs/heads/sync/linux-' | sed -n 's#^refs/heads/##p' | head -n 1)
+    [[ -n $branch ]] || fail "no sync branch on origin"
+    files=$(git --git-dir="$t/origin.git" show --name-only --format='' "$branch" | sort)
+    [[ $files == 'dotfiles/linux/plain.txt' ]] \
+        || fail "the branch committed more than the picked file: $files"
+    [[ $(cat "$t/home/.local/state/sync-settings/last-sync") == "$point" ]] \
+        || fail "a partial push changed the sync point"
+}
+
+case_front_diff_only() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    printf 'local change\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'local other\n' > "$t/home/.config/fixture/no-trailing.txt"
+
+    run_sync_clone "$t/home" diff dotfiles/linux/plain.txt
+    (( rc == 3 )) || fail "sync diff exited $rc, want 3"
+
+    output_has_status OUT dotfiles/linux/plain.txt || fail "missing OUT line for the picked file"
+    if output_has_status OUT dotfiles/linux/no-trailing.txt; then
+        fail "the unpicked file was labeled"
+    fi
+    grep -Fq '1 file(s) differ: 0 in, 1 out, 0 both.' "$out" || fail "the counts cover more than the picked file"
+}
+
+case_front_only_relative() {
+    new_tmp
+    setup_commit_repo
+    import_into_home
+    printf 'local change\n' > "$t/home/.config/fixture/plain.txt"
+
+    rc=0
+    (cd "$t/home" && HOME="$t/home" "$t/clone/sync" diff .config/fixture/plain.txt) > "$out" 2>&1 || rc=$?
+    (( rc == 3 )) || fail "sync diff with a relative path exited $rc, want 3"
+    output_has_status OUT dotfiles/linux/plain.txt || fail "the relative path did not select plain.txt"
+
+    rc=0
+    # The literal ~ is the point: the engine expands it, not the shell.
+    # shellcheck disable=SC2088
+    (cd "$t/clone" && HOME="$t/home" ./sync diff '~/.config/fixture/plain.txt') > "$out" 2>&1 || rc=$?
+    (( rc == 3 )) || fail "sync diff with a ~ path exited $rc, want 3"
+    output_has_status OUT dotfiles/linux/plain.txt || fail "the ~ path did not select plain.txt"
 }
 
 case_sync_setup_applies() {
@@ -6772,9 +7416,205 @@ case_diff_flags() {
     grep -Fq 'ERROR: --diff cannot be combined' "$out" || fail "missing the --reset-values conflict error"
 }
 
+# -- Path selection (--only) ---------------------------------------------------
+
+# Source the engine in the throwaway clone and run the bash snippet $1 with the
+# throwaway HOME; combined output lands in $out and rc holds the exit code.
+run_lib() {
+    local code=$1
+    rc=0
+    (cd "$t/clone" && HOME="$t/home" SYNC_OS=linux bash -c "source scripts/linux/sync.sh
+$code") > "$out" 2>&1 || rc=$?
+}
+
+case_only_repo_path() {
+    new_tmp
+    setup_sync_point_repo
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run_lib 'resolve_only dotfiles/linux/plain.txt
+printf "%s\n" "${ONLY_PATHS[@]}"'
+    (( rc == 0 )) || fail "resolve_only exited $rc, want 0"
+    [[ $(<"$out") == dotfiles/linux/plain.txt ]] \
+        || fail "ONLY_PATHS is '$(<"$out")', want dotfiles/linux/plain.txt"
+}
+
+case_only_local_tilde() {
+    new_tmp
+    setup_sync_point_repo
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run_lib 'resolve_only "~/.config/fixture/plain.txt"
+printf "%s\n" "${ONLY_PATHS[@]}"'
+    (( rc == 0 )) || fail "resolve_only exited $rc, want 0"
+    [[ $(<"$out") == dotfiles/linux/plain.txt ]] \
+        || fail "the ~/ path resolved to '$(<"$out")', want dotfiles/linux/plain.txt"
+}
+
+case_only_local_relative() {
+    new_tmp
+    setup_sync_point_repo
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run_lib 'export SYNC_CALLER_PWD=$HOME
+resolve_only .config/fixture/plain.txt
+printf "%s\n" "${ONLY_PATHS[@]}"'
+    (( rc == 0 )) || fail "resolve_only exited $rc, want 0"
+    [[ $(<"$out") == dotfiles/linux/plain.txt ]] \
+        || fail "the relative path resolved to '$(<"$out")', want dotfiles/linux/plain.txt"
+}
+
+case_only_dir_file() {
+    new_tmp
+    setup_sync_point_repo
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run_lib 'resolve_only "~/.config/fixture/dir/a/b.txt"
+printf "%s\n" "${ONLY_PATHS[@]}"'
+    (( rc == 0 )) || fail "resolve_only exited $rc, want 0"
+    [[ $(<"$out") == dotfiles/common/dir/a/b.txt ]] \
+        || fail "the file in the dir entry resolved to '$(<"$out")', want dotfiles/common/dir/a/b.txt"
+}
+
+case_only_dir_root() {
+    new_tmp
+    setup_sync_point_repo
+    # shellcheck disable=SC2016  # expanded by the inner bash
+    run_lib 'resolve_only "~/.config/fixture/dir"
+printf "%s\n" "${ONLY_PATHS[@]}"'
+    (( rc == 0 )) || fail "resolve_only exited $rc, want 0"
+    [[ $(<"$out") == dotfiles/common/dir ]] \
+        || fail "the dir entry root resolved to '$(<"$out")', want dotfiles/common/dir"
+}
+
+case_only_unknown() {
+    new_tmp
+    setup_sync_point_repo
+    run_lib 'resolve_only "~/not-synced"'
+    (( rc == 1 )) || fail "an unknown path exited $rc, want 1"
+    [[ $(<"$out") == 'ERROR: ~/not-synced is not synced on this machine.' ]] \
+        || fail "unknown path output is '$(<"$out")', want the ERROR line"
+}
+
+case_only_other_platform() {
+    new_tmp
+    setup_sync_point_repo
+    run_lib 'resolve_only dotfiles/windows/win.conf'
+    (( rc == 1 )) || fail "a windows entry exited $rc, want 1 on linux"
+    [[ $(<"$out") == 'ERROR: dotfiles/windows/win.conf is not synced on this machine.' ]] \
+        || fail "windows entry output is '$(<"$out")', want the ERROR line"
+}
+
+case_only_selected() {
+    new_tmp
+    setup_sync_point_repo
+    run_lib 'ONLY_PATHS=(dotfiles/common/dir)
+only_selected dotfiles/common/dir/a/b.txt && printf "dir-child 0\n" || printf "dir-child 1\n"
+only_selected dotfiles/common/dirx/a && printf "dir-sibling 0\n" || printf "dir-sibling 1\n"
+ONLY_PATHS=(dotfiles/linux/plain.txt)
+only_selected dotfiles/linux/plain.txt.linked/x && printf "linked 0\n" || printf "linked 1\n"
+only_selected dotfiles/linux/plain.txt2 && printf "path-sibling 0\n" || printf "path-sibling 1\n"
+ONLY_PATHS=()
+only_selected dotfiles/linux/plain.txt && printf "no-pick 0\n" || printf "no-pick 1\n"'
+    (( rc == 0 )) || fail "only_selected checks exited $rc, want 0"
+    grep -Fqx 'dir-child 0' "$out" || fail "a file inside the picked dir entry was not selected"
+    grep -Fqx 'dir-sibling 1' "$out" || fail "a sibling of the picked dir entry was selected"
+    grep -Fqx 'linked 0' "$out" || fail "a linked path of the picked file was not selected"
+    grep -Fqx 'path-sibling 1' "$out" || fail "a sibling of the picked file was selected"
+    grep -Fqx 'no-pick 0' "$out" || fail "an empty ONLY_PATHS did not select every path"
+}
+
+# Two entries: the plain fixture and a sanitized one whose only value is missing
+# and has no default. The sanitized local file holds the placeholder itself, so
+# infer_values cannot fill the value from it.
+setup_missing_value_case() {
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/linux" "$t/repo/dotfiles/common" "$t/home/.config/fixture"
+    printf 'plain\n' > "$t/repo/dotfiles/linux/plain.txt"
+    printf 'plain local\n' > "$t/home/.config/fixture/plain.txt"
+    printf 'value = <MISSING>\n' > "$t/repo/dotfiles/common/needsval.txt"
+    printf 'value = <MISSING>\n' > "$t/home/.config/fixture/needsval.txt"
+    printf '{}\n' > "$t/repo/.user-values.json"
+    jq -n '{
+        version: 1,
+        files: [
+            {repoPath: "dotfiles/linux/plain.txt", localPath: "~/.config/fixture/plain.txt",
+             platform: "linux", description: "picked fixture"},
+            {repoPath: "dotfiles/common/needsval.txt", localPath: "~/.config/fixture/needsval.txt",
+             platform: "common", description: "unpicked value fixture",
+             sanitizeRules: [{placeholder: "<MISSING>", prompt: "Missing value"}]}
+        ],
+        excludePatterns: []
+    }' > "$t/repo/sync-config.json"
+}
+
+case_only_direct_relative_import() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    # The engine is called directly, not through the sync wrapper, so it has to
+    # remember the caller's folder before its own cd.
+    rc=0
+    (cd "$t/home/.config/fixture" && HOME="$t/home" env -u SYNC_CALLER_PWD \
+        "$t/repo/import.sh" --check --only plain.txt < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 || rc == 3 )) || fail "import.sh exited $rc, want 0 or 3"
+    if grep -Fq 'is not synced' "$out"; then
+        fail "the bare filename did not resolve against the caller folder"
+    fi
+}
+
+case_only_direct_relative_export() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    setup_home_fixture
+
+    rc=0
+    (cd "$t/home/.config/fixture" && HOME="$t/home" env -u SYNC_CALLER_PWD \
+        "$t/repo/export.sh" --only plain.txt < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    if grep -Fq 'is not synced' "$out"; then
+        fail "the bare filename did not resolve against the caller folder"
+    fi
+}
+
+case_only_skips_unpicked_values() {
+    new_tmp
+    setup_missing_value_case
+
+    run_engine "$t/home" import.sh --force --only dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "import.sh exited $rc, want 0"
+    if grep -Fq 'Missing value' "$out" || grep -Fq 'missing value for <MISSING>' "$out"; then
+        fail "an unpicked entry's value was requested"
+    fi
+    cmp -s "$t/repo/dotfiles/linux/plain.txt" "$t/home/.config/fixture/plain.txt" \
+        || fail "plain.txt was not imported"
+
+    # Without --only the same run still stops on the missing value.
+    run_engine "$t/home" import.sh --force
+    (( rc == 1 )) || fail "import.sh without --only exited $rc, want 1"
+    grep -Fq 'missing value for <MISSING>' "$out" || fail "missing the missing-value message"
+}
+
+case_only_skips_unpicked_values_export() {
+    new_tmp
+    setup_missing_value_case
+
+    run_engine "$t/home" export.sh --only dotfiles/linux/plain.txt
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    if grep -Fq 'Missing value' "$out" || grep -Fq 'missing value for <MISSING>' "$out"; then
+        fail "an unpicked entry's value was requested"
+    fi
+    grep -Fqx 'plain local' "$t/repo/dotfiles/linux/plain.txt" \
+        || fail "plain.txt was not exported"
+
+    # Without --only the same run still stops on the missing value.
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh without --only exited $rc, want 1"
+    grep -Fq 'missing value for <MISSING>' "$out" || fail "missing the missing-value message"
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds export-symlink-mode roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-missing-folder import-check-error import-check-no-prompt crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink platform-macos-value platform-array platform-array-empty platform-array-repeat platform-array-common platform-array-windows-only platform-bad-sync-os os-select-env-ignored os-source-twice localpaths-macos localpaths-unsafe localpaths-bad-key localpaths-spaces path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad check-config-macos lint-linux-prefix lint-linux-local-tilde lint-macos-local-tilde lint-dconf-no-local-ok lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-macos-branch commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-check-routes sync-help-lists-check sync-diff-routes sync-diff-fetches sync-diff-offline sync-help-lists-diff sync-missing-tool sync-doctor-ready sync-doctor-missing-jq sync-doctor-gh-signed-out sync-doctor-no-link sync-status-clean sync-status-behind sync-status-unsent sync-status-differs sync-status-out sync-status-in sync-status-both sync-status-no-record sync-status-not-git sync-status-writes-nothing sync-status-os-name front-macos-label front-macos-doctor-no-brew front-macos-hints front-macos-setup-no-bootstrap front-macos-bootstrap-flag front-check-failed-next status-fetch-timeout-no-timeout-bin sync-symlink sync-pull-applies sync-pull-matches sync-pull-declined sync-pull-dirty sync-pull-not-master sync-pull-blocks-out sync-pull-blocks-both sync-pull-force sync-pull-in-only sync-pull-no-record sync-pull-no-record-skips-diff sync-pull-diff-fails sync-push-nothing sync-push-behind sync-push-opens-pr sync-push-declined sync-setup-applies sync-setup-offers-bootstrap sync-setup-doctor-fails install-fresh install-update install-not-a-clone install-link-conflict install-missing-jq-yes install-missing-jq-no-answer install-missing-jq-eof install-macos-no-brew install-macos-fresh install-macos-deps-no install-macos-deps-eof install-macos-has-deps install-runs-setup install-partial host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-platform-list dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent sync-point-import-records sync-point-xdg sync-point-check-none sync-point-user-skip sync-point-error sync-point-dirty sync-point-read sync-point-write-fails sync-point-commit-records sync-point-commit-pr-fails diff-clean diff-out diff-in diff-both diff-same-change diff-origin diff-no-origin diff-no-record diff-bad-record diff-sanitized diff-dir-removed diff-other-platform diff-writes-nothing diff-export-fails diff-flags guard-reexec; do
+for case_name in import-creates export-adds export-symlink-mode roundtrip-unchanged import-backup backup-dated backup-second-run backup-none backup-prune backup-xdg backup-dated-fails backup-dconf excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-missing-folder import-check-error import-check-no-prompt import-only-one import-only-check import-only-dir-file import-only-no-sync-point import-only-unknown import-only-missing-arg export-only-one export-only-dir-removed export-only-no-reports diff-only export-only-preview crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink platform-macos-value platform-array platform-array-empty platform-array-repeat platform-array-common platform-array-windows-only platform-bad-sync-os os-select-env-ignored os-source-twice localpaths-macos localpaths-unsafe localpaths-bad-key localpaths-spaces path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad check-config-macos lint-linux-prefix lint-linux-local-tilde lint-macos-local-tilde lint-dconf-no-local-ok lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-macos-branch commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-check-routes sync-help-lists-check sync-diff-routes sync-diff-fetches sync-diff-offline sync-help-lists-diff sync-missing-tool sync-doctor-ready sync-doctor-missing-jq sync-doctor-gh-signed-out sync-doctor-no-link sync-status-clean sync-status-behind sync-status-unsent sync-status-differs sync-status-out sync-status-in sync-status-both sync-status-no-record sync-status-not-git sync-status-writes-nothing sync-status-os-name front-macos-label front-macos-doctor-no-brew front-macos-hints front-macos-setup-no-bootstrap front-macos-bootstrap-flag front-check-failed-next front-pull-only front-pull-only-guard front-pull-first-yes front-pull-first-force front-pull-first-empty front-pull-first-y front-pull-first-match front-pull-match-only front-pull-recorded front-push-only front-diff-only front-only-relative front-usage-paths status-fetch-timeout-no-timeout-bin sync-symlink sync-pull-applies sync-pull-matches sync-pull-declined sync-pull-dirty sync-pull-not-master sync-pull-blocks-out sync-pull-blocks-both sync-pull-force sync-pull-in-only sync-pull-no-record sync-pull-no-record-skips-diff sync-pull-diff-fails sync-push-nothing sync-push-behind sync-push-opens-pr sync-push-declined sync-setup-applies sync-setup-offers-bootstrap sync-setup-doctor-fails install-fresh install-update install-not-a-clone install-link-conflict install-missing-jq-yes install-missing-jq-no-answer install-missing-jq-eof install-macos-no-brew install-macos-fresh install-macos-deps-no install-macos-deps-eof install-macos-has-deps install-runs-setup install-partial host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file leak-hint-home leak-hint-once leak-hint-two-rules leak-hint-no-secret leak-clean-silent dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-platform-list dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent sync-point-import-records sync-point-xdg sync-point-check-none sync-point-user-skip sync-point-error sync-point-dirty sync-point-read sync-point-write-fails sync-point-commit-records sync-point-commit-pr-fails diff-clean diff-out diff-in diff-both diff-same-change diff-origin diff-no-origin diff-no-record diff-bad-record diff-sanitized diff-dir-removed diff-other-platform diff-writes-nothing diff-export-fails diff-flags guard-reexec only-repo-path only-local-tilde only-local-relative only-dir-file only-dir-root only-unknown only-other-platform only-selected only-direct-relative-import only-direct-relative-export only-skips-unpicked-values only-skips-unpicked-values-export; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -6792,6 +7632,13 @@ for case_name in import-creates export-adds export-symlink-mode roundtrip-unchan
         export-symlink-mode) case_export_symlink_mode ;;
         roundtrip-unchanged) case_roundtrip_unchanged ;;
         import-backup) case_import_backup ;;
+        backup-dated) case_backup_dated ;;
+        backup-second-run) case_backup_second_run ;;
+        backup-none) case_backup_none ;;
+        backup-prune) case_backup_prune ;;
+        backup-xdg) case_backup_xdg ;;
+        backup-dated-fails) case_backup_dated_fails ;;
+        backup-dconf) case_backup_dconf ;;
         excluded) case_excluded ;;
         excluded-credentials) case_excluded_credentials ;;
         noninteractive-missing-value) case_noninteractive_missing_value ;;
@@ -6812,6 +7659,17 @@ for case_name in import-creates export-adds export-symlink-mode roundtrip-unchan
         import-check-missing-folder) case_import_check_missing_folder ;;
         import-check-error) case_import_check_error ;;
         import-check-no-prompt) case_import_check_no_prompt ;;
+        import-only-one) case_import_only_one ;;
+        import-only-check) case_import_only_check ;;
+        import-only-dir-file) case_import_only_dir_file ;;
+        import-only-no-sync-point) case_import_only_no_sync_point ;;
+        import-only-unknown) case_import_only_unknown ;;
+        import-only-missing-arg) case_import_only_missing_arg ;;
+        export-only-one) case_export_only_one ;;
+        export-only-dir-removed) case_export_only_dir_removed ;;
+        export-only-no-reports) case_export_only_no_reports ;;
+        diff-only) case_diff_only ;;
+        export-only-preview) case_export_only_preview ;;
         crlf-unchanged) case_crlf_unchanged ;;
         common-import) case_common_import ;;
         common-export) case_common_export ;;
@@ -7032,6 +7890,19 @@ for case_name in import-creates export-adds export-symlink-mode roundtrip-unchan
         front-macos-setup-no-bootstrap) case_front_macos_setup_no_bootstrap ;;
         front-macos-bootstrap-flag) case_front_macos_bootstrap_flag ;;
         front-check-failed-next) case_front_check_failed_next ;;
+        front-pull-only) case_front_pull_only ;;
+        front-pull-only-guard) case_front_pull_only_guard ;;
+        front-pull-first-yes) case_front_pull_first_yes ;;
+        front-pull-first-force) case_front_pull_first_force ;;
+        front-pull-first-empty) case_front_pull_first_empty ;;
+        front-pull-first-y) case_front_pull_first_y ;;
+        front-pull-first-match) case_front_pull_first_match ;;
+        front-pull-match-only) case_front_pull_match_only ;;
+        front-pull-recorded) case_front_pull_recorded ;;
+        front-push-only) case_front_push_only ;;
+        front-diff-only) case_front_diff_only ;;
+        front-only-relative) case_front_only_relative ;;
+        front-usage-paths) case_front_usage_paths ;;
         status-fetch-timeout-no-timeout-bin) case_status_fetch_timeout_no_timeout_bin ;;
         sync-symlink) case_sync_symlink ;;
         sync-pull-applies) case_sync_pull_applies ;;
@@ -7080,6 +7951,11 @@ for case_name in import-creates export-adds export-symlink-mode roundtrip-unchan
         leak-gnome-list-url-address) case_leak_gnome_list_url_address ;;
         leak-gnome-list-short-commit) case_leak_gnome_list_short_commit ;;
         leak-gnome-other-file) case_leak_gnome_other_file ;;
+        leak-hint-home) case_leak_hint_home ;;
+        leak-hint-once) case_leak_hint_once ;;
+        leak-hint-two-rules) case_leak_hint_two_rules ;;
+        leak-hint-no-secret) case_leak_hint_no_secret ;;
+        leak-clean-silent) case_leak_clean_silent ;;
         dconf-test-bus) case_dconf_test_bus ;;
         dconf-config-valid) case_dconf_config_valid ;;
         dconf-path-missing) case_dconf_path_missing ;;
@@ -7214,6 +8090,18 @@ for case_name in import-creates export-adds export-symlink-mode roundtrip-unchan
         diff-export-fails) case_diff_export_fails ;;
         diff-flags) case_diff_flags ;;
         guard-reexec) case_guard_reexec ;;
+        only-repo-path) case_only_repo_path ;;
+        only-local-tilde) case_only_local_tilde ;;
+        only-local-relative) case_only_local_relative ;;
+        only-dir-file) case_only_dir_file ;;
+        only-dir-root) case_only_dir_root ;;
+        only-unknown) case_only_unknown ;;
+        only-other-platform) case_only_other_platform ;;
+        only-selected) case_only_selected ;;
+        only-direct-relative-import) case_only_direct_relative_import ;;
+        only-direct-relative-export) case_only_direct_relative_export ;;
+        only-skips-unpicked-values) case_only_skips_unpicked_values ;;
+        only-skips-unpicked-values-export) case_only_skips_unpicked_values_export ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then

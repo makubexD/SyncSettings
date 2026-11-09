@@ -13,7 +13,8 @@ param(
     [switch]$Yes,
     [string]$Message = '',
     [switch]$NoFetch,
-    [switch]$Force
+    [switch]$Force,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Paths
 )
 
 $ErrorActionPreference = 'Stop'
@@ -146,12 +147,35 @@ function Read-Answer {
     return Read-Host $Prompt
 }
 
+# Make a picked path absolute against the caller's folder, except repo paths
+# (dotfiles/ or dotfiles\), home paths (~) and rooted paths, which stay as
+# typed. Mirrors the path case in front.sh, so the pull re-exec keeps working.
+function Resolve-FrontPath {
+    param([string]$Path)
+    if ($Path.StartsWith('dotfiles/', [StringComparison]::Ordinal) -or
+        $Path.StartsWith('dotfiles\', [StringComparison]::Ordinal) -or
+        $Path.StartsWith('~', [StringComparison]::Ordinal) -or
+        [IO.Path]::IsPathRooted($Path)) {
+        return $Path
+    }
+    $base = $env:SYNC_CALLER_PWD
+    if ([string]::IsNullOrEmpty($base)) {
+        $base = (Get-Location).Path
+    }
+    return (Join-Path $base $Path)
+}
+
 # Run the read-only import check in a child PowerShell, with stdin redirected,
 # show its output, and return its exit code.
 function Invoke-ImportCheck {
+    param([string]$Only = '')
     $checkScript = Join-Path $script:WindowsDir 'Import-Settings.ps1'
     $ErrorActionPreference = 'Continue'
-    $output = '' | & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File $checkScript -Check 2>&1 | Out-String
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $checkScript, '-Check')
+    if ($Only) {
+        $arguments += @('-Only', $Only)
+    }
+    $output = '' | & $script:PowerShellExe.Source @arguments 2>&1 | Out-String
     $code = $LASTEXITCODE
     Write-Host $output
     return $code
@@ -160,22 +184,40 @@ function Invoke-ImportCheck {
 # Run the engine's diff in a child PowerShell, with stdin redirected so it can
 # never prompt, and return its output and exit code. Never writes.
 function Invoke-ExportDiffChild {
+    param([string]$Only = '')
     $diffScript = Join-Path $script:WindowsDir 'Export-Settings.ps1'
     $ErrorActionPreference = 'Continue'
-    $output = '' | & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File $diffScript -Diff 2>&1 | Out-String
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $diffScript, '-Diff')
+    if ($Only) {
+        $arguments += @('-Only', $Only)
+    }
+    $output = '' | & $script:PowerShellExe.Source @arguments 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Output = $output }
 }
 
 # Show which side changed each file, after a fetch so the repo side is current.
 # The fetch has the status's timeout; offline keeps comparing with the last one.
+# Anything not starting with "-" is a path to pick; the engine resolves it.
 function Invoke-Diff {
+    param([string[]]$Paths)
+
+    $resolved = @()
+    foreach ($p in $Paths) {
+        $resolved += (Resolve-FrontPath -Path $p)
+    }
+    $onlyValue = ($resolved -join '|')
+
     $origin = Invoke-GitQuiet @('remote', 'get-url', 'origin')
     if ($origin.Code -eq 0) {
         if (-not (Invoke-GitFetch)) {
             Write-Host '  Offline: comparing with the last fetch.'
         }
     }
-    & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WindowsDir 'Export-Settings.ps1') -Diff
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Export-Settings.ps1'), '-Diff')
+    if ($onlyValue) {
+        $arguments += @('-Only', $onlyValue)
+    }
+    & $script:PowerShellExe.Source @arguments
     exit $LASTEXITCODE
 }
 
@@ -217,7 +259,17 @@ function Invoke-Setup {
 # Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
 # the new code, then the import check and, unless declined, the import.
 function Invoke-Pull {
+    param([string[]]$Paths)
+
     Assert-CloneReady 'pull'
+
+    # The re-exec after a git pull starts in the repo, so a relative path is
+    # made absolute against the caller's folder here, as front.sh does.
+    $resolved = @()
+    foreach ($p in $Paths) {
+        $resolved += (Resolve-FrontPath -Path $p)
+    }
+    $onlyValue = ($resolved -join '|')
 
     if (@(Get-SyncChanges).Count -gt 0) {
         Write-Host 'ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.'
@@ -249,26 +301,58 @@ function Invoke-Pull {
             if ($Force) {
                 $arguments += '-Force'
             }
+            $arguments += $resolved
             & $script:PowerShellExe.Source @arguments
             exit $LASTEXITCODE
         }
     }
 
     $ErrorActionPreference = 'Continue'
-    $code = Invoke-ImportCheck
+    $code = Invoke-ImportCheck -Only $onlyValue
+
+    $importArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Import-Settings.ps1'), '-Force')
+    if ($onlyValue) {
+        $importArgs += @('-Only', $onlyValue)
+    }
 
     if ($code -eq 0) {
+        # Nothing to overwrite, but a full import still records the sync
+        # point, so this machine stops reading '?' in the next diff.
+        if (-not $onlyValue) {
+            '' | & $script:PowerShellExe.Source @importArgs
+            exit $LASTEXITCODE
+        }
         exit 0
     }
     if ($code -ne 3) {
         exit 1
     }
 
+    $point = Read-LastSync -RepoRoot $script:RepoRoot
+
+    # With no sync point every diff label is '?', so the pull can't tell which
+    # side changed these files. Refuse under --yes, and ask with the default
+    # no when interactive.
+    if (-not $Force -and -not $point) {
+        if ($Yes) {
+            Write-Host '  ERROR: no sync is recorded on this machine, so a pull can''t tell which side changed these files.'
+            Write-Host '  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).'
+            exit 1
+        }
+        Write-Host '  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).'
+        $answer = Read-Answer '  Apply these changes? [y/N]'
+        if ($answer -notmatch '^y') {
+            Write-Host '  Nothing applied.'
+            exit 0
+        }
+        & $script:PowerShellExe.Source @importArgs
+        exit $LASTEXITCODE
+    }
+
     # A pull overwrites this machine's version of every changed file, so ask
     # the diff which side changed them first. OUT and BOTH would be lost.
-    # Without a sync point every label is '?', which never blocks: skip it.
-    if (-not $Force -and (Read-LastSync -RepoRoot $script:RepoRoot)) {
-        $diff = Invoke-ExportDiffChild
+    if (-not $Force -and $point) {
+        $diff = Invoke-ExportDiffChild -Only $onlyValue
         if ($diff.Code -ne 0 -and $diff.Code -ne 3) {
             Write-Host '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.'
             exit 1
@@ -297,17 +381,29 @@ function Invoke-Pull {
         }
     }
 
-    & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WindowsDir 'Import-Settings.ps1') -Force
+    & $script:PowerShellExe.Source @importArgs
     exit $LASTEXITCODE
 }
 
 # Send this machine's changes as a PR: export, show the diff and, unless
 # declined, run the commit flow.
 function Invoke-Push {
+    param([string[]]$Paths)
+
     Assert-CloneReady 'push'
 
+    $resolved = @()
+    foreach ($p in $Paths) {
+        $resolved += (Resolve-FrontPath -Path $p)
+    }
+    $onlyValue = ($resolved -join '|')
+
     # Stdin stays attached so the export can ask for missing values.
-    & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WindowsDir 'Export-Settings.ps1')
+    $exportArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Export-Settings.ps1'))
+    if ($onlyValue) {
+        $exportArgs += @('-Only', $onlyValue)
+    }
+    & $script:PowerShellExe.Source @exportArgs
     $code = $LASTEXITCODE
     if ($code -ne 0) {
         exit $code
@@ -336,6 +432,10 @@ function Invoke-Push {
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $script:WindowsDir 'Commit-Settings.ps1'))
     if ($Message) {
         $arguments += @('-Message', $Message)
+    }
+    # Picked files only: the commit covers part of the repo, so no sync point.
+    if ($resolved.Count -gt 0) {
+        $arguments += '-Partial'
     }
     & $script:PowerShellExe.Source @arguments
     exit $LASTEXITCODE
@@ -649,13 +749,13 @@ switch ($Command.ToLowerInvariant()) {
         Invoke-Setup
     }
     'pull' {
-        Invoke-Pull
+        Invoke-Pull -Paths $Paths
     }
     'push' {
-        Invoke-Push
+        Invoke-Push -Paths $Paths
     }
     'diff' {
-        Invoke-Diff
+        Invoke-Diff -Paths $Paths
     }
     default {
         [Console]::Error.WriteLine("Unknown command: $Command")

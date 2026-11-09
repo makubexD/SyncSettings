@@ -18,23 +18,29 @@ cd "$(dirname "$0")"
 source scripts/linux/sync.sh
 
 MESSAGE=''
+partial=0
 
 while (( $# > 0 )); do
     case $1 in
         -m)
             if (( $# < 2 )); then
-                printf 'Missing value for -m\nUsage: commit.sh [-m <message>]\n' >&2
+                printf 'Missing value for -m\nUsage: commit.sh [-m <message>] [--partial]\n' >&2
                 exit 1
             fi
             MESSAGE=$2
             shift 2
+            ;;
+        --partial)
+            # A push of picked files only: record no sync point for the rest.
+            partial=1
+            shift
             ;;
         --push)
             # Accepted for backward compatibility; commits now open a PR instead.
             shift
             ;;
         *)
-            printf 'Unknown option: %s\nUsage: commit.sh [-m <message>]\n' "$1" >&2
+            printf 'Unknown option: %s\nUsage: commit.sh [-m <message>] [--partial]\n' "$1" >&2
             exit 1
             ;;
     esac
@@ -325,7 +331,10 @@ fi
 git switch master
 
 # Record the parent only now: a failed commit, push or PR leaves no sync point.
-write_last_sync "$parent"
+# A partial push covers part of the repo only, so it records none.
+if (( ! partial )); then
+    write_last_sync "$parent"
+fi
 
 printf '  PR opened: %s\n' "$pr_url"
 printf '  Review it, add the '\''reviewed'\'' label, merge, then: git pull\n'

@@ -179,6 +179,155 @@ resolve_local() {
     printf '%s' "$p"
 }
 
+# -- Picking files (--only) ---------------------------------------------------
+
+# The repo paths picked with --only, filled by resolve_only. Empty means no pick.
+declare -ga ONLY_PATHS=()
+
+# normalize_path <absolute path>: drop empty and . segments and fold .. ones,
+# lexically, without following links. Not realpath -m: BSD realpath lacks -m.
+normalize_path() {
+    local rest=$1 part
+    local -a out=()
+    while [[ -n $rest ]]; do
+        part=${rest%%/*}
+        if [[ $rest == */* ]]; then
+            rest=${rest#*/}
+        else
+            rest=''
+        fi
+        case $part in
+            ''|.) ;;
+            ..) (( ${#out[@]} == 0 )) || unset 'out[-1]' ;;
+            *) out+=("$part") ;;
+        esac
+    done
+    local IFS=/
+    printf '/%s' "${out[*]}"
+}
+
+# resolve_only <path>...: turn each repo or local path into the repo path it
+# names, using the entries selected for this OS. A path that matches no entry
+# stops the run before any file is touched.
+resolve_only() {
+    local -a e_repo=() e_local=() e_kind=()
+    local repo_path local_path kind arg p found rest
+    local i
+
+    ONLY_PATHS=()
+
+    # NUL-separated, not @tsv: a path can hold a backslash or a tab.
+    while IFS= read -r -d '' repo_path && IFS= read -r -d '' local_path \
+        && IFS= read -r -d '' kind; do
+        e_repo+=("$repo_path")
+        case $kind in
+            dir)
+                e_kind+=('dir')
+                e_local+=("$(normalize_path "$(resolve_local "$local_path")")")
+                ;;
+            dconf)
+                e_kind+=('dconf')
+                e_local+=('')
+                ;;
+            *)
+                e_kind+=('file')
+                e_local+=("$(normalize_path "$(resolve_local "$local_path")")")
+                ;;
+        esac
+    done < <(platform_entries | jq -j '.repoPath, "\u0000", (.localPath // ""), "\u0000",
+        (.type // "file"), "\u0000"')
+
+    for arg in "$@"; do
+        p=$arg
+        # A repo path keeps its form; only a trailing slash is dropped.
+        while [[ $p == */ && $p != / ]]; do
+            p=${p%/}
+        done
+        if [[ $p == dotfiles/* ]]; then
+            found=0
+            for i in "${!e_repo[@]}"; do
+                if [[ $p == "${e_repo[$i]}" ]] \
+                    || { [[ ${e_kind[$i]} == dir ]] && [[ $p == "${e_repo[$i]}/"* ]]; } \
+                    || { [[ ${e_kind[$i]} == file ]] && [[ $p == "${e_repo[$i]}.linked/"* ]]; }; then
+                    found=1
+                    break
+                fi
+            done
+            if (( ! found )); then
+                printf 'ERROR: %s is not synced on this machine.\n' "$arg" >&2
+                return 1
+            fi
+            ONLY_PATHS+=("$p")
+            continue
+        fi
+
+        # Local path: expand ~, make it absolute against the caller's folder,
+        # then normalize . and .. so it compares with the entries' paths.
+        # shellcheck disable=SC2088  # a literal '~' typed by the caller
+        case $p in
+            '~') p=$HOME ;;
+            '~/'*) p="$HOME/${p#'~/'}" ;;
+        esac
+        if [[ $p != /* ]]; then
+            p="${SYNC_CALLER_PWD:-$PWD}/$p"
+        fi
+        p=$(normalize_path "$p")
+
+        found=0
+        for i in "${!e_repo[@]}"; do
+            if [[ ${e_kind[$i]} != dconf && $p == "${e_local[$i]}" ]]; then
+                ONLY_PATHS+=("${e_repo[$i]}")
+                found=1
+                break
+            fi
+        done
+        (( found )) && continue
+        for i in "${!e_repo[@]}"; do
+            if [[ ${e_kind[$i]} == dir && $p == "${e_local[$i]}/"* ]]; then
+                rest=${p#"${e_local[$i]}/"}
+                ONLY_PATHS+=("${e_repo[$i]}/$rest")
+                found=1
+                break
+            fi
+        done
+        if (( ! found )); then
+            printf 'ERROR: %s is not synced on this machine.\n' "$arg" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+
+# only_selected <repo_path>: true when no --only was given, or the path is one
+# of them or sits inside one (including a linked folder of a file entry).
+only_selected() {
+    local repo_path=$1 selected
+    [[ ${#ONLY_PATHS[@]} -gt 0 ]] || return 0
+    for selected in "${ONLY_PATHS[@]}"; do
+        if [[ $repo_path == "$selected" || $repo_path == "$selected/"* \
+            || $repo_path == "$selected.linked/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# True when a --only pick can select something under this entry: the entry
+# itself, a file inside a dir entry, or a linked folder of a file entry. With
+# no --only every entry is selected.
+entry_selected() {
+    local repo_path=$1 selected
+    if only_selected "$repo_path"; then
+        return 0
+    fi
+    for selected in "${ONLY_PATHS[@]}"; do
+        if [[ $selected == "$repo_path/"* || $selected == "$repo_path.linked/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 declare -a EXCLUDES=()
 if [[ -z ${SYNC_LIB_ONLY:-} ]]; then
     while IFS= read -r pattern; do
@@ -786,6 +935,47 @@ last_sync_file() {
     printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/last-sync"
 }
 
+# -- Dated backups ---------------------------------------------------------------
+
+# The folder this run keeps its dated backups in, made once per run. It is
+# printed, and cached in BACKUP_RUN_DIR so every backup of one run lands
+# together even when the run crosses a second.
+BACKUP_RUN_DIR=''
+BACKUP_MADE=0
+
+backup_run_dir() {
+    if [[ -z $BACKUP_RUN_DIR ]]; then
+        BACKUP_RUN_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/backups/$(date +%Y%m%d-%H%M%S)-$$"
+    fi
+    printf '%s\n' "$BACKUP_RUN_DIR"
+}
+
+# Copy an old local version into this run's folder. A failure prints a WARNING
+# and still returns 0: the .bak is the backup that must succeed.
+backup_dated() {
+    local src=$1 repo_path=$2 dir dst
+    backup_run_dir > /dev/null
+    dir=$BACKUP_RUN_DIR
+    dst=$dir/$repo_path
+    if mkdir -p "${dst%/*}" && cp -p "$src" "$dst"; then
+        # shellcheck disable=SC2034  # read by import.sh's prune and summary
+        BACKUP_MADE=1
+        return 0
+    fi
+    printf '  WARNING: could not keep a dated backup of %s.\n' "$repo_path"
+    return 0
+}
+
+# Write the .bak that must succeed, then the dated copy that only warns.
+backup_file() {
+    local src=$1 bak=$2 repo_path=$3
+    if ! cp -p "$src" "$bak"; then
+        return 1
+    fi
+    backup_dated "$src" "$repo_path"
+    return 0
+}
+
 # Print the recorded SHA and return 0 when the file's first line is 40 hex
 # characters and names a commit in this clone. Anything else is "no sync
 # point": print nothing and return 1.
@@ -1090,6 +1280,9 @@ run_diff() {
     local -a diff_lines=()
     while IFS= read -r path; do
         [[ -n $path ]] || continue
+        if ! only_selected "$path"; then
+            continue
+        fi
 
         local owned_here=0
         for prefix in "${owned_exact[@]:-}"; do

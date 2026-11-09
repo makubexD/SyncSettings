@@ -15,18 +15,20 @@ unset SYNC_REEXEC
 set -euo pipefail
 
 # Resolve the script through a symlink (mksync on PATH) before changing the
-# working directory, so every relative path below is the repo's.
+# working directory, so every relative path below is the repo's. Keep the
+# caller's folder so the engines can resolve the paths it was given.
+export SYNC_CALLER_PWD=$PWD
 cd "$(dirname "$(readlink -f "$0")")"
 REPO_ROOT=$PWD
 
 usage() {
     printf 'usage: mksync [command] [options]\n'
-    printf '  (none)   show where this machine stands and what to run next\n'
-    printf '  doctor   check the tools and the setup\n'
-    printf '  setup    first run on this machine\n'
-    printf '  pull     get the latest repo and apply it here\n'
-    printf "  push     send this machine's changes as a PR\n"
-    printf '  diff     which side changed each file, after a fetch\n'
+    printf '  %-14s  %s\n' '(none)' 'show where this machine stands and what to run next'
+    printf '  %-14s  %s\n' 'doctor' 'check the tools and the setup'
+    printf '  %-14s  %s\n' 'setup' 'first run on this machine'
+    printf '  %-14s  %s\n' 'pull [path...]' 'get the latest repo and apply it here'
+    printf '  %-14s  %s\n' 'push [path...]' "send this machine's changes as a PR"
+    printf '  %-14s  %s\n' 'diff [path...]' 'which side changed each file, after a fetch'
     printf '  preview | check | export | commit | import   the single steps\n'
 }
 
@@ -34,6 +36,9 @@ usage() {
 # read the switch as a path.
 case $(uname -s 2>/dev/null || printf 'Linux') in
     MINGW*|MSYS*|CYGWIN*)
+        # sync.cmd keeps this caller folder; PowerShell needs its Windows form.
+        SYNC_CALLER_PWD=$(cygpath -w "$SYNC_CALLER_PWD" 2>/dev/null || printf '%s' "$SYNC_CALLER_PWD")
+        export SYNC_CALLER_PWD
         exec cmd.exe //c sync.cmd "$@"
         ;;
 esac
