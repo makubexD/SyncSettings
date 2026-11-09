@@ -88,7 +88,7 @@ try {
     $config = Get-Content $configPath -Raw | ConvertFrom-Json
     Assert-ValidPlatform -Files $config.files
     Assert-SafePaths -RepoRoot $repoRoot -Files $config.files
-    $config.files = @($config.files | Where-Object { Test-WindowsEntry $_ })
+    $config.files = @(Select-WindowsEntries -Files $config.files)
 
     if (-not $Check -and (Test-RepoUpToDate -RepoRoot $repoRoot)) { exit 0 }
 

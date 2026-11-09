@@ -491,7 +491,14 @@ function Invoke-Doctor {
                 if ($null -eq $entry) {
                     continue
                 }
-                if ($entry.platform -ne 'windows' -and $entry.platform -ne 'common') {
+                # Same selection as Test-WindowsEntry in SyncHelpers.ps1, which this
+                # file doesn't load. Never compare a list with -ne: that filters.
+                $platform = $entry.platform
+                if ($platform -is [array]) {
+                    if (-not ($platform -ccontains 'windows')) {
+                        continue
+                    }
+                } elseif ($platform -cne 'windows' -and $platform -cne 'common') {
                     continue
                 }
                 foreach ($rule in @($entry.sanitizeRules)) {
