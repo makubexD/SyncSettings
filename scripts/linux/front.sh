@@ -93,6 +93,8 @@ front_status() {
     local pretty origin_text unsent_text machine_text next
     local is_git=0 has_origin=0 branch='' updates=0 unsent=0
     local machine_state=unknown machine_n='' tmp='' rc=0
+    local sync_sha='' diff_tmp='' diff_rc=0 diff_summary='' diff_in='' diff_out='' diff_both=''
+    local differ_next="mksync pull to take the repo's version, or mksync push to send this machine's."
 
     if [[ $SYNC_PLATFORM == macos ]]; then
         pretty=$(sw_vers -productVersion 2>/dev/null || printf 'unknown')
@@ -160,6 +162,38 @@ front_status() {
         rm -f "$tmp"
     fi
 
+    # With a sync point, the diff says which side changed the differing files,
+    # so the machine line can give the split and the next step can be exact.
+    # No sync point, a failed diff or a diff that agrees keeps the text above.
+    if [[ $machine_state == differ ]]; then
+        # read_last_sync lives in the engine; run it in its own shell so the
+        # engine's globals and shell options stay out of the status.
+        sync_sha=$(cd "$REPO_ROOT" && SYNC_LIB_ONLY=1 "${BASH:-bash}" -c \
+            'source scripts/linux/sync.sh && read_last_sync' 2>/dev/null) || sync_sha=''
+        if [[ -n $sync_sha ]]; then
+            diff_tmp=$(mktemp) || diff_tmp=''
+            if [[ -n $diff_tmp ]]; then
+                diff_rc=0
+                "$REPO_ROOT/export.sh" --diff < /dev/null > "$diff_tmp" 2>&1 || diff_rc=$?
+                if (( diff_rc == 3 )) &&
+                    diff_summary=$(sed -nE \
+                        's/^  ([0-9]+ file\(s\) differ: ([0-9]+) in, ([0-9]+) out, ([0-9]+) both)\.$/\1|\2|\3|\4/p' \
+                        "$diff_tmp" | head -n 1) &&
+                    [[ -n $diff_summary ]]; then
+                    IFS='|' read -r machine_text diff_in diff_out diff_both <<< "$diff_summary"
+                    if (( diff_both > 0 || (diff_in > 0 && diff_out > 0) )); then
+                        differ_next='mksync diff, then push or pull file by file.'
+                    elif (( diff_out > 0 )); then
+                        differ_next='mksync push'
+                    elif (( diff_in > 0 )); then
+                        differ_next='mksync pull'
+                    fi
+                fi
+                rm -f "$diff_tmp"
+            fi
+        fi
+    fi
+
     if (( ! is_git || ! has_origin )); then
         next='run mksync doctor.'
     elif (( updates > 0 )); then
@@ -167,7 +201,7 @@ front_status() {
     elif (( unsent > 0 )); then
         next='mksync push'
     elif [[ $machine_state == differ ]]; then
-        next="mksync pull to take the repo's version, or mksync push to send this machine's."
+        next=$differ_next
     elif [[ $machine_state == unknown ]]; then
         next='the machine check failed; run ./import.sh --check to see why.'
     else
