@@ -142,6 +142,7 @@ value in the file, and import puts it back, so pick values specific enough not t
   ```
 
 - Without a terminal, a placeholder with no value stops the run. Add the value to `.user-values.json`.
+- Export compares the sanitized text, so a change to a value alone (a new email) is not a change. A new line is.
 
 To enter the values again, run `./export.sh --reset-values` or `./import.sh --reset-values`, or on Windows
 `export.bat -ResetValues` or `import.bat -ResetValues`.
