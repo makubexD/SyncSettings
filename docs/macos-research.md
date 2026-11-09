@@ -69,3 +69,66 @@ settings (the dconf counterpart, with the same allowlist need because the repo i
 The tools synced today that a Mac would also use: git (`common`), the shell (`.bashrc`, `.profile`, though macOS defaults
 to zsh), tmux, starship, wezterm, htop, gh, VS Code (another folder), and Claude Code (`~/.claude`, same paths). The
 `linux` entries for these would become `common`, or get `macos` twins with other `localPath`s.
+
+## Probe results
+
+Run: <https://github.com/makubexD/SyncSettings/actions/runs/42545872997> (2026-11-08, `macos-latest` = macOS 26.7.2 on
+arm64), logs in its `probe-system` and `probe-gnu` artifacts.
+
+### What macOS 26 has
+
+From the `system` leg's tool check, which corrects the inventory above:
+
+| Tool | macOS 26 |
+|---|---|
+| `bash` | 3.2.57 |
+| `readlink -f`, `realpath` | present, work |
+| `sort -V` | works (`v1.9` before `v1.10`) |
+| `sha256sum` | present (`/sbin/sha256sum`) |
+| `cmp` | present |
+| `timeout` | missing |
+| `getent` | missing |
+| `find -printf` | `unknown primary or operator` |
+| `chmod --reference` | `illegal option` |
+| `jq` | not in macOS; Homebrew's was used |
+
+So on current macOS, the GNU gap is four things: `timeout`, `getent` (dconf only), `find -printf` and
+`chmod --reference`.
+
+### `gnu` leg: Homebrew bash 5.3 and GNU tools
+
+Engine: 305 passed, 48 failed. Bootstrap: 101 passed, 1 failed. `mksync doctor`: no `MISSING` line. `mksync` status: ran
+the import check and reported `38 file(s) differ from the repo` against the runner's home, which is the right answer for
+a machine that never imported.
+
+| Case | First error | Class |
+|---|---|---|
+| 36 `dconf-*` cases, plus `import-check-dconf`, `real-config-dconf-restore` among them | `dconf is not installed (dconf-cli)` | Linux-only by design |
+| `real-config-roundtrip` | `missing guarded SKIPPED line for dotfiles/linux/gnome/dconf/interface.ini` | Linux-only by design (dconf) |
+| `install-fresh`, `install-update`, `install-not-a-clone`, `install-link-conflict`, `install-missing-jq-yes`, `install-missing-jq-no-answer`, `install-missing-jq-eof`, `install-runs-setup` | `install.sh exited 1` (its `Darwin` gate, `install.sh:46`) | Gate, expected |
+| `prompt-empty-stops`, `defaultenv-valid`, `upstream-behind-pull` | wrong exit code | Test harness only: `script -qec` is util-linux syntax; BSD `script` takes `script -q /dev/null cmd` |
+| bootstrap `tools-claude-file-first` | `stdin was not /dev/null` | Test harness only: the stub reads `/proc/self/fd/0` |
+
+Engine: 37 + 8 + 3 = 48. Bootstrap: 1. No failure is in the engine itself: with Homebrew bash and GNU tools on `PATH`,
+every export, import, commit, preview, check and drift case that isn't dconf passes on macOS.
+
+### `system` leg: macOS's own bash 3.2 and BSD tools
+
+| What | Result | Class |
+|---|---|---|
+| `tests/linux/engine.sh` | `line 5308: syntax error near unexpected token ';;'`; no case ran | Bash 3.2: its parser fails on a `case` inside `$( … )` without `(pattern)`, used by the runner loop only |
+| `tests/linux/bootstrap.sh` | `line 1814`, the same error; no case ran | Bash 3.2, same |
+| `mksync doctor` | `MISSING bash 4 or newer (this is 3.2.57(1)-release)` | The gate at `scripts/linux/front.sh:350` works |
+| `mksync` status | `Machine : not checked`, so `./import.sh --check` failed | Bash 3.2 (`declare -A` at `scripts/linux/sync.sh:11` is the first bash-4 line it reaches) |
+
+The engine scripts don't use `$(case …)` (checked), so the parse error is the test harness's. But because no case ran,
+this leg measures nothing about option B's cost beyond the inventory: the real list of bash 3.2 failures would only show
+after the harness is fixed. The inventory's estimate stands: one associative array, six `mapfile`s, the unguarded empty
+arrays under `set -u`, plus the four BSD gaps.
+
+### Found on the way
+
+- `mksync` status says `Next: nothing to do.` when the machine check couldn't run (`scripts/linux/front.sh:119`-`:122`):
+  a failed check falls through to the last branch. Linux and Windows (`scripts/windows/Front.ps1`, `Show-Status`) do the
+  same today. It should say to run the check by hand to see why.
+- The OS label read `linux (unknown)` on macOS: the status reads `/etc/os-release`, which macOS doesn't have.
