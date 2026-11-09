@@ -1449,6 +1449,7 @@ function Import-DirEntry {
         [string[]]$ExcludePatterns,
         [bool]$Force = $false,
         [bool]$Check = $false,
+        [string[]]$Only,
         $ErrorCount = $null
     )
 
@@ -1471,6 +1472,7 @@ function Import-DirEntry {
     foreach ($file in (Get-ChildItem -LiteralPath $RepoDir -File -Recurse -Force)) {
         $rel = $file.FullName.Substring($RepoDir.TrimEnd('\').Length + 1)
         $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+        if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
         $localFile = Join-Path $LocalDir $rel
 
         if (Test-Excluded -FilePath $localFile -Patterns $ExcludePatterns) {
@@ -1496,6 +1498,7 @@ function Import-DirEntry {
         foreach ($file in (Get-ChildItem -LiteralPath $LocalDir -File -Recurse -Force)) {
             $rel = $file.FullName.Substring($LocalDir.TrimEnd('\').Length + 1)
             $itemLabel = "$Label/" + ($rel -replace '\\', '/')
+            if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
             if (Test-Path -LiteralPath (Join-Path $RepoDir $rel)) {
                 continue
             }
@@ -1528,6 +1531,7 @@ function Import-LinkedDirectory {
         [string[]]$ExcludePatterns,
         [bool]$Force = $false,
         [bool]$Check = $false,
+        [string[]]$Only,
         $ErrorCount = $null
     )
 
@@ -1543,6 +1547,7 @@ function Import-LinkedDirectory {
     $applied = 0
     foreach ($file in (Get-ChildItem -LiteralPath $SourceDir -File -Force)) {
         $itemLabel = "$Label/" + $file.Name
+        if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
         $localFile = Join-Path $DestDir $file.Name
 
         if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -1567,6 +1572,7 @@ function Import-LinkedDirectory {
     if (Test-Path -LiteralPath $DestDir) {
         foreach ($file in (Get-ChildItem -LiteralPath $DestDir -File -Force)) {
             $itemLabel = "$Label/" + $file.Name
+            if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
             if (Test-Path -LiteralPath (Join-Path $SourceDir $file.Name)) {
                 continue
             }
