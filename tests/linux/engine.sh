@@ -32,6 +32,12 @@ else
 fi
 readonly HARNESS_OS
 
+# On macOS the engine would pick macos and drop the fixtures' "linux" entries.
+# Every case runs the engine as linux unless it sets SYNC_OS itself, so the
+# engine's logic is tested on BSD tools and Homebrew bash. HARNESS_OS above is
+# already resolved, so the linux-only skips still follow the real system.
+export SYNC_OS=${SYNC_OS:-linux}
+
 # Cases build repos with git outside the throwaway HOME. Keep the host's git
 # config, ignore and attributes files out of them: core.autocrlf=input rewrites
 # fixture line endings in the commit.
@@ -46,13 +52,27 @@ fail() {
     exit 1
 }
 
+# File mode in octal: GNU stat takes -c, BSD (macOS) stat takes -f %Lp.
+file_mode() {
+    stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"
+}
+
+# SHA256 of a file, hash only: GNU sha256sum, or shasum -a 256 on macOS.
+sha256_of() {
+    if command -v sha256sum > /dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
 # The copy keeps the source's mode and is executable. Compare with the fixture
 # rather than a literal 755: git checks files out under the user's umask.
 same_mode() {
     local want=$1 got=$2
     [[ -x $got ]] || fail "${got##*/} is not executable"
-    [[ $(stat -c %a "$got") == "$(stat -c %a "$want")" ]] \
-        || fail "${got##*/} mode is $(stat -c %a "$got"), want $(stat -c %a "$want") like ${want#"$FIXTURES"/}"
+    [[ $(file_mode "$got") == "$(file_mode "$want")" ]] \
+        || fail "${got##*/} mode is $(file_mode "$got"), want $(file_mode "$want") like ${want#"$FIXTURES"/}"
 }
 
 # The exact status line the engine prints (scripts/linux/sync.sh status()).
@@ -72,7 +92,7 @@ output_has_status() {
 # import-check-dconf and lint-dconf-* cases, which exercise the same entries.
 linux_only_case() {
     case $1 in
-        *dconf*|drift-*|real-config-roundtrip) return 0 ;;
+        *dconf*|drift-*|real-config-roundtrip|lint-packages-*|lint-real-packages) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -144,6 +164,35 @@ run_in_pty() {
     fi
 }
 
+# Run a command with a time limit, returning 124 on timeout like `timeout`.
+# macOS has no `timeout`, so the fallback runs the command in the background
+# and a watcher kills it after the limit.
+run_with_timeout() {
+    local secs=$1
+    shift
+
+    if command -v timeout > /dev/null 2>&1; then
+        timeout "$secs" "$@"
+        return
+    fi
+
+    local pid watcher rc=0
+    "$@" &
+    pid=$!
+    (
+        sleep "$secs"
+        kill "$pid" 2> /dev/null
+    ) &
+    watcher=$!
+    wait "$pid" || rc=$?
+    if kill -0 "$watcher" 2> /dev/null; then
+        # The command finished first: stop the watcher and keep its status.
+        kill "$watcher" 2> /dev/null || true
+        return "$rc"
+    fi
+    return 124
+}
+
 # dconf writes go over the session bus, not through $HOME, so every dconf case
 # runs on its own bus. The fake getent makes $t/home the login home for the engine.
 setup_dconf_bus() {
@@ -181,7 +230,7 @@ tree_hash() {
     local dir=$1 f
     (cd "$dir" \
         && while IFS= read -r f; do
-            printf '%s %s %s\n' "$(sha256sum "$f" | awk '{print $1}')" "$(stat -c %a "$f")" "$f"
+            printf '%s %s %s\n' "$(sha256_of "$f")" "$(file_mode "$f")" "$f"
         done < <(find . -name .git -prune -o -type f -print | sed 's#^\./##' | sort))
 }
 
@@ -638,7 +687,7 @@ case_values_mode_new() {
     umask 022
     run_engine "$t/home" import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
-    [[ $(stat -c '%a' "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
+    [[ $(file_mode "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
 }
 
 case_values_mode_tightened() {
@@ -655,7 +704,7 @@ case_values_mode_tightened() {
 
     run_engine "$t/home" import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
-    [[ $(stat -c '%a' "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
+    [[ $(file_mode "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
 }
 
 case_error_continues() {
@@ -728,7 +777,7 @@ case_import_check_writes_nothing() {
     local home_before repo_before values_before
     home_before=$(tree_hash "$t/home")
     repo_before=$(tree_hash "$t/repo")
-    values_before=$(sha256sum "$t/repo/.user-values.json")
+    values_before=$(sha256_of "$t/repo/.user-values.json")
 
     run_engine "$t/home" import.sh --check
     (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
@@ -739,7 +788,7 @@ case_import_check_writes_nothing() {
         || fail "missing the 'would change' summary line"
 
     assert_check_dry "$home_before" "$repo_before"
-    [[ $(sha256sum "$t/repo/.user-values.json") == "$values_before" ]] \
+    [[ $(sha256_of "$t/repo/.user-values.json") == "$values_before" ]] \
         || fail ".user-values.json changed during the check"
 }
 
@@ -2203,7 +2252,7 @@ case_sanitized_large_file() {
     { printf 'name = Fixture User\n'; cat "$body"; printf '\n\n'; } > "$t/home/.config/fixture/named.conf"
 
     rc=0
-    (cd "$t/repo" && HOME="$t/home" timeout 20 ./export.sh < /dev/null) > "$out" 2>&1 || rc=$?
+    (cd "$t/repo" && HOME="$t/home" run_with_timeout 20 ./export.sh < /dev/null) > "$out" 2>&1 || rc=$?
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/named.conf \
         || fail "missing UNCHANGED line for the large named.conf"
@@ -2371,10 +2420,10 @@ case_dir_export_adds() {
         || fail "dotfiles/common/dir/a/b.txt differs from fixture"
     cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
         || fail "dotfiles/common/dir/c.txt differs from fixture"
-    [[ $(stat -c %a "$t/repo/dotfiles/common/dir/a/b.txt") == 600 ]] \
-        || fail "a/b.txt mode is $(stat -c %a "$t/repo/dotfiles/common/dir/a/b.txt"), want 600"
-    [[ $(stat -c %a "$t/repo/dotfiles/common/dir/c.txt") == 755 ]] \
-        || fail "c.txt mode is $(stat -c %a "$t/repo/dotfiles/common/dir/c.txt"), want 755"
+    [[ $(file_mode "$t/repo/dotfiles/common/dir/a/b.txt") == 600 ]] \
+        || fail "a/b.txt mode is $(file_mode "$t/repo/dotfiles/common/dir/a/b.txt"), want 600"
+    [[ $(file_mode "$t/repo/dotfiles/common/dir/c.txt") == 755 ]] \
+        || fail "c.txt mode is $(file_mode "$t/repo/dotfiles/common/dir/c.txt"), want 755"
 
     output_has_status ADDED dotfiles/common/dir/a/b.txt || fail "missing ADDED line for dir/a/b.txt"
     output_has_status ADDED dotfiles/common/dir/c.txt || fail "missing ADDED line for dir/c.txt"
@@ -3195,7 +3244,7 @@ case_commit_happy() {
     sync_count=$(printf '%s\n' "$branches" | grep -c '^refs/heads/sync/linux-testbox-' || true)
     (( sync_count == 1 )) || fail "want 1 sync branch on origin, got: $branches"
 
-    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub called $(wc -l < "$t/gh.log") times, want 1"
+    [[ $(( $(wc -l < "$t/gh.log") )) == 1 ]] || fail "GH stub called $(( $(wc -l < "$t/gh.log") )) times, want 1"
 }
 
 case_commit_leak_blocked() {
@@ -3239,7 +3288,7 @@ case_commit_packages() {
     local branch
     branch=$(origin_branches | grep '^refs/heads/sync/linux-testbox-' || true)
     [[ -n $branch ]] || fail "no sync branch on origin"
-    [[ $(printf '%s\n' "$branch" | wc -l) == 1 ]] || fail "want 1 sync branch, got: $branch"
+    [[ $(( $(printf '%s\n' "$branch" | wc -l) )) == 1 ]] || fail "want 1 sync branch, got: $branch"
 
     [[ $(git --git-dir="$t/origin.git" diff --name-only master "$branch") == 'packages/linux/apt.txt' ]] \
         || fail "the branch commit does not hold only packages/linux/apt.txt"
@@ -3377,7 +3426,7 @@ case_commit_value_placeholder_only() {
 
     run_commit "$t/home"
     (( rc == 0 )) || fail "commit.sh exited $rc, want 0"
-    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub was not called once"
+    [[ $(( $(wc -l < "$t/gh.log") )) == 1 ]] || fail "GH stub was not called once"
 }
 
 case_commit_value_not_printed() {
@@ -4297,7 +4346,7 @@ case_install_runs_setup() {
 
 case_install_partial() {
     setup_install_origin
-    head -n -1 "$REPO/install.sh" > "$t/install-partial.sh"
+    sed '$d' "$REPO/install.sh" > "$t/install-partial.sh"
 
     rc=0
     (cd "$t" && PATH="$t/stub:$PATH" HOME="$t/home" \
@@ -4325,7 +4374,7 @@ case_dconf_test_bus() {
     # if this machine has one.
     local real_db=$HOME/.config/dconf/user real_before='' real_after=''
     if [[ -e $real_db ]]; then
-        real_before=$(sha256sum "$real_db")
+        real_before=$(sha256_of "$real_db")
     fi
 
     printf '[/]\nkey=1\n' | dconf_seed /test/app/ \
@@ -4354,7 +4403,7 @@ EOF
         || fail "HOME and the login home aren't both $t/home on the test bus"
 
     if [[ -n $real_before ]]; then
-        real_after=$(sha256sum "$real_db")
+        real_after=$(sha256_of "$real_db")
         [[ $real_after == "$real_before" ]] || fail "the real dconf database changed"
     fi
 }
@@ -4609,13 +4658,13 @@ case_dconf_export_unchanged() {
         || fail "missing ADDED line on the first export"
 
     local hash_before
-    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+    hash_before=$(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini")
 
     run_engine_bus /dev/null export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
         || fail "missing UNCHANGED line on the second export"
-    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
         || fail "repo file changed on an UNCHANGED export"
 }
 
@@ -4741,13 +4790,13 @@ case_dconf_export_no_settings_keeps_repo() {
     mkdir -p "$t/repo/dotfiles/linux/dconf"
     printf '[/]\nold=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
     local hash_before
-    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+    hash_before=$(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini")
 
     run_engine_bus /dev/null export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'no settings under /test/app/' \
         || fail "missing SKIPPED (no settings) line"
-    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
         || fail "repo file changed despite the empty dump"
 }
 
@@ -4757,14 +4806,14 @@ case_dconf_export_keys_empty_result() {
     mkdir -p "$t/repo/dotfiles/linux/dconf"
     printf '[/]\nold=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
     local hash_before
-    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+    hash_before=$(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini")
     printf '[/]\na=1\n' | dconf_seed /test/app/
 
     run_engine_bus /dev/null export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'no settings under /test/app/' \
         || fail "missing SKIPPED (no settings) line"
-    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
         || fail "repo file changed when the filter kept nothing"
 }
 
@@ -4884,13 +4933,13 @@ case_dconf_import_unchanged() {
     printf '[/]\na=1\n' | dconf_seed /test/app/
 
     local hash_before
-    hash_before=$(sha256sum "$t/home/.config/dconf/user")
+    hash_before=$(sha256_of "$t/home/.config/dconf/user")
 
     run_engine_bus /dev/null import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
         || fail "missing UNCHANGED line for the dconf entry"
-    [[ $(sha256sum "$t/home/.config/dconf/user") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/home/.config/dconf/user") == "$hash_before" ]] \
         || fail "the dconf database changed on an UNCHANGED import"
 }
 
