@@ -465,6 +465,59 @@ that failed before that (commit, push or PR) writes nothing.
 
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
+## Diff
+
+`export.sh --diff` (`Export-Settings.ps1 -Diff`) says which side changed each file, without writing anything. It
+builds three trees of `dotfiles/` in a temp folder:
+
+- `base`: `git archive` of the sync point. With no sync point, `theirs` stands in for `base`.
+- `theirs`: `git archive` of `origin/master` when that ref exists, else `HEAD`. The engine never fetches; the front
+  door fetches first.
+- `mine`: a copy of `base` plus the current `sync-config.json`, `export.sh`, `scripts/`, `packages/` and
+  `.user-values.json`, with a preview export run inside it (`SYNC_PREVIEW=1`, stdin from `/dev/null`, output to a log
+  in the temp folder). Starting from `base` means any file export doesn't touch still equals `base`.
+
+Only paths this OS's entries own are compared: a file or dconf entry owns its `repoPath`, a file entry also owns the
+`<repoPath>.linked/` prefix, and a dir entry owns the `<repoPath>/` prefix. A missing file counts as a version, and
+each owned path in the union of the three trees gets at most one label:
+
+| `mine` vs `base` | `theirs` vs `base` | Label |
+|---|---|---|
+| same | same | none |
+| same | differs | `IN`: only the repo changed, a pull takes it |
+| differs | same | `OUT`: only this machine changed, a push sends it |
+| differs | differs, `mine` = `theirs` | none: both made the same change |
+| differs | differs, `mine` ≠ `theirs` | `BOTH`: merge by hand |
+| no sync point, `mine` ≠ `theirs` | | `?` |
+
+The lines print through the normal status formatter (`OUT        dotfiles/…`) and are sorted with `LC_ALL=C sort`.
+The header names the sync point (`Last sync  : <short> (<date>)`, or `none recorded on this machine`) and the ref
+compared (`Repo       : origin/master <short>` or `Repo       : HEAD <short>`).
+
+```text
+  SyncSettings -- DIFF (linux)
+
+  Last sync  : 1a2b3c4 (2026-11-01)
+  Repo       : origin/master 5d6e7f8
+
+  OUT        dotfiles/linux/shell/.bashrc
+  IN         dotfiles/common/git/.gitconfig
+
+  --------------------------------------------------
+
+  2 file(s) differ: 1 in, 1 out, 0 both.
+  IN: mksync pull takes them. OUT: mksync push sends them.
+```
+
+The hint line names only the labels present; `BOTH` adds `BOTH: changed on both sides; merge by hand.` With no sync
+point the summary reads `N file(s) differ. No sync is recorded on this machine, so the newer side is unknown.` and
+`Run mksync pull or mksync push once to record one.` When nothing differs it prints `This machine and the repo agree.`
+
+The exit code is 0 when nothing differs, 3 when something does, and 1 on an error: a failed export prints its log
+and `ERROR: the export for the diff failed; see above.`; a failed `git archive` also exits 1. `--diff` cannot be
+combined with `--preview` or `--reset-values` (error, exit 1). The diff writes no repo file, no sync point and no
+`.user-values.json`, and its temp folder is removed on every exit.
+
 ## Front door
 
 On Linux, `mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named

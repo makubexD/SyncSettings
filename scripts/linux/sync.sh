@@ -980,6 +980,213 @@ run_preview() {
     return "$leak_found"
 }
 
+# -- Export diff ----------------------------------------------------------------
+
+# True when two paths under the diff's trees hold the same version. A path
+# absent on both sides counts as the same version.
+diff_path_same() {
+    local a=$1 b=$2
+    if [[ -f $a && -f $b ]]; then
+        cmp -s "$a" "$b"
+    else
+        [[ ! -e $a && ! -e $b ]]
+    fi
+}
+
+# Show which side changed each file this OS owns: this machine, the sync point,
+# and origin/master (or HEAD). Builds three trees in a temp folder and writes
+# nothing outside it, ever.
+# Exit: 0 when nothing differs, 3 when something does, 1 on an error.
+run_diff() {
+    if ! git -C "$REPO_ROOT" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+        printf 'ERROR: --diff needs a git repo with a commit.\n' >&2
+        exit 1
+    fi
+
+    # Global on purpose: the EXIT trap needs it after this function returns.
+    DIFF_TMP=$(mktemp -d)
+    trap 'rm -rf "$DIFF_TMP"' EXIT
+    trap 'exit 130' INT TERM
+    mkdir -p "$DIFF_TMP/base" "$DIFF_TMP/theirs" "$DIFF_TMP/mine"
+
+    local sync_sha='' have_base=0 repo_ref repo_sha last_line
+    local entry repo_path entry_type path label prefix line tree
+    local in_count=0 out_count=0 both_count=0 unknown_count=0
+    local mine_base theirs_base hints
+
+    # base: the tree this machine last agreed with (the sync point).
+    if sync_sha=$(read_last_sync); then
+        have_base=1
+        if ! git -C "$REPO_ROOT" archive -o "$DIFF_TMP/base.tar" "$sync_sha" -- dotfiles; then
+            printf 'ERROR: git archive failed for %s.\n' "$sync_sha" >&2
+            exit 1
+        fi
+        tar -xf "$DIFF_TMP/base.tar" -C "$DIFF_TMP/base"
+    fi
+
+    # theirs: the repo's side. The engine never fetches.
+    if git -C "$REPO_ROOT" rev-parse --verify -q origin/master >/dev/null 2>&1; then
+        repo_ref=origin/master
+    else
+        repo_ref=HEAD
+    fi
+    repo_sha=$(git -C "$REPO_ROOT" log -1 --format=%h "$repo_ref")
+    if ! git -C "$REPO_ROOT" archive -o "$DIFF_TMP/theirs.tar" "$repo_ref" -- dotfiles; then
+        printf 'ERROR: git archive failed for %s.\n' "$repo_ref" >&2
+        exit 1
+    fi
+    tar -xf "$DIFF_TMP/theirs.tar" -C "$DIFF_TMP/theirs"
+
+    # With no sync point the repo's tree stands in for the base, so every
+    # difference is machine against repo and no side can be called newer.
+    if (( ! have_base )) && [[ -d $DIFF_TMP/theirs/dotfiles ]]; then
+        cp -a "$DIFF_TMP/theirs/dotfiles" "$DIFF_TMP/base/"
+    fi
+
+    # mine: the base plus the current engine and config, then a preview export
+    # inside it. A file export doesn't touch therefore still equals base.
+    if [[ -d $DIFF_TMP/base/dotfiles ]]; then
+        cp -a "$DIFF_TMP/base/dotfiles" "$DIFF_TMP/mine/"
+    fi
+    cp -a "$REPO_ROOT/sync-config.json" "$REPO_ROOT/export.sh" "$REPO_ROOT/scripts" "$DIFF_TMP/mine/"
+    if [[ -d $REPO_ROOT/packages ]]; then
+        cp -a "$REPO_ROOT/packages" "$DIFF_TMP/mine/"
+    fi
+    if [[ -f $REPO_ROOT/.user-values.json ]]; then
+        cp -a "$REPO_ROOT/.user-values.json" "$DIFF_TMP/mine/"
+    fi
+
+    if ! (cd "$DIFF_TMP/mine" && SYNC_PREVIEW=1 ./export.sh) < /dev/null > "$DIFF_TMP/export.log" 2>&1; then
+        cat "$DIFF_TMP/export.log"
+        printf '  ERROR: the export for the diff failed; see above.\n' >&2
+        exit 1
+    fi
+
+    # The paths this OS's entries own: a file or dconf entry its repoPath, a
+    # file entry also its .linked/ prefix, a dir entry its folder prefix.
+    local -a owned_exact=() owned_linked=() owned_dirs=()
+    while IFS= read -r entry; do
+        repo_path=$(jq -r '.repoPath' <<<"$entry")
+        entry_type=$(jq -r '.type // "file"' <<<"$entry")
+        if [[ $entry_type == dir ]]; then
+            owned_dirs+=("$repo_path/")
+        else
+            owned_exact+=("$repo_path")
+            if [[ $entry_type == file ]]; then
+                owned_linked+=("$repo_path.linked/")
+            fi
+        fi
+    done < <(platform_entries)
+
+    printf '\n  SyncSettings -- DIFF (%s)\n\n' "$SYNC_PLATFORM"
+    if (( have_base )); then
+        last_line=$(git -C "$REPO_ROOT" log -1 --format='%h (%cs)' "$sync_sha")
+    else
+        last_line='none recorded on this machine'
+    fi
+    printf '  Last sync  : %s\n' "$last_line"
+    printf '  Repo       : %s %s\n\n' "$repo_ref" "$repo_sha"
+
+    local -a diff_lines=()
+    while IFS= read -r path; do
+        [[ -n $path ]] || continue
+
+        local owned_here=0
+        for prefix in "${owned_exact[@]:-}"; do
+            if [[ -n $prefix && $path == "$prefix" ]]; then owned_here=1; break; fi
+        done
+        if (( ! owned_here )); then
+            for prefix in "${owned_linked[@]:-}"; do
+                if [[ -n $prefix && $path == "$prefix"* ]]; then owned_here=1; break; fi
+            done
+        fi
+        if (( ! owned_here )); then
+            for prefix in "${owned_dirs[@]:-}"; do
+                if [[ -n $prefix && $path == "$prefix"* ]]; then owned_here=1; break; fi
+            done
+        fi
+        (( owned_here )) || continue
+
+        mine_base=0
+        if diff_path_same "$DIFF_TMP/mine/$path" "$DIFF_TMP/base/$path"; then
+            mine_base=1
+        fi
+        theirs_base=0
+        if diff_path_same "$DIFF_TMP/theirs/$path" "$DIFF_TMP/base/$path"; then
+            theirs_base=1
+        fi
+
+        label=''
+        if (( have_base )); then
+            if (( mine_base && theirs_base )); then
+                :
+            elif (( mine_base )); then
+                label=IN
+            elif (( theirs_base )); then
+                label=OUT
+            elif diff_path_same "$DIFF_TMP/mine/$path" "$DIFF_TMP/theirs/$path"; then
+                # Both sides made the same change.
+                :
+            else
+                label=BOTH
+            fi
+        elif ! diff_path_same "$DIFF_TMP/mine/$path" "$DIFF_TMP/theirs/$path"; then
+            label='?'
+        fi
+
+        case $label in
+            IN) in_count=$((in_count + 1)); diff_lines+=("IN $path") ;;
+            OUT) out_count=$((out_count + 1)); diff_lines+=("OUT $path") ;;
+            BOTH) both_count=$((both_count + 1)); diff_lines+=("BOTH $path") ;;
+            '?') unknown_count=$((unknown_count + 1)); diff_lines+=("? $path") ;;
+            '') ;;
+        esac
+    done < <(
+        for tree in base theirs mine; do
+            [[ -d $DIFF_TMP/$tree/dotfiles ]] || continue
+            (cd "$DIFF_TMP/$tree" && find dotfiles -type f -print)
+        done | LC_ALL=C sort -u
+    )
+
+    for line in "${diff_lines[@]:-}"; do
+        [[ -n $line ]] || continue
+        status "${line%% *}" "${line#* }"
+    done
+    if (( unknown_count + in_count + out_count + both_count > 0 )); then
+        printf '\n'
+    fi
+
+    printf '  %s\n\n' "--------------------------------------------------"
+
+    if (( in_count + out_count + both_count + unknown_count == 0 )); then
+        printf '  This machine and the repo agree.\n\n'
+        return 0
+    fi
+
+    if (( ! have_base )); then
+        printf '  %d file(s) differ. No sync is recorded on this machine, so the newer side is unknown.\n' \
+            "$unknown_count"
+        printf '  Run mksync pull or mksync push once to record one.\n\n'
+        return 3
+    fi
+
+    printf '  %d file(s) differ: %d in, %d out, %d both.\n' \
+        "$((in_count + out_count + both_count))" "$in_count" "$out_count" "$both_count"
+    hints=''
+    if (( in_count > 0 )); then
+        hints='IN: mksync pull takes them.'
+    fi
+    if (( out_count > 0 )); then
+        hints="${hints:+$hints }OUT: mksync push sends them."
+    fi
+    if (( both_count > 0 )); then
+        hints="${hints:+$hints }BOTH: changed on both sides; merge by hand."
+    fi
+    printf '  %s\n\n' "$hints"
+
+    return 3
+}
+
 # -- Text I/O helpers ------------------------------------------------------------
 
 # Read a file's full text as-is into $1 (name of variable), keeping trailing newlines.
