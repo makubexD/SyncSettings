@@ -336,7 +336,7 @@ function Invoke-Pull {
     if (-not $Force -and -not $point) {
         if ($Yes) {
             Write-Host '  ERROR: no sync is recorded on this machine, so a pull can''t tell which side changed these files.'
-            Write-Host '  Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).'
+            Write-Host '  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).'
             exit 1
         }
         Write-Host '  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).'

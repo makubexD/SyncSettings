@@ -4,7 +4,8 @@ rem push, diff, and the single steps preview, check, export, commit, import.
 rem The bash sync wrapper hands over here on Git Bash, MSYS and Cygwin.
 setlocal EnableExtensions
 rem Keep the caller's folder so the engines can resolve the paths it was given.
-set "SYNC_CALLER_PWD=%CD%"
+rem The bash sync wrapper sets it first, since it changes folder before calling.
+if not defined SYNC_CALLER_PWD set "SYNC_CALLER_PWD=%CD%"
 pushd "%~dp0"
 
 set "RC=1"

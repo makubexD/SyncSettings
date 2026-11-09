@@ -5064,7 +5064,7 @@ case_front_pull_first_yes() {
 
     grep -Fqx "  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files." "$out" \
         || fail "missing the no-sync-record error"
-    grep -Fqx '  Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).' "$out" \
+    grep -Fqx '  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).' "$out" \
         || fail "missing the first-pull hint"
     [[ $(cat "$t/home/.config/fixture/plain.txt") == 'plain' ]] || fail "the local file changed"
     [[ ! -f "$t/home/.local/state/sync-settings/last-sync" ]] || fail "a refused pull wrote a sync point"

@@ -354,7 +354,7 @@ front_pull() {
     if (( ! force )) && [[ -z $point ]]; then
         if (( apply_yes )); then
             printf "  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files.\n" >&2
-            printf '  Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).\n' >&2
+            printf '  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).\n' >&2
             exit 1
         fi
         printf '  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).\n'

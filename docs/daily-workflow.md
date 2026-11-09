@@ -71,7 +71,8 @@ edit you haven't sent. Run `mksync push` first, or `mksync pull --force` to over
 
 The first pull on a machine has no sync recorded, so it can't tell which side changed a file. It warns, and asks
 `Apply these changes? [y/N]`: Enter keeps your files, `y` applies the repo's. `mksync pull --yes` refuses outright,
-so a script never overwrites a machine it knows nothing about. Take files one at a time instead (below), or
+so a script never overwrites a machine it knows nothing about, even with paths. Take files one at a time without
+`--yes` instead (below), or
 `mksync pull --force`. A pull that finds nothing to change records the sync anyway, so the next diff has labels.
 `mksync setup` and the restore script still take the repo's files on a new machine without asking.
 
@@ -90,7 +91,7 @@ the repo (`dotfiles/...`). A folder entry takes a file inside it too. A path no 
 command before anything changes. The pull guard still checks the picked files: an `OUT` or `BOTH` file needs `--force`.
 
 A pull or push of some files doesn't record a sync point, since the machine only agrees with part of the repo. Run a
-plain `mksync pull` or `mksync push` when you want the labels to start from there.
+plain `mksync pull` when you want the labels to start from there.
 
 ## Getting an old version back
 

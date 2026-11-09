@@ -614,7 +614,7 @@ or mksync pull --force.` `--force` skips the diff and still asks the apply quest
 
 Without a sync point every label would be `?`, so the diff doesn't run and the first pull is guarded instead: with
 `--yes` it stops with `ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these
-files.` and `Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).`,
+files.` and `Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).`,
 exit 1; interactive it prints `No sync is recorded on this machine: if you changed these files here, a pull overwrites
 them (each keeps a .bak).` and asks `Apply these changes? [y/N]`, so only an answer starting with `y` or `Y` applies.
 When nothing differs, a pull without paths still runs the import, which records the sync point. `mksync setup` and

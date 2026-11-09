@@ -3494,7 +3494,7 @@ Describe 'Windows engine' {
 
             $script:EngineExit | Should -Be 1
             $script:EngineOut | Should -Match ([regex]::Escape("  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files."))
-            $script:EngineOut | Should -Match ([regex]::Escape('  Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).'))
+            $script:EngineOut | Should -Match ([regex]::Escape('  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).'))
             $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
             (Get-Content -LiteralPath $winConf -Raw) | Should -Not -Match ([regex]::Escape('# pulled'))
             Get-SyncPointFile | Should -Not -Exist

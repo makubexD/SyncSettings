@@ -36,6 +36,9 @@ usage() {
 # read the switch as a path.
 case $(uname -s 2>/dev/null || printf 'Linux') in
     MINGW*|MSYS*|CYGWIN*)
+        # sync.cmd keeps this caller folder; PowerShell needs its Windows form.
+        SYNC_CALLER_PWD=$(cygpath -w "$SYNC_CALLER_PWD" 2>/dev/null || printf '%s' "$SYNC_CALLER_PWD")
+        export SYNC_CALLER_PWD
         exec cmd.exe //c sync.cmd "$@"
         ;;
 esac
