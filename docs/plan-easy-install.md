@@ -59,7 +59,7 @@ jq, so Windows doesn't install it. Pester cases in CI, then a run on the real Wi
 On 2026-11-08 the user chose to start this phase before the W0-W6 checks in `TODO.md` ran. They still gate the real run on
 Windows, the last step of the phase.
 
-### Phase 3: macOS, gated on research
+### Phase 3: macOS, gated on research `docs/plan-easy-install-3.md`
 
 macOS isn't supported today. The bash engine needs bash 4 and GNU tools (`chmod --reference`, `readlink -f`), while macOS
 ships bash 3.2 and BSD tools. Research first: Homebrew bash and coreutils as dependencies, or portable code. A `macos`
