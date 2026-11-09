@@ -19,8 +19,9 @@ Arguments from the user: $ARGUMENTS
    do it in the main session instead. If its result is a model's own behavior (an eval or probe run),
    stop: the worker would measure DeepSeek, not the model under test. Delegating the eval files is fine.
 3. **Check the repo.** Run `git rev-parse --show-toplevel` and `git status --short`. Not a git repo, or
-   a dirty tree: stop and tell the user to commit or stash first. An uncommitted plan file counts as
-   dirty too: offer to format it with the repo's formatter and commit it (`docs: plan <feature>`) before delegating.
+   a dirty tree: stop and tell the user to commit or stash first. An uncommitted plan file or plan edit counts as
+   dirty too, but don't ask: run the repo's formatter and `plan-next --check` on it, commit it
+   (`docs: plan <feature> edits`, `Route: unplanned`), then delegate.
 4. **Size it.** A worker step is one concern touching at most about 3 files. If the step is bigger (several
    separate changes, a long file-by-file list), split it into sub-steps and send them one at a time, each
    reviewed before the next. The effort level is unaffected: keep the one chosen.
@@ -36,15 +37,17 @@ Arguments from the user: $ARGUMENTS
    summary (it ends with `--- log <dir>`). The full transcript is in `<dir>/stream.jsonl` if needed.
 7. **Exit codes.** 0 = review it. 75 = DeepSeek key, balance or rate problem: stop, report the error
    line, don't retry. 2 = setup problem (dirty tree, missing key): fix and rerun. 124 = timed out after
-   15 min: treat as a rejection. `(max turns)`: the step was too big and the diff may be partial; review
+   15 min: the step is too big, so split it and send the parts; don't resend at `high`. `(max turns)`: the step was too big and the diff may be partial; review
    what's there, then split the rest and send it. Other non-zero: read the errors, treat as a rejection.
-8. **Review it yourself.** The summary is a claim. Read `git diff`, rerun the test command, and check
+8. **Review it yourself.** The summary is a claim. Read `git diff`, rerun the step's own test command and
+   the linter on the changed files (not the full suite, which runs once in the plan's finish), and check
    that only the allowed files changed and no tests were deleted or skipped.
 9. **Report** to the user: accepted or rejected, files changed, test result, model, effort, tokens, and
    the log dir. A one-off task: don't commit unless the user asks. A step of a committed plan: commit
    the accepted step with the `Plan-Step` and `Route` trailers from `CLAUDE.md`, and send the next one
    without asking; stop and ask only at an `[inline]` judgment
-   step, a rejection or failure, or the end of the phase or plan.
+   step, a rejection or failure, or the end of the phase or plan. If the `context-gate` hook added its line to the
+   completion notification, commit the step, send a push notification, and stop with "/clear, then /next".
    - Rejected once: discard the worker's changes only with the user's OK (or `git stash`), then resend
      with a concrete correction.
    - Rejected twice: tell the user and offer to do it in the main session.

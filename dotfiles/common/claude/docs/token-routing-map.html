@@ -222,7 +222,7 @@ footer { color: var(--muted); font-size: 0.85rem; }
         <!-- Review gate -->
         <rect x="200" y="458" width="500" height="78" rx="10" class="box-ink"/>
         <text x="450" y="482" text-anchor="middle" class="t-mono c-ink">REVIEW GATE · RESULTS ARE CLAIMS, NOT FACTS</text>
-        <text x="450" y="505" text-anchor="middle" class="t-title">Read git diff · rerun tests · check scope</text>
+        <text x="450" y="505" text-anchor="middle" class="t-title">Read git diff · rerun step tests · check scope</text>
         <text x="450" y="525" text-anchor="middle" class="t-small">Rejected twice? The main session does the task itself.</text>
 
         <path d="M450,536 V560" class="edge" marker-end="url(#ah)"/>
@@ -311,7 +311,8 @@ footer { color: var(--muted); font-size: 0.85rem; }
     <h2 id="cmd-h">Commands and worker mode</h2>
     <p>Type these at the Claude Code prompt in any project. The <code>!</code> commands run in your shell.</p>
     <div class="panel cmds">
-      <div class="cmd"><code>/mk-delegate [--effort low|medium|high] &lt;task&gt;</code><span>Hands a task to the DeepSeek worker (default effort medium). Opus writes the spec, then reads the diff and reruns the tests before accepting. Works with a plan step too: <code>/mk-delegate step 2 of docs/plan-x.md</code>.</span></div>
+      <div class="cmd"><code>/next [--force] [plan path]</code><span>Runs the plan. It finds the plan and the next step from git, sends worker steps to DeepSeek, does inline steps itself, and keeps going. When no steps are left it runs the report, the review, the full test suite, the PR and the merge. On a finished plan it resumes an open PR, or drafts the next phase's plan, commits it and stops for your review. Over 200k tokens of context it's blocked before spending anything, with “/clear, then /next”. <code>--force</code> skips that check.</span></div>
+      <div class="cmd"><code>/mk-delegate [--effort low|medium|high] &lt;task&gt;</code><span>Hands a task to the DeepSeek worker (default effort medium). Opus writes the spec, then reads the diff and reruns the step's own tests before accepting. Works with a plan step too: <code>/mk-delegate step 2 of docs/plan-x.md</code>.</span></div>
       <div class="cmd"><code>/mk-check</code><span>Checks the key (without showing it), the isolation from your Claude login and worker mode, then runs a 6-second live job on DeepSeek that also proves the worker follows the repo's own <code>CLAUDE.md</code>. The job itself uses no Claude tokens.</span></div>
       <div class="cmd"><code>! workflow-report .</code><span>After a feature: which steps went to the worker and which were done inline, every worker run with model, effort, exit, tokens and errors, and the commits.</span></div>
       <div class="cmd"><code>! worker-mode on</code><span>Blocks Claude from editing your code files, so every change goes through mk-exec. A green WORKER badge shows in the status line. Plan files and <code>~/.claude</code> stay editable.</span></div>
@@ -339,40 +340,33 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
         <span class="who">Opus · spends usage, worth it</span>
         <div><p>This is the expensive thinking, and it happens once. Ask for exact files, exact changes and a test command, because that is what makes the work cheap to hand off.</p>
 <div class="prompt">Plan adding pagination to the GET /users endpoint. Write the plan to docs/plan-pagination.md with small numbered steps. For each step list the files to change, the exact change, and the test command that proves it's done. Tag each step [worker] or [inline: reason], and list every test case with its expected result. Don't implement anything yet.<button class="copy" type="button">Copy</button></div>
-<p>Using plan mode or <code>opusplan</code>? That's fine. If the approved plan sends steps to the worker, Claude writes it to <code>docs/plan-*.md</code> and stops for your review instead of starting work. If every step is small and inline, your approval is the review and it goes ahead. If the approved plan changes an existing plan file (new steps, review follow-ups), Claude writes that change into the file first, so it survives <code>/clear</code>. For big work with several PRs or research first, ask for a roadmap of phases; each phase gets its own step-level plan when it starts.</p></div>
+<p>Using plan mode or <code>opusplan</code>? That's fine. If the approved plan sends steps to the worker, Claude writes it to <code>docs/plan-*.md</code>, commits it and stops for your review instead of starting work. If every step is small and inline, your approval is the review and it goes ahead. If the approved plan changes an existing plan file (new steps, review follow-ups), Claude writes that change into the file and commits it first, so it survives <code>/clear</code>. Every plan is committed the moment it's written: an uncommitted plan is invisible to <code>/next</code> after a clear. For big work with several PRs or research first, ask for a roadmap of phases; each phase gets its own step-level plan when it starts.</p></div>
       </li>
       <li>
         <h3>Read the plan yourself</h3>
         <span class="who">You</span>
-        <div><p>Fix anything wrong now. A mistake in the plan is cheap to fix here and costly once code exists. Check the tags too: a test step whose cases are all listed can go to the worker. When it looks right, commit the plan and clear, so execution doesn't carry the planning context.</p>
+        <div><p>Fix anything wrong now. A mistake in the plan is cheap to fix here and costly once code exists. Check the tags too: a test step whose cases are all listed can go to the worker. Your edits are committed too. When it looks right, clear, so execution doesn't carry the planning context.</p>
 <div class="prompt">Step 3 should use cursor pagination, not offset. Step 1 lists every test case, so tag it [worker]. Update the plan and commit it.<button class="copy" type="button">Copy</button></div>
 <div class="prompt">/clear<button class="copy" type="button">Copy</button></div></div>
       </li>
       <li>
-        <h3>Hand a step to the worker</h3>
+        <h3>Give the GO</h3>
         <span class="who">mk-exec → claude -p → DeepSeek · cents</span>
-        <div><p>The command sends the step to the DeepSeek worker and Opus reviews the result. You should see a <code>⏵ mk-exec …</code> line. Add <code>--effort high</code> for a harder step. One step at a time keeps each diff easy to review. To be sure Claude doesn't write it itself, run <code>! worker-mode on</code> first.</p>
-<div class="prompt free">/mk-delegate step 1 of docs/plan-pagination.md<button class="copy" type="button">Copy</button></div></div>
+        <div><p>One command runs the plan. It finds the next step from git, sends worker steps to DeepSeek (you'll see a <code>⏵ mk-exec …</code> line), does inline steps itself and says why, and has Opus check every diff and rerun that step's tests before committing. Then it goes straight on to the next step. Typing <code>/next</code> on the committed plan is your GO.</p>
+<div class="prompt free">/next<button class="copy" type="button">Copy</button></div>
+<p>It stops only for a rejection it can't fix in one resend, a failure, a permission denial, a review finding it can't settle, or the end of the plan. Ask to see a step's evidence whenever you want it.</p></div>
       </li>
       <li>
-        <h3>Let Opus check the result</h3>
-        <span class="who">Opus · review gate</span>
-        <div><p>Opus reads the diff and reruns the tests on its own. Ask to see the evidence when you want it.</p>
-<div class="prompt">Show me the diff and the test output for that step. Did it touch anything outside the plan?<button class="copy" type="button">Copy</button></div></div>
+        <h3>When it asks for a clear</h3>
+        <span class="who">You · saves usage</span>
+        <div><p>Once the context reaches 200k tokens (or 70% of a smaller model window, before auto-compact at about 83%), the status line shows <code>CLEAR</code>. At the next step boundary (a worker step reviewed, or any plan step committed) the session commits, alerts you and stops. Clear and resume: it picks up at the right step from git. A <code>/next</code> typed over 200k is blocked before it spends anything. With Remote Control on, the block would show only in the local terminal, so the session instead replies with one line and sends a push notification.</p>
+<div class="prompt">/clear
+/next<button class="copy" type="button">Copy</button></div></div>
       </li>
       <li>
-        <h3>Accept or reject</h3>
-        <span class="who">You decide</span>
-        <div><p>Accepted work gets committed, and Claude sends the next step on its own: your committed plan is the approval. It stops to ask only at an inline judgment step, after a rejection or failure, or when the phase ends. A rejection with a concrete reason goes back to the worker once. A second failure means Opus does it directly.</p>
-<div class="prompt">Looks good. Commit it with a short message.
-/mk-delegate step 2 of docs/plan-pagination.md<button class="copy" type="button">Copy</button></div>
-<div class="prompt">Reject: it changed the response shape of /users. Resend step 1 to the worker and say the JSON fields must stay the same.<button class="copy" type="button">Copy</button></div></div>
-      </li>
-      <li>
-        <h3>Finish and clear</h3>
-        <span class="who">You</span>
-        <div><p>When the plan is done, look at the run report, get one final review, then start the next feature in a fresh session.</p>
-<div class="prompt">All steps are done. Run workflow-report on this repo and tell me which steps ran inline and why, then review the whole feature with /agent-skills:review and summarize what changed.<button class="copy" type="button">Copy</button></div></div>
+        <h3>The finish runs itself</h3>
+        <span class="who">Opus · review and merge</span>
+        <div><p>With no steps left, <code>/next</code> finishes in the same session if it starts under the clear line, then may run up to 250k; past the line it stops first so a fresh session runs the finish: the report, one review round, the full test suite once, the roadmap and memory commit that marks the plan done, then the PR, the checks and a merge only if <code>pr-ready</code> passes. Otherwise it sends you the reasons and the link. Then it sends a push notification. Clear, and the next <code>/next</code> drafts the roadmap's next phase for your review, so you never have to ask what's next.</p></div>
       </li>
     </ol>
   </section>
@@ -430,7 +424,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
         <ul>
           <li>The DeepSeek worker. It costs cents on your DeepSeek balance, not plan usage, and only its short summary comes back.</li>
           <li>Shell output RTK trims away before it reaches context.</li>
-          <li>Data processed inside <code>ctx_execute</code>. Only what it prints enters the conversation.</li>
+          <li>Data processed inside <code>ctx_execute</code>. Only what it prints enters the conversation, so use it to compute, not to print a file or diff (that skips RTK).</li>
           <li>Prompt cache hits. Staying on one task keeps the cache warm.</li>
           <li><code>/clear</code>: a fresh session re-reads nothing.</li>
         </ul>

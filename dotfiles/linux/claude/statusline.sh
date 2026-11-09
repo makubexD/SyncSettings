@@ -36,7 +36,7 @@ fmt_tokens() {
 input=$(cat)
 
 # One jq pass for every field (tab-separated; empty string when missing)
-IFS=$'\t' read -r model project_dir cwd cost remaining used_pct tok_used tok_total cache_create cache_read style < <(
+IFS=$'\t' read -r model project_dir cwd cost remaining used_pct tok_used tok_total cache_create cache_read style session_id < <(
     jq -r '[
         .model.display_name // "",
         .workspace.project_dir // "",
@@ -48,13 +48,21 @@ IFS=$'\t' read -r model project_dir cwd cost remaining used_pct tok_used tok_tot
         (.context_window.context_window_size // "" | tostring),
         (.context_window.current_usage.cache_creation_input_tokens // 0 | tostring),
         (.context_window.current_usage.cache_read_input_tokens // 0 | tostring),
-        .output_style.name // ""
+        .output_style.name // "",
+        .session_id // ""
     ] | map(if . == "" then "-" else . end) | @tsv' <<<"$input" 2>/dev/null
 )
 # "-" is a placeholder so read keeps empty fields aligned
-for v in model project_dir cwd cost remaining used_pct tok_used tok_total cache_create cache_read style; do
+for v in model project_dir cwd cost remaining used_pct tok_used tok_total cache_create cache_read style session_id; do
     [[ ${!v} == "-" ]] && printf -v "$v" ''
 done
+
+# Record the context window size per session; hooks/context-gate.sh reads it back to
+# cap the clear gate under auto-compact on small windows. Failures are never fatal.
+if [[ $session_id =~ ^[A-Za-z0-9_-]+$ && $tok_total =~ ^[0-9]+$ ]]; then
+    ctx_dir=${CTX_WINDOW_DIR:-$HOME/.claude/state/ctx-window}
+    { mkdir -p "$ctx_dir" && printf '%s\n' "$tok_total" >"$ctx_dir/$session_id"; } 2>/dev/null || true
+fi
 
 parts=()
 
@@ -143,6 +151,14 @@ if [[ -n $pct ]]; then
     else
         ctx="Context: $bar ${pct}%"
     fi
+    # Same limit as the /clear gate: 200k, or 70% of a smaller window (auto-compact
+    # comes near 83%), so the mark appears before the session is compacted.
+    clear_at=${CONTEXT_CLEAR_AT:-200000}
+    if [[ $tok_total =~ ^[0-9]+$ ]] && (( tok_total > 0 )); then
+        window_limit=$(( tok_total * 70 / 100 ))
+        (( window_limit < clear_at )) && clear_at=$window_limit
+    fi
+    [[ $tok_used =~ ^[0-9]+$ ]] && (( tok_used >= clear_at )) && ctx+=" ${yellowDim}CLEAR${reset}"
     [[ -n $combined ]] && combined+=" ${gray}|${reset} "
     combined+="${color}${ctx}${reset}"
 fi
