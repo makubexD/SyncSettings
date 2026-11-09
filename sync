@@ -26,7 +26,7 @@ usage() {
     printf '  setup    first run on this machine\n'
     printf '  pull     get the latest repo and apply it here\n'
     printf "  push     send this machine's changes as a PR\n"
-    printf '  preview | export | commit | import   the single steps\n'
+    printf '  preview | check | export | commit | import   the single steps\n'
 }
 
 # Windows shells hand over to the batch wrapper; cmd.exe needs // so it does not
@@ -77,7 +77,7 @@ case $COMMAND in
         front_setup "$@"
         exit 0
         ;;
-    preview|export|import|commit|pull|push) ;;
+    preview|check|export|import|commit|pull|push) ;;
     *)
         printf 'Unknown command: %s\n' "$COMMAND" >&2
         usage >&2
@@ -100,6 +100,7 @@ fi
 
 case $COMMAND in
     preview) exec ./export.sh --preview "$@" ;;
+    check) exec ./import.sh --check "$@" ;;
     export) exec ./export.sh "$@" ;;
     import) exec ./import.sh "$@" ;;
     commit) exec ./commit.sh "$@" ;;
