@@ -12,7 +12,8 @@ yet, so `macos-latest` in CI is the proof; a real run on a Mac goes to `TODO.md`
   nothing past it needs to run on 3.2.
 - No GNU-only tool or flag on a path macOS runs: no `chmod --reference`, `timeout`, `find -printf`, `getent`, `mv -T`,
   `sed -i`, `stat -c`. Linux-only paths (dconf, package drift, `bootstrap/linux.sh`) may keep them.
-- The OS comes from one function, `sync_os` (step 3): `SYNC_OS` when set, else `uname -s` (`Linux` → `linux`, `Darwin`
+- The OS comes from one function, `sync_os` (step 3), stored in `SYNC_PLATFORM` (`SYNC_OS_NAME` is already the status
+  line's label override): `SYNC_OS` when set, else `uname -s` (`Linux` → `linux`, `Darwin`
   → `macos`). Tests set `SYNC_OS=macos` on Linux to cover macOS behaviour; the `engine-macos` job (step 10) runs the
   same cases for real.
 - Each step's test is its own filter of `tests/linux/engine.sh <filter>` (bash) or the parse check plus the
@@ -56,11 +57,13 @@ Each case runs on the existing fixture with a config edited by `jq` in the case:
 | `platform-array` | `["linux", "macos"]` | copied under both `SYNC_OS` values |
 | `platform-array-empty` | `[]` | exit 1, the new error, no file written |
 | `platform-array-repeat` | `["linux", "linux"]` | exit 1, the new error |
+| `platform-array-common` | `["common", "linux"]` | exit 1, the new error |
 | `platform-array-windows-only` | `["windows"]` | skipped on both `SYNC_OS` values, exit 0 |
 | `platform-bad-sync-os` | `SYNC_OS=bsd` | exit 1, `this is bsd` in stderr |
 | `localpaths-macos` | `localPaths.macos` set to another `~/` path | `SYNC_OS=macos` import writes there; `SYNC_OS=linux` writes `localPath` |
 | `localpaths-unsafe` | `localPaths.macos` = `~/../x` | exit 1 before any write |
 | `localpaths-bad-key` | key `bsd` | exit 1, `unknown localPaths key bsd` |
+| `check-config-macos` | lint on a config with a `macos` entry under `dotfiles/macos/`, a list entry under `dotfiles/common/`, and one bad of each (`macos` under `dotfiles/linux/`, list with `~\` path, `localPaths` key `bsd`) | the three bad `repoPath`s listed, exit 1 |
 | `localpaths-spaces` | `~/Library/Application Support/Code/User/settings.json` | import and `--check` handle the space |
 
 Test: `tests/linux/engine.sh platform` and `tests/linux/engine.sh localpaths`; every case except
@@ -69,11 +72,11 @@ Test: `tests/linux/engine.sh platform` and `tests/linux/engine.sh localpaths`; e
 
 ### 3. Platform selection in the bash engine `[worker]`
 
-Files: `scripts/linux/sync.sh`.
+Files: `scripts/linux/sync.sh`, `scripts/ci/check-config.sh`.
 
 - New `sync_os`: prints `${SYNC_OS:-}` when set and one of `linux`/`macos`, else maps `uname -s` (`Linux` → `linux`,
   `Darwin` → `macos`); anything else prints the step 1 error to stderr and exits 1. `SYNC_OS` set to another value is the
-  same error with its value. Called once at load into `SYNC_OS_NAME` (not under `SYNC_LIB_ONLY`'s skip: tests need it).
+  same error with its value. Called once at load into `SYNC_PLATFORM` (not under `SYNC_LIB_ONLY`'s skip: tests need it).
 - `check_platforms` accepts the step 1 values and arrays; its error text becomes
   `entry %s needs "platform": "common", "windows", "linux", "macos" or a list of the last three.`
 - `check_paths` also checks every `localPaths` value with `path_is_safe … local` and rejects keys other than
@@ -84,7 +87,12 @@ Files: `scripts/linux/sync.sh`.
 - The dconf placeholder query in `scripts/linux/front.sh` (`front_doctor`, `select(.platform == "linux" or …)`) uses the
   same selection; move it to a `platform_select` jq snippet in `sync.sh` that both use.
 
-Test: `tests/linux/engine.sh platform` and `tests/linux/engine.sh localpaths` (step 2's cases) all pass.
+- `scripts/ci/check-config.sh`: the platform rule accepts `macos` and lists (two or three of `windows`/`linux`/`macos`,
+  no repeats); `macos` entries live under `dotfiles/macos/`, list entries under `dotfiles/common/` with a `~/`
+  `localPath`; `localPaths` keys are `linux`/`macos`/`windows`, and the `linux`/`macos` values start with `~/`.
+
+Test: `tests/linux/engine.sh platform`, `tests/linux/engine.sh localpaths` and `tests/linux/engine.sh check-config`
+(step 2's cases plus the existing lint cases) all pass.
 
 ### 4. Platform selection in PowerShell `[worker]`
 
@@ -105,7 +113,7 @@ Files: `scripts/linux/sync.sh`, `export.sh`, `import.sh`, `scripts/linux/front.s
   `chmod --reference` at `export.sh:102` and `import.sh:236`.
 - `run_with_timeout <seconds> <cmd…>`: uses `timeout` when on `PATH`, else runs the command in the background and kills
   it after the limit, returning 124 like `timeout`. Replaces `timeout 15` at `scripts/linux/front.sh:66`.
-- `report_drift` returns at once when `SYNC_OS_NAME` is `macos` (it reads `apt-mark`, `snap` and `find -printf`).
+- `report_drift` returns at once when `SYNC_PLATFORM` is `macos` (it reads `apt-mark`, `snap` and `find -printf`).
 
 Test: `tests/linux/engine.sh mode` (existing mode cases), `tests/linux/engine.sh status` and a new case
 `status-fetch-timeout-no-timeout-bin`: `PATH` without `timeout`, a stub `git` that sleeps 30 on `fetch`, limit set by
@@ -136,7 +144,7 @@ runs `/bin/bash ./sync doctor` for real.
 
 Files: `scripts/linux/front.sh`.
 
-- OS label: `macos <sw_vers -productVersion>` when `SYNC_OS_NAME` is `macos`; `/etc/os-release` otherwise.
+- OS label: `macos <sw_vers -productVersion>` when `SYNC_PLATFORM` is `macos`; `/etc/os-release` otherwise.
 - `front_install_hint` on macOS: `brew install <pkg>` (`cmp` → nothing to install, it ships with macOS); bash's hint
   `brew install bash`.
 - `front_doctor` on macOS adds `brew` (MISSING: `brew: install from https://brew.sh`). Below macOS 13 it prints
@@ -175,7 +183,7 @@ Files: `tests/linux/engine.sh`, `tests/linux/bootstrap.sh`.
 - The `tools-claude-file-first` stub reads `/proc/self/fd/0`: use `[ -t 0 ]` and a read with `-t 0` instead.
 - Cases that need dconf or apt (`dconf-*`, `real-config-roundtrip`'s dconf lines, drift cases) print `SKIP <case>
   (linux only)` when the OS is macOS; the harness computes it the same way as `sync_os` (`SYNC_OS`, else `uname -s`),
-  because `SYNC_OS_NAME` lives in `sync.sh`, which the harness doesn't source; the summary counts skips separately and they don't fail the run.
+  because `SYNC_PLATFORM` lives in `sync.sh`, which the harness doesn't source; the summary counts skips separately and they don't fail the run.
 
 Test: `tests/linux/engine.sh prompt-empty-stops`, `defaultenv-valid`, `upstream-behind-pull` and
 `tests/linux/bootstrap.sh tools-claude-file-first` pass on Linux; `SYNC_OS=macos tests/linux/engine.sh dconf` prints only
