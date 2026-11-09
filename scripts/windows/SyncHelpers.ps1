@@ -513,7 +513,9 @@ function Save-UserValues {
     $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
     $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($user, 'FullControl', 'Allow')
     $acl.AddAccessRule($rule)
-    Set-Acl -LiteralPath $path -AclObject $acl
+    # Not Set-Acl: it asks the domain about the owner and fails with "trust relationship" when no domain
+    # controller answers (a domain laptop off the network). This writes the same rules without that lookup.
+    [IO.File]::SetAccessControl($path, $acl)
 
     [IO.File]::WriteAllText($path, $json, [System.Text.UTF8Encoding]::new($false))
 }

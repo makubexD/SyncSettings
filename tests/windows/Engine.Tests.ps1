@@ -4292,6 +4292,17 @@ Describe 'Save-UserValues' {
 
         Assert-OnlyCurrentUser $path
     }
+
+    It 'values-private-no-domain' {
+        # A domain laptop with no domain controller in reach: Set-Acl fails there, so the save must not use it.
+        Mock Set-Acl { throw 'The trust relationship between this workstation and the primary domain failed.' }
+
+        Save-UserValues -RepoRoot $script:ValuesDir -Values @{ '<X>' = 'y' }
+
+        $path = Join-Path $script:ValuesDir '.user-values.json'
+        Assert-OnlyCurrentUser $path
+        (Get-UserValues -RepoRoot $script:ValuesDir)['<X>'] | Should -Be 'y'
+    }
 }
 
 Describe 'Import-LinkedDirectory' {
