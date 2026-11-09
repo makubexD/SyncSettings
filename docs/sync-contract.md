@@ -530,11 +530,18 @@ codes are the same on both systems, except where this section says otherwise.
 |---|---|---|
 | `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
 | `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
-| `mksync pull [--yes]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then asks `Apply these changes? [Y/n]` and runs `import.sh --force` | 0, or 1 on an error |
+| `mksync pull [--yes] [--force]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then (unless `--force`) the diff, which stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` | 0, or 1 on an error |
 | `mksync push [--yes] [-m <msg>]` | Runs `export.sh`. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
 | `mksync diff` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` ([Diff](#diff)): one line per changed file saying which side changed it. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
+
+`mksync pull` protects this machine's own changes: when the import check finds changes and `--force` isn't given, it
+runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
+since the last sync, and a pull would overwrite them.` and `Run mksync push first, or mksync pull --force to overwrite
+them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` and `?` lines never block.
+A diff that fails (exit 1) stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
+or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it.
 
 `pull` and `push` need the clone on `master` with an `origin` remote. On Windows, `pull` re-runs itself in a new
 `powershell.exe` after a fast-forward, since PowerShell has no `exec`, and the status fetch has a 15-second timeout as on

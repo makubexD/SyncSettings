@@ -218,12 +218,14 @@ front_diff() {
 # Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
 # the new code, then the import check and, unless declined, the import.
 front_pull() {
-    local apply_yes=0 no_fetch=0 updates answer='' rc=0
+    local apply_yes=0 no_fetch=0 force=0 updates answer='' rc=0
+    local diff_tmp='' diff_rc=0 blocked='' count=0
 
     while (( $# > 0 )); do
         case $1 in
             --yes) apply_yes=1; shift ;;
             --no-fetch) no_fetch=1; shift ;;
+            --force) force=1; shift ;;
             *)
                 printf 'Unknown option: %s\n' "$1" >&2
                 exit 1
@@ -252,7 +254,13 @@ front_pull() {
             printf '  Pulled %s commit(s).\n' "$updates"
             # Run the just-pulled code, not the copy this process started with.
             if (( apply_yes )); then
+                if (( force )); then
+                    exec "$REPO_ROOT/sync" pull --no-fetch --yes --force
+                fi
                 exec "$REPO_ROOT/sync" pull --no-fetch --yes
+            fi
+            if (( force )); then
+                exec "$REPO_ROOT/sync" pull --no-fetch --force
             fi
             exec "$REPO_ROOT/sync" pull --no-fetch
         fi
@@ -264,6 +272,35 @@ front_pull() {
         3) ;;
         *) exit 1 ;;
     esac
+
+    # A pull overwrites this machine's version of every changed file, so ask
+    # the diff which side changed them first. OUT and BOTH would be lost.
+    if (( ! force )); then
+        diff_tmp=$(mktemp) || diff_tmp=''
+        if [[ -z $diff_tmp ]]; then
+            printf '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.\n' >&2
+            exit 1
+        fi
+        diff_rc=0
+        "$REPO_ROOT/export.sh" --diff < /dev/null > "$diff_tmp" 2>&1 || diff_rc=$?
+        blocked=$(grep -E '^  (OUT|BOTH) ' "$diff_tmp" || true)
+        rm -f "$diff_tmp"
+        case $diff_rc in
+            0|3) ;;
+            *)
+                printf '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.\n' >&2
+                exit 1
+                ;;
+        esac
+        if [[ -n $blocked ]]; then
+            printf '%s\n' "$blocked"
+            count=$(printf '%s\n' "$blocked" | wc -l)
+            count=${count//[[:space:]]/}
+            printf '  ERROR: %s file(s) changed on this machine since the last sync, and a pull would overwrite them.\n' "$count" >&2
+            printf '  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).\n' >&2
+            exit 1
+        fi
+    fi
 
     if (( ! apply_yes )); then
         printf '  Apply these changes? [Y/n] '
