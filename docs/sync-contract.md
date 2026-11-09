@@ -356,6 +356,16 @@ the commit the same way a hit does.
 | Exit 1 | `ERROR: the leak scan found the lines above; nothing was committed.` |
 | Script or bash missing, or any other exit code | `ERROR: leak scan could not run; nothing was committed.` |
 
+When a rule hits, the scan prints its hit lines, then a blank line, then one hint for each rule that hit, once per
+rule and in the order the rules run. A hint never repeats the matched text.
+
+| Rule | Hint |
+|---|---|
+| `home-path` | `write $HOME or ~ instead of the full path, or add a <HOME> sanitize rule (defaultEnv HOME) to the file's entry.` |
+| `windows-profile` | `write %USERPROFILE% or ~ instead of the full path, or add a sanitize rule to the file's entry.` |
+| `email` | `move it behind a sanitize rule placeholder, such as <YOUR_EMAIL>.` |
+| `private-key`, `github-token`, `api-key` | `remove it from the file; keep secrets in a file the repo doesn't sync.` |
+
 **Cached values.** The changed sync files are searched for each value in `.user-values.json`, ignoring case and including
 the backslash-doubled form. A placeholder on its own passes. The value never appears in arguments or output.
 

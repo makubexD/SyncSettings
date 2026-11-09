@@ -23,8 +23,10 @@ for path in "${PATHS[@]}"; do
 done
 
 HITS=0
+HIT_RULES=
 
-# Print one hit as "<file>:<line>: <rule>" and count it.
+# Print one hit as "<file>:<line>: <rule>" and count it, recording the rule's
+# first hit so its hint prints once, after all rules ran.
 emit() {
     local rule=$1 hit=$2
     local file=${hit%%:*}
@@ -32,6 +34,10 @@ emit() {
     local lineno=${rest%%:*}
     printf '%s:%s: %s\n' "$file" "$lineno" "$rule"
     HITS=$(( HITS + 1 ))
+    case " $HIT_RULES " in
+        *" $rule "*) ;;
+        *) HIT_RULES+=" $rule" ;;
+    esac
 }
 
 # scan_rule <rule> <pattern>: one grep pass, one line per matching file line.
@@ -96,6 +102,29 @@ scan_rule github-token 'gh[pousr]_[A-Za-z0-9]{30,}'
 scan_rule api-key 'sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}'
 
 if (( HITS > 0 )); then
+    # One hint per rule that hit, in the order the rules run. Never the match.
+    printf '\n'
+    for rule in home-path windows-profile email private-key github-token api-key; do
+        case " $HIT_RULES " in
+            *" $rule "*) ;;
+            *) continue ;;
+        esac
+        case $rule in
+            home-path)
+                text="write \$HOME or ~ instead of the full path, or add a <HOME> sanitize rule (defaultEnv HOME) to the file's entry."
+                ;;
+            windows-profile)
+                text='write %USERPROFILE% or ~ instead of the full path, or add a sanitize rule to the file'\''s entry.'
+                ;;
+            email)
+                text='move it behind a sanitize rule placeholder, such as <YOUR_EMAIL>.'
+                ;;
+            private-key|github-token|api-key)
+                text='remove it from the file; keep secrets in a file the repo doesn'\''t sync.'
+                ;;
+        esac
+        printf '  fix %s: %s\n' "$rule" "$text"
+    done
     exit 1
 fi
 exit 0
