@@ -1,6 +1,6 @@
 # Sync engine contract
 
-SyncSettings has two engines: PowerShell 5.1 on Windows (`scripts/windows/`) and bash on Linux
+SyncSettings has two engines: PowerShell 5.1 on Windows (`scripts/windows/`) and bash on Linux and macOS
 (`scripts/linux/sync.sh` plus `export.sh`, `import.sh`, `commit.sh`). They share no code. They share
 `sync-config.json`, the `.user-values.json` format, and the rules on this page.
 
@@ -33,25 +33,41 @@ A [dconf entry](#dconf-entries-type-dconf) follows the same flow with a dconf fo
 
 ## Entry selection
 
-Each entry in `files` has a required `platform`:
+Each entry in `files` has a required `platform`: one of `"common"`, `"windows"`, `"linux"`, `"macos"`, or a list of
+the last three, such as `["linux", "macos"]`:
 
-| `platform` | Windows engine | bash engine |
-|---|---|---|
-| `windows` | yes | no |
-| `linux` | no | yes |
-| `common` | yes | yes |
+| `platform` | Windows engine | bash on Linux | bash on macOS |
+|---|---|---|---|
+| `windows` | yes | no | no |
+| `linux` | no | yes | no |
+| `macos` | no | no | yes |
+| `common` | yes | yes | yes |
+| a list | if it holds `windows` | if it holds `linux` | if it holds `macos` |
 
-If any entry has no `platform`, or a value outside these three, the engine stops with exit code 1 before it touches a
-file:
+`common` means all three systems. A file shared by Linux and macOS but not Windows uses the list `["linux", "macos"]`.
+
+If any entry has no `platform`, a value outside these, an empty list, a list with a repeat, or a list holding `common`,
+the engine stops with exit code 1 before it touches a file:
 
 ```text
-ERROR: sync-config.json: entry <repoPath> needs "platform": "common", "windows" or "linux".
+ERROR: sync-config.json: entry <repoPath> needs "platform": "common", "windows", "linux", "macos" or a list of the last three.
 ```
 
 The check covers every entry, not only the ones the engine would select, so a bad Linux entry also stops the Windows
 engine. CI lint catches the same mistake earlier.
 
 Entries run in the order they appear in `sync-config.json`.
+
+### Which system
+
+The bash engine picks its system with `sync_os`: `SYNC_OS` when it's set, else `uname -s` (`Linux` is `linux`, `Darwin`
+is `macos`). Tests set `SYNC_OS=macos` on Linux to cover macOS behavior. Any other value stops the run with exit code 1:
+
+```text
+ERROR: SyncSettings runs on Linux, macOS and Windows; this is <value>.
+```
+
+The PowerShell engine is always `windows`.
 
 ## Path safety
 
@@ -60,10 +76,12 @@ touches a file:
 
 - `repoPath` starts with `dotfiles/` and has no `..` segment.
 - `localPath` starts with `~/` or `~\` and has no `..` segment.
+- Each [`localPaths`](#localpath) value follows the same rule, and its keys are `linux`, `macos` or `windows`.
 - Nothing under `dotfiles/` is a symlink.
 
 ```text
 ERROR: sync-config.json: entry <repoPath> has an unsafe path.
+ERROR: sync-config.json: entry <repoPath> has an unknown localPaths key <key>.
 ```
 
 A dconf entry has no `localPath`. Instead its `platform` must be `linux`, and its `path` must start and end with `/`, hold
@@ -89,8 +107,15 @@ ERROR: sync-config.json: entry <repoPath> has an invalid defaultEnv.
 | `~\` + backslashes | `~\.gitconfig.local` | Windows only |
 
 `~` is the user's home: `$HOME` on Linux, the profile folder on Windows (`$env:USERPROFILE`, or the target user's
-profile with `-User`). A `common` entry must use the `~/` form. Every `localPath` must use one of these two forms: an
-absolute path stops the run ([Path safety](#path-safety)).
+profile with `-User`). A `common` entry, and any entry the bash engine runs (`linux`, `macos` or a list holding them), must
+use the `~/` form. Every `localPath` must use one of these two forms: an absolute path stops the run
+([Path safety](#path-safety)).
+
+`localPaths` (optional) is an object keyed by system, for a file whose content is shared but whose folder differs, such
+as VS Code's `~/.config/Code/User` on Linux and `~/Library/Application Support/Code/User` on macOS. On a system named in
+it, its value replaces `localPath`; elsewhere `localPath` applies. A key for a system the entry's `platform` doesn't
+select is allowed and never used. The bash engine swaps the path when it selects the entry, so every later rule sees one
+`localPath`.
 
 ## Statuses
 
@@ -296,7 +321,7 @@ never deletes anything, and never changes the change count or the exit code.
 
 ## Package drift
 
-Bash only, until the Windows engine has a list to compare. Right after the orphan report, in an export and in a preview, the
+Bash on Linux only, until the Windows engine has a list to compare; on macOS the report prints nothing. Right after the orphan report, in an export and in a preview, the
 engine compares `packages/linux/` with the machine. With no such folder it prints nothing. An import never reports drift.
 
 The report never writes a file, never changes a count and never changes the exit code. It runs no install command. `DRIFT` isn't
@@ -420,7 +445,7 @@ codes are the same on both systems, except where this section says otherwise.
 | Command | Does | Exit |
 |---|---|---|
 | `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
-| `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
+| `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
 | `mksync pull [--yes]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then asks `Apply these changes? [Y/n]` and runs `import.sh --force` | 0, or 1 on an error |
 | `mksync push [--yes] [-m <msg>]` | Runs `export.sh`. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
@@ -442,7 +467,7 @@ Status lines and the next command, in this order of precedence:
 
 `install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`:
 
-- Linux only; macOS, Windows shells and other systems stop with a message, exit 1.
+- Linux and macOS ([macOS](#macos) has its own rules); Windows shells and other systems stop with a message, exit 1.
 - Missing `git`, `jq` or `cmp`: offers `sudo apt-get install` where `apt-get` exists. Otherwise it names the packages
   and exits 1.
 - Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone, or a
@@ -484,6 +509,36 @@ Status lines and the next command, in this order of precedence:
 | `SYNCSETTINGS_NO_SETUP` | unset; `1` skips `mksync setup` |
 | `SYNC_OS_NAME` (status) | the Windows caption |
 
+## macOS
+
+The bash engine runs on macOS with Homebrew's bash and `jq`. macOS ships bash 3.2 and no `jq`; everything else the engine
+uses is there. The reasons and the options weighed are in [macos-research.md](macos-research.md).
+
+- **Minimum**: macOS 13. `readlink -f` arrived in 12.3, and Homebrew supports the three newest releases. `mksync doctor`
+  prints `WARN macOS <version> is older than 13` below that and carries on.
+- **Bash 4 guard**: `sync`, `export.sh`, `import.sh` and `commit.sh` check the bash version before any bash 4 line. Below
+  4, they re-run themselves once under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` (Apple silicon, Intel), whichever
+  exists. With neither:
+
+  ```text
+  ERROR: SyncSettings needs bash 4 or newer (this is <version>). On macOS: brew install bash
+  ```
+
+  exit 1. Everything past the guard needs bash 4 only.
+- **No GNU-only flags** on a path macOS runs. `chmod --reference` and `timeout` go through `copy_mode` and
+  `run_with_timeout`, which use the GNU tool when it's there.
+- **Skipped**: dconf entries (their `linux` platform keeps them off macOS), the [package drift](#package-drift) report, and
+  `bootstrap/linux.sh`.
+- **Front door**: the status's OS is `macos <version>` from `sw_vers -productVersion`. `doctor` checks bash 4 (hint
+  `brew install bash`), `git`, `jq` (hint `brew install jq`), `cmp`, `brew` (`MISSING brew: install from
+  https://brew.sh`), `gh` and its sign-in, the origin remote, the `mksync` link and unset values. `setup` has no
+  bootstrap question, and `--bootstrap` stops with `ERROR: --bootstrap is Ubuntu only.`, exit 1.
+- **`install.sh`**: without `brew`, it stops with `ERROR: install Homebrew first: https://brew.sh`, exit 1. A missing `jq`
+  or Homebrew bash 4 gets `Install with Homebrew: brew install bash jq [Y/n]` (end of input is yes), never `sudo`. The
+  link, the `PATH` hint and `mksync setup` work as on Linux, under Homebrew's bash. It reads `SYNC_OS` like `sync_os`.
+- **Layout**: `dotfiles/macos/<tool>/` holds macOS-only files. Files shared with Linux live in `dotfiles/common/<tool>/`
+  with `"platform": ["linux", "macos"]` ([layout.md](layout.md)).
+
 ## Known differences
 
 | Behavior | Windows (PowerShell) | Linux (bash) |
@@ -505,6 +560,17 @@ Status lines and the next command, in this order of precedence:
 | `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu |
 | `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` |
 | Installer | `install.ps1`, `irm … \| iex`, winget | `install.sh`, `curl … \| bash`, apt-get |
+
+macOS runs the bash engine, so it has the Linux column's behavior except for these rows:
+
+| Behavior | macOS (bash) | Linux (bash) |
+|---|---|---|
+| bash | Homebrew bash 4+, re-run by the guard | the system's |
+| `type: dconf` | not selected (`linux` platform) | supported |
+| Package drift | prints nothing | supported |
+| `mksync setup` | no bootstrap question; `--bootstrap` is an error | offers `bootstrap/linux.sh` on Ubuntu |
+| `mksync doctor` | adds `brew` and the macOS version | |
+| Installer | `brew install bash jq` | `sudo apt-get install` for the missing tools |
 
 ## Parity
 
