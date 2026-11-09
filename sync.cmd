@@ -1,6 +1,6 @@
 @echo off
 rem One command for the sync flow on Windows: status, doctor, setup, pull,
-rem push, and the single steps preview, check, export, commit, import.
+rem push, diff, and the single steps preview, check, export, commit, import.
 rem The bash sync wrapper hands over here on Git Bash, MSYS and Cygwin.
 setlocal EnableExtensions
 pushd "%~dp0"
@@ -21,6 +21,7 @@ set "ARG=%~1"
 set "FRONT_ARG="
 if /i "%ARG%"=="--yes" set "FRONT_ARG=-Yes"
 if /i "%ARG%"=="--no-fetch" set "FRONT_ARG=-NoFetch"
+if /i "%ARG%"=="--force" set "FRONT_ARG=-Force"
 if /i not "%ARG%"=="-m" goto gather_plain
 rem -m <msg> becomes -Message <msg> for Front.ps1.
 set "REST=%REST% "%~1""
@@ -47,14 +48,15 @@ if /i "%COMMAND%"=="commit"  set "SCRIPT=Commit-Settings.ps1"
 if /i "%COMMAND%"=="import"  set "SCRIPT=Import-Settings.ps1"
 if defined SCRIPT goto engine
 
-rem Everything else is the front door: status, doctor, setup, pull, push, or an
-rem unknown command, which stops here. No command shows the status.
+rem Everything else is the front door: status, doctor, setup, pull, push, diff,
+rem or an unknown command, which stops here. No command shows the status.
 set "FRONT="
 if /i "%COMMAND%"=="status" set "FRONT=status"
 if /i "%COMMAND%"=="doctor" set "FRONT=doctor"
 if /i "%COMMAND%"=="setup"  set "FRONT=setup"
 if /i "%COMMAND%"=="pull"   set "FRONT=pull"
 if /i "%COMMAND%"=="push"   set "FRONT=push"
+if /i "%COMMAND%"=="diff"   set "FRONT=diff"
 if not defined COMMAND set "FRONT=status"
 if not defined FRONT goto unknown
 if /i "%FRONT%"=="status" set "FRONT_ARGS="
@@ -81,6 +83,7 @@ echo   doctor   check the tools and the setup
 echo   setup    first run on this machine
 echo   pull     get the latest repo and apply it here
 echo   push     send this machine's changes as a PR
+echo   diff     which side changed each file, after a fetch
 echo   preview ^| check ^| export ^| commit ^| import   the single steps
 echo   Detected: windows
 set "RC=0"

@@ -1,23 +1,29 @@
 <#
 .SYNOPSIS
-    Front door for sync.cmd on Windows: status, doctor, setup, pull and push.
+    Front door for sync.cmd on Windows: status, doctor, setup, pull, push and diff.
 .DESCRIPTION
     Called by sync.cmd. Status shows where this machine stands and what to run
     next; doctor runs the Windows checks from docs/sync-contract.md; setup is
     the first run on this machine; pull gets the latest repo and applies it;
-    push sends this machine's changes as a PR.
+    push sends this machine's changes as a PR; diff says which side changed
+    each file.
 #>
 param(
     [Parameter(Position = 0)][string]$Command,
     [switch]$Yes,
     [string]$Message = '',
-    [switch]$NoFetch
+    [switch]$NoFetch,
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
 
 $script:WindowsDir = $PSScriptRoot
 $script:RepoRoot = Split-Path (Split-Path $script:WindowsDir -Parent) -Parent
+
+# The sync point reader lives with the other shared helpers. Dot-sourcing only
+# defines functions and one counter, so it changes nothing here.
+. "$script:WindowsDir\SyncHelpers.ps1"
 
 # The Windows PowerShell to run a child step with. Front.ps1 itself runs under
 # it, so the command is always there.
@@ -151,6 +157,28 @@ function Invoke-ImportCheck {
     return $code
 }
 
+# Run the engine's diff in a child PowerShell, with stdin redirected so it can
+# never prompt, and return its output and exit code. Never writes.
+function Invoke-ExportDiffChild {
+    $diffScript = Join-Path $script:WindowsDir 'Export-Settings.ps1'
+    $ErrorActionPreference = 'Continue'
+    $output = '' | & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File $diffScript -Diff 2>&1 | Out-String
+    return @{ Code = $LASTEXITCODE; Output = $output }
+}
+
+# Show which side changed each file, after a fetch so the repo side is current.
+# The fetch has the status's timeout; offline keeps comparing with the last one.
+function Invoke-Diff {
+    $origin = Invoke-GitQuiet @('remote', 'get-url', 'origin')
+    if ($origin.Code -eq 0) {
+        if (-not (Invoke-GitFetch)) {
+            Write-Host '  Offline: comparing with the last fetch.'
+        }
+    }
+    & $script:PowerShellExe.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:WindowsDir 'Export-Settings.ps1') -Diff
+    exit $LASTEXITCODE
+}
+
 # First run on this machine: doctor, then the import check and, unless
 # declined, the import. There is no bootstrap question on Windows.
 function Invoke-Setup {
@@ -218,6 +246,9 @@ function Invoke-Pull {
             if ($Yes) {
                 $arguments += '-Yes'
             }
+            if ($Force) {
+                $arguments += '-Force'
+            }
             & $script:PowerShellExe.Source @arguments
             exit $LASTEXITCODE
         }
@@ -231,6 +262,30 @@ function Invoke-Pull {
     }
     if ($code -ne 3) {
         exit 1
+    }
+
+    # A pull overwrites this machine's version of every changed file, so ask
+    # the diff which side changed them first. OUT and BOTH would be lost.
+    if (-not $Force) {
+        $diff = Invoke-ExportDiffChild
+        if ($diff.Code -ne 0 -and $diff.Code -ne 3) {
+            Write-Host '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.'
+            exit 1
+        }
+        $blocked = @()
+        foreach ($line in ($diff.Output -split "\r?\n")) {
+            if ($line -match '^  \[(OUT|BOTH)\s*\] ') {
+                $blocked += $line
+            }
+        }
+        if ($blocked.Count -gt 0) {
+            foreach ($line in $blocked) {
+                Write-Host $line
+            }
+            Write-Host ('  ERROR: {0} file(s) changed on this machine since the last sync, and a pull would overwrite them.' -f $blocked.Count)
+            Write-Host '  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).'
+            exit 1
+        }
     }
 
     if (-not $Yes) {
@@ -370,6 +425,35 @@ function Show-Status {
     }
 
     $machine = Get-MachineInfo
+    $differNext = "mksync pull to take the repo's version, or mksync push to send this machine's."
+
+    # With a sync point, the diff says which side changed the differing files,
+    # so the machine line can give the split and the next step can be exact.
+    # No sync point, a failed diff or a diff that agrees keeps the text above.
+    if ($machine.State -eq 'differ') {
+        $syncSha = Read-LastSync -RepoRoot $script:RepoRoot
+        if ($syncSha) {
+            $diff = Invoke-ExportDiffChild
+            if ($diff.Code -eq 3) {
+                $match = [regex]::Match(
+                    $diff.Output,
+                    '(?m)^  ([0-9]+ file\(s\) differ: ([0-9]+) in, ([0-9]+) out, ([0-9]+) both)\.')
+                if ($match.Success) {
+                    $machine.Text = $match.Groups[1].Value
+                    $inCount = [int]$match.Groups[2].Value
+                    $outCount = [int]$match.Groups[3].Value
+                    $bothCount = [int]$match.Groups[4].Value
+                    if ($bothCount -gt 0 -or ($inCount -gt 0 -and $outCount -gt 0)) {
+                        $differNext = 'mksync diff, then push or pull file by file.'
+                    } elseif ($outCount -gt 0) {
+                        $differNext = 'mksync push'
+                    } elseif ($inCount -gt 0) {
+                        $differNext = 'mksync pull'
+                    }
+                }
+            }
+        }
+    }
 
     if (-not $isGit -or -not $hasOrigin) {
         $next = 'run mksync doctor.'
@@ -378,7 +462,7 @@ function Show-Status {
     } elseif ($unsent -gt 0) {
         $next = 'mksync push'
     } elseif ($machine.State -eq 'differ') {
-        $next = "mksync pull to take the repo's version, or mksync push to send this machine's."
+        $next = $differNext
     } elseif ($machine.State -eq 'unknown') {
         $next = 'the machine check failed; run Import-Settings.ps1 -Check to see why.'
     } else {
@@ -568,6 +652,9 @@ switch ($Command.ToLowerInvariant()) {
     }
     'push' {
         Invoke-Push
+    }
+    'diff' {
+        Invoke-Diff
     }
     default {
         [Console]::Error.WriteLine("Unknown command: $Command")

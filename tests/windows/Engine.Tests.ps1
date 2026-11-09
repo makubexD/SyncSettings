@@ -2374,6 +2374,30 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match ([regex]::Escape('preview | check | export | commit | import'))
     }
 
+    It 'sync-cmd-diff' {
+        New-PreviewRepo
+        Copy-SyncWrappers
+        $ErrorActionPreference = 'Continue'
+        $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+        Set-DiffSyncPoint $head
+
+        Invoke-SyncCmd -CmdArgs @('diff')
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('SyncSettings -- DIFF (windows)'))
+        $script:EngineOut | Should -Match ([regex]::Escape('This machine and the repo agree.'))
+    }
+
+    It 'sync-cmd-help-lists-diff' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+
+        Invoke-SyncCmd -CmdArgs @('help')
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('diff     which side changed each file, after a fetch'))
+    }
+
     It 'sync-cmd-message-quotes' {
         Copy-EngineToRepo
         Copy-SyncWrappers
@@ -2682,6 +2706,8 @@ Describe 'Windows engine' {
             New-GitRepo
 
             Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            # No sync point, so status must keep the plain differ text this case asserts.
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
             [IO.File]::WriteAllText(
                 (Join-Path $script:HomeDir '.config\fixture\win.conf'),
                 "user = Someone Else`r`n",
@@ -2697,6 +2723,37 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match ([regex]::Escape('Machine   : 1 file(s) differ from the repo'))
             (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
             (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
+        }
+
+        It 'status-out' {
+            New-PreviewRepo
+            Copy-SyncWrappers
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncStatus
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Machine   : 1 file(s) differ: 0 in, 1 out, 0 both'))
+            $script:EngineOut | Should -Match ([regex]::Escape('Next: mksync push'))
+        }
+
+        It 'status-no-record' {
+            New-PreviewRepo
+            Copy-SyncWrappers
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncStatus
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('Machine   : 1 file(s) differ from the repo'))
+            $script:EngineOut | Should -Match ([regex]::Escape("Next: mksync pull to take the repo's version, or mksync push to send this machine's."))
+            Get-SyncPointFile | Should -Not -Exist
         }
 
         It 'status not git' {
@@ -2818,6 +2875,9 @@ Describe 'Windows engine' {
 
         It 'pull declined' {
             Initialize-FrontRepo
+            # No sync point, so the edit is '?' and the pull guard lets it
+            # through to the apply question this case declines.
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
 
             $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
             [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
@@ -2842,6 +2902,69 @@ Describe 'Windows engine' {
             $script:EngineExit | Should -Be 1
             $script:EngineOut | Should -Match ([regex]::Escape('ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.'))
             (git -C $script:CloneDir rev-parse HEAD 2>$null | Out-String).Trim() | Should -Be $headBefore
+        }
+
+        It 'pull-blocks-out' {
+            Initialize-FrontRepo
+
+            # The machine changes one file; origin changes another.
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+            $ErrorActionPreference = 'Continue'
+            $other = Join-Path $script:T 'other'
+            git clone -q (Join-Path $script:T 'origin.git') $other 2>$null
+            [IO.File]::WriteAllText(
+                (Join-Path $other 'dotfiles\common\shared.conf'),
+                "owner = <NAME>`r`n# pulled`r`n",
+                [System.Text.UTF8Encoding]::new($false))
+            git -C $other add -A 2>$null
+            git -C $other -c user.name=t -c user.email=t@example.com commit -q -m second 2>$null
+            git -C $other push -q origin master 2>$null
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/win.conf')
+            $script:EngineOut | Should -Match ([regex]::Escape('  ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.'))
+            $script:EngineOut | Should -Match ([regex]::Escape('  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).'))
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('Someone Else'))
+        }
+
+        It 'pull-force' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+            $ErrorActionPreference = 'Continue'
+            $other = Join-Path $script:T 'other'
+            git clone -q (Join-Path $script:T 'origin.git') $other 2>$null
+            [IO.File]::WriteAllText(
+                (Join-Path $other 'dotfiles\common\shared.conf'),
+                "owner = <NAME>`r`n# pulled`r`n",
+                [System.Text.UTF8Encoding]::new($false))
+            git -C $other add -A 2>$null
+            git -C $other -c user.name=t -c user.email=t@example.com commit -q -m second 2>$null
+            git -C $other push -q origin master 2>$null
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--force', '--yes')
+
+            $script:EngineExit | Should -Be 0
+            "$winConf.bak" | Should -Exist
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('Fixture User'))
+        }
+
+        It 'pull-no-record' {
+            Initialize-FrontRepo
+            Remove-Item -LiteralPath (Get-SyncPointFile) -Force
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--yes')
+
+            $script:EngineExit | Should -Be 0
+            "$winConf.bak" | Should -Exist
+            (Get-Content -LiteralPath $winConf -Raw) | Should -Match ([regex]::Escape('Fixture User'))
         }
 
         It 'pull not master' {
