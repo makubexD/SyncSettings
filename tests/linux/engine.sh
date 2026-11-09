@@ -525,6 +525,8 @@ case_export_adds() {
     output_has_status ADDED dotfiles/linux/tool.sh || fail "missing ADDED line for tool.sh"
     output_has_status ADDED dotfiles/linux/named.conf sanitized || fail "missing ADDED (sanitized) line for named.conf"
     output_has_status ADDED dotfiles/linux/no-trailing.txt || fail "missing ADDED line for no-trailing.txt"
+
+    grep -Fq 'then run  mksync push' "$out" || fail "missing 'then run  mksync push' hint"
 }
 
 case_export_symlink_mode() {
@@ -3644,6 +3646,7 @@ case_sync_routes_preview() {
     (( rc == 0 )) || fail "sync preview exited $rc, want 0"
 
     grep -Fq 'Nothing was written.' "$out" || fail "missing 'Nothing was written.' line"
+    grep -Fq 'Run mksync push to send it.' "$out" || fail "missing 'Run mksync push to send it.' line"
 }
 
 case_sync_check_routes() {

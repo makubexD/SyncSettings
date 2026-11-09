@@ -310,7 +310,7 @@ if (( CHANGED > 0 )); then
         printf '\n  %d file(s) would change.\n\n' "$CHANGED"
     else
         printf '\n  %d file(s) copied to the repo.\n\n' "$CHANGED"
-        printf '  Review the changes, then run  ./commit.sh\n'
+        printf '  Review the changes, then run  mksync push\n'
     fi
 else
     printf '\n  Repo is up to date. No changes detected.\n'
