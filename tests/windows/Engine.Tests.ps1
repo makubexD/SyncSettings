@@ -2564,6 +2564,137 @@ Describe 'Windows engine' {
         }
     }
 
+    Context 'Backups' {
+        It 'backup-dated' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            $script:EngineExit | Should -Be 0
+            $backupRoot = Join-Path $env:LOCALAPPDATA 'SyncSettings\backups'
+            $runs = @(Get-ChildItem -Path $backupRoot -Directory -ErrorAction SilentlyContinue)
+            $runs.Count | Should -Be 1
+            $run = $runs[0].FullName
+            $dated = Join-Path $run 'dotfiles\windows\win.conf'
+            ([IO.File]::ReadAllBytes($dated) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("old`r`n") -join ',')
+            ([IO.File]::ReadAllBytes("$winConf.bak") -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("old`r`n") -join ',')
+            $script:EngineOut | Should -Match ([regex]::Escape("  Backups    : $run"))
+        }
+
+        It 'backup-second-run' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "first`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            $script:EngineExit | Should -Be 0
+
+            $backupRoot = Join-Path $env:LOCALAPPDATA 'SyncSettings\backups'
+            $runs = @(Get-ChildItem -Path $backupRoot -Directory -ErrorAction SilentlyContinue)
+            $runs.Count | Should -Be 1
+            $first = $runs[0].FullName
+
+            [IO.File]::WriteAllText($winConf, "second`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            $script:EngineExit | Should -Be 0
+
+            $runs = @(Get-ChildItem -Path $backupRoot -Directory -ErrorAction SilentlyContinue)
+            $runs.Count | Should -Be 2
+            ([IO.File]::ReadAllBytes((Join-Path $first 'dotfiles\windows\win.conf')) -join ',') |
+                Should -Be ([Text.Encoding]::UTF8.GetBytes("first`r`n") -join ',')
+        }
+
+        It 'backup-none' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            $script:EngineExit | Should -Be 0
+            (Join-Path $env:LOCALAPPDATA 'SyncSettings\backups') | Should -Not -Exist
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('  Backups    :'))
+        }
+
+        It 'backup-prune' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            $backupRoot = Join-Path $env:LOCALAPPDATA 'SyncSettings\backups'
+            for ($i = 1; $i -le 20; $i++) {
+                $name = '20200101-000000-{0:D2}' -f $i
+                $null = New-Item -ItemType Directory -Path (Join-Path $backupRoot $name) -Force
+            }
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            $script:EngineExit | Should -Be 0
+            $runs = @(Get-ChildItem -Path $backupRoot -Directory -ErrorAction SilentlyContinue)
+            $runs.Count | Should -Be 20
+            (Join-Path $backupRoot '20200101-000000-01') | Should -Not -Exist
+            (Join-Path $backupRoot '20200101-000000-20') | Should -Exist
+        }
+
+        It 'backup-xdg' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            # LOCALAPPDATA is the Windows analog of XDG_STATE_HOME: point it at a
+            # second temp folder and prove the run lands there, not in the
+            # harness's default temp LOCALAPPDATA.
+            $state = Join-Path $script:T 'state'
+            $saved = $env:LOCALAPPDATA
+            $env:LOCALAPPDATA = $state
+            try {
+                Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+            } finally {
+                $env:LOCALAPPDATA = $saved
+            }
+
+            $script:EngineExit | Should -Be 0
+            $backupRoot = Join-Path $state 'SyncSettings\backups'
+            $runs = @(Get-ChildItem -Path $backupRoot -Directory -ErrorAction SilentlyContinue)
+            $runs.Count | Should -Be 1
+            $run = $runs[0].FullName
+            $script:EngineOut | Should -Match ([regex]::Escape("  Backups    : $run"))
+            (Join-Path $script:LocalAppData 'SyncSettings\backups') | Should -Not -Exist
+        }
+
+        It 'backup-dated-fails' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            # A file where the backups folder should be makes the dated copy fail;
+            # the .bak must still be written and the run must still succeed.
+            $backupRoot = Join-Path $env:LOCALAPPDATA 'SyncSettings\backups'
+            $null = New-Item -ItemType Directory -Path (Split-Path $backupRoot -Parent) -Force
+            [IO.File]::WriteAllText($backupRoot, 'not a folder', [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match ([regex]::Escape('WARNING: could not keep a dated backup of dotfiles/windows/win.conf.'))
+            "$winConf.bak" | Should -Exist
+            ([IO.File]::ReadAllBytes("$winConf.bak") -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("old`r`n") -join ',')
+        }
+    }
+
     # -- sync.cmd ---------------------------------------------------------------
 
     It 'sync-cmd-usage' {
