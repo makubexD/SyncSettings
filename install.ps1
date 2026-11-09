@@ -127,6 +127,9 @@ function Install-SyncSettings {
                     if ($name -eq 'git') {
                         $id = 'Git.Git'
                     }
+                    # winget's own output is discarded, so say what is running:
+                    # installing Git can take a minute or more.
+                    Write-Host "  Installing $id with winget..."
                     Invoke-WingetInstall $id
                 }
                 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
