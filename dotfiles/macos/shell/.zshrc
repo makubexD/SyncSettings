@@ -2,9 +2,9 @@
 
 # History: shared across sessions, no duplicates or space-prefixed lines.
 HISTFILE=~/.zsh_history
-HISTSIZE=1000
+HISTSIZE=2000
 SAVEHIST=2000
-setopt APPEND_HISTORY HIST_IGNORE_DUPS HIST_IGNORE_SPACE
+setopt APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_DUPS HIST_IGNORE_SPACE
 
 # BSD ls colours come from CLICOLOR, not --color=auto.
 export CLICOLOR=1

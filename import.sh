@@ -9,6 +9,9 @@ if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
     exit 1
 fi
 
+# So scripts started from here can re-exec again.
+unset SYNC_REEXEC
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -36,9 +39,9 @@ SKIPPED=0
 CHANGED=0
 
 if (( CHECK )); then
-    printf '\n  SyncSettings -- IMPORT CHECK (linux)\n\n'
+    printf '\n  SyncSettings -- IMPORT CHECK (%s)\n\n' "$SYNC_PLATFORM"
 else
-    printf '\n  SyncSettings -- IMPORT (linux)\n\n'
+    printf '\n  SyncSettings -- IMPORT (%s)\n\n' "$SYNC_PLATFORM"
 fi
 printf '  HOME       : %s\n' "$HOME"
 printf '  Repo root  : %s\n\n' "$REPO_ROOT"

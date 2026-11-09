@@ -9,6 +9,9 @@ if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
     exit 1
 fi
 
+# So scripts started from here can re-exec again.
+unset SYNC_REEXEC
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -276,7 +279,7 @@ fi
 
 # Branch this sync off master.
 stamp=$(date +%Y%m%d-%H%M)
-branch="sync/linux-$machine-$stamp"
+branch="sync/$SYNC_PLATFORM-$machine-$stamp"
 git switch -c "$branch"
 
 # Stage and commit.
@@ -304,7 +307,7 @@ trap 'rm -f "$body"' EXIT
     for line in "${status_lines[@]}"; do
         printf '%s%s%s\n' '- `' "$line" '`'
     done
-    printf '\nPlatform: linux · Machine: %s\n\n' "$machine"
+    printf '\nPlatform: %s · Machine: %s\n\n' "$SYNC_PLATFORM" "$machine"
     printf "When the review is done, add the **\`reviewed\`** label.\n"
 } > "$body"
 

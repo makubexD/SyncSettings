@@ -64,8 +64,9 @@ When it looks right, copy your settings into the repo and open the PR (add `-m "
 ./sync commit
 ```
 
-`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>`, commits `dotfiles/`, `packages/` and `sync-config.json`,
-pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
+`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>` (`sync/macos-<alias>-<yyyymmdd-hhmm>` on a Mac),
+commits `dotfiles/`, `packages/` and `sync-config.json`, pushes the branch, opens the PR and switches back to
+`master`. It prints the PR link.
 
 On Windows, the commands are the same: `.\sync preview` in PowerShell, or `sync preview` in cmd. Use
 `-Message "<message>"` to set the title. The branch is `sync/windows-<alias>-<yyyyMMdd-HHmm>`.

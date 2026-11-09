@@ -959,7 +959,8 @@ write_text() {
 }
 
 # Copy $1's mode onto $2 without GNU-only `chmod --reference`: stat -c is GNU,
-# stat -f %Lp is BSD and macOS. $1=reference file, $2=target file.
+# stat -f %Lp is BSD and macOS. -L follows a symlink, as `chmod --reference` did.
+# $1=reference file, $2=target file.
 copy_mode() {
-    chmod "$(stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1")" "$2"
+    chmod "$(stat -L -c %a "$1" 2>/dev/null || stat -L -f %Lp "$1")" "$2"
 }

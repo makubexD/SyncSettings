@@ -225,7 +225,7 @@ install_repo() {
 
 # Put mksync on PATH, refusing to overwrite something that isn't its link.
 link_mksync() {
-    local dir=$1 bin=$2 link target
+    local dir=$1 bin=$2 os=$3 link target file
     target=$(readlink -f "$dir/sync")
     mkdir -p "$bin"
     link=$bin/mksync
@@ -241,7 +241,14 @@ link_mksync() {
     case ":$PATH:" in
         *":$bin:"*) ;;
         *)
-            printf '  Add this line to ~/.bashrc, then open a new terminal: export PATH="%s:%s"\n' "$bin" "\$PATH"
+            # The literal ~ is for the reader, not a path to expand.
+            # shellcheck disable=SC2088
+            if [[ $os == macos ]]; then
+                file='~/.zprofile'
+            else
+                file='~/.bashrc'
+            fi
+            printf '  Add this line to %s, then open a new terminal: export PATH="%s:%s"\n' "$file" "$bin" "\$PATH"
             ;;
     esac
 }
@@ -294,7 +301,7 @@ main() {
         ensure_tools "$yes" "$tty"
     fi
     install_repo "$dir" "$url" "$ref"
-    link_mksync "$dir" "$bin"
+    link_mksync "$dir" "$bin" "$os"
 
     if (( ! no_setup )); then
         run_setup "$dir" "$yes" "$tty" "$brew_bash"

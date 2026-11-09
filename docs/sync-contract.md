@@ -24,8 +24,8 @@ flowchart LR
   date), sanitizes it, and writes only the files that changed. It ends with the [orphan report](#orphan-report) and, in
   bash, the [drift report](#package-drift).
 - **Commit** runs the [checks before pushing](#checks-before-pushing), stages `dotfiles/`, `sync-config.json` and
-  `packages/` (if it exists), commits on a `sync/<os>-<machine>-…` branch and opens a PR. It never pushes to `master`. See
-  [review-gate.md](review-gate.md).
+  `packages/` (if it exists), commits on a `sync/<os>-<machine>-…` branch (`sync/linux-…` on Linux, `sync/macos-…` on a
+  Mac) and opens a PR. It never pushes to `master`. See [review-gate.md](review-gate.md).
 - **Import** reads every selected entry's repo file and hydrates its placeholders. If the local file differs, import
   asks before overwriting it (unless forced) and keeps a `.bak` copy of the old file.
 

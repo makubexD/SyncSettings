@@ -54,7 +54,10 @@ run_with_timeout() {
     "$@" &
     pid=$!
     (
-        sleep "$secs"
+        sleep "$secs" &
+        s=$!
+        trap 'kill "$s" 2>/dev/null; exit 0' TERM
+        wait "$s"
         kill "$pid" 2>/dev/null
     ) &
     watcher=$!
@@ -62,6 +65,7 @@ run_with_timeout() {
     if kill -0 "$watcher" 2>/dev/null; then
         # The command finished first: stop the watcher and keep its status.
         kill "$watcher" 2>/dev/null || true
+        wait "$watcher" 2>/dev/null || true
         return "$rc"
     fi
     return 124
