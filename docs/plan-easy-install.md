@@ -59,12 +59,19 @@ jq, so Windows doesn't install it. Pester cases in CI, then a run on the real Wi
 On 2026-11-08 the user chose to start this phase before the W0-W6 checks in `TODO.md` ran. They still gate the real run on
 Windows, the last step of the phase.
 
-### Phase 3: macOS, gated on research `docs/plan-easy-install-3.md`
+### Phase 3: macOS research `docs/plan-easy-install-3.md` (done 2026-11-08)
 
-macOS isn't supported today. The bash engine needs bash 4 and GNU tools (`chmod --reference`, `readlink -f`), while macOS
-ships bash 3.2 and BSD tools. Research first: Homebrew bash and coreutils as dependencies, or portable code. A `macos`
-platform value also changes the config contract. The output is a decision, then a phase plan.
+A probe on `macos-latest` measured both routes (`docs/macos-research.md`). The user chose option C: Homebrew `bash` and
+`jq` are required, the bash 4 code stays, and the two GNU-only flags on the engine's path get portable helpers. No Mac is
+in use yet, so CI proves the macOS work. First tools: git, Claude Code's OS-neutral files, VS Code, the terminal tools and
+zsh.
 
-### Phase 4: optional, the single engine or the data split
+### Phase 4: macOS build `docs/plan-easy-install-4.md`
+
+A `macos` platform value, platform lists (`["linux", "macos"]`) and per-OS `localPaths`; OS detection with a `SYNC_OS`
+override for tests; a bash 4 guard that re-execs under Homebrew bash; `mksync` and `install.sh` on macOS; an
+`engine-macos` CI job; shared entries moved to `dotfiles/common/`, and zsh and git files under `dotfiles/macos/`.
+
+### Phase 5: optional, the single engine or the data split
 
 Only if one of the "later" conditions above becomes true.
