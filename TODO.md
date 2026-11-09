@@ -68,6 +68,9 @@ before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expe
 - [ ] Safe-sync review leftovers (optional): refuse `..` segments and `.linked/` repo paths on the bash side, and warn
       when `--only` matched no file; `Front.ps1` should reject an unknown `-x` like front.sh; state bash 4.4+ or guard
       empty arrays under `set -u`.
+- [ ] While W0-W9 run, `engine-linux`, `engine-macos`, `engine-windows` and `bootstrap-check` are off in CI
+      (`if: false` in `.github/workflows/ci.yml`) and run locally, as described in `docs/plan-windows-checks.md`. When
+      the checks are done, revert that commit in a PR so all four run again.
 - [ ] Once W0-W6 pass, delete `export.bat`, `import.bat` and `commit.bat`, and their mentions; `sync.cmd` and `mksync`
       cover them.
 - [ ] Delete this section when all of them pass.
