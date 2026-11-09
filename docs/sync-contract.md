@@ -458,6 +458,11 @@ resolves, and `git status --porcelain -- dotfiles sync-config.json` is empty (so
 summary then prints `Sync point : <first 7 of the SHA>` after the `file(s) applied` line. A check (`--check`) writes
 nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree.
 
+`commit.sh` writes it after the PR opens and the clone is back on `master`, with the sync commit's parent (the
+`master` commit the branch starts from), not the sync commit itself: until the PR merges, `origin/master` still has
+the old files, and with the sync commit as the base they would read as `IN` and a pull would undo the push. A run
+that failed before that (commit, push or PR) writes nothing.
+
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
 ## Front door

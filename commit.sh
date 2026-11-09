@@ -293,6 +293,10 @@ if ! git commit -m "$commit_msg"; then
     exit 1
 fi
 
+# The branch's parent is the master commit this sync started from. Recording it
+# as the sync point means the pushed files read OUT until the PR merges.
+parent=$(git rev-parse HEAD^)
+
 # Push the branch.
 if ! git push -u origin "$branch"; then
     printf 'ERROR: push failed; you are on %s. Fix and run: git push -u origin %s\n' "$branch" "$branch" >&2
@@ -319,6 +323,9 @@ fi
 
 # Return to master.
 git switch master
+
+# Record the parent only now: a failed commit, push or PR leaves no sync point.
+write_last_sync "$parent"
 
 printf '  PR opened: %s\n' "$pr_url"
 printf '  Review it, add the '\''reviewed'\'' label, merge, then: git pull\n'
