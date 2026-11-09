@@ -78,9 +78,9 @@ Some tools rewrite their own settings, so preview can show a file you never open
 
 | File | Rewritten by |
 |---|---|
-| `dotfiles/linux/htop/htoprc` | htop, when you change a setting in its interface |
+| `dotfiles/common/htop/htoprc` | htop, when you change a setting in its interface |
 | `dotfiles/linux/gnome/mimeapps.list` | The desktop, when a default app changes |
-| `dotfiles/linux/vscode/settings.json` | VS Code Settings Sync, with changes from your other machine |
+| `dotfiles/common/vscode/settings.json` | VS Code Settings Sync, with changes from your other machine |
 | `dotfiles/linux/gnome/dconf/*.ini` | The desktop, when you change the theme, pin an app or change a shortcut |
 
 These are real settings, so read the diff rather than reverting it. To keep one out of a PR, run `git restore <file>`

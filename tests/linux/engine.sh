@@ -1522,18 +1522,18 @@ case_lint_real_packages() {
 
 case_lint_platform_missing() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then del(.platform) else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then del(.platform) else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the repoPath"
+    grep -Fqx 'dotfiles/linux/claude/statusline.sh' "$out" || fail "output does not name the repoPath"
 }
 
 case_lint_platform_bad() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .platform = "mac" else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then .platform = "mac" else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the repoPath"
+    grep -Fqx 'dotfiles/linux/claude/statusline.sh' "$out" || fail "output does not name the repoPath"
 }
 
 case_check_config_macos() {
@@ -1559,10 +1559,10 @@ case_check_config_macos() {
 
 case_lint_linux_prefix() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .repoPath = "dotfiles/x/CLAUDE.md" else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then .repoPath = "dotfiles/x/statusline.sh" else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/x/CLAUDE.md' "$out" || fail "output does not name the new repoPath"
+    grep -Fqx 'dotfiles/x/statusline.sh' "$out" || fail "output does not name the new repoPath"
 }
 
 case_lint_dir_with_rules() {
@@ -4595,10 +4595,10 @@ case_lint_dconf_keys_type() {
 
 case_lint_keys_on_file() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .keys = ["x"] else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then .keys = ["x"] else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the entry"
+    grep -Fqx 'dotfiles/linux/claude/statusline.sh' "$out" || fail "output does not name the entry"
 }
 
 case_lint_path_on_dir() {
