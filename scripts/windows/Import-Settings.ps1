@@ -354,14 +354,22 @@ try {
     # Record the sync point: the repo commit this machine now agrees with. Only
     # a real import that applied everything it found, from a clean tree, knows it.
     if (-not $Check -and -not $isOtherUser -and $errors -eq 0 -and $script:UserSkips -eq 0) {
-        $head = "$(git -C $repoRoot rev-parse -q --verify HEAD 2>$null)".Trim()
-        if ($head) {
-            $dirty = @(git -C $repoRoot status --porcelain -- dotfiles sync-config.json 2>$null |
-                Where-Object { $_ -match '\S' })
-            if ($dirty.Count -eq 0) {
-                Write-LastSync -Sha $head
-                $syncPoint = $head
+        # git writes to stderr outside a clone ("not a git repository"), which
+        # must not throw on PowerShell 5.1: it means "no sync point", not an error.
+        $savedPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $head = "$(git -C $repoRoot rev-parse -q --verify HEAD 2>$null)".Trim()
+            if ($LASTEXITCODE -eq 0 -and $head) {
+                $dirty = @(git -C $repoRoot status --porcelain -- dotfiles sync-config.json 2>$null |
+                    Where-Object { $_ -match '\S' })
+                if ($LASTEXITCODE -eq 0 -and $dirty.Count -eq 0) {
+                    Write-LastSync -Sha $head
+                    $syncPoint = $head
+                }
             }
+        } finally {
+            $ErrorActionPreference = $savedPreference
         }
     }
 
