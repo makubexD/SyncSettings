@@ -312,6 +312,22 @@ only_selected() {
     return 1
 }
 
+# True when a --only pick can select something under this entry: the entry
+# itself, a file inside a dir entry, or a linked folder of a file entry. With
+# no --only every entry is selected.
+entry_selected() {
+    local repo_path=$1 selected
+    if only_selected "$repo_path"; then
+        return 0
+    fi
+    for selected in "${ONLY_PATHS[@]}"; do
+        if [[ $selected == "$repo_path/"* || $selected == "$repo_path.linked/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 declare -a EXCLUDES=()
 if [[ -z ${SYNC_LIB_ONLY:-} ]]; then
     while IFS= read -r pattern; do

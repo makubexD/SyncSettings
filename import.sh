@@ -14,6 +14,7 @@ unset SYNC_REEXEC
 
 set -euo pipefail
 
+export SYNC_CALLER_PWD=${SYNC_CALLER_PWD:-$PWD}
 cd "$(dirname "$0")"
 source scripts/linux/sync.sh
 
@@ -71,11 +72,14 @@ fi
 
 ALL_RULES='[]'
 while IFS= read -r entry; do
+    repo_path=$(jq -r '.repoPath' <<<"$entry")
+    if ! entry_selected "$repo_path"; then
+        continue
+    fi
     rules_n=$(jq -r '(.sanitizeRules // []) | length' <<<"$entry")
     if (( rules_n == 0 )); then
         continue
     fi
-    repo_path=$(jq -r '.repoPath' <<<"$entry")
     if [[ -f $REPO_ROOT/$repo_path ]]; then
         ALL_RULES=$(jq -c --argjson old "$ALL_RULES" '$old + (.sanitizeRules // [])' <<<"$entry")
     fi
@@ -178,22 +182,6 @@ apply_plain() {
         APPLIED=$((APPLIED + 1))
     fi
     return 0
-}
-
-# True when a --only pick can select something under this entry: the entry
-# itself, a file inside a dir entry, or a linked folder of a file entry. With
-# no --only every entry is selected.
-entry_selected() {
-    local repo_path=$1 selected
-    if only_selected "$repo_path"; then
-        return 0
-    fi
-    for selected in "${ONLY_PATHS[@]}"; do
-        if [[ $selected == "$repo_path/"* || $selected == "$repo_path.linked/"* ]]; then
-            return 0
-        fi
-    done
-    return 1
 }
 
 process_entry() {

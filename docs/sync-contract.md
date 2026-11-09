@@ -83,7 +83,8 @@ either a repo path or a local path:
   entry. A trailing `/` is dropped.
 - Any other path is a local path. A leading `~/` becomes `$HOME/` (a lone `~` becomes `$HOME`), a path that doesn't
   start with `/` is joined to the caller's folder (`$SYNC_CALLER_PWD`, else `$PWD`), and `.` and `..` segments are
-  folded lexically, without following links.
+  folded lexically, without following links. A relative pick is relative to the caller's folder on direct engine
+  calls too: `import.sh` and `export.sh` record `$PWD` before they `cd` to the repo root.
 
 A local path resolves to a repo path by comparing it with each selected entry's resolved `localPath`, folded
 the same way: equal to a file entry gives its `repoPath`; equal to a `dir` entry's folder gives its `repoPath`, and
@@ -99,8 +100,9 @@ Then a repo file is selected when there is no `--only`, or its repo path equals 
 `<selected>/` or `<selected>.linked/`.
 
 `import.sh --only` handles only the selected files: every other entry and file gets no status line and no count, and
-`--check --only` lists only the selected files. A run with `--only` never records the sync point, because the machine
-agrees with only part of the repo. `--only` with no path after it is an error, exit 1.
+`--check --only` lists only the selected files. With `--only` only the picked entries' values are requested, so a
+missing value that only an unpicked entry needs does not stop the run. A run with `--only` never records the sync
+point, because the machine agrees with only part of the repo. `--only` with no path after it is an error, exit 1.
 
 `export.sh --only` writes only the selected files. It removes a repo file gone from a `dir` entry's folder only when
 that file is selected, and skips the orphan and package drift reports: a partial run doesn't see the whole repo.
