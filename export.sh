@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 # Export local config files into the repo (linux entries only).
+
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        [ -x "$b" ] && [ -z "${SYNC_REEXEC:-}" ] && SYNC_REEXEC=1 exec "$b" "$0" "$@"
+    done
+    echo "ERROR: SyncSettings needs bash 4 or newer (this is ${BASH_VERSION:-unknown}). On macOS: brew install bash" >&2
+    exit 1
+fi
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
