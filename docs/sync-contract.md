@@ -448,7 +448,8 @@ folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
 ## Sync point
 
 A per-machine file remembers the repo commit the machine last agreed with: on Linux and macOS,
-`${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/last-sync`. It holds one line, the full SHA.
+`${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/last-sync`; on Windows,
+`%LOCALAPPDATA%\SyncSettings\last-sync`. It holds one line, the full SHA.
 
 It is read only when that line is 40 hex characters and the commit exists in the clone; anything else counts as no
 sync point.

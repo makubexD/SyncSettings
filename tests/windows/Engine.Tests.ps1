@@ -267,6 +267,25 @@ BeforeAll {
         New-GhStub
     }
 
+    # Runs Import-Settings.ps1 in the clone: the checkout a sync-point run
+    # records from. Stdin is always redirected, so a prompt cannot block.
+    function Invoke-CloneImport {
+        param([switch]$Check, [switch]$Force, [string]$InputText = '', [string]$User = '')
+        $ErrorActionPreference = 'Continue'
+        $script:EngineScript = Join-Path $script:CloneDir 'scripts\windows\Import-Settings.ps1'
+        $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript)
+        if ($Check) { $argList += '-Check' }
+        if ($Force) { $argList += '-Force' }
+        if ($User) { $argList += @('-User', $User) }
+        $script:EngineOut = $InputText | & powershell.exe @argList 2>&1 | Out-String
+        $script:EngineExit = $LASTEXITCODE
+    }
+
+    # The sync point file this run would write, under the temp LOCALAPPDATA.
+    function Get-SyncPointFile {
+        return (Join-Path $env:LOCALAPPDATA 'SyncSettings\last-sync')
+    }
+
     # Runs Commit-Settings.ps1 in the clone with the stub gh on PATH.
     function Invoke-Commit {
         # git fetch and push write to stderr, which must not fail the test.
@@ -319,6 +338,10 @@ Describe 'Windows engine' {
         $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir '.config\fixture') -Force
         $script:SavedUserProfile = $env:USERPROFILE
         $env:USERPROFILE = $script:HomeDir
+        $script:LocalAppData = Join-Path $script:T 'localappdata'
+        $null = New-Item -ItemType Directory -Path $script:LocalAppData -Force
+        $script:SavedLocalAppData = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = $script:LocalAppData
         $script:SavedTemp = $env:TEMP
         $script:SavedTmp = $env:TMP
         $script:SavedPath = $env:PATH
@@ -327,6 +350,11 @@ Describe 'Windows engine' {
 
     AfterEach {
         $env:USERPROFILE = $script:SavedUserProfile
+        if ($null -eq $script:SavedLocalAppData) {
+            Remove-Item Env:\LOCALAPPDATA -ErrorAction SilentlyContinue
+        } else {
+            $env:LOCALAPPDATA = $script:SavedLocalAppData
+        }
         if ($null -eq $script:SavedTemp) {
             Remove-Item Env:\TEMP -ErrorAction SilentlyContinue
         } else {
@@ -1946,6 +1974,115 @@ Describe 'Windows engine' {
 
         $script:EngineExit | Should -Be 1
         $script:EngineOut | Should -Not -Match 'Fixture User'
+    }
+
+    # -- Sync point --------------------------------------------------------------
+
+    Context 'Sync point' {
+        It 'sync-point-import-records' {
+            New-CommitRepo
+            $ErrorActionPreference = 'Continue'
+            $head = (git -C $script:CloneDir rev-parse HEAD 2>$null | Out-String).Trim()
+
+            Invoke-CloneImport -Force
+
+            $script:EngineExit | Should -Be 0
+            $file = Get-SyncPointFile
+            $file | Should -Exist
+            [IO.File]::ReadAllText($file) | Should -Be "$head`n"
+            $script:EngineOut | Should -Match ([regex]::Escape("  Sync point : $($head.Substring(0, 7))"))
+        }
+
+        It 'sync-point-check-none' {
+            New-CommitRepo
+
+            Invoke-CloneImport -Check
+
+            $script:EngineExit | Should -Be 3
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'sync-point-user-skip' {
+            New-CommitRepo
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-CloneImport -InputText 'n'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'SKIPPED' 'dotfiles/windows/win.conf' 'user skipped')
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'sync-point-dirty' {
+            New-CommitRepo
+            Set-CloneWinConf "changed = yes`r`n"
+
+            Invoke-CloneImport -Force
+
+            $script:EngineExit | Should -Be 0
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'sync-point-other-user' {
+            # An unresolvable -User stops before the entry loop; a resolvable
+            # other profile raises UAC, which a test cannot answer. Every -User
+            # run a test can reach is refused, so nothing is recorded.
+            New-CommitRepo
+
+            Invoke-CloneImport -Force -User 'nobody-here'
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('Cannot resolve profile directory'))
+            Get-SyncPointFile | Should -Not -Exist
+        }
+
+        It 'sync-point-read' {
+            Copy-EngineToRepo
+            New-GitRepo
+            . (Join-Path $script:RepoDir 'scripts\windows\SyncHelpers.ps1')
+            $ErrorActionPreference = 'Continue'
+            $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+            $file = Get-SyncPointFile
+            $null = New-Item -ItemType Directory -Path (Split-Path $file -Parent) -Force
+
+            # Missing file.
+            Read-LastSync -RepoRoot $script:RepoDir | Should -BeNullOrEmpty
+
+            # Not 40 hex characters.
+            [IO.File]::WriteAllText($file, "abc`n")
+            Read-LastSync -RepoRoot $script:RepoDir | Should -BeNullOrEmpty
+
+            # Well formed, but not a commit in this clone.
+            [IO.File]::WriteAllText($file, (('0' * 40) + "`n"))
+            Read-LastSync -RepoRoot $script:RepoDir | Should -BeNullOrEmpty
+
+            # HEAD's SHA.
+            [IO.File]::WriteAllText($file, "$head`n")
+            Read-LastSync -RepoRoot $script:RepoDir | Should -Be $head
+        }
+
+        It 'sync-point-commit-records' {
+            New-CommitRepo
+            $ErrorActionPreference = 'Continue'
+            $origin = Join-Path $script:T 'origin.git'
+            $master = (git -C $script:CloneDir rev-parse master 2>$null | Out-String).Trim()
+
+            Set-CloneWinConf "changed = yes`r`n"
+
+            Invoke-Commit
+
+            $script:EngineExit | Should -Be 0
+            $file = Get-SyncPointFile
+            $file | Should -Exist
+            [IO.File]::ReadAllText($file) | Should -Be "$master`n"
+
+            # The sync point is the sync branch's parent, not the sync commit.
+            $branches = @(git --git-dir=$origin for-each-ref --format='%(refname)' refs/heads 2>$null |
+                Where-Object { $_ -match '^refs/heads/sync/windows-testbox-' })
+            $branches.Count | Should -Be 1
+            (git --git-dir=$origin rev-parse "$($branches[0])^" 2>$null | Out-String).Trim() | Should -Be $master
+        }
     }
 
     # -- sync.cmd ---------------------------------------------------------------

@@ -1147,10 +1147,61 @@ function Import-LinkedDirectory {
     return $applied
 }
 
+# -- Sync point ----------------------------------------------------------------
+
+# Where this machine records the repo commit it last agreed with.
+function Get-LastSyncFile {
+    return (Join-Path $env:LOCALAPPDATA 'SyncSettings\last-sync')
+}
+
+# The recorded SHA when the file's first line is 40 hex characters and names a
+# commit in this clone; anything else is "no sync point" and returns $null.
+function Read-LastSync {
+    param([string]$RepoRoot)
+    # git cat-file writes to stderr for a missing commit, which must not throw.
+    $ErrorActionPreference = 'Continue'
+    $file = Get-LastSyncFile
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $null }
+    try {
+        $sha = [string](Get-Content -LiteralPath $file -TotalCount 1 -ErrorAction Stop)
+    } catch {
+        return $null
+    }
+    if ($sha -cnotmatch '^[0-9a-f]{40}$') { return $null }
+    git -C $RepoRoot cat-file -e "${sha}^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return $sha
+}
+
+# Record a SHA as this machine's sync point. A failure prints a WARNING and
+# never throws: the sync point is a convenience, never a reason to fail a run.
+function Write-LastSync {
+    param([string]$Sha)
+    $file = Get-LastSyncFile
+    $dir  = Split-Path $file -Parent
+    $tmp  = Join-Path $dir ('.last-sync.' + $PID)
+    try {
+        $null = New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop
+        [IO.File]::WriteAllText($tmp, "$Sha`n")
+        Move-Item -LiteralPath $tmp -Destination $file -Force -ErrorAction Stop
+        return
+    } catch {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        Write-Host "  WARNING: could not record the sync point in $file." -ForegroundColor Yellow
+    }
+}
+
 # -- Status output -------------------------------------------------------------
+
+# SKIPPED lines noted "user skipped" in the current run, so a caller can tell a
+# clean, unattended run apart.
+$script:UserSkips = 0
 
 function Write-StatusLine {
     param([string]$Status, [string]$File, [string]$Note = '')
+    if ($Status -eq 'SKIPPED' -and $Note -eq 'user skipped') {
+        $script:UserSkips++
+    }
     $color = switch ($Status) {
         'ADDED'     { 'Green' }
         'MODIFIED'  { 'Yellow' }
