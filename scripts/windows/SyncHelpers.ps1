@@ -1438,6 +1438,7 @@ function Copy-RepoFileToLocal {
             Write-Host
         }
         Copy-Item -LiteralPath $LocalFile -Destination "$LocalFile.bak" -Force
+        Save-DatedBackup -Source $LocalFile -RepoPath $Label
         Copy-Item -LiteralPath $RepoFile  -Destination $LocalFile      -Force
         Write-StatusLine 'UPDATED' $Label "backup saved as $(Split-Path "$LocalFile.bak" -Leaf)"
         return 'UPDATED'
@@ -1639,6 +1640,52 @@ function Write-LastSync {
     } catch {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
         Write-Host "  WARNING: could not record the sync point in $file." -ForegroundColor Yellow
+    }
+}
+
+# -- Dated backups -------------------------------------------------------------
+
+# The folder this run keeps its dated backups in, made once per process. It is
+# printed, and cached in $script:BackupRunDir so every backup of one run lands
+# together even when the run crosses a second.
+$script:BackupRunDir = $null
+# Set to $true when this run kept a dated copy, so the caller prunes old runs
+# and names the folder in the summary.
+$script:BackupMade = $false
+
+function Get-BackupRunDir {
+    if (-not $script:BackupRunDir) {
+        $run = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $script:BackupRunDir = Join-Path $env:LOCALAPPDATA ("SyncSettings\backups\$run-$PID")
+    }
+    return $script:BackupRunDir
+}
+
+# Copy an old local version into this run's folder. A failure prints a WARNING
+# and never throws: the .bak is the backup that must succeed.
+function Save-DatedBackup {
+    param(
+        [string]$Source,
+        [string]$RepoPath
+    )
+    $dest = Join-Path (Get-BackupRunDir) ($RepoPath -replace '/', '\')
+    try {
+        $null = New-Item -ItemType Directory -Path (Split-Path $dest -Parent) -Force -ErrorAction Stop
+        Copy-Item -LiteralPath $Source -Destination $dest -Force -ErrorAction Stop
+        $script:BackupMade = $true
+    } catch {
+        Write-Host "  WARNING: could not keep a dated backup of $RepoPath." -ForegroundColor Yellow
+    }
+}
+
+# Keep only the newest 20 run folders under the backups folder, sorted by name
+# (the run name is a local-time timestamp, so name order is age order).
+function Remove-OldBackupRuns {
+    $backupRoot = Split-Path (Get-BackupRunDir) -Parent
+    if (-not (Test-Path -LiteralPath $backupRoot -PathType Container)) { return }
+    $runs = @(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | Sort-Object -Property Name)
+    for ($i = 0; $i -lt ($runs.Count - 20); $i++) {
+        Remove-Item -LiteralPath $runs[$i].FullName -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

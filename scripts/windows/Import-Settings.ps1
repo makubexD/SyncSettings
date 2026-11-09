@@ -334,6 +334,7 @@ try {
 
                         # Backup existing file
                         Copy-Item -Path $localFile -Destination "$localFile.bak" -Force
+                        Save-DatedBackup -Source $localFile -RepoPath $label
                         Write-Utf8File -Path $localFile -Content $hydrated
                         Write-StatusLine 'UPDATED' $label "backup saved as $(Split-Path "$localFile.bak" -Leaf)"
                         $applied++
@@ -435,6 +436,12 @@ try {
         }
     }
 
+    # Keep only the newest 20 backup runs, sorted by name. Only a run that kept
+    # a dated copy has a folder to look at.
+    if (-not $Check -and $script:BackupMade) {
+        Remove-OldBackupRuns
+    }
+
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray
 
@@ -454,6 +461,10 @@ try {
         Write-Host "  $applied file(s) applied to $profileRoot" -ForegroundColor Green
     } else {
         Write-Host '  No files were changed. Machine is already up to date.' -ForegroundColor Green
+    }
+
+    if ($script:BackupMade) {
+        Write-Host "  Backups    : $script:BackupRunDir" -ForegroundColor White
     }
 
     if ($syncPoint) {
