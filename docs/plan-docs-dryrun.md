@@ -36,7 +36,7 @@ the Windows checks W0-W6 in `TODO.md` pass, because those checks run them; then 
 
 **`docs/`.** 17 finished `plan-*.md` files (about 450 KB) sit next to the 8 guides.
 
-## Phase 1: docs and wording (`docs/plan-docs-dryrun-1.md`)
+## Phase 1: docs and wording (`docs/plan-docs-dryrun-1.md`) (done 2026-11-09)
 
 `mksync check` for the repo → machine dry run, check output that warns before a pull overwrites local edits, the
 PowerShell hints moved to `mksync`, a short README, and the finished plans out of `docs/`.
