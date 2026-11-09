@@ -578,7 +578,7 @@ codes are the same on both systems, except where this section says otherwise.
 |---|---|---|
 | `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
 | `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
-| `mksync pull [--yes] [--force] [path…]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check, then (unless `--force`) the diff, which stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` (`Import-Settings.ps1 -Force` on Windows). Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point | 0, or 1 on an error |
+| `mksync pull [--yes] [--force] [path…]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check. Nothing to change: a pull without paths still runs `import.sh --force` to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` (`Import-Settings.ps1 -Force` on Windows). Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point | 0, or 1 on an error |
 | `mksync push [--yes] [-m <msg>] [path…]` | Runs `export.sh` (`Export-Settings.ps1` on Windows). Picked paths go to it as `--only`, and any path makes `commit.sh` run with `--partial`, so a partial push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
 | `mksync diff [path…]` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
@@ -587,10 +587,17 @@ codes are the same on both systems, except where this section says otherwise.
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
 sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
 since the last sync, and a pull would overwrite them.` and `Run mksync push first, or mksync pull --force to overwrite
-them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block, and without a sync point the diff doesn't run at all, since every
-label would be `?`.
+them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block.
 A diff that fails (exit 1) stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
 or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it.
+
+Without a sync point every label would be `?`, so the diff doesn't run and the first pull is guarded instead: with
+`--yes` it stops with `ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these
+files.` and `Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).`,
+exit 1; interactive it prints `No sync is recorded on this machine: if you changed these files here, a pull overwrites
+them (each keeps a .bak).` and asks `Apply these changes? [y/N]`, so only an answer starting with `y` or `Y` applies.
+When nothing differs, a pull without paths still runs the import, which records the sync point. `mksync setup` and
+`bootstrap/linux.sh` call the engine directly, so a new machine takes the repo's files unchanged.
 On Windows the guard recognises the same labels in the `[OUT      ]` status-line layout ([Known differences](#known-differences)).
 
 `pull` and `push` need the clone on `master` with an `origin` remote. On Windows, `pull` re-runs itself in a new

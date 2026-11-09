@@ -272,7 +272,7 @@ front_diff() {
 # Get the latest repo and apply it here: fetch, fast-forward, rerun this to run
 # the new code, then the import check and, unless declined, the import.
 front_pull() {
-    local apply_yes=0 no_fetch=0 force=0 updates answer='' rc=0
+    local apply_yes=0 no_fetch=0 force=0 updates answer='' rc=0 point=''
     local diff_tmp='' diff_rc=0 blocked='' count=0
     local -a paths=() only=()
 
@@ -334,15 +334,42 @@ front_pull() {
 
     "$REPO_ROOT/import.sh" --check "${only[@]}" < /dev/null || rc=$?
     case $rc in
-        0) exit 0 ;;
+        0)
+            # Nothing to overwrite, but a full import still records the sync
+            # point, so this machine stops reading '?' in the next diff.
+            if (( ${#paths[@]} == 0 )); then
+                exec "$REPO_ROOT/import.sh" --force < /dev/null
+            fi
+            exit 0
+            ;;
         3) ;;
         *) exit 1 ;;
     esac
 
+    point=$(front_sync_point)
+
+    # With no sync point every diff label is '?', so the pull can't tell which
+    # side changed these files. Refuse under --yes, and ask with the default
+    # no when interactive.
+    if (( ! force )) && [[ -z $point ]]; then
+        if (( apply_yes )); then
+            printf "  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files.\n" >&2
+            printf '  Run mksync diff, then mksync push, mksync pull <path>, or mksync pull --force (each keeps a .bak).\n' >&2
+            exit 1
+        fi
+        printf '  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).\n'
+        printf '  Apply these changes? [y/N] '
+        read -r answer || answer=''
+        if [[ $answer != [Yy]* ]]; then
+            printf '  Nothing applied.\n'
+            exit 0
+        fi
+        exec "$REPO_ROOT/import.sh" --force "${only[@]}"
+    fi
+
     # A pull overwrites this machine's version of every changed file, so ask
     # the diff which side changed them first. OUT and BOTH would be lost.
-    # Without a sync point every label is '?', which never blocks: skip it.
-    if (( ! force )) && [[ -n $(front_sync_point) ]]; then
+    if (( ! force )) && [[ -n $point ]]; then
         diff_tmp=$(mktemp) || diff_tmp=''
         if [[ -z $diff_tmp ]]; then
             printf '  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.\n' >&2
