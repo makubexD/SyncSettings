@@ -132,3 +132,55 @@ arrays under `set -u`, plus the four BSD gaps.
   a failed check falls through to the last branch. Linux and Windows (`scripts/windows/Front.ps1`, `Show-Status`) do the
   same today. It should say to run the check by hand to see why.
 - The OS label read `linux (unknown)` on macOS: the status reads `/etc/os-release`, which macOS doesn't have.
+
+## Options
+
+Every option needs Homebrew for `jq` alone, which macOS doesn't ship. So "Homebrew is required" is already true; the
+options differ only in what else comes from it and how much code changes.
+
+| | A. Homebrew bash + GNU tools | B. Portable code | C. Hybrid (recommended) |
+|---|---|---|---|
+| Brew installs | `bash coreutils findutils jq` | `jq` | `bash jq` |
+| Engine code change | None measured: the `gnu` leg passed every non-dconf case | One associative array, six `mapfile`s, every unguarded empty array under `set -u`, plus the BSD gaps; the true count is unknown until the harness runs on 3.2 | `chmod --reference` (2 places) and `timeout` (1 place) get portable helpers; `find -printf` and `getent` sit on Linux-only paths (npm drift, dconf) and stay |
+| Test harness | `script -qec` and `/proc/self/fd/0` (4 cases) | Same 4, plus the `$(case …)` parse error in both runners | Same 4 |
+| Runtime wiring | `gnubin` folders first on `PATH`, or the scripts call `g`-prefixed tools | None | `#!/usr/bin/env bash` already picks Homebrew's bash when `brew shellenv` is in the profile; `sync` re-execs under `$(brew --prefix)/bin/bash` when `BASH_VERSINFO` is below 4, so a bare `/bin/bash sync` still works |
+| Ongoing cost | A user's `PATH` decides which `sed`/`find` runs; GNU-only flags keep creeping in unseen | Every future change must stay bash 3.2 + BSD; a macOS CI job is needed to hold it | A macOS CI job (Homebrew bash, no `gnubin`) catches new GNU-only flags |
+
+**Recommendation: C.** macOS 26 already has `readlink -f`, `realpath`, `sort -V` and `sha256sum`, so the GNU gap on the
+engine's path is two spots. Homebrew bash keeps the bash 4 code as it is and costs one formula next to `jq`, which every
+option needs. A pulls in GNU tools to cover two flags and makes behaviour depend on `PATH` order; B rewrites the
+engine's core data structures for no user-visible gain and taxes every later change. `mksync doctor` keeps its bash 4
+gate (`scripts/linux/front.sh:350`); on macOS its hint becomes `brew install bash`.
+
+## Config contract (proposed)
+
+- **Platform value `macos`.** `platform_entries` (`scripts/linux/sync.sh:119`) picks by OS: Linux takes `linux` +
+  `common`, macOS takes `macos` + `common`. `check_platforms` and PowerShell's `Assert-ValidPlatform` accept `macos`;
+  Windows skips it like `linux`.
+- **`common` entries apply on macOS as they are.** All four use `~/` paths that are the same on a Mac:
+  `~/.gitconfig`, `~/.config/git/ignore`, `~/.claude/RTK.md`, `~/.claude/docs/token-routing-map.html`.
+- **Files under `dotfiles/macos/<tool>/`** only when the content differs from Linux. Where the file is the same and
+  only the platform differs, the entry moves to `common` (same `repoPath` under `dotfiles/common/`) rather than getting a
+  twin, so one edit reaches both machines.
+- **Tools already synced, by where they'd live on a Mac:**
+
+| Tool | Linux entries | macOS `localPath` | Proposal |
+|---|---|---|---|
+| git | `~/.gitconfig` (common), `~/.gitconfig.local` | same | `.gitconfig.local` stays per-OS (it holds OS paths) |
+| Claude Code | 11 `~/.claude/…` entries, 2 `~/.claude-worker` | same paths | Move to `common` the ones that are OS-neutral (`CLAUDE.md`, skills, docs); `settings.json`, `hooks`, `statusline.sh` and `bin/` call Linux paths and tools, so they stay `linux` until a Mac copy is written. `mk-exec` and the worker setup are Linux-only for now |
+| shell | `~/.bashrc`, `~/.profile` | macOS defaults to zsh: `~/.zshrc`, `~/.zprofile` | `dotfiles/macos/shell/` with zsh files, not the bash ones |
+| VS Code | `~/.config/Code/User/{settings,keybindings}.json` | `~/Library/Application Support/Code/User/` | `common` content, two `localPath`s: needs a per-OS path, below |
+| tmux, starship, wezterm, htop, gh | `~/.config/…`, `~/.tmux.conf` | same paths | `common` |
+| rtk | `~/.config/rtk` | likely `~/Library/Application Support/rtk` (Rust `dirs` default); check on the Mac | per-OS path |
+| GNOME, dconf | 14 + dconf entries | n/a | stay `linux` |
+
+- **Per-OS `localPath`.** VS Code (and maybe rtk) has the same content in another folder. Either a `macos` twin entry
+  pointing at the same `repoPath` (no schema change, but two entries to keep in step and export would see both), or an
+  optional `localPaths: { "macos": "…" }` override on a `common` entry. The override is the cleaner contract; it's a
+  schema change on both engines.
+- **`mksync setup` and `doctor` on macOS.** `doctor`: bash ≥ 4 (hint `brew install bash`), `git`, `jq`, `cmp`
+  (hints `brew install …`), `brew` itself (MISSING with the install URL), `gh`. No `dconf` check. `setup`: no
+  `--bootstrap` (`bootstrap/linux.sh` is apt); the OS label comes from `sw_vers` instead of `/etc/os-release`. The
+  installer's `Darwin` gate (`install.sh:42`) becomes a check that `brew` exists, then offers `brew install bash jq`.
+- **Later, not this phase:** `defaults export` allowlists (the dconf counterpart), a `Brewfile` with `brew bundle check`
+  as the package list and drift report.
