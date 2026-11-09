@@ -201,7 +201,8 @@ function Assert-SafePaths {
         if ($entry.PSObject.Properties['type'] -and $entry.type -ceq 'dconf') {
             $dconfPath = [string]$entry.path
             $platform  = [string]$entry.platform
-            $valid = ($platform -ceq 'linux') -and
+            $valid = (-not ($entry.platform -is [array])) -and
+                ($platform -ceq 'linux') -and
                 ($dconfPath -cmatch '^(/[A-Za-z0-9._-]+)+/$') -and
                 ($dconfPath -cnotlike '*/../*')
             if (-not $valid) {

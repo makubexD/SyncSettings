@@ -825,6 +825,27 @@ Describe 'Windows engine' {
         Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.'
     }
 
+    It 'dconf-platform-list' {
+        Copy-EngineToRepo
+
+        # ConvertTo-Json does not reliably write a one-item array as a list, so
+        # the entry goes in as text with a real one-item list.
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $config.files = @($config.files) + [pscustomobject]@{
+            repoPath = 'dotfiles/linux/dconf/app.ini'
+            path     = '/test/app/'
+            type     = 'dconf'
+            platform = '__platform_list__'
+        }
+        $json = $config | ConvertTo-Json -Depth 10
+        $json = $json -replace '"platform":\s*"__platform_list__"', '"platform": ["linux"]'
+        [IO.File]::WriteAllText($configPath, $json, [System.Text.UTF8Encoding]::new($false))
+        (Get-Content $configPath -Raw) | Should -Match '"platform": \["linux"\]'
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.'
+    }
+
     It 'dconf-repo-unsafe' {
         Copy-EngineToRepo
         Add-FixtureEntry ([pscustomobject]@{
