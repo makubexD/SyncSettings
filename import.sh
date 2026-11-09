@@ -233,7 +233,7 @@ process_entry() {
                 return 0
             fi
             write_text hydrated "$local_file" || { status ERROR "$label" 'cannot write local file'; return 1; }
-            if ! chmod --reference="$repo_file" "$local_file"; then
+            if ! copy_mode "$repo_file" "$local_file"; then
                 status ERROR "$label" 'cannot copy file mode'
                 return 1
             fi

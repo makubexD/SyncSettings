@@ -761,6 +761,10 @@ drift_apt_key() {
 # Report drift between the package lists and what this machine has installed.
 # Report only: never writes a list, never changes a count or the exit code.
 report_drift() {
+    # The report reads apt-mark, snap and find -printf, so macOS skips it.
+    if [[ $SYNC_PLATFORM == macos ]]; then
+        return 0
+    fi
     PACKAGES_DIR=$REPO_ROOT/packages/linux
     [[ -d $PACKAGES_DIR ]] || return 0
     root=${DRIFT_ROOT:-}
@@ -952,4 +956,10 @@ read_text() {
 # Write text as-is (trailing newlines preserved). $1=variable name, $2=destination file.
 write_text() {
     printf '%s' "${!1}" > "$2"
+}
+
+# Copy $1's mode onto $2 without GNU-only `chmod --reference`: stat -c is GNU,
+# stat -f %Lp is BSD and macOS. $1=reference file, $2=target file.
+copy_mode() {
+    chmod "$(stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1")" "$2"
 }

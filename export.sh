@@ -99,7 +99,7 @@ process_entry() {
             fi
         else
             write_text sane "$repo_file" || { status ERROR "$label" 'cannot write repo file'; return 1; }
-            if ! chmod --reference="$local_file" "$repo_file"; then
+            if ! copy_mode "$local_file" "$repo_file"; then
                 status ERROR "$label" 'cannot copy file mode'
                 return 1
             fi

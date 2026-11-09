@@ -33,6 +33,35 @@ front_git() {
     GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" "$@"
 }
 
+# Run a command with a time limit, returning 124 on timeout like `timeout`.
+# macOS has no `timeout`, so the fallback runs the command in the background
+# and a watcher kills it after the limit.
+run_with_timeout() {
+    local secs=$1
+    shift
+
+    if command -v timeout > /dev/null 2>&1; then
+        timeout "$secs" "$@"
+        return
+    fi
+
+    local pid watcher rc=0
+    "$@" &
+    pid=$!
+    (
+        sleep "$secs"
+        kill "$pid" 2>/dev/null
+    ) &
+    watcher=$!
+    wait "$pid" || rc=$?
+    if kill -0 "$watcher" 2>/dev/null; then
+        # The command finished first: stop the watcher and keep its status.
+        kill "$watcher" 2>/dev/null || true
+        return "$rc"
+    fi
+    return 124
+}
+
 # The install hint for a missing package: the first package manager on PATH.
 front_install_hint() {
     local pkg=$1
@@ -68,7 +97,7 @@ front_status() {
         branch=$(front_git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'unknown')
         if [[ $branch != master ]]; then
             origin_text="on branch $branch, not master"
-        elif ! GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$REPO_ROOT" fetch -q origin master > /dev/null 2>&1; then
+        elif ! GIT_TERMINAL_PROMPT=0 run_with_timeout "${SYNC_FETCH_TIMEOUT:-15}" git -C "$REPO_ROOT" fetch -q origin master > /dev/null 2>&1; then
             origin_text='offline, not checked'
         else
             updates=$(front_git rev-list --count HEAD..origin/master 2>/dev/null || printf '0')

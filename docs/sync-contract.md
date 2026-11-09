@@ -526,7 +526,8 @@ uses is there. The reasons and the options weighed are in [macos-research.md](ma
 
   exit 1. Everything past the guard needs bash 4 only.
 - **No GNU-only flags** on a path macOS runs. `chmod --reference` and `timeout` go through `copy_mode` and
-  `run_with_timeout`, which use the GNU tool when it's there.
+  `run_with_timeout`, which use the GNU tool when it's there. `SYNC_FETCH_TIMEOUT` sets the status fetch limit
+  (15 seconds by default).
 - **Skipped**: dconf entries (their `linux` platform keeps them off macOS), the [package drift](#package-drift) report, and
   `bootstrap/linux.sh`.
 - **Front door**: the status's OS is `macos <version>` from `sw_vers -productVersion`. `doctor` checks bash 4 (hint
