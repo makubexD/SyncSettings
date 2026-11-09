@@ -36,6 +36,10 @@ BeforeAll {
     function New-GitRepo {
         $ErrorActionPreference = 'Continue'
         git -C $script:RepoDir init -q -b master 2>$null
+        # The runner sets core.autocrlf=true, and this repo has no .gitattributes,
+        # so git archive (the -Diff trees) would hand back CRLF copies of the LF
+        # fixtures. The real repo pins dotfiles/common/** to eol=lf; keep bytes as-is.
+        git -C $script:RepoDir config core.autocrlf false 2>$null
         git -C $script:RepoDir add -A 2>$null
         git -C $script:RepoDir -c user.name=t -c user.email=t@example.com commit -q -m init 2>$null
         $origin = Join-Path $script:T 'origin.git'
