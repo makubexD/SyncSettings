@@ -5,7 +5,7 @@ exceptions exist. For the fields of an entry, see [configuration.md](configurati
 
 ```text
 dotfiles/
-├── common/    Same file on both systems
+├── common/    Same file on more than one system; platform says which
 │   ├── claude/
 │   └── git/
 ├── linux/     Linux only
@@ -22,6 +22,7 @@ dotfiles/
 │   ├── tmux/
 │   ├── vscode/
 │   └── wezterm/
+├── macos/     macOS only
 └── windows/   Windows only
     ├── git/
     ├── shell/
@@ -44,14 +45,17 @@ Lists in `packages/` aren't under `dotfiles/`, so no entry owns them and `ORPHAN
 
 | The file | Where | Example |
 |---|---|---|
-| Is the same on both systems | `dotfiles/common/<tool>/`, `"platform": "common"` | `claude/RTK.md` |
-| Exists on one system, or differs throughout | `dotfiles/<linux or windows>/<tool>/` | `windows/shell/.bashrc` |
+| Is the same on every system | `dotfiles/common/<tool>/`, `"platform": "common"` | `claude/RTK.md` |
+| Is the same on two systems only | `dotfiles/common/<tool>/`, `"platform": ["linux", "macos"]` | `tmux/.tmux.conf` |
+| Is the same but lives in another folder on one system | as above, plus `localPaths` ([configuration.md](configuration.md#localpaths)) | `vscode/settings.json` |
+| Exists on one system, or differs throughout | `dotfiles/<linux, macos or windows>/<tool>/` | `windows/shell/.bashrc` |
 | Is mostly shared, with a few lines per system, and its tool has an include | Split it: the shared part in `common`, one local part per system | `git/.gitconfig` |
 | Is a folder where every file should be synced and none holds a private value | One `"type": "dir"` entry | `linux/claude/hooks` |
 | Is a folder with private values, or with files to leave out | One file entry per file | `linux/claude/bin/` |
 
-CI lint enforces the platform folder: a `repoPath` outside `dotfiles/<platform>/` fails. A `common` entry must also use
-the `~/` form of `localPath`, because the other form only works on Windows.
+CI lint enforces the platform folder: a `repoPath` outside `dotfiles/<platform>/` fails, and a list's folder is
+`common/`. A `common` or list entry must also use the `~/` form of `localPath`, because the other form only works on
+Windows.
 
 ## Naming
 

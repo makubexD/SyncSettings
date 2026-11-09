@@ -10,10 +10,26 @@ REPO=$(cd "$SOURCE_DIR/../.." && pwd)
 
 filter=${1:-}
 failed=0
+passed=0
+failed_cases=0
+skipped=0
 case_name=''
 t=''
 out=''
 rc=0
+
+# Every bootstrap case exercises bootstrap/linux.sh, which is Ubuntu only, so a
+# macOS run skips the whole list. The OS is resolved the same way as sync_os in
+# scripts/linux/os.sh: SYNC_OS when set, else uname -s (Darwin -> macos).
+if [[ -n ${SYNC_OS:-} ]]; then
+    HARNESS_OS=$SYNC_OS
+else
+    case $(uname -s 2>/dev/null) in
+        Darwin) HARNESS_OS=macos ;;
+        *) HARNESS_OS=linux ;;
+    esac
+fi
+readonly HARNESS_OS
 
 # -- Helpers -------------------------------------------------------------------
 
@@ -1338,7 +1354,17 @@ case_tools_claude_file_first() {
     rm -f "$t/home/.local/bin/claude"
     cat > "$t/net/install.sh" <<EOF
 #!/bin/sh
-printf 'claude-install script=%s stdin=%s\n' "\$0" "\$(readlink /proc/self/fd/0)" >> "$t/calls"
+# Portable /proc/self/fd/0: /dev/null is a character device that isn't a tty.
+if [ -t 0 ]; then
+    stdin=tty
+elif [ -c /dev/stdin ]; then
+    stdin=null
+elif [ -p /dev/stdin ]; then
+    stdin=pipe
+else
+    stdin=file
+fi
+printf 'claude-install script=%s stdin=%s\n' "\$0" "\$stdin" >> "$t/calls"
 printf '#!/bin/sh\n' > "$t/home/.local/bin/claude"
 chmod +x "$t/home/.local/bin/claude"
 EOF
@@ -1349,7 +1375,7 @@ EOF
     script=${line#*script=}
     script=${script%% *}
     [[ $script == "$t/tmp/"*/claude-install.sh ]] || fail "the installer ran from $script"
-    grep -Fq 'stdin=/dev/null' "$t/calls" || fail 'stdin was not /dev/null'
+    grep -Fq 'stdin=null' "$t/calls" || fail 'stdin was not /dev/null'
     output_has_status INSTALLED tool/claude || fail 'missing INSTALLED tool/claude'
 }
 
@@ -1807,6 +1833,11 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
+    if [[ $HARNESS_OS == macos ]]; then
+        printf 'SKIP %s (linux only)\n' "$case_name"
+        skipped=$((skipped + 1))
+        continue
+    fi
     # Each case runs in a subshell so its EXIT trap (new_tmp) cleans up its temp dir.
     # set -e is off inside this command substitution (it is an if condition), so
     # every assertion must end in || fail.
@@ -1916,10 +1947,14 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         *) fail "no such case: $case_name" ;;
     esac); then
         printf 'ok   %s\n' "$case_name"
+        passed=$((passed + 1))
     else
         printf '%s\n' "$out_text"
         failed=1
+        failed_cases=$((failed_cases + 1))
     fi
 done
+
+printf '%d passed, %d failed, %d skipped\n' "$passed" "$failed_cases" "$skipped"
 
 exit "$failed"

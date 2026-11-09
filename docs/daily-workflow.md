@@ -64,8 +64,9 @@ When it looks right, copy your settings into the repo and open the PR (add `-m "
 ./sync commit
 ```
 
-`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>`, commits `dotfiles/`, `packages/` and `sync-config.json`,
-pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
+`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>` (`sync/macos-<alias>-<yyyymmdd-hhmm>` on a Mac),
+commits `dotfiles/`, `packages/` and `sync-config.json`, pushes the branch, opens the PR and switches back to
+`master`. It prints the PR link.
 
 On Windows, the commands are the same: `.\sync preview` in PowerShell, or `sync preview` in cmd. Use
 `-Message "<message>"` to set the title. The branch is `sync/windows-<alias>-<yyyyMMdd-HHmm>`.
@@ -78,9 +79,9 @@ Some tools rewrite their own settings, so preview can show a file you never open
 
 | File | Rewritten by |
 |---|---|
-| `dotfiles/linux/htop/htoprc` | htop, when you change a setting in its interface |
+| `dotfiles/common/htop/htoprc` | htop, when you change a setting in its interface |
 | `dotfiles/linux/gnome/mimeapps.list` | The desktop, when a default app changes |
-| `dotfiles/linux/vscode/settings.json` | VS Code Settings Sync, with changes from your other machine |
+| `dotfiles/common/vscode/settings.json` | VS Code Settings Sync, with changes from your other machine |
 | `dotfiles/linux/gnome/dconf/*.ini` | The desktop, when you change the theme, pin an app or change a shortcut |
 
 These are real settings, so read the diff rather than reverting it. To keep one out of a PR, run `git restore <file>`
@@ -213,6 +214,8 @@ don't rely on it: read the diff.
 | Windows: `running scripts is disabled on this system` | You don't need to change the execution policy: `mksync`, `sync.cmd` and the `.bat` files start PowerShell with `-ExecutionPolicy Bypass`, and the installer runs through `iex`. Start from those, not by running a `.ps1` directly |
 | Windows: the installer prints `ERROR: install Git from https://git-scm.com, …` | There's no `winget` on this machine (it comes with App Installer from the Microsoft Store). Install Git from that link, open a new window, and run the installer again. `gh` can come later; `doctor` says how |
 | `mksync` is not recognized, or `command not found` | The window was open before the install changed `PATH`. Open a new one. On Windows, if a new window still can't find it, run the installer again; on Linux, `doctor` prints the `ln -s` line that links it |
+| macOS: `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | macOS's own bash is too old. Run `brew install bash`; after that the scripts switch to Homebrew's bash by themselves. More in [README: macOS](../README.md#troubleshooting-on-macos) |
+| `Next: the machine check failed; run ./import.sh --check to see why.` | The status couldn't compare the repo with this machine. Run the command it names and read its `ERROR` lines |
 | `WARN gh: not signed in; run gh auth login` | Run `gh auth login` once. Only `mksync push` needs it, to open the pull request |
 | `SKIPPED … needs values: run mksync setup` | A file has a placeholder (your name, email, a path) with no value yet. Run `mksync setup`; it asks for each one and saves it in `.user-values.json`, which never leaves the machine |
 | `WARN <n> value(s) not set; mksync setup asks for them` | The same thing, seen from `doctor` |

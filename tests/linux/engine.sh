@@ -11,10 +11,32 @@ FIXTURES=$REPO/tests/fixtures
 
 filter=${1:-}
 failed=0
+passed=0
+failed_cases=0
+skipped=0
 case_name=''
 t=''
 out=''
 rc=0
+
+# The OS the cases run for, resolved the same way as sync_os in
+# scripts/linux/os.sh. The harness does not source the engine, so the mapping is
+# repeated here: SYNC_OS when set, else uname -s (Linux, Darwin -> macos).
+if [[ -n ${SYNC_OS:-} ]]; then
+    HARNESS_OS=$SYNC_OS
+else
+    case $(uname -s 2>/dev/null) in
+        Darwin) HARNESS_OS=macos ;;
+        *) HARNESS_OS=linux ;;
+    esac
+fi
+readonly HARNESS_OS
+
+# On macOS the engine would pick macos and drop the fixtures' "linux" entries.
+# Every case runs the engine as linux unless it sets SYNC_OS itself, so the
+# engine's logic is tested on BSD tools and Homebrew bash. HARNESS_OS above is
+# already resolved, so the linux-only skips still follow the real system.
+export SYNC_OS=${SYNC_OS:-linux}
 
 # Cases build repos with git outside the throwaway HOME. Keep the host's git
 # config, ignore and attributes files out of them: core.autocrlf=input rewrites
@@ -30,13 +52,27 @@ fail() {
     exit 1
 }
 
+# File mode in octal: GNU stat takes -c, BSD (macOS) stat takes -f %Lp.
+file_mode() {
+    stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"
+}
+
+# SHA256 of a file, hash only: GNU sha256sum, or shasum -a 256 on macOS.
+sha256_of() {
+    if command -v sha256sum > /dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
 # The copy keeps the source's mode and is executable. Compare with the fixture
 # rather than a literal 755: git checks files out under the user's umask.
 same_mode() {
     local want=$1 got=$2
     [[ -x $got ]] || fail "${got##*/} is not executable"
-    [[ $(stat -c %a "$got") == "$(stat -c %a "$want")" ]] \
-        || fail "${got##*/} mode is $(stat -c %a "$got"), want $(stat -c %a "$want") like ${want#"$FIXTURES"/}"
+    [[ $(file_mode "$got") == "$(file_mode "$want")" ]] \
+        || fail "${got##*/} mode is $(file_mode "$got"), want $(file_mode "$want") like ${want#"$FIXTURES"/}"
 }
 
 # The exact status line the engine prints (scripts/linux/sync.sh status()).
@@ -49,6 +85,16 @@ status_line() {
 output_has_status() {
     local word=$1 label=$2 note=${3:-}
     grep -Fqx "$(status_line "$word" "$label" "$note")" "$out"
+}
+
+# Cases that need dconf or apt never run on macOS: the engine's dconf entries
+# and package drift are Linux-only. Matching the name also covers the
+# import-check-dconf and lint-dconf-* cases, which exercise the same entries.
+linux_only_case() {
+    case $1 in
+        *dconf*|drift-*|real-config-roundtrip|lint-packages-*|lint-real-packages) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # Fresh throwaway working dir; removed when this case's subshell exits.
@@ -105,6 +151,52 @@ run_engine_input() {
     (cd "$t/repo" && printf '%s\n' "$input" | HOME="$home" "./$script" "$@") > "$out" 2>&1 || rc=$?
 }
 
+# Run a shell command on a pseudo-terminal. util-linux script takes the command
+# as one string and needs -e to pass its exit code through; BSD script (macOS)
+# takes a command plus its arguments. Stdin and stdout stay the caller's, so the
+# prompts read the piped answers and the output goes to $out.
+run_in_pty() {
+    local cmd=$1
+    if script --version > /dev/null 2>&1; then
+        script -qec "$cmd" /dev/null
+    else
+        script -q /dev/null bash -c "$cmd"
+    fi
+}
+
+# Run a command with a time limit, returning 124 on timeout like `timeout`.
+# macOS has no `timeout`, so the fallback runs the command in the background
+# and a watcher kills it after the limit.
+run_with_timeout() {
+    local secs=$1
+    shift
+
+    if command -v timeout > /dev/null 2>&1; then
+        timeout "$secs" "$@"
+        return
+    fi
+
+    local pid watcher rc=0
+    "$@" &
+    pid=$!
+    (
+        sleep "$secs" &
+        s=$!
+        trap 'kill "$s" 2>/dev/null; exit 0' TERM
+        wait "$s"
+        kill "$pid" 2>/dev/null
+    ) &
+    watcher=$!
+    wait "$pid" || rc=$?
+    if kill -0 "$watcher" 2> /dev/null; then
+        # The command finished first: stop the watcher and keep its status.
+        kill "$watcher" 2> /dev/null || true
+        wait "$watcher" 2> /dev/null || true
+        return "$rc"
+    fi
+    return 124
+}
+
 # dconf writes go over the session bus, not through $HOME, so every dconf case
 # runs on its own bus. The fake getent makes $t/home the login home for the engine.
 setup_dconf_bus() {
@@ -142,7 +234,7 @@ tree_hash() {
     local dir=$1 f
     (cd "$dir" \
         && while IFS= read -r f; do
-            printf '%s %s %s\n' "$(sha256sum "$f" | awk '{print $1}')" "$(stat -c %a "$f")" "$f"
+            printf '%s %s %s\n' "$(sha256_of "$f")" "$(file_mode "$f")" "$f"
         done < <(find . -name .git -prune -o -type f -print | sed 's#^\./##' | sort))
 }
 
@@ -304,6 +396,30 @@ EOF
     chmod +x "$t/stub/gh"
 }
 
+# Stubs for the macOS install cases: the install stubs plus a brew that logs its
+# arguments and, on install, creates the bash candidate and jq the installer
+# then finds. The stubs in $t/stub come first on PATH, so nothing reaches real
+# brew or sudo; $t/brewbin goes last, so the host jq still wins.
+make_macos_install_stubs() {
+    local real_bash real_jq
+    real_bash=$(command -v bash)
+    real_jq=$(command -v jq)
+    make_install_stubs
+    mkdir -p "$t/brewbin"
+    cat > "$t/stub/brew" <<EOF
+#!/bin/sh
+printf 'brew %s\n' "\$*" >> "$t/stub/log"
+printf '==> Pouring bash\n'
+if [ "\$1" = install ]; then
+    ln -sf "$real_bash" "$t/brewbin/bash"
+    printf '#!/bin/sh\nexec %s "\$@"\n' "$real_jq" > "$t/brewbin/jq"
+    chmod +x "$t/brewbin/jq"
+fi
+exit 0
+EOF
+    chmod +x "$t/stub/brew"
+}
+
 # A PATH with only the tools install.sh itself runs, and no jq, so the
 # missing-tool branch is the one that runs.
 make_install_path() {
@@ -320,6 +436,7 @@ run_install() {
     shift 2
     rc=0
     (cd "$t" && PATH="$path" HOME="$t/home" GH="$t/stub/gh" \
+        SYNC_OS="${SYNC_OS:-}" SYNC_BREW_BASH="${SYNC_BREW_BASH:-}" \
         SYNCSETTINGS_REPO_URL="$t/origin.git" SYNCSETTINGS_TTY="$tty" \
         GIT_TERMINAL_PROMPT=0 "$REPO/install.sh" "$@") > "$out" 2>&1 || rc=$?
 }
@@ -402,6 +519,28 @@ case_export_adds() {
     output_has_status ADDED dotfiles/linux/tool.sh || fail "missing ADDED line for tool.sh"
     output_has_status ADDED dotfiles/linux/named.conf sanitized || fail "missing ADDED (sanitized) line for named.conf"
     output_has_status ADDED dotfiles/linux/no-trailing.txt || fail "missing ADDED line for no-trailing.txt"
+}
+
+case_export_symlink_mode() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles"
+    setup_home_fixture
+
+    # The sanitized local file is a symlink to a 0644 file: export copies the
+    # content and keeps the target's mode.
+    local target=$t/home/.config/fixture/named-source.conf
+    printf 'name = Fixture User\n' > "$target"
+    chmod 644 "$target"
+    rm -f "$t/home/.config/fixture/named.conf"
+    ln -s named-source.conf "$t/home/.config/fixture/named.conf"
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+
+    [[ -f $t/repo/dotfiles/linux/named.conf ]] || fail "named.conf was not added to the repo"
+    [[ $(file_mode "$t/repo/dotfiles/linux/named.conf") == 644 ]] \
+        || fail "named.conf mode is $(file_mode "$t/repo/dotfiles/linux/named.conf"), want 644"
 }
 
 case_roundtrip_unchanged() {
@@ -493,9 +632,9 @@ case_prompt_empty_stops() {
 
     # Run on a pseudo-terminal and answer the <NAME> prompt with an empty line.
     # <NAME> has no default, so the empty answer must stop the run, not count as
-    # a value. script -e propagates import.sh's exit code.
+    # a value. run_in_pty propagates import.sh's exit code.
     rc=0
-    printf '\n' | script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+    printf '\n' | run_in_pty "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" \
         > "$out" 2>&1 || rc=$?
     (( rc == 1 )) || fail "import.sh exited $rc, want 1"
     grep -Fq 'missing value for <NAME>: add it to .user-values.json' "$out" \
@@ -552,7 +691,7 @@ case_defaultenv_valid() {
     # its default. Answer it with Enter on a pseudo-terminal, as a user would.
     rc=0
     printf '\n' | FIXTURE_NAME='Env Value' \
-        script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" /dev/null \
+        run_in_pty "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./import.sh" \
         > "$out" 2>&1 || rc=$?
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
     printf 'name = Env Value\n' > "$t/expected"
@@ -574,7 +713,7 @@ case_values_mode_new() {
     umask 022
     run_engine "$t/home" import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
-    [[ $(stat -c '%a' "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
+    [[ $(file_mode "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
 }
 
 case_values_mode_tightened() {
@@ -591,7 +730,7 @@ case_values_mode_tightened() {
 
     run_engine "$t/home" import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
-    [[ $(stat -c '%a' "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
+    [[ $(file_mode "$t/repo/.user-values.json") == 600 ]] || fail ".user-values.json is not mode 600"
 }
 
 case_error_continues() {
@@ -664,7 +803,7 @@ case_import_check_writes_nothing() {
     local home_before repo_before values_before
     home_before=$(tree_hash "$t/home")
     repo_before=$(tree_hash "$t/repo")
-    values_before=$(sha256sum "$t/repo/.user-values.json")
+    values_before=$(sha256_of "$t/repo/.user-values.json")
 
     run_engine "$t/home" import.sh --check
     (( rc == 3 )) || fail "import.sh --check exited $rc, want 3"
@@ -675,7 +814,7 @@ case_import_check_writes_nothing() {
         || fail "missing the 'would change' summary line"
 
     assert_check_dry "$home_before" "$repo_before"
-    [[ $(sha256sum "$t/repo/.user-values.json") == "$values_before" ]] \
+    [[ $(sha256_of "$t/repo/.user-values.json") == "$values_before" ]] \
         || fail ".user-values.json changed during the check"
 }
 
@@ -950,7 +1089,7 @@ case_missing_platform() {
         "$t/repo/sync-config.json" > "$t/repo/sync-config.json.tmp"
     mv "$t/repo/sync-config.json.tmp" "$t/repo/sync-config.json"
 
-    local msg='ERROR: sync-config.json: entry dotfiles/linux/plain.txt needs "platform": "common", "windows" or "linux".'
+    local msg='ERROR: sync-config.json: entry dotfiles/linux/plain.txt needs "platform": "common", "windows", "linux", "macos" or a list of the last three.'
 
     run_engine "$t/home" export.sh
     (( rc == 1 )) || fail "export.sh exited $rc, want 1"
@@ -1024,6 +1163,171 @@ case_path_repo_symlink() {
     mkdir -p "$t/repo/dotfiles/linux" "$t/home"
     ln -s nowhere "$t/repo/dotfiles/linux/plain.txt"
     assert_path_stop 'ERROR: sync-config.json: entry dotfiles/linux/plain.txt has an unsafe path.'
+}
+
+# Both engines must stop with the same config error before touching anything.
+assert_config_stop() {
+    local msg=$1
+
+    run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "export.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "export did not print the config error"
+
+    run_engine "$t/home" import.sh --force
+    (( rc == 1 )) || fail "import.sh exited $rc, want 1"
+    grep -Fqx "$msg" "$out" || fail "import did not print the config error"
+
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written under the home dir"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
+}
+
+case_platform_macos_value() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/macos" "$t/home/.config/fixture" "$t/home2/.config/fixture"
+    printf 'macos fixture\n' > "$t/home/.config/fixture/m.txt"
+    printf 'macos fixture\n' > "$t/home2/.config/fixture/m.txt"
+    add_entry '{"repoPath": "dotfiles/macos/m.txt", "localPath": "~/.config/fixture/m.txt", "platform": "macos", "description": "macOS fixture"}'
+
+    SYNC_OS=macos run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "SYNC_OS=macos export.sh exited $rc, want 0"
+    cmp -s "$t/home/.config/fixture/m.txt" "$t/repo/dotfiles/macos/m.txt" \
+        || fail "macOS export did not copy m.txt"
+
+    rm -f "$t/repo/dotfiles/macos/m.txt"
+    SYNC_OS=linux run_engine "$t/home2" export.sh
+    (( rc == 0 )) || fail "SYNC_OS=linux export.sh exited $rc, want 0"
+    if grep -Fq 'dotfiles/macos/m.txt' "$out"; then fail "linux export named the macOS entry"; fi
+    [[ ! -e "$t/repo/dotfiles/macos/m.txt" ]] || fail "linux export copied the macOS entry"
+}
+
+case_platform_array() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/common" "$t/home/.config/fixture" "$t/home2/.config/fixture"
+    printf 'shared fixture\n' > "$t/home/.config/fixture/m.txt"
+    printf 'shared fixture\n' > "$t/home2/.config/fixture/m.txt"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "platform": ["linux", "macos"], "description": "Linux and macOS fixture"}'
+
+    SYNC_OS=linux run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "SYNC_OS=linux export.sh exited $rc, want 0"
+    cmp -s "$t/home/.config/fixture/m.txt" "$t/repo/dotfiles/common/m.txt" \
+        || fail "linux export did not copy m.txt"
+
+    rm -f "$t/repo/dotfiles/common/m.txt"
+    SYNC_OS=macos run_engine "$t/home2" export.sh
+    (( rc == 0 )) || fail "SYNC_OS=macos export.sh exited $rc, want 0"
+    cmp -s "$t/home2/.config/fixture/m.txt" "$t/repo/dotfiles/common/m.txt" \
+        || fail "macOS export did not copy m.txt"
+}
+
+case_platform_array_empty() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "platform": [], "description": "empty platform list"}'
+    assert_config_stop 'ERROR: sync-config.json: entry dotfiles/common/m.txt needs "platform": "common", "windows", "linux", "macos" or a list of the last three.'
+}
+
+case_platform_array_repeat() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "platform": ["linux", "linux"], "description": "repeated platform"}'
+    assert_config_stop 'ERROR: sync-config.json: entry dotfiles/common/m.txt needs "platform": "common", "windows", "linux", "macos" or a list of the last three.'
+}
+
+case_platform_array_common() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "platform": ["common", "linux"], "description": "common in a platform list"}'
+    assert_config_stop 'ERROR: sync-config.json: entry dotfiles/common/m.txt needs "platform": "common", "windows", "linux", "macos" or a list of the last three.'
+}
+
+case_platform_array_windows_only() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/windows" "$t/home/.config/fixture" "$t/home2/.config/fixture"
+    printf 'windows fixture\n' > "$t/home/.config/fixture/m.txt"
+    printf 'windows fixture\n' > "$t/home2/.config/fixture/m.txt"
+    add_entry '{"repoPath": "dotfiles/windows/m.txt", "localPath": "~/.config/fixture/m.txt", "platform": ["windows"], "description": "Windows-only platform list"}'
+
+    SYNC_OS=linux run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "SYNC_OS=linux export.sh exited $rc, want 0"
+    if grep -Fq 'dotfiles/windows/m.txt' "$out"; then fail "linux export named the Windows-only entry"; fi
+    [[ ! -e "$t/repo/dotfiles/windows/m.txt" ]] || fail "linux export copied the Windows-only entry"
+
+    SYNC_OS=macos run_engine "$t/home2" export.sh
+    (( rc == 0 )) || fail "SYNC_OS=macos export.sh exited $rc, want 0"
+    if grep -Fq 'dotfiles/windows/m.txt' "$out"; then fail "macOS export named the Windows-only entry"; fi
+    [[ ! -e "$t/repo/dotfiles/windows/m.txt" ]] || fail "macOS export copied the Windows-only entry"
+}
+
+case_platform_bad_sync_os() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+
+    SYNC_OS=bsd run_engine "$t/home" export.sh
+    (( rc == 1 )) || fail "SYNC_OS=bsd export.sh exited $rc, want 1"
+    grep -Fqx 'ERROR: SyncSettings runs on Linux, macOS and Windows; this is bsd.' "$out" \
+        || fail "export did not print the sync_os error"
+    [[ -z "$(find "$t/home" -type f)" ]] || fail "a file was written under the home dir"
+    [[ -z "$(find "$t/repo/dotfiles" -type f)" ]] || fail "a file was written under dotfiles/"
+}
+
+case_localpaths_macos() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/common" "$t/home" "$t/home2"
+    printf 'localpaths fixture\n' > "$t/repo/dotfiles/common/m.txt"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "localPaths": {"macos": "~/.config/other/m.txt"}, "platform": ["linux", "macos"], "description": "per-system localPath"}'
+
+    SYNC_OS=macos run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "SYNC_OS=macos import.sh exited $rc, want 0"
+    cmp -s "$t/repo/dotfiles/common/m.txt" "$t/home/.config/other/m.txt" \
+        || fail "macOS import did not write the macOS localPaths path"
+    [[ ! -e "$t/home/.config/fixture/m.txt" ]] || fail "macOS import wrote the default localPath"
+
+    SYNC_OS=linux run_engine "$t/home2" import.sh --force
+    (( rc == 0 )) || fail "SYNC_OS=linux import.sh exited $rc, want 0"
+    cmp -s "$t/repo/dotfiles/common/m.txt" "$t/home2/.config/fixture/m.txt" \
+        || fail "linux import did not write the default localPath"
+    [[ ! -e "$t/home2/.config/other/m.txt" ]] || fail "linux import wrote the macOS localPaths path"
+}
+
+case_localpaths_unsafe() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "localPaths": {"macos": "~/../x"}, "platform": ["linux", "macos"], "description": "unsafe localPaths value"}'
+    assert_path_stop 'ERROR: sync-config.json: entry dotfiles/common/m.txt has an unsafe path.'
+}
+
+case_localpaths_bad_key() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles" "$t/home"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "localPaths": {"bsd": "~/x"}, "platform": ["linux", "macos"], "description": "unknown localPaths key"}'
+    assert_config_stop 'ERROR: sync-config.json: entry dotfiles/common/m.txt has an unknown localPaths key bsd.'
+}
+
+case_localpaths_spaces() {
+    new_tmp
+    setup_repo
+    mkdir -p "$t/repo/dotfiles/common" "$t/home"
+    printf 'spaces fixture\n' > "$t/repo/dotfiles/common/m.txt"
+    add_entry '{"repoPath": "dotfiles/common/m.txt", "localPath": "~/.config/fixture/m.txt", "localPaths": {"macos": "~/Library/Application Support/Code/User/settings.json"}, "platform": ["linux", "macos"], "description": "macOS path with a space"}'
+
+    SYNC_OS=macos run_engine "$t/home" import.sh --force
+    (( rc == 0 )) || fail "SYNC_OS=macos import.sh exited $rc, want 0"
+    cmp -s "$t/repo/dotfiles/common/m.txt" \
+        "$t/home/Library/Application Support/Code/User/settings.json" \
+        || fail "import did not keep the space in the macOS path"
+
+    SYNC_OS=macos run_engine "$t/home" import.sh --check
+    (( rc == 0 )) || fail "SYNC_OS=macos import.sh --check exited $rc, want 0"
 }
 
 case_path_real_config() {
@@ -1244,26 +1548,47 @@ case_lint_real_packages() {
 
 case_lint_platform_missing() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then del(.platform) else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then del(.platform) else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the repoPath"
+    grep -Fqx 'dotfiles/linux/claude/statusline.sh' "$out" || fail "output does not name the repoPath"
 }
 
 case_lint_platform_bad() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .platform = "mac" else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then .platform = "mac" else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the repoPath"
+    grep -Fqx 'dotfiles/linux/claude/statusline.sh' "$out" || fail "output does not name the repoPath"
+}
+
+case_check_config_macos() {
+    new_tmp
+    lint_run '.files += [
+        {"repoPath": "dotfiles/macos/app.conf", "localPath": "~/app.conf", "platform": "macos"},
+        {"repoPath": "dotfiles/common/multi.conf", "localPath": "~/multi.conf", "platform": ["linux", "macos"]},
+        {"repoPath": "dotfiles/linux/bad-macos.conf", "localPath": "~/bad.conf", "platform": "macos"},
+        {"repoPath": "dotfiles/common/bad-local.conf", "localPath": "~\\x", "platform": ["linux", "macos"]},
+        {"repoPath": "dotfiles/common/bad-key.conf", "localPath": "~/bad.conf", "platform": ["linux", "macos"], "localPaths": {"bsd": "~/x"}}
+    ]'
+
+    (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
+
+    local p
+    for p in dotfiles/linux/bad-macos.conf dotfiles/common/bad-local.conf dotfiles/common/bad-key.conf; do
+        grep -Fqx "$p" "$out" || fail "output does not name $p"
+    done
+    for p in dotfiles/macos/app.conf dotfiles/common/multi.conf; do
+        if grep -Fqx "$p" "$out"; then fail "output names the good entry $p"; fi
+    done
 }
 
 case_lint_linux_prefix() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .repoPath = "dotfiles/x/CLAUDE.md" else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then .repoPath = "dotfiles/x/statusline.sh" else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/x/CLAUDE.md' "$out" || fail "output does not name the new repoPath"
+    grep -Fqx 'dotfiles/x/statusline.sh' "$out" || fail "output does not name the new repoPath"
 }
 
 case_lint_dir_with_rules() {
@@ -1953,7 +2278,7 @@ case_sanitized_large_file() {
     { printf 'name = Fixture User\n'; cat "$body"; printf '\n\n'; } > "$t/home/.config/fixture/named.conf"
 
     rc=0
-    (cd "$t/repo" && HOME="$t/home" timeout 20 ./export.sh < /dev/null) > "$out" 2>&1 || rc=$?
+    (cd "$t/repo" && HOME="$t/home" run_with_timeout 20 ./export.sh < /dev/null) > "$out" 2>&1 || rc=$?
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/named.conf \
         || fail "missing UNCHANGED line for the large named.conf"
@@ -2121,10 +2446,10 @@ case_dir_export_adds() {
         || fail "dotfiles/common/dir/a/b.txt differs from fixture"
     cmp -s "$FIXTURES/repo/dotfiles/common/dir/c.txt" "$t/repo/dotfiles/common/dir/c.txt" \
         || fail "dotfiles/common/dir/c.txt differs from fixture"
-    [[ $(stat -c %a "$t/repo/dotfiles/common/dir/a/b.txt") == 600 ]] \
-        || fail "a/b.txt mode is $(stat -c %a "$t/repo/dotfiles/common/dir/a/b.txt"), want 600"
-    [[ $(stat -c %a "$t/repo/dotfiles/common/dir/c.txt") == 755 ]] \
-        || fail "c.txt mode is $(stat -c %a "$t/repo/dotfiles/common/dir/c.txt"), want 755"
+    [[ $(file_mode "$t/repo/dotfiles/common/dir/a/b.txt") == 600 ]] \
+        || fail "a/b.txt mode is $(file_mode "$t/repo/dotfiles/common/dir/a/b.txt"), want 600"
+    [[ $(file_mode "$t/repo/dotfiles/common/dir/c.txt") == 755 ]] \
+        || fail "c.txt mode is $(file_mode "$t/repo/dotfiles/common/dir/c.txt"), want 755"
 
     output_has_status ADDED dotfiles/common/dir/a/b.txt || fail "missing ADDED line for dir/a/b.txt"
     output_has_status ADDED dotfiles/common/dir/c.txt || fail "missing ADDED line for dir/c.txt"
@@ -2616,7 +2941,7 @@ case_upstream_behind_pull() {
 
     # Run on a pseudo-terminal so the pull prompt sees a real answer.
     rc=0
-    printf 'y\n' | script -qec "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./export.sh" /dev/null \
+    printf 'y\n' | run_in_pty "cd $(printf %q "$t/repo") && HOME=$(printf %q "$t/home") ./export.sh" \
         > "$out" 2>&1 || rc=$?
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
 
@@ -2945,7 +3270,38 @@ case_commit_happy() {
     sync_count=$(printf '%s\n' "$branches" | grep -c '^refs/heads/sync/linux-testbox-' || true)
     (( sync_count == 1 )) || fail "want 1 sync branch on origin, got: $branches"
 
-    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub called $(wc -l < "$t/gh.log") times, want 1"
+    [[ $(( $(wc -l < "$t/gh.log") )) == 1 ]] || fail "GH stub called $(( $(wc -l < "$t/gh.log") )) times, want 1"
+}
+
+case_commit_macos_branch() {
+    new_tmp
+    setup_commit_repo
+
+    # Keep the PR body too: the default GH stub logs only its arguments.
+    cat > "$t/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${GH_LOG:?}"
+prev=''
+for arg in "$@"; do
+    if [[ $prev == --body-file ]]; then cp "$arg" "${GH_LOG:?}.body"; fi
+    prev=$arg
+done
+printf 'https://github.com/example/pr/1\n'
+EOF
+    chmod +x "$t/bin/gh"
+
+    printf 'changed\n' > "$t/clone/dotfiles/linux/plain.txt"
+
+    rc=0
+    (cd "$t/clone" && HOME="$t/home" SYNC_OS=macos GH="$t/bin/gh" GH_LOG="$t/gh.log" \
+        ./commit.sh < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "commit.sh exited $rc, want 0"
+
+    local branches sync_count
+    branches=$(origin_branches)
+    sync_count=$(printf '%s\n' "$branches" | grep -c '^refs/heads/sync/macos-testbox-' || true)
+    (( sync_count == 1 )) || fail "want 1 sync/macos- branch on origin, got: $branches"
+    grep -Fq 'Platform: macos' "$t/gh.log.body" || fail "PR body is missing 'Platform: macos'"
 }
 
 case_commit_leak_blocked() {
@@ -2989,7 +3345,7 @@ case_commit_packages() {
     local branch
     branch=$(origin_branches | grep '^refs/heads/sync/linux-testbox-' || true)
     [[ -n $branch ]] || fail "no sync branch on origin"
-    [[ $(printf '%s\n' "$branch" | wc -l) == 1 ]] || fail "want 1 sync branch, got: $branch"
+    [[ $(( $(printf '%s\n' "$branch" | wc -l) )) == 1 ]] || fail "want 1 sync branch, got: $branch"
 
     [[ $(git --git-dir="$t/origin.git" diff --name-only master "$branch") == 'packages/linux/apt.txt' ]] \
         || fail "the branch commit does not hold only packages/linux/apt.txt"
@@ -3127,7 +3483,7 @@ case_commit_value_placeholder_only() {
 
     run_commit "$t/home"
     (( rc == 0 )) || fail "commit.sh exited $rc, want 0"
-    [[ $(wc -l < "$t/gh.log") == 1 ]] || fail "GH stub was not called once"
+    [[ $(( $(wc -l < "$t/gh.log") )) == 1 ]] || fail "GH stub was not called once"
 }
 
 case_commit_value_not_printed() {
@@ -3275,6 +3631,36 @@ run_sync_stub() {
     shift
     rc=0
     (cd "$t/repo" && PATH="$t/stub" GH="$t/stub/gh" HOME="$home" ./sync "$@") > "$out" 2>&1 || rc=$?
+}
+
+# Stub tools for the macOS front-door cases: links to the real tools a run
+# needs, an sw_vers printing $1 and, when $2 is `brew`, a no-op brew. $3 names
+# a tool to leave out (the hint cases hide jq). No real brew, apt-get or sudo
+# is reachable from the stub-only PATH.
+make_macos_front_stub() {
+    local version=$1 with_brew=${2:-} without=${3:-} tool
+    mkdir -p "$t/stub" "$t/home"
+    for tool in bash env readlink dirname uname git jq cmp sed head wc mktemp rm cat cp mkdir \
+        chmod stat sha256sum sort tr cut awk grep find basename date diff; do
+        if [[ $tool == "$without" ]]; then
+            continue
+        fi
+        if command -v "$tool" > /dev/null 2>&1; then
+            ln -sf "$(command -v "$tool")" "$t/stub/$tool"
+        fi
+    done
+    cat > "$t/stub/sw_vers" <<EOF
+#!/bin/sh
+printf '%s\n' "$version"
+EOF
+    chmod +x "$t/stub/sw_vers"
+    if [[ $with_brew == brew ]]; then
+        cat > "$t/stub/brew" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+        chmod +x "$t/stub/brew"
+    fi
 }
 
 case_sync_doctor_ready() {
@@ -3471,6 +3857,153 @@ case_sync_status_os_name() {
 
     grep -Fq '  SyncSettings  linux (Test OS 1)' "$out" \
         || fail "missing the os-release PRETTY_NAME line"
+}
+
+case_status_fetch_timeout_no_timeout_bin() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    mkdir -p "$t/home" "$t/stub"
+    make_git_repo
+
+    # A PATH with everything a status run needs except `timeout`, plus a git
+    # stub whose fetch execs a long sleep, so killing the stub kills the sleep.
+    local tool
+    for tool in bash env readlink dirname uname jq cmp sed head wc mktemp rm cat cp mkdir \
+        chmod stat sha256sum sort tr cut awk grep find basename date sleep; do
+        if command -v "$tool" > /dev/null 2>&1; then
+            ln -sf "$(command -v "$tool")" "$t/stub/$tool"
+        fi
+    done
+    cat > "$t/stub/git" <<EOF
+#!/bin/sh
+for arg in "\$@"; do
+    if [ "\$arg" = fetch ]; then
+        exec sleep 30
+    fi
+done
+exec $(command -v git) "\$@"
+EOF
+    chmod +x "$t/stub/git"
+
+    local started=$SECONDS elapsed
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" HOME="$t/home" SYNC_FETCH_TIMEOUT=1 ./sync status) > "$out" 2>&1 || rc=$?
+    elapsed=$((SECONDS - started))
+
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+    grep -Fqx '  Origin    : offline, not checked' "$out" \
+        || fail "missing the offline origin line"
+    (( elapsed < 5 )) || fail "sync took ${elapsed}s, want under 5"
+}
+
+case_front_macos_label() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    make_macos_front_stub 26.7.2
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub:$PATH" SYNC_OS=macos HOME="$t/home" ./sync status) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync status exited $rc, want 0"
+
+    grep -Fq '  SyncSettings  macos (26.7.2)' "$out" \
+        || fail "missing the macos 26.7.2 label"
+}
+
+case_front_macos_doctor_no_brew() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_macos_front_stub 26.7.2
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" SYNC_OS=macos HOME="$t/home" ./sync doctor) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync doctor exited $rc, want 1"
+
+    grep -Fq 'MISSING  brew: install from https://brew.sh' "$out" \
+        || fail "missing the brew MISSING line"
+}
+
+case_front_macos_hints() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_macos_front_stub 26.7.2 brew jq
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" SYNC_OS=macos HOME="$t/home" ./sync doctor) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync doctor exited $rc, want 1"
+
+    grep -Fq 'MISSING  jq: install with brew install jq' "$out" \
+        || fail "missing the brew jq hint"
+}
+
+case_front_macos_setup_no_bootstrap() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    make_macos_front_stub 26.7.2 brew
+    printf 'PRETTY_NAME="Test OS"\nID=ubuntu\n' > "$t/os-release"
+    mkdir -p "$t/repo/bootstrap"
+    cat > "$t/repo/bootstrap/linux.sh" <<'EOF'
+#!/bin/sh
+printf 'BOOTSTRAP RAN\n'
+EOF
+    chmod +x "$t/repo/bootstrap/linux.sh"
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub:$PATH" SYNC_OS=macos SYNC_OS_RELEASE="$t/os-release" \
+        HOME="$t/home" ./sync setup --yes) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "sync setup exited $rc, want 0"
+
+    if grep -Fq 'Also restore apps' "$out"; then
+        fail "the bootstrap question was asked on macOS"
+    fi
+    if grep -Fq 'BOOTSTRAP RAN' "$out"; then
+        fail "the bootstrap script ran on macOS"
+    fi
+    grep -Fq 'Setup done.' "$out" || fail "missing the Setup done line"
+}
+
+case_front_macos_bootstrap_flag() {
+    new_tmp
+    setup_repo
+    add_sync
+    make_macos_front_stub 26.7.2
+
+    rc=0
+    (cd "$t/repo" && PATH="$t/stub" SYNC_OS=macos HOME="$t/home" ./sync setup --bootstrap) \
+        > "$out" 2>&1 || rc=$?
+    (( rc == 1 )) || fail "sync setup --bootstrap exited $rc, want 1"
+
+    grep -Fq 'ERROR: --bootstrap is Ubuntu only.' "$out" \
+        || fail "missing the --bootstrap error"
+}
+
+case_front_check_failed_next() {
+    new_tmp
+    setup_repo
+    setup_repo_fixture
+    add_sync
+    mkdir -p "$t/home"
+    jq '.files[0].platform = "bsd"' "$t/repo/sync-config.json" > "$t/config.json"
+    cp "$t/config.json" "$t/repo/sync-config.json"
+    make_git_repo
+
+    run_engine "$t/home" sync
+    (( rc == 0 )) || fail "sync exited $rc, want 0"
+
+    grep -Fqx '  Machine   : not checked: run ./import.sh --check to see why' "$out" \
+        || fail "missing the not-checked machine line"
+    grep -Fqx '  Next: the machine check failed; run ./import.sh --check to see why.' "$out" \
+        || fail "missing the machine-check-failed next line"
 }
 
 case_sync_symlink() {
@@ -3784,19 +4317,74 @@ case_install_missing_jq_eof() {
     [[ ! -e $t/stub/log ]] || fail "the apt-get stub was called"
 }
 
-case_install_macos() {
+case_install_macos_no_brew() {
     setup_install_origin
-    cat > "$t/stub/uname" <<'EOF'
-#!/bin/sh
-printf 'Darwin\n'
-EOF
-    chmod +x "$t/stub/uname"
+    make_install_path
 
-    run_install "$t/stub:$PATH" /dev/null --no-setup
+    SYNC_OS=macos SYNC_BREW_BASH="$t/brewbin/bash" \
+        run_install "$t/stub" /dev/null --no-setup
     (( rc == 1 )) || fail "install.sh exited $rc, want 1"
 
-    grep -Fq "ERROR: macOS isn't supported yet." "$out" || fail "missing the macOS error"
-    [[ ! -e $t/home/SyncSettings ]] || fail "the installer cloned on macOS"
+    grep -Fq 'ERROR: install Homebrew first: https://brew.sh' "$out" \
+        || fail "missing the Homebrew error"
+    [[ ! -e $t/home/SyncSettings ]] || fail "the installer cloned without Homebrew"
+}
+
+case_install_macos_fresh() {
+    setup_install_origin
+    make_macos_install_stubs
+
+    printf 'y\n' > "$t/answers"
+    SYNC_OS=macos SYNC_BREW_BASH="$t/brewbin/bash" \
+        run_install "$t/stub:$PATH:$t/brewbin" "$t/answers"
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    grep -Fq 'brew install bash jq' "$t/stub/log" || fail "Homebrew did not install bash and jq"
+    if grep -q '^sudo ' "$t/stub/log"; then
+        fail "the macOS install ran sudo"
+    fi
+    [[ -L $t/home/.local/bin/mksync ]] || fail "mksync is not a symlink"
+    grep -Fq 'Setup done.' "$out" || fail "setup did not run under the Homebrew bash"
+    [[ -f $t/home/.config/fixture/shared.conf ]] || fail "setup did not import the common fixture"
+}
+
+case_install_macos_deps_eof() {
+    setup_install_origin
+    make_macos_install_stubs
+
+    SYNC_OS=macos SYNC_BREW_BASH="$t/brewbin/bash" \
+        run_install "$t/stub:$PATH:$t/brewbin" /dev/null --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    grep -Fq 'ERROR: install bash and jq with Homebrew' "$out" || fail "missing the Homebrew error"
+    [[ ! -e $t/stub/log ]] || fail "the brew stub was called"
+    [[ ! -e $t/home/SyncSettings ]] || fail "the installer cloned after end of input"
+}
+
+case_install_macos_deps_no() {
+    setup_install_origin
+    make_macos_install_stubs
+    printf 'n\n' > "$t/answers"
+
+    SYNC_OS=macos SYNC_BREW_BASH="$t/brewbin/bash" \
+        run_install "$t/stub:$PATH:$t/brewbin" "$t/answers" --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    [[ ! -e $t/stub/log ]] || fail "the brew stub was called"
+    [[ ! -e $t/home/SyncSettings ]] || fail "the installer cloned after a declined install"
+}
+
+case_install_macos_has_deps() {
+    setup_install_origin
+    make_macos_install_stubs
+    ln -sf "$(command -v bash)" "$t/brewbin/bash"
+
+    SYNC_OS=macos SYNC_BREW_BASH="$t/brewbin/bash" \
+        run_install "$t/stub:$PATH:$t/brewbin" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    [[ ! -e $t/stub/log ]] || fail "the brew stub was called"
+    [[ -L $t/home/.local/bin/mksync ]] || fail "mksync is not a symlink"
 }
 
 case_install_runs_setup() {
@@ -3815,7 +4403,7 @@ case_install_runs_setup() {
 
 case_install_partial() {
     setup_install_origin
-    head -n -1 "$REPO/install.sh" > "$t/install-partial.sh"
+    sed '$d' "$REPO/install.sh" > "$t/install-partial.sh"
 
     rc=0
     (cd "$t" && PATH="$t/stub:$PATH" HOME="$t/home" \
@@ -3843,7 +4431,7 @@ case_dconf_test_bus() {
     # if this machine has one.
     local real_db=$HOME/.config/dconf/user real_before='' real_after=''
     if [[ -e $real_db ]]; then
-        real_before=$(sha256sum "$real_db")
+        real_before=$(sha256_of "$real_db")
     fi
 
     printf '[/]\nkey=1\n' | dconf_seed /test/app/ \
@@ -3872,7 +4460,7 @@ EOF
         || fail "HOME and the login home aren't both $t/home on the test bus"
 
     if [[ -n $real_before ]]; then
-        real_after=$(sha256sum "$real_db")
+        real_after=$(sha256_of "$real_db")
         [[ $real_after == "$real_before" ]] || fail "the real dconf database changed"
     fi
 }
@@ -4064,10 +4652,10 @@ case_lint_dconf_keys_type() {
 
 case_lint_keys_on_file() {
     new_tmp
-    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/CLAUDE.md" then .keys = ["x"] else . end)'
+    lint_run '.files |= map(if .repoPath == "dotfiles/linux/claude/statusline.sh" then .keys = ["x"] else . end)'
 
     (( rc == 1 )) || fail "check-config.sh exited $rc, want 1"
-    grep -Fqx 'dotfiles/linux/claude/CLAUDE.md' "$out" || fail "output does not name the entry"
+    grep -Fqx 'dotfiles/linux/claude/statusline.sh' "$out" || fail "output does not name the entry"
 }
 
 case_lint_path_on_dir() {
@@ -4127,13 +4715,13 @@ case_dconf_export_unchanged() {
         || fail "missing ADDED line on the first export"
 
     local hash_before
-    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+    hash_before=$(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini")
 
     run_engine_bus /dev/null export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
         || fail "missing UNCHANGED line on the second export"
-    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
         || fail "repo file changed on an UNCHANGED export"
 }
 
@@ -4259,13 +4847,13 @@ case_dconf_export_no_settings_keeps_repo() {
     mkdir -p "$t/repo/dotfiles/linux/dconf"
     printf '[/]\nold=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
     local hash_before
-    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+    hash_before=$(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini")
 
     run_engine_bus /dev/null export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'no settings under /test/app/' \
         || fail "missing SKIPPED (no settings) line"
-    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
         || fail "repo file changed despite the empty dump"
 }
 
@@ -4275,14 +4863,14 @@ case_dconf_export_keys_empty_result() {
     mkdir -p "$t/repo/dotfiles/linux/dconf"
     printf '[/]\nold=1\n' > "$t/repo/dotfiles/linux/dconf/app.ini"
     local hash_before
-    hash_before=$(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini")
+    hash_before=$(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini")
     printf '[/]\na=1\n' | dconf_seed /test/app/
 
     run_engine_bus /dev/null export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     output_has_status SKIPPED dotfiles/linux/dconf/app.ini 'no settings under /test/app/' \
         || fail "missing SKIPPED (no settings) line"
-    [[ $(sha256sum "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/repo/dotfiles/linux/dconf/app.ini") == "$hash_before" ]] \
         || fail "repo file changed when the filter kept nothing"
 }
 
@@ -4402,13 +4990,13 @@ case_dconf_import_unchanged() {
     printf '[/]\na=1\n' | dconf_seed /test/app/
 
     local hash_before
-    hash_before=$(sha256sum "$t/home/.config/dconf/user")
+    hash_before=$(sha256_of "$t/home/.config/dconf/user")
 
     run_engine_bus /dev/null import.sh --force
     (( rc == 0 )) || fail "import.sh exited $rc, want 0"
     output_has_status UNCHANGED dotfiles/linux/dconf/app.ini \
         || fail "missing UNCHANGED line for the dconf entry"
-    [[ $(sha256sum "$t/home/.config/dconf/user") == "$hash_before" ]] \
+    [[ $(sha256_of "$t/home/.config/dconf/user") == "$hash_before" ]] \
         || fail "the dconf database changed on an UNCHANGED import"
 }
 
@@ -5295,10 +5883,54 @@ case_drift_import_silent() {
     fi
 }
 
+case_guard_reexec() {
+    new_tmp
+    setup_repo
+    add_sync
+    setup_repo_fixture
+    setup_home_fixture
+    unset SYNC_REEXEC
+
+    # With a bash 4+ interpreter and SYNC_REEXEC unset there is nothing to
+    # re-exec into: every script runs its own code and exits normally.
+    run_engine "$t/home" sync help
+    (( rc == 0 )) || fail "sync help exited $rc, want 0"
+    grep -Fq 'usage: mksync [command] [options]' "$out" || fail "missing usage line"
+    if grep -Fq 'needs bash 4' "$out"; then fail "sync printed the bash 3.2 error"; fi
+
+    run_engine "$t/home" export.sh
+    (( rc == 0 )) || fail "export.sh exited $rc, want 0"
+    grep -Fq 'Repo is up to date. No changes detected.' "$out" || fail "export.sh printed no summary"
+    if grep -Fq 'needs bash 4' "$out"; then fail "export.sh printed the bash 3.2 error"; fi
+
+    run_engine "$t/home" import.sh --check
+    (( rc == 0 )) || fail "import.sh --check exited $rc, want 0"
+    grep -Fq '  This machine matches the repo.' "$out" || fail "import.sh --check printed no match line"
+    if grep -Fq 'needs bash 4' "$out"; then fail "import.sh printed the bash 3.2 error"; fi
+
+    # commit.sh has no read-only mode; an unknown option exits early, after the
+    # guard and the sourced engine, without touching git.
+    run_engine "$t/home" commit.sh -x
+    (( rc == 1 )) || fail "commit.sh -x exited $rc, want 1"
+    grep -Fq 'Unknown option: -x' "$out" || fail "commit.sh -x printed no option error"
+    if grep -Fq 'needs bash 4' "$out"; then fail "commit.sh printed the bash 3.2 error"; fi
+
+    # The guard itself must stay bash 3.2 syntax, which --posix -n checks too.
+    local f
+    for f in sync export.sh import.sh commit.sh; do
+        bash --posix -n "$REPO/$f" || fail "$f does not parse under bash --posix"
+    done
+}
+
 # -- Runner --------------------------------------------------------------------
 
-for case_name in import-creates export-adds roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-missing-folder import-check-error import-check-no-prompt crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool sync-doctor-ready sync-doctor-missing-jq sync-doctor-gh-signed-out sync-doctor-no-link sync-status-clean sync-status-behind sync-status-unsent sync-status-differs sync-status-not-git sync-status-writes-nothing sync-status-os-name sync-symlink sync-pull-applies sync-pull-matches sync-pull-declined sync-pull-dirty sync-pull-not-master sync-push-nothing sync-push-behind sync-push-opens-pr sync-push-declined sync-setup-applies sync-setup-offers-bootstrap sync-setup-doctor-fails install-fresh install-update install-not-a-clone install-link-conflict install-missing-jq-yes install-missing-jq-no-answer install-missing-jq-eof install-macos install-runs-setup install-partial host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent; do
+for case_name in import-creates export-adds export-symlink-mode roundtrip-unchanged import-backup excluded excluded-credentials noninteractive-missing-value prompt-empty-stops defaultenv-invalid defaultenv-valid values-mode-new values-mode-tightened error-continues import-eof-overwrites import-check-writes-nothing import-check-matches import-check-sanitized import-check-needs-values import-check-dir import-check-dconf import-check-reset-rejected import-check-missing-folder import-check-error import-check-no-prompt crlf-unchanged common-import common-export missing-platform path-repo-traversal path-repo-outside path-local-traversal path-local-absolute path-repo-symlink platform-macos-value platform-array platform-array-empty platform-array-repeat platform-array-common platform-array-windows-only platform-bad-sync-os localpaths-macos localpaths-unsafe localpaths-bad-key localpaths-spaces path-real-config real-config-roundtrip real-config-dconf-restore lint-real-config lint-real-packages lint-platform-missing lint-platform-bad check-config-macos lint-linux-prefix lint-dir-with-rules lint-file-in-dir lint-typed-file-in-dir lint-dir-in-dir lint-dir-trailing-slash lint-sibling-prefix lint-windows-root lint-windows-sibling lint-windows-linux-prefix lint-windows-ok lint-packages-ok lint-packages-empty-dir lint-packages-no-dir lint-packages-comments lint-packages-apt-shell lint-packages-apt-trailing-dash lint-packages-deb-trailing-dash lint-packages-apt-plus lint-packages-apt-upper lint-packages-apt-two-fields lint-packages-unsorted lint-packages-duplicate lint-packages-deb-http lint-packages-deb-no-hash lint-packages-deb-short-hash lint-packages-deb-subshell lint-packages-tools-ok lint-packages-tools-unknown lint-packages-tools-http lint-packages-tools-host lint-packages-tools-short-hash lint-packages-tools-unsorted lint-packages-snap-options lint-packages-snap-order lint-packages-npm-scoped lint-packages-snap-flag lint-packages-npm-flag lint-packages-npm-scope-flag lint-packages-npm-path lint-packages-pipx-flag lint-packages-pipx-path lint-packages-vscode-flag lint-packages-extension-flag lint-packages-extension-repo-path lint-packages-vscode-upper lint-packages-font-no-tag lint-packages-extension-other-host lint-packages-extension-branch lint-packages-ignore-manager lint-packages-unknown-file lint-packages-apt-and-deb lint-packages-listed-and-ignored lint-packages-same-name-other-manager lint-packages-source-http lint-packages-list-http lint-packages-source-unsigned lint-packages-source-key-missing lint-packages-source-key-elsewhere lint-packages-key-unused lint-packages-source-other-file lint-packages-source-real-shapes lint-packages-source-uris-lowercase lint-packages-source-uri-continuation lint-packages-source-second-stanza lint-packages-source-trusted lint-packages-source-key-dotdot lint-packages-source-key-empty lint-packages-list-second-line lint-packages-list-deb-src-http lint-packages-list-trusted lint-packages-list-other-line lint-packages-symlink lint-packages-other-dir lint-packages-key-deep lint-packages-source-key-continuation lint-packages-source-allow-insecure lint-packages-source-field-space lint-packages-list-allow-insecure lint-plugins-ok lint-plugins-undeclared lint-plugins-no-at lint-plugins-url-source lint-plugins-bad-repo lint-plugins-bad-ref lint-plugins-placeholder lint-plugins-newline lint-plugins-missing lint-real-plugins path-dotted-name escape-import escape-export escape-roundtrip-unchanged sanitize-longest-first sanitized-large-file sanitized-case-change infer-name infer-reset infer-keeps-cache infer-escaped infer-skips-unhydrated-local infer-overlapping-context dir-export-adds dir-export-modify-remove dir-export-excluded dir-export-missing dir-export-symlink dir-export-empty-keeps-repo dir-export-only-excluded dir-export-only-symlink dir-export-one-left dir-export-empty-both dir-root-symlink dir-symlink-removed dir-import-creates dir-import-update-backup dir-import-extra dir-roundtrip-unchanged dir-import-prompt-reads-stdin orphan-reported orphan-none orphan-linked-ok orphan-no-dir-entries upstream-none upstream-current upstream-behind-noninteractive upstream-behind-pull upstream-unreachable upstream-off-master preview-writes-nothing preview-shows-diff preview-matches-export preview-includes-uncommitted preview-no-changes preview-sanitized preview-leak-found preview-cleans-up preview-reset-rejected preview-not-a-repo commit-happy commit-macos-branch commit-leak-blocked commit-packages commit-packages-leak-blocked commit-scan-missing commit-outside-changes commit-value-blocked commit-value-case-variant commit-value-doubled commit-value-untracked commit-value-placeholder-only commit-value-not-printed preview-scan-missing sync-usage sync-unknown sync-routes-export sync-routes-import sync-routes-preview sync-missing-tool sync-doctor-ready sync-doctor-missing-jq sync-doctor-gh-signed-out sync-doctor-no-link sync-status-clean sync-status-behind sync-status-unsent sync-status-differs sync-status-not-git sync-status-writes-nothing sync-status-os-name front-macos-label front-macos-doctor-no-brew front-macos-hints front-macos-setup-no-bootstrap front-macos-bootstrap-flag front-check-failed-next status-fetch-timeout-no-timeout-bin sync-symlink sync-pull-applies sync-pull-matches sync-pull-declined sync-pull-dirty sync-pull-not-master sync-push-nothing sync-push-behind sync-push-opens-pr sync-push-declined sync-setup-applies sync-setup-offers-bootstrap sync-setup-doctor-fails install-fresh install-update install-not-a-clone install-link-conflict install-missing-jq-yes install-missing-jq-no-answer install-missing-jq-eof install-macos-no-brew install-macos-fresh install-macos-deps-no install-macos-deps-eof install-macos-has-deps install-runs-setup install-partial host-git-config-ignored leak-extension-enabled leak-extension-disabled leak-email-other-key leak-email-other-file leak-email-other-suffix leak-email-key-in-value leak-gnome-list-ok leak-gnome-list-comment leak-gnome-list-extra-field leak-gnome-list-url-address leak-gnome-list-short-commit leak-gnome-other-file dconf-test-bus dconf-config-valid dconf-path-missing dconf-path-relative dconf-path-no-slash dconf-path-root dconf-path-double-slash dconf-path-dotdot dconf-path-space dconf-platform-common dconf-platform-windows dconf-repo-unsafe dconf-symlink-named dconf-orphan-owned lint-dconf-ok lint-dconf-path lint-dconf-root lint-dconf-platform lint-dconf-localpath lint-dconf-rules lint-dconf-linked lint-dconf-keys-empty lint-dconf-keys-type lint-keys-on-file lint-path-on-dir lint-type-unknown dconf-export-adds dconf-export-unchanged dconf-export-modifies dconf-export-keys dconf-export-keys-no-root dconf-export-keys-nested dconf-export-keys-glob dconf-ptyxis-profile-keys dconf-export-keep-all dconf-export-no-settings dconf-export-no-settings-keeps-repo dconf-export-keys-empty-result dconf-export-missing-tool dconf-export-fails dconf-export-write-fails dconf-preview-read-only dconf-import-creates dconf-import-unchanged dconf-import-local-extra dconf-import-update-yes dconf-import-update-no dconf-import-force dconf-import-eof dconf-import-merge dconf-import-no-repo-file dconf-import-wrong-home dconf-import-other-config dconf-import-config-unset dconf-import-missing-tool dconf-import-bad-file dconf-import-prompt-reads-stdin dconf-roundtrip-values dconf-roundtrip-settles drift-no-packages drift-none drift-empty-list drift-apt-extra drift-apt-missing drift-apt-auto-listed drift-apt-not-installed-state drift-apt-ignored drift-apt-ignore-other-manager drift-apt-arch-suffix drift-deb-listed drift-deb-missing drift-snap-notes drift-snap-options drift-snap-extra drift-snap-missing drift-npm-extra drift-npm-scoped drift-npm-newest drift-npm-hidden drift-npm-no-call drift-npm-no-nvm drift-pipx drift-vscode drift-font-ok drift-font-missing drift-font-extra drift-font-loose-file drift-extension-ok drift-extension-missing drift-extension-extra drift-no-folders drift-source-ok drift-source-differs drift-source-missing drift-source-extra drift-source-ignored drift-key-usr-share drift-key-etc-apt drift-key-differs drift-key-missing drift-key-stock-ignored drift-tool-missing drift-tool-fails drift-counts-unchanged drift-writes-nothing drift-unreadable-list drift-preview drift-import-silent guard-reexec; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
+        continue
+    fi
+    if [[ $HARNESS_OS == macos ]] && linux_only_case "$case_name"; then
+        printf 'SKIP %s (linux only)\n' "$case_name"
+        skipped=$((skipped + 1))
         continue
     fi
     # Each case runs in a subshell so its EXIT trap (new_tmp) cleans up its temp dir.
@@ -5307,6 +5939,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
     if out_text=$(case "$case_name" in
         import-creates) case_import_creates ;;
         export-adds) case_export_adds ;;
+        export-symlink-mode) case_export_symlink_mode ;;
         roundtrip-unchanged) case_roundtrip_unchanged ;;
         import-backup) case_import_backup ;;
         excluded) case_excluded ;;
@@ -5338,6 +5971,17 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         path-local-traversal) case_path_local_traversal ;;
         path-local-absolute) case_path_local_absolute ;;
         path-repo-symlink) case_path_repo_symlink ;;
+        platform-macos-value) case_platform_macos_value ;;
+        platform-array) case_platform_array ;;
+        platform-array-empty) case_platform_array_empty ;;
+        platform-array-repeat) case_platform_array_repeat ;;
+        platform-array-common) case_platform_array_common ;;
+        platform-array-windows-only) case_platform_array_windows_only ;;
+        platform-bad-sync-os) case_platform_bad_sync_os ;;
+        localpaths-macos) case_localpaths_macos ;;
+        localpaths-unsafe) case_localpaths_unsafe ;;
+        localpaths-bad-key) case_localpaths_bad_key ;;
+        localpaths-spaces) case_localpaths_spaces ;;
         path-real-config) case_path_real_config ;;
         real-config-roundtrip) case_real_config_roundtrip ;;
         real-config-dconf-restore) case_real_config_dconf_restore ;;
@@ -5345,6 +5989,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         lint-real-packages) case_lint_real_packages ;;
         lint-platform-missing) case_lint_platform_missing ;;
         lint-platform-bad) case_lint_platform_bad ;;
+        check-config-macos) case_check_config_macos ;;
         lint-linux-prefix) case_lint_linux_prefix ;;
         lint-dir-with-rules) case_lint_dir_with_rules ;;
         lint-file-in-dir) case_lint_file_in_dir ;;
@@ -5486,6 +6131,7 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         preview-reset-rejected) case_preview_reset_rejected ;;
         preview-not-a-repo) case_preview_not_a_repo ;;
         commit-happy) case_commit_happy ;;
+        commit-macos-branch) case_commit_macos_branch ;;
         commit-leak-blocked) case_commit_leak_blocked ;;
         commit-packages) case_commit_packages ;;
         commit-packages-leak-blocked) case_commit_packages_leak_blocked ;;
@@ -5515,6 +6161,13 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         sync-status-not-git) case_sync_status_not_git ;;
         sync-status-writes-nothing) case_sync_status_writes_nothing ;;
         sync-status-os-name) case_sync_status_os_name ;;
+        front-macos-label) case_front_macos_label ;;
+        front-macos-doctor-no-brew) case_front_macos_doctor_no_brew ;;
+        front-macos-hints) case_front_macos_hints ;;
+        front-macos-setup-no-bootstrap) case_front_macos_setup_no_bootstrap ;;
+        front-macos-bootstrap-flag) case_front_macos_bootstrap_flag ;;
+        front-check-failed-next) case_front_check_failed_next ;;
+        status-fetch-timeout-no-timeout-bin) case_status_fetch_timeout_no_timeout_bin ;;
         sync-symlink) case_sync_symlink ;;
         sync-pull-applies) case_sync_pull_applies ;;
         sync-pull-matches) case_sync_pull_matches ;;
@@ -5535,7 +6188,11 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         install-missing-jq-yes) case_install_missing_jq_yes ;;
         install-missing-jq-no-answer) case_install_missing_jq_no_answer ;;
         install-missing-jq-eof) case_install_missing_jq_eof ;;
-        install-macos) case_install_macos ;;
+        install-macos-no-brew) case_install_macos_no_brew ;;
+        install-macos-fresh) case_install_macos_fresh ;;
+        install-macos-deps-no) case_install_macos_deps_no ;;
+        install-macos-deps-eof) case_install_macos_deps_eof ;;
+        install-macos-has-deps) case_install_macos_has_deps ;;
         install-runs-setup) case_install_runs_setup ;;
         install-partial) case_install_partial ;;
         host-git-config-ignored) case_host_git_config_ignored ;;
@@ -5658,17 +6315,23 @@ for case_name in import-creates export-adds roundtrip-unchanged import-backup ex
         drift-writes-nothing) case_drift_writes_nothing ;;
         drift-preview) case_drift_preview ;;
         drift-import-silent) case_drift_import_silent ;;
+        guard-reexec) case_guard_reexec ;;
         *) fail "no such case: $case_name" ;;
     esac); then
         if [[ $out_text == '__SKIP_ROOT__' ]]; then
-            printf 'ok   %s (skipped: root)\n' "$case_name"
+            printf 'SKIP %s (root)\n' "$case_name"
+            skipped=$((skipped + 1))
         else
             printf 'ok   %s\n' "$case_name"
+            passed=$((passed + 1))
         fi
     else
         printf '%s\n' "$out_text"
         failed=1
+        failed_cases=$((failed_cases + 1))
     fi
 done
+
+printf '%d passed, %d failed, %d skipped\n' "$passed" "$failed_cases" "$skipped"
 
 exit "$failed"

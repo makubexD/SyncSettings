@@ -379,6 +379,8 @@ function Show-Status {
         $next = 'mksync push'
     } elseif ($machine.State -eq 'differ') {
         $next = "mksync pull to take the repo's version, or mksync push to send this machine's."
+    } elseif ($machine.State -eq 'unknown') {
+        $next = 'the machine check failed; run Import-Settings.ps1 -Check to see why.'
     } else {
         $next = 'nothing to do.'
     }
@@ -491,7 +493,14 @@ function Invoke-Doctor {
                 if ($null -eq $entry) {
                     continue
                 }
-                if ($entry.platform -ne 'windows' -and $entry.platform -ne 'common') {
+                # Same selection as Test-WindowsEntry in SyncHelpers.ps1, which this
+                # file doesn't load. Never compare a list with -ne: that filters.
+                $platform = $entry.platform
+                if ($platform -is [array]) {
+                    if (-not ($platform -ccontains 'windows')) {
+                        continue
+                    }
+                } elseif ($platform -cne 'windows' -and $platform -cne 'common') {
                     continue
                 }
                 foreach ($rule in @($entry.sanitizeRules)) {

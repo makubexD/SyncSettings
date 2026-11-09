@@ -53,6 +53,24 @@
       "description": "Git credentials for Linux, included by .gitconfig"
     },
     {
+      "repoPath": "dotfiles/macos/git/.gitconfig.local",
+      "localPath": "~/.gitconfig.local",
+      "platform": "macos",
+      "description": "Git credentials for macOS, included by .gitconfig"
+    },
+    {
+      "repoPath": "dotfiles/macos/shell/.zshrc",
+      "localPath": "~/.zshrc",
+      "platform": "macos",
+      "description": "Zsh run commands for macOS"
+    },
+    {
+      "repoPath": "dotfiles/macos/shell/.zprofile",
+      "localPath": "~/.zprofile",
+      "platform": "macos",
+      "description": "Zsh login profile for macOS: Homebrew and ~/.local/bin on PATH"
+    },
+    {
       "repoPath": "dotfiles/windows/shell/.bashrc",
       "localPath": "~\\.bashrc",
       "platform": "windows",
@@ -78,33 +96,33 @@
       "description": "Login shell profile"
     },
     {
-      "repoPath": "dotfiles/linux/tmux/.tmux.conf",
+      "repoPath": "dotfiles/common/tmux/.tmux.conf",
       "localPath": "~/.tmux.conf",
-      "platform": "linux",
+      "platform": ["linux", "macos"],
       "description": "tmux configuration"
     },
     {
-      "repoPath": "dotfiles/linux/starship/starship.toml",
+      "repoPath": "dotfiles/common/starship/starship.toml",
       "localPath": "~/.config/starship.toml",
-      "platform": "linux",
+      "platform": ["linux", "macos"],
       "description": "Starship prompt"
     },
     {
-      "repoPath": "dotfiles/linux/wezterm/wezterm.lua",
+      "repoPath": "dotfiles/common/wezterm/wezterm.lua",
       "localPath": "~/.config/wezterm/wezterm.lua",
-      "platform": "linux",
+      "platform": ["linux", "macos"],
       "description": "WezTerm terminal"
     },
     {
-      "repoPath": "dotfiles/linux/htop/htoprc",
+      "repoPath": "dotfiles/common/htop/htoprc",
       "localPath": "~/.config/htop/htoprc",
-      "platform": "linux",
+      "platform": ["linux", "macos"],
       "description": "htop settings"
     },
     {
-      "repoPath": "dotfiles/linux/gh/config.yml",
+      "repoPath": "dotfiles/common/gh/config.yml",
       "localPath": "~/.config/gh/config.yml",
-      "platform": "linux",
+      "platform": ["linux", "macos"],
       "description": "GitHub CLI settings (hosts.yml stays out)"
     },
     {
@@ -165,9 +183,12 @@
       ]
     },
     {
-      "repoPath": "dotfiles/linux/vscode/settings.json",
+      "repoPath": "dotfiles/common/vscode/settings.json",
       "localPath": "~/.config/Code/User/settings.json",
-      "platform": "linux",
+      "localPaths": {
+        "macos": "~/Library/Application Support/Code/User/settings.json"
+      },
+      "platform": ["linux", "macos"],
       "description": "VS Code settings, default profile",
       "sanitizeRules": [
         {
@@ -182,9 +203,12 @@
       ]
     },
     {
-      "repoPath": "dotfiles/linux/vscode/snippets",
+      "repoPath": "dotfiles/common/vscode/snippets",
       "localPath": "~/.config/Code/User/snippets",
-      "platform": "linux",
+      "localPaths": {
+        "macos": "~/Library/Application Support/Code/User/snippets"
+      },
+      "platform": ["linux", "macos"],
       "type": "dir",
       "description": "VS Code snippets, default profile"
     },
@@ -195,9 +219,9 @@
       "description": "Windows Terminal settings"
     },
     {
-      "repoPath": "dotfiles/linux/claude/CLAUDE.md",
+      "repoPath": "dotfiles/common/claude/CLAUDE.md",
       "localPath": "~/.claude/CLAUDE.md",
-      "platform": "linux",
+      "platform": ["linux", "macos"],
       "description": "Claude Code global instructions"
     },
     {
@@ -230,9 +254,9 @@
       "description": "Claude Code status line script"
     },
     {
-      "repoPath": "dotfiles/linux/claude/sampleGrok.md",
+      "repoPath": "dotfiles/common/claude/sampleGrok.md",
       "localPath": "~/.claude/sampleGrok.md",
-      "platform": "linux",
+      "platform": ["linux", "macos"],
       "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
     },
     {

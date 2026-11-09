@@ -66,7 +66,7 @@ A probe on `macos-latest` measured both routes (`docs/macos-research.md`). The u
 in use yet, so CI proves the macOS work. First tools: git, Claude Code's OS-neutral files, VS Code, the terminal tools and
 zsh.
 
-### Phase 4: macOS build `docs/plan-easy-install-4.md`
+### Phase 4: macOS build `docs/plan-easy-install-4.md` (done 2026-11-08, PR #44; the real run on a Mac is M1-M4 in `TODO.md`)
 
 A `macos` platform value, platform lists (`["linux", "macos"]`) and per-OS `localPaths`; OS detection with a `SYNC_OS`
 override for tests; a bash 4 guard that re-execs under Homebrew bash; `mksync` and `install.sh` on macOS; an

@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 # Export local config files into the repo (linux entries only).
+
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        [ -x "$b" ] && [ -z "${SYNC_REEXEC:-}" ] && SYNC_REEXEC=1 exec "$b" "$0" "$@"
+    done
+    echo "ERROR: SyncSettings needs bash 4 or newer (this is ${BASH_VERSION:-unknown}). On macOS: brew install bash" >&2
+    exit 1
+fi
+
+# So scripts started from here can re-exec again.
+unset SYNC_REEXEC
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -27,7 +39,7 @@ fi
 CHANGED=0
 SKIPPED=0
 
-printf '\n  SyncSettings -- EXPORT (linux)\n\n'
+printf '\n  SyncSettings -- EXPORT (%s)\n\n' "$SYNC_PLATFORM"
 printf '  HOME       : %s\n' "$HOME"
 printf '  Repo root  : %s\n\n' "$REPO_ROOT"
 
@@ -99,7 +111,7 @@ process_entry() {
             fi
         else
             write_text sane "$repo_file" || { status ERROR "$label" 'cannot write repo file'; return 1; }
-            if ! chmod --reference="$local_file" "$repo_file"; then
+            if ! copy_mode "$local_file" "$repo_file"; then
                 status ERROR "$label" 'cannot copy file mode'
                 return 1
             fi

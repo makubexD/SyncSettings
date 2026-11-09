@@ -24,10 +24,14 @@ function Resolve-UserProfile {
 }
 
 function Test-WindowsEntry {
-    # Only entries with platform "windows" or "common" belong to the PowerShell scripts.
-    # "linux" entries belong to the bash scripts; anything else is caught by Assert-ValidPlatform.
+    # Only entries whose platform selects Windows belong to the PowerShell
+    # scripts: "windows", "common", or a list holding "windows". "linux" and
+    # "macos" entries belong to the bash scripts; anything else is caught by
+    # Assert-ValidPlatform.
     param($Entry)
-    return ($Entry.platform -eq 'windows') -or ($Entry.platform -eq 'common')
+    $platform = $Entry.platform
+    if ($platform -is [array]) { return ($platform -ccontains 'windows') }
+    return ($platform -ceq 'windows') -or ($platform -ceq 'common')
 }
 
 function Assert-ValidPlatform {
@@ -35,18 +39,68 @@ function Assert-ValidPlatform {
     .SYNOPSIS
         Stops the run if any entry has a missing or invalid platform.
     .DESCRIPTION
-        Every entry must name one of "common", "windows" or "linux". The check
-        covers all entries, not only the ones this engine selects, so a bad
-        Linux entry also stops the Windows engine.
+        Every entry must name one of "common", "windows", "linux" or "macos",
+        or a non-empty list of the last three without repeats. The check covers
+        all entries, not only the ones this engine selects, so a bad Linux
+        entry also stops the Windows engine.
     #>
     param([array]$Files)
     foreach ($entry in $Files) {
         $prop  = $entry.PSObject.Properties['platform']
-        $valid = $prop -and ($prop.Value -eq 'common' -or $prop.Value -eq 'windows' -or $prop.Value -eq 'linux')
+        $valid = $false
+        if ($null -ne $prop) {
+            $value = $prop.Value
+            if ($value -is [array]) {
+                # Never compare an array with -eq/-ne: that filters in PowerShell.
+                $valid = ($value.Count -gt 0)
+                $seen  = @()
+                foreach ($item in $value) {
+                    if (-not ($item -is [string]) -or
+                        ($item -cne 'windows' -and $item -cne 'linux' -and $item -cne 'macos') -or
+                        ($seen -ccontains $item)) {
+                        $valid = $false
+                        break
+                    }
+                    $seen += $item
+                }
+            } elseif ($value -is [string]) {
+                $valid = ($value -ceq 'common' -or $value -ceq 'windows' -or
+                          $value -ceq 'linux' -or $value -ceq 'macos')
+            }
+        }
         if (-not $valid) {
-            throw ('sync-config.json: entry {0} needs "platform": "common", "windows" or "linux".' -f $entry.repoPath)
+            throw ('sync-config.json: entry {0} needs "platform": "common", "windows", "linux", "macos" or a list of the last three.' -f $entry.repoPath)
         }
     }
+}
+
+function Select-WindowsEntries {
+    <#
+    .SYNOPSIS
+        The entries this engine runs, with localPaths.windows applied.
+    .DESCRIPTION
+        Keeps the entries Test-WindowsEntry selects. An entry with a
+        localPaths.windows value gets that value as its localPath in the copy
+        returned here; sync-config.json itself is never written back.
+    #>
+    param([array]$Files)
+    $selected = @()
+    foreach ($entry in $Files) {
+        if (-not (Test-WindowsEntry $entry)) { continue }
+        $chosen = $entry
+        if ($entry.PSObject.Properties['localPaths']) {
+            $localPaths = $entry.localPaths
+            if ($localPaths -is [System.Management.Automation.PSCustomObject]) {
+                $windows = $localPaths.PSObject.Properties['windows']
+                if ($null -ne $windows -and $null -ne $windows.Value) {
+                    $chosen = $entry.PSObject.Copy()
+                    $chosen.localPath = [string]$windows.Value
+                }
+            }
+        }
+        $selected += $chosen
+    }
+    return $selected
 }
 
 function Test-SafePath {
@@ -113,9 +167,10 @@ function Assert-SafePaths {
         reparse point.
     .DESCRIPTION
         Every entry's repoPath must start with dotfiles/ and its localPath with
-        ~/ or ~\, both with no .. segment. A reparse point (symlink or junction)
-        anywhere under dotfiles/ also stops the run. The checks cover all
-        entries, not only the ones this engine selects.
+        ~/ or ~\, both with no .. segment. Each localPaths value follows the
+        localPath rule, and its keys are linux, macos or windows. A reparse
+        point (symlink or junction) anywhere under dotfiles/ also stops the run.
+        The checks cover all entries, not only the ones this engine selects.
     #>
     param([string]$RepoRoot, [array]$Files)
 
@@ -124,6 +179,22 @@ function Assert-SafePaths {
         $localPath = [string]$entry.localPath
         if (-not (Test-SafePath -Path $repoPath -Kind repo)) {
             throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
+        }
+        # localPaths is an optional object of per-system paths. A value follows
+        # the localPath rule, and a key names a system the engine knows.
+        if ($entry.PSObject.Properties['localPaths']) {
+            $localPaths = $entry.localPaths
+            if (-not ($localPaths -is [System.Management.Automation.PSCustomObject])) {
+                throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
+            }
+            foreach ($lp in $localPaths.PSObject.Properties) {
+                if ($lp.Name -cne 'linux' -and $lp.Name -cne 'macos' -and $lp.Name -cne 'windows') {
+                    throw ('sync-config.json: entry {0} has an unknown localPaths key {1}.' -f $repoPath, $lp.Name)
+                }
+                if (-not (Test-SafePath -Path ([string]$lp.Value) -Kind local)) {
+                    throw ('sync-config.json: entry {0} has an unsafe path.' -f $repoPath)
+                }
+            }
         }
         # A dconf entry has no local file: it owns its repoPath and names a dconf
         # folder instead. Refuse a bad one before anything is dumped or loaded.

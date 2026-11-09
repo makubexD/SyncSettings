@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # jq isn't installed yet, so skip the config checks sync.sh runs when sourced.
 SYNC_LIB_ONLY=1
+# Ubuntu only, so name the system instead of asking uname (the guards run first).
+export SYNC_OS=linux
 source scripts/linux/sync.sh
 
 PACKAGES_DIR=$REPO_ROOT/packages/linux

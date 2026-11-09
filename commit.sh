@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 # Commit sync-path changes on a branch and open a PR.
+
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        [ -x "$b" ] && [ -z "${SYNC_REEXEC:-}" ] && SYNC_REEXEC=1 exec "$b" "$0" "$@"
+    done
+    echo "ERROR: SyncSettings needs bash 4 or newer (this is ${BASH_VERSION:-unknown}). On macOS: brew install bash" >&2
+    exit 1
+fi
+
+# So scripts started from here can re-exec again.
+unset SYNC_REEXEC
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -267,7 +279,7 @@ fi
 
 # Branch this sync off master.
 stamp=$(date +%Y%m%d-%H%M)
-branch="sync/linux-$machine-$stamp"
+branch="sync/$SYNC_PLATFORM-$machine-$stamp"
 git switch -c "$branch"
 
 # Stage and commit.
@@ -295,7 +307,7 @@ trap 'rm -f "$body"' EXIT
     for line in "${status_lines[@]}"; do
         printf '%s%s%s\n' '- `' "$line" '`'
     done
-    printf '\nPlatform: linux · Machine: %s\n\n' "$machine"
+    printf '\nPlatform: %s · Machine: %s\n\n' "$SYNC_PLATFORM" "$machine"
     printf "When the review is done, add the **\`reviewed\`** label.\n"
 } > "$body"
 

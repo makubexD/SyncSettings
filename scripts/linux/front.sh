@@ -2,6 +2,16 @@
 # Front-door helpers for `sync`: status, doctor, and later setup, pull and push.
 # Sourced after `cd` into the repo root; it defines functions and does no work.
 
+# OS detection, shared with the engine.
+FRONT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/linux/os.sh
+source "$FRONT_DIR/os.sh"
+
+# The system this run is for, resolved once from SYNC_OS or uname -s.
+if ! SYNC_PLATFORM=$(sync_os); then
+    exit 1
+fi
+
 # A value from the os-release file (`PRETTY_NAME`, `ID`), or `unknown`. The
 # value may be quoted; SYNC_OS_RELEASE overrides the path.
 front_os_release_value() {
@@ -28,10 +38,46 @@ front_git() {
     GIT_TERMINAL_PROMPT=0 git -C "$REPO_ROOT" "$@"
 }
 
+# Run a command with a time limit, returning 124 on timeout like `timeout`.
+# macOS has no `timeout`, so the fallback runs the command in the background
+# and a watcher kills it after the limit.
+run_with_timeout() {
+    local secs=$1
+    shift
+
+    if command -v timeout > /dev/null 2>&1; then
+        timeout "$secs" "$@"
+        return
+    fi
+
+    local pid watcher rc=0
+    "$@" &
+    pid=$!
+    (
+        sleep "$secs" &
+        s=$!
+        trap 'kill "$s" 2>/dev/null; exit 0' TERM
+        wait "$s"
+        kill "$pid" 2>/dev/null
+    ) &
+    watcher=$!
+    wait "$pid" || rc=$?
+    if kill -0 "$watcher" 2>/dev/null; then
+        # The command finished first: stop the watcher and keep its status.
+        kill "$watcher" 2>/dev/null || true
+        wait "$watcher" 2>/dev/null || true
+        return "$rc"
+    fi
+    return 124
+}
+
 # The install hint for a missing package: the first package manager on PATH.
 front_install_hint() {
     local pkg=$1
-    if command -v apt-get > /dev/null 2>&1; then
+    if [[ $SYNC_PLATFORM == macos ]]; then
+        # cmp ships with macOS; doctor asks for diffutils, which brew has too.
+        printf 'brew install %s' "$pkg"
+    elif command -v apt-get > /dev/null 2>&1; then
         printf 'sudo apt-get install %s' "$pkg"
     elif command -v dnf > /dev/null 2>&1; then
         printf 'sudo dnf install %s' "$pkg"
@@ -48,7 +94,11 @@ front_status() {
     local is_git=0 has_origin=0 branch='' updates=0 unsent=0
     local machine_state=unknown machine_n='' tmp='' rc=0
 
-    pretty=$(front_os_release_value PRETTY_NAME)
+    if [[ $SYNC_PLATFORM == macos ]]; then
+        pretty=$(sw_vers -productVersion 2>/dev/null || printf 'unknown')
+    else
+        pretty=$(front_os_release_value PRETTY_NAME)
+    fi
 
     if front_git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
         is_git=1
@@ -63,7 +113,7 @@ front_status() {
         branch=$(front_git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'unknown')
         if [[ $branch != master ]]; then
             origin_text="on branch $branch, not master"
-        elif ! GIT_TERMINAL_PROMPT=0 timeout 15 git -C "$REPO_ROOT" fetch -q origin master > /dev/null 2>&1; then
+        elif ! GIT_TERMINAL_PROMPT=0 run_with_timeout "${SYNC_FETCH_TIMEOUT:-15}" git -C "$REPO_ROOT" fetch -q origin master > /dev/null 2>&1; then
             origin_text='offline, not checked'
         else
             updates=$(front_git rev-list --count HEAD..origin/master 2>/dev/null || printf '0')
@@ -118,12 +168,14 @@ front_status() {
         next='mksync push'
     elif [[ $machine_state == differ ]]; then
         next="mksync pull to take the repo's version, or mksync push to send this machine's."
+    elif [[ $machine_state == unknown ]]; then
+        next='the machine check failed; run ./import.sh --check to see why.'
     else
         next='nothing to do.'
     fi
 
     printf '\n'
-    printf '  SyncSettings  linux (%s)\n' "$pretty"
+    printf '  SyncSettings  %s (%s)\n' "$SYNC_PLATFORM" "$pretty"
     printf '  %-10s: %s\n' 'Repo' "$REPO_ROOT"
     printf '  %-10s: %s\n' 'Origin' "$origin_text"
     printf '  %-10s: %s\n' 'Unsent' "$unsent_text"
@@ -294,6 +346,11 @@ front_setup() {
         esac
     done
 
+    if (( bootstrap )) && [[ $SYNC_PLATFORM == macos ]]; then
+        printf 'ERROR: --bootstrap is Ubuntu only.\n' >&2
+        exit 1
+    fi
+
     rc=0
     front_doctor || rc=$?
     if (( rc != 0 )); then
@@ -308,7 +365,7 @@ front_setup() {
     esac
 
     os_id=$(front_os_release_value ID)
-    if [[ $os_id == ubuntu && -x $REPO_ROOT/bootstrap/linux.sh ]]; then
+    if [[ $SYNC_PLATFORM == linux && $os_id == ubuntu && -x $REPO_ROOT/bootstrap/linux.sh ]]; then
         if (( bootstrap )); then
             exec "$REPO_ROOT/bootstrap/linux.sh"
         fi
@@ -343,14 +400,18 @@ front_setup() {
 
 # One OK, WARN or MISSING line per check. Returns 1 when a MISSING line printed.
 front_doctor() {
-    local missing=0 tool pkg hint gh_bin version count
-    local config values_file link_path repo_link placeholder
+    local missing=0 tool pkg hint gh_bin version count sync_platform
+    local config values_file link_path repo_link placeholder macos_version major
 
     version=${BASH_VERSION:-unknown}
     if (( BASH_VERSINFO[0] >= 4 )); then
         printf '  %-8s %s\n' OK "bash $version"
     else
-        printf '  %-8s %s\n' MISSING "bash 4 or newer (this is $version)"
+        hint=''
+        if [[ $SYNC_PLATFORM == macos ]]; then
+            hint="; install with $(front_install_hint bash)"
+        fi
+        printf '  %-8s %s\n' MISSING "bash 4 or newer (this is $version)$hint"
         missing=1
     fi
 
@@ -367,6 +428,21 @@ front_doctor() {
             missing=1
         fi
     done
+
+    if [[ $SYNC_PLATFORM == macos ]]; then
+        if command -v brew > /dev/null 2>&1; then
+            printf '  %-8s %s\n' OK 'brew'
+        else
+            printf '  %-8s %s\n' MISSING 'brew: install from https://brew.sh'
+            missing=1
+        fi
+
+        macos_version=$(sw_vers -productVersion 2>/dev/null || true)
+        major=${macos_version%%.*}
+        if [[ $major =~ ^[0-9]+$ ]] && (( major < 13 )); then
+            printf '  %-8s %s\n' WARN "macOS $macos_version is older than 13"
+        fi
+    fi
 
     gh_bin=${GH:-gh}
     if ! command -v "$gh_bin" > /dev/null 2>&1; then
@@ -394,7 +470,7 @@ front_doctor() {
         printf '  %-8s %s\n' WARN "mksync not on PATH; run: ln -s \"$REPO_ROOT/sync\" ~/.local/bin/mksync"
     fi
 
-    if command -v jq > /dev/null 2>&1; then
+    if command -v jq > /dev/null 2>&1 && sync_platform=$(sync_os 2>/dev/null); then
         config=$REPO_ROOT/sync-config.json
         values_file=$REPO_ROOT/.user-values.json
         count=0
@@ -405,8 +481,8 @@ front_doctor() {
                         "$values_file" > /dev/null 2>&1; then
                     count=$((count + 1))
                 fi
-            done < <(jq -j '[.files[]
-                | select(.platform == "linux" or .platform == "common")
+            done < <(jq -j --arg os "$sync_platform" "$PLATFORM_SELECT_JQ"' [.files[]
+                | select(selected($os))
                 | (.sanitizeRules // [])[]
                 | select(((.default // "") | tostring) == ""
                     and ((.defaultEnv // "") | tostring) == "")

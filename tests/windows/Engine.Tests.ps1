@@ -491,7 +491,7 @@ Describe 'Windows engine' {
         $json = $config | ConvertTo-Json -Depth 10
         [IO.File]::WriteAllText($configPath, $json, [System.Text.UTF8Encoding]::new($false))
 
-        $msg = [regex]::Escape('ERROR: sync-config.json: entry dotfiles/linux/plain.txt needs "platform": "common", "windows" or "linux".')
+        $msg = [regex]::Escape('ERROR: sync-config.json: entry dotfiles/linux/plain.txt needs "platform": "common", "windows", "linux", "macos" or a list of the last three.')
 
         Invoke-Engine -ScriptName 'Export-Settings.ps1'
         $script:EngineExit | Should -Be 1
@@ -503,6 +503,147 @@ Describe 'Windows engine' {
 
         @(Get-ChildItem -Path $script:HomeDir -Recurse -File).Count | Should -Be 0
         (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
+    }
+
+    It 'platform-macos-skipped' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/macos/m.txt'
+            localPath   = '~/.config/fixture/m.txt'
+            platform    = 'macos'
+            description = 'macOS only fixture'
+        })
+
+        $localFile = Join-Path $script:HomeDir '.config\fixture\m.txt'
+        [IO.File]::WriteAllText($localFile, "m`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        (Join-Path $script:RepoDir 'dotfiles\macos\m.txt') | Should -Not -Exist
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/macos/m.txt'))
+    }
+
+    It 'platform-list-linux-macos-skipped' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/common/m.txt'
+            localPath   = '~/.config/fixture/m.txt'
+            platform    = @('linux', 'macos')
+            description = 'shared by the bash engines'
+        })
+
+        $localFile = Join-Path $script:HomeDir '.config\fixture\m.txt'
+        [IO.File]::WriteAllText($localFile, "m`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        (Join-Path $script:RepoDir 'dotfiles\common\m.txt') | Should -Not -Exist
+        $script:EngineOut | Should -Not -Match ([regex]::Escape('dotfiles/common/m.txt'))
+    }
+
+    It 'platform-list-with-windows-used' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/common/m.txt'
+            localPath   = '~/.config/fixture/m.txt'
+            platform    = @('windows', 'macos')
+            description = 'shared with macOS'
+        })
+
+        $localFile = Join-Path $script:HomeDir '.config\fixture\m.txt'
+        [IO.File]::WriteAllText($localFile, "m`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+        $script:EngineExit | Should -Be 0
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\common\m.txt'
+        $repoFile | Should -Exist
+        ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($localFile) -join ',')
+    }
+
+    It 'platform-list-empty' {
+        Copy-EngineToRepo
+
+        # ConvertTo-Json does not reliably write [] for an empty array, so the
+        # entry goes in as text with a real empty list.
+        $configPath = Join-Path $script:RepoDir 'sync-config.json'
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        $config.files = @($config.files) + [pscustomobject]@{
+            repoPath    = 'dotfiles/common/empty.txt'
+            localPath   = '~/.config/fixture/empty.txt'
+            platform    = '__empty_platform_list__'
+            description = 'empty platform list'
+        }
+        $json = $config | ConvertTo-Json -Depth 10
+        $json = $json -replace '"platform":\s*"__empty_platform_list__"', '"platform": []'
+        [IO.File]::WriteAllText($configPath, $json, [System.Text.UTF8Encoding]::new($false))
+        (Get-Content $configPath -Raw) | Should -Match '"platform": \[\]'
+
+        $msg = [regex]::Escape('ERROR: sync-config.json: entry dotfiles/common/empty.txt needs "platform": "common", "windows", "linux", "macos" or a list of the last three.')
+
+        Invoke-Engine -ScriptName 'Export-Settings.ps1'
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $msg
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+        $script:EngineExit | Should -Be 1
+        $script:EngineOut | Should -Match $msg
+
+        @(Get-ChildItem -Path $script:HomeDir -Recurse -File).Count | Should -Be 0
+        (Join-Path $script:RepoDir 'dotfiles') | Should -Not -Exist
+    }
+
+    It 'localpaths-bad-key' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/common/m.txt'
+            localPath   = '~/.config/fixture/m.txt'
+            localPaths  = @{ bsd = '~/x' }
+            platform    = 'common'
+            description = 'unknown localPaths key'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/common/m.txt has an unknown localPaths key bsd.'
+    }
+
+    It 'localpaths-windows-used' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/common/m.txt'
+            localPath   = '~/.config/fixture/m.txt'
+            localPaths  = @{ windows = '~\other\m.txt' }
+            platform    = 'common'
+            description = 'per-system local path'
+        })
+
+        $repoFile = Join-Path $script:RepoDir 'dotfiles\common\m.txt'
+        $null = New-Item -ItemType Directory -Path (Split-Path $repoFile -Parent) -Force
+        [IO.File]::WriteAllText($repoFile, "m`r`n", [System.Text.UTF8Encoding]::new($false))
+        # Import skips a file whose target folder is missing, so create it.
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:HomeDir 'other') -Force
+
+        Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force
+
+        $script:EngineExit | Should -Be 0
+        $target = Join-Path $script:HomeDir 'other\m.txt'
+        $target | Should -Exist
+        ([IO.File]::ReadAllBytes($target) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("m`r`n") -join ',')
+        (Join-Path $script:HomeDir '.config\fixture\m.txt') | Should -Not -Exist
+    }
+
+    It 'localpaths-unsafe' {
+        Copy-EngineToRepo
+        Add-FixtureEntry ([pscustomobject]@{
+            repoPath    = 'dotfiles/common/m.txt'
+            localPath   = '~/.config/fixture/m.txt'
+            localPaths  = @{ windows = '~\..\x' }
+            platform    = 'common'
+            description = 'unsafe per-system path'
+        })
+
+        Assert-PathStop 'ERROR: sync-config.json: entry dotfiles/common/m.txt has an unsafe path.'
     }
 
     It 'path-repo-traversal' {

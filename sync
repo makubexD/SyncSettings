@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 # One command for the sync flow: status, doctor, preview, export, commit, import.
+
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        [ -x "$b" ] && [ -z "${SYNC_REEXEC:-}" ] && SYNC_REEXEC=1 exec "$b" "$0" "$@"
+    done
+    echo "ERROR: SyncSettings needs bash 4 or newer (this is ${BASH_VERSION:-unknown}). On macOS: brew install bash" >&2
+    exit 1
+fi
+
+# So scripts started from here can re-exec again.
+unset SYNC_REEXEC
+
 set -euo pipefail
 
 # Resolve the script through a symlink (mksync on PATH) before changing the
@@ -37,7 +49,12 @@ shift
 case $COMMAND in
     help|-h)
         usage
-        printf '  Detected: linux\n'
+        # shellcheck source=scripts/linux/os.sh
+        source "$REPO_ROOT/scripts/linux/os.sh"
+        if ! SYNC_PLATFORM=$(sync_os); then
+            exit 1
+        fi
+        printf '  Detected: %s\n' "$SYNC_PLATFORM"
         exit 0
         ;;
     status)

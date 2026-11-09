@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 # Import repo config files onto the machine (linux entries only).
+
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        [ -x "$b" ] && [ -z "${SYNC_REEXEC:-}" ] && SYNC_REEXEC=1 exec "$b" "$0" "$@"
+    done
+    echo "ERROR: SyncSettings needs bash 4 or newer (this is ${BASH_VERSION:-unknown}). On macOS: brew install bash" >&2
+    exit 1
+fi
+
+# So scripts started from here can re-exec again.
+unset SYNC_REEXEC
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -27,9 +39,9 @@ SKIPPED=0
 CHANGED=0
 
 if (( CHECK )); then
-    printf '\n  SyncSettings -- IMPORT CHECK (linux)\n\n'
+    printf '\n  SyncSettings -- IMPORT CHECK (%s)\n\n' "$SYNC_PLATFORM"
 else
-    printf '\n  SyncSettings -- IMPORT (linux)\n\n'
+    printf '\n  SyncSettings -- IMPORT (%s)\n\n' "$SYNC_PLATFORM"
 fi
 printf '  HOME       : %s\n' "$HOME"
 printf '  Repo root  : %s\n\n' "$REPO_ROOT"
@@ -233,7 +245,7 @@ process_entry() {
                 return 0
             fi
             write_text hydrated "$local_file" || { status ERROR "$label" 'cannot write local file'; return 1; }
-            if ! chmod --reference="$repo_file" "$local_file"; then
+            if ! copy_mode "$repo_file" "$local_file"; then
                 status ERROR "$label" 'cannot copy file mode'
                 return 1
             fi

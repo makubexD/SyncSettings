@@ -34,7 +34,8 @@ belongs, see [layout.md](layout.md).
 |---|---|---|
 | `repoPath` | yes | Where the file lives in this repo, with forward slashes. No trailing slash, also for folders. Unique across entries |
 | `localPath` | yes, except on a `dconf` entry | Where it lives on the machine ([forms](#localpath)) |
-| `platform` | yes | `common`, `windows` or `linux` ([details](#platform)) |
+| `localPaths` | no | Another `localPath` per system, for the same file in another folder ([details](#localpaths)) |
+| `platform` | yes | `common`, `windows`, `linux`, `macos`, or a list such as `["linux", "macos"]` ([details](#platform)) |
 | `description` | no | A note for people. The engines don't read it |
 | `sanitizeRules` | no | Placeholders that keep private values out of the repo ([details](#sanitizerules)) |
 | `type` | no | `file` (default), `dir` ([details](#type-dir)) or `dconf` ([details](#type-dconf)) |
@@ -49,19 +50,43 @@ stops both engines with exit code 1 before they touch a file. CI lint also fails
 
 | `platform` | Runs on | `repoPath` must be | `localPath` |
 |---|---|---|---|
-| `common` | both | under `dotfiles/common/` | `~/` form only |
+| `common` | Windows, Linux and macOS | under `dotfiles/common/` | `~/` form only |
 | `linux` | Linux | under `dotfiles/linux/` | `~/` form |
+| `macos` | macOS | under `dotfiles/macos/` | `~/` form |
 | `windows` | Windows | under `dotfiles/windows/` | either form |
+| a list, e.g. `["linux", "macos"]` | each system listed | under `dotfiles/common/` | `~/` form only |
+
+A list holds two or three of `windows`, `linux` and `macos`, each once. Use it for a file two systems share and the third
+doesn't have: tmux's config is the same on Linux and macOS, but `common` would also write it on Windows. A one-item list
+works but says the same as the plain value, so write the plain value.
 
 ## `localPath`
 
 | Form | JSON example | Works on |
 |---|---|---|
-| `~/` with forward slashes | `"~/.config/git/ignore"` | both |
+| `~/` with forward slashes | `"~/.config/git/ignore"` | every system |
 | `~\` with backslashes | `"~\\.gitconfig.local"` | Windows only |
 
-`~` is `$HOME` on Linux and the profile folder on Windows, or the target user's profile with `-User`. Backslashes are
-doubled in JSON. An absolute path, or a path with a `..` segment, stops every command before it touches a file.
+`~` is `$HOME` on Linux and macOS and the profile folder on Windows, or the target user's profile with `-User`.
+Backslashes are doubled in JSON. An absolute path, or a path with a `..` segment, stops every command before it touches a
+file.
+
+## `localPaths`
+
+For a shared file that lives in another folder on one system. VS Code reads the same `settings.json` from
+`~/.config/Code/User` on Linux and `~/Library/Application Support/Code/User` on macOS:
+
+```json
+{
+  "repoPath": "dotfiles/common/vscode/settings.json",
+  "localPath": "~/.config/Code/User/settings.json",
+  "localPaths": { "macos": "~/Library/Application Support/Code/User/settings.json" },
+  "platform": ["linux", "macos"]
+}
+```
+
+The keys are `linux`, `macos` and `windows`; on a system named here, its value replaces `localPath`. Each value follows
+the `localPath` rules. Any other key stops every command with exit code 1.
 
 ## `sanitizeRules`
 

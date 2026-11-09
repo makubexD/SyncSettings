@@ -50,6 +50,26 @@ import can replace a `.bak`.
 If `export.bat` runs before W1, the whole `.gitconfig` lands in the common file and the cached-value check stops
 `commit.bat`. Run `git restore dotfiles`, then W1.
 
+## macOS checks after phase 4
+
+CI runs the engine on `macos-latest`; nobody has run it on a real Mac yet.
+
+- [ ] **M1** On a Mac (13 or newer) with Homebrew, run the install line from the README. Expect the `brew install bash jq`
+      question, `Installed.`, and `mksync doctor` with no `MISSING` line.
+- [ ] **M2** `mksync` shows `macos <version>`; `./import.sh --check` lists `.zshrc`, `.zprofile`, `.gitconfig.local` and the
+      shared files, with VS Code under `~/Library/Application Support/Code/User/`.
+- [ ] **M3** `/bin/bash ./sync doctor` re-runs itself under Homebrew's bash (no `declare -A` error).
+- [ ] **M4** Find RTK's config folder on macOS (`~/Library/Application Support/rtk`?) and decide whether `~/.config/rtk/`
+      gets a `localPaths.macos`.
+- [ ] Delete this section when all of them pass.
+
+Review follow-ups from phase 4 (PR #44), not blocking:
+
+- [ ] `scripts/windows/SyncHelpers.ps1`: a dconf entry with `"platform": ["linux"]` passes PowerShell's check
+      (`[string]` turns the one-item list into `linux`), while bash and lint reject it. Reject `-is [array]` first.
+- [ ] `scripts/ci/check-config.sh`: check the `~/` form for string `macos` and `linux` entries, as for `common` and lists.
+- [ ] `scripts/linux/os.sh`: `PLATFORM_SELECT_JQ` is taken from the environment when already set; use a private guard.
+
 ## Roll back Claude auto-approval when development is done
 
 Added 2026-10-30 to speed up development: Claude adds the `reviewed` label and merges its own PRs. When the
