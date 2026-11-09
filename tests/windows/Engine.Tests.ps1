@@ -2009,6 +2009,37 @@ Describe 'Windows engine' {
         $script:EngineOut | Should -Match ([regex]::Escape('Nothing was written.'))
     }
 
+    It 'sync-cmd-check' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+        Copy-RepoDotfiles
+
+        $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+        [IO.File]::WriteAllText($winConf, "old`r`n", [System.Text.UTF8Encoding]::new($false))
+
+        Invoke-SyncCmd -CmdArgs @('check') -InputText ""
+
+        $syncExit = $script:EngineExit
+        $syncOut = $script:EngineOut
+
+        # check must route to Import-Settings.ps1 -Check with the same result.
+        Invoke-ImportCheck
+
+        $syncExit | Should -Be $script:EngineExit
+        $syncExit | Should -BeIn @(0, 3)
+        $syncOut | Should -Match ([regex]::Escape('IMPORT CHECK'))
+    }
+
+    It 'sync-cmd-help-lists-check' {
+        Copy-EngineToRepo
+        Copy-SyncWrappers
+
+        Invoke-SyncCmd -CmdArgs @('help')
+
+        $script:EngineExit | Should -Be 0
+        $script:EngineOut | Should -Match ([regex]::Escape('preview | check | export | commit | import'))
+    }
+
     It 'sync-cmd-message-quotes' {
         Copy-EngineToRepo
         Copy-SyncWrappers
