@@ -62,8 +62,12 @@ before W1. Follow `docs/plan-windows-checks.md`, which has the commands and expe
       | Change one synced file in the repo, then `mksync pull <its local path>` | Only that file listed and updated; its `.bak` written; no `Sync point` line |
       | After that pull | `Backups    : …\SyncSettings\backups\<run>` printed; the folder holds the old version under its repo path |
       | `mksync diff <path>` on a file you edited | Only that file labeled; exit 3 |
+      | In Git Bash, from `~`: `./<clone>/sync diff .bashrc` | Resolves to `~\.bashrc`, not `<clone>\.bashrc`; no `is not synced` |
 
       Then undo the test edits.
+- [ ] Safe-sync review leftovers (optional): refuse `..` segments and `.linked/` repo paths on the bash side, and warn
+      when `--only` matched no file; `Front.ps1` should reject an unknown `-x` like front.sh; state bash 4.4+ or guard
+      empty arrays under `set -u`.
 - [ ] Once W0-W6 pass, delete `export.bat`, `import.bat` and `commit.bat`, and their mentions; `sync.cmd` and `mksync`
       cover them.
 - [ ] Delete this section when all of them pass.
