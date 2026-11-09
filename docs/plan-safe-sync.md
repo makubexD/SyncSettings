@@ -53,6 +53,9 @@ diff with the same `--only`, so a picked file that is `OUT` or `BOTH` still need
   (each keeps a .bak).` above the question, and the question defaults to no: `  Apply these changes? [y/N] `.
 - `mksync setup` and `bootstrap/linux.sh` call the engine directly and are unchanged: a new machine is expected to take
   the repo's files.
+- When the check finds nothing to change, a pull without paths still records the sync point (a real import with
+  nothing to overwrite), so a machine that already matches gets one. Today it exits before that, and its later edits
+  stay `?`.
 
 **Leak hints.** After the hit lines, when there was a hit, `leak-scan.sh` prints a blank line and one `  fix <rule>:
 <text>` line per rule that hit, in the order of the rules:
@@ -185,7 +188,8 @@ Files: `scripts/linux/front.sh`, `tests/linux/engine.sh`, `docs/sync-contract.md
 
 In `front_pull`, when `front_sync_point` is empty, files differ and `--force` wasn't given: with `--yes`, print the two
 `ERROR` lines from "The first pull" and exit 1; without it, print the notice line and ask `  Apply these changes?
-[y/N] `, where only an answer starting with `y` or `Y` applies.
+[y/N] `, where only an answer starting with `y` or `Y` applies. When the check exits 0 and no paths were given,
+run `import.sh --force` anyway (nothing to overwrite) so it records the sync point, instead of exiting at once.
 
 Tests:
 
@@ -193,7 +197,8 @@ Tests:
 - `front-pull-first-force`: same with `--yes --force`: applied, sync point recorded.
 - `front-pull-first-empty`: interactive, empty answer: `Nothing applied.`, nothing changed.
 - `front-pull-first-y`: interactive, answer `y`: applied.
-- `front-pull-first-match`: no sync point, nothing differs: exit 0 with no question.
+- `front-pull-first-match`: no sync point, nothing differs: exit 0 with no question, and the sync point is recorded.
+- `front-pull-match-only`: nothing differs, `sync pull <path>`: exit 0, no sync point written.
 - `front-pull-recorded`: with a sync point the question stays `[Y/n]` (existing behavior).
 
 Test command: `tests/linux/engine.sh front-pull` (all pass) and the CI `shellcheck` line.
