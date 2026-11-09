@@ -2,6 +2,7 @@
 # Run a mechanical task as a headless Claude Code worker on the paid DeepSeek API.
 # Usage: mk-exec [--effort low|medium|high] <repo-dir> <task text>
 # Exit: worker's exit code; 2 = bad usage/setup; 75 = API quota/auth/balance error; 124 = timeout.
+# 137 from a hard kill is reported as 124, and a run killed after it already produced a successful result is reported as 0.
 # Logs: ~/.claude/state/mk-worker-logs/<ts>-<repo>/{stream.jsonl,stderr.log,meta.json,diff.patch,summary.txt}
 set -uo pipefail
 
@@ -86,7 +87,7 @@ fi
   export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_MAX_RETRIES=3
   # Claude Code sends no effort for models it doesn't know, so pass DeepSeek's effort field directly.
   export CLAUDE_CODE_EXTRA_BODY="{\"output_config\":{\"effort\":\"$api_effort\"}}"
-  exec timeout 900 claude -p "$task" --model "$model[1m]" \
+  exec timeout -k 30 900 claude -p "$task" --model "$model[1m]" \
     --output-format stream-json --verbose --max-turns 90 \
     --permission-mode acceptEdits --setting-sources user,project --strict-mcp-config
 ) < /dev/null > "$logdir/stream.jsonl" 2> "$logdir/stderr.log"
@@ -109,7 +110,10 @@ fi
 
 if [[ $workdir != "$repo" ]]; then
   # The diff can't carry gitignored files, and removing the worktree would lose them without a word.
-  ignored="$(git -C "$workdir" ls-files --others --ignored --exclude-standard | head -20 | tr '\n' ' ')"
+  # Tool caches (bytecode, linters, test runners, build caches) are regenerated, so they don't keep it.
+  ignored="$(git -C "$workdir" ls-files --others --ignored --exclude-standard |
+    grep -vE '(^|/)(__pycache__|\.ruff_cache|\.pytest_cache|\.mypy_cache|\.hypothesis|\.tox|\.cache|\.turbo|\.eslintcache|node_modules|coverage)(/|$)|\.py[co]$|\.tsbuildinfo$' |
+    head -20 | tr '\n' ' ')"
   if [[ -n $add_failed ]]; then
     echo "mk-exec: could not stage the worker's changes; worktree kept at $workdir" | tee -a "$logdir/stderr.log" >&2
   elif [[ -s $logdir/diff.patch ]] && ! git -C "$repo" apply --whitespace=nowarn "$logdir/diff.patch" 2>> "$logdir/stderr.log"; then
@@ -138,6 +142,14 @@ for line in open(f"{log}/stream.jsonl", errors="replace"):
         for b in ev.get("message", {}).get("content", []):
             if b.get("type") == "tool_use": tools += 1
     if ev.get("type") == "system" and ev.get("subtype") == "api_retry": errors.append(str(ev.get("error", ev))[:200])
+# timeout marks 124 when it killed the worker, or 137 if it hard-killed it; 137 also comes from SIGKILL.
+# A kill after a successful result is a linger, not a failure, so keep the result and report 0.
+lingered = False
+if code in (124, 137) and result.get("subtype") == "success":
+    code = 0
+    lingered = True
+elif code == 137 and not result:
+    code = 124
 stderr = open(f"{log}/stderr.log", errors="replace").read()
 text = (result.get("result") or "") + "\n" + stderr
 quota = re.search(r"insufficient balance|\b402\b|\b401\b|\b429\b|authentication|invalid api key|rate limit", text, re.I)
@@ -146,6 +158,8 @@ if code != 0 and quota:
 if result.get("is_error"): errors.append((result.get("result") or result.get("subtype") or "")[:300])
 errors += [l for l in stderr.splitlines() if l.strip() and "unrecognized_model" not in l][-5:]
 errors = list(dict.fromkeys(errors))
+warnings = [x for x in errors if x.startswith("Ignoring ") and "permissions.allow" in x]
+errors = [x for x in errors if x not in warnings]
 try:
     cost = round(float(e["MK_BAL0"]) - float(e["MK_BAL1"]), 4)
 except ValueError:
@@ -162,26 +176,37 @@ if price:
     hit, miss, out = (x * (1 if peak else 0.5) / 1e6 for x in price)
     est = round((usage.get("cache_read_input_tokens") or 0) * hit + ((usage.get("input_tokens") or 0)
                 + (usage.get("cache_creation_input_tokens") or 0)) * miss + (usage.get("output_tokens") or 0) * out, 5)
+if not result:
+    est = None
+ended_dt = datetime.datetime.now().astimezone()
+duration_ms = result.get("duration_ms")
+if duration_ms is None:
+    duration_ms = int((ended_dt - start).total_seconds() * 1000)
 meta = {
     "repo": e["MK_REPO"], "task": e["MK_TASK"], "model": e["MK_MODEL"], "effort": e["MK_EFFORT"],
     "api_effort": e["MK_API_EFFORT"], "head_before": e["MK_HEAD"], "started": e["MK_START"],
-    "ended": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "exit": code,
-    "num_turns": result.get("num_turns"), "tool_calls": tools, "duration_ms": result.get("duration_ms"),
+    "ended": ended_dt.isoformat(timespec="seconds"), "exit": code, "lingered": lingered,
+    "num_turns": result.get("num_turns"), "tool_calls": tools, "duration_ms": duration_ms,
     "session_id": result.get("session_id"), "usage": {k: usage.get(k) for k in
         ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")},
     "balance_before": e["MK_BAL0"] or None, "balance_after": e["MK_BAL1"] or None,
     "cost_usd_est": est, "price_period": "peak" if peak else "off-peak",
     "cost_usd_by_balance": cost, "project_config": e["MK_PROJECT"].split(), "key_present": True, "errors": errors,
+    "warnings": warnings,
 }
 json.dump(meta, open(f"{log}/meta.json", "w"), indent=2)
 stat = subprocess.run(["git", "-C", e["MK_REPO"], "status", "--short"], capture_output=True, text=True).stdout.strip()
 final = (result.get("result") or "(no final message)").strip().splitlines()[-12:]
 maxed = result.get("subtype") == "error_max_turns"
+cost_str = "cost unknown" if est is None else f"cost≈${est} ({meta['price_period']}, from tokens)"
 lines = [f"EXIT={code}" + (" (quota/auth/balance)" if code == 75 else " (timeout)" if code == 124 else
-         " (max turns: ran out after 90; the diff may be partial; split the step)" if maxed else ""),
+         " (max turns: ran out after 90; the diff may be partial; split the step)" if maxed else "")]
+if lingered:
+    lines.append("note: the worker finished, then lingered until killed; its result is kept")
+lines += [
          f"model={e['MK_MODEL']} effort={e['MK_EFFORT']} turns={meta['num_turns']} tools={tools} "
          f"tokens in/out={usage.get('input_tokens')}/{usage.get('output_tokens')} "
-         f"cost≈${est} ({meta['price_period']}, from tokens)",
+         f"{cost_str}",
          f"project config: {e['MK_PROJECT'] or 'none'}",
          "--- changed files", *(stat.splitlines()[:12] or ["(none)"]),
          "--- worker summary", *final]

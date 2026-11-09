@@ -9,6 +9,7 @@ import datetime as dt, glob, json, os, re, sqlite3, subprocess, sys
 
 HOME = os.path.expanduser("~")
 STEP_RE = re.compile(r"(execute|do|run) steps? [\d ,and+]+|/mk-delegate|step \d+ of", re.I)
+WHATS_NEXT_RE = re.compile(r"what'?s next", re.I)
 
 
 def ts(s):
@@ -69,6 +70,68 @@ def session_steps(path, repo):
     return steps
 
 
+def median(xs):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    n = len(xs)
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+
+def session_stats(path, since):
+    """Per-session counts, parsed like session_steps: type user/assistant, message.content blocks."""
+    st = {"prompts": 0, "whats_next": 0, "plan_next_none": 0, "next_at": None,
+          "launch_at": None, "context": None}
+    calls = {}
+    for line in open(path, errors="replace"):
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        msg, when = ev.get("message") or {}, ev.get("timestamp")
+        content = msg.get("content")
+        if not when:
+            continue
+        t = ts(when)
+        if t < since:
+            continue
+        if ev.get("type") == "user" and isinstance(content, str):
+            text = content.strip()
+            via_next = text.startswith("/next") or "<command-name>/next</command-name>" in text
+            if (text.startswith("<") and not via_next) or text.startswith("Another Claude session"):
+                continue
+            st["prompts"] += 1
+            if not text.startswith("<") and WHATS_NEXT_RE.search(text):
+                st["whats_next"] += 1
+            if via_next and st["next_at"] is None:
+                st["next_at"] = t
+            continue
+        if not isinstance(content, list):
+            continue
+        if ev.get("type") == "assistant":
+            usage = msg.get("usage")
+            if usage and st["context"] is None:
+                st["context"] = sum(usage.get(k) or 0 for k in (
+                    "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+            for b in content:
+                if b.get("type") == "tool_use" and b.get("name") == "Bash":
+                    cmd = (b.get("input") or {}).get("command", "")
+                    calls[b.get("id")] = cmd
+                    if ("mk-exec" in cmd and st["next_at"] is not None and st["launch_at"] is None
+                            and t > st["next_at"]):
+                        st["launch_at"] = t
+        elif ev.get("type") == "user":
+            for b in content:
+                if b.get("type") != "tool_result" or "plan-next" not in calls.get(b.get("tool_use_id"), ""):
+                    continue
+                rc = b.get("content")
+                text = rc if isinstance(rc, str) else "\n".join(
+                    x.get("text", "") for x in rc or [] if isinstance(x, dict))
+                if '"state": "none"' in text:
+                    st["plan_next_none"] += 1
+    return st
+
+
 def mk_exec_runs(repo, since):
     runs = []
     for f in glob.glob(os.path.join(HOME, ".claude/state/mk-worker-logs/*/meta.json")):
@@ -77,6 +140,9 @@ def mk_exec_runs(repo, since):
         except (ValueError, OSError):
             continue
         if m.get("repo") == repo and ts(m["started"]) >= since:
+            # Old logs kept these settings notices in errors; they are warnings, not failures.
+            m["errors"] = [x for x in m.get("errors") or []
+                           if not (str(x).startswith("Ignoring ") and "permissions.allow" in str(x))]
             m["kind"], m["log"] = "mk-exec", os.path.dirname(f)
             runs.append(m)
     return runs
@@ -136,8 +202,10 @@ def main():
     since = dt.datetime.fromisoformat(since_s).astimezone()
 
     runs = sorted(mk_exec_runs(repo, since) + opencode_runs(repo, since), key=lambda r: ts(r["started"]))
+    files = transcripts(repo, since)
+    stats = [session_stats(f, since) for f in files]
     steps = []
-    for f in transcripts(repo, since):
+    for f in files:
         for s in session_steps(f, repo):
             s["session"] = os.path.basename(f)[:8]
             steps.append(s)
@@ -184,6 +252,21 @@ def main():
         print(f"- DeepSeek balance: ${bal[0]['balance_before']} before first run, "
               f"${bal[-1].get('balance_after')} right after last run (billing settles with a delay)")
     print(f"- repo files edited inline (distinct per step): {sum(len(s['edits']) for s in seg)}")
+    sessions = sum(1 for s in stats if s["prompts"])
+    trailers = subprocess.run(["git", "-C", repo, "log", f"--since={since_s} 00:00", "--format=%B"],
+                              capture_output=True, text=True).stdout
+    plans = {m.group(1) for m in re.finditer(r"^Plan-Step:[ \t]*(\S+?)#\d+[ \t]*$", trailers, re.M)}
+    launch = [(s["launch_at"] - s["next_at"]).total_seconds() / 60
+              for s in stats if s["next_at"] and s["launch_at"]]
+    contexts = [s["context"] for s in stats if s["context"] is not None]
+    launch_m, context_m = median(launch), median(contexts)
+    print(f"- sessions: {sessions}")
+    print(f"- sessions per plan: {sessions / len(plans):.1f}" if plans else "- sessions per plan: -")
+    print(f"- what's-next prompts: {sum(s['whats_next'] for s in stats)}")
+    print(f"- plan-next none: {sum(s['plan_next_none'] for s in stats)}")
+    print("- median minutes /next -> first worker launch: "
+          + ("-" if launch_m is None else f"{launch_m:.1f}"))
+    print("- median start context: " + ("-" if context_m is None else f"{context_m / 1000:.0f}k"))
     print("\n## Commits\n")
     print(subprocess.run(["git", "-C", repo, "log", f"--since={since_s} 00:00", "--format=- %h %ad %s", "--date=format:%m-%d %H:%M"],
                          capture_output=True, text=True).stdout.strip() or "(none)")
