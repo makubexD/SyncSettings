@@ -109,8 +109,9 @@ point, because the machine agrees with only part of the repo. `--only` with no p
 
 `export.sh --only` writes only the selected files. It removes a repo file gone from a `dir` entry's folder only when
 that file is selected, and skips the orphan and package drift reports: a partial run doesn't see the whole repo.
-`--diff --only` labels only the selected paths, and its counts and hints cover only them. `--preview` with `--only` is
-an error, exit 1.
+`--diff --only` labels only the selected paths, and its counts and hints cover only them. When `--only` is given and no
+file gets a status line or a diff label, the run prints `  WARNING: --only matched no file.` before the summary; the
+exit code and counts don't change. `--preview` with `--only` is an error, exit 1.
 
 ## Path safety
 
