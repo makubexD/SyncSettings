@@ -49,7 +49,7 @@ function Validate-Case {
 
     $case = $null
     try {
-        $case = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+        $case = [IO.File]::ReadAllText($json, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
     } catch {
         Die 'case.json is not a JSON object'
     }
@@ -129,6 +129,17 @@ function Validate-Case {
                 Die 'stubs may only hold gh'
             }
         }
+    }
+
+    $configProp = $case.PSObject.Properties['config']
+    if ($null -eq $configProp -or $configProp.Value -isnot [pscustomobject]) {
+        Die 'case.json has no config'
+    }
+    # commit reaches gh; only the stub may answer, never a real gh.
+    $hasCommit = @($case.commands | Where-Object { $_.command -ceq 'commit' }).Count -gt 0
+    $hasGhStub = ($null -ne $stubsProp) -and (@($stubsProp.Value) -ccontains 'gh')
+    if ($hasCommit -and -not $hasGhStub) {
+        Die 'a commit command needs "stubs": ["gh"]'
     }
 
     $osFolder = $false
@@ -281,8 +292,8 @@ function Get-TreePaths {
         while ($stack.Count -gt 0) {
             $current = $stack.Pop()
             foreach ($item in @(Get-ChildItem -LiteralPath $current -Force -ErrorAction Stop)) {
-                # The temp repo's own .git folder is not part of the case.
-                if ($item.PSIsContainer -and $item.Name -ceq '.git' -and $current -ceq $Root) {
+                # A .git folder, at any depth as with diff -x .git, is not part of the case.
+                if ($item.PSIsContainer -and $item.Name -ceq '.git') {
                     continue
                 }
                 $rel = $item.FullName.Substring($Root.Length)
@@ -328,7 +339,7 @@ function Get-FirstFileUnder {
 # then every file must match by SHA256. No mode compare. The first difference
 # names the file from the case's point of view.
 function Compare-Trees {
-    param([string]$WantDir, [string]$GotDir)
+    param([string]$WantDir, [string]$GotDir, [string]$Name)
     $wantSorted = Sort-Ordinal (Get-TreePaths $WantDir)
     $gotSorted = Sort-Ordinal (Get-TreePaths $GotDir)
 
@@ -345,9 +356,9 @@ function Compare-Trees {
         }
 
         if ($cmp -lt 0) {
-            Die ("only in want: " + (Get-FirstFileUnder $WantDir $wantSorted[$wi]))
+            Die ("${Name}: only in want: " + (Get-FirstFileUnder $WantDir $wantSorted[$wi]))
         } elseif ($cmp -gt 0) {
-            Die ("only in got: " + (Get-FirstFileUnder $GotDir $gotSorted[$gi]))
+            Die ("${Name}: only in got: " + (Get-FirstFileUnder $GotDir $gotSorted[$gi]))
         } else {
             $rel = $wantSorted[$wi]
             $wantFull = Join-Path $WantDir ($rel -replace '/', '\')
@@ -356,7 +367,7 @@ function Compare-Trees {
                 $wantHash = (Get-FileHash -LiteralPath $wantFull -Algorithm SHA256).Hash
                 $gotHash = (Get-FileHash -LiteralPath $gotFull -Algorithm SHA256).Hash
                 if ($wantHash -cne $gotHash) {
-                    Die "differs: $rel"
+                    Die "${Name}: differs: $rel"
                 }
             }
             $wi++
@@ -404,7 +415,7 @@ function Remove-Engine {
 # A values cache re-serialized with its keys sorted, so key order is ignored.
 function Get-SortedValuesJson {
     param([string]$Path)
-    $obj = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    $obj = [IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
     if ($obj -is [pscustomobject]) {
         $sorted = [ordered]@{}
         foreach ($name in (@($obj.PSObject.Properties.Name) | Sort-Object)) {
@@ -463,7 +474,7 @@ function Write-GhStub {
     $binDir = Join-Path $TempDir 'bin'
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
     $logPath = Join-Path $TempDir 'gh.log'
-    $body = "@echo off`r`necho(%*>>`"$logPath`"`r`n"
+    $body = "@echo off`r`n>>`"$logPath`" echo(%*`r`n"
     [IO.File]::WriteAllText((Join-Path $binDir 'gh.cmd'), $body, [System.Text.UTF8Encoding]::new($false))
 }
 
@@ -588,14 +599,19 @@ function Run-Case {
             $oldHome = $env:HOME
             $oldLocal = $env:LOCALAPPDATA
             $oldPath = $env:PATH
+            $oldGh = $env:GH
             $oldPreference = $ErrorActionPreference
             Push-Location $repoDir
             try {
                 $env:USERPROFILE = $homeDir
                 $env:HOME = $homeDir
                 $env:LOCALAPPDATA = $localDir
+                # GH overrides the gh binary in Commit-Settings.ps1; a caller's GH
+                # must never reach a case.
+                $env:GH = $null
                 if ($ghStub) {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
+                    $env:GH = Join-Path $t 'bin\gh.cmd'
                 }
                 # In PS 5.1 a native command's stderr redirected with 2>&1 turns
                 # into error records, which 'Stop' would throw on.
@@ -608,6 +624,7 @@ function Run-Case {
                 $env:HOME = $oldHome
                 $env:LOCALAPPDATA = $oldLocal
                 $env:PATH = $oldPath
+                $env:GH = $oldGh
                 Pop-Location
             }
 
@@ -737,7 +754,7 @@ function Run-Case {
         if (Test-Path -LiteralPath $wantHome -PathType Container) {
             $homeWantDir = $wantHome
         }
-        Compare-Trees $homeWantDir $homeDir
+        Compare-Trees $homeWantDir $homeDir 'home'
 
         # Repo tree, after the engine files are stripped. An absent expect repo
         # means the tree must be empty.
@@ -747,7 +764,7 @@ function Run-Case {
         if (Test-Path -LiteralPath $wantRepo -PathType Container) {
             $repoWantDir = $wantRepo
         }
-        Compare-Trees $repoWantDir $repoDir
+        Compare-Trees $repoWantDir $repoDir 'repo'
     } finally {
         Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -761,7 +778,7 @@ foreach ($caseDir in $caseDirs) {
     $dir = $caseDir.FullName
     $caseName = $caseDir.Name
 
-    if ($Filter -ne '' -and $caseName -notlike "*$Filter*") {
+    if ($Filter -ne '' -and $caseName.IndexOf($Filter, [StringComparison]::Ordinal) -lt 0) {
         continue
     }
     $matched++

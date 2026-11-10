@@ -115,7 +115,7 @@ The run ends with the counts and exits 1 if any case failed.
 
 ```text
 ok export-adds
-FAIL diff-in: output line 1: want "OUT dotfiles/common/parity/a.conf", got "? dotfiles/common/parity/a.conf"
+FAIL diff-no-sync-point: output line 1: want "OUT dotfiles/common/parity/a.conf", got "? dotfiles/common/parity/a.conf"
 ok dir-export-removed
 ...
 36 passed, 1 failed
@@ -127,10 +127,11 @@ The part after the case name says which check failed:
 |---|---|
 | `exit:`, `exit line N:` | the exit code of command N |
 | `output line N:` | status line N, across all commands, as `WORD label` |
-| `Files expect/home/… and home/… differ`, `Only in …` | the first `diff -rq` line for a home or repo tree: a file different, missing or extra |
+| `Files expect/home/… and home/… differ`, `Only in …` (bash); `home: differs: …`, `repo: only in want: …`, `… only in got: …` (PowerShell) | the home or repo tree: a file different, missing or extra |
 | `mode <path>:` | the file is right but its mode isn't (bash runner only) |
 | `values.json:`, `state …:` | `expect/values.json` or `expect/state/` |
 | `gh line N:` | gh call N, cut to its first two words |
+| `gh: want no call` | the case has no `expect/gh.log`, so gh must not be called, and it was |
 | anything else | the case itself is malformed: `case.json`, `differences`, an `expect.<os>/` name |
 
 Only the first difference prints. Fix it and run the case again with its name as the filter.
@@ -148,7 +149,9 @@ Only the first difference prints. Fix it and run the case again with its name as
   same commands by hand in a throwaway clone and read the output. One trap: `cp -p` overwrites a file in place and keeps
   the source's mtime, so if the home and repo texts have the same size and were written in the same second, git's stat
   cache sees no change and commit reports `Nothing to commit`. Give the two texts different sizes.
-- **`gh line 1: want nothing, got "pr create"`.** The case has no `expect/gh.log`, which means gh must not be called.
+- **`gh: want no call, got "pr create"`.** The case has no `expect/gh.log`, which means gh must not be called. A case
+  with a `commit` command must stub gh (`"stubs": ["gh"]`); the runners clear any `GH` variable the caller set, so
+  no case can reach a real `gh`.
 - **`SKIPPED` on Windows where bash says `CREATED`.** The target folder is missing: Windows skips, bash creates it (a
   known difference). Put a file in the folder under `home/` unless the missing folder is the point of the case.
 - **A diff label never shows in `output.txt`.** The runners read `IN`, `OUT`, `BOTH` and `?` as status words. A new
@@ -169,5 +172,5 @@ other inputs:
 | `sanitize-longest-first` | `sanitize_longest_first`, Pester `sanitize-longest-first` | values with backslashes under `escapeBackslashes` |
 | `sanitized-crlf-unchanged` | `crlf_unchanged` | the import half: the local file keeps CRLF |
 | `only-dotdot` | `only_repo_dotdot`, Pester `only-repo-dotdot` | `resolve_only` / `Resolve-OnlyPaths` from the inside |
-| `diff-in` | Pester `diff-in` | an `IN` label from a recorded sync point, and the summary lines |
+| `diff-no-sync-point` | Pester `diff-in` | an `IN` label from a recorded sync point, and the summary lines |
 | `commit-opens-pr` | `commit_happy`, Pester `commit-happy` | `origin/master` unmoved, back on `master`, one `sync/…` branch |

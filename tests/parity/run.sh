@@ -69,6 +69,11 @@ validate_case() {
             (.stubs | type) == "array" and all(.stubs[]; . == "gh")
           else true end' "$json" > /dev/null 2>&1 \
         || die 'stubs may only hold gh'
+    jq -e 'has("config") and (.config | type) == "object"' "$json" > /dev/null 2>&1 \
+        || die 'case.json has no config'
+    # commit reaches gh; only the stub may answer, never a real gh.
+    jq -e '(any(.commands[]; .command == "commit") | not) or ((.stubs // []) | any(. == "gh"))' \
+        "$json" > /dev/null 2>&1 || die 'a commit command needs "stubs": ["gh"]'
     local name suffix os_folder=0 has_differences=false
     for name in "$dir"/expect.*; do
         [[ -d $name ]] || continue
@@ -276,7 +281,7 @@ run_case() {
     if jq -e '(.stubs // []) | any(. == "gh")' "$dir/case.json" > /dev/null 2>&1; then
         gh_stub=true
         write_gh_stub "$t"
-        path_env=(PATH="$t/bin:$PATH")
+        path_env=(PATH="$t/bin:$PATH" GH="$t/bin/gh")
     fi
 
     : > "$t/actual-exit"
@@ -314,7 +319,8 @@ run_case() {
         fi
 
         rc=0
-        (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
+        # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
+        (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
             "${path_env[@]}" "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         printf '%s\n' "$rc" >> "$t/actual-exit"
         status_lines "$t/raw" >> "$t/actual-output"

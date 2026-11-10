@@ -30,6 +30,7 @@ jobs:
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
           $r = @(Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error)
           $r += @(Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error)
+          $r += @(Invoke-ScriptAnalyzer -Path tests/parity/run.ps1 -Severity Error)
           $r
           if ($r) { exit 1 }
   engine-linux:
