@@ -237,7 +237,7 @@ try {
                     Copy-Item -Path $localFile -Destination $repoFile -Force
                     Write-StatusLine 'ADDED' $label
                     $changed++
-                } elseif (Compare-FilesByHash -PathA $localFile -PathB $repoFile) {
+                } elseif (Compare-SyncFiles -PathA $localFile -PathB $repoFile -RepoPath $label) {
                     Write-StatusLine 'UNCHANGED' $label
                 } else {
                     Copy-Item -Path $localFile -Destination $repoFile -Force

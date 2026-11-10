@@ -601,6 +601,44 @@ function Compare-FilesByHash {
     return $hashA -eq $hashB
 }
 
+function ConvertTo-LfBytes {
+    # Drops each 0x0D byte that is directly followed by 0x0A; a lone 0x0D stays.
+    param([byte[]]$Bytes)
+    if ($null -eq $Bytes -or $Bytes.Length -eq 0) { return ,[byte[]]@() }
+    $out = [System.Collections.Generic.List[byte]]::new()
+    for ($i = 0; $i -lt $Bytes.Length; $i++) {
+        if ($Bytes[$i] -eq 0x0D -and ($i + 1) -lt $Bytes.Length -and $Bytes[$i + 1] -eq 0x0A) {
+            continue
+        }
+        $out.Add($Bytes[$i])
+    }
+    return ,$out.ToArray()
+}
+
+function Compare-SyncFiles {
+    # Compares two files for a given repo-relative path. A path under
+    # dotfiles/common/ is LF text unless it holds a NUL byte (binary), so the
+    # CRLF bytes on the local side are folded to LF before comparing. Everything
+    # else compares byte for byte, as Compare-FilesByHash does.
+    param([string]$PathA, [string]$PathB, [string]$RepoPath)
+    if (-not (Test-Path -LiteralPath $PathA) -or -not (Test-Path -LiteralPath $PathB)) { return $false }
+    if ($RepoPath -and $RepoPath.StartsWith('dotfiles/common/', [System.StringComparison]::Ordinal)) {
+        $bytesA = [IO.File]::ReadAllBytes($PathA)
+        $bytesB = [IO.File]::ReadAllBytes($PathB)
+        if ([Array]::IndexOf($bytesA, [byte]0) -ge 0 -or [Array]::IndexOf($bytesB, [byte]0) -ge 0) {
+            return (Compare-FilesByHash -PathA $PathA -PathB $PathB)
+        }
+        $lfA = ConvertTo-LfBytes -Bytes $bytesA
+        $lfB = ConvertTo-LfBytes -Bytes $bytesB
+        if ($lfA.Length -ne $lfB.Length) { return $false }
+        for ($i = 0; $i -lt $lfA.Length; $i++) {
+            if ($lfA[$i] -ne $lfB[$i]) { return $false }
+        }
+        return $true
+    }
+    return (Compare-FilesByHash -PathA $PathA -PathB $PathB)
+}
+
 # -- Safe file write (UTF-8 without BOM) --------------------------------------
 
 function Write-Utf8File {
@@ -830,7 +868,7 @@ function Sync-LinkedDirectory {
             Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
             Write-StatusLine 'ADDED' $itemLabel
             $stats.added++
-        } elseif (Compare-FilesByHash -PathA $file.FullName -PathB $destFile) {
+        } elseif (Compare-SyncFiles -PathA $file.FullName -PathB $destFile -RepoPath $itemLabel) {
             Write-StatusLine 'UNCHANGED' $itemLabel
             $stats.unchanged++
         } else {
@@ -1299,10 +1337,10 @@ function Invoke-ExportDiff {
         # True when two paths under the diff's trees hold the same version. A
         # path absent on both sides counts as the same version.
         function Test-DiffPathSame {
-            param([string]$PathA, [string]$PathB)
+            param([string]$PathA, [string]$PathB, [string]$RepoPath)
             $a = Test-Path -LiteralPath $PathA -PathType Leaf
             $b = Test-Path -LiteralPath $PathB -PathType Leaf
-            if ($a -and $b) { return (Compare-FilesByHash -PathA $PathA -PathB $PathB) }
+            if ($a -and $b) { return (Compare-SyncFiles -PathA $PathA -PathB $PathB -RepoPath $RepoPath) }
             return (-not $a -and -not $b)
         }
 
@@ -1337,8 +1375,8 @@ function Invoke-ExportDiff {
             $basePath   = Join-Path $baseDir $path
             $theirsPath = Join-Path $theirsDir $path
 
-            $mineBase   = Test-DiffPathSame $minePath $basePath
-            $theirsBase = Test-DiffPathSame $theirsPath $basePath
+            $mineBase   = Test-DiffPathSame $minePath $basePath $path
+            $theirsBase = Test-DiffPathSame $theirsPath $basePath $path
 
             $label = ''
             if ($haveBase) {
@@ -1348,13 +1386,13 @@ function Invoke-ExportDiff {
                     $label = 'IN'
                 } elseif ($theirsBase) {
                     $label = 'OUT'
-                } elseif (Test-DiffPathSame $minePath $theirsPath) {
+                } elseif (Test-DiffPathSame $minePath $theirsPath $path) {
                     # Both sides made the same change.
                     $label = ''
                 } else {
                     $label = 'BOTH'
                 }
-            } elseif (-not (Test-DiffPathSame $minePath $theirsPath)) {
+            } elseif (-not (Test-DiffPathSame $minePath $theirsPath $path)) {
                 $label = '?'
             }
 
@@ -1448,7 +1486,7 @@ function Copy-RepoFileToLocal {
         Copy-Item -LiteralPath $RepoFile -Destination $LocalFile -Force
         Write-StatusLine 'CREATED' $Label
         return 'CREATED'
-    } elseif (Compare-FilesByHash -PathA $RepoFile -PathB $LocalFile) {
+    } elseif (Compare-SyncFiles -PathA $RepoFile -PathB $LocalFile -RepoPath $Label) {
         Write-StatusLine 'UNCHANGED' $Label
         return 'UNCHANGED'
     } else {
