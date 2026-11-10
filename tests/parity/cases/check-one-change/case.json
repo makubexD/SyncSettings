@@ -1,0 +1,22 @@
+{
+  "description": "The import check lists one file it would overwrite, writes nothing and exits 3 (Import check).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/app.conf",
+        "localPath": "~/.config/parity/app.conf",
+        "platform": "common",
+        "description": "Differs from the repo"
+      },
+      {
+        "repoPath": "dotfiles/common/parity/same.conf",
+        "localPath": "~/.config/parity/same.conf",
+        "platform": "common",
+        "description": "Matches the repo"
+      }
+    ]
+  },
+  "commands": [{ "command": "check" }]
+}

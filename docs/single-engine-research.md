@@ -167,3 +167,68 @@ What the runners can't show:
   `aarch64-apple-darwin` and `bun-darwin-arm64` programs cross-compiled on Linux carry that signature wasn't checked.
 - **Signing**, if needed: Apple Developer Program (yearly fee) for notarizing; on Windows a code-signing certificate or a
   managed signing service (monthly fee). Neither is needed while the installers download the program from a script.
+
+## 4. Shared case format
+
+The format is in [tests/parity/README.md](../tests/parity/README.md): a case is a folder with `case.json` (config,
+values, commands, OS list), the `home/` and `repo/` trees before, and `expect/` (exit codes, status lines, the trees
+after). Output is cut down to `WORD label` per status line, so the two layouts compare equal. Three cases are in
+`tests/parity/cases/`: `export-adds`, `check-one-change` and `sanitize-round-trip`. A throwaway runner ran all three
+against the bash engine, and all three passed; the PowerShell side is phase 2's runner.
+
+### Sample
+
+40 cases. The plan said every tenth bash case and every sixth Pester case, which gives 49 and 40 (89 in all). To keep
+to 40 with both engines weighed the same, the sample takes 20 from each: every 24th bash case (1, 25, …, 457) and
+every 12th Pester `It` (1, 13, …, 229).
+
+Classes: **fits** (files in, command, status lines and files out); **stub** (fits once the runner stubs a git remote,
+`gh`, a prompt answer, `dconf` or a package manager); **internal** (calls one function from the inside, stays a unit
+test); **not engine** (tests `scripts/ci/` or an installer, which stay scripts).
+
+| # | Suite | Case (`file:line`) | Class | Why |
+|---|---|---|---|---|
+| 1 | bash | `import_creates` (`engine.sh:566`) | fits | import into an empty home, files compared |
+| 2 | bash | `import_check_needs_values` (`engine.sh:1112`) | fits | no values file; status line and exit only |
+| 3 | bash | `common_import` (`engine.sh:1555`) | fits | `CREATED` and the file's bytes |
+| 4 | bash | `lint_real_config` (`engine.sh:2063`) | not engine | `scripts/ci/check-config.sh` |
+| 5 | bash | `lint_packages_apt_trailing_dash` | not engine | `scripts/ci/check-packages.sh` |
+| 6 | bash | `lint_packages_pipx_flag` | not engine | `scripts/ci/check-packages.sh` |
+| 7 | bash | `lint_packages_source_second_stanza` | not engine | `scripts/ci/check-packages.sh` |
+| 8 | bash | `lint_real_plugins` | not engine | `scripts/ci/check-plugins.sh` |
+| 9 | bash | `dir_export_one_left` (`engine.sh:3185`) | fits | `REMOVED` in a `type: dir` entry |
+| 10 | bash | `preview_leak_found` (`engine.sh:3646`) | stub | preview needs the repo committed to git |
+| 11 | bash | `commit_packages` (`engine.sh:3941`) | stub | git remote and `gh` |
+| 12 | bash | `sync_doctor_ready` (`engine.sh:4425`) | stub | tool stubs, `gh` |
+| 13 | bash | `sync_pull_matches` (`engine.sh:4898`) | stub | git remote |
+| 14 | bash | `front_pull_recorded` (`engine.sh:5283`) | stub | git remote and a prompt answer |
+| 15 | bash | `dconf_path_missing` (`engine.sh:5718`) | fits | config error, exit 1; `os: linux` |
+| 16 | bash | `lint_type_unknown` | not engine | `scripts/ci/check-config.sh` |
+| 17 | bash | `dconf_import_merge` (`engine.sh:6306`) | stub | private `dconf` bus |
+| 18 | bash | `drift_snap_extra` (`engine.sh:6673`) | stub | `snap` stub |
+| 19 | bash | `drift_key_etc_apt` (`engine.sh:6941`) | stub | a fake `/etc/apt` root |
+| 20 | bash | `diff_in` (`engine.sh:7346`) | stub | git remote and a sync point |
+| 21 | Pester | `import-creates` (`Engine.Tests.ps1:422`) | fits | same case as bash 1 |
+| 22 | Pester | `localpaths-bad-key` (`Engine.Tests.ps1:670`) | fits | config error, exit 1 |
+| 23 | Pester | `dconf-path-no-slash` (`Engine.Tests.ps1:852`) | fits | config error, exit 1 |
+| 24 | Pester | `dir-bracket-name` (`Engine.Tests.ps1:1045`) | fits | a `[x].txt` file in a `dir` entry |
+| 25 | Pester | `infer-escaped` (`Engine.Tests.ps1:1282`) | fits | inferred value lands in `.user-values.json`; the runner would need to read that file for this one |
+| 26 | Pester | `upstream-behind-noninteractive` (`Engine.Tests.ps1:1626`) | stub | git remote |
+| 27 | Pester | `preview-scan-missing` (`Engine.Tests.ps1:1822`) | stub | committed repo with `leak-scan.sh` removed |
+| 28 | Pester | `commit-leak-blocked` (`Engine.Tests.ps1:2036`) | stub | git remote |
+| 29 | Pester | `sync-point-check-none` (`Engine.Tests.ps1:2216`) | stub | clone with a remote |
+| 30 | Pester | `only-other-platform` (`Engine.Tests.ps1:2380`) | internal | calls `Resolve-OnlyPaths`; the same behavior through `--only` would fit |
+| 31 | Pester | `export-only-one` (`Engine.Tests.ps1:2549`) | stub | committed repo |
+| 32 | Pester | `backup-second-run` (`Engine.Tests.ps1:2759`) | fits | needs the runner to read the state folder it otherwise leaves out |
+| 33 | Pester | `sync-cmd-help-lists-check` (`Engine.Tests.ps1:2972`) | fits | `sync help`, output text |
+| 34 | Pester | `import check other user` (`Engine.Tests.ps1:3201`) | fits | `os: windows`, exit 1, trees unchanged |
+| 35 | Pester | `crlf-common-binary-export` (`Engine.Tests.ps1:3421`) | fits | bytes of a binary file |
+| 36 | Pester | `doctor gh signed out` (`Engine.Tests.ps1:3613`) | stub | `gh` |
+| 37 | Pester | `push declined` (`Engine.Tests.ps1:3841`) | stub | git remote, `gh`, a prompt answer |
+| 38 | Pester | `front-unknown-option-diff` (`Engine.Tests.ps1:4033`) | stub | front door on a clone |
+| 39 | Pester | `install missing gh yes` (`Engine.Tests.ps1:4353`) | not engine | `install.ps1` with a `winget` stub |
+| 40 | Pester | `git in mingw64\bin` (`Engine.Tests.ps1:4536`) | internal | mocks `Get-Command` for `Find-GitBash` |
+
+Totals: 14 fit, 17 fit with a stub, 2 internal, 7 not engine. Of the 33 engine cases, 31 (94%) can be shared. The stubs
+are few and repeat: a git remote (10 of the 17), `gh`, a prompt answer, `dconf`, a package manager. Two "fits" rows (25,
+32) need the runner to read a file it leaves out by default, so `expect/` should be able to name such files.

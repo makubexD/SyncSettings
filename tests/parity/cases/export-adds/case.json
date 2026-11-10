@@ -1,0 +1,16 @@
+{
+  "description": "Export copies a local file the repo doesn't have yet: ADDED (Statuses, Export).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/app.conf",
+        "localPath": "~/.config/parity/app.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}
