@@ -163,6 +163,11 @@ The scripts handle entries whose `platform` is `"macos"`, `"common"`, or a list 
 `localPaths.macos` replaces its `localPath` there (VS Code keeps its settings in
 `~/Library/Application Support/Code/User/`).
 
+CI proves this path on every PR: the `macos-checks` job runs `tests/macos/manual-checks.sh` on a `macos-latest` runner,
+from removing Homebrew's `bash` and `jq` through the install line, setup with every question answered yes,
+`import.sh --check` and `/bin/bash ./sync doctor`. The job's `macos-checks-report` artifact holds the report. Nobody has
+run it on a physical Mac yet.
+
 ### Troubleshooting on macOS
 
 | You see | Do |
