@@ -1,0 +1,2 @@
+ADDED dotfiles/linux/parity/lin.conf
+ADDED dotfiles/common/parity/com.conf

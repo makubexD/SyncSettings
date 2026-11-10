@@ -29,6 +29,8 @@ id_dsa*
 
 # Backup files created by import
 *.bak
+# Expected backups in the shared cases are test data
+!tests/parity/cases/**/*.bak
 
 # OS noise
 Thumbs.db

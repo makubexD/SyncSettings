@@ -1,0 +1,29 @@
+{
+  "description": "Export picks only the entries for the running OS, plus common (Entry selection).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/parity/lin.conf",
+        "localPath": "~/.config/parity/lin.conf",
+        "platform": "linux",
+        "description": "Linux parity file"
+      },
+      {
+        "repoPath": "dotfiles/windows/parity/win.conf",
+        "localPath": "~/.config/parity/win.conf",
+        "platform": "windows",
+        "description": "Windows parity file"
+      },
+      {
+        "repoPath": "dotfiles/common/parity/com.conf",
+        "localPath": "~/.config/parity/com.conf",
+        "platform": "common",
+        "description": "Shared parity file"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }],
+  "differences": ["Entry selection"]
+}

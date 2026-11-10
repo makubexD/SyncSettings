@@ -4,9 +4,12 @@ SyncSettings has two engines: PowerShell 5.1 on Windows (`scripts/windows/`) and
 (`scripts/linux/sync.sh` plus `export.sh`, `import.sh`, `commit.sh`). They share no code. They share
 `sync-config.json`, the `.user-values.json` format, and the rules on this page.
 
-This page is for contributors. If you change how an engine behaves, change this page in the same PR, and add a
-fixture case to `tests/linux/engine.sh` or `tests/windows/Engine.Tests.ps1` (or both) that proves the rule. A rule
-listed under [Known differences](#known-differences) applies to one engine only. Every other rule applies to both.
+This page is for contributors. If you change how an engine behaves, change this page in the same PR, and add a case
+that proves the rule. The shared cases in [`tests/parity/`](../tests/parity/README.md) are this page in executable
+form: each one runs unchanged against both engines, so a rule that shows in exit codes, status lines and files gets a
+shared case first. Text the shared runner doesn't read (notes, messages) and internal functions go in
+`tests/linux/engine.sh` or `tests/windows/Engine.Tests.ps1`. A rule listed under
+[Known differences](#known-differences) applies to one engine only. Every other rule applies to both.
 
 To add or change an entry in `sync-config.json`, see [configuration.md](configuration.md).
 
@@ -738,6 +741,7 @@ uses is there. The reasons and the options weighed are in [macos-research.md](ma
 | Export, local file missing | the note starts with `WARNING:`, and is `WARNING: folder not found: <dir>` if its folder is missing too | the note in the [Export](#export) table |
 | Import, target folder missing | `SKIPPED` with `WARNING: target folder not found: <dir>`; the app is probably not installed. For a `dir` entry this checks the folder's parent | creates the folder (`mkdir -p`) |
 | Exclude patterns | case-insensitive (`-like`) | case-sensitive |
+| Shared files without rules ([Compare](#compare)) | CRLF folded to LF; export writes LF | byte for byte |
 | End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes |
 | `detectLinkedPaths` | supported | not supported |
 | `type: dconf` | validated, never run | supported |

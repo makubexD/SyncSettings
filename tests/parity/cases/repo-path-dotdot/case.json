@@ -1,0 +1,22 @@
+{
+  "description": "Export stops before touching a file when a repoPath has a .. segment (Path safety).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/ok.conf",
+        "localPath": "~/.config/parity/ok.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      },
+      {
+        "repoPath": "dotfiles/common/../x.conf",
+        "localPath": "~/.config/parity/bad.conf",
+        "platform": "common",
+        "description": "Parity case entry with a .. in its repoPath"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

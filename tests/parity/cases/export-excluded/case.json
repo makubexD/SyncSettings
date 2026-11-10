@@ -1,0 +1,16 @@
+{
+  "description": "Export skips a local file that matches an exclude pattern: SKIPPED (Exclude patterns).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.log"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/x.log",
+        "localPath": "~/.config/parity/x.log",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

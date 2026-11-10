@@ -1,0 +1,20 @@
+{
+  "description": "Export treats a sanitized file that differs only in CRLF line endings and trailing blank lines as equal to the repo: UNCHANGED (Compare).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<YOUR_NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "values": { "<YOUR_NAME>": "Parity User" },
+  "commands": [{ "command": "export" }]
+}

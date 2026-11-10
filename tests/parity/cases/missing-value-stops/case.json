@@ -1,0 +1,24 @@
+{
+  "description": "Import stops with exit 1 before writing any file when a placeholder has no value at all (Sanitize and hydrate, Missing value).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<YOUR_NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": { "force": true }
+    }
+  ]
+}

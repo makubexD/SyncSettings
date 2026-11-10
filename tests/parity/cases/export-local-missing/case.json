@@ -1,0 +1,16 @@
+{
+  "description": "Export reports a missing local file and leaves the repo alone: SKIPPED (Statuses, Export).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

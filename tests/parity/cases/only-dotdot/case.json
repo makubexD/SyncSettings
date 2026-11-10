@@ -1,0 +1,21 @@
+{
+  "description": "Export refuses a --only repo path with a .. segment, exit 1, before touching any file (Picking files, Path safety).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": { "only": ["dotfiles/common/../x"] }
+    }
+  ]
+}

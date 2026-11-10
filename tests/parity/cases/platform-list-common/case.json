@@ -1,0 +1,22 @@
+{
+  "description": "Export stops before touching a file when a platform list holds common (Entry selection).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/ok.conf",
+        "localPath": "~/.config/parity/ok.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      },
+      {
+        "repoPath": "dotfiles/common/parity/bad.conf",
+        "localPath": "~/.config/parity/bad.conf",
+        "platform": ["common", "linux"],
+        "description": "Parity case entry with common in its platform list"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

@@ -1,0 +1,2 @@
+UNCHANGED dotfiles/common/parity/a.conf
+ORPHAN dotfiles/common/parity/stray.conf

@@ -1,0 +1,24 @@
+{
+  "description": "Import of a dir entry reports a local file the repo doesn't have and keeps it: UNCHANGED then EXTRA (Directory entries).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/dir",
+        "localPath": "~/.config/parity/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Parity case folder"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

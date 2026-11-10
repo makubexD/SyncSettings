@@ -1,0 +1,2 @@
+UNCHANGED dotfiles/common/parity/dir/a.txt
+EXTRA dotfiles/common/parity/dir/extra.txt

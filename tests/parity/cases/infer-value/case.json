@@ -1,0 +1,24 @@
+{
+  "description": "Import infers a placeholder value from the existing local file, finds the hydrated repo equal and caches the value (Sanitize and hydrate, Inference on import).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<YOUR_NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": { "force": true }
+    }
+  ]
+}
