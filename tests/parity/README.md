@@ -2,7 +2,7 @@
 
 Cases that test the [contract](../../docs/sync-contract.md) through the command line only, so one case runs against
 any engine: bash, PowerShell, or a future compiled one. This folder is a phase 1 draft
-([plan-single-engine-1.md](../../docs/plan-single-engine-1.md), step 5). No runner exists yet; phase 2 writes it.
+([plan-single-engine-1.md](../../docs/plan-single-engine-1.md), step 5). `run.sh` is the bash runner; phase 2 adds the PowerShell one.
 
 ## A case
 
@@ -47,7 +47,7 @@ names that the runner spells for each engine: `force: true` is `--force` or `-Fo
      `.user-values.json` and the state folder (`~/.local/state/sync-settings`, `%LOCALAPPDATA%\SyncSettings`). File
      modes are compared only where the file system keeps them.
 
-An OS-forced difference (a row of "Known differences" that stays) goes in `expect.<os>/`, which holds only the
+Phase 2: an OS-forced difference (a row of "Known differences" that stays) goes in `expect.<os>/`, which holds only the
 files that differ from `expect/` on that OS.
 
 ## What fits

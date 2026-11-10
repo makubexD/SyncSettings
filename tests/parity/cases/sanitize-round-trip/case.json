@@ -1,5 +1,5 @@
 {
-  "description": "Export replaces the values with placeholders, and import puts them back byte for byte (Sanitize and hydrate).",
+  "description": "Export replaces the values with placeholders, and import of the same file then finds nothing to change (Sanitize and hydrate).",
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak"],

@@ -1,0 +1,39 @@
+{
+  "description": "Import into an empty home writes the repo file with the values put back: CREATED (Sanitize and hydrate).",
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/git.conf",
+        "localPath": "~/.config/parity/git.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          },
+          {
+            "placeholder": "<YOUR_EMAIL>",
+            "prompt": "Email"
+          }
+        ]
+      }
+    ]
+  },
+  "values": {
+    "<YOUR_NAME>": "Parity User",
+    "<YOUR_EMAIL>": "parity@example.com"
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

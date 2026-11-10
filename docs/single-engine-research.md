@@ -25,7 +25,7 @@ functions (the PowerShell entry scripts) is cited by the lines that hold the beh
 |---|---|---|---|---|---|
 | Lint of the config and packages (`scripts/ci/`, outside the engine) | `scripts/ci/check-config.sh`, `check-packages.sh` | — | 110 | 2 | `jq` |
 | [Checks before pushing](sync-contract.md#checks-before-pushing), commit | `sync.sh:1096-1113` `run_leak_scan`; `commit.sh:51-342` | `SyncHelpers.ps1:1015-1060` `Find-GitBash`, `Invoke-LeakScan`; `Commit-Settings.ps1:32-313` | 31 | 18 | `git`, `gh`, bash (`leak-scan.sh` runs under Git Bash on Windows) |
-| [Package drift](sync-contract.md#package-drift) | `sync.sh:688-947` (`package_names` … `report_drift`) | none | 50 | 1 | `apt-mark`, `dpkg-query`, `snap`, `pipx`, `npm`, `code`, `cmp` |
+| [Package drift](sync-contract.md#package-drift) | `sync.sh:688-946` (`package_names` … `report_drift`) | none | 50 | 1 | `apt-mark`, `dpkg-query`, `snap`, `pipx`, `npm`, `code`, `cmp` |
 | [dconf entries](sync-contract.md#dconf-entries-type-dconf) | `sync.sh:80-84`, `634-687`; `export.sh:285-390` `export_dconf`; `import.sh:350-515` `import_dconf` | validation only, `SyncHelpers.ps1:37-105` | 50 | 8 | `dconf`, `jq`, `git` |
 | [`localPath`](sync-contract.md#localpath), [macOS](sync-contract.md#macos) | `sync.sh:173-188` `resolve_local`; `os.sh:7-38` `sync_os`; the bash 4.4 guard at `export.sh:4` and the other entry scripts | `SyncHelpers.ps1:12-25` `Resolve-UserProfile`, `237-245` `Resolve-LocalPath` | 20 | 5 | `uname` |
 | [Sync point](sync-contract.md#sync-point) | `sync.sh:948-959`, `996-1027` | `SyncHelpers.ps1:1693-1743` | 11 | 8 | `git` |
@@ -66,7 +66,7 @@ From `git log --since=2026-10-01 --no-merges` (346 commits):
 
 | Commits | Count |
 |---|---|
-| Touch engine code or tests (`scripts/linux`, `scripts/windows`, the entry scripts, `tests/linux`, `tests/windows`) | 189 |
+| Touch engine code or tests (`scripts/linux`, `scripts/windows`, the entry scripts and installers, `tests/linux`, `tests/windows`) | 189 |
 | bash side only | 112 |
 | PowerShell side only | 67 |
 | Both sides in one commit | 10 |
@@ -120,7 +120,7 @@ one engine picks one behavior and the contract records it.
 | Installer | forced (`curl … \| bash` and `irm … \| iex`, apt-get, brew, winget) | keep both installers; they download the program instead of copying scripts |
 | macOS rows (bash version, dconf, drift, setup, doctor, installer) | forced | keep them. The bash version row goes away: the program doesn't need bash |
 
-Of 17 rows, 9 are accidental and would disappear, and 8 are forced and stay as OS checks in one place.
+Of the 17 rows in the Linux and Windows table (the macOS rows, folded into one row above, are all forced), 9 are accidental and would disappear, and 8 are forced and stay as OS checks in one place.
 
 ## 3. Probe
 
@@ -172,9 +172,9 @@ What the runners can't show:
 
 The format is in [tests/parity/README.md](../tests/parity/README.md): a case is a folder with `case.json` (config,
 values, commands, OS list), the `home/` and `repo/` trees before, and `expect/` (exit codes, status lines, the trees
-after). Output is cut down to `WORD label` per status line, so the two layouts compare equal. Three cases are in
-`tests/parity/cases/`: `export-adds`, `check-one-change` and `sanitize-round-trip`. A throwaway runner ran all three
-against the bash engine, and all three passed; the PowerShell side is phase 2's runner.
+after). Output is cut down to `WORD label` per status line, so the two layouts compare equal. Four cases are in
+`tests/parity/cases/`: `export-adds`, `check-one-change`, `sanitize-round-trip` and `hydrate-creates` (the review asked for a case where hydrate writes the file). `tests/parity/run.sh` runs all four
+against the bash engine, and all four pass; phase 2 adds the PowerShell runner.
 
 ### Sample
 
@@ -230,7 +230,7 @@ test); **not engine** (tests `scripts/ci/` or an installer, which stay scripts).
 | 40 | Pester | `git in mingw64\bin` (`Engine.Tests.ps1:4536`) | internal | mocks `Get-Command` for `Find-GitBash` |
 
 Totals: 14 fit, 17 fit with a stub, 2 internal, 7 not engine. Of the 33 engine cases, 31 (94%) can be shared. The stubs
-are few and repeat: a git remote (10 of the 17), `gh`, a prompt answer, `dconf`, a package manager. Two "fits" rows (25,
+are few and repeat: git (12 of the 17: a remote or a clone in 9, a committed repo in 3), `gh`, a prompt answer, `dconf`, a package manager. Two "fits" rows (25,
 32) need the runner to read a file it leaves out by default, so `expect/` should be able to name such files.
 
 ## 5. Options
