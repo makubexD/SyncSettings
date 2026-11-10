@@ -61,15 +61,51 @@ validate_case() {
             else false end
           else true end' "$json" > /dev/null 2>&1 \
         || die 'os must be a list of linux, macos or windows'
+    jq -e 'all(.commands[]; if has("stdin") then (.stdin | type) == "string" else true end)' "$json" > /dev/null 2>&1 \
+        || die 'stdin must be a string'
+    local name suffix os_folder=0 has_differences=false
+    for name in "$dir"/expect.*; do
+        [[ -d $name ]] || continue
+        suffix=${name##*/expect.}
+        case $suffix in
+            linux|macos|windows) os_folder=1 ;;
+            *) die "expect.$suffix: unknown OS folder" ;;
+        esac
+    done
+    if jq -e 'has("differences")' "$json" > /dev/null 2>&1; then
+        has_differences=true
+    fi
+    if (( os_folder )); then
+        jq -e '(.differences | type) == "array" and (.differences | length) > 0
+            and all(.differences[]; type == "string")' "$json" > /dev/null 2>&1 \
+            || die 'differences must name the Known differences rows for expect.<os>/'
+    fi
+    if [[ $has_differences == true ]] && (( ! os_folder )); then
+        die 'differences set but no expect.<os>/ folder'
+    fi
     [[ ! -d $dir/repo/packages ]] \
         || die 'packages/ needs the drift stubs from phase 2'
+}
+
+# The expected file or tree for $2: `expect.<os>/<name>` when it exists for the
+# OS the runner is on, else `expect/<name>`.
+expected_path() {
+    local dir=$1 name=$2
+    if [[ -e $dir/expect.$HARNESS_OS/$name ]]; then
+        printf '%s\n' "$dir/expect.$HARNESS_OS/$name"
+    else
+        printf '%s\n' "$dir/expect/$name"
+    fi
 }
 
 # The status lines of a command's output, each as `WORD label`: ANSI color codes
 # removed, notes and every other line dropped (see the README's "How the runner
 # checks it").
 status_lines() {
+    # A prompt answered from a pipe ends with no newline, so its status line
+    # follows it on the same line: drop the `…? [Y/n]` prefix first.
     sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
+        | sed -E 's/^.*\? \[[Yy]\/[Nn]\][[:space:]]*//' \
         | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p"
 }
 
@@ -160,8 +196,10 @@ compare_modes() {
 # the EXIT trap removes the temp folder on success and failure alike.
 run_case() {
     local dir=$1
-    local config_json count i cmd rc only_path out
-    local -a args=()
+    local config_json count i cmd rc only_path out stdin_file
+    local want_exit want_output want_home want_repo want_values want_state
+    local file rel got want_mode got_mode
+    local -a args=() runs=()
 
     t=$(mktemp -d)
     trap 'rm -rf "$t"' EXIT
@@ -212,26 +250,73 @@ run_case() {
             args+=(--only "$only_path")
         done < <(jq -j ".commands[$i].options.only // [] | .[] | . , \"\\u0000\"" "$dir/case.json")
 
+        stdin_file=/dev/null
+        if [[ $(jq -r ".commands[$i] | has(\"stdin\")" "$dir/case.json") == true ]]; then
+            stdin_file=$t/stdin
+            jq -j ".commands[$i].stdin" "$dir/case.json" > "$stdin_file" \
+                || die "writing stdin for command $((i + 1)) failed"
+        fi
+
         rc=0
         (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
-            "${args[@]}" < /dev/null) > "$t/raw" 2>&1 || rc=$?
+            "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         printf '%s\n' "$rc" >> "$t/actual-exit"
         status_lines "$t/raw" >> "$t/actual-output"
     done
 
-    # The engine's own state folder is not part of the case: drop it before the
-    # home tree is compared.
+    # The repo's values cache is compared as JSON, key order ignored, before
+    # the engine files are stripped from the repo.
+    want_values=$(expected_path "$dir" values.json)
+    if [[ -e $want_values ]]; then
+        [[ -f $t/repo/.user-values.json ]] || die 'values.json: .user-values.json is missing'
+        jq -S . "$want_values" > "$t/want-values.json" 2> /dev/null \
+            || die 'values.json: expect is not valid JSON'
+        jq -S . "$t/repo/.user-values.json" > "$t/got-values.json" 2> /dev/null \
+            || die 'values.json: .user-values.json is not valid JSON'
+        cmp -s "$t/want-values.json" "$t/got-values.json" || die 'values.json: differs from expect'
+    fi
+
+    # The engine's own state folder is not part of the case: take the copy the
+    # case expects, then drop it before the home tree is compared.
+    want_state=$(expected_path "$dir" state)
+    if [[ -d $want_state ]]; then
+        [[ -d $t/home/.local/state/sync-settings ]] || die 'state: engine state folder is missing'
+        cp -a "$t/home/.local/state/sync-settings" "$t/state" \
+            || die 'state: copying the engine state folder failed'
+        while IFS= read -r -d '' rel; do
+            runs+=("$rel")
+        done < <(find "$t/state/backups" -mindepth 1 -maxdepth 1 -type d -print0 2> /dev/null)
+        if (( ${#runs[@]} > 0 )); then
+            (( ${#runs[@]} == 1 )) || die "state: want one backup run folder, got ${#runs[@]}"
+            mv "${runs[0]}" "$t/state/backups/RUN" || die 'state: renaming the backup run folder failed'
+        fi
+    fi
     rm -rf "$t/home/.local/state/sync-settings"
     rmdir "$t/home/.local/state" 2> /dev/null || true
     rmdir "$t/home/.local" 2> /dev/null || true
 
-    first_line_diff exit "$dir/expect/exit" "$t/actual-exit"
-    first_line_diff output "$dir/expect/output.txt" "$t/actual-output"
+    if [[ -d $want_state ]]; then
+        while IFS= read -r -d '' file; do
+            rel=${file#"$want_state"/}
+            got=$t/state/$rel
+            [[ -f $got ]] || die "state $rel: missing"
+            cmp -s "$file" "$got" || die "state $rel: differs"
+            want_mode=$(file_mode "$file") || die "state $rel: cannot read the wanted file"
+            got_mode=$(file_mode "$got") || die "state $rel: cannot read the got file"
+            [[ $want_mode == "$got_mode" ]] || die "state $rel mode: want $want_mode, got $got_mode"
+        done < <(find "$want_state" -type f -print0)
+    fi
 
-    if [[ -d $dir/expect/home ]]; then
-        out=$(tree_diff "$dir/expect/home" "$t/home") || true
+    want_exit=$(expected_path "$dir" exit)
+    want_output=$(expected_path "$dir" output.txt)
+    first_line_diff exit "$want_exit" "$t/actual-exit"
+    first_line_diff output "$want_output" "$t/actual-output"
+
+    want_home=$(expected_path "$dir" home)
+    if [[ -d $want_home ]]; then
+        out=$(tree_diff "$want_home" "$t/home") || true
         [[ -z $out ]] || die "$out"
-        compare_modes "$dir/expect/home" "$t/home"
+        compare_modes "$want_home" "$t/home"
     else
         out=$(tree_diff "$t/empty" "$t/home") || true
         [[ -z $out ]] || die "$out"
@@ -239,10 +324,11 @@ run_case() {
     fi
 
     strip_engine "$t/repo"
-    if [[ -d $dir/expect/repo ]]; then
-        out=$(tree_diff "$dir/expect/repo" "$t/repo") || true
+    want_repo=$(expected_path "$dir" repo)
+    if [[ -d $want_repo ]]; then
+        out=$(tree_diff "$want_repo" "$t/repo") || true
         [[ -z $out ]] || die "$out"
-        compare_modes "$dir/expect/repo" "$t/repo"
+        compare_modes "$want_repo" "$t/repo"
     else
         out=$(tree_diff "$t/empty" "$t/repo") || true
         [[ -z $out ]] || die "$out"
