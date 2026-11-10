@@ -1,0 +1,17 @@
+{
+  "description": "Preview with no changes reports UNCHANGED and leaves the repo as committed (Export preview).",
+  "git": "committed",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "preview" }]
+}

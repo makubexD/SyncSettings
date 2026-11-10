@@ -27,8 +27,8 @@ $matched = 0
 $HarnessOs = 'windows'
 
 # Status words the engines print. Longer words first so CREATED and UPDATED win
-# over CREATE and UPDATE in the alternation.
-$StatusWords = 'ADDED|UNCHANGED|MODIFIED|SKIPPED|REMOVED|ERROR|CREATED|UPDATED|EXTRA|ORPHAN|DRIFT|CREATE|UPDATE'
+# over CREATE and UPDATE in the alternation. IN, OUT, BOTH and ? are diff labels.
+$StatusWords = 'ADDED|UNCHANGED|MODIFIED|SKIPPED|REMOVED|ERROR|CREATED|UPDATED|EXTRA|ORPHAN|DRIFT|CREATE|UPDATE|IN|OUT|BOTH|\?'
 
 # -- Helpers -------------------------------------------------------------------
 

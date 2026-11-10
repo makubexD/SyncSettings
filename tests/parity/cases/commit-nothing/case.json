@@ -1,0 +1,18 @@
+{
+  "description": "Commit with a clean tree does nothing, exits 0 and never calls gh (Flow, Checks before pushing).",
+  "git": "remote",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "commit" }]
+}

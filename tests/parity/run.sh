@@ -23,8 +23,8 @@ HARNESS_OS=$(sync_os)
 readonly HARNESS_OS
 
 # Status words the engines print. Longer words first so CREATED and UPDATED win
-# over CREATE and UPDATE in the alternation.
-STATUS_WORDS='ADDED|UNCHANGED|MODIFIED|SKIPPED|REMOVED|ERROR|CREATED|UPDATED|EXTRA|ORPHAN|DRIFT|CREATE|UPDATE'
+# over CREATE and UPDATE in the alternation. IN, OUT, BOTH and ? are diff labels.
+STATUS_WORDS='ADDED|UNCHANGED|MODIFIED|SKIPPED|REMOVED|ERROR|CREATED|UPDATED|EXTRA|ORPHAN|DRIFT|CREATE|UPDATE|IN|OUT|BOTH|\?'
 ESC=$(printf '\033')
 
 # -- Helpers -------------------------------------------------------------------
