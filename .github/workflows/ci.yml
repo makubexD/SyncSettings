@@ -33,8 +33,6 @@ jobs:
           $r
           if ($r) { exit 1 }
   engine-linux:
-    # TEMP (Windows checks W0-W9): off in CI, run locally instead. Revert per TODO.md.
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,8 +43,6 @@ jobs:
       - name: Bootstrap tests (bash)
         run: tests/linux/bootstrap.sh
   engine-macos:
-    # TEMP (Windows checks W0-W9): off in CI, run locally instead. Revert per TODO.md.
-    if: false
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,8 +77,6 @@ jobs:
             exit 1
           fi
   engine-windows:
-    # TEMP (Windows checks W0-W9): off in CI, run locally instead. Revert per TODO.md.
-    if: false
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,8 +89,6 @@ jobs:
           Import-Module Pester -MinimumVersion 5.5.0
           Invoke-Pester -Path tests/windows -CI
   bootstrap-check:
-    # TEMP (Windows checks W0-W9): off in CI, run locally instead. Revert per TODO.md.
-    if: false
     runs-on: ubuntu-latest
     container: ubuntu:26.04
     steps:
