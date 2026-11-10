@@ -44,9 +44,9 @@ One TypeScript file using only `node:` imports (`node:fs`, `node:path`, `node:cr
 
 Each on its own line, as `key: value`; exit 0. Exit 1 with `ERROR: <message>` when the config can't be read.
 
-Test: `bun run probe/single-engine/main.ts tests/fixtures/repo` if Bun is installed, else `deno run -A …`, else skip
+Test: `bun run probe/single-engine/main.ts tests/fixtures` if Bun is installed, else `deno run -A …`, else skip
 with a note in the summary (the workflow in step 3 builds it for real). Expected lines: `entries: <n>` matching
-`jq '.files | length' tests/fixtures/repo/sync-config.json`, `crlf-fold: equal`, a `git version` line.
+`jq '.files | length' tests/fixtures/sync-config.json`, `crlf-fold: equal`, a `git version` line.
 
 ## Step 3: Probe workflow `[worker]`
 
@@ -58,7 +58,7 @@ Files: `.github/workflows/single-engine-probe.yml` (new).
 
 Each leg: compile `probe/single-engine/main.ts` to one program (`bun build --compile`, `deno compile -A`), then write
 `probe-<os>-<runtime>.txt` with the runtime version, the program's size in bytes, the time of 20 runs on
-`tests/fixtures/repo` (total and per run), and the program's output. Upload it as artifact
+`tests/fixtures` (total and per run), and the program's output. Upload it as artifact
 `probe-<os>-<runtime>`. On `ubuntu-latest` only, also cross-compile for the other three targets and record those sizes.
 
 Test: `actionlint .github/workflows/single-engine-probe.yml` if installed, else
