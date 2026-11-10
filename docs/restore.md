@@ -167,7 +167,7 @@ The scripts handle entries whose `platform` is `"macos"`, `"common"`, or a list 
 
 | You see | Do |
 |---|---|
-| `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | `brew install bash`. The scripts switch to Homebrew's bash by themselves once it's in `/opt/homebrew/bin` or `/usr/local/bin` |
+| `ERROR: SyncSettings needs bash 4.4 or newer (this is 3.2.57…)` | `brew install bash`. The scripts switch to Homebrew's bash by themselves once it's in `/opt/homebrew/bin` or `/usr/local/bin` |
 | `ERROR: install Homebrew first: https://brew.sh` | Install Homebrew with the line on its site, open a new Terminal, and run the install line again |
 | `MISSING  jq: install with brew install jq` | `brew install jq` |
 | `brew` not found right after installing it | Homebrew isn't on `PATH` yet. Apple silicon Macs use `/opt/homebrew`, Intel Macs `/usr/local`; the synced `~/.zprofile` loads whichever exists, or run `eval "$(/opt/homebrew/bin/brew shellenv)"` (`/usr/local/bin/brew` on Intel) |

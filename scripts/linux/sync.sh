@@ -244,11 +244,16 @@ resolve_only() {
             p=${p%/}
         done
         if [[ $p == dotfiles/* ]]; then
+            # A .. segment could climb out of an entry's prefix, and linked
+            # folders are PowerShell only.
+            if [[ /$p/ == */../* || $p == *".linked/"* ]]; then
+                printf 'ERROR: %s is not synced on this machine.\n' "$arg" >&2
+                return 1
+            fi
             found=0
             for i in "${!e_repo[@]}"; do
                 if [[ $p == "${e_repo[$i]}" ]] \
-                    || { [[ ${e_kind[$i]} == dir ]] && [[ $p == "${e_repo[$i]}/"* ]]; } \
-                    || { [[ ${e_kind[$i]} == file ]] && [[ $p == "${e_repo[$i]}.linked/"* ]]; }; then
+                    || { [[ ${e_kind[$i]} == dir ]] && [[ $p == "${e_repo[$i]}/"* ]]; }; then
                     found=1
                     break
                 fi
@@ -312,16 +317,25 @@ only_selected() {
     return 1
 }
 
+# Warn once when --only was given but no file got a status line or a diff
+# label: the pick resolved, yet it matched nothing in this run. Counts and exit
+# codes don't change.
+warn_only_no_hits() {
+    if (( ${#ONLY_PATHS[@]} > 0 && ONLY_HITS == 0 )); then
+        printf '  WARNING: --only matched no file.\n'
+    fi
+}
+
 # True when a --only pick can select something under this entry: the entry
-# itself, a file inside a dir entry, or a linked folder of a file entry. With
-# no --only every entry is selected.
+# itself or a file inside a dir entry (resolve_only refuses linked folders on
+# bash). With no --only every entry is selected.
 entry_selected() {
     local repo_path=$1 selected
     if only_selected "$repo_path"; then
         return 0
     fi
     for selected in "${ONLY_PATHS[@]}"; do
-        if [[ $selected == "$repo_path/"* || $selected == "$repo_path.linked/"* ]]; then
+        if [[ $selected == "$repo_path/"* ]]; then
             return 0
         fi
     done
@@ -1008,12 +1022,15 @@ write_last_sync() {
 
 STATUS_ERRORS=0
 STATUS_USER_SKIPS=0
+# File lines printed in this run, so a --only pick that reached nothing can warn.
+ONLY_HITS=0
 
 status() {
     # usage: status <STATUS> <label> [note]
     # Counts ERROR lines in STATUS_ERRORS and SKIPPED lines noted "user skipped"
     # in STATUS_USER_SKIPS, so a caller can tell a clean, unattended run apart.
     local s=$1 label=$2 note=${3:-}
+    ONLY_HITS=$((ONLY_HITS + 1))
     if [[ $s == ERROR ]]; then
         STATUS_ERRORS=$((STATUS_ERRORS + 1))
     elif [[ $s == SKIPPED && $note == 'user skipped' ]]; then
@@ -1345,6 +1362,7 @@ run_diff() {
         [[ -n $line ]] || continue
         status "${line%% *}" "${line#* }"
     done
+    warn_only_no_hits
     if (( unknown_count + in_count + out_count + both_count > 0 )); then
         printf '\n'
     fi

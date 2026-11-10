@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Import repo config files onto the machine (linux entries only).
 
-if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
     for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
         [ -x "$b" ] && [ -z "${SYNC_REEXEC:-}" ] && SYNC_REEXEC=1 exec "$b" "$0" "$@"
     done
-    echo "ERROR: SyncSettings needs bash 4 or newer (this is ${BASH_VERSION:-unknown}). On macOS: brew install bash" >&2
+    echo "ERROR: SyncSettings needs bash 4.4 or newer (this is ${BASH_VERSION:-unknown}). On macOS: brew install bash" >&2
     exit 1
 fi
 
@@ -476,6 +476,8 @@ if (( ! CHECK && BACKUP_MADE )); then
         rm -rf -- "${backup_runs[i]}"
     done
 fi
+
+warn_only_no_hits
 
 # -- Summary ---------------------------------------------------------------------
 

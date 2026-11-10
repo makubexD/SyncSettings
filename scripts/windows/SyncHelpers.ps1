@@ -294,6 +294,11 @@ function Resolve-OnlyPaths {
         if ($p.StartsWith('dotfiles/', [StringComparison]::Ordinal) -or
             $p.StartsWith('dotfiles\', [StringComparison]::Ordinal)) {
             $p = $p -replace '\\', '/'
+            foreach ($seg in ($p -split '/')) {
+                if ($seg -ceq '..') {
+                    throw ('{0} is not synced on this machine.' -f $arg)
+                }
+            }
             $found = $false
             foreach ($e in $entries) {
                 if ([string]::Equals($p, $e.repoPath, [StringComparison]::Ordinal)) {
@@ -596,6 +601,64 @@ function Compare-FilesByHash {
     return $hashA -eq $hashB
 }
 
+function ConvertTo-LfBytes {
+    # Drops each 0x0D byte that is directly followed by 0x0A; a lone 0x0D stays.
+    param([byte[]]$Bytes)
+    if ($null -eq $Bytes -or $Bytes.Length -eq 0) { return ,[byte[]]@() }
+    $out = [System.Collections.Generic.List[byte]]::new()
+    for ($i = 0; $i -lt $Bytes.Length; $i++) {
+        if ($Bytes[$i] -eq 0x0D -and ($i + 1) -lt $Bytes.Length -and $Bytes[$i + 1] -eq 0x0A) {
+            continue
+        }
+        $out.Add($Bytes[$i])
+    }
+    return ,$out.ToArray()
+}
+
+function Compare-SyncFiles {
+    # Compares two files for a given repo-relative path. A path under
+    # dotfiles/common/ is LF text unless it holds a NUL byte (binary), so the
+    # CRLF bytes on the local side are folded to LF before comparing. Everything
+    # else compares byte for byte, as Compare-FilesByHash does.
+    param([string]$PathA, [string]$PathB, [string]$RepoPath)
+    if (-not (Test-Path -LiteralPath $PathA) -or -not (Test-Path -LiteralPath $PathB)) { return $false }
+    if ($RepoPath -and $RepoPath.StartsWith('dotfiles/common/', [System.StringComparison]::Ordinal)) {
+        $bytesA = [IO.File]::ReadAllBytes($PathA)
+        $bytesB = [IO.File]::ReadAllBytes($PathB)
+        if ([Array]::IndexOf($bytesA, [byte]0) -ge 0 -or [Array]::IndexOf($bytesB, [byte]0) -ge 0) {
+            return (Compare-FilesByHash -PathA $PathA -PathB $PathB)
+        }
+        $lfA = ConvertTo-LfBytes -Bytes $bytesA
+        $lfB = ConvertTo-LfBytes -Bytes $bytesB
+        if ($lfA.Length -ne $lfB.Length) { return $false }
+        for ($i = 0; $i -lt $lfA.Length; $i++) {
+            if ($lfA[$i] -ne $lfB[$i]) { return $false }
+        }
+        return $true
+    }
+    return (Compare-FilesByHash -PathA $PathA -PathB $PathB)
+}
+
+function Copy-SyncFileToRepo {
+    # Copies one local file into the repo. A path under dotfiles/common/ is LF
+    # text unless it holds a NUL byte (binary), so its CRLF bytes are folded to
+    # LF before writing; everything else is copied byte for byte. The caller has
+    # already created the destination folder.
+    param(
+        [string]$Source,
+        [string]$Destination,
+        [string]$RepoPath
+    )
+    if ($RepoPath -and $RepoPath.StartsWith('dotfiles/common/', [System.StringComparison]::Ordinal)) {
+        $bytes = [IO.File]::ReadAllBytes($Source)
+        if ([Array]::IndexOf($bytes, [byte]0) -lt 0) {
+            [IO.File]::WriteAllBytes($Destination, (ConvertTo-LfBytes -Bytes $bytes))
+            return
+        }
+    }
+    Copy-Item -LiteralPath $Source -Destination $Destination -Force
+}
+
 # -- Safe file write (UTF-8 without BOM) --------------------------------------
 
 function Write-Utf8File {
@@ -809,10 +872,12 @@ function Sync-LinkedDirectory {
             continue
         }
 
+        # Count every non-symlink, non-excluded source file, so a --only pick
+        # that selects nothing does not read as an empty folder (mirror bash).
+        $fileCount++
+
         # A --only run copies only the picked files; everything else is left as-is.
         if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
-
-        $fileCount++
 
         $destDir2 = Split-Path $destFile -Parent
         if (-not (Test-Path -LiteralPath $destDir2)) {
@@ -820,14 +885,14 @@ function Sync-LinkedDirectory {
         }
 
         if (-not (Test-Path -LiteralPath $destFile)) {
-            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
+            Copy-SyncFileToRepo -Source $file.FullName -Destination $destFile -RepoPath $itemLabel
             Write-StatusLine 'ADDED' $itemLabel
             $stats.added++
-        } elseif (Compare-FilesByHash -PathA $file.FullName -PathB $destFile) {
+        } elseif (Compare-SyncFiles -PathA $file.FullName -PathB $destFile -RepoPath $itemLabel) {
             Write-StatusLine 'UNCHANGED' $itemLabel
             $stats.unchanged++
         } else {
-            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
+            Copy-SyncFileToRepo -Source $file.FullName -Destination $destFile -RepoPath $itemLabel
             Write-StatusLine 'MODIFIED' $itemLabel
             $stats.modified++
         }
@@ -1292,10 +1357,10 @@ function Invoke-ExportDiff {
         # True when two paths under the diff's trees hold the same version. A
         # path absent on both sides counts as the same version.
         function Test-DiffPathSame {
-            param([string]$PathA, [string]$PathB)
+            param([string]$PathA, [string]$PathB, [string]$RepoPath)
             $a = Test-Path -LiteralPath $PathA -PathType Leaf
             $b = Test-Path -LiteralPath $PathB -PathType Leaf
-            if ($a -and $b) { return (Compare-FilesByHash -PathA $PathA -PathB $PathB) }
+            if ($a -and $b) { return (Compare-SyncFiles -PathA $PathA -PathB $PathB -RepoPath $RepoPath) }
             return (-not $a -and -not $b)
         }
 
@@ -1330,8 +1395,8 @@ function Invoke-ExportDiff {
             $basePath   = Join-Path $baseDir $path
             $theirsPath = Join-Path $theirsDir $path
 
-            $mineBase   = Test-DiffPathSame $minePath $basePath
-            $theirsBase = Test-DiffPathSame $theirsPath $basePath
+            $mineBase   = Test-DiffPathSame $minePath $basePath $path
+            $theirsBase = Test-DiffPathSame $theirsPath $basePath $path
 
             $label = ''
             if ($haveBase) {
@@ -1341,13 +1406,13 @@ function Invoke-ExportDiff {
                     $label = 'IN'
                 } elseif ($theirsBase) {
                     $label = 'OUT'
-                } elseif (Test-DiffPathSame $minePath $theirsPath) {
+                } elseif (Test-DiffPathSame $minePath $theirsPath $path) {
                     # Both sides made the same change.
                     $label = ''
                 } else {
                     $label = 'BOTH'
                 }
-            } elseif (-not (Test-DiffPathSame $minePath $theirsPath)) {
+            } elseif (-not (Test-DiffPathSame $minePath $theirsPath $path)) {
                 $label = '?'
             }
 
@@ -1366,6 +1431,8 @@ function Invoke-ExportDiff {
         if (($unknownCount + $inCount + $outCount + $bothCount) -gt 0) {
             Write-Host
         }
+
+        Write-OnlyNoHitsWarning -Selected $Only
 
         Write-Host ('  ' + ('-' * 50))
         Write-Host
@@ -1439,7 +1506,7 @@ function Copy-RepoFileToLocal {
         Copy-Item -LiteralPath $RepoFile -Destination $LocalFile -Force
         Write-StatusLine 'CREATED' $Label
         return 'CREATED'
-    } elseif (Compare-FilesByHash -PathA $RepoFile -PathB $LocalFile) {
+    } elseif (Compare-SyncFiles -PathA $RepoFile -PathB $LocalFile -RepoPath $Label) {
         Write-StatusLine 'UNCHANGED' $Label
         return 'UNCHANGED'
     } else {
@@ -1716,8 +1783,12 @@ function Remove-OldBackupRuns {
 # clean, unattended run apart.
 $script:UserSkips = 0
 
+# File lines printed in this run, so a -Only pick that reached nothing can warn.
+$script:OnlyHits = 0
+
 function Write-StatusLine {
     param([string]$Status, [string]$File, [string]$Note = '')
+    $script:OnlyHits++
     if ($Status -eq 'SKIPPED' -and $Note -eq 'user skipped') {
         $script:UserSkips++
     }
@@ -1740,4 +1811,11 @@ function Write-StatusLine {
     Write-Host "  [$label] " -ForegroundColor $color -NoNewline
     Write-Host $File -NoNewline
     if ($Note) { Write-Host "  ($Note)" -ForegroundColor DarkGray } else { Write-Host }
+}
+
+function Write-OnlyNoHitsWarning {
+    param([string[]]$Selected)
+    if ($null -ne $Selected -and $Selected.Count -gt 0 -and $script:OnlyHits -eq 0) {
+        Write-Host '  WARNING: --only matched no file.'
+    }
 }

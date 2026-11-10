@@ -234,13 +234,13 @@ try {
             } else {
                 # -- Direct hash comparison ---------------------------
                 if (-not (Test-Path $repoFile)) {
-                    Copy-Item -Path $localFile -Destination $repoFile -Force
+                    Copy-SyncFileToRepo -Source $localFile -Destination $repoFile -RepoPath $label
                     Write-StatusLine 'ADDED' $label
                     $changed++
-                } elseif (Compare-FilesByHash -PathA $localFile -PathB $repoFile) {
+                } elseif (Compare-SyncFiles -PathA $localFile -PathB $repoFile -RepoPath $label) {
                     Write-StatusLine 'UNCHANGED' $label
                 } else {
-                    Copy-Item -Path $localFile -Destination $repoFile -Force
+                    Copy-SyncFileToRepo -Source $localFile -Destination $repoFile -RepoPath $label
                     Write-StatusLine 'MODIFIED' $label
                     $changed++
                 }
@@ -285,6 +285,8 @@ try {
         # Repo files no entry owns (all platforms); informational only.
         Write-OrphanReport -RepoRoot $repoRoot -Entries $allEntries
     }
+
+    Write-OnlyNoHitsWarning -Selected $selected
 
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray

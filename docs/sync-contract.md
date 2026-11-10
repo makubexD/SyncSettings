@@ -79,8 +79,9 @@ Every command that walks entries takes a repeatable `--only <path>` (PowerShell:
 either a repo path or a local path:
 
 - A path starting with `dotfiles/` is a repo path. It is accepted when an entry selected for this OS owns it: the path
-  equals its `repoPath`, starts with `<repoPath>/` for a `dir` entry, or starts with `<repoPath>.linked/` for a file
-  entry. A trailing `/` is dropped.
+  equals its `repoPath`, or starts with `<repoPath>/` for a `dir` entry. A trailing `/` is dropped. A path with a `..`
+  segment is refused on both engines, and a path under `<repoPath>.linked/` is refused on bash; linked folders are
+  PowerShell only, so PowerShell still accepts a file entry's `<repoPath>.linked/` path.
 - Any other path is a local path. A leading `~/` becomes `$HOME/` (a lone `~` becomes `$HOME`), a path that doesn't
   start with `/` is joined to the caller's folder (`$SYNC_CALLER_PWD`, else `$PWD`), and `.` and `..` segments are
   folded lexically, without following links. A relative pick is relative to the caller's folder on direct engine
@@ -108,8 +109,9 @@ point, because the machine agrees with only part of the repo. `--only` with no p
 
 `export.sh --only` writes only the selected files. It removes a repo file gone from a `dir` entry's folder only when
 that file is selected, and skips the orphan and package drift reports: a partial run doesn't see the whole repo.
-`--diff --only` labels only the selected paths, and its counts and hints cover only them. `--preview` with `--only` is
-an error, exit 1.
+`--diff --only` labels only the selected paths, and its counts and hints cover only them. When `--only` is given and no
+file gets a status line or a diff label, the run prints `  WARNING: --only matched no file.` before the summary; the
+exit code and counts don't change. `--preview` with `--only` is an error, exit 1.
 
 ## Path safety
 
@@ -260,7 +262,11 @@ placeholder, never its value.
 
 ## Compare
 
-- Files without rules: byte for byte (`cmp` in bash, SHA256 in PowerShell).
+- Files without rules: byte for byte (`cmp` in bash, SHA256 in PowerShell), except shared files on Windows, below.
+- Shared files on Windows: a file under `dotfiles/common/` without sanitize rules is compared with CRLF folded to LF,
+  and export writes it with LF line endings; a file holding a NUL byte is compared and copied byte for byte. Import
+  writes the repo's bytes, so a local CRLF copy with the same lines counts as `UNCHANGED`. `dotfiles/windows/**` stays
+  byte for byte.
 - Files with rules: the sanitized local text (export) or the hydrated repo text (import) against the other side,
   after turning CRLF into LF and trimming whitespace at the end of the file. A file that differs only in line
   endings or trailing blank lines counts as `UNCHANGED`, and nothing is written. The compare is case-sensitive, so a
@@ -476,7 +482,8 @@ the machine.
 
 `./sync <preview|check|export|commit|import> [options]` on Linux and Git Bash, `.\sync` in PowerShell, `sync` in cmd. The name
 resolves to the right script for the OS, so `sync` and `sync.cmd` are the two front doors, and Git Bash on Windows hands
-over to `sync.cmd`. Options pass through unchanged. The `.sh` entry points still work.
+over to `sync.cmd`. It calls `sync.cmd` by its full Windows path (from `cygpath -w`, or the plain path when
+that fails), so the hand-over works even with `NoDefaultCurrentDirectoryInExePath` set. Options pass through unchanged. The `.sh` entry points still work.
 `./sync check` runs `./import.sh --check`, and `sync.cmd check` runs `Import-Settings.ps1 -Check`: each lists what an
 import would change, writes nothing, and exits 3 when something differs.
 
@@ -607,7 +614,7 @@ codes are the same on both systems, except where this section says otherwise.
 | Command | Does | Exit |
 |---|---|---|
 | `mksync`, `mksync status` | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master` | 0 |
-| `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
+| `mksync doctor` | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4.4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there) | 0, or 1 with a `MISSING` line |
 | `mksync pull [--yes] [--force] [path…]` | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check. Nothing to change: a pull without paths still runs `import.sh --force` to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` (`Import-Settings.ps1 -Force` on Windows). Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point | 0, or 1 on an error |
 | `mksync push [--yes] [-m <msg>] [path…]` | Runs `export.sh` (`Export-Settings.ps1` on Windows). Picked paths go to it as `--only`, and any path makes `commit.sh` run with `--partial`, so a partial push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short`, asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code |
 | `mksync diff [path…]` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
@@ -634,6 +641,8 @@ On Windows the guard recognises the same labels in the `[OUT      ]` status-line
 `powershell.exe` after a fast-forward, since PowerShell has no `exec`, and the status fetch has a 15-second timeout as on
 Linux. The status's OS name comes from `SYNC_OS_NAME` if set, else the Windows caption. `--yes` answers the `[Y/n]` questions. It never
 answers the bootstrap question, because bootstrap uses `sudo`; `--bootstrap` does.
+On both front doors, `pull`, `push` and `diff` stop on an unknown option (a remaining argument that starts with `-`) with
+`Unknown option: <arg>` on stderr and exit 1, before any fetch or child step.
 
 Status lines and the next command, in this order of precedence:
 
@@ -697,26 +706,26 @@ uses is there. The reasons and the options weighed are in [macos-research.md](ma
 
 - **Minimum**: macOS 13. `readlink -f` arrived in 12.3, and Homebrew supports the three newest releases. `mksync doctor`
   prints `WARN macOS <version> is older than 13` below that and carries on.
-- **Bash 4 guard**: `sync`, `export.sh`, `import.sh` and `commit.sh` check the bash version before any bash 4 line. Below
-  4, they re-run themselves once under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` (Apple silicon, Intel), whichever
+- **Bash 4.4 guard**: `sync`, `export.sh`, `import.sh` and `commit.sh` check the bash version before any line that needs it. Below
+  4.4, they re-run themselves once under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` (Apple silicon, Intel), whichever
   exists. With neither:
 
   ```text
-  ERROR: SyncSettings needs bash 4 or newer (this is <version>). On macOS: brew install bash
+  ERROR: SyncSettings needs bash 4.4 or newer (this is <version>). On macOS: brew install bash
   ```
 
-  exit 1. Everything past the guard needs bash 4 only.
+  exit 1. Everything past the guard may use bash 4.4 features.
 - **No GNU-only flags** on a path macOS runs. `chmod --reference` and `timeout` go through `copy_mode` and
   `run_with_timeout`, which use the GNU tool when it's there. `SYNC_FETCH_TIMEOUT` sets the status fetch limit
   (15 seconds by default).
 - **Skipped**: dconf entries (their `linux` platform keeps them off macOS), the [package drift](#package-drift) report, and
   `bootstrap/linux.sh`.
-- **Front door**: the status's OS is `macos <version>` from `sw_vers -productVersion`. `doctor` checks bash 4 (hint
+- **Front door**: the status's OS is `macos <version>` from `sw_vers -productVersion`. `doctor` checks bash 4.4 (hint
   `brew install bash`), `git`, `jq` (hint `brew install jq`), `cmp`, `brew` (`MISSING brew: install from
   https://brew.sh`), `gh` and its sign-in, the origin remote, the `mksync` link and unset values. `setup` has no
   bootstrap question, and `--bootstrap` stops with `ERROR: --bootstrap is Ubuntu only.`, exit 1.
 - **`install.sh`**: without `brew`, it stops with `ERROR: install Homebrew first: https://brew.sh`, exit 1. A missing `jq`
-  or Homebrew bash 4 gets `Install with Homebrew: brew install bash jq [Y/n]`, never `sudo`. End of input is no, as at the apt question: it
+  or Homebrew bash 4.4 gets `Install with Homebrew: brew install bash jq [Y/n]`, never `sudo`. End of input is no, as at the apt question: it
   installs nothing and exits 1. The
   link, the `PATH` hint and `mksync setup` work as on Linux, under Homebrew's bash. It reads `SYNC_OS` like `sync_os`.
 - **Layout**: `dotfiles/macos/<tool>/` holds macOS-only files. Files shared with Linux live in `dotfiles/common/<tool>/`
@@ -748,7 +757,7 @@ macOS runs the bash engine, so it has the Linux column's behavior except for the
 
 | Behavior | macOS (bash) | Linux (bash) |
 |---|---|---|
-| bash | Homebrew bash 4+, re-run by the guard | the system's |
+| bash | Homebrew bash 4.4+, re-run by the guard | the system's |
 | `type: dconf` | not selected (`linux` platform) | supported |
 | Package drift | prints nothing | supported |
 | `mksync setup` | no bootstrap question; `--bootstrap` is an error | offers `bootstrap/linux.sh` on Ubuntu |

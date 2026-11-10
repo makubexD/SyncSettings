@@ -558,14 +558,14 @@ front_doctor() {
     local config values_file link_path repo_link placeholder macos_version major
 
     version=${BASH_VERSION:-unknown}
-    if (( BASH_VERSINFO[0] >= 4 )); then
+    if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
         printf '  %-8s %s\n' OK "bash $version"
     else
         hint=''
         if [[ $SYNC_PLATFORM == macos ]]; then
             hint="; install with $(front_install_hint bash)"
         fi
-        printf '  %-8s %s\n' MISSING "bash 4 or newer (this is $version)$hint"
+        printf '  %-8s %s\n' MISSING "bash 4.4 or newer (this is $version)$hint"
         missing=1
     fi
 

@@ -442,6 +442,8 @@ try {
         Remove-OldBackupRuns
     }
 
+    Write-OnlyNoHitsWarning -Selected $selected
+
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray
 

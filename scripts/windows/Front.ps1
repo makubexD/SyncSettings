@@ -734,6 +734,19 @@ if ([string]::IsNullOrEmpty($Command)) {
     $Command = 'status'
 }
 
+# pull, push and diff take only paths after their flags, so any remaining
+# argument that starts with "-" is an unknown option. Stop before any fetch or
+# child step, as front.sh does; -Yes, -Force, -NoFetch and -Message are bound
+# parameters and never reach $Paths.
+if ($Command.ToLowerInvariant() -in @('pull', 'push', 'diff')) {
+    foreach ($arg in @($Paths)) {
+        if ($arg -like '-*') {
+            [Console]::Error.WriteLine("Unknown option: $arg")
+            exit 1
+        }
+    }
+}
+
 switch ($Command.ToLowerInvariant()) {
     'status' {
         Show-Status

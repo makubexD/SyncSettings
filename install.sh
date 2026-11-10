@@ -124,14 +124,14 @@ ensure_tools() {
     fi
 }
 
-# True when the bash at $1 is version 4 or newer.
+# True when the bash at $1 is version 4.4 or newer.
 is_bash4() {
-    "$1" -c '(( BASH_VERSINFO[0] >= 4 ))' > /dev/null 2>&1
+    "$1" -c '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) ))' > /dev/null 2>&1
 }
 
 # The Homebrew bash to run the engine with: the candidates in SYNC_BREW_BASH,
 # space separated, else the two Homebrew prefixes. Prints the first one that is
-# executable and version 4 or newer.
+# executable and version 4.4 or newer.
 find_brew_bash() {
     local b
     local -a candidates
@@ -145,7 +145,7 @@ find_brew_bash() {
     return 1
 }
 
-# Make bash 4 and jq available with Homebrew on macOS; never sudo. Prints the
+# Make bash 4.4 and jq available with Homebrew on macOS; never sudo. Prints the
 # Homebrew bash to run setup with.
 ensure_macos_tools() {
     local yes=$1 tty=$2 answer brew_bash
