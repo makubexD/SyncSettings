@@ -7045,29 +7045,29 @@ case_guard_reexec() {
     setup_home_fixture
     unset SYNC_REEXEC
 
-    # With a bash 4+ interpreter and SYNC_REEXEC unset there is nothing to
+    # With a bash 4.4+ interpreter and SYNC_REEXEC unset there is nothing to
     # re-exec into: every script runs its own code and exits normally.
     run_engine "$t/home" sync help
     (( rc == 0 )) || fail "sync help exited $rc, want 0"
     grep -Fq 'usage: mksync [command] [options]' "$out" || fail "missing usage line"
-    if grep -Fq 'needs bash 4' "$out"; then fail "sync printed the bash 3.2 error"; fi
+    if grep -Fq 'needs bash 4.4' "$out"; then fail "sync printed the bash 3.2 error"; fi
 
     run_engine "$t/home" export.sh
     (( rc == 0 )) || fail "export.sh exited $rc, want 0"
     grep -Fq 'Repo is up to date. No changes detected.' "$out" || fail "export.sh printed no summary"
-    if grep -Fq 'needs bash 4' "$out"; then fail "export.sh printed the bash 3.2 error"; fi
+    if grep -Fq 'needs bash 4.4' "$out"; then fail "export.sh printed the bash 3.2 error"; fi
 
     run_engine "$t/home" import.sh --check
     (( rc == 0 )) || fail "import.sh --check exited $rc, want 0"
     grep -Fq '  This machine matches the repo.' "$out" || fail "import.sh --check printed no match line"
-    if grep -Fq 'needs bash 4' "$out"; then fail "import.sh printed the bash 3.2 error"; fi
+    if grep -Fq 'needs bash 4.4' "$out"; then fail "import.sh printed the bash 3.2 error"; fi
 
     # commit.sh has no read-only mode; an unknown option exits early, after the
     # guard and the sourced engine, without touching git.
     run_engine "$t/home" commit.sh -x
     (( rc == 1 )) || fail "commit.sh -x exited $rc, want 1"
     grep -Fq 'Unknown option: -x' "$out" || fail "commit.sh -x printed no option error"
-    if grep -Fq 'needs bash 4' "$out"; then fail "commit.sh printed the bash 3.2 error"; fi
+    if grep -Fq 'needs bash 4.4' "$out"; then fail "commit.sh printed the bash 3.2 error"; fi
 
     # The guard itself must stay bash 3.2 syntax, which --posix -n checks too.
     local f
