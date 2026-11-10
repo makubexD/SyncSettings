@@ -1,18 +1,14 @@
 # TODO
 
-## macOS checks after phase 4
+## macOS (low priority: needs a real Mac)
 
-CI runs the engine on `macos-latest`; nobody has run it on a real Mac yet. `tests/macos/manual-checks.sh` runs all
-four and writes a report to `~`; the header says how to fetch and run it.
+M1-M3 (install line with the brew question, status and `import --check`, `/bin/bash ./sync doctor`) pass in the
+`macos-checks` CI job on every PR, first on 2026-11-10 (macOS 26.7.2, arm64, PR #68). Only M4 needs RTK on a real Mac;
+there `tests/macos/manual-checks.sh` runs it and writes a report to `~` (the header says how).
 
-- [ ] **M1** On a Mac (13 or newer) with Homebrew, run the install line from the README. Expect the `brew install bash jq`
-      question, `Installed.`, and `mksync doctor` with no `MISSING` line.
-- [ ] **M2** `mksync` shows `macos <version>`; `./import.sh --check` lists `.zshrc`, `.zprofile`, `.gitconfig.local` and the
-      shared files, with VS Code under `~/Library/Application Support/Code/User/`.
-- [ ] **M3** `/bin/bash ./sync doctor` re-runs itself under Homebrew's bash (no `declare -A` error).
 - [ ] **M4** Find RTK's config folder on macOS (`~/Library/Application Support/rtk`?) and decide whether `~/.config/rtk/`
       gets a `localPaths.macos`.
-- [ ] Delete this section when all of them pass.
+- [ ] Delete this section when M4 is settled.
 
 ## Roll back Claude auto-approval when development is done
 
