@@ -20,6 +20,9 @@ release) and BSD userland tools.
 | `set -u` in `sync:3`, `export.sh:3`, `import.sh:3`, `commit.sh:3`, `scripts/linux/sync.sh:5` | Before bash 4.4, `"${arr[@]}"` on an empty array is an "unbound variable" error under `set -u`. Four loops already guard with `"${arr[@]:-}"` (`scripts/linux/sync.sh:303`, `:768`, `:772`, `:779`); the other expansions don't | Guard every empty-able expansion with `${arr[@]+"${arr[@]}"}`. The probe's `system` leg counts how many fire |
 | `scripts/linux/front.sh:350` | `mksync doctor` reports `MISSING` below bash 4 | Stays as the gate under option A or C |
 
+Settled (2026-11-09): the `set -u` row no longer applies. The entry scripts now require bash 4.4, where `"${arr[@]}"` on
+an empty array is not an error, and the guard at their top re-runs them under Homebrew's bash or stops.
+
 Not used (checked): `${var,,}` and `${var^^}`, `declare -g`, negative array indexes, `printf '%(…)T'`, `;;&`, `|&`,
 `globstar`, `lastpipe`, `coproc`, `wait -n`. `printf -v` (`scripts/linux/sync.sh:895`) and `read -d ''` work in 3.2.
 

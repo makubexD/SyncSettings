@@ -1,14 +1,10 @@
 # TODO
 
-## Follow-ups
+## Windows check after the follow-ups
 
-- [ ] Safe-sync review leftovers (optional): refuse `..` segments and `.linked/` repo paths on the bash side, and warn
-      when `--only` matched no file; `Front.ps1` should reject an unknown `-x` like front.sh; state bash 4.4+ or guard
-      empty arrays under `set -u`.
-- [ ] CRLF in shared files: `dotfiles/common/**` is `eol=lf`, so a shared file like `.gitconfig` saved with CRLF on
-      Windows shows `BOTH` after a push. Decide whether the Windows engine compares them with line endings normalized.
-- [ ] `sync` should call `sync.cmd` by its full path (`cmd.exe //c "<repo>\sync.cmd"`), so it still works when
-      `NoDefaultCurrentDirectoryInExePath` is set.
+- [ ] **W10** On Windows, save the shared `.gitconfig` with CRLF line endings, run `mksync push` and merge the PR. Then
+      `mksync diff` shows the file matching, and `mksync pull` writes nothing.
+- [ ] Delete this section when it passes.
 
 ## macOS checks after phase 4
 

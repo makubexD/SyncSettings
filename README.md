@@ -124,7 +124,7 @@ Your name, email and paths are replaced with placeholders in the repo and filled
 
 ## Requirements
 
-- **Linux:** bash 4+, `jq`, `git`, `cmp` (diffutils). `dconf-cli` for the GNOME settings; without it they're skipped
+- **Linux:** bash 4.4+, `jq`, `git`, `cmp` (diffutils). `dconf-cli` for the GNOME settings; without it they're skipped
 - **macOS:** 13 (Ventura) or newer, [Homebrew](https://brew.sh), and from it `bash` 4+ and `jq`
 - **Windows:** Windows 10 or 11, PowerShell 5.1+, Git on `PATH`
 - **To push:** the [GitHub CLI](https://cli.github.com/), signed in with `gh auth login`

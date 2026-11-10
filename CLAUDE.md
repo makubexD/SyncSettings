@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4+, `jq`, `git`, `cmp`. macOS 13+: the same bash engine under Homebrew's bash and `jq` (`/bin/bash` 3.2 only reaches the re-exec guard at the top of each entry script). The Linux side syncs the shell, terminal tools, VS Code's default profile, desktop files, GNOME settings (dconf) and the Claude Code setup in `~/.claude`.
+Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4.4+, `jq`, `git`, `cmp`. macOS 13+: the same bash engine under Homebrew's bash and `jq` (`/bin/bash` 3.2 only reaches the re-exec guard at the top of each entry script). The Linux side syncs the shell, terminal tools, VS Code's default profile, desktop files, GNOME settings (dconf) and the Claude Code setup in `~/.claude`.
 
 ## Architecture
 
