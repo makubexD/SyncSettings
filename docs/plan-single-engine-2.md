@@ -32,7 +32,8 @@ Write down the fields the later steps implement, in the README's table and "How 
   differences"; `case.json` gets `"differences": ["<row name>"]` naming it.
 - `expect/values.json`: when present, the runner compares the repo's `.user-values.json` after the run as JSON (key
   order ignored).
-- `expect/state/`: when present, the runner compares the engine's state folder with it. A `backups/<run>/` folder is
+- `expect/state/`: when present, each file in it must be in the engine's state folder with the same bytes (other
+  state files, such as the sync point, are ignored). A `backups/<run>/` folder is
   renamed `backups/RUN/` first (exactly one run folder, else a failure), so the timestamp and pid don't matter.
 - `commands[].stdin`: text sent to that command's stdin in place of an empty one (a prompt answer, newline-ended).
 - `git`: `"none"` (default), `"committed"` (the temp repo is a git repo with everything committed on `master`), or
@@ -55,7 +56,8 @@ Files: `tests/parity/run.sh`.
 Implement `expect.<os>/` (per file: use `expect.<os>/<x>` when it exists, else `expect/<x>`; validate that
 `differences` is a non-empty list of strings when `expect.<os>/` exists, and that `expect.<os>/` exists for at least
 one OS when `differences` is set), `expect/values.json` (`jq -S` both sides, compare), `expect/state/` (the
-`backups/RUN` rename from step 1, then the same tree and mode compare as `home/`), and `commands[].stdin` (written to a
+`backups/RUN` rename from step 1, then each file in `expect/state/` must exist in the state folder with the same bytes
+and mode; other state files, such as the sync point, are ignored), and `commands[].stdin` (written to a
 temp file and redirected in place of `/dev/null`; validate it is a string). Unknown top-level `case.json` keys stay
 allowed.
 
