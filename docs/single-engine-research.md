@@ -232,3 +232,23 @@ test); **not engine** (tests `scripts/ci/` or an installer, which stay scripts).
 Totals: 14 fit, 17 fit with a stub, 2 internal, 7 not engine. Of the 33 engine cases, 31 (94%) can be shared. The stubs
 are few and repeat: a git remote (10 of the 17), `gh`, a prompt answer, `dconf`, a package manager. Two "fits" rows (25,
 32) need the runner to read a file it leaves out by default, so `expect/` should be able to name such files.
+
+## 5. Options
+
+The step counts below are estimates, sized like the recent plans (8 to 10 steps of one concern each).
+
+| | A. Go | B. Shared cases only | C. Stop |
+|---|---|---|---|
+| What | Phases 2-5: shared cases, then one TypeScript engine on Bun | Phase 2: shared cases run against both engines | Nothing |
+| Cost | about 50 steps: phase 2 ~10, phase 3 ~14 (core, about 2,700 lines in each engine today), phase 4 ~16 (the rest, and the front door, about 1,100 lines in each), phase 5 ~8 (release workflow, installers, removing both engines) | about 10 steps: a PowerShell runner, stubs for a git remote and `gh` (10 of the 17 stub cases need a remote), and moving the cases | none |
+| Gain | One change per behavior. In the last four plans that is 9 of 38 steps (24%) that wouldn't exist, plus the drift fixes (4 since 2026-10-01). Windows logic gets tested on Linux, so fewer `[worker:high]` steps that only CI can check. 9 of the 17 "Known differences" rows go away | One suite for the contract instead of two: about 94% of the engine cases can be shared (31 of 33 in the sample). The two engines are held to the same cases, so the drift fixes stop. Engine work stays doubled | none |
+| Risk | Rewriting a working tool; programs of 68-115 MB to download; cross-built programs not yet run on their targets; Gatekeeper and SmartScreen not tried on a real machine | small: the engines don't change | drift keeps showing up as fixes |
+| Payback | At 9 twin steps per 38, removing duplication saves about 1 step in 4. The ~40 steps of phases 3-5 pay back after about 160 more plan steps, about 16 plans at the current size | starts at once: each new contract case is written once | |
+
+### Recommendation: B, then decide on A with its numbers
+
+Phase 2 is worth doing under either path: the roadmap needs the shared cases before a new engine can be called done,
+and they stop the drift fixes on their own. A doesn't pay for itself unless engine work keeps up its October pace for
+about 16 more plans. `TODO.md` lists only W10 and the macOS M1-M4 runs as open, so that pace isn't likely. After
+phase 2, count the twin steps in the plans that follow; if two engines still cost a quarter of the steps, phase 3 starts
+with the shared cases already in place, so nothing done in B is wasted.
