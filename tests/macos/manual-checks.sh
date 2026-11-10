@@ -144,6 +144,8 @@ else
     fi
 
     say ''
+    # $1 is for the inner sh, not this shell.
+    # shellcheck disable=SC2016
     run_logged check /bin/sh -c 'cd "$1" && ./import.sh --check' sh "$DIR"
     rc=$?
     if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then
@@ -189,6 +191,8 @@ else
             local_path=$HOME/${lp#\~/}
             if [ -e "$local_path" ]; then state=exists; else state='not there'; fi
             say "  $rp -> $lp ($state)"
+            # localPaths.macos holds a literal ~/, so match it unexpanded.
+            # shellcheck disable=SC2088
             case $lp in
                 '~/Library/Application Support/Code/User/'*) ;;
                 *) m2_fail="${m2_fail}$rp maps to $lp, not ~/Library/Application Support/Code/User/; " ;;
@@ -206,6 +210,8 @@ else
 
     # -- M3 ----------------------------------------------------------------------
     header 'M3: /bin/bash ./sync doctor re-runs under Homebrew bash'
+    # $1 is for the inner sh, not this shell.
+    # shellcheck disable=SC2016
     run_logged m3 /bin/sh -c 'cd "$1" && /bin/bash ./sync doctor' sh "$DIR"
     rc=$?
     m3_fail=''
