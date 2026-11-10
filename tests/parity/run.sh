@@ -63,6 +63,12 @@ validate_case() {
         || die 'os must be a list of linux, macos or windows'
     jq -e 'all(.commands[]; if has("stdin") then (.stdin | type) == "string" else true end)' "$json" > /dev/null 2>&1 \
         || die 'stdin must be a string'
+    jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
+        || die 'git must be none, committed or remote'
+    jq -e 'if has("stubs") then
+            (.stubs | type) == "array" and all(.stubs[]; . == "gh")
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'stubs may only hold gh'
     local name suffix os_folder=0 has_differences=false
     for name in "$dir"/expect.*; do
         [[ -d $name ]] || continue
@@ -140,7 +146,7 @@ first_line_diff() {
         if [[ $what == exit ]]; then
             die "exit line $((n + 1)): want $w, got $g"
         fi
-        die "output line $((n + 1)): want \"$w\", got \"$g\""
+        die "$what line $((n + 1)): want \"$w\", got \"$g\""
     done
     return 0
 }
@@ -150,7 +156,7 @@ first_line_diff() {
 # the file from the case's point of view.
 tree_diff() {
     local want_dir=$1 got_dir=$2 line case_root temp_root
-    line=$(diff -rq "$want_dir" "$got_dir" 2>&1 | head -n 1) || true
+    line=$(diff -rq -x .git "$want_dir" "$got_dir" 2>&1 | head -n 1) || true
     [[ -n $line ]] || return 0
     case_root=${dir%/}
     temp_root=${t%/}
@@ -189,6 +195,41 @@ compare_modes() {
     done < <(cd "$want_dir" && find . -type f -print0)
 }
 
+# git with the user's own configuration kept out of the case.
+git_env() {
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"
+}
+
+# Put the case's temp repo under git: everything committed on master, and for
+# `remote` also a bare origin at $temp/origin.git that master tracks.
+setup_git() {
+    local repo=$1 temp=$2 mode=$3
+    git_env -C "$repo" init -q -b master || die 'git init failed'
+    git_env -C "$repo" config user.name Parity || die 'git config user.name failed'
+    git_env -C "$repo" config user.email parity@example.com || die 'git config user.email failed'
+    git_env -C "$repo" config commit.gpgsign false || die 'git config commit.gpgsign failed'
+    printf '.user-values.json\n' >> "$repo/.git/info/exclude" || die 'writing .git/info/exclude failed'
+    git_env -C "$repo" add -A || die 'git add failed'
+    git_env -C "$repo" commit -q -m 'parity case' || die 'git commit failed'
+    if [[ $mode == remote ]]; then
+        git_env init -q --bare -b master "$temp/origin.git" || die 'git init of origin failed'
+        git_env -C "$repo" remote add origin "$temp/origin.git" || die 'git remote add failed'
+        git_env -C "$repo" push -q -u origin master || die 'git push failed'
+    fi
+}
+
+# Write the gh stub into $temp/bin: it appends its arguments joined by spaces,
+# one call per line, to $temp/gh.log, prints nothing and exits 0.
+write_gh_stub() {
+    local temp=$1
+    mkdir -p "$temp/bin" || die 'creating the gh stub folder failed'
+    printf '%s\n' \
+        '#!/bin/sh' \
+        "printf '%s\\n' \"\$*\" >> '$temp/gh.log'" \
+        'exit 0' > "$temp/bin/gh" || die 'writing the gh stub failed'
+    chmod +x "$temp/bin/gh" || die 'making the gh stub executable failed'
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, prints the first difference and
@@ -196,10 +237,10 @@ compare_modes() {
 # the EXIT trap removes the temp folder on success and failure alike.
 run_case() {
     local dir=$1
-    local config_json count i cmd rc only_path out stdin_file
-    local want_exit want_output want_home want_repo want_values want_state
+    local config_json count i cmd rc only_path out stdin_file git_mode gh_stub=false
+    local want_exit want_output want_home want_repo want_values want_state want_gh calls
     local file rel got want_mode got_mode
-    local -a args=() runs=()
+    local -a args=() runs=() path_env=()
 
     t=$(mktemp -d)
     trap 'rm -rf "$t"' EXIT
@@ -224,6 +265,19 @@ run_case() {
         cp -a "$dir/home/." "$t/home/" || die 'copying the case home/ failed'
     fi
 
+    git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
+    case $git_mode in
+        none) ;;
+        committed|remote) setup_git "$t/repo" "$t" "$git_mode" ;;
+        *) die 'git must be none, committed or remote' ;;
+    esac
+
+    if jq -e '(.stubs // []) | any(. == "gh")' "$dir/case.json" > /dev/null 2>&1; then
+        gh_stub=true
+        write_gh_stub "$t"
+        path_env=(PATH="$t/bin:$PATH")
+    fi
+
     : > "$t/actual-exit"
     : > "$t/actual-output"
     for ((i = 0; i < count; i++)); do
@@ -234,6 +288,7 @@ run_case() {
             import) args=(./import.sh) ;;
             check) args=(./import.sh --check) ;;
             preview) args=(./export.sh --preview) ;;
+            diff) args=(./export.sh --diff) ;;
             commit) args=(./commit.sh) ;;
             *) die "unknown command '$cmd' in command $((i + 1))" ;;
         esac
@@ -259,10 +314,27 @@ run_case() {
 
         rc=0
         (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME \
-            "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
+            "${path_env[@]}" "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         printf '%s\n' "$rc" >> "$t/actual-exit"
         status_lines "$t/raw" >> "$t/actual-output"
     done
+
+    # Each gh call is cut to its first two words, so branch names and titles
+    # don't matter. No expected file means gh must not be called.
+    if $gh_stub; then
+        want_gh=$(expected_path "$dir" gh.log)
+        : > "$t/gh-cut"
+        if [[ -f $t/gh.log ]]; then
+            awk '{ print $1 (NF > 1 ? " " $2 : "") }' "$t/gh.log" > "$t/gh-cut" \
+                || die 'reading gh.log failed'
+        fi
+        if [[ -f $want_gh ]]; then
+            first_line_diff gh "$want_gh" "$t/gh-cut"
+        else
+            calls=$(head -n 1 "$t/gh-cut")
+            [[ -z $calls ]] || die "gh: want no call, got \"$calls\""
+        fi
+    fi
 
     # The repo's values cache is compared as JSON, key order ignored, before
     # the engine files are stripped from the repo.
