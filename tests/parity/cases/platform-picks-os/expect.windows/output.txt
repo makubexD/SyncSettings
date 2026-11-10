@@ -1,0 +1,2 @@
+ADDED dotfiles/windows/parity/win.conf
+ADDED dotfiles/common/parity/com.conf

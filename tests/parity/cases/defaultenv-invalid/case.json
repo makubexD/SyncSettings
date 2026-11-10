@@ -1,0 +1,21 @@
+{
+  "description": "An invalid defaultEnv name stops export before it touches a file on bash, while PowerShell has no such check (Path safety, Known differences).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/git.conf",
+        "localPath": "~/.config/parity/git.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<YOUR_NAME>", "prompt": "Full name", "defaultEnv": "1BAD" }
+        ]
+      }
+    ]
+  },
+  "values": { "<YOUR_NAME>": "Parity User" },
+  "commands": [{ "command": "export" }],
+  "differences": ["defaultEnv name check"]
+}

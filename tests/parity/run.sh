@@ -175,7 +175,8 @@ strip_engine() {
 
 # The permission bits of a file: GNU and BSD `stat` spell the option differently.
 file_mode() {
-    if [[ $HARNESS_OS == macos ]]; then
+    # The host's stat, not HARNESS_OS: SYNC_OS=macos on Linux still has GNU stat.
+    if [[ $(uname -s) == Darwin ]]; then
         stat -f %Lp "$1"
     else
         stat -c %a "$1"

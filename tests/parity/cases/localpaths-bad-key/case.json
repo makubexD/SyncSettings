@@ -1,0 +1,23 @@
+{
+  "description": "Export stops before touching a file when a localPaths key is not a known system (Path safety).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/ok.conf",
+        "localPath": "~/.config/parity/ok.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      },
+      {
+        "repoPath": "dotfiles/common/parity/b.conf",
+        "localPath": "~/.config/parity/b.conf",
+        "platform": "common",
+        "localPaths": { "freebsd": "~/.config/parity/b.conf" },
+        "description": "Parity case entry with an unknown localPaths key"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}
