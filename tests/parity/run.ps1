@@ -281,6 +281,10 @@ function Get-TreePaths {
         while ($stack.Count -gt 0) {
             $current = $stack.Pop()
             foreach ($item in @(Get-ChildItem -LiteralPath $current -Force -ErrorAction Stop)) {
+                # The temp repo's own .git folder is not part of the case.
+                if ($item.PSIsContainer -and $item.Name -ceq '.git' -and $current -ceq $Root) {
+                    continue
+                }
                 $rel = $item.FullName.Substring($Root.Length)
                 $rel = $rel.TrimStart('\', '/')
                 $rel = $rel -replace '\\', '/'
@@ -395,6 +399,58 @@ function Get-SortedValuesJson {
     return ($obj | ConvertTo-Json -Compress)
 }
 
+# git with the user's own configuration kept out of the case. $What names the
+# operation for the failure message.
+function Invoke-Git {
+    param([string]$What, [string[]]$GitArgs)
+    $oldGlobal = $env:GIT_CONFIG_GLOBAL
+    $oldNoSystem = $env:GIT_CONFIG_NOSYSTEM
+    $oldPreference = $ErrorActionPreference
+    try {
+        $env:GIT_CONFIG_GLOBAL = 'NUL'
+        $env:GIT_CONFIG_NOSYSTEM = '1'
+        $ErrorActionPreference = 'Continue'
+        & git @GitArgs 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Die "$What failed"
+        }
+    } finally {
+        $ErrorActionPreference = $oldPreference
+        $env:GIT_CONFIG_GLOBAL = $oldGlobal
+        $env:GIT_CONFIG_NOSYSTEM = $oldNoSystem
+    }
+}
+
+# Put the case's temp repo under git: everything committed on master, and for
+# `remote` also a bare origin at <temp>\origin.git that master tracks.
+function Setup-Git {
+    param([string]$RepoDir, [string]$TempDir, [string]$Mode)
+    Invoke-Git -What 'git init' -GitArgs @('-C', $RepoDir, 'init', '-q', '-b', 'master')
+    Invoke-Git -What 'git config user.name' -GitArgs @('-C', $RepoDir, 'config', 'user.name', 'Parity')
+    Invoke-Git -What 'git config user.email' -GitArgs @('-C', $RepoDir, 'config', 'user.email', 'parity@example.com')
+    Invoke-Git -What 'git config commit.gpgsign' -GitArgs @('-C', $RepoDir, 'config', 'commit.gpgsign', 'false')
+    Invoke-Git -What 'git config core.autocrlf' -GitArgs @('-C', $RepoDir, 'config', 'core.autocrlf', 'false')
+    [IO.File]::AppendAllText((Join-Path $RepoDir '.git\info\exclude'), ".user-values.json`n", [System.Text.UTF8Encoding]::new($false))
+    Invoke-Git -What 'git add' -GitArgs @('-C', $RepoDir, 'add', '-A')
+    Invoke-Git -What 'git commit' -GitArgs @('-C', $RepoDir, 'commit', '-q', '-m', 'parity case')
+    if ($Mode -ceq 'remote') {
+        Invoke-Git -What 'git init of origin' -GitArgs @('init', '-q', '--bare', '-b', 'master', (Join-Path $TempDir 'origin.git'))
+        Invoke-Git -What 'git remote add' -GitArgs @('-C', $RepoDir, 'remote', 'add', 'origin', (Join-Path $TempDir 'origin.git'))
+        Invoke-Git -What 'git push' -GitArgs @('-C', $RepoDir, 'push', '-q', '-u', 'origin', 'master')
+    }
+}
+
+# Write the gh stub into <temp>\bin: a gh.cmd that appends each call's arguments,
+# one call per line, to <temp>\gh.log, prints nothing and exits 0.
+function Write-GhStub {
+    param([string]$TempDir)
+    $binDir = Join-Path $TempDir 'bin'
+    New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    $logPath = Join-Path $TempDir 'gh.log'
+    $body = "@echo off`r`necho(%*>>`"$logPath`"`r`n"
+    [IO.File]::WriteAllText((Join-Path $binDir 'gh.cmd'), $body, [System.Text.UTF8Encoding]::new($false))
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, throwing the first difference.
@@ -442,14 +498,23 @@ function Run-Case {
             Copy-Tree (Join-Path $Dir 'home') $homeDir
         }
 
-        # git modes and stubs arrive in step 5.
+        # Git: everything committed on master, and for `remote` also a bare
+        # origin the repo was pushed to.
+        $gitMode = 'none'
         $gitProp = $Case.PSObject.Properties['git']
-        if ($null -ne $gitProp -and $gitProp.Value -cne 'none') {
-            Die 'git and stubs come in step 5'
+        if ($null -ne $gitProp) {
+            $gitMode = [string]$gitProp.Value
         }
+        if ($gitMode -ceq 'committed' -or $gitMode -ceq 'remote') {
+            Setup-Git -RepoDir $repoDir -TempDir $t -Mode $gitMode
+        }
+
+        # gh stub: first on PATH for every command, logging each call's args.
+        $ghStub = $false
         $stubsProp = $Case.PSObject.Properties['stubs']
         if ($null -ne $stubsProp -and (@($stubsProp.Value) -ccontains 'gh')) {
-            Die 'git and stubs come in step 5'
+            $ghStub = $true
+            Write-GhStub -TempDir $t
         }
 
         # Commands
@@ -468,8 +533,8 @@ function Run-Case {
                 'import'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1' }
                 'check'   { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1'; $extraArgs += '-Check' }
                 'preview' { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Preview' }
-                'diff'    { Die 'git and stubs come in step 5' }
-                'commit'  { Die 'git and stubs come in step 5' }
+                'diff'    { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Diff' }
+                'commit'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Commit-Settings.ps1' }
                 default   { Die "unknown command '$cmd' in command $($i + 1)" }
             }
 
@@ -506,12 +571,16 @@ function Run-Case {
             $oldProfile = $env:USERPROFILE
             $oldHome = $env:HOME
             $oldLocal = $env:LOCALAPPDATA
+            $oldPath = $env:PATH
             $oldPreference = $ErrorActionPreference
             Push-Location $repoDir
             try {
                 $env:USERPROFILE = $homeDir
                 $env:HOME = $homeDir
                 $env:LOCALAPPDATA = $localDir
+                if ($ghStub) {
+                    $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
+                }
                 # In PS 5.1 a native command's stderr redirected with 2>&1 turns
                 # into error records, which 'Stop' would throw on.
                 $ErrorActionPreference = 'Continue'
@@ -522,12 +591,40 @@ function Run-Case {
                 $env:USERPROFILE = $oldProfile
                 $env:HOME = $oldHome
                 $env:LOCALAPPDATA = $oldLocal
+                $env:PATH = $oldPath
                 Pop-Location
             }
 
             $exitCodes.Add([string]$rc)
             foreach ($line in (Get-StatusLines $raw)) {
                 $statusOut.Add($line)
+            }
+        }
+
+        # Each gh call is cut to its first two words, so branch names and titles
+        # don't matter. No expected file means gh must not be called.
+        if ($ghStub) {
+            $ghCut = New-Object System.Collections.Generic.List[string]
+            $ghLogPath = Join-Path $t 'gh.log'
+            if (Test-Path -LiteralPath $ghLogPath -PathType Leaf) {
+                foreach ($line in (Read-Lines $ghLogPath)) {
+                    $line = $line.TrimEnd("`r")
+                    if ($line -eq '') {
+                        continue
+                    }
+                    $words = @($line -split ' +')
+                    if ($words.Count -eq 1) {
+                        $ghCut.Add($words[0])
+                    } else {
+                        $ghCut.Add($words[0] + ' ' + $words[1])
+                    }
+                }
+            }
+            $wantGh = Get-ExpectedPath $Dir 'gh.log'
+            if (Test-Path -LiteralPath $wantGh -PathType Leaf) {
+                Compare-Lines -What 'gh' -Want (Read-Lines $wantGh) -Got $ghCut.ToArray()
+            } elseif ($ghCut.Count -gt 0) {
+                Die "gh: want no call, got `"$($ghCut[0])`""
             }
         }
 
