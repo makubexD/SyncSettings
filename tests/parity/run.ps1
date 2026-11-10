@@ -720,6 +720,17 @@ function Run-Case {
         }
         Compare-Lines -What 'output' -Want $wantOutputLines -Got $statusOut.ToArray()
 
+        # powershell.exe started with a temp USERPROFILE leaves empty AppData
+        # folders behind. Drop them only when no file is under them, so a file
+        # the engine writes there still shows in the compare.
+        $appData = Join-Path $homeDir 'AppData'
+        if (Test-Path -LiteralPath $appData -PathType Container) {
+            $appFiles = @(Get-ChildItem -LiteralPath $appData -Recurse -File -Force -ErrorAction SilentlyContinue)
+            if ($appFiles.Count -eq 0) {
+                Remove-Item -LiteralPath $appData -Recurse -Force
+            }
+        }
+
         # Home tree: an absent expect home means the tree must be empty.
         $wantHome = Get-ExpectedPath $Dir 'home'
         $homeWantDir = $emptyDir
