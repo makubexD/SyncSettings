@@ -1,0 +1,2 @@
+ADDED dotfiles/common/parity/git.conf
+UNCHANGED dotfiles/common/parity/git.conf

@@ -1,0 +1,2 @@
+UPDATE dotfiles/common/parity/app.conf
+UNCHANGED dotfiles/common/parity/same.conf

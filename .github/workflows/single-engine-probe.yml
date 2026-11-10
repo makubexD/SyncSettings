@@ -1,0 +1,141 @@
+name: single-engine-probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/single-engine]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        runtime: [bun, deno]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        continue-on-error: true
+        uses: actions/checkout@v4
+      - name: Set up Bun
+        if: matrix.runtime == 'bun'
+        continue-on-error: true
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Set up Deno
+        if: matrix.runtime == 'deno'
+        continue-on-error: true
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.9.8
+      - name: Build
+        continue-on-error: true
+        run: |
+          set -u
+          work="${RUNNER_TEMP:-$PWD}"
+          errfile="$work/probe-build-error.txt"
+          statusfile="$work/probe-build-status.txt"
+          if [ "$RUNNER_OS" = "Windows" ]; then EXE="$work/probe.exe"; else EXE="$work/probe"; fi
+          status=0
+          if [ "${{ matrix.runtime }}" = "bun" ]; then
+            bun build --compile probe/single-engine/main.ts --outfile "$EXE" 2>"$errfile" || status=$?
+          else
+            deno compile -A --output "$EXE" probe/single-engine/main.ts 2>"$errfile" || status=$?
+          fi
+          cat "$errfile" >&2 || true
+          printf '%s\n' "$status" > "$statusfile"
+          exit "$status"
+      - name: Report
+        continue-on-error: true
+        run: |
+          set -u
+          work="${RUNNER_TEMP:-$PWD}"
+          errfile="$work/probe-build-error.txt"
+          statusfile="$work/probe-build-status.txt"
+          report="probe-${{ matrix.os }}-${{ matrix.runtime }}.txt"
+          if [ "$RUNNER_OS" = "Windows" ]; then EXE="$work/probe.exe"; else EXE="$work/probe"; fi
+          status=$(cat "$statusfile" 2>/dev/null || echo 1)
+          if [ "${{ matrix.runtime }}" = "bun" ]; then
+            version=$(bun --version 2>&1 | head -n 1 || true)
+          else
+            version=$(deno --version 2>&1 | head -n 1 || true)
+          fi
+          {
+            printf 'runtime: %s\n' "$version"
+            if [ "$status" = "0" ] && [ -f "$EXE" ]; then
+              printf 'built: yes\n'
+            else
+              printf 'built: no: %s\n' "$(head -n 1 "$errfile" 2>/dev/null)"
+            fi
+            if [ -f "$EXE" ]; then
+              printf 'size: %s\n' "$(wc -c < "$EXE" | tr -d '[:space:]')"
+            else
+              printf 'size: n/a\n'
+            fi
+          } > "$report"
+          if [ -f "$EXE" ]; then
+            # On Windows, python3 can be the Microsoft Store stub; the runner's python is real.
+            if [ "$RUNNER_OS" != "Windows" ] && command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+            "$PY" -c '
+          import subprocess, sys, time
+          exe, repo = sys.argv[1], sys.argv[2]
+          start = time.perf_counter()
+          for _ in range(20):
+              subprocess.run([exe, repo], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          total = (time.perf_counter() - start) * 1000.0
+          print("time-total-ms: %.1f" % total)
+          print("time-per-run-ms: %.3f" % (total / 20.0))
+          ' "$EXE" tests/fixtures >> "$report" || printf 'time-total-ms: n/a\ntime-per-run-ms: n/a\n' >> "$report"
+          else
+            printf 'time-total-ms: n/a\ntime-per-run-ms: n/a\n' >> "$report"
+          fi
+          rc=0
+          out=$("$EXE" tests/fixtures 2>&1) || rc=$?
+          {
+            printf 'output:\n'
+            printf '%s\n' "$out"
+            printf 'exit: %s\n' "$rc"
+          } >> "$report"
+      - name: Cross-compile
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: |
+          set -u
+          report="probe-${{ matrix.os }}-${{ matrix.runtime }}.txt"
+          if [ "${{ matrix.runtime }}" = "bun" ]; then
+            targets="bun-linux-arm64 bun-darwin-arm64 bun-windows-x64"
+          else
+            targets="aarch64-unknown-linux-gnu aarch64-apple-darwin x86_64-pc-windows-msvc"
+          fi
+          for target in $targets; do
+            out="${RUNNER_TEMP:-$PWD}/cross-$target"
+            case "$target" in *windows*) out="$out.exe" ;; esac
+            err=$(mktemp)
+            status=0
+            if [ "${{ matrix.runtime }}" = "bun" ]; then
+              bun build --compile --target="$target" probe/single-engine/main.ts --outfile "$out" 2>"$err" || status=$?
+            else
+              deno compile -A --target "$target" --output "$out" probe/single-engine/main.ts 2>"$err" || status=$?
+            fi
+            if [ "$status" -eq 0 ] && [ -f "$out" ]; then
+              printf 'cross: %s %s bytes\n' "$target" "$(wc -c < "$out" | tr -d '[:space:]')" >> "$report"
+            else
+              printf 'cross: %s failed: %s\n' "$target" "$(head -n 1 "$err" 2>/dev/null)" >> "$report"
+            fi
+            rm -f "$out" "$err"
+          done
+      - name: Print report
+        continue-on-error: true
+        run: cat "probe-${{ matrix.os }}-${{ matrix.runtime }}.txt"
+      - name: Upload report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.os }}-${{ matrix.runtime }}
+          path: probe-${{ matrix.os }}-${{ matrix.runtime }}.txt

@@ -1,0 +1,21 @@
+{
+  "description": "Export replaces the values with placeholders, and import of the same file then finds nothing to change (Sanitize and hydrate).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/git.conf",
+        "localPath": "~/.config/parity/git.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<YOUR_NAME>", "prompt": "Full name" },
+          { "placeholder": "<YOUR_EMAIL>", "prompt": "Email" }
+        ]
+      }
+    ]
+  },
+  "values": { "<YOUR_NAME>": "Parity User", "<YOUR_EMAIL>": "parity@example.com" },
+  "commands": [{ "command": "export" }, { "command": "import", "options": { "force": true } }]
+}
