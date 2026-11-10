@@ -81,6 +81,30 @@ jobs:
             echo 'FAIL: /bin/bash did not re-exec into Homebrew bash for export.sh'
             exit 1
           fi
+  # The manual macOS checks M1-M3 (TODO.md) on a real macOS runner: the README install line from a
+  # stock Mac's point of view, then mksync status, import --check and /bin/bash ./sync doctor.
+  macos-checks:
+    runs-on: macos-latest
+    env:
+      SYNCSETTINGS_INSTALL_URL: file://${{ github.workspace }}/install.sh
+      SYNCSETTINGS_REPO_URL: https://github.com/${{ github.repository }}.git
+      SYNCSETTINGS_REF: ${{ github.head_ref || github.ref_name }}
+      SYNCSETTINGS_DIR: ${{ runner.temp }}/SyncSettings
+      SYNCSETTINGS_TTY: ${{ runner.temp }}/answers.txt
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove Homebrew bash and jq, so the installer asks for them
+        run: brew uninstall --ignore-dependencies bash jq || true
+      - name: Answer yes to every question
+        run: for i in $(seq 50); do echo y; done > "$SYNCSETTINGS_TTY"
+      - name: Run the macOS checks under the stock bash 3.2
+        run: /bin/bash tests/macos/manual-checks.sh
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-checks-report
+          path: ~/mksync-macos-checks-*.txt
   engine-windows:
     runs-on: windows-latest
     steps:
