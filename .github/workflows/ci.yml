@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x bootstrap/linux.sh export.sh import.sh commit.sh sync install.sh scripts/linux/sync.sh scripts/linux/front.sh scripts/ci/*.sh tests/linux/*.sh
+        run: shellcheck -x bootstrap/linux.sh export.sh import.sh commit.sh sync install.sh scripts/linux/sync.sh scripts/linux/front.sh scripts/ci/*.sh tests/linux/*.sh tests/parity/run.sh
       - name: Validate JSON
         run: jq empty sync-config.json
       - name: Config sanity
@@ -40,6 +40,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y dconf-cli dbus
       - name: Engine contract tests (bash)
         run: tests/linux/engine.sh
+      - name: Shared cases (bash)
+        run: tests/parity/run.sh
       - name: Bootstrap tests (bash)
         run: tests/linux/bootstrap.sh
   engine-macos:
@@ -50,6 +52,8 @@ jobs:
         run: brew install bash jq
       - name: Engine contract tests (bash, macOS)
         run: /opt/homebrew/bin/bash tests/linux/engine.sh
+      - name: Shared cases (bash, macOS)
+        run: /opt/homebrew/bin/bash tests/parity/run.sh
       - name: System bash reaches the guard
         shell: bash
         run: |
@@ -88,6 +92,9 @@ jobs:
         run: |
           Import-Module Pester -MinimumVersion 5.5.0
           Invoke-Pester -Path tests/windows -CI
+      - name: Shared cases (PowerShell)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1
   bootstrap-check:
     runs-on: ubuntu-latest
     container: ubuntu:26.04
