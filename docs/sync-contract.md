@@ -79,8 +79,9 @@ Every command that walks entries takes a repeatable `--only <path>` (PowerShell:
 either a repo path or a local path:
 
 - A path starting with `dotfiles/` is a repo path. It is accepted when an entry selected for this OS owns it: the path
-  equals its `repoPath`, starts with `<repoPath>/` for a `dir` entry, or starts with `<repoPath>.linked/` for a file
-  entry. A trailing `/` is dropped.
+  equals its `repoPath`, or starts with `<repoPath>/` for a `dir` entry. A trailing `/` is dropped. A path with a `..`
+  segment is refused on both engines, and a path under `<repoPath>.linked/` is refused on bash; linked folders are
+  PowerShell only, so PowerShell still accepts a file entry's `<repoPath>.linked/` path.
 - Any other path is a local path. A leading `~/` becomes `$HOME/` (a lone `~` becomes `$HOME`), a path that doesn't
   start with `/` is joined to the caller's folder (`$SYNC_CALLER_PWD`, else `$PWD`), and `.` and `..` segments are
   folded lexically, without following links. A relative pick is relative to the caller's folder on direct engine

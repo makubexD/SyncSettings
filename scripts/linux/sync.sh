@@ -244,11 +244,16 @@ resolve_only() {
             p=${p%/}
         done
         if [[ $p == dotfiles/* ]]; then
+            # A .. segment could climb out of an entry's prefix, and linked
+            # folders are PowerShell only.
+            if [[ /$p/ == */../* || $p == *".linked/"* ]]; then
+                printf 'ERROR: %s is not synced on this machine.\n' "$arg" >&2
+                return 1
+            fi
             found=0
             for i in "${!e_repo[@]}"; do
                 if [[ $p == "${e_repo[$i]}" ]] \
-                    || { [[ ${e_kind[$i]} == dir ]] && [[ $p == "${e_repo[$i]}/"* ]]; } \
-                    || { [[ ${e_kind[$i]} == file ]] && [[ $p == "${e_repo[$i]}.linked/"* ]]; }; then
+                    || { [[ ${e_kind[$i]} == dir ]] && [[ $p == "${e_repo[$i]}/"* ]]; }; then
                     found=1
                     break
                 fi
