@@ -1,11 +1,5 @@
 # TODO
 
-## Windows check after the follow-ups
-
-- [ ] **W10** On Windows, save the shared `.gitconfig` with CRLF line endings, run `mksync push` and merge the PR. Then
-      `mksync diff` shows the file matching, and `mksync pull` writes nothing.
-- [ ] Delete this section when it passes.
-
 ## macOS checks after phase 4
 
 CI runs the engine on `macos-latest`; nobody has run it on a real Mac yet.
