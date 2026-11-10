@@ -1,5 +1,7 @@
 # Follow-ups: tighter picks, one Windows front door, shared line endings
 
+Status: done 2026-11-09. The Windows check W10 in `TODO.md` is left for a real Windows machine.
+
 The "Follow-ups" list in `TODO.md`, left over from `docs/plan-safe-sync.md` and the Windows checks W0-W9:
 
 1. **Loose `--only` picks on bash.** A repo path with a `..` segment (`dotfiles/common/dir/../../x`) passes, because
