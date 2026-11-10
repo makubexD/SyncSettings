@@ -3796,6 +3796,47 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 0 in, 1 out, 0 both.'))
         }
 
+        It 'front-unknown-option-diff' {
+            Initialize-FrontRepo
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('diff', '-x')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('Unknown option: -x'))
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('Offline'))
+        }
+
+        It 'front-unknown-option-pull' {
+            Initialize-FrontRepo
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('pull', '--bogus')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('Unknown option: --bogus'))
+        }
+
+        It 'front-unknown-option-push' {
+            Initialize-FrontRepo
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('push', '-x')
+
+            $script:EngineExit | Should -Be 1
+            $script:EngineOut | Should -Match ([regex]::Escape('Unknown option: -x'))
+        }
+
+        It 'front-diff-path-still-runs' {
+            Initialize-FrontRepo
+
+            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
+            [IO.File]::WriteAllText($winConf, "user = Someone Else`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-SyncCmd -Root $script:CloneDir -CmdArgs @('diff', 'dotfiles/windows/win.conf')
+
+            $script:EngineExit | Should -Be 3
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('Unknown option'))
+            $script:EngineOut | Should -Match (Get-StatusPattern 'OUT' 'dotfiles/windows/win.conf')
+        }
+
         It 'front-only-relative' {
             Initialize-FrontRepo
 

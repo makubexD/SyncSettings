@@ -636,6 +636,8 @@ On Windows the guard recognises the same labels in the `[OUT      ]` status-line
 `powershell.exe` after a fast-forward, since PowerShell has no `exec`, and the status fetch has a 15-second timeout as on
 Linux. The status's OS name comes from `SYNC_OS_NAME` if set, else the Windows caption. `--yes` answers the `[Y/n]` questions. It never
 answers the bootstrap question, because bootstrap uses `sudo`; `--bootstrap` does.
+On both front doors, `pull`, `push` and `diff` stop on an unknown option (a remaining argument that starts with `-`) with
+`Unknown option: <arg>` on stderr and exit 1, before any fetch or child step.
 
 Status lines and the next command, in this order of precedence:
 
