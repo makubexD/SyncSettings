@@ -294,6 +294,11 @@ function Resolve-OnlyPaths {
         if ($p.StartsWith('dotfiles/', [StringComparison]::Ordinal) -or
             $p.StartsWith('dotfiles\', [StringComparison]::Ordinal)) {
             $p = $p -replace '\\', '/'
+            foreach ($seg in ($p -split '/')) {
+                if ($seg -ceq '..') {
+                    throw ('{0} is not synced on this machine.' -f $arg)
+                }
+            }
             $found = $false
             foreach ($e in $entries) {
                 if ([string]::Equals($p, $e.repoPath, [StringComparison]::Ordinal)) {

@@ -2367,6 +2367,34 @@ Describe 'Windows engine' {
                 Should -Throw 'dotfiles/linux/plain.txt is not synced on this machine.'
         }
 
+        It 'only-repo-dotdot' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            { Resolve-OnlyPaths -Paths @('dotfiles/common/dir/../../secret') -Files $files -UserProfile $script:HomeDir } |
+                Should -Throw 'dotfiles/common/dir/../../secret is not synced on this machine.'
+        }
+
+        It 'only-repo-dotdot-backslash' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            { Resolve-OnlyPaths -Paths @('dotfiles\common\dir\..\x') -Files $files -UserProfile $script:HomeDir } |
+                Should -Throw 'dotfiles\common\dir\..\x is not synced on this machine.'
+        }
+
+        It 'only-repo-dotdot-name' {
+            . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
+            $config = Get-Content (Join-Path $Script:Fixtures 'sync-config.json') -Raw | ConvertFrom-Json
+            $files = @(Select-WindowsEntries -Files $config.files)
+
+            $result = @(Resolve-OnlyPaths -Paths @('dotfiles/common/dir/foo..bar') -Files $files -UserProfile $script:HomeDir)
+
+            ($result -join "`n") | Should -Be 'dotfiles/common/dir/foo..bar'
+        }
+
         It 'only-selected' {
             . (Join-Path $Script:TestRepo 'scripts\windows\SyncHelpers.ps1')
 
