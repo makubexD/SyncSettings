@@ -23,6 +23,12 @@ so.
 Inventory, a compiled probe on four runners, a draft of engine-neutral test cases, and a recommendation. Changes no
 engine code. Ends with the user's decision: go (and which runtime), shared cases only, or stop.
 
+**Done 2026-11-09.** Evidence in [single-engine-research.md](single-engine-research.md). Decision: **B, shared cases
+only.** Phase 2 goes ahead; both engines stay. Phases 3-5 wait: after phase 2, count the steps that repeat a behavior in
+the second engine in the plans that follow, and start phase 3 only if they are still about a quarter of the steps
+(section 5 of the research). The probe (`probe/single-engine/`, workflow `single-engine-probe`, run by hand) stays for
+that decision.
+
 ### Phase 2: shared cases
 
 Engine-neutral cases in `tests/parity/` that drive any engine as a black box (files in, command, output and files
