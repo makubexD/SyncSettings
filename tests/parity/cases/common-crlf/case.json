@@ -1,6 +1,6 @@
 {
   "description": "Export compares a shared file without rules byte for byte: a CRLF copy differs on bash, MODIFIED (Compare); on Windows the line endings fold, UNCHANGED.",
-  "differences": ["Compare"],
+  "differences": ["Shared files without rules"],
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak"],

@@ -1,8 +1,30 @@
-# Shared cases (draft)
+# Shared cases
 
 Cases that test the [contract](../../docs/sync-contract.md) through the command line only, so one case runs against
-any engine: bash, PowerShell, or a future compiled one. This folder is a phase 1 draft
-([plan-single-engine-1.md](../../docs/plan-single-engine-1.md), step 5). `run.sh` is the bash runner; phase 2 adds the PowerShell one.
+any engine: bash, PowerShell, or a future compiled one. `run.sh` runs them against the bash engine (Linux, and macOS
+under Homebrew's bash); `run.ps1` runs them against the PowerShell engine on Windows PowerShell 5.1. CI runs them in
+`engine-linux`, `engine-macos` and `engine-windows`, each next to that engine's own suite.
+
+```bash
+tests/parity/run.sh                 # every case
+tests/parity/run.sh only-           # cases whose name contains "only-"
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [case-name-filter]
+```
+
+## Adding a case
+
+1. Find the rule in the contract. A behavior the contract doesn't state yet goes into the contract first.
+2. Copy the closest case under `cases/`, rename it, and write `description` with the contract section in brackets.
+3. Write `expect/` from the contract text, not from what the engine prints. If the engine disagrees, the engine or the
+   contract is wrong; don't record the engine's output.
+4. Run the case on bash. Push and read the three engine jobs for macOS and Windows.
+5. An engine that differs on purpose gets an `expect.<os>/` folder, but only for a row of the contract's
+   [Known differences](../../docs/sync-contract.md#known-differences) (see [Per-OS expectations](#per-os-expectations)).
+   When the difference is not the point of the case, change the case's input to avoid it instead, as
+   `hydrate-escape-backslashes` does by giving its target folder a file.
 
 ## A case
 
@@ -81,9 +103,56 @@ Each file is taken from `expect.<os>/` when it's there for the OS the runner is 
 
 ## What fits
 
-A case fits when the behavior shows in exit code, status lines and files. Behavior that needs a git remote, `gh`, a
-prompt answer, `dconf` or a package manager fits once the runner offers a stub for it (phase 2). A check of one
-function from the inside stays a unit test of that engine.
+A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh` (`stubs`) and a
+prompt answer (`stdin`) are covered. `dconf` and the package managers have no stub yet, so those cases stay in
+`tests/linux/engine.sh`. Text the runner drops (notes, `ERROR:` messages, summaries) and a check of one function from
+the inside stay in that engine's own suite.
+
+## Reading a failure
+
+Each case prints one line: `ok`, `skip` (its `os` list leaves this OS out), or `FAIL` with the first difference found.
+The run ends with the counts and exits 1 if any case failed.
+
+```text
+ok export-adds
+FAIL diff-in: output line 1: want "OUT dotfiles/common/parity/a.conf", got "? dotfiles/common/parity/a.conf"
+ok dir-export-removed
+...
+36 passed, 1 failed
+```
+
+The part after the case name says which check failed:
+
+| Prefix | Meaning |
+|---|---|
+| `exit:`, `exit line N:` | the exit code of command N |
+| `output line N:` | status line N, across all commands, as `WORD label` |
+| `Files expect/home/… and home/… differ`, `Only in …` | the first `diff -rq` line for a home or repo tree: a file different, missing or extra |
+| `mode <path>:` | the file is right but its mode isn't (bash runner only) |
+| `values.json:`, `state …:` | `expect/values.json` or `expect/state/` |
+| `gh line N:` | gh call N, cut to its first two words |
+| anything else | the case itself is malformed: `case.json`, `differences`, an `expect.<os>/` name |
+
+Only the first difference prints. Fix it and run the case again with its name as the filter.
+
+## Troubleshooting
+
+- **A file has CRLF line endings after a checkout.** `.gitattributes` marks `tests/parity/cases/**` as `-text`, so git
+  keeps the bytes as committed. A case that needs CRLF (`common-crlf`, `sanitized-crlf-unchanged`) commits them; an
+  editor that rewrites line endings breaks it. Check with `cat -A <file>`: CRLF lines end in `^M$`.
+- **`differences set but no expect.<os>/ folder`**, or **`differences must name the Known differences rows`**.
+  `differences` and `expect.<os>/` come together: add both or neither, and `differences` is a non-empty list of
+  strings. The runner doesn't check the names, so the review does: each must name a row of the contract's Known
+  differences table, or be `"Entry selection"`.
+- **`gh line 1: want "pr create", got nothing`.** The commit never reached `gh`; it likely stopped earlier. Run the
+  same commands by hand in a throwaway clone and read the output. One trap: `cp -p` overwrites a file in place and keeps
+  the source's mtime, so if the home and repo texts have the same size and were written in the same second, git's stat
+  cache sees no change and commit reports `Nothing to commit`. Give the two texts different sizes.
+- **`gh line 1: want nothing, got "pr create"`.** The case has no `expect/gh.log`, which means gh must not be called.
+- **`SKIPPED` on Windows where bash says `CREATED`.** The target folder is missing: Windows skips, bash creates it (a
+  known difference). Put a file in the folder under `home/` unless the missing folder is the point of the case.
+- **A diff label never shows in `output.txt`.** The runners read `IN`, `OUT`, `BOTH` and `?` as status words. A new
+  status word goes into `STATUS_WORDS` in `run.sh` and `$StatusWords` in `run.ps1` together.
 
 ## Moved from
 

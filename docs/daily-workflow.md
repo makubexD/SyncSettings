@@ -186,6 +186,18 @@ git config --get syncsettings.machine
 git config syncsettings.machine desktop
 ```
 
+## Changing how the engine behaves
+
+A change to what export, import or commit do starts in [sync-contract.md](sync-contract.md):
+
+1. Write the new rule in the contract.
+2. Add a shared case for it in `tests/parity/cases/` and run `tests/parity/run.sh <name>`. It fails until an
+   engine follows the rule, which shows the case tests something.
+3. Change both engines until the case passes on Linux; the PR's three engine jobs prove macOS and Windows.
+
+Only a rule that differs by OS on purpose gets a row in the contract's Known differences and an `expect.<os>/`
+folder. How to write a case and read a failure: [tests/parity/README.md](../tests/parity/README.md).
+
 ## Review and merge
 
 Open the PR link. `review-gate` is red until you review it:

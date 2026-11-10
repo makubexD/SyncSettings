@@ -35,6 +35,17 @@ Engine-neutral cases in `tests/parity/` that drive any engine as a black box (fi
 out), run against both current engines in CI. Worth doing even with no new engine: it replaces two hand-kept suites
 for the same contract.
 
+**Done 2026-11-10** ([plan-single-engine-2.md](plan-single-engine-2.md)). 37 shared cases; `run.sh` (Linux, macOS)
+and `run.ps1` (Windows) run them in the three engine jobs. No old case was removed: each bash or Pester twin checks
+text the shared runner doesn't read (notes, `ERROR:` messages, summaries) or takes other inputs; the list is in
+`tests/parity/README.md`, "Moved from". So the two engine suites stay, and the shared cases sit on top of them.
+
+**Before phase 3, count twin steps.** In the plans written after phase 2, a twin step is a step that adds a behavior
+to the second engine that a step of the same plan already added to the first (the Windows half of a Linux step, or
+the other way round); a step that only adds a shared case doesn't count. Over the next three engine plans, divide twin
+steps by all steps. Start phase 3 only if that is still about a quarter or more (section 5 of the research); below
+that, the shared cases are enough and phases 3-5 stay parked.
+
 ### Phase 3: the core engine
 
 TypeScript engine: config and platforms, picking files, sanitize and hydrate, compare, statuses, export, import, the
