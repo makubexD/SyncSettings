@@ -1,0 +1,25 @@
+{
+  "description": "Import fills a placeholder whose rule escapes backslashes with the doubled value: CREATED (Sanitize and hydrate).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<DIR>", "prompt": "Tools directory", "escapeBackslashes": true }
+        ]
+      }
+    ]
+  },
+  "values": { "<DIR>": "C:\\Tools" },
+  "commands": [
+    {
+      "command": "import",
+      "options": { "force": true }
+    }
+  ]
+}
