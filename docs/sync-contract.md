@@ -262,7 +262,11 @@ placeholder, never its value.
 
 ## Compare
 
-- Files without rules: byte for byte (`cmp` in bash, SHA256 in PowerShell).
+- Files without rules: byte for byte (`cmp` in bash, SHA256 in PowerShell), except shared files on Windows, below.
+- Shared files on Windows: a file under `dotfiles/common/` without sanitize rules is compared with CRLF folded to LF,
+  and export writes it with LF line endings; a file holding a NUL byte is compared and copied byte for byte. Import
+  writes the repo's bytes, so a local CRLF copy with the same lines counts as `UNCHANGED`. `dotfiles/windows/**` stays
+  byte for byte.
 - Files with rules: the sanitized local text (export) or the hydrated repo text (import) against the other side,
   after turning CRLF into LF and trimming whitespace at the end of the file. A file that differs only in line
   endings or trailing blank lines counts as `UNCHANGED`, and nothing is written. The compare is case-sensitive, so a

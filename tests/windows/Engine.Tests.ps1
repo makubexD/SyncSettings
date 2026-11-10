@@ -3367,6 +3367,85 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match (Get-StatusPattern 'UNCHANGED' 'dotfiles/common/dir/crlf.txt')
             ([IO.File]::ReadAllBytes($repoCrlf) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("x`n") -join ',')
         }
+
+        It 'crlf-common-export-new' {
+            Copy-EngineToRepo
+            Add-PlainTextEntries
+
+            $localShared = Join-Path $script:HomeDir '.config\fixture\plain-shared.txt'
+            [IO.File]::WriteAllText($localShared, "a`r`nb`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/plain-shared.txt')
+            $repoShared = Join-Path $script:RepoDir 'dotfiles\common\plain-shared.txt'
+            ([IO.File]::ReadAllBytes($repoShared) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("a`nb`n") -join ',')
+        }
+
+        It 'crlf-common-export-modified' {
+            Copy-EngineToRepo
+            Add-PlainTextEntries
+
+            $repoShared = Join-Path $script:RepoDir 'dotfiles\common\plain-shared.txt'
+            $null = New-Item -ItemType Directory -Path (Split-Path $repoShared -Parent) -Force
+            [IO.File]::WriteAllText($repoShared, "a`nb`n", [System.Text.UTF8Encoding]::new($false))
+            $localShared = Join-Path $script:HomeDir '.config\fixture\plain-shared.txt'
+            [IO.File]::WriteAllText($localShared, "a`r`nc`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/common/plain-shared.txt')
+            ([IO.File]::ReadAllBytes($repoShared) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("a`nc`n") -join ',')
+        }
+
+        It 'crlf-windows-export-keeps-crlf' {
+            Copy-EngineToRepo
+            Add-PlainTextEntries
+
+            $repoWin = Join-Path $script:RepoDir 'dotfiles\windows\plain-win.txt'
+            $null = New-Item -ItemType Directory -Path (Split-Path $repoWin -Parent) -Force
+            [IO.File]::WriteAllText($repoWin, "x`n", [System.Text.UTF8Encoding]::new($false))
+            $localWin = Join-Path $script:HomeDir '.config\fixture\plain-win.txt'
+            [IO.File]::WriteAllText($localWin, "a`r`nb`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'MODIFIED' 'dotfiles/windows/plain-win.txt')
+            ([IO.File]::ReadAllBytes($repoWin) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("a`r`nb`r`n") -join ',')
+        }
+
+        It 'crlf-common-binary-export' {
+            Copy-EngineToRepo
+            Add-PlainTextEntries
+
+            $localShared = Join-Path $script:HomeDir '.config\fixture\plain-shared.txt'
+            [IO.File]::WriteAllBytes($localShared, [byte[]](0x61, 0x00, 0x0D, 0x0A))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/plain-shared.txt')
+            $repoShared = Join-Path $script:RepoDir 'dotfiles\common\plain-shared.txt'
+            ([IO.File]::ReadAllBytes($repoShared) -join ',') | Should -Be ([byte[]](0x61, 0x00, 0x0D, 0x0A) -join ',')
+        }
+
+        It 'crlf-common-dir-export-new' {
+            Copy-EngineToRepo
+
+            $localNew = Join-Path $script:HomeDir '.config\fixture\dir\new.txt'
+            $null = New-Item -ItemType Directory -Path (Split-Path $localNew -Parent) -Force
+            [IO.File]::WriteAllText($localNew, "y`r`n", [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Match (Get-StatusPattern 'ADDED' 'dotfiles/common/dir/new.txt')
+            $repoNew = Join-Path $script:RepoDir 'dotfiles\common\dir\new.txt'
+            ([IO.File]::ReadAllBytes($repoNew) -join ',') | Should -Be ([Text.Encoding]::UTF8.GetBytes("y`n") -join ',')
+        }
     }
 
     # -- Front door -------------------------------------------------------------

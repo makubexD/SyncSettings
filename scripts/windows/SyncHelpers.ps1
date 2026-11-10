@@ -639,6 +639,26 @@ function Compare-SyncFiles {
     return (Compare-FilesByHash -PathA $PathA -PathB $PathB)
 }
 
+function Copy-SyncFileToRepo {
+    # Copies one local file into the repo. A path under dotfiles/common/ is LF
+    # text unless it holds a NUL byte (binary), so its CRLF bytes are folded to
+    # LF before writing; everything else is copied byte for byte. The caller has
+    # already created the destination folder.
+    param(
+        [string]$Source,
+        [string]$Destination,
+        [string]$RepoPath
+    )
+    if ($RepoPath -and $RepoPath.StartsWith('dotfiles/common/', [System.StringComparison]::Ordinal)) {
+        $bytes = [IO.File]::ReadAllBytes($Source)
+        if ([Array]::IndexOf($bytes, [byte]0) -lt 0) {
+            [IO.File]::WriteAllBytes($Destination, (ConvertTo-LfBytes -Bytes $bytes))
+            return
+        }
+    }
+    Copy-Item -LiteralPath $Source -Destination $Destination -Force
+}
+
 # -- Safe file write (UTF-8 without BOM) --------------------------------------
 
 function Write-Utf8File {
@@ -865,14 +885,14 @@ function Sync-LinkedDirectory {
         }
 
         if (-not (Test-Path -LiteralPath $destFile)) {
-            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
+            Copy-SyncFileToRepo -Source $file.FullName -Destination $destFile -RepoPath $itemLabel
             Write-StatusLine 'ADDED' $itemLabel
             $stats.added++
         } elseif (Compare-SyncFiles -PathA $file.FullName -PathB $destFile -RepoPath $itemLabel) {
             Write-StatusLine 'UNCHANGED' $itemLabel
             $stats.unchanged++
         } else {
-            Copy-Item -LiteralPath $file.FullName -Destination $destFile -Force
+            Copy-SyncFileToRepo -Source $file.FullName -Destination $destFile -RepoPath $itemLabel
             Write-StatusLine 'MODIFIED' $itemLabel
             $stats.modified++
         }
