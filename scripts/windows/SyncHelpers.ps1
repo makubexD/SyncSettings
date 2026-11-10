@@ -814,10 +814,12 @@ function Sync-LinkedDirectory {
             continue
         }
 
+        # Count every non-symlink, non-excluded source file, so a --only pick
+        # that selects nothing does not read as an empty folder (mirror bash).
+        $fileCount++
+
         # A --only run copies only the picked files; everything else is left as-is.
         if (-not (Test-OnlySelected -RepoPath $itemLabel -Selected $Only)) { continue }
-
-        $fileCount++
 
         $destDir2 = Split-Path $destFile -Parent
         if (-not (Test-Path -LiteralPath $destDir2)) {
@@ -1372,6 +1374,8 @@ function Invoke-ExportDiff {
             Write-Host
         }
 
+        Write-OnlyNoHitsWarning -Selected $Only
+
         Write-Host ('  ' + ('-' * 50))
         Write-Host
 
@@ -1721,8 +1725,12 @@ function Remove-OldBackupRuns {
 # clean, unattended run apart.
 $script:UserSkips = 0
 
+# File lines printed in this run, so a -Only pick that reached nothing can warn.
+$script:OnlyHits = 0
+
 function Write-StatusLine {
     param([string]$Status, [string]$File, [string]$Note = '')
+    $script:OnlyHits++
     if ($Status -eq 'SKIPPED' -and $Note -eq 'user skipped') {
         $script:UserSkips++
     }
@@ -1745,4 +1753,11 @@ function Write-StatusLine {
     Write-Host "  [$label] " -ForegroundColor $color -NoNewline
     Write-Host $File -NoNewline
     if ($Note) { Write-Host "  ($Note)" -ForegroundColor DarkGray } else { Write-Host }
+}
+
+function Write-OnlyNoHitsWarning {
+    param([string[]]$Selected)
+    if ($null -ne $Selected -and $Selected.Count -gt 0 -and $script:OnlyHits -eq 0) {
+        Write-Host '  WARNING: --only matched no file.'
+    }
 }

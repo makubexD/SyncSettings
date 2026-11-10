@@ -2595,6 +2595,62 @@ Describe 'Windows engine' {
             $script:EngineOut | Should -Match ([regex]::Escape('  1 file(s) differ: 0 in, 1 out, 0 both.'))
         }
 
+        It 'only-no-file-import' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force -Only '~\.config\fixture\dir\missing.txt'
+
+            $script:EngineExit | Should -Be 0
+            @($script:EngineOut -split "`r?`n" | Where-Object { $_ -ceq '  WARNING: --only matched no file.' }).Count | Should -Be 1
+        }
+
+        It 'only-no-file-check' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            Invoke-ImportCheck -Only '~\.config\fixture\dir\missing.txt'
+
+            $script:EngineExit | Should -Be 0
+            @($script:EngineOut -split "`r?`n" | Where-Object { $_ -ceq '  WARNING: --only matched no file.' }).Count | Should -Be 1
+        }
+
+        It 'only-no-file-export' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            Invoke-Engine -ScriptName 'Export-Settings.ps1' -Only '~\.config\fixture\dir\missing.txt'
+
+            $script:EngineExit | Should -Be 0
+            @($script:EngineOut -split "`r?`n" | Where-Object { $_ -ceq '  WARNING: --only matched no file.' }).Count | Should -Be 1
+        }
+
+        It 'only-no-file-diff' {
+            New-PreviewRepo
+            $ErrorActionPreference = 'Continue'
+            $head = (git -C $script:RepoDir rev-parse HEAD 2>$null | Out-String).Trim()
+            Set-DiffSyncPoint $head
+
+            Invoke-Diff -Only '~\.config\fixture\dir\missing.txt'
+
+            $script:EngineExit | Should -Be 0
+            @($script:EngineOut -split "`r?`n" | Where-Object { $_ -ceq '  WARNING: --only matched no file.' }).Count | Should -Be 1
+        }
+
+        It 'only-hit-no-warning' {
+            Copy-EngineToRepo
+            Copy-RepoDotfiles
+            Copy-HomeFiles
+
+            Invoke-Engine -ScriptName 'Import-Settings.ps1' -Force -Only 'dotfiles/windows/win.conf'
+
+            $script:EngineExit | Should -Be 0
+            $script:EngineOut | Should -Not -Match ([regex]::Escape('  WARNING: --only matched no file.'))
+        }
+
         It 'diff-only-linked-parent' {
             Copy-EngineToRepo
 

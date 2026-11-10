@@ -286,6 +286,8 @@ try {
         Write-OrphanReport -RepoRoot $repoRoot -Entries $allEntries
     }
 
+    Write-OnlyNoHitsWarning -Selected $selected
+
     Write-Host
     Write-Host ('-' * 50) -ForegroundColor DarkGray
 
