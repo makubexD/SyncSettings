@@ -9,10 +9,14 @@
 # The report goes to ~/mksync-macos-checks-<time>.txt; it holds file names and command output, never file
 # contents. Read it before sharing it.
 #
+# It exits 1 when any check fails, else 0. CI runs it in the macos-checks job: SYNCSETTINGS_INSTALL_URL
+# points at the branch's own install.sh (a file:// URL works), and the installer's own SYNCSETTINGS_REPO_URL,
+# SYNCSETTINGS_REF, SYNCSETTINGS_DIR and SYNCSETTINGS_TTY pass through the pipe.
+#
 # This runs under the stock /bin/bash 3.2 (M1 is what installs a newer one), so no bash 4 features.
 set -u
 
-INSTALL_URL=https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh
+INSTALL_URL=${SYNCSETTINGS_INSTALL_URL:-https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh}
 DIR=${SYNCSETTINGS_DIR:-$HOME/SyncSettings}
 BIN=${SYNCSETTINGS_BIN:-$HOME/.local/bin}
 REPORT=$HOME/mksync-macos-checks-$(date +%Y%m%d-%H%M%S).txt
@@ -267,3 +271,7 @@ header 'Summary'
 printf '%s' "$SUMMARY" | tee -a "$REPORT"
 say ''
 say "Report: $REPORT"
+if printf '%s' "$SUMMARY" | grep -qE '^ +M[0-9] +FAIL '; then
+    exit 1
+fi
+exit 0
