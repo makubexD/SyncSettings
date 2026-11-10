@@ -121,3 +121,49 @@ one engine picks one behavior and the contract records it.
 | macOS rows (bash version, dconf, drift, setup, doctor, installer) | forced | keep them. The bash version row goes away: the program doesn't need bash |
 
 Of 17 rows, 9 are accidental and would disappear, and 8 are forced and stay as OS checks in one place.
+
+## 3. Probe
+
+Run [42748992114](https://github.com/makubexD/SyncSettings/actions/runs/42748992114) on commit `12ce45a`: the probe
+(`probe/single-engine/main.ts`) compiled with Bun 1.4.4 and Deno 2.9.8, each leg on its own runner, then 20 timed runs
+on `tests/fixtures` (Python `time.perf_counter` around the loop, so the time includes starting the process).
+
+| Runner | Runtime | Built | Size (MB) | Time per run (ms) | Output correct |
+|---|---|---|---|---|---|
+| `ubuntu-latest` (x64) | Bun | yes | 109.1 | 16.1 | yes |
+| `ubuntu-latest` (x64) | Deno | yes | 105.0 | 54.3 | yes |
+| `ubuntu-24.04-arm` | Bun | yes | 109.2 | 17.5 | yes |
+| `ubuntu-24.04-arm` | Deno | yes | 105.9 | 44.8 | yes |
+| `macos-latest` (arm64) | Bun | yes | 89.2 | 52.7 | yes |
+| `macos-latest` (arm64) | Deno | yes | 68.2 | 54.0 | yes |
+| `windows-latest` (x64) | Bun | yes | 115.3 | 57.5 | yes |
+| `windows-latest` (x64) | Deno | yes | 80.4 | 102.9 | yes |
+
+"Output correct" means `entries: 8` (as `jq '.files | length'`), the same SHA256 on all eight legs
+(`8229606f…778519d`, as `sha256sum`), `crlf-fold: equal`, a `git version` line, the right `os:`, and exit 0.
+
+Cross-compiled on `ubuntu-latest`, every target built, and each matches the size of the native build within a few bytes:
+Bun `bun-linux-arm64` 109.2 MB, `bun-darwin-arm64` 89.2 MB, `bun-windows-x64` 115.3 MB; Deno
+`aarch64-unknown-linux-gnu` 105.9 MB, `aarch64-apple-darwin` 68.2 MB, `x86_64-pc-windows-msvc` 80.4 MB. So one Linux
+job could build every program, but the run didn't start a cross-compiled program on its target, so step 5 can't count
+on that yet.
+
+What the numbers say:
+
+- Both runtimes build and run the same file unchanged on all four targets. Neither needed a code change or a flag per OS.
+- Start-up: Bun is about 3 times faster than Deno on Linux, the same on macOS, and twice as fast on Windows. Either way a
+  sync run starts one process, where the bash engine starts `jq` many times per entry, so start-up is not the deciding
+  cost.
+- Size: 68 to 115 MB per program, uncompressed. The current install is the git clone of a few hundred KB of scripts.
+  Compressed download size wasn't measured.
+
+What the runners can't show:
+
+- **Windows SmartScreen.** It warns on programs that carry the Mark of the Web, which browsers add on download. The
+  installers fetch the program from a script (`irm`, `curl`), which doesn't add it as far as the docs say, but this
+  wasn't tried on a real machine. A program started from Explorer after a browser download would warn.
+- **macOS Gatekeeper.** Same rule with the quarantine flag, which `curl` doesn't set. Apple Silicon also refuses to run
+  any unsigned code; the programs built on `macos-latest` ran, so the compilers sign them ad hoc there. Whether the
+  `aarch64-apple-darwin` and `bun-darwin-arm64` programs cross-compiled on Linux carry that signature wasn't checked.
+- **Signing**, if needed: Apple Developer Program (yearly fee) for notarizing; on Windows a code-signing certificate or a
+  managed signing service (monthly fee). Neither is needed while the installers download the program from a script.
