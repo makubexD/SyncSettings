@@ -69,7 +69,8 @@ Windows.
 
 `.gitattributes` forces LF on everything under `dotfiles/common/`, `dotfiles/linux/` and `packages/`, so a Windows checkout
 with `core.autocrlf=true` doesn't add CR bytes to them. `*.gpg` files under `packages/` are binary, so they're left alone.
-`dotfiles/windows/` has no rule yet.
+`dotfiles/windows/` is `-text`: git stores and checks out those files byte for byte, CRLF lines included, so
+`mksync diff` can match them with the machine.
 
 ## Why `.gitconfig` has a local part
 

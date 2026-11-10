@@ -4373,3 +4373,32 @@ Describe 'Import-LinkedDirectory' {
         Should -Invoke Write-StatusLine -Times 1 -Exactly -ParameterFilter { $Status -eq 'ERROR' -and $Note -eq 'copy failed' }
     }
 }
+
+Describe 'Windows dotfiles keep their bytes' {
+    # mksync diff compares raw bytes from git archive with the machine. A Windows
+    # dotfile with CRLF lines must come back from git as it went in, or every
+    # pushed CRLF file shows BOTH forever. Runs under each core.autocrlf value.
+    It 'windows-dotfiles-byte-exact (<_>)' -ForEach @('input', 'true', 'false') {
+        $ErrorActionPreference = 'Continue'
+        $repo = Join-Path $TestDrive "repo-$_"
+        $null = New-Item -ItemType Directory -Path $repo -Force
+        git -C $repo init -q -b master 2>$null
+        git -C $repo config core.autocrlf $_ 2>$null
+        Copy-Item -LiteralPath (Join-Path $Script:TestRepo '.gitattributes') -Destination $repo
+        $dir = Join-Path $repo 'dotfiles\windows\shell'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $bytes = [Text.Encoding]::UTF8.GetBytes("lf line`ncrlf line`r`nlast`n")
+        [IO.File]::WriteAllBytes((Join-Path $dir '.bashrc'), $bytes)
+        git -C $repo add -A 2>$null
+        git -C $repo -c user.name=t -c user.email=t@example.com commit -q -m init 2>$null
+
+        $out = Join-Path $TestDrive "archive-$_"
+        $null = New-Item -ItemType Directory -Path $out -Force
+        $tar = Join-Path $TestDrive "archive-$_.tar"
+        git -C $repo archive --format=tar -o $tar HEAD dotfiles 2>$null
+        & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $tar -C $out 2>$null
+
+        $back = [IO.File]::ReadAllBytes((Join-Path $out 'dotfiles\windows\shell\.bashrc'))
+        [Convert]::ToBase64String($back) | Should -Be ([Convert]::ToBase64String($bytes))
+    }
+}

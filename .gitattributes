@@ -6,3 +6,4 @@ dotfiles/common/** text eol=lf
 dotfiles/linux/** text eol=lf
 packages/** text eol=lf
 packages/**/*.gpg binary
+dotfiles/windows/** -text

@@ -268,6 +268,10 @@ placeholder, never its value.
 
 Text is written byte for byte: no BOM, and trailing newlines are kept.
 
+Git keeps the bytes too. `.gitattributes` marks `dotfiles/windows/**` as `-text`, so a Windows file with CRLF lines
+comes back from git as export wrote it, and `mksync diff` agrees with the machine after a push. `dotfiles/common/**`
+and `dotfiles/linux/**` stay LF.
+
 ## Backups
 
 Import copies the old local file to `<file>.bak` before overwriting it, replacing any older `.bak`, in every entry type.
