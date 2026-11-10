@@ -35,7 +35,8 @@ Engine-neutral cases in `tests/parity/` that drive any engine as a black box (fi
 out), run against both current engines in CI. Worth doing even with no new engine: it replaces two hand-kept suites
 for the same contract.
 
-**Done 2026-11-10** ([plan-single-engine-2.md](plan-single-engine-2.md)). 37 shared cases; `run.sh` (Linux, macOS)
+**Done 2026-11-10** ([plan-single-engine-2.md](plan-single-engine-2.md), PR #65, green run
+[42841540002](https://github.com/makubexD/SyncSettings/actions/runs/42841540002)). 37 shared cases; `run.sh` (Linux, macOS)
 and `run.ps1` (Windows) run them in the three engine jobs. No old case was removed: each bash or Pester twin checks
 text the shared runner doesn't read (notes, `ERROR:` messages, summaries) or takes other inputs; the list is in
 `tests/parity/README.md`, "Moved from". So the two engine suites stay, and the shared cases sit on top of them.
