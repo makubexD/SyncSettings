@@ -631,7 +631,8 @@ Describe 'Windows engine' {
         $script:EngineExit | Should -Be 0
         $repoFile = Join-Path $script:RepoDir 'dotfiles\common\m.txt'
         $repoFile | Should -Exist
-        ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be ([IO.File]::ReadAllBytes($localFile) -join ',')
+        # A shared text file is exported with LF line endings.
+        ([IO.File]::ReadAllBytes($repoFile) -join ',') | Should -Be '109,10'
     }
 
     It 'platform-list-empty' {
