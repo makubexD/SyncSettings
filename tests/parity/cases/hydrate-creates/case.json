@@ -1,5 +1,5 @@
 {
-  "description": "Import into an empty home writes the repo file with the values put back: CREATED (Sanitize and hydrate).",
+  "description": "Import into a home whose folder holds another file writes the repo file with the values put back: CREATED (Sanitize and hydrate).",
   "config": {
     "version": 1,
     "excludePatterns": [

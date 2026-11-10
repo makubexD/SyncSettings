@@ -308,6 +308,22 @@ function Sort-Ordinal {
     return ,$list
 }
 
+# $Rel itself when it is a file or an empty folder, else the first file under
+# it, so a message names what the engine actually wrote.
+function Get-FirstFileUnder {
+    param([string]$Root, [string]$Rel)
+    $full = Join-Path $Root ($Rel -replace '/', '\')
+    if (-not (Test-Path -LiteralPath $full -PathType Container)) {
+        return $Rel
+    }
+    $first = @(Get-ChildItem -LiteralPath $full -Recurse -File -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($first.Count -eq 0) {
+        return $Rel
+    }
+    $sub = $first[0].FullName.Substring($full.Length).TrimStart('\', '/') -replace '\\', '/'
+    return "$Rel/$sub"
+}
+
 # Compare the wanted and got trees: the file and folder path set must match,
 # then every file must match by SHA256. No mode compare. The first difference
 # names the file from the case's point of view.
@@ -329,9 +345,9 @@ function Compare-Trees {
         }
 
         if ($cmp -lt 0) {
-            Die "only in want: $($wantSorted[$wi])"
+            Die ("only in want: " + (Get-FirstFileUnder $WantDir $wantSorted[$wi]))
         } elseif ($cmp -gt 0) {
-            Die "only in got: $($gotSorted[$gi])"
+            Die ("only in got: " + (Get-FirstFileUnder $GotDir $gotSorted[$gi]))
         } else {
             $rel = $wantSorted[$wi]
             $wantFull = Join-Path $WantDir ($rel -replace '/', '\')
