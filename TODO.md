@@ -2,7 +2,8 @@
 
 ## macOS checks after phase 4
 
-CI runs the engine on `macos-latest`; nobody has run it on a real Mac yet.
+CI runs the engine on `macos-latest`; nobody has run it on a real Mac yet. `tests/macos/manual-checks.sh` runs all
+four and writes a report to `~`; the header says how to fetch and run it.
 
 - [ ] **M1** On a Mac (13 or newer) with Homebrew, run the install line from the README. Expect the `brew install bash jq`
       question, `Installed.`, and `mksync doctor` with no `MISSING` line.
