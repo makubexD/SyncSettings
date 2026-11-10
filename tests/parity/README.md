@@ -84,3 +84,21 @@ Each file is taken from `expect.<os>/` when it's there for the OS the runner is 
 A case fits when the behavior shows in exit code, status lines and files. Behavior that needs a git remote, `gh`, a
 prompt answer, `dconf` or a package manager fits once the runner offers a stub for it (phase 2). A check of one
 function from the inside stays a unit test of that engine.
+
+## Moved from
+
+A bash or Pester case is removed when a shared case tests the same behavior through the same inputs and the old case
+checks nothing more. None has been removed yet. Every twin found checks something the runner can't see, or takes
+other inputs:
+
+| Shared case | Old cases kept | What they check beyond the shared case |
+|---|---|---|
+| `dconf-path-no-slash`, `defaultenv-invalid`, `localpaths-bad-key`, `local-path-absolute`, `repo-path-dotdot`, `platform-missing` | `dconf_path_no_slash`, `defaultenv_invalid`, `localpaths_bad_key`, `path_local_absolute`, `path_repo_traversal`, `missing_platform`; Pester `dconf-path-no-slash`, `localpaths-bad-key`, `path-local-absolute`, `path-repo-traversal`, `missing-platform` | the `ERROR:` text |
+| `missing-value-stops`, `preview-only-refused`, `preview-no-change` | `noninteractive_missing_value`, `export_only_preview`, `preview_no_changes`; Pester `noninteractive-missing-value-import`, `export-only-preview`, `preview-no-changes` | the message text |
+| `dir-import-extra`, `import-updated-backup`, `only-one-file`, `orphan-reported` | `dir_import_extra`, `import_backup`, `import_only_one`, `orphan_reported` and their Pester twins | the note after the label |
+| `export-adds`, `hydrate-creates`, `sanitize-round-trip` | `export_adds`, `import_creates`, `roundtrip_unchanged`; Pester `export-adds`, `import-creates`, `roundtrip-unchanged` | the fixture's four files (modes, no trailing newline), the push hint, `dotfiles/windows` with CRLF |
+| `sanitize-longest-first` | `sanitize_longest_first`, Pester `sanitize-longest-first` | values with backslashes under `escapeBackslashes` |
+| `sanitized-crlf-unchanged` | `crlf_unchanged` | the import half: the local file keeps CRLF |
+| `only-dotdot` | `only_repo_dotdot`, Pester `only-repo-dotdot` | `resolve_only` / `Resolve-OnlyPaths` from the inside |
+| `diff-in` | Pester `diff-in` | an `IN` label from a recorded sync point, and the summary lines |
+| `commit-opens-pr` | `commit_happy`, Pester `commit-happy` | `origin/master` unmoved, back on `master`, one `sync/…` branch |
