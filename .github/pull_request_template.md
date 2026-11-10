@@ -1,6 +1,6 @@
 ## What changed
 
-<!-- commit.sh / commit.bat fill this in for sync PRs -->
+<!-- commit.sh / mksync push fill this in for sync PRs -->
 
 ## Review checklist
 

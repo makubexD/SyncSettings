@@ -145,7 +145,7 @@ value in the file, and import puts it back, so pick values specific enough not t
 - Export compares the sanitized text, so a change to a value alone (a new email) is not a change. A new line is.
 
 To enter the values again, run `./export.sh --reset-values` or `./import.sh --reset-values`, or on Windows
-`export.bat -ResetValues` or `import.bat -ResetValues`.
+`mksync export -ResetValues` or `mksync import -ResetValues`.
 
 ## `type: dir`
 
@@ -260,7 +260,7 @@ Keep `*.bak` in the list. It stops the backups that import writes inside a synce
    jq empty sync-config.json
    ```
 
-3. Copy the file into the repo with `./export.sh` on Linux or `export.bat` on Windows. The new entry shows as `ADDED`.
+3. Copy the file into the repo with `./export.sh` on Linux or `mksync export` on Windows. The new entry shows as `ADDED`.
    A new `common` entry only needs exporting on one machine.
 4. On Linux, check that no home path reached the repo. This must print nothing:
 
@@ -268,5 +268,5 @@ Keep `*.bak` in the list. It stops the backups that import writes inside a synce
    grep -rl "$HOME" dotfiles/linux
    ```
 
-5. Commit with `./commit.sh` or `commit.bat`, which opens the pull request. See
+5. Commit with `./commit.sh` or `mksync commit` on Windows, which opens the pull request. See
    [daily-workflow.md](daily-workflow.md).

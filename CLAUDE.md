@@ -8,7 +8,7 @@ Sync user dotfiles and config files between a machine and this git repository. W
 
 ## Architecture
 
-- `.bat` files are the Windows entry points — they set the working directory and invoke the corresponding PowerShell script
+- `sync.cmd` is the Windows entry point — it sets the working directory and routes `export`, `import`, `commit`, `preview` and `check` to the PowerShell scripts in `scripts/windows/`
 - `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/linux/sync.sh`
 - `mksync` is the front door: status, `doctor`, `setup`, `pull`, `push`. On Linux it's `sync` linked on `PATH`, in `scripts/linux/front.sh`; on Windows it's `mksync.cmd` calling `sync.cmd`, in `scripts/windows/Front.ps1`. Both call the entry points and never sync a file themselves, with the same wording and exit codes. `install.sh` (`curl … | bash`) and `install.ps1` (`irm … | iex`) are the installers. All of them are in the "Front door" section of `docs/sync-contract.md`
 - Windows logic lives in `scripts/windows/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
@@ -23,9 +23,9 @@ Sync user dotfiles and config files between a machine and this git repository. W
 
 | Command | Script | Purpose |
 |---|---|---|
-| `export.bat` | `scripts/windows/Export-Settings.ps1` | Copy changed local files → repo (kept only until the Windows checks in `TODO.md` pass) |
-| `commit.bat` | `scripts/windows/Commit-Settings.ps1` | Commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`; kept only until the Windows checks pass) |
-| `import.bat` | `scripts/windows/Import-Settings.ps1` | Copy repo files → local machine (kept only until the Windows checks pass) |
+| `mksync export` (`sync.cmd export`) | `scripts/windows/Export-Settings.ps1` | Windows: copy changed local files → repo |
+| `mksync commit` (`sync.cmd commit`) | `scripts/windows/Commit-Settings.ps1` | Windows: commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`) |
+| `mksync import` (`sync.cmd import`) | `scripts/windows/Import-Settings.ps1` | Windows: copy repo files → local machine |
 | `./export.sh` | `scripts/linux/sync.sh` | Linux: copy changed local files → repo |
 | `./commit.sh` | (self-contained) | Linux: commit `dotfiles/` on a `sync/linux-…` branch, open a PR (never pushes to `master`) |
 | `./import.sh` | `scripts/linux/sync.sh` | Linux: copy repo files → local machine |
@@ -127,7 +127,7 @@ For files containing sensitive data, add `sanitizeRules`:
 }
 ```
 
-Then run `export.bat` to pull it into the repo for the first time.
+Then run `mksync export` (`sync.cmd export`) to pull it into the repo for the first time.
 
 For a Linux file, use `"platform": "linux"`, put it under `dotfiles/linux/<tool>/`, and use a `~/` path. A file shared by both systems uses `"platform": "common"`, `dotfiles/common/<tool>/` and a `~/` path:
 
