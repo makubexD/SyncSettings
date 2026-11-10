@@ -39,7 +39,9 @@ case $(uname -s 2>/dev/null || printf 'Linux') in
         # sync.cmd keeps this caller folder; PowerShell needs its Windows form.
         SYNC_CALLER_PWD=$(cygpath -w "$SYNC_CALLER_PWD" 2>/dev/null || printf '%s' "$SYNC_CALLER_PWD")
         export SYNC_CALLER_PWD
-        exec cmd.exe //c sync.cmd "$@"
+        # cmd.exe runs it from its own folder; the full Windows path is unambiguous.
+        cmd_path=$(cygpath -w "$REPO_ROOT/sync.cmd" 2>/dev/null || printf '%s' "$REPO_ROOT/sync.cmd")
+        exec cmd.exe //c "$cmd_path" "$@"
         ;;
 esac
 
