@@ -476,7 +476,7 @@ the machine.
 
 `./sync <preview|check|export|commit|import> [options]` on Linux and Git Bash, `.\sync` in PowerShell, `sync` in cmd. The name
 resolves to the right script for the OS, so `sync` and `sync.cmd` are the two front doors, and Git Bash on Windows hands
-over to `sync.cmd`. Options pass through unchanged. The `.sh` and `.bat` entry points still work.
+over to `sync.cmd`. Options pass through unchanged. The `.sh` entry points still work.
 `./sync check` runs `./import.sh --check`, and `sync.cmd check` runs `Import-Settings.ps1 -Check`: each lists what an
 import would change, writes nothing, and exits 3 when something differs.
 

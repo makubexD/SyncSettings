@@ -10,9 +10,9 @@ sequenceDiagram
     participant GH as GitHub
     participant B as Machine B
 
-    You->>A: ./export.sh (or export.bat)
+    You->>A: ./export.sh (or mksync export)
     Note over A: local files → dotfiles/, sanitized
-    You->>A: ./commit.sh (or commit.bat)
+    You->>A: ./commit.sh (or mksync commit)
     A->>GH: push a sync/... branch, open PR
     Note over GH: review-gate red (no label yet)
     GH-->>You: "workflow failed" email
@@ -21,7 +21,7 @@ sequenceDiagram
     You->>GH: merge the PR
     You->>A: git pull
     You->>B: git pull
-    You->>B: ./import.sh (or import.bat)
+    You->>B: ./import.sh (or mksync import)
     Note over B: dotfiles/ → local files, placeholders filled
 ```
 
@@ -140,7 +140,7 @@ commits `dotfiles/`, `packages/` and `sync-config.json`, pushes the branch, open
 On Windows, the commands are the same: `.\sync preview` in PowerShell, or `sync preview` in cmd. Use
 `-Message "<message>"` to set the title. The branch is `sync/windows-<alias>-<yyyyMMdd-HHmm>`.
 
-`./export.sh`, `./commit.sh`, `export.bat` and `commit.bat` still work.
+`./export.sh` and `./commit.sh` still work.
 
 ### Changes you didn't make
 
@@ -172,7 +172,7 @@ the list, run `scripts/ci/check-packages.sh`, then `./sync commit`. If not, unin
 ### Machine alias
 
 `<alias>` names this machine in branch names and PR bodies, so the hostname never appears there. The first
-time you commit from a clone, `commit.sh` (or `commit.bat`) asks for it:
+time you commit from a clone, `commit.sh` (or `mksync commit`) asks for it:
 
 ```
   Machine alias for branch names (e.g. laptop, desktop):
@@ -220,7 +220,7 @@ On Linux, run it in a terminal on the desktop, because GNOME settings load over 
 
 ### Another user on the same Windows machine
 
-`import.bat -User <name>` applies the repo to that user's profile (`C:\Users\<name>`) instead of yours. When it isn't
+`mksync import -User <name>` applies the repo to that user's profile (`C:\Users\<name>`) instead of yours. When it isn't
 the user you're signed in as, the script asks Windows for an administrator window itself (the UAC prompt), so you don't
 need to start it elevated. Linux and macOS have no `-User`: run the import as that user.
 
@@ -275,7 +275,7 @@ don't rely on it: read the diff.
 | `sync-config.json: entry <repoPath> has an unsafe path.` | Fix that entry: `repoPath` starts with `dotfiles/`, `localPath` starts with `~/` or `~\`, and neither has a `..` segment. Remove any symlink under `dotfiles/` |
 | `sync-config.json: entry <repoPath> needs "platform": "linux" and a dconf path like /org/gnome/shell/.` | Fix that dconf entry: `"platform": "linux"`, and a `path` that starts and ends with `/` |
 | `sync-config.json: entry <repoPath> has an invalid defaultEnv.` | Use a valid variable name: letters, digits and `_`, not starting with a digit |
-| `run commit.sh from master (current: <branch>).` (or `commit.bat`) | `git switch master`, then run it again |
+| `run commit.sh from master (current: <branch>).` (Windows: `run mksync push from master (current: <branch>).`) | `git switch master`, then run it again |
 | `master is behind origin; pull first.` | `git pull`, then run it again |
 | `local master has unpushed commits; push or move them to a branch first.` | `git branch <name>` to keep them on a branch, then `git reset --keep origin/master` (your uncommitted dotfiles changes stay) |
 | `push failed; you are on <branch>.` | Fix the cause (network, auth), run the `git push -u origin <branch>` it prints, then `git switch master` |
@@ -286,7 +286,7 @@ don't rely on it: read the diff.
 
 | What you see | What to do |
 |---|---|
-| Windows: `running scripts is disabled on this system` | You don't need to change the execution policy: `mksync`, `sync.cmd` and the `.bat` files start PowerShell with `-ExecutionPolicy Bypass`, and the installer runs through `iex`. Start from those, not by running a `.ps1` directly |
+| Windows: `running scripts is disabled on this system` | You don't need to change the execution policy: `mksync` and `sync.cmd` start PowerShell with `-ExecutionPolicy Bypass`, and the installer runs through `iex`. Start from those, not by running a `.ps1` directly |
 | Windows: the installer prints `ERROR: install Git from https://git-scm.com, …` | There's no `winget` on this machine (it comes with App Installer from the Microsoft Store). Install Git from that link, open a new window, and run the installer again. `gh` can come later; `doctor` says how |
 | `mksync` is not recognized, or `command not found` | The window was open before the install changed `PATH`. Open a new one. On Windows, if a new window still can't find it, run the installer again; on Linux, `doctor` prints the `ln -s` line that links it |
 | macOS: `ERROR: SyncSettings needs bash 4 or newer (this is 3.2.57…)` | macOS's own bash is too old. Run `brew install bash`; after that the scripts switch to Homebrew's bash by themselves. More in [Restore: macOS](restore.md#troubleshooting-on-macos) |

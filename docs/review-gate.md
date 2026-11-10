@@ -30,7 +30,7 @@ removes the label and goes red again. Review the new commits, then add the label
 
 ## Lifecycle of one PR
 
-1. `commit.sh` / `commit.bat` opens the PR. `review-gate` fails: "Review pending: review the PR, then add the
+1. `commit.sh` / `mksync push` opens the PR. `review-gate` fails: "Review pending: review the PR, then add the
    'reviewed' label."
 2. You read the diff on GitHub and go through the checklist in the PR description.
 3. You add the `reviewed` label. `review-gate` runs again and passes.
