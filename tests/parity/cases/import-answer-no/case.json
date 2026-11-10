@@ -1,0 +1,21 @@
+{
+  "description": "Import with the overwrite prompt answered no leaves the local file alone: SKIPPED (Overwrite prompt).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "stdin": "n\n"
+    }
+  ]
+}

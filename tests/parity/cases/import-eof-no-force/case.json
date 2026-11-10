@@ -1,0 +1,17 @@
+{
+  "description": "Import at end of input without --force counts as yes and overwrites: UPDATED (Overwrite prompt).",
+  "os": ["linux", "macos"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "import" }]
+}
