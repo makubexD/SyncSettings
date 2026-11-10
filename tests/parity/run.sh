@@ -34,6 +34,37 @@ die() {
     exit 1
 }
 
+# Check case.json before anything is copied or run. Dies with a short reason;
+# the caller runs this in a subshell so only that case FAILs.
+validate_case() {
+    local dir=$1 json=$1/case.json
+    [[ -f $json ]] || die 'case.json is missing'
+    jq -e 'type == "object"' "$json" > /dev/null 2>&1 \
+        || die 'case.json is not a JSON object'
+    jq -e '(.commands | type) == "array" and (.commands | length) > 0' "$json" > /dev/null 2>&1 \
+        || die 'commands must be a non-empty array'
+    jq -e 'all(.commands[]; (. | type) == "object" and (.command | type) == "string")' "$json" > /dev/null 2>&1 \
+        || die 'every command must be an object with a string command'
+    jq -e 'all(.commands[]; if has("options") then (.options | type) == "object" else true end)' "$json" > /dev/null 2>&1 \
+        || die 'options must be an object'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("force")) then ($o.force | type) == "boolean" else true end)' "$json" > /dev/null 2>&1 \
+        || die 'options.force must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("only")) then
+            if ($o.only | type) == "array" then all($o.only[]; type == "string") else false end
+          else true end)' "$json" > /dev/null 2>&1 \
+        || die 'options.only must be an array of strings'
+    jq -e 'if has("os") then
+            if (.os | type) == "array" then
+                all(.os[]; . == "linux" or . == "macos" or . == "windows")
+            else false end
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'os must be a list of linux, macos or windows'
+    [[ ! -d $dir/repo/packages ]] \
+        || die 'packages/ needs the drift stubs from phase 2'
+}
+
 # The status lines of a command's output, each as `WORD label`: ANSI color codes
 # removed, notes and every other line dropped (see the README's "How the runner
 # checks it").
@@ -78,16 +109,48 @@ first_line_diff() {
     return 0
 }
 
-# The first line that makes `diff -r` report a difference; empty when the trees
-# match.
+# The first line that makes `diff -rq` report a difference; empty when the
+# trees match. The case and temp folder prefixes are trimmed so the line names
+# the file from the case's point of view.
 tree_diff() {
-    local want_dir=$1 got_dir=$2
-    shift 2
-    local out
-    out=$(diff -r "$@" "$want_dir" "$got_dir" 2>&1) || true
-    if [[ -n $out ]]; then
-        printf '%s\n' "$out" | head -n 1
+    local want_dir=$1 got_dir=$2 line case_root temp_root
+    line=$(diff -rq "$want_dir" "$got_dir" 2>&1 | head -n 1) || true
+    [[ -n $line ]] || return 0
+    case_root=${dir%/}
+    temp_root=${t%/}
+    printf '%s\n' "$line" | sed "s|$case_root/||g; s|$temp_root/||g"
+}
+
+# Remove the engine files copied into the temp repo, so the repo comparison
+# sees only the case's own files. `scripts` goes too when nothing is left in it.
+strip_engine() {
+    local repo=$1
+    rm -f "$repo/export.sh" "$repo/import.sh" "$repo/commit.sh" "$repo/sync" \
+        "$repo/sync-config.json" "$repo/.user-values.json"
+    rm -rf "$repo/scripts/linux" "$repo/scripts/ci"
+    rmdir "$repo/scripts" 2> /dev/null || true
+}
+
+# The permission bits of a file: GNU and BSD `stat` spell the option differently.
+file_mode() {
+    if [[ $HARNESS_OS == macos ]]; then
+        stat -f %Lp "$1"
+    else
+        stat -c %a "$1"
     fi
+}
+
+# Compare the mode of every file in the wanted tree with the one in the got
+# tree. The content diff has already shown the file lists match, so walking
+# `want` covers both sides.
+compare_modes() {
+    local want_dir=$1 got_dir=$2 rel want_mode got_mode
+    while IFS= read -r -d '' rel; do
+        rel=${rel#./}
+        want_mode=$(file_mode "$want_dir/$rel") || die "mode $rel: cannot read the wanted file"
+        got_mode=$(file_mode "$got_dir/$rel") || die "mode $rel: cannot read the got file"
+        [[ $want_mode == "$got_mode" ]] || die "mode $rel: want $want_mode, got $got_mode"
+    done < <(cd "$want_dir" && find . -type f -print0)
 }
 
 # -- One case ------------------------------------------------------------------
@@ -167,39 +230,50 @@ run_case() {
 
     if [[ -d $dir/expect/home ]]; then
         out=$(tree_diff "$dir/expect/home" "$t/home") || true
+        [[ -z $out ]] || die "$out"
+        compare_modes "$dir/expect/home" "$t/home"
     else
         out=$(tree_diff "$t/empty" "$t/home") || true
+        [[ -z $out ]] || die "$out"
+        compare_modes "$t/empty" "$t/home"
     fi
-    [[ -z $out ]] || die "$out"
 
+    strip_engine "$t/repo"
     if [[ -d $dir/expect/repo ]]; then
-        out=$(tree_diff "$dir/expect/repo" "$t/repo" \
-            -x sync-config.json -x .user-values.json \
-            -x export.sh -x import.sh -x commit.sh -x sync -x scripts) || true
+        out=$(tree_diff "$dir/expect/repo" "$t/repo") || true
+        [[ -z $out ]] || die "$out"
+        compare_modes "$dir/expect/repo" "$t/repo"
     else
-        out=$(tree_diff "$t/empty" "$t/repo" \
-            -x sync-config.json -x .user-values.json \
-            -x export.sh -x import.sh -x commit.sh -x sync -x scripts) || true
+        out=$(tree_diff "$t/empty" "$t/repo") || true
+        [[ -z $out ]] || die "$out"
+        compare_modes "$t/empty" "$t/repo"
     fi
-    [[ -z $out ]] || die "$out"
 
     return 0
 }
 
 # -- Runner --------------------------------------------------------------------
 
+matched=0
 for dir in "$CASES"/*/; do
     [[ -d $dir ]] || continue
-    case_name=${dir%/}
-    case_name=${case_name##*/}
+    dir=${dir%/}
+    case_name=${dir##*/}
 
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
+    matched=$((matched + 1))
 
-    if [[ -f $dir/case.json ]] && [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
+    if ! reason=$(validate_case "$dir"); then
+        printf 'FAIL %s: %s\n' "$case_name" "${reason:-invalid case.json}"
+        failed_cases=$((failed_cases + 1))
+        continue
+    fi
+
+    if [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
         # shellcheck disable=SC2016  # $os is a jq argument, not a shell variable
-        if ! jq -e --arg os "$HARNESS_OS" '.os | index($os)' "$dir/case.json" > /dev/null; then
+        if ! jq -e --arg os "$HARNESS_OS" 'any(.os[]; . == $os)' "$dir/case.json" > /dev/null; then
             printf 'skip %s\n' "$case_name"
             continue
         fi
@@ -213,6 +287,11 @@ for dir in "$CASES"/*/; do
         failed_cases=$((failed_cases + 1))
     fi
 done
+
+if [[ -n $filter && $matched -eq 0 ]]; then
+    printf 'no case matches %s\n' "$filter"
+    exit 1
+fi
 
 printf '%d passed, %d failed\n' "$passed" "$failed_cases"
 
