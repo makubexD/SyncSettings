@@ -34,7 +34,8 @@ settings (base, OS, profile, machine). The old engines are deleted at cut-over.
 
 ## TypeScript engine (phase 4 on)
 
-- No `package.json`, lockfile or toolchain until the design picks the runtime (Bun, Deno or Node SEA).
+- No `package.json`, lockfile or toolchain until the user approves the design, which proposes Bun
+  (`docs/design-layers.md`, "Runtime").
 - Layout: a pure core that plans actions, OS adapters that run them, one merge strategy per file type. Command parsing
   goes under `cli/`, the first-run flow under `wizard/`: the project's CLI and wizard rules only load there.
 - Output is byte-exact: JSON key order, CRLF on Windows, trailing newline. Values hydrated into JSON are JSON-escaped.

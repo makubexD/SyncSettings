@@ -57,6 +57,10 @@ that, the shared cases are enough and phases 3-5 stay parked.
 
 ### Phase 3: design `docs/plan-single-engine-3.md`
 
+**Done 2026-11-10** ([design-layers.md](design-layers.md), PR #73). Decided: `mksync statusline`, Bun, config v2 as a
+separate file checked against v1, and every rule below with an example; the rest is in the design's "Open". Phase 4 is
+written only after the user's go on the design.
+
 A design doc, `docs/design-layers.md`, with no engine code. It ends with the user's go. It holds every decision below as
 a rule with an example, the merge-and-split rules, the catalog, config v2, the runtime choice, and an "Open" list.
 

@@ -138,5 +138,6 @@ Your name, email and paths are replaced with placeholders in the repo and filled
 - [Packages](docs/packages.md): the Ubuntu package lists and the drift report
 - [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
 - [Sync contract](docs/sync-contract.md): the rules both engines follow
+- [One-engine design](docs/design-layers.md): the planned TypeScript engine with modules, profiles and layers
 
 [`docs/archive/`](docs/archive/) keeps the finished plans the scripts were built from.
