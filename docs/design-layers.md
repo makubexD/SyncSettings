@@ -622,6 +622,91 @@ PowerShell engine copies them under `<repoPath>.linked/` (`detectLinkedPaths`).
   local folder, moved with `git mv` so its history follows, on the work profile that owns it (see "Open").
   `detectLinkedPaths` and the `.linked/` layout are then removed.
 
+## Config v2
+
+The new engine reads `sync-config.v2.json`. Its full shape is in `docs/config-v2.example.json`, which has one entry of
+each merge type.
+
+**Top level**
+
+- `schemaVersion`: `2`. The engine refuses any other number (`unsupported config schemaVersion 3`, exit 2).
+- `excludePatterns`: as in v1.
+- `modules`: name → `{description, os}`. `os` lists where the module can run; without it, every OS.
+- `entries`: one per synced thing.
+
+**An entry**
+
+- `file`: the path inside a layer root, the same on every layer (`vscode/settings.json`).
+- `module`: one name from `modules`.
+- `merge`: `whole`, `json`, `import`, `dconf` or `dir` ("Catalog").
+- `localPath`: where it goes, written with `~/` and `/` on every OS; the Windows adapter turns it into
+  `%USERPROFILE%\…`. `localPaths` overrides it per OS.
+- `os`: limits the entry to some OSes, inside its module's.
+- `sanitize`: the placeholders this file may hold, each with `prompt`, and optionally `default`, `defaultEnv`,
+  `escapeBackslashes`. The values themselves are on the profile and the machine. `escapeBackslashes` is refused on a
+  `json` entry, which escapes by itself ("Values").
+- `json` only: `localOnlyKeys`, the machine-state keys from "Merge and split".
+- `import` only: `importName`, the local name of each layer's file, with `{layer}` replaced by the OS, profile or
+  machine name (`CLAUDE.work-1.md`).
+- `dconf` only: `dconfPath` and `keys`.
+- `scanLinks`: the first run and `mksync status` look for linked folders in this file ("Linked folders").
+- `elevate`: reserved for the elevation wrapper ("Open"). Only `false` is accepted until it's designed.
+- `description`: as in v1.
+
+**Layer sources.** An entry has no list of sources: each layer has a root folder, and the engine looks for `file`
+under each one, in layer order. A layer without the file is skipped. An entry applies on a machine when its module is
+on and at least one layer has the file.
+
+| Layer | Root |
+|---|---|
+| base | `dotfiles/common/` |
+| OS | `dotfiles/<os>/` (`linux`, `windows`, `macos`) |
+| profile | `profiles/<name>/` |
+| machine | `machines/<name>/` |
+
+Example: `git/.gitconfig.local` is one v2 entry. Linux reads `dotfiles/linux/git/.gitconfig.local`, Windows
+`dotfiles/windows/git/.gitconfig.local`; the three v1 entries for it become one. A `json` entry such as Claude's
+`settings.json` reads every root that has `claude/settings.json` and merges them; `CLAUDE.md` (`import`) does the same
+but writes each layer's file next to the base one instead of merging.
+
+**Profiles and machines.** `profiles/<name>.json` ("Modules and profiles") and `machines/<name>.json` ("Machine
+records") sit next to their layer roots. Until the repo is private they live in local state, as "Public-repo guard"
+says, with the same names.
+
+### v2 while the old engines read v1
+
+Decision: `sync-config.v2.json` is a separate, hand-edited file from phase 4 on, made once by a converter from v1, and
+a CI check keeps the two in step until cut-over. v2 is the file that survives, so it's the one people edit and read
+as written. Generating it from v1 would need a third file for what v1 can't say (modules, merge types) and make v2 a
+build output until cut-over. The old engines are frozen to bug fixes from phase 4, so new entries are rare and the
+check is cheap.
+
+- **The converter** runs once in phase 4 and applies the table below. Its output is reviewed and committed.
+- **The check** runs in CI and in the local test command. For every v1 entry there must be a v2 entry with the same
+  layer file, the same local path on each OS, the same placeholders and the same dconf keys, and the reverse for every
+  v2 entry that has a v1 counterpart. It prints each mismatch and fails.
+- **At cut-over** `sync-config.json` and the check are deleted, and `sync-config.v2.json` is renamed
+  `sync-config.json` (still `schemaVersion: 2`).
+
+### v1 to v2, field by field
+
+| v1 field | v2 |
+|---|---|
+| `version` | `schemaVersion: 2` |
+| `defaultUser` | dropped: no engine reads it, and `-User` goes at cut-over |
+| `excludePatterns` | `excludePatterns`, unchanged |
+| `files` | `entries` |
+| `repoPath` | split into a layer root and `file`: `dotfiles/linux/git/.gitconfig.local` is the Linux OS layer of `git/.gitconfig.local`. v1 entries that differ only by OS folder become one entry |
+| `localPath` | `localPath`, with `~\` turned into `~/` and `\` into `/` |
+| `localPaths` | `localPaths`, same rewrite |
+| `platform` | which layer root holds the file, plus `os` when the entry is narrower than its module. `common` with no list: no `os`. A list such as `["linux", "macos"]`: `os` with that list |
+| `description` | `description`, unchanged |
+| `type` | `merge`: `dir` → `dir`, `dconf` → `dconf`, absent → `whole`, then `json` or `import` set by hand on the entries the catalog marks so |
+| `sanitizeRules` | `sanitize`, same fields; values move to the profile and machine ("Values") |
+| `detectLinkedPaths` | `scanLinks: true`; the `.linked/` trees become `dir` entries ("Linked folders") |
+| `keys` | `keys`, unchanged (dconf only) |
+| `path` | `dconfPath` (dconf only), renamed because `file` now names the repo side |
+
 ## Open
 
 ### Design

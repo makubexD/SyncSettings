@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 2,
+  "excludePatterns": ["*.pem", "*.key", "*.bak"],
+  "modules": {
+    "git": { "description": "Git settings" },
+    "shell": { "description": "Shell startup files" },
+    "vscode": { "description": "VS Code settings and snippets", "os": ["linux", "macos", "windows"] },
+    "claude": { "description": "Claude Code" },
+    "gnome": { "description": "GNOME desktop", "os": ["linux"] },
+    "work-base": { "description": "What every job shares" }
+  },
+  "entries": [
+    {
+      "file": "git/.gitconfig",
+      "module": "git",
+      "merge": "whole",
+      "localPath": "~/.gitconfig",
+      "description": "Git global config",
+      "sanitize": [
+        { "placeholder": "<YOUR_NAME>", "prompt": "Your name for git commits" },
+        { "placeholder": "<YOUR_EMAIL>", "prompt": "Your email for git commits" }
+      ]
+    },
+    {
+      "file": "git/.gitconfig.local",
+      "module": "git",
+      "merge": "whole",
+      "localPath": "~/.gitconfig.local",
+      "description": "Per-OS git settings",
+      "sanitize": [
+        {
+          "placeholder": "<GH_CLI_PATH>",
+          "prompt": "Path to GitHub CLI executable",
+          "default": "C:\\Program Files\\GitHub CLI\\gh.exe",
+          "escapeBackslashes": true
+        }
+      ]
+    },
+    {
+      "file": "vscode/settings.json",
+      "module": "vscode",
+      "merge": "json",
+      "localPath": "~/.config/Code/User/settings.json",
+      "localPaths": {
+        "macos": "~/Library/Application Support/Code/User/settings.json",
+        "windows": "~/AppData/Roaming/Code/User/settings.json"
+      },
+      "description": "VS Code user settings",
+      "sanitize": [
+        { "placeholder": "<HOME>", "prompt": "Your home folder", "defaultEnv": "HOME" },
+        { "placeholder": "<YOUR_WORK_MARKETPLACE>", "prompt": "Your work's Copilot plugin marketplace" }
+      ],
+      "localOnlyKeys": []
+    },
+    {
+      "file": "vscode/snippets",
+      "module": "vscode",
+      "merge": "dir",
+      "localPath": "~/.config/Code/User/snippets",
+      "localPaths": {
+        "macos": "~/Library/Application Support/Code/User/snippets",
+        "windows": "~/AppData/Roaming/Code/User/snippets"
+      },
+      "description": "VS Code snippets"
+    },
+    {
+      "file": "claude/CLAUDE.md",
+      "module": "claude",
+      "merge": "import",
+      "localPath": "~/.claude/CLAUDE.md",
+      "importName": "CLAUDE.{layer}.md",
+      "description": "Claude Code global instructions"
+    },
+    {
+      "file": "gnome/dconf/input-sources.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/desktop/input-sources/",
+      "keys": ["sources", "xkb-options", "per-window"],
+      "description": "Keyboard layouts"
+    },
+    {
+      "file": "shell/.bashrc",
+      "module": "shell",
+      "merge": "whole",
+      "localPath": "~/.bashrc",
+      "os": ["linux", "windows"],
+      "scanLinks": true,
+      "elevate": false,
+      "description": "Bash startup"
+    }
+  ]
+}
