@@ -107,14 +107,18 @@ Decisions made 2026-11-10, to be written into the design:
   `elevate`, plus `--user <name>`. Designed now, built only when a real case needs it.
 
 **Testing**
-- **Development happens on Linux.** One local command runs the core's unit tests (with Windows paths and line endings
-  simulated) and the shared cases.
-- CI runs the same on Windows and macOS after a push. Nothing extra is built to test Windows locally.
-- **A real Windows machine is used once, at the end:** the user runs an end-to-end checklist in phase 8.
+- **Development and testing happen on Linux, as far as Linux can take them.** One local command runs:
+  - the core's unit tests, with Windows paths and line endings simulated;
+  - the shared cases;
+  - the Windows end-to-end cases in a local VM (KVM and podman).
+
+  CI runs everything after a push, and macOS only runs there.
+- **A case the VM can't run** (for example a work domain, or real SmartScreen) goes on the end-to-end checklist the
+  user runs on a real Windows machine in phase 8.
 
 ### Phase 4: the core engine
 
-It starts with the local test command on Linux: the core's unit tests plus the shared cases.
+It starts with the local test command on Linux: the core's unit tests, the shared cases, and the Windows VM run.
 
 The TypeScript engine reads config v1 and handles:
 - platforms and picking files;
@@ -124,7 +128,7 @@ The TypeScript engine reads config v1 and handles:
 - backups.
 
 The core is pure: config and files go in, a list of actions comes out. OS adapters do the I/O. It passes the phase 2
-cases on Linux locally, and on all three OSes in CI, next to the old engines.
+cases locally (Linux and the Windows VM) and on all three OSes in CI, next to the old engines.
 
 ### Phase 5: modules, profiles and the first run
 
@@ -157,15 +161,9 @@ This phase adds:
 - A release workflow builds the programs with checksums, and `install.sh` and `install.ps1` download them.
 - The bash and PowerShell engines and their suites are removed. `bootstrap/linux.sh` stays bash.
 - The docs describe one engine.
-- The user runs the end-to-end checklist on a real Windows work machine, with these checks:
-  - install;
-  - the first run and its scan;
-  - pull;
-  - push with the preview;
-  - the statusline;
-  - the Claude layers.
-
-  Failures are fixed before cut-over.
+- The user runs the end-to-end checklist on a real Windows work machine. It holds only what the local VM couldn't
+  run (listed as phases 4-7 find them), plus a short smoke run: install, first run, pull, push. Failures are fixed
+  before cut-over.
 
 ### Phase 9: private repo and review on every change
 
