@@ -813,6 +813,28 @@ shipped. The repo is mounted into it. Phase 4 sets it up once, takes a snapshot,
 PowerShell engine's suite (Pester and `run.ps1`) green there, as CI does. Every run starts from the snapshot. Size,
 image licence and start-up time are recorded then.
 
+Decision: the local Windows VM works and is the Windows layer of `tests/all.sh`. Proved 2026-11-11 with
+`tests/windows-vm/vm.sh` (how it works: `tests/windows-vm/README.md`):
+
+| | |
+|---|---|
+| Runner | `dockurr/windows` 6.06, pinned by digest in `vm.sh`; podman 5.7 rootless with `/dev/kvm` |
+| Image | Windows 11 Enterprise Evaluation, build 26100, downloaded from Microsoft by the runner; ISO SHA256 `bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38` (7.7 GB) |
+| Licence | evaluation, 90 days from the install: this one ends 2027-02-09. Then delete the disk and the snapshot and install again |
+| In the guest | Windows PowerShell 5.1.26100, PortableGit 2.47.1 (with `bash.exe`, which the leak scan needs), Pester 6.2.0 |
+| Size | 4 GB RAM, 4 cores; a 40 GB sparse disk using 23 GB, and a snapshot of the same size |
+| First install | about 60 minutes, 45 of them the ISO download |
+| Start from the snapshot | 6 minutes; shutdown 1.5 minutes |
+| One job (copy the repo, run a command) | 6 to 10 seconds |
+| Shared cases (`run.ps1`), PowerShell engine | 36 passed, 0 failed, 3.5 minutes |
+| Pester suite, PowerShell engine | 242 passed, 0 failed, 31 minutes |
+
+Three things the VM needed, all in `tests/windows-vm/oem/`: the SMB client's folder cache turned off (the host
+writes job files behind the SMB server's back, and a new job went unseen for 7 minutes); the Hidden attribute cleared
+on the copied repo (the share shows dot-files as hidden, and Windows won't rewrite a hidden file); and Defender
+exclusions for the work folders. The Pester suite is too slow for every run, so `tests/all.sh` runs the shared cases
+in the VM and leaves Pester to CI.
+
 **Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
 without writing anything and compares them with the old engine's check and preview: the same files, the same
 placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
