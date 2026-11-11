@@ -1,11 +1,11 @@
 # One engine for every OS
 
-Phase 5 of `docs/plan-easy-install.md`. Since 2026-11-10 it also delivers modules, profiles and layered settings
-(phases 3 and 5-6), so one tool fits a personal Linux machine and several Windows work machines. Today every behavior is written twice: bash (Linux, macOS) and PowerShell
+Phase 5 of `docs/plan-easy-install.md`. Today every behavior is written twice: bash (Linux, macOS) and PowerShell
 (Windows), about 3,800 and 4,000 lines, with 485 bash cases and 240 Pester cases that test the same contract separately.
-The follow-ups plan (2026-11-09) wrote two of its six changes twice, once per engine. This roadmap checks whether one
-TypeScript engine, compiled to one program per OS, costs less to keep than two, and builds it only if the research says
-so.
+
+Phases 1 and 2 researched a single engine and added shared cases. Since 2026-11-10 the roadmap builds one TypeScript
+engine, compiled to one program per OS, with modules, profiles and layered settings. It's made for one personal Linux
+machine and several Windows work machines, one for each job.
 
 ## Rules
 
@@ -16,6 +16,11 @@ so.
   behavior and the contract records which.
 - `bootstrap/linux.sh` stays bash: it runs before anything is installed.
 - The docs rule in `docs/plan-easy-install.md` applies to every phase.
+- **Old engines frozen from phase 4 to cut-over.** The bash and PowerShell engines only get bug fixes. Each fix comes
+  with a shared case, so the new engine inherits it. No new features go into them.
+- **Old engines are deleted only when** every one of their cases that has no shared twin has been ported to the new
+  engine's tests (the list from phase 3), and the shadow runs (phase 4) show no unexplained difference.
+- **Rollback:** the last commit that still has both old engines gets the tag `two-engines-final` before they're deleted.
 
 ## Phases
 
@@ -52,126 +57,120 @@ that, the shared cases are enough and phases 3-5 stay parked.
 
 ### Phase 3: design `docs/plan-single-engine-3.md`
 
-A design doc, `docs/design-layers.md`, and no engine code. It covers:
-- the four layers (base, OS, profile, machine) and modules;
-- the machine file and `mksync whoami`;
-- the first-run questions;
-- the push and pull preview, grouped by who receives each change;
-- the new-setting question;
-- the config v2 shape and how v1 maps to it;
-- the runtime (Bun or Deno) and the TypeScript layout;
-- the test approach.
-
-It also inventories the Windows `~/.claude` and checks how Claude Code on Windows runs the statusline and hooks. It ends
-with the user's go on the design.
+A design doc, `docs/design-layers.md`, with no engine code. It ends with the user's go. It holds every decision below as
+a rule with an example, the merge-and-split rules, the catalog, config v2, the runtime choice, and an "Open" list.
 
 Decisions made 2026-11-10, to be written into the design:
 
 **Machines and profiles**
-- **Profiles are separate from the OS.** A machine picks its profile on the first run, and nothing in the code ties
-  Linux to `personal` or Windows to `work`.
-- **A profile per job,** built from modules. The rules every job shares are one `work-base` module that each work
-  profile lists, not a parent profile (DRY, no inheritance). Today: `personal` on Linux, and one work profile per
-  Windows job (#1, #2, maybe #3).
-- **The repo is the backup.** Job profiles, the machine records and each profile's values (emails, usernames, paths;
-  never passwords or tokens) are committed, so the last sync is the last backup. This needs the repo to be private
-  (phase 9). Until then the engine refuses to commit these while `gh repo view` says the repo is public, and
-  development uses `example.com` fixtures only.
+- **Profiles are separate from the OS.** A machine picks its profile on its first run, and nothing ties Linux to
+  `personal` or Windows to `work`.
+- **A profile per job, plus `personal`,** built from modules. The rules every job shares are a `work-base` module that
+  each work profile lists. There's no parent profile.
+- **Values sit where they vary:**
+  - an account or email belongs to the profile;
+  - a path such as `<HOME>` or `<GH_CLI_PATH>` belongs to the machine.
+
+  Today's `.user-values.json` moves into those two places.
+- **The repo becomes the backup, once it's private.** Job profiles, machine records and values (never passwords or
+  tokens) are committed then. Until the user says development is done and the repo goes private, the engine keeps them
+  in the machine's local state and refuses to commit them. The first push after the switch commits them.
+- **A job ends:** the profile stays in the repo as the last backup and gets `retired: true`. Retired profiles aren't
+  suggested.
 
 **First run**
-- It scans the machine: installed tools, the config files it finds and how they compare with each profile, the
-  hostname, the Windows domain and the git email. Then it asks four questions:
+- It scans the machine: tools, existing config files, hostname, Windows domain and git email. It shows what it found
+  and lists the profiles.
+- It suggests "this replaces `<machine>`" only when the hostname matches a record exactly. There's no scoring.
+- It asks four questions:
   - What is this machine for?
-  - Will you use Claude here, and how?
-  - Should it send changes back?
+  - Claude here: none, Claude only, or Claude plus DeepSeek?
+  - Push with a preview, or pull only?
   - What happens to files that are already here?
-- It suggests the best match, including "this replaces the machine `work-1-laptop`". The answers go to a machine
-  record; `mksync whoami` prints it, and the scan warns when the machine no longer matches it.
-- **Replacing a broken machine:** the first run on the new one takes over the old machine's record. Its profile and
-  values come from the repo, so there's almost nothing to answer.
-- **A job ends:** nothing to do. The profile stays in the repo as the last backup. `mksync profile retire <name>`
-  hides it from suggestions, and it can be revived.
+- The answers go to the machine record (profile, Claude mode, pull-only), and `mksync whoami` prints it.
+- **Replacing a broken machine:** the new one takes over the old one's record.
 
 **Push and pull**
-- **Work machines may push.** The preview groups changes by who receives them: all machines, machines on this OS,
-  this profile, or this machine only. A setting that exists on one OS never reaches another.
-- **A new setting with no rule:** the push preview asks where it goes and remembers the answer. It suggests "this
-  profile" on work and "all machines" on personal. A value that contains something private to this machine (its
-  email, company domain, internal URLs) never goes beyond its profile.
-- **Preview by default:** `--yes` skips the question, not the preview or the rules.
+- **Every push shows a preview** grouped by who receives each change: all machines, machines on this OS, this
+  profile, or this machine only. A setting that exists on one OS never reaches another.
+- **A new setting with no rule:** the preview asks where it goes, suggesting "this profile" on work and "all machines"
+  on personal. The answer is stored on the profile, so every machine with that profile knows it.
+- **Values that never go beyond their profile:** a literal match on that profile's own values (its emails, domains,
+  usernames). Anything else is the leak scan's job, so this rule isn't presented as a guarantee.
+- `--yes` skips the question, not the preview or the rules.
 
-**Cuts and deferrals**
-- **Linked folders:** the scan (at the first run and as `mksync scan`) finds folders that the shell files point to,
-  such as `C:\MakuCustomAlias`, and asks. A yes becomes a normal `dir` entry. Nothing syncs on its own any more.
-- **`-User` and admin rights:** a small per-OS wrapper (`RunAs`, `sudo`) that re-runs only the entries marked
-  `elevate`, plus `--user <name>`. Designed now, built only when a real case needs it.
+**Cuts and fallbacks**
+- **Linked folders:** the scan finds folders that the shell files point to and asks; a yes becomes a `dir` entry.
+  Today's `.linked/` trees are converted into `dir` entries at cut-over.
+- **`-User`:** dropped at cut-over. A small elevation wrapper (`RunAs`, `sudo`) is designed in the "Open" list and
+  built only on a real need.
+- **If a work machine blocks the unsigned program:** run the tool from a clone, with the runtime installed on that
+  machine. The real-Windows checklist covers it.
+- **The statusline is written once.** Either one shared script, or a `mksync statusline` subcommand. Phase 3 picks one
+  after checking how Claude Code runs commands on Windows.
 
 **Testing**
-- **Development and testing happen on Linux, as far as Linux can take them.** One local command runs:
-  - the core's unit tests, with Windows paths and line endings simulated;
+- Everything Linux can do is done on Linux. One local command runs:
+  - the unit tests, with Windows paths and line endings simulated;
   - the shared cases;
-  - the Windows end-to-end cases in a local VM (KVM and podman).
+  - the Windows cases in a local VM (KVM and podman).
 
-  CI runs everything after a push, and macOS only runs there.
-- **A case the VM can't run** (for example a work domain, or real SmartScreen) goes on the end-to-end checklist the
-  user runs on a real Windows machine in phase 8.
+  macOS runs in CI only.
+- A case the VM can't run goes on the real-Windows checklist the user runs before cut-over.
 
-### Phase 4: the core engine
+### Phase 4: core engine and test bench
 
-It starts with the local test command on Linux: the core's unit tests, the shared cases, and the Windows VM run.
+- **Step 1** proves the local Windows VM: a capped spike, with a pinned 90-day evaluation image. If it fails, Windows
+  falls back to CI and the checklist.
+- The local test command, plus a CI workflow that builds the programs as artifacts on every push, for dogfooding.
+- **The pure core:** config, platforms, picking files, sanitize and hydrate (JSON-escaped where the file is JSON),
+  compare, statuses, export, import, check and backups. It reads the old config through the v2 loader from phase 3.
+- It passes the shared cases on Linux and in the VM, and in CI on all three OSes.
+- **Shadow mode:** on the user's real machines, the new program's `check` and `preview` run next to the old engine's,
+  and their output is diffed. Every difference is explained or fixed.
 
-The TypeScript engine reads config v1 and handles:
-- platforms and picking files;
-- sanitize and hydrate;
-- compare and statuses;
-- export, import and the import check;
-- backups.
+### Phase 5: layers
 
-The core is pure: config and files go in, a list of actions comes out. OS adapters do the I/O. It passes the phase 2
-cases locally (Linux and the Windows VM) and on all three OSes in CI, next to the old engines.
+- The merge-and-split core from the design: JSON (objects, arrays, key order, byte-exact output, CRLF) and `@import`
+  for `CLAUDE.md`.
+- Config v2 with modules and profiles, living beside v1 as the design decides.
+- Unit tests for every worked example in the design.
 
-### Phase 5: modules, profiles and the first run
+### Phase 6: machines
 
-This phase adds:
-- config v2 with modules and profiles;
-- the machine scan, the first-run questions, machine records and `mksync whoami`;
-- replacing a machine and `mksync profile retire`;
-- the guard that refuses to commit profiles, records or values while the repo is public;
-- the push and pull preview, grouped by who receives each change;
-- the new-setting question and the private-value rule.
+- Machine records, the first-run scan and its four questions, `mksync whoami`, replacing a machine, retired profiles,
+  and per-machine and per-profile values.
+- The public-repo guard: values stay local and are committed after the repo goes private.
 
-### Phase 6: layers
+### Phase 7: push, pull and Claude
 
-- A JSON merge for `settings.json`: a base, plus layers from modules.
-- `@import` layers for `CLAUDE.md`.
-- One `statusline.sh` for every OS.
-- The Windows `~/.claude` brought into the sync.
+- The preview grouped by who receives each change, the new-setting question, and the profile-value rule.
+- The Claude layers: `settings.json` merged from base and modules, `CLAUDE.md` imports, and the statusline written
+  once. The Windows `~/.claude` comes into the sync.
 
-### Phase 7: the rest
+### Phase 8: the rest
 
-- Diff and the sync point.
-- Commit and the PR.
-- dconf and package drift.
-- Linked folders as scan suggestions (`mksync scan`) that become `dir` entries, replacing `detectLinkedPaths`.
-- The `mksync` front door.
-- The elevation wrapper, only if a real case exists by then.
+- Diff and the sync point, commit and the PR per profile, dconf and package drift, linked-folder suggestions, the
+  `mksync` front door.
+- The cases of the old engines that have no shared twin, ported (the phase 3 list).
 
-### Phase 8: cut-over
+### Phase 9: cut-over
 
-- A release workflow builds the programs with checksums, and `install.sh` and `install.ps1` download them.
-- The bash and PowerShell engines and their suites are removed. `bootstrap/linux.sh` stays bash.
-- The docs describe one engine.
-- The user runs the end-to-end checklist on a real Windows work machine. It holds only what the local VM couldn't
-  run (listed as phases 4-7 find them), plus a short smoke run: install, first run, pull, push. Failures are fixed
-  before cut-over.
+- A release workflow builds the programs with checksums and `gh attestation`.
+- `install.sh` and `install.ps1` download the program. The tool updates itself with `mksync update`, checking the
+  config's `schemaVersion`.
+- The `.linked/` trees are converted. Tag `two-engines-final`, then delete the bash and PowerShell engines and their
+  suites. `bootstrap/linux.sh` stays bash.
+- The user runs the real-Windows checklist: what the VM couldn't run, plus a smoke run (install, first run, pull,
+  push, and the run-from-clone fallback). Failures are fixed before the deletion is merged.
 
-### Phase 9: private repo and review on every change
+### Phase 10: private repo and review
 
-Starts when development is done.
-- Make the repo private (`docs/decision-private-repo.md`, accepted 2026-11-09), and let the engine commit job
-  profiles, machine records and values.
-- Set the CI minutes rule for a private repo: Linux on every PR, macOS and Windows when engine or installer files
-  change, on `master`, or on demand.
-- Add a workflow that asks for a reviewer when a sync PR brings a new setting (a new entry, file, JSON key or
-  profile), so every change is tracked and reviewed.
+Starts when the user says development is done; it can come before or after phase 9.
+- Make the repo private and rewrite `docs/decision-private-repo.md` to say what may be committed now. Lift the guard,
+  so profiles, records and values are committed on the next push.
+- CI minutes rule: Linux on every PR; macOS and Windows when engine or installer files change, on `master`, or on
+  demand.
+- The review-gate label check grows: a sync PR that brings a new setting (an entry, a file, a JSON key or a profile)
+  gets a red check and a comment listing the new settings until the user adds `reviewed`.
 - Roll back Claude's auto-approval (`TODO.md`).

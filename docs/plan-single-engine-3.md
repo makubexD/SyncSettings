@@ -1,172 +1,215 @@
 # One engine, phase 3: design
 
 Roadmap: `docs/plan-single-engine.md`. Goal: `docs/design-layers.md`, a design the user approves before any
-TypeScript is written. It covers:
-- layers, modules and profiles;
-- machine records and `mksync whoami`;
-- the first-run scan and questions;
-- replacing and retiring machines;
-- the push and pull preview;
-- the new-setting question;
-- config v2;
-- the runtime and the test approach.
-
-The decisions from 2026-11-10 in the roadmap's phase 3 are inputs, not open questions.
+TypeScript is written. The decisions of 2026-11-10 in the roadmap's phase 3 are inputs. This phase turns them into
+rules, worked examples and file shapes, and lists what is still open.
 
 ## Shared rules
 
-- Branch `docs/design-layers`, one commit per step, one PR at the end. It's docs only, so it's merged under the usual
-  auto-approval once the review passes.
-- No engine code and no change to `sync-config.json` in this phase. Examples in the design use real entries from
-  `sync-config.json`, with `example.com` values, so `leak-scan` stays green.
-- Plain words: the design is for the user first. Every rule gets one example from the user's machines (personal Linux,
-  work Windows #1-#3).
-- Where something is left open, the design says so in an "Open" list. Nothing is decided silently.
+- Branch `docs/design-layers`, one commit per step, one PR at the end. Docs only, merged under the usual auto-approval
+  once the review passes.
+- No engine code. No change to `sync-config.json`.
+- Examples use real entries from `sync-config.json`, with `example.com` values, so `leak-scan` stays green.
+- **Plain words.** The design is for the user first. Every rule gets one example from the user's machines: personal
+  Linux, and Windows work #1-#3.
+- **Redaction.** Nothing from a work machine goes into the repo until the user has read it. Names that could identify
+  an employer (hooks, skills, MCP servers, paths, hostnames) become `work-tool-1`, `work-mcp-1`, and so on.
+- Anything not decided goes in the design's "Open" list. Nothing is decided silently.
+- Each step's test is a command, and it fails when the step is missing or incomplete.
 
-## Step 1: Windows `~/.claude` inventory `[inline: needs the user's Windows session]`
+## Step 1: Windows session `[inline: needs the user on a Windows work machine]`
 
-File: `docs/design-layers.md` (appendix "Windows Claude today").
+File: `docs/design-layers.md` (appendices "Windows Claude today" and "Windows checks").
 
-The user runs a prompt in a Claude Code session on a Windows work machine. It reports names and structure, never
-values:
+The user runs one prompt in Claude Code on work machine #1. It gives names and structure, never values:
 - the files and folders in `~/.claude`;
-- the top-level keys in `settings.json`, and each hook's event and command name;
-- what the statusline is written in, what it shows, and which tools it calls.
+- the top-level keys of `settings.json`, each hook's event and command name, and `statusLine.command`;
+- the statusline: its language, what it shows, and the tools it calls;
+- which shell Claude Code uses there for Bash commands and for the statusline;
+- whether Git Bash and `jq` are installed;
+- **optional:** whether the probe program from research run 42748992114 (`probe-windows-x64`, Bun or Deno) starts.
 
-Record it next to the Linux inventory, and mark each item as one of:
+  A block is recorded, not fixed. The fallback is to run the tool from a clone.
+
+The user reads the result, and it's redacted under the shared rules. Then mark each item as one of:
 - **same as Linux**;
-- **same purpose, different implementation**, like the statusline;
+- **same purpose, different implementation**;
 - **Windows only**.
 
-Test: the appendix lists every top-level key of both `settings.json` files, and `leak-scan` passes.
+Test:
+- `jq -r 'keys[]' dotfiles/linux/claude/settings.json | while read -r k; do grep -q "\`$k\`" docs/design-layers.md || echo "missing $k"; done`
+  prints nothing.
+- `scripts/ci/leak-scan.sh` passes.
 
-## Step 2: How Claude Code runs commands on Windows `[inline: research]`
+## Step 2: How the statusline and hooks run on Windows `[inline: research]`
 
-File: `docs/design-layers.md` (section "One statusline").
+File: `docs/design-layers.md` (section "Statusline and hooks on Windows").
 
-Check Claude Code's documentation, and confirm on the work machine from step 1:
-- which shell runs `statusLine.command` and hook commands on Windows (Git Bash, PowerShell or cmd);
+Combine Claude Code's documentation with step 1's answers:
+- which shell runs `statusLine.command` and hook commands on Windows;
 - whether `~` and `$HOME` expand there;
-- whether `jq` is needed.
+- what the statusline needs: `jq`, `git`.
 
-Decide how one `statusline.sh` runs on every OS. If it can't, record the smallest fallback.
+Choose between one shared `statusline.sh` and a `mksync statusline` subcommand:
+- the subcommand is written once in TypeScript, needs no `jq` or Git Bash, and starts in about 57 ms on Windows
+  (research section 3);
+- the script is quicker to tweak by hand.
 
-Test: the section quotes each source (a docs URL or the command run on Windows) next to each claim.
+Write the choice as a line starting `Decision:`, with the reason.
 
-## Step 3: Catalog of today's entries `[inline: design judgment]`
+Test: `grep -c '^Decision:' docs/design-layers.md` is at least 1. `grep -cE 'https?://' docs/design-layers.md` is at
+least 1.
+
+## Step 3: Catalog `[inline: design judgment]`
 
 File: `docs/design-layers.md` (section "Catalog").
 
-A table of all 51 entries in `sync-config.json`, plus the Windows Claude items from step 1. Each row has:
+One table row per entry in `sync-config.json` (`repoPath` in backticks), plus the Windows items from step 1. Each row
+has:
 - the module;
 - the layer (base, OS, profile, machine);
-- who receives it (all machines, one OS, this machine only);
-- the merge type (whole file, JSON merge, `@import`, dconf).
+- who receives it;
+- the merge type (whole file, JSON, `@import`, dconf, dir).
 
-Flag any entry whose layer isn't obvious, and add it to the "Open" list.
+`<YOUR_WORK_MARKETPLACE>` in the common VS Code settings is the worked example of a base file that needs a value per
+profile. Any row whose layer isn't obvious goes in "Open".
 
-Test: the row count equals `jq '.files | length' sync-config.json` plus the Windows-only items.
+Test: `jq -r '.files[].repoPath' sync-config.json | while read -r p; do grep -q "| \`$p\`" docs/design-layers.md || echo "missing $p"; done`
+prints nothing.
 
-## Step 4: The model `[inline: design]`
+## Step 4: Layers, profiles and values `[inline: design]`
 
-File: `docs/design-layers.md` (sections "Layers", "Profiles", "Machine records", "First run", "Replace and retire",
-"Push and pull", "New settings", "Private values", "Public-repo guard", "Linked folders", "Elevation").
+File: `docs/design-layers.md` (sections "Layers", "Modules and profiles", "Values").
 
-Write down the roadmap's decisions as rules, each with an example:
-- **Layer order and conflicts.** A key set in two layers: which wins, and what the preview shows.
-- **The profile file.** One per job, plus `personal`. It's a flat list of modules (`work-base` is a module, not a
-  parent profile) plus its values. The OS limit always applies.
-- **Machine records.** They're stored in the repo; the local file only names which record this machine is. Their
-  fields:
-  - profile, machine name, module overrides;
-  - remembered destinations for new settings;
-  - private markers;
-  - the scan's hints.
-- **The first run and `mksync whoami`.** Show their exact output:
-  - what the scan reads, and how a profile match is scored;
-  - the four questions, each with its suggested answer;
-  - the "replaces `<machine>`" suggestion;
-  - the warning when the hints no longer match.
-- **Replace and retire.** A new machine takes over a record. `mksync profile retire` and reviving a retired
-  profile.
-- **The public-repo guard.** The engine checks the repo's visibility and refuses to commit profiles, records or
-  values while it's public. Show its message and how a fixture test bypasses it.
-- **Linked folders.** The scan's folder suggestions, and how a yes becomes a `dir` entry.
-- **The push and pull preview.** Group changes by who receives them. `--yes` skips the question, not the preview or
-  the rules.
-- **The new-setting question.** It differs per profile and remembers the answer.
-- **The private-value rule.** It runs before the leak scan.
-- **The elevation wrapper.** Designed here, not built.
+- **The layer order** (base, OS, profile, machine), and which layer wins when two set the same key.
+- **Modules,** and the module list for `personal` and for a work profile with `work-base`. A module limited to one OS
+  can't be switched on elsewhere.
+- **The profile file:**
+  - its modules;
+  - its values (accounts);
+  - the destinations remembered for new settings;
+  - `retired`.
+- **Values:**
+  - which belong to the profile (accounts, emails) and which to the machine (paths);
+  - how `.user-values.json` moves to them;
+  - how a value is JSON-escaped when it's hydrated into a JSON file, for example `C:\Users\x` into `settings.json`.
 
-Test: each roadmap decision dated 2026-11-10 maps to a section, and the "Open" list holds anything that doesn't.
+Test: `for h in '## Layers' '## Modules and profiles' '## Values'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
+prints nothing. `grep -c 'Example:' docs/design-layers.md` is at least 6.
 
-## Step 5: Config v2 `[inline: design]`
+## Step 5: Merge and split `[inline: design, the hardest rules]`
+
+File: `docs/design-layers.md` (section "Merge and split").
+
+- **How import merges a JSON file** from its layers: objects key by key; arrays such as `hooks.*[]` and
+  `permissions.allow` by item; key order and indentation, so the output is byte-exact; CRLF.
+- **How export splits a changed local file** back into its layers. A worked example for each case:
+  1. A key changed that lives in the base.
+  2. A key changed that a module's layer sets.
+  3. A new array item.
+  4. A removed array item.
+  5. Claude Code rewriting `settings.json` itself, such as a permission granted or `/model` changed.
+  6. A new top-level key, which goes to the new-setting question.
+  7. An edit to `CLAUDE.md` inside the base text.
+  8. An edit to an `@import` line in `CLAUDE.md`.
+  9. A file saved with CRLF on Windows.
+- **What import does** when the local file has edits that aren't in any layer yet.
+
+Test: `for n in 1 2 3 4 5 6 7 8 9; do grep -q "^### Case $n:" docs/design-layers.md || echo "missing case $n"; done`
+prints nothing.
+
+## Step 6: Machines `[inline: design]`
+
+File: `docs/design-layers.md` (sections "Machine records", "First run", "Replace and retire", "Public-repo guard").
+
+- **The machine record:** profile, machine name, hostname, Claude mode, pull-only, module overrides, and per-machine
+  values. Where it's kept: locally until the repo is private, then in `machines/<name>.json`.
+- **The first run's exact output:**
+  - what the scan found;
+  - the list of profiles, and the "replaces `<machine>`" suggestion on an exact hostname match;
+  - the four questions with their suggested answers;
+  - `mksync whoami`, including the warning when the hostname or domain no longer matches.
+- **Replace** (take over a record) and **retire** (`retired: true`).
+- **The public-repo guard:** how it reads the repo's visibility, what it refuses, its message, how the first push
+  after going private commits what was held locally, and how fixture tests bypass it.
+
+Test: `for h in '## Machine records' '## First run' '## Replace and retire' '## Public-repo guard'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
+prints nothing.
+
+## Step 7: Push, pull and the rest of the rules `[inline: design]`
+
+File: `docs/design-layers.md` (sections "Push and pull", "New settings", "Profile values", "Linked folders", "Open").
+
+- **The preview's exact output,** grouped by who receives each change. `--yes` skips the question, not the preview.
+  Pull-only machines have no push.
+- **The new-setting question:** its suggestion per profile, and where the answer is stored.
+- **The profile-value rule:** a literal match only, and what the leak scan still covers.
+- **Linked folders:** the scan's suggestion, and converting today's `.linked/` trees at cut-over.
+- **Under "Open":**
+  - the elevation wrapper;
+  - `-User` dropped at cut-over;
+  - whether the employer's policy allows work configs in a personal repo (the user's call).
+
+Test: `for h in '## Push and pull' '## New settings' '## Profile values' '## Linked folders' '## Open'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
+prints nothing.
+
+## Step 8: Config v2 `[inline: design]`
 
 Files: `docs/design-layers.md` (section "Config v2"), `docs/config-v2.example.json`.
 
-- The v2 shape, built from the v1 fields:
+- **The v2 shape:**
+  - `schemaVersion`;
   - `modules`;
-  - each entry's `module`;
-  - `merge` (`file`, `json`, `import`, `dconf`);
+  - each entry's `module` and `merge`;
   - layer sources for JSON and `CLAUDE.md`;
-  - `elevate`;
-  - `profiles/<name>.json` with its values;
-  - `machines/<name>.json`.
-- The v1 to v2 mapping, field by field. v1 configs keep working until phase 8.
-- The example holds every kind of entry, not all 51.
+  - `elevate` (reserved);
+  - `profiles/<name>.json` and `machines/<name>.json`.
+- **Where v2 lives while the old engines still read v1.** Either a separate file, or v2 generated from v1. Decide
+  which, and how the two stay in step until cut-over.
+- **The v1-to-v2 mapping, one table row per v1 field.**
+- **The example** holds one entry of each kind.
 
-Test: `jq empty docs/config-v2.example.json`. Every v1 field in `docs/configuration.md` appears in the mapping.
+Test: `jq -e '.schemaVersion' docs/config-v2.example.json`. Then
+`jq -r '[.files[] | keys[]] | unique[]' sync-config.json | while read -r k; do grep -q "| \`$k\`" docs/design-layers.md || echo "unmapped $k"; done`
+prints nothing.
 
-## Step 6: Runtime, layout and tests `[inline: design]`
+## Step 9: Runtime, release and tests `[inline: design]`
 
-File: `docs/design-layers.md` (sections "Runtime", "Code layout", "Tests").
+File: `docs/design-layers.md` (sections "Runtime", "Code layout", "Release and update", "Tests").
 
-- **Bun or Deno,** picked with the probe numbers in `docs/single-engine-research.md` section 3: size, start-up,
-  cross-builds, Gatekeeper and SmartScreen.
-- **Code layout.** A pure core (plan the actions), OS adapters (paths, dconf, the elevation wrapper), and one merge
-  strategy per file type.
-- **Tests.** Unit tests for the pure core, with Windows paths and line endings simulated on Linux, plus the 37 shared
-  cases. Say which `engine.sh` and Pester cases have no shared twin, and where each of them goes.
-- **The local test command.** One command (for example `./dev test`) runs:
-  - the unit tests;
-  - the shared cases on Linux;
-  - the Windows cases in the local VM from step 7.
+- **Runtime.** Bun, Deno or Node SEA, chosen with the research numbers: size raw and compressed, start-up,
+  cross-builds. Also record:
+  - the ad-hoc signature on cross-built macOS programs;
+  - Gatekeeper and SmartScreen;
+  - the step 1 result;
+  - the run-from-clone fallback.
 
-  CI runs everything after a push, plus macOS.
-- **The real-machine checklist** for phase 8 holds only what the VM can't run. Start the list with what step 7
-  finds.
+  Anything not measured goes to "Open".
+- **Code layout.** A pure core that plans the actions, OS adapters, and one merge strategy per file type.
+- **Release and update.** CI builds artifacts on every push (from phase 4). At cut-over: releases with checksums and
+  `gh attestation`, `mksync update`, and the `schemaVersion` check.
+- **Tests:**
+  - the local command, with each layer it runs;
+  - the plan for the Windows VM in phase 4;
+  - shadow mode on the real machines;
+  - a table of every `tests/linux/engine.sh` and Pester case with no shared twin, and where each one goes;
+  - the first items of the real-Windows checklist.
 
-Test: each choice names the number or rule behind it.
+Test: `for h in '## Runtime' '## Code layout' '## Release and update' '## Tests'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
+prints nothing. `grep -c '^Decision:' docs/design-layers.md` is at least 3.
 
-## Step 7: Local Windows VM `[inline: research, needs KVM on this machine]`
+## Step 10: Docs and close `[inline: docs]`
 
-File: `docs/design-layers.md` (section "Local Windows").
-
-Prove that a Windows VM runs on this machine and can be driven from a script:
-- KVM, podman, QEMU and `virsh` are installed;
-- 8 cores, 14 GB RAM, 350 GB free.
-
-Try a Windows 11 container under podman with KVM (for example `dockur/windows`), or a `virsh` VM. Record:
-- boot times, RAM and disk use;
-- how a script copies files in, runs a command (SSH or a shared folder) and reads the exit code back;
-- the licence (an evaluation image) and how long it stays valid.
-
-List what the VM can't stand in for: a work domain, real SmartScreen, the user's real profile. Those cases start the
-real-machine checklist. If no approach works in about an hour, say so: Windows then relies on CI and that checklist.
-
-Test: a recorded run where a script on this machine starts the VM, runs `cmd /c ver` inside it, and prints the
-Windows version and exit code 0.
-
-## Step 8: Docs and close `[inline: docs]`
-
-- `docs/sync-contract.md`: a short "Planned: one engine" note linking the design. The contract itself doesn't change
-  until phase 4.
+- `docs/sync-contract.md`: a short "Planned: one engine" note linking the design.
+- `docs/single-engine-research.md`: mark the rows the design replaces as superseded: the `detectLinkedPaths` row at
+  line 108, the `-User` row at line 111.
 - `README.md` and `CLAUDE.md`: one line each pointing to the design.
 - The roadmap: phase 3 marked done, with the PR link.
 - Project memory: what's decided, what's open, and that phase 4 waits for the user's go.
 
-Test: `git diff --check` is clean, and every link in the design resolves (`grep -o '](.*\.md' docs/design-layers.md`,
-then check each file exists).
+Test: `git diff --check` is clean. Then
+`grep -oE '\]\([^)#]+\.md' docs/design-layers.md | sed 's/^](//' | while read -r f; do [ -f "docs/$f" ] || [ -f "$f" ] || echo "broken $f"; done`
+prints nothing.
 
 ## Stop
 
