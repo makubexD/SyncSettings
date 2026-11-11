@@ -903,6 +903,12 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   error. The program prints `ERROR: sync-config.json: invalid JSON.` and exits 1 (also when `files` isn't a list),
   pending a shared case. Likewise an entry with no `repoPath` is named `null` by bash and an empty string by the
   program.
+- **Config v2 error lines.** The design fixes only `unsupported config schemaVersion <n>` (exit 2). The program prints
+  it as `ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.`, with `none` for a missing key, and words
+  the other v2 refusals (exit 1) as `ERROR: sync-config.v2.json: entry <file> …`: `names unknown module <m>`,
+  `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
+  `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`. They enter the
+  contract when v2 does.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a

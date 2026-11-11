@@ -2,7 +2,7 @@ export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 export interface ConfigError {
   readonly message: string;
-  readonly code: 1;
+  readonly code: 1 | 2;
 }
 
 export type Os = "windows" | "linux" | "macos";
