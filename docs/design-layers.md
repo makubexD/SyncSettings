@@ -54,7 +54,102 @@ Hooks stay scripts. The Linux hooks (`metrics-capture.sh` and others, under `dot
 files like any other, not engine code, so they don't move into `mksync`. On Windows a bash hook needs Git Bash, or a
 `"shell": "powershell"` twin. Which hooks the work machines need goes in "Open".
 
+## Catalog
+
+Every entry in `sync-config.json` today, and where it lands. The columns:
+
+- **Module:** the group a profile lists to get the entry (`git`, `shell`, `claude`…). A machine whose record says
+  "Claude: none" skips `claude`; only "Claude plus DeepSeek" gets `claude-worker`.
+- **Layer:** where the file's content lives. Base is every machine; OS is one OS (or a list); profile is one profile;
+  machine is one machine record. Values (`<YOUR_EMAIL>`, `<HOME>`) are in "Values" in the last column, not a layer
+  of their own: an account belongs to the profile, a path to the machine.
+- **Receives:** which machines end up with the file today, when their profile lists the module.
+- **Merge:** how the layers combine. "Whole file" means one layer owns the file (values still hydrate). "JSON" merges
+  keys, later layers win. "`@import`" keeps one file per layer and the base file imports the others. "dconf" loads
+  only the listed keys. "Dir" syncs a folder entry by entry.
+
+| Entry | Module | Layer | Receives | Merge | Values |
+|---|---|---|---|---|---|
+| `dotfiles/common/git/.gitconfig` | `git` | base | all | whole file | `<YOUR_NAME>`, `<YOUR_EMAIL>`: profile |
+| `dotfiles/common/git/ignore` | `git` | base | all | whole file | |
+| `dotfiles/windows/git/.gitconfig.local` | `git` | OS (Windows) | Windows | whole file | `<YOUR_GH_USERNAME>`, `<YOUR_GH_ORG>`: profile; `<GH_CLI_PATH>`: machine |
+| `dotfiles/linux/git/.gitconfig.local` | `git` | OS (Linux) | Linux | whole file | |
+| `dotfiles/macos/git/.gitconfig.local` | `git` | OS (macOS) | macOS | whole file | |
+| `dotfiles/macos/shell/.zshrc` | `shell` | OS (macOS) | macOS | whole file | |
+| `dotfiles/macos/shell/.zprofile` | `shell` | OS (macOS) | macOS | whole file | |
+| `dotfiles/windows/shell/.bashrc` | `shell` | OS (Windows) | Windows | whole file | linked folders: machine (see Open) |
+| `dotfiles/windows/shell/.bash_profile` | `shell` | OS (Windows) | Windows | whole file | |
+| `dotfiles/linux/shell/.bashrc` | `shell` | OS (Linux) | Linux | whole file | |
+| `dotfiles/linux/shell/.profile` | `shell` | OS (Linux) | Linux | whole file | |
+| `dotfiles/common/tmux/.tmux.conf` | `tmux` | OS (Linux, macOS) | Linux, macOS | whole file | |
+| `dotfiles/common/starship/starship.toml` | `starship` | OS (Linux, macOS) | Linux, macOS | whole file | |
+| `dotfiles/common/wezterm/wezterm.lua` | `wezterm` | OS (Linux, macOS) | Linux, macOS | whole file | |
+| `dotfiles/common/htop/htoprc` | `htop` | OS (Linux, macOS) | Linux, macOS | whole file | |
+| `dotfiles/common/gh/config.yml` | `gh` | OS (Linux, macOS) | Linux, macOS | whole file | |
+| `dotfiles/linux/rtk` | `rtk` | OS (Linux) | Linux | dir | |
+| `dotfiles/linux/gnome/mimeapps.list` | `gnome` | OS (Linux) | Linux | whole file | |
+| `dotfiles/linux/gnome/bookmarks` | `gnome` | OS (Linux) | Linux | whole file | `<HOME>`: machine |
+| `dotfiles/linux/gnome/applications/disco-datos.desktop` | `gnome` | machine (see Open) | personal Linux | whole file | |
+| `dotfiles/linux/gnome/applications/mis-discos.desktop` | `gnome` | machine (see Open) | personal Linux | whole file | |
+| `dotfiles/linux/wezterm/wezterm-xwayland` | `wezterm` | OS (Linux) | Linux | whole file | |
+| `dotfiles/linux/wezterm/wezterm-xwayland.desktop` | `wezterm` | OS (Linux) | Linux | whole file | `<HOME>`: machine |
+| `dotfiles/common/vscode/settings.json` | `vscode` | base | Linux, macOS (Windows: see Open) | JSON | `<HOME>`: machine; `<YOUR_WORK_MARKETPLACE>`: profile |
+| `dotfiles/common/vscode/snippets` | `vscode` | base | Linux, macOS (Windows: see Open) | dir | |
+| `dotfiles/windows/windows-terminal/settings.json` | `windows-terminal` | OS (Windows) | Windows | whole file | |
+| `dotfiles/common/claude/CLAUDE.md` | `claude` | base, profile adds one | Linux, macOS; Windows in phase 7 | `@import` | |
+| `dotfiles/common/claude/RTK.md` | `claude` | base | all with Claude | whole file | |
+| `dotfiles/linux/claude/settings.json` | `claude` | base, OS overlay | Linux | JSON | `<HOME>`: machine; `<YOUR_GH_USERNAME>`: profile |
+| `dotfiles/linux/claude/statusline.sh` | `claude` | none: replaced by `mksync statusline` | Linux until cut-over | whole file | |
+| `dotfiles/common/claude/sampleGrok.md` | `claude` | none (see Open) | Linux, macOS | whole file | |
+| `dotfiles/linux/claude/hooks` | `claude` | OS (Linux) | Linux | dir | |
+| `dotfiles/linux/claude/skills/mk-delegate` | `claude-worker` | OS (Linux) | Linux with DeepSeek | dir | |
+| `dotfiles/linux/claude/skills/mk-check` | `claude-worker` | OS (Linux) | Linux with DeepSeek | dir | |
+| `dotfiles/common/claude/docs/token-routing-map.html` | `claude` | base | all with Claude | whole file | |
+| `dotfiles/linux/claude/bin/mk-exec` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
+| `dotfiles/linux/claude/bin/workflow-report` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
+| `dotfiles/linux/claude/bin/metrics-archive` | `claude` | OS (Linux) | Linux | whole file | |
+| `dotfiles/linux/claude-worker/CLAUDE.md` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
+| `dotfiles/linux/claude-worker/settings.json` | `claude-worker` | OS (Linux) | Linux with DeepSeek | JSON | |
+| `dotfiles/linux/claude/bin/worker-mode` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
+| `dotfiles/linux/gnome/dconf/interface.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/input-sources.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/wm-keybindings.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/privacy.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/session.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/power.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/shell.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/ptyxis.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/nautilus.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| `dotfiles/linux/gnome/dconf/file-chooser.ini` | `gnome` | OS (Linux) | Linux | dconf | |
+| Windows Claude settings (expected) | `claude` | OS (Windows) overlay on the base | Windows; confirm in phase 7 | JSON | `<HOME>`: machine |
+| Windows statusline (expected) | `claude` | none: `mksync statusline` | Windows; confirm in phase 7 | (no file) | |
+| Windows `CLAUDE.md` (expected) | `claude` | base, work profile adds one | Windows; confirm in phase 7 | `@import` | |
+
+Example, a base file with a value per profile: `dotfiles/common/vscode/settings.json` lists three Copilot plugin
+marketplaces, the last one `<YOUR_WORK_MARKETPLACE>`. The file is base: the same on every machine with the `vscode`
+module. The value is per profile: work #1's profile holds `https://marketplace.example.com/work-1`, work #2's holds its
+own. Pull on work #1 writes the file with work #1's address; push turns it back into `<YOUR_WORK_MARKETPLACE>`, so
+nothing from job #1 reaches job #2. The `personal` profile has no work marketplace, which is the open question below.
+
 ## Open
+
+### Design
+
+- **A profile without a value.** `personal` has no `<YOUR_WORK_MARKETPLACE>`. Today import stops rather than write a
+  placeholder. Options: the profile marks the value "none" and the engine drops that array item; or the entry is split
+  into a base JSON and a profile JSON overlay that adds the item. The second fits "JSON" merge, but a JSON array merge
+  (append, not replace) needs its own rule.
+- **Linux-only or personal-only.** There is one Linux machine and it is personal, so every Linux row could be an OS
+  layer or the `personal` profile. The table says OS for tools (they'd suit any Linux machine) and machine for the two
+  disk launchers (`disco-datos.desktop`, `mis-discos.desktop`), which name this machine's disks.
+- **Tools that could reach Windows.** `tmux`, `starship`, `wezterm`, `htop`, `gh`, `rtk` and VS Code are Linux and macOS
+  today. Whether each also belongs on Windows (`gh` and VS Code likely do) is a profile choice for the work machines.
+- **`sampleGrok.md`.** An old Windows `CLAUDE.md`, kept for reference. Drop it at cut-over, or keep it as a document
+  outside the sync.
+- **`.bashrc` linked folders on Windows.** `detectLinkedPaths` becomes `dir` entries at cut-over (roadmap). Whether
+  those entries live on the machine record or on the work profile is decided with "Linked folders".
+- **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
+  rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
 
 ### Confirm on Windows
 
