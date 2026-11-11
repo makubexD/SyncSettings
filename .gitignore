@@ -38,3 +38,7 @@ desktop.ini
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# TypeScript engine
+node_modules/
+dist/
