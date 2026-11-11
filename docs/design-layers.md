@@ -899,6 +899,10 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   on Windows".
 - **`<YOUR_NAME>` per profile.** It's likely the same on every profile. Keeping it per profile costs one prompt per job;
   a shared value would need a fifth place (the user), which the decisions don't have.
+- **A config that isn't valid JSON.** The contract has no line for it: the bash engine stops with `jq`'s own parse
+  error. The program prints `ERROR: sync-config.json: invalid JSON.` and exits 1 (also when `files` isn't a list),
+  pending a shared case. Likewise an entry with no `repoPath` is named `null` by bash and an empty string by the
+  program.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
