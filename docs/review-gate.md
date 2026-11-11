@@ -46,9 +46,10 @@ gh pr edit <number> --add-label reviewed
 ## Claude auto-approval (temporary)
 
 During development, Claude may add the `reviewed` label and merge a PR itself after reviewing the full diff,
-rerunning the tests and seeing `lint` and `leak-scan` green. The label then means Claude reviewed the PR, not
-you. PRs that change the gate itself (`.github/workflows/`, this file, `.claude/settings.json`, the auto-approval
-section of `CLAUDE.md`) still wait for your label. The rules are in `CLAUDE.md`; the rollback is in `TODO.md`.
+rerunning the tests and seeing every other check green. The label then means Claude reviewed the PR, not you. This
+covers PRs that change the gate itself too (`.github/workflows/`, this file, `.claude/settings.json`, the
+auto-approval section of `CLAUDE.md`), so nothing waits for you during development. The rules are in `CLAUDE.md`;
+the rollback in `TODO.md` gives the review back to you when development is done.
 
 ## Get an email when a check fails
 
