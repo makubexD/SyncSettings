@@ -131,6 +131,122 @@ module. The value is per profile: work #1's profile holds `https://marketplace.e
 own. Pull on work #1 writes the file with work #1's address; push turns it back into `<YOUR_WORK_MARKETPLACE>`, so
 nothing from job #1 reaches job #2. The `personal` profile has no work marketplace, which is the open question below.
 
+## Layers
+
+A file is built from up to four layers, in this order: **base**, **OS**, **profile**, **machine**. When two layers set
+the same thing, the later one wins: the machine beats the profile, the profile beats the OS, the OS beats the base.
+"The same thing" depends on the merge type from the catalog:
+
+| Merge | What two layers can both set | Who wins |
+|---|---|---|
+| whole file | the whole file | the latest layer that has the file; the others aren't read |
+| JSON | one key path (`editor.fontSize`, `permissions.allow`) | the latest layer with that key. Objects merge key by key; an array is one value and is replaced whole |
+| `@import` | nothing: each layer has its own file | no conflict. The base file imports the others, base first, so Claude reads the machine's lines last |
+| dconf | one listed key | the latest layer with that key |
+| dir | one file inside the folder | the latest layer with that file; files from all layers are kept |
+
+A layer that has nothing for an entry is skipped. Most entries have one layer today (the catalog's "Layer" column);
+the extra layers are there for the day a profile or a machine needs to differ.
+
+Example: VS Code on Windows work #1. The base `settings.json` sets `"editor.fontSize": 14`. The `work-1` profile adds
+`"http.proxy": "http://proxy.example.com:8080"`. The laptop's machine record sets `"editor.fontSize": 16` for its small
+screen. Pull writes a file with `"editor.fontSize": 16` and the proxy; personal Linux still gets 14 and no proxy.
+
+Example: `.gitconfig.local` is whole file at the OS layer. Linux gets `dotfiles/linux/git/.gitconfig.local`, Windows
+its own. If work #2 one day needs a different one, a profile-layer `.gitconfig.local` replaces the Windows one there,
+whole; nothing is merged line by line.
+
+## Modules and profiles
+
+A **module** is a named group of entries: `git`, `shell`, `vscode`, `claude`… (the catalog's "Module" column). A module
+may be limited to some OSes: `gnome` is Linux only, `windows-terminal` Windows only. A limited module stays off on
+another OS even when the profile lists it, and `mksync status` says so (`gnome: off, linux only`). Profiles are not
+tied to an OS, so this is how one profile serves a Linux and a Windows machine.
+
+The machine record adds one switch on top: its Claude mode. "None" turns off `claude` and `claude-worker`; "Claude
+only" turns off `claude-worker`.
+
+A **profile** is the list of modules one kind of machine gets, plus what's personal to that job. There is `personal`
+and one per job (`work-1`, `work-2`, `work-3`). There's no parent profile: what every job shares is a `work-base`
+module, and each work profile lists it.
+
+Example: the module lists.
+
+| Profile | Modules |
+|---|---|
+| `personal` | `git`, `shell`, `tmux`, `starship`, `wezterm`, `htop`, `gh`, `rtk`, `gnome`, `vscode`, `claude`, `claude-worker` |
+| `work-1` | `work-base`, `git`, `shell`, `vscode`, `windows-terminal`, `claude` |
+
+On work #1 (Windows) `personal`'s `gnome` would be off anyway; on a second personal machine running macOS, `gnome`
+and `windows-terminal` are off and the rest apply.
+
+What goes in `work-base` comes from the Windows inventory (phase 7). Until then it is an empty module.
+
+**The profile file** holds four things:
+
+```json
+{
+  "modules": ["work-base", "git", "shell", "vscode", "windows-terminal", "claude"],
+  "values": {
+    "<YOUR_EMAIL>": "jane@example.com",
+    "<YOUR_GH_ORG>": "example-org",
+    "<YOUR_WORK_MARKETPLACE>": "https://marketplace.example.com/work-1"
+  },
+  "destinations": {
+    "vscode settings.json: chat.agent.enabled": "profile"
+  },
+  "retired": false
+}
+```
+
+- `modules`: as above.
+- `values`: the profile's own values (next section).
+- `destinations`: the answers to "where does this new setting go?" from push, so every machine with this profile
+  knows them (see "New settings"). The key format is fixed in "Config v2".
+- `retired`: `true` once the job ends. The profile stays as the last backup, and the first run no longer suggests it.
+
+Until the repo is private, profile files live in the machine's local state, never in the repo. The first push after
+the switch commits them.
+
+Example: job #2 ends. Its profile gets `"retired": true` on the next push from work #2. A new work laptop's first run
+lists `personal`, `work-1` and `work-3`, not `work-2`.
+
+## Values
+
+A value fills a `<PLACEHOLDER>` on pull and turns back into it on push, as today. What changes is where it's kept:
+
+| Value | Kept on | Why |
+|---|---|---|
+| `<YOUR_NAME>` | profile | the name on the job's accounts |
+| `<YOUR_EMAIL>` | profile | an account |
+| `<YOUR_GH_USERNAME>` | profile | an account |
+| `<YOUR_GH_ORG>` | profile | an account |
+| `<YOUR_WORK_MARKETPLACE>` | profile | the job's service |
+| `<HOME>` | machine | a path |
+| `<GH_CLI_PATH>` | machine | a path |
+
+The rule for a new placeholder: an account, a name or an address of the job's service goes on the profile; a path or
+anything about this one computer goes on the machine. If a placeholder ends up in both, the machine wins, as in
+"Layers".
+
+**Moving `.user-values.json`.** On a machine's first run of the new engine, each key of `.user-values.json` goes to the
+profile or to the machine by the table above. A placeholder that isn't in the table is asked about once. The old file
+is left as it is, so the old engine still works until cut-over, and is deleted then.
+
+Example: personal Linux has `{"<YOUR_EMAIL>": "jane@example.com", "<HOME>": "/home/jane"}`. After the first run, the
+`personal` profile holds the email and the machine record holds `/home/jane`. On work #1, the same move puts the work
+email on `work-1` and `C:\Users\jane` on that laptop's record.
+
+**Values in JSON files.** A value hydrated into an entry whose merge type is JSON is written as a JSON string: `\`
+becomes `\\`, `"` becomes `\"`, and control characters become `\uXXXX`. Push reads the file as JSON, so it finds the
+value in the parsed string and needs no doubled form. This replaces `escapeBackslashes` for JSON entries. Non-JSON
+files that need doubled backslashes (`.gitconfig.local` with `<GH_CLI_PATH>`) keep `escapeBackslashes`.
+
+Example: on work #1, `<HOME>` is `C:\Users\jane`. A Claude `settings.json` line `"command": "<HOME>/.claude/hooks/x.sh"`
+is written as `"command": "C:\\Users\\jane/.claude/hooks/x.sh"`, valid JSON. Without escaping it would be
+`"C:\Users\jane/…"`, which is invalid JSON (`\U` and `\j` aren't escapes). A name with quotes, `Jane "JJ" Doe`, becomes
+`"Jane \"JJ\" Doe"`.
+
 ## Open
 
 ### Design
@@ -148,6 +264,14 @@ nothing from job #1 reaches job #2. The `personal` profile has no work marketpla
   outside the sync.
 - **`.bashrc` linked folders on Windows.** `detectLinkedPaths` becomes `dir` entries at cut-over (roadmap). Whether
   those entries live on the machine record or on the work profile is decided with "Linked folders".
+- **Removing a key in a later layer.** JSON merge can add and replace keys, not remove one the base sets. Options: a
+  `null` in the later layer removes the key, or removal isn't supported. Claude and VS Code treat some `null` values as
+  meaningful, so `null` may need an explicit marker instead.
+- **`~` instead of `<HOME>` in Claude settings.** Claude Code expands `~` in commands on every OS (see "Statusline and
+  hooks on Windows"), so `settings.json` could drop `<HOME>` and its escaping. Needs the `$HOME` check under "Confirm
+  on Windows".
+- **`<YOUR_NAME>` per profile.** It's likely the same on every profile. Keeping it per profile costs one prompt per job;
+  a shared value would need a fifth place (the user), which the decisions don't have.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
 
