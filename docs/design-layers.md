@@ -677,6 +677,17 @@ Example: `git/.gitconfig.local` is one v2 entry. Linux reads `dotfiles/linux/git
 `settings.json` reads every root that has `claude/settings.json` and merges them; `CLAUDE.md` (`import`) does the same
 but writes each layer's file next to the base one instead of merging.
 
+**A file no layer holds yet.** Export can meet an entry whose file is in no layer root: a new entry, before its first
+export. It writes the file to the base root when the entry has no `os` or more than one, else to that OS's root.
+Example: `git/.gitconfig.local` with `os: ["linux"]` and no file yet is written to
+`dotfiles/linux/git/.gitconfig.local`; `tmux/.tmux.conf` with `os: ["linux", "macos"]` goes to
+`dotfiles/common/tmux/.tmux.conf`. Once a layer holds the file, export writes where it is. Profile and machine layers
+never receive a new file this way: the push preview asks ("New settings").
+
+**Which file the program reads.** `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in
+memory by the same converter that made the v2 file. The shared cases only carry v1, so they run the converter every
+time.
+
 **Profiles and machines.** `profiles/<name>.json` ("Modules and profiles") and `machines/<name>.json` ("Machine
 records") sit next to their layer roots. Until the repo is private they live in local state, as "Public-repo guard"
 says, with the same names.
@@ -921,6 +932,12 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. At the first
   private push, the copies of one profile are merged: modules and `destinations` joined, a value that differs between
   copies asked about. The exact flow is phase 6's.
+- **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
+  drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
+  or become hidden, is the `cli` skill's review before phase 8.
+- **ESLint.** Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
+  flat config; adding it (and which rule set) is decided when the code is big enough to need it, at the latest in
+  phase 8.
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.

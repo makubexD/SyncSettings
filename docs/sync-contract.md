@@ -13,7 +13,7 @@ shared case first. Text the shared runner doesn't read (notes, messages) and int
 
 **Planned: one engine.** A single TypeScript engine will replace both, with modules, profiles and layered settings.
 Its design is [design-layers.md](design-layers.md); until its cut-over, this page describes the two engines as they
-are.
+are. What the new program does already is in [The program](#the-program).
 
 To add or change an entry in `sync-config.json`, see [configuration.md](configuration.md).
 
@@ -706,6 +706,31 @@ Status lines and the next command, in this order of precedence:
 | `SYNCSETTINGS_NO_SETUP` | unset; `1` skips `mksync setup` |
 | `SYNC_OS_NAME` (status) | the Windows caption |
 
+## The program
+
+One TypeScript engine, compiled to one `mksync` program per OS (`mksync.exe` on Windows), is replacing the bash and
+PowerShell engines ([design](design-layers.md)). Until cut-over the front door above still calls the old engines, and
+the program is run by its tests and by shadow mode only.
+
+It takes the old entry points' verbs and flags unchanged:
+
+| Command | Same as |
+|---|---|
+| `mksync export [--force] [--only <path>…]` | `export.sh` |
+| `mksync export --preview` | `export.sh --preview` ([Export preview](#export-preview)) |
+| `mksync import [--force] [--only <path>…]` | `import.sh` |
+| `mksync import --check [--only <path>…]` | `import.sh --check` ([Import check](#import-check)) |
+| `mksync --version` | prints `mksync <version>`, exit 0 |
+
+- Exit codes, status words, labels, notes and `ERROR:` lines are this contract's, as the bash engine prints them,
+  except for the mksync program column of [Known differences](#known-differences).
+- An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints a usage
+  line and exits 2.
+- It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
+  ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
+  ([Sync point](#sync-point)) are the old engines'.
+- Not in the program yet: `export --diff`, `commit`, dconf, package drift and the front door's own commands.
+
 ## macOS
 
 The bash engine runs on macOS with Homebrew's bash and `jq`. macOS ships bash 3.2 and no `jq`; everything else the engine
@@ -740,26 +765,30 @@ uses is there. The reasons and the options weighed are in [macos-research.md](ma
 
 ## Known differences
 
-| Behavior | Windows (PowerShell) | Linux (bash) |
-|---|---|---|
-| Export, local file missing | the note starts with `WARNING:`, and is `WARNING: folder not found: <dir>` if its folder is missing too | the note in the [Export](#export) table |
-| Import, target folder missing | `SKIPPED` with `WARNING: target folder not found: <dir>`; the app is probably not installed. For a `dir` entry this checks the folder's parent | creates the folder (`mkdir -p`) |
-| Exclude patterns | case-insensitive (`-like`) | case-sensitive |
-| Shared files without rules ([Compare](#compare)) | CRLF folded to LF; export writes LF | byte for byte |
-| End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes |
-| `detectLinkedPaths` | supported | not supported |
-| `type: dconf` | validated, never run | supported |
-| [Package drift](#package-drift) | not yet: phase 8 adds a list to compare | supported |
-| `-User <name>` (import into another profile, elevated) | supported | not supported |
-| File modes | not kept | kept (`cp -p`; mode copied for written text) |
-| Status line layout | `[WORD      ] label`, colored | `WORD       label` |
-| Sanitized text that isn't valid UTF-8 | invalid bytes are replaced when read | bytes are kept |
-| `defaultEnv` name check | none needed | stops the run on an invalid name |
-| Import check, target folder missing | `SKIPPED`, not a change | `CREATE` |
-| Import check for another profile | `-Check -User <other>` is an error | not supported |
-| `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu |
-| `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` |
-| Installer | `install.ps1`, `irm … \| iex`, winget | `install.sh`, `curl … \| bash`, apt-get |
+The mksync program column is the compiled engine ([The program](#the-program)). It follows the Linux column unless
+its cell says otherwise, and it keeps a difference between OSes only where the OS forces one. Until cut-over the two
+old engines keep their own columns.
+
+| Behavior | Windows (PowerShell) | Linux (bash) | mksync program |
+|---|---|---|---|
+| Export, local file missing | the note starts with `WARNING:`, and is `WARNING: folder not found: <dir>` if its folder is missing too | the note in the [Export](#export) table | as Linux |
+| Import, target folder missing | `SKIPPED` with `WARNING: target folder not found: <dir>`; the app is probably not installed. For a `dir` entry this checks the folder's parent | creates the folder (`mkdir -p`) | as Linux, on every OS: creates the folder |
+| Exclude patterns | case-insensitive (`-like`) | case-sensitive | case-insensitive on Windows, case-sensitive elsewhere: the file system decides |
+| Shared files without rules ([Compare](#compare)) | CRLF folded to LF; export writes LF | byte for byte | CRLF folded to LF on Windows, byte for byte elsewhere: Git on Windows may check a file out with CRLF |
+| End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes | counts as yes, on every OS |
+| `detectLinkedPaths` | supported | not supported | not in the program: linked folders become `dir` entries (phase 8) |
+| `type: dconf` | validated, never run | supported | validated; export and import report `SKIPPED` with `not supported yet` until phase 8, then as Linux |
+| [Package drift](#package-drift) | not yet: phase 8 adds a list to compare | supported | not yet (phase 8) |
+| `-User <name>` (import into another profile, elevated) | supported | not supported | not supported; dropped at cut-over |
+| File modes | not kept | kept (`cp -p`; mode copied for written text) | kept on Linux and macOS; not on Windows, which has none |
+| Status line layout | `[WORD      ] label`, colored | `WORD       label` | `WORD       label` on every OS; no color when stdout isn't a terminal |
+| Sanitized text that isn't valid UTF-8 | invalid bytes are replaced when read | bytes are kept | bytes are kept, on every OS |
+| `defaultEnv` name check | none needed | stops the run on an invalid name | stops the run on an invalid name, on every OS |
+| Import check, target folder missing | `SKIPPED`, not a change | `CREATE` | `CREATE`, on every OS |
+| Import check for another profile | `-Check -User <other>` is an error | not supported | not supported |
+| `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu | front door: phase 8 |
+| `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` | front door: phase 8 |
+| Installer | `install.ps1`, `irm … \| iex`, winget | `install.sh`, `curl … \| bash`, apt-get | downloads the program at cut-over (phase 9) |
 
 macOS runs the bash engine, so it has the Linux column's behavior except for these rows:
 
