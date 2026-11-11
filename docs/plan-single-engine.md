@@ -107,18 +107,14 @@ Decisions made 2026-11-10, to be written into the design:
   `elevate`, plus `--user <name>`. Designed now, built only when a real case needs it.
 
 **Testing**
-- **Everything runs locally during development.** That means:
-  - the core's unit tests;
-  - Windows path and line-ending behavior simulated on Linux;
-  - the shared cases on Linux;
-  - Windows end to end in a local VM (KVM and podman).
-
-  One command runs all of it. CI checks after a push. Only macOS needs CI, since there's no Mac.
+- **Development happens on Linux.** One local command runs the core's unit tests (with Windows paths and line endings
+  simulated) and the shared cases.
+- CI runs the same on Windows and macOS after a push. Nothing extra is built to test Windows locally.
+- **A real Windows machine is used once, at the end:** the user runs an end-to-end checklist in phase 8.
 
 ### Phase 4: the core engine
 
-It starts with the local test bench: one command runs the core's unit tests, the shared cases on Linux, and the
-Windows end-to-end run in the local VM.
+It starts with the local test command on Linux: the core's unit tests plus the shared cases.
 
 The TypeScript engine reads config v1 and handles:
 - platforms and picking files;
@@ -128,7 +124,7 @@ The TypeScript engine reads config v1 and handles:
 - backups.
 
 The core is pure: config and files go in, a list of actions comes out. OS adapters do the I/O. It passes the phase 2
-cases locally (Linux and the Windows VM) and in CI (all three OSes), next to the old engines.
+cases on Linux locally, and on all three OSes in CI, next to the old engines.
 
 ### Phase 5: modules, profiles and the first run
 
@@ -161,6 +157,15 @@ This phase adds:
 - A release workflow builds the programs with checksums, and `install.sh` and `install.ps1` download them.
 - The bash and PowerShell engines and their suites are removed. `bootstrap/linux.sh` stays bash.
 - The docs describe one engine.
+- The user runs the end-to-end checklist on a real Windows work machine, with these checks:
+  - install;
+  - the first run and its scan;
+  - pull;
+  - push with the preview;
+  - the statusline;
+  - the Claude layers.
+
+  Failures are fixed before cut-over.
 
 ### Phase 9: private repo and review on every change
 

@@ -127,35 +127,13 @@ File: `docs/design-layers.md` (sections "Runtime", "Code layout", "Tests").
   strategy per file type.
 - **Tests.** Unit tests for the pure core, with Windows paths and line endings simulated on Linux, plus the 37 shared
   cases. Say which `engine.sh` and Pester cases have no shared twin, and where each of them goes.
-- **The local test bench.** One command (for example `./dev test`) runs:
-  - the unit tests;
-  - the shared cases on Linux;
-  - the Windows end-to-end run in the local VM from step 7.
-
-  CI runs the same thing after a push, plus macOS.
+- **The local test command.** One command (for example `./dev test`) runs, on Linux, the unit tests and the
+  shared cases. CI runs the same thing on Windows and macOS after a push.
+- **The Windows end-to-end checklist** for phase 8. It's run by the user on a real work machine, not by a VM.
 
 Test: each choice names the number or rule behind it.
 
-## Step 7: Local Windows VM `[inline: research, needs KVM on this machine]`
-
-File: `docs/design-layers.md` (section "Local Windows").
-
-Prove that a Windows VM runs on this machine and can be driven from a script:
-- KVM, podman and QEMU are installed;
-- 8 cores, 14 GB RAM, 350 GB free.
-
-Try a Windows 11 container under podman with KVM (for example `dockur/windows`), or a `virsh` VM. Measure:
-- the first boot and later boots;
-- RAM and disk use;
-- how a script copies files in, runs a command (SSH or a shared folder) and reads the exit code back.
-
-Record the setup and its limits, such as the licence (an evaluation image) and how long it stays valid. If no
-approach works in about an hour, say so: Windows then stays CI-only, and the design says that.
-
-Test: a recorded run where a script on this machine starts the VM, runs `cmd /c ver` inside it, and prints the
-Windows version and exit code 0.
-
-## Step 8: Docs and close `[inline: docs]`
+## Step 7: Docs and close `[inline: docs]`
 
 - `docs/sync-contract.md`: a short "Planned: one engine" note linking the design. The contract itself doesn't change
   until phase 4.
