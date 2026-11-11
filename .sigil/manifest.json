@@ -1,0 +1,423 @@
+{
+  "manifestVersion": 3,
+  "entries": [
+    {
+      "id": "typescript/ts-conventions",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-conventions.md",
+          "sha256": "b20c9738568cac4e5ef728a20a1f2110afac063d1469aee5d82cc5375af3c730"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-async",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-async.md",
+          "sha256": "d4998f2eebcf9f32e3389b7c8391f264658328f1b04bef57c48dbd4c900d49a4"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-testing",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-testing.md",
+          "sha256": "7d045fdc587c9b8f31778dd467549a8285a3f04333bff4988bcd5f4c517309b8"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-project-layout",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-project-layout.md",
+          "sha256": "005fb4f2a8c25035672c413bbff2523abda3d4626a4b738578cedce198ea1147"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-security",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-security.md",
+          "sha256": "77c96fb6036331d160eeaac7bda2afec82b574a70829025611847c073754bb38"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-dependencies",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-dependencies.md",
+          "sha256": "c7e8675d2a0cd9770a52ccad65714b4c97277527b87870ad883cbe58c7e1bbc3"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-code-quality",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-code-quality.md",
+          "sha256": "a7d8f6bf6957584a65945786227c4b456542dbcf39a8c2568c907c6e04282acd"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z",
+      "template": {
+        "id": "shared/templates/code-quality",
+        "revision": 4
+      }
+    },
+    {
+      "id": "shared/cli-rules",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/shared-cli-rules.md",
+          "sha256": "43f0cb82e2d4aa43fb3b0a6394fa11eceb8a193b13590b7c7260326f13d9478c"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "shared/wizard-rules",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/shared-wizard-rules.md",
+          "sha256": "3d45b1589f8050a5c1c276c104e2b8594d0601ae92c52cc48b2e4d87e61c7d85"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-code-reviewer",
+      "kind": "agent",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/agents/ts-code-reviewer.md",
+          "sha256": "cc94e5d5391936a5920cc208af2cd012a8ea48d52544094eefd12bc553f8213e"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-architecture-reviewer",
+      "kind": "agent",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/agents/ts-architecture-reviewer.md",
+          "sha256": "ed0092e5718b492103bc01c16abdab3c77c4b6bb70b63ca72ad5c93caea99263"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-debugger",
+      "kind": "agent",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/agents/ts-debugger.md",
+          "sha256": "99440cace549f360b1fa2e137fe2f4729c28a71f13bf13cbe532a31304c26803"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-security-auditor",
+      "kind": "agent",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/agents/ts-security-auditor.md",
+          "sha256": "35117c8385217954ec0559227705c64fd242c270b51bc2717eb4e63e13421faf"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "shared/cli-auditor",
+      "kind": "agent",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/agents/cli-auditor.md",
+          "sha256": "6ef167eb68125f373a8ed122d738e827ecc8f26764c8459f691364dcbca305bb"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "shared/wizard-auditor",
+      "kind": "agent",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/agents/wizard-auditor.md",
+          "sha256": "9bf4fd864fc64d0bced11b9089ba730f8e44a056a5d2a369a1f2d592bdcb7a2b"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-generate-tests",
+      "kind": "skill",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/skills/ts-generate-tests/SKILL.md",
+          "sha256": "54f946c82835b32d3ba0ce5c563a4fcefcca2c983d64c0b2560a572195020439"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-add-package",
+      "kind": "skill",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/skills/ts-add-package/SKILL.md",
+          "sha256": "ea340b289fc6ce8b032b29eba575e73bc31c8d3d802eab22196f3f904fa62626"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-audit-deps",
+      "kind": "skill",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/skills/ts-audit-deps/SKILL.md",
+          "sha256": "a2df9eee1ab97512a85e9b51b2d5cedf3cd92342423508e2c31a10d241d70815"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "shared/cli",
+      "kind": "skill",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/skills/cli/SKILL.md",
+          "sha256": "05139b1077dc8aa2d74d00a90c7fa7a3a075d2028d1d313eb06b6cfee44b24eb"
+        },
+        {
+          "path": ".claude/skills/cli/references/architecture.md",
+          "sha256": "41a44180eaefbe2754b238b8e6a138b460747f6bcf5255e458cf58cadb5d3f4f"
+        },
+        {
+          "path": ".claude/skills/cli/references/auditor.md",
+          "sha256": "465959572a2b35404c7ed6aead162c194a85a42bfedb470ee144eb51cad3fd95"
+        },
+        {
+          "path": ".claude/skills/cli/references/contract.md",
+          "sha256": "02bc9d742a5f0575578ec2b2fa07a3a64ff435e1ac3265ddbe13cb74a8b6616f"
+        },
+        {
+          "path": ".claude/skills/cli/references/findings.md",
+          "sha256": "89f29869ac702e86a1707c336b498800f8dd2d77bcf4ce7cf8db9332ecc703dc"
+        },
+        {
+          "path": ".claude/skills/cli/references/grammar.md",
+          "sha256": "a4553bf6847fd966de7d179e226e9b5296f63991e551b5c7e8c3c50ac5accc0b"
+        },
+        {
+          "path": ".claude/skills/cli/references/migration.md",
+          "sha256": "7e7ac8d585017536eb7ea4046c8f57fd2c196dfd08d5ba5f751296299a3eb172"
+        },
+        {
+          "path": ".claude/skills/cli/references/stack-dotnet.md",
+          "sha256": "33bd586deb35428443ab0ed1eef233a8626612873f5a9a17a1e48a9ff772c8be"
+        },
+        {
+          "path": ".claude/skills/cli/references/stack-go.md",
+          "sha256": "d5dd1e86e093cd07b5a858c482bd0779c32991600ab8cdc8974492953f7115fe"
+        },
+        {
+          "path": ".claude/skills/cli/references/stack-node-ts.md",
+          "sha256": "9df283d945c690208192a047cdeab0909d8d1969b03193876403a0bf73a62daf"
+        },
+        {
+          "path": ".claude/skills/cli/references/stack-python.md",
+          "sha256": "a371e8a559bc63f0f4fa705d9b3d7e317a71dd0004973212d78b6139a9ffc1c3"
+        },
+        {
+          "path": ".claude/skills/cli/references/stack-rust.md",
+          "sha256": "caec8e889d44cad66c61e383ef105edac99facb5b97abf6f0d0af302110a6943"
+        },
+        {
+          "path": ".claude/skills/cli/references/testing.md",
+          "sha256": "d42c4e985555244ee508e439616e0acc62c3dd806bc2db4abde742b83db64eb4"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "shared/wizard",
+      "kind": "skill",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/skills/wizard/SKILL.md",
+          "sha256": "7d4b79a573b45fc19b3e979597c5b769462dbb0219a7e00dd8bcb77131541e99"
+        },
+        {
+          "path": ".claude/skills/wizard/references/architecture.md",
+          "sha256": "4f2e0bc85b8abe773a3690ca967b4be2edd6a393f59689437df52b71b98c9755"
+        },
+        {
+          "path": ".claude/skills/wizard/references/auditor.md",
+          "sha256": "1e6220f38a76ffd462c9286c6e2e1aaf5f70422261a56c3888380fced7730593"
+        },
+        {
+          "path": ".claude/skills/wizard/references/contract.md",
+          "sha256": "3f901f571166061b0b764671d5f62695bb533bfa24165014eb360f43a479fc72"
+        },
+        {
+          "path": ".claude/skills/wizard/references/findings.md",
+          "sha256": "ec2158ac1a4657949711b3ad26b2d7368c70d102e78b5f9875ea18c7298f6e13"
+        },
+        {
+          "path": ".claude/skills/wizard/references/flow.md",
+          "sha256": "38ba905831768e93abdc71102754d68108ac2d709edc28fb4c305c92ccc8aa3d"
+        },
+        {
+          "path": ".claude/skills/wizard/references/readiness.md",
+          "sha256": "db525deaa127c09fd077e417582edbd0d5bade7a1da1cb9c6a3902208c655d6e"
+        },
+        {
+          "path": ".claude/skills/wizard/references/stack-dotnet.md",
+          "sha256": "8c8371fdf3a1fb916524e45f562cd4950a8ee43d9362ebe2b58e5ec508701b93"
+        },
+        {
+          "path": ".claude/skills/wizard/references/stack-go.md",
+          "sha256": "0e376b2699856ce46579c9af3c2f60c58f1aef3453b9f3457ca34b3946a3a8fc"
+        },
+        {
+          "path": ".claude/skills/wizard/references/stack-node-ts.md",
+          "sha256": "511c0ccf2c2abe3678ce5e1e23374862bec5d2958e613303792703d39b649ab3"
+        },
+        {
+          "path": ".claude/skills/wizard/references/stack-python.md",
+          "sha256": "118d9d12cb7ad5315aed9c2ad87afcdf0897f2b961330eef4d7cf08314d83cde"
+        },
+        {
+          "path": ".claude/skills/wizard/references/stack-rust.md",
+          "sha256": "9231b88a97d9a454268ea18426523e081ea55b63c348976ede1184bb446b2d7a"
+        },
+        {
+          "path": ".claude/skills/wizard/references/testing.md",
+          "sha256": "e13b59ecea34990992220c45ecc22c4092392f491210ce9c717e2ed60fde43f8"
+        }
+      ],
+      "dependentOf": [],
+      "picked": true,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    },
+    {
+      "id": "typescript/ts-npm",
+      "kind": "rule",
+      "target": "claude",
+      "sigilVersion": "0.10.0",
+      "files": [
+        {
+          "path": ".claude/rules/typescript-ts-npm.md",
+          "sha256": "092ff8414cc4915ba54c9ecdf757b8fce2bd28cde6be079c40421f3623af8aaf"
+        }
+      ],
+      "dependentOf": [
+        "typescript/ts-add-package",
+        "typescript/ts-audit-deps"
+      ],
+      "picked": false,
+      "installedAt": "2026-11-11T00:30:53.321Z"
+    }
+  ]
+}
