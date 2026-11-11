@@ -29,7 +29,7 @@ in the local Windows VM and in CI on all three OSes, and runs in shadow mode nex
   for the program, each with a `SKIP` line.
 - `json` and `import` merge types: phase 5. In this phase an entry with either type behaves as `whole` when exactly
   one layer holds its file, and stops with exit 1 (`ERROR: <file>: merge type json needs more than one layer; not
-  supported yet`) when two or more do. No entry has two layers before phase 5.
+supported yet`) when two or more do. No entry has two layers before phase 5.
 - Profiles, machines, modules turned on or off: phases 5 and 6. Every module in `sync-config.v2.json` is on.
 
 ## Decisions to confirm in review
@@ -38,7 +38,7 @@ These are proposals; the user's review of this plan confirms or changes them bef
 the contract.
 
 1. **Engine verbs.** The program takes the old entry points' verbs and flags unchanged: `mksync export [--preview]
-   [--force] [--only <path>…]`, `mksync import [--check] [--force] [--only <path>…]`, plus `--version`. The runners
+[--force] [--only <path>…]`, `mksync import [--check] [--force] [--only <path>…]`, plus `--version`. The runners
    spell commands for it exactly as for bash. Whether `export`/`import` stay public after cut-over goes in "Open".
 2. **Config files.** The program reads `sync-config.v2.json` when it exists, else converts `sync-config.json` in
    memory with the same converter that made the v2 file. The shared cases only have v1, so they exercise the
@@ -48,20 +48,20 @@ the contract.
    wouldn't put back at its `repoPath`, so the config check catches any mismatch. Added to the design.
 4. **Known differences** for the program. A row stays per OS only when the OS forces it:
 
-   | Row | The program |
-   |---|---|
-   | Export, local file missing | the Linux note everywhere |
-   | Import, target folder missing | creates the folder everywhere; the import check says `CREATE` |
-   | Exclude patterns | case-insensitive on Windows, case-sensitive elsewhere (the file system forces it) |
-   | Shared files without rules | CRLF folded to LF on Windows, byte for byte elsewhere (kept: Git on Windows may check out CRLF) |
-   | End of input at the overwrite prompt | counts as yes everywhere |
-   | Status line layout | `WORD       label` everywhere, no color when stdout isn't a terminal |
-   | Sanitized text that isn't valid UTF-8 | bytes kept everywhere |
-   | `defaultEnv` name check | stops the run on an invalid name everywhere |
-   | File modes | kept on Linux and macOS, not on Windows (forced) |
+   | Row                                   | The program                                                                                     |
+   | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+   | Export, local file missing            | the Linux note everywhere                                                                       |
+   | Import, target folder missing         | creates the folder everywhere; the import check says `CREATE`                                   |
+   | Exclude patterns                      | case-insensitive on Windows, case-sensitive elsewhere (the file system forces it)               |
+   | Shared files without rules            | CRLF folded to LF on Windows, byte for byte elsewhere (kept: Git on Windows may check out CRLF) |
+   | End of input at the overwrite prompt  | counts as yes everywhere                                                                        |
+   | Status line layout                    | `WORD       label` everywhere, no color when stdout isn't a terminal                            |
+   | Sanitized text that isn't valid UTF-8 | bytes kept everywhere                                                                           |
+   | `defaultEnv` name check               | stops the run on an invalid name everywhere                                                     |
+   | File modes                            | kept on Linux and macOS, not on Windows (forced)                                                |
 
    So the runners use a case's `expect.<os>/` for the program only for `Entry selection`, `Shared files without
-   rules` and `Exclude patterns`.
+rules` and `Exclude patterns`.
 
 ## Step 1: Prove the local Windows VM `[inline: time-boxed spike, 3 hours]`
 
@@ -282,6 +282,13 @@ per OS (contract "Sync point"). `fs.ts`: build the snapshot from disk (only the 
 `dotfiles/` for the orphan report) and run actions: writes keep the target's mode (`chmod --reference` behavior),
 backups copy mode and times (`cp -p`), modes skipped on Windows, errors per file turned into `ERROR` lines, never
 thrown. Tests run in a temp folder.
+
+Run-time rules the pure plans leave to this adapter (found reviewing steps 13 and 14): each `backup` action also
+makes the dated per-run copy (contract "Backups": `<run>` folder created at the first copy, newest 20 kept, a failed
+dated copy is a `WARNING`, and the summary's `  Backups    : <folder>` line when a copy was made); a `writeLocal` for a
+`CREATED` file copies the repo file's mode (`cp -p`); and when any action of the run ends in an `ERROR`, the
+`writeState` action is skipped and the `Sync point :` line is dropped (contract "Sync point"). If this makes the step
+too big for one worker run, split it at run time.
 
 Test: `bun test src/adapters/fs && bun run lint`.
 
