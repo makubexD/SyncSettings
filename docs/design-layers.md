@@ -140,7 +140,7 @@ the same thing, the later one wins: the machine beats the profile, the profile b
 | Merge | What two layers can both set | Who wins |
 |---|---|---|
 | whole file | the whole file | the latest layer that has the file; the others aren't read |
-| JSON | one key path (`editor.fontSize`, `permissions.allow`) | the latest layer with that key. Objects merge key by key; an array is one value and is replaced whole |
+| JSON | one key path (`editor.fontSize`); one array item | the latest layer with that key. Objects merge key by key; arrays collect the items of every layer ("Merge and split") |
 | `@import` | nothing: each layer has its own file | no conflict. The base file imports the others, base first, so Claude reads the machine's lines last |
 | dconf | one listed key | the latest layer with that key |
 | dir | one file inside the folder | the latest layer with that file; files from all layers are kept |
@@ -247,14 +247,137 @@ is written as `"command": "C:\\Users\\jane/.claude/hooks/x.sh"`, valid JSON. Wit
 `"C:\Users\jane/…"`, which is invalid JSON (`\U` and `\j` aren't escapes). A name with quotes, `Jane "JJ" Doe`, becomes
 `"Jane \"JJ\" Doe"`.
 
+## Merge and split
+
+Pull **merges** an entry's layers into the local file. Push **splits** a changed local file back into its layers. The
+two must be exact opposites: pull right after push writes the same bytes, and push right after pull finds nothing.
+
+### Merging a JSON file
+
+1. **Objects** merge key by key, in layer order (base, OS, profile, machine). A key set by one layer only is copied. A
+   key set by two: if both values are objects, they merge the same way; otherwise the later layer's value wins.
+2. **Arrays** merge by item. The result is the base's items in the base's order, then each later layer's items that
+   aren't there yet, in that layer's order. Two items are the same when they are equal as JSON (same keys and values,
+   key order ignored). This covers `permissions.allow`, each `hooks.<event>[]`, and VS Code lists such as
+   `chat.plugins.marketplaces`: a layer adds items and never needs to repeat the base's.
+3. **Key order:** the base's keys in the base's order, then keys that only later layers have, in the order those layers
+   list them. The order of a layer's file is the order it's written in the repo.
+4. **Layout:** two-space indent, one key per line, `": "` after a key, empty objects and arrays as `{}` and `[]`, and a
+   trailing newline, which is how the synced JSON files are written today. Non-ASCII characters are written as
+   themselves, not `\u` escapes.
+5. **Line endings:** CRLF on Windows, LF elsewhere. The repo's layer files are always LF.
+
+Values are hydrated into each layer before the merge, JSON-escaped ("Values"), so a placeholder never decides whether
+two array items are equal.
+
+Example: the base Claude `settings.json` has `"permissions": {"allow": ["Bash(git:*)"], "defaultMode": "auto"}`. The
+OS layer for Windows has `"permissions": {"allow": ["PowerShell(Get-ChildItem:*)"]}`. Work #1 gets `allow` with both
+items, git first, and `defaultMode` from the base.
+
+### Splitting a changed file
+
+Push reads the local file, hydrates nothing, and compares it, parsed, with what pull would write now. Whitespace, key
+order and line endings aren't changes; a different value, a new or missing key, or a new or missing array item is.
+Each change goes to one layer:
+
+- a changed or removed key goes to the layer it came from (the latest layer that sets it);
+- a new key or a new array item is a new setting: the preview asks where it goes ("New settings"), unless the profile's
+  `destinations` already says;
+- a removed array item is removed from the layer that added it.
+
+The preview shows each change under the machines that receive it ("Push and pull"), so a change to a base key is
+listed under "all machines" and can be moved to a narrower layer there, where it becomes an override.
+
+Values are sanitized before a change is stored: the layer gets `<HOME>`, never `C:\Users\jane`.
+
+### Case 1: A key changed that lives in the base
+
+Personal Linux changes `"editor.fontSize"` from 14 to 15 in VS Code. The key comes from the base, so push stores 15 in
+the base `settings.json`. The preview lists it under "all machines": work #1 to #3 get 15 on their next pull. To keep it
+on this machine only, the user moves it to "this machine" in the preview; the base keeps 14 and the machine record
+gets an override of 15.
+
+### Case 2: A key changed that a module's layer sets
+
+Work #1 changes `"http.proxy"`, which the `work-1` profile layer sets. Push stores the new address in that layer. The
+preview lists it under "this profile"; personal Linux never sees it, because it never had the key.
+
+### Case 3: A new array item
+
+Work #1 adds a third marketplace to `"chat.plugins.marketplaces"`. The item is new, so it's a new setting: the preview
+asks where it goes and suggests "this profile" (a work machine). The answer `profile` stores the item in the `work-1`
+layer. The base's two items stay where they are.
+
+### Case 4: A removed array item
+
+Work #1 removes `"github/awesome-copilot#marketplace"`, which the base adds. Push removes it from the base, and the
+preview lists the removal under "all machines". Removing it on one machine only would need a way for a later layer to
+take an item out; there isn't one yet (see "Removing a key in a later layer" in "Open"), so the preview says the
+removal can only go to all machines, or be skipped.
+
+### Case 5: Claude Code rewrites `settings.json` itself
+
+Claude Code writes its own `settings.json` when a permission is granted ("always allow") or a setting is changed with
+a slash command. A grant adds an item to `permissions.allow`: a new array item, case 3, so the preview asks and, on a
+work machine, suggests "this profile". Changing the model with `/model` writes `"model"`: if a layer already sets it,
+case 1 or 2; if not, a new top-level key, case 6. Claude Code may also rewrite the file with its own key order or
+spacing; push ignores both, since it compares parsed JSON.
+
+Example: on work #1 the user answers "always allow" for `Bash(work-tool-1 status)`. Push shows one new setting,
+suggests "this profile", and stores it in the `work-1` layer. Personal Linux never gets the work tool's permission.
+
+### Case 6: A new top-level key
+
+Personal Linux sets `"chat.agent.enabled": true` in VS Code, a key no layer has. Push asks where it goes and suggests
+"all machines" (a personal machine). The answer is stored twice: the key goes to that layer, and the destination goes
+to the profile's `destinations`, so the next new value of the same key on another `personal` machine isn't asked again.
+
+### Case 7: An edit to `CLAUDE.md` inside the base text
+
+The local `~/.claude/CLAUDE.md` is the base text followed by the engine's import block (case 8). An edit above the
+block belongs to the base text: push compares that part with the base file, line by line after folding CRLF to LF,
+and stores the new text in the base. The preview lists it under "all machines". Text meant for one profile goes in
+that profile's file instead, which the user edits directly (`~/.claude/CLAUDE.work-1.md`).
+
+### Case 8: An edit to an `@import` line in `CLAUDE.md`
+
+The import block is the last lines of the local `CLAUDE.md`, after a marker line the engine writes:
+
+```markdown
+<!-- mksync: layers below are written by mksync pull -->
+@CLAUDE.windows.md
+@CLAUDE.work-1.md
+```
+
+It has one line per layer file that exists, in layer order. The engine owns the block: push doesn't store it anywhere,
+and pull writes it again. If the user edits or deletes a line in the block, push shows `CLAUDE.md: import block is
+written by mksync, edit not pushed` and pull puts the block back (after the `.bak`). An `@import` the user writes
+above the marker, such as today's `@RTK.md`, is base text, case 7.
+
+### Case 9: A file saved with CRLF on Windows
+
+An editor on work #1 saves `settings.json` or `CLAUDE.md` with CRLF. JSON is compared parsed, and text is compared with
+CRLF folded to LF, so line endings alone are not a change and push finds nothing. A real edit in a CRLF file is
+stored with LF. Pull writes CRLF on Windows, so the next push finds nothing either.
+
+### Local edits that aren't in any layer
+
+Pull keeps today's rule: if a file changed on this machine since the last sync point (`OUT` or `BOTH` in `mksync
+diff`), pull stops and says to push first, or `--force` overwrites after writing `<file>.bak`. The layers don't change
+this: a local edit is either pushed, and then it's in a layer, or overwritten with a backup.
+
+One addition for JSON files: an entry may list keys that are this machine's state, not settings (Claude Code keeps
+some in `settings.json`). Those keys are never pushed, and pull keeps their local values instead of removing them.
+Which keys go on that list is in "Open".
+
 ## Open
 
 ### Design
 
 - **A profile without a value.** `personal` has no `<YOUR_WORK_MARKETPLACE>`. Today import stops rather than write a
-  placeholder. Options: the profile marks the value "none" and the engine drops that array item; or the entry is split
-  into a base JSON and a profile JSON overlay that adds the item. The second fits "JSON" merge, but a JSON array merge
-  (append, not replace) needs its own rule.
+  placeholder. Options: the profile marks the value "none" and the engine drops that array item; or the item moves out
+  of the base into each work profile's JSON layer, which "Merge and split" adds by item. The second needs no new rule
+  and is the likely answer; it changes the worked example in "Catalog", so it waits for the user.
 - **Linux-only or personal-only.** There is one Linux machine and it is personal, so every Linux row could be an OS
   layer or the `personal` profile. The table says OS for tools (they'd suit any Linux machine) and machine for the two
   disk launchers (`disco-datos.desktop`, `mis-discos.desktop`), which name this machine's disks.
@@ -272,6 +395,11 @@ is written as `"command": "C:\\Users\\jane/.claude/hooks/x.sh"`, valid JSON. Wit
   on Windows".
 - **`<YOUR_NAME>` per profile.** It's likely the same on every profile. Keeping it per profile costs one prompt per job;
   a shared value would need a fifth place (the user), which the decisions don't have.
+- **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
+  and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
+- **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
+  removed item (from its layer) plus a new item (asked about). Correct, but two lines in the preview for one edit. A
+  key per item (the `matcher`) would make it one change; worth it only if hook edits turn out frequent.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
 
