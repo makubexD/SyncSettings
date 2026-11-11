@@ -3,8 +3,9 @@
 Roadmap: `docs/plan-single-engine.md`. Goal: `docs/design-layers.md`, a design the user approves before any
 TypeScript is written. It covers:
 - layers, modules and profiles;
-- the machine file and `mksync whoami`;
-- the first run;
+- machine records and `mksync whoami`;
+- the first-run scan and questions;
+- replacing and retiring machines;
 - the push and pull preview;
 - the new-setting question;
 - config v2;
@@ -68,25 +69,34 @@ Test: the row count equals `jq '.files | length' sync-config.json` plus the Wind
 
 ## Step 4: The model `[inline: design]`
 
-File: `docs/design-layers.md` (sections "Layers", "Profiles", "Machine file", "First run", "Push and pull",
-"New settings", "Private values", "Elevation", "Cuts").
+File: `docs/design-layers.md` (sections "Layers", "Profiles", "Machine records", "First run", "Replace and retire",
+"Push and pull", "New settings", "Private values", "Public-repo guard", "Linked folders", "Elevation").
 
 Write down the roadmap's decisions as rules, each with an example:
 - **Layer order and conflicts.** A key set in two layers: which wins, and what the preview shows.
-- **The profile file.** A flat list of modules, with no inheritance. The OS limit always applies.
-- **`machine.json`.** Its fields:
+- **The profile file.** One per job, plus `personal`. It's a flat list of modules (`work-base` is a module, not a
+  parent profile) plus its values. The OS limit always applies.
+- **Machine records.** They're stored in the repo; the local file only names which record this machine is. Their
+  fields:
   - profile, machine name, module overrides;
   - remembered destinations for new settings;
   - private markers;
-  - the hints seen at the first run.
-- **The first-run dialog and `mksync whoami`.** Show their exact output, including the warning when the hints no
-  longer match.
+  - the scan's hints.
+- **The first run and `mksync whoami`.** Show their exact output:
+  - what the scan reads, and how a profile match is scored;
+  - the four questions, each with its suggested answer;
+  - the "replaces `<machine>`" suggestion;
+  - the warning when the hints no longer match.
+- **Replace and retire.** A new machine takes over a record. `mksync profile retire` and reviving a retired
+  profile.
+- **The public-repo guard.** The engine checks the repo's visibility and refuses to commit profiles, records or
+  values while it's public. Show its message and how a fixture test bypasses it.
+- **Linked folders.** The scan's folder suggestions, and how a yes becomes a `dir` entry.
 - **The push and pull preview.** Group changes by who receives them. `--yes` skips the question, not the preview or
   the rules.
 - **The new-setting question.** It differs per profile and remembers the answer.
 - **The private-value rule.** It runs before the leak scan.
 - **The elevation wrapper.** Designed here, not built.
-- **The two cuts.** `-User` and `detectLinkedPaths`.
 
 Test: each roadmap decision dated 2026-11-10 maps to a section, and the "Open" list holds anything that doesn't.
 
@@ -100,7 +110,8 @@ Files: `docs/design-layers.md` (section "Config v2"), `docs/config-v2.example.js
   - `merge` (`file`, `json`, `import`, `dconf`);
   - layer sources for JSON and `CLAUDE.md`;
   - `elevate`;
-  - `profiles/<name>.json`.
+  - `profiles/<name>.json` with its values;
+  - `machines/<name>.json`.
 - The v1 to v2 mapping, field by field. v1 configs keep working until phase 8.
 - The example holds every kind of entry, not all 51.
 
@@ -114,12 +125,37 @@ File: `docs/design-layers.md` (sections "Runtime", "Code layout", "Tests").
   cross-builds, Gatekeeper and SmartScreen.
 - **Code layout.** A pure core (plan the actions), OS adapters (paths, dconf, the elevation wrapper), and one merge
   strategy per file type.
-- **Tests.** Unit tests for the pure core, plus the 37 shared cases on three OSes. Say which `engine.sh` and Pester
-  cases have no shared twin, and where each of them goes.
+- **Tests.** Unit tests for the pure core, with Windows paths and line endings simulated on Linux, plus the 37 shared
+  cases. Say which `engine.sh` and Pester cases have no shared twin, and where each of them goes.
+- **The local test bench.** One command (for example `./dev test`) runs:
+  - the unit tests;
+  - the shared cases on Linux;
+  - the Windows end-to-end run in the local VM from step 7.
+
+  CI runs the same thing after a push, plus macOS.
 
 Test: each choice names the number or rule behind it.
 
-## Step 7: Docs and close `[inline: docs]`
+## Step 7: Local Windows VM `[inline: research, needs KVM on this machine]`
+
+File: `docs/design-layers.md` (section "Local Windows").
+
+Prove that a Windows VM runs on this machine and can be driven from a script:
+- KVM, podman and QEMU are installed;
+- 8 cores, 14 GB RAM, 350 GB free.
+
+Try a Windows 11 container under podman with KVM (for example `dockur/windows`), or a `virsh` VM. Measure:
+- the first boot and later boots;
+- RAM and disk use;
+- how a script copies files in, runs a command (SSH or a shared folder) and reads the exit code back.
+
+Record the setup and its limits, such as the licence (an evaluation image) and how long it stays valid. If no
+approach works in about an hour, say so: Windows then stays CI-only, and the design says that.
+
+Test: a recorded run where a script on this machine starts the VM, runs `cmd /c ver` inside it, and prints the
+Windows version and exit code 0.
+
+## Step 8: Docs and close `[inline: docs]`
 
 - `docs/sync-contract.md`: a short "Planned: one engine" note linking the design. The contract itself doesn't change
   until phase 4.

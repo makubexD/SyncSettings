@@ -67,26 +67,58 @@ with the user's go on the design.
 
 Decisions made 2026-11-10, to be written into the design:
 
-- **Profiles are separate from the OS.** A machine picks its profile on the first run and the answer is stored on that
-  machine. Today Linux is `personal` and the Windows machines are `work`, but nothing in the code fixes that.
-- **One `work` profile for every job.** Accounts and paths are per-machine values, like the git email today. Job-only
-  settings live in the machine layer and are never pushed or backed up. A private repo for them waits until losing one
-  hurts.
-- **Work machines may push**, with a preview grouped by who receives each change: all machines, machines on this OS, or
-  this machine only. A setting that exists on one OS never reaches another.
-- **A new setting with no rule:** the push preview asks where it goes and remembers the answer. The suggestion is
-  "this machine only" on `work` and "all machines" on `personal`. Values that contain something this machine marks as
-  private (its email, company domain or internal URLs) are kept on the machine whatever the answer.
-- **First-run hints:** the tool may read the hostname, the Windows domain and the git email to suggest the profile.
-  The answers go to `~/.config/mksync/machine.json`, and `mksync whoami` prints them.
-- **Preview by default:** `push` and `pull` always show the plan. `--yes` skips the question, not the preview or the
-  rules.
-- **Cuts:**
-  - `detectLinkedPaths` becomes an explicit `dir` entry for `MakuCustomAlias`.
-  - `-User` is removed from the engine. Elevation is designed as a small per-OS wrapper (`RunAs`, `sudo`) that re-runs
-    only the entries marked `elevate`, and it's built only when a real case needs it.
+**Machines and profiles**
+- **Profiles are separate from the OS.** A machine picks its profile on the first run, and nothing in the code ties
+  Linux to `personal` or Windows to `work`.
+- **A profile per job,** built from modules. The rules every job shares are one `work-base` module that each work
+  profile lists, not a parent profile (DRY, no inheritance). Today: `personal` on Linux, and one work profile per
+  Windows job (#1, #2, maybe #3).
+- **The repo is the backup.** Job profiles, the machine records and each profile's values (emails, usernames, paths;
+  never passwords or tokens) are committed, so the last sync is the last backup. This needs the repo to be private
+  (phase 9). Until then the engine refuses to commit these while `gh repo view` says the repo is public, and
+  development uses `example.com` fixtures only.
+
+**First run**
+- It scans the machine: installed tools, the config files it finds and how they compare with each profile, the
+  hostname, the Windows domain and the git email. Then it asks four questions:
+  - What is this machine for?
+  - Will you use Claude here, and how?
+  - Should it send changes back?
+  - What happens to files that are already here?
+- It suggests the best match, including "this replaces the machine `work-1-laptop`". The answers go to a machine
+  record; `mksync whoami` prints it, and the scan warns when the machine no longer matches it.
+- **Replacing a broken machine:** the first run on the new one takes over the old machine's record. Its profile and
+  values come from the repo, so there's almost nothing to answer.
+- **A job ends:** nothing to do. The profile stays in the repo as the last backup. `mksync profile retire <name>`
+  hides it from suggestions, and it can be revived.
+
+**Push and pull**
+- **Work machines may push.** The preview groups changes by who receives them: all machines, machines on this OS,
+  this profile, or this machine only. A setting that exists on one OS never reaches another.
+- **A new setting with no rule:** the push preview asks where it goes and remembers the answer. It suggests "this
+  profile" on work and "all machines" on personal. A value that contains something private to this machine (its
+  email, company domain, internal URLs) never goes beyond its profile.
+- **Preview by default:** `--yes` skips the question, not the preview or the rules.
+
+**Cuts and deferrals**
+- **Linked folders:** the scan (at the first run and as `mksync scan`) finds folders that the shell files point to,
+  such as `C:\MakuCustomAlias`, and asks. A yes becomes a normal `dir` entry. Nothing syncs on its own any more.
+- **`-User` and admin rights:** a small per-OS wrapper (`RunAs`, `sudo`) that re-runs only the entries marked
+  `elevate`, plus `--user <name>`. Designed now, built only when a real case needs it.
+
+**Testing**
+- **Everything runs locally during development.** That means:
+  - the core's unit tests;
+  - Windows path and line-ending behavior simulated on Linux;
+  - the shared cases on Linux;
+  - Windows end to end in a local VM (KVM and podman).
+
+  One command runs all of it. CI checks after a push. Only macOS needs CI, since there's no Mac.
 
 ### Phase 4: the core engine
+
+It starts with the local test bench: one command runs the core's unit tests, the shared cases on Linux, and the
+Windows end-to-end run in the local VM.
 
 The TypeScript engine reads config v1 and handles:
 - platforms and picking files;
@@ -96,13 +128,15 @@ The TypeScript engine reads config v1 and handles:
 - backups.
 
 The core is pure: config and files go in, a list of actions comes out. OS adapters do the I/O. It passes the phase 2
-cases on Linux, macOS and Windows in CI, next to the old engines.
+cases locally (Linux and the Windows VM) and in CI (all three OSes), next to the old engines.
 
 ### Phase 5: modules, profiles and the first run
 
 This phase adds:
 - config v2 with modules and profiles;
-- the machine file, the first-run questions and `mksync whoami`;
+- the machine scan, the first-run questions, machine records and `mksync whoami`;
+- replacing a machine and `mksync profile retire`;
+- the guard that refuses to commit profiles, records or values while the repo is public;
 - the push and pull preview, grouped by who receives each change;
 - the new-setting question and the private-value rule.
 
@@ -118,7 +152,7 @@ This phase adds:
 - Diff and the sync point.
 - Commit and the PR.
 - dconf and package drift.
-- The `MakuCustomAlias` folder entry, replacing linked folders.
+- Linked folders as scan suggestions (`mksync scan`) that become `dir` entries, replacing `detectLinkedPaths`.
 - The `mksync` front door.
 - The elevation wrapper, only if a real case exists by then.
 
@@ -127,3 +161,14 @@ This phase adds:
 - A release workflow builds the programs with checksums, and `install.sh` and `install.ps1` download them.
 - The bash and PowerShell engines and their suites are removed. `bootstrap/linux.sh` stays bash.
 - The docs describe one engine.
+
+### Phase 9: private repo and review on every change
+
+Starts when development is done.
+- Make the repo private (`docs/decision-private-repo.md`, accepted 2026-11-09), and let the engine commit job
+  profiles, machine records and values.
+- Set the CI minutes rule for a private repo: Linux on every PR, macOS and Windows when engine or installer files
+  change, on `master`, or on demand.
+- Add a workflow that asks for a reviewer when a sync PR brings a new setting (a new entry, file, JSON key or
+  profile), so every change is tracked and reviewed.
+- Roll back Claude's auto-approval (`TODO.md`).
