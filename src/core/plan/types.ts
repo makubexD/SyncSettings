@@ -56,6 +56,12 @@ export interface Snapshot {
   /** The repo's `HEAD` SHA, when it resolves; absent when it does not. */
   readonly head?: string;
   /**
+   * The repo files' bytes at `HEAD`, when a commit exists; absent when it does
+   * not. An export preview compares its result with these to say whether
+   * anything would be sent.
+   */
+  readonly headFiles?: RepoFiles;
+  /**
    * Raw `git status --porcelain -- dotfiles sync-config.json` output. An empty
    * string is a clean tree; absent means git could not tell.
    */
