@@ -370,6 +370,157 @@ One addition for JSON files: an entry may list keys that are this machine's stat
 some in `settings.json`). Those keys are never pushed, and pull keeps their local values instead of removing them.
 Which keys go on that list is in "Open".
 
+## Machine records
+
+Each machine has one record. It says who the machine is and holds what belongs to it alone:
+
+```json
+{
+  "name": "wk1-laptop",
+  "profile": "work-1",
+  "os": "windows",
+  "hostname": "wk1-laptop",
+  "domain": "corp.example.com",
+  "claude": "claude",
+  "pullOnly": false,
+  "modules": { "add": [], "remove": ["vscode"] },
+  "values": { "<HOME>": "C:\\Users\\jane", "<GH_CLI_PATH>": "C:\\Tools\\gh\\bin\\gh.exe" },
+  "replaced": [],
+  "retired": false
+}
+```
+
+- `name`: the record's name, chosen on the first run (the hostname by default). It never changes, so a replacement
+  machine keeps it.
+- `profile`: one profile name.
+- `os`: `linux`, `windows` or `macos`, from the scan.
+- `hostname`, `domain`: what the scan saw when the record was made or last taken over. `domain` is the Windows domain,
+  `null` elsewhere.
+- `claude`: `none`, `claude` or `claude-deepseek`, the second question's answer.
+- `pullOnly`: `true` when the third answer was "pull only". Push then refuses (`this machine is pull-only`, exit 1).
+- `modules`: modules switched on or off for this machine only, on top of the profile's list. `add` takes only modules
+  this OS can run.
+- `values`: the machine's values ("Values"), such as paths.
+- `replaced`: one line per takeover, `{"hostname": …, "date": …}`, oldest first.
+- `retired`: `true` once the machine is gone.
+
+The machine layer's files (overrides from "Layers") sit next to the record.
+
+**Where it's kept.** Until the repo is private, in the machine's local state: `~/.local/state/sync-settings/` on Linux
+and macOS, `%LOCALAPPDATA%\sync-settings\` on Windows, as `machine.json`, with the profile it uses under `profiles/`.
+After the switch, in the repo as `machines/<name>.json`, and the local state keeps only the record's name.
+
+Example: personal Linux's record is `{"name": "personal-linux", "profile": "personal", "os": "linux", "claude":
+"claude-deepseek", "pullOnly": false, …}` with `<HOME>` = `/home/jane` in its values.
+
+## First run
+
+`mksync setup` on a machine with no record. It scans, shows what it found, asks four questions, writes the record,
+then runs the first pull. The exact output on a new work #1 laptop:
+
+```text
+$ mksync setup
+Scanning this machine...
+  OS         windows
+  Hostname   wk1-laptop
+  Domain     corp.example.com
+  Git email  jane@work1.example.com
+  Tools      git, gh, code, claude (not found: jq, wezterm)
+  Files      9 of 14 Windows entries already exist here
+
+Profiles in this repo:
+  1) personal
+  2) work-1      machine wk1-laptop
+  3) work-3      machine wk3-desktop
+  This looks like wk1-laptop (same hostname): choosing 2 replaces it.
+
+1/4 What is this machine for? [2]
+2/4 Claude here? 1) none  2) Claude only  3) Claude plus DeepSeek [2]
+3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1]
+4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1]
+
+Machine wk1-laptop: profile work-1, Claude only, push with a preview.
+Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --push --existing backup
+```
+
+The suggested answers, in brackets:
+
+1. **The profile.** The profile of the record whose hostname is exactly this one, with "replaces `<machine>`". With no
+   exact match there is no suggestion and no scoring: the user picks a number or types a new profile name. Retired
+   profiles aren't listed.
+2. **Claude.** "Claude only" when the scan found `claude`, else "none". DeepSeek is never suggested; it's chosen.
+3. **Push or pull only.** "Push with a preview".
+4. **Existing files.** "Back up and replace": each file is backed up as `<file>.bak` before the pull writes it, as
+   today. "Keep mine" runs a push (with its preview) before the pull; "stop" ends without writing anything but the
+   record.
+
+With `--yes` and no terminal, every question needs its flag; a missing one stops with `missing --profile` (exit 2).
+
+**`mksync whoami`** prints the record:
+
+```text
+$ mksync whoami
+machine   wk1-laptop
+profile   work-1
+os        windows
+claude    Claude only
+mode      push with a preview
+modules   work-base, git, shell, windows-terminal, claude (vscode off on this machine)
+```
+
+When the hostname or domain no longer matches the record, it adds a warning on stderr and still exits 0:
+
+```text
+warning: the record says hostname wk1-laptop, this machine is wk1-new.
+If this is a new machine, run: mksync setup --replace wk1-laptop
+```
+
+Push and pull print the same warning, and push stops on it (exit 1), so two machines never push from one record.
+
+## Replace and retire
+
+**Replace.** A new machine takes over an old one's record (`--replace <name>`, or the first run's suggestion). It
+keeps the name, profile, Claude mode, pull-only and module overrides. Each machine value is asked again, with the old
+value as the suggestion, because paths can differ on a new disk. `hostname` and `domain` take the new machine's, and
+the old pair goes to `replaced`. The old machine, if it's still on, now gets the hostname warning and can't push.
+
+Example: work #1's laptop dies; the new one is `wk1-new`. Its first run finds no hostname match, so there's no
+suggestion; the user types `--replace wk1-laptop`. The record stays `wk1-laptop`, with `hostname: wk1-new` and one line
+in `replaced`.
+
+**Retire.** A machine record gets `retired: true` when the machine is gone for good; a profile gets it when the job
+ends. Nothing is deleted: the repo keeps both as the last backup. A retired profile isn't offered on a first run; a
+retired machine isn't offered for `--replace` and can't push. Retiring a profile doesn't retire its machines: each is
+retired or moved to another profile on its own.
+
+## Public-repo guard
+
+Until the repo is private, profiles, machine records and values never reach it. The guard enforces that on every push.
+
+- **Reading the visibility.** For an `origin` on `github.com`, push asks GitHub: `gh repo view --json visibility` when
+  `gh` is signed in, otherwise the public API (`GET /repos/<owner>/<repo>`, which answers only for public repos). Any
+  failure, such as no network, counts as public: the guard fails closed. For any other `origin` (a local path, as the
+  fixtures use) it reads `MKSYNC_VISIBILITY` (`public` or `private`) and defaults to public.
+- **What it refuses.** While public, push never stages `profiles/`, `machines/` or a values file. If one is already
+  staged or committed on the branch, push stops before pushing:
+
+  ```text
+  refused: the repo is public, so machines/wk1-laptop.json can't be pushed.
+  It is kept on this machine and goes in with the first push after the repo is private.
+  ```
+
+  and exits 1. In a normal push, the held files show in the preview as `held until the repo is private: 2 files`, and
+  the push goes on with the rest (exit 0).
+- **The first push after going private.** The guard now reads private. The preview gets a group "first backup:
+  profiles and machines", with each local profile and record, values included. Push commits them under `profiles/`
+  and `machines/` in the same PR as any other change. From then on the repo is their home and local state keeps only
+  the record's name.
+- **Tests.** Fixtures push to a local bare repo, so they set `MKSYNC_VISIBILITY` to test both sides. The variable is
+  ignored for a `github.com` origin, so it can't switch the guard off on the real repo.
+
+Example: today, personal Linux pushes a VS Code change. The preview shows the change and `held until the repo is
+private: profiles/personal.json, machines/personal-linux.json`; the PR has the VS Code change only.
+
 ## Open
 
 ### Design
@@ -400,6 +551,13 @@ Which keys go on that list is in "Open".
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
   removed item (from its layer) plus a new item (asked about). Correct, but two lines in the preview for one edit. A
   key per item (the `matcher`) would make it one change; worth it only if hook edits turn out frequent.
+- **New commands and flags.** `mksync whoami`, and `setup`'s `--profile`, `--replace`, `--claude`, `--push`/`--pull-only`
+  and `--existing` are new; the contract's "Front door" changes with them. Also how a profile or machine is retired
+  from the command line (`mksync retire <machine>`, `mksync profile retire <name>`?). The `cli` skill reviews the names
+  before phase 6.
+- **Retiring a profile with live machines.** Refuse while a non-retired machine uses it, or warn and go on.
+- **Two records, one hostname.** A replaced machine's hostname can come back (a reinstall). The exact-match suggestion
+  then names the newest record with that hostname; older ones are retired or listed in `replaced`.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
 
