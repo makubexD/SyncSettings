@@ -1,9 +1,21 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh pr edit * --add-label reviewed)",
-      "Bash(gh pr merge * --merge --delete-branch)",
-      "Bash(gh pr checks *)"
+      "Bash(*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Task(*)",
+      "Skill(*)",
+      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+      "mcp__plugin_context-mode_context-mode__ctx_stats",
+      "mcp__plugin_context-mode_context-mode__ctx_doctor",
+      "Bash(rm *)",
+      "mcp__plugin_context-mode_context-mode__ctx_execute"
     ]
   }
 }
