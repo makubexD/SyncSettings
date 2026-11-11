@@ -16,36 +16,15 @@ rules, worked examples and file shapes, and lists what is still open.
   an employer (hooks, skills, MCP servers, paths, hostnames) become `work-tool-1`, `work-mcp-1`, and so on.
 - Anything not decided goes in the design's "Open" list. Nothing is decided silently.
 - Each step's test is a command, and it fails when the step is missing or incomplete.
+- **Linux only.** Every step runs on this Linux machine. Anything that needs a Windows machine goes in "Open" under
+  "Confirm on Windows". It's gathered in one Windows sitting at the start of phase 7, or on the phase 9 checklist.
 
-## Step 1: Windows session `[inline: needs the user on a Windows work machine]`
-
-File: `docs/design-layers.md` (appendices "Windows Claude today" and "Windows checks").
-
-The user runs one prompt in Claude Code on work machine #1. It gives names and structure, never values:
-- the files and folders in `~/.claude`;
-- the top-level keys of `settings.json`, each hook's event and command name, and `statusLine.command`;
-- the statusline: its language, what it shows, and the tools it calls;
-- which shell Claude Code uses there for Bash commands and for the statusline;
-- whether Git Bash and `jq` are installed;
-- **optional:** whether the probe program from research run 42748992114 (`probe-windows-x64`, Bun or Deno) starts.
-
-  A block is recorded, not fixed. The fallback is to run the tool from a clone.
-
-The user reads the result, and it's redacted under the shared rules. Then mark each item as one of:
-- **same as Linux**;
-- **same purpose, different implementation**;
-- **Windows only**.
-
-Test:
-- `jq -r 'keys[]' dotfiles/linux/claude/settings.json | while read -r k; do grep -q "\`$k\`" docs/design-layers.md || echo "missing $k"; done`
-  prints nothing.
-- `scripts/ci/leak-scan.sh` passes.
-
-## Step 2: How the statusline and hooks run on Windows `[inline: research]`
+## Step 1: How the statusline and hooks run on Windows `[inline: research]`
 
 File: `docs/design-layers.md` (section "Statusline and hooks on Windows").
 
-Combine Claude Code's documentation with step 1's answers:
+From Claude Code's documentation, plus the Windows `settings.json` keys already in the repo's history if there are
+any:
 - which shell runs `statusLine.command` and hook commands on Windows;
 - whether `~` and `$HOME` expand there;
 - what the statusline needs: `jq`, `git`.
@@ -55,17 +34,21 @@ Choose between one shared `statusline.sh` and a `mksync statusline` subcommand:
   (research section 3);
 - the script is quicker to tweak by hand.
 
-Write the choice as a line starting `Decision:`, with the reason.
+Write the choice as a line starting `Decision:`, with the reason. Each claim the docs can't settle goes in "Open"
+under "Confirm on Windows":
+- the shell Claude Code uses;
+- whether Git Bash and `jq` are installed on the work machines;
+- the current Windows statusline and `~/.claude` layout.
 
 Test: `grep -c '^Decision:' docs/design-layers.md` is at least 1. `grep -cE 'https?://' docs/design-layers.md` is at
 least 1.
 
-## Step 3: Catalog `[inline: design judgment]`
+## Step 2: Catalog `[inline: design judgment]`
 
 File: `docs/design-layers.md` (section "Catalog").
 
-One table row per entry in `sync-config.json` (`repoPath` in backticks), plus the Windows items from step 1. Each row
-has:
+One table row per entry in `sync-config.json` (`repoPath` in backticks). The Windows Claude files aren't synced yet;
+they get a row for each expected item (settings, statusline, `CLAUDE.md`), marked "confirm in phase 7". Each row has:
 - the module;
 - the layer (base, OS, profile, machine);
 - who receives it;
@@ -77,7 +60,7 @@ profile. Any row whose layer isn't obvious goes in "Open".
 Test: `jq -r '.files[].repoPath' sync-config.json | while read -r p; do grep -q "| \`$p\`" docs/design-layers.md || echo "missing $p"; done`
 prints nothing.
 
-## Step 4: Layers, profiles and values `[inline: design]`
+## Step 3: Layers, profiles and values `[inline: design]`
 
 File: `docs/design-layers.md` (sections "Layers", "Modules and profiles", "Values").
 
@@ -97,7 +80,7 @@ File: `docs/design-layers.md` (sections "Layers", "Modules and profiles", "Value
 Test: `for h in '## Layers' '## Modules and profiles' '## Values'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
 prints nothing. `grep -c 'Example:' docs/design-layers.md` is at least 6.
 
-## Step 5: Merge and split `[inline: design, the hardest rules]`
+## Step 4: Merge and split `[inline: design, the hardest rules]`
 
 File: `docs/design-layers.md` (section "Merge and split").
 
@@ -118,7 +101,7 @@ File: `docs/design-layers.md` (section "Merge and split").
 Test: `for n in 1 2 3 4 5 6 7 8 9; do grep -q "^### Case $n:" docs/design-layers.md || echo "missing case $n"; done`
 prints nothing.
 
-## Step 6: Machines `[inline: design]`
+## Step 5: Machines `[inline: design]`
 
 File: `docs/design-layers.md` (sections "Machine records", "First run", "Replace and retire", "Public-repo guard").
 
@@ -136,7 +119,7 @@ File: `docs/design-layers.md` (sections "Machine records", "First run", "Replace
 Test: `for h in '## Machine records' '## First run' '## Replace and retire' '## Public-repo guard'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
 prints nothing.
 
-## Step 7: Push, pull and the rest of the rules `[inline: design]`
+## Step 6: Push, pull and the rest of the rules `[inline: design]`
 
 File: `docs/design-layers.md` (sections "Push and pull", "New settings", "Profile values", "Linked folders", "Open").
 
@@ -153,7 +136,7 @@ File: `docs/design-layers.md` (sections "Push and pull", "New settings", "Profil
 Test: `for h in '## Push and pull' '## New settings' '## Profile values' '## Linked folders' '## Open'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
 prints nothing.
 
-## Step 8: Config v2 `[inline: design]`
+## Step 7: Config v2 `[inline: design]`
 
 Files: `docs/design-layers.md` (section "Config v2"), `docs/config-v2.example.json`.
 
@@ -173,7 +156,7 @@ Test: `jq -e '.schemaVersion' docs/config-v2.example.json`. Then
 `jq -r '[.files[] | keys[]] | unique[]' sync-config.json | while read -r k; do grep -q "| \`$k\`" docs/design-layers.md || echo "unmapped $k"; done`
 prints nothing.
 
-## Step 9: Runtime, release and tests `[inline: design]`
+## Step 8: Runtime, release and tests `[inline: design]`
 
 File: `docs/design-layers.md` (sections "Runtime", "Code layout", "Release and update", "Tests").
 
@@ -181,8 +164,10 @@ File: `docs/design-layers.md` (sections "Runtime", "Code layout", "Release and u
   cross-builds. Also record:
   - the ad-hoc signature on cross-built macOS programs;
   - Gatekeeper and SmartScreen;
-  - the step 1 result;
   - the run-from-clone fallback.
+
+  Whether a work machine runs the unsigned program goes in "Open" under "Confirm on Windows". The user tries the
+  research probe whenever they're at a work machine; at the latest, the phase 9 checklist covers it.
 
   Anything not measured goes to "Open".
 - **Code layout.** A pure core that plans the actions, OS adapters, and one merge strategy per file type.
@@ -198,7 +183,7 @@ File: `docs/design-layers.md` (sections "Runtime", "Code layout", "Release and u
 Test: `for h in '## Runtime' '## Code layout' '## Release and update' '## Tests'; do grep -qF "$h" docs/design-layers.md || echo "missing $h"; done`
 prints nothing. `grep -c '^Decision:' docs/design-layers.md` is at least 3.
 
-## Step 10: Docs and close `[inline: docs]`
+## Step 9: Docs and close `[inline: docs]`
 
 - `docs/sync-contract.md`: a short "Planned: one engine" note linking the design.
 - `docs/single-engine-research.md`: mark the rows the design replaces as superseded: the `detectLinkedPaths` row at

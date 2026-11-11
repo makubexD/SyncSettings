@@ -144,6 +144,16 @@ Decisions made 2026-11-10, to be written into the design:
 
 ### Phase 7: push, pull and Claude
 
+- **It starts with the only Windows sitting before cut-over.** On work machine #1 the user runs one prompt that
+  reports names and structure, never values:
+  - the `~/.claude` layout and the `settings.json` keys;
+  - the statusline;
+  - the shell Claude Code uses;
+  - whether Git Bash and `jq` are installed;
+  - whether the probe program starts.
+
+  The result is redacted, and it settles the design's "Confirm on Windows" list. Everything else in phases 3-8 runs
+  on Linux (and the local VM).
 - The preview grouped by who receives each change, the new-setting question, and the profile-value rule.
 - The Claude layers: `settings.json` merged from base and modules, `CLAUDE.md` imports, and the statusline written
   once. The Windows `~/.claude` comes into the sync.
