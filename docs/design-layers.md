@@ -678,7 +678,8 @@ Example: `git/.gitconfig.local` is one v2 entry. Linux reads `dotfiles/linux/git
 but writes each layer's file next to the base one instead of merging.
 
 **A file no layer holds yet.** Export can meet an entry whose file is in no layer root: a new entry, before its first
-export. It writes the file to the base root when the entry has no `os` or more than one, else to that OS's root.
+export. It writes the file to the base root when the entry has no `os` or more than one, else to that OS's root. An
+entry with no `os` of its own takes its module's: a `gnome` entry writes to `dotfiles/linux/`.
 Example: `git/.gitconfig.local` with `os: ["linux"]` and no file yet is written to
 `dotfiles/linux/git/.gitconfig.local`; `tmux/.tmux.conf` with `os: ["linux", "macos"]` goes to
 `dotfiles/common/tmux/.tmux.conf`. Once a layer holds the file, export writes where it is. Profile and machine layers
