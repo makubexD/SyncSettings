@@ -707,6 +707,132 @@ check is cheap.
 | `keys` | `keys`, unchanged (dconf only) |
 | `path` | `dconfPath` (dconf only), renamed because `file` now names the repo side |
 
+## Runtime
+
+The research probe (`docs/single-engine-research.md` section 3) built the same `main.ts` with Bun 1.4.4 and Deno 2.9.8
+on four runners. Node SEA wasn't probed.
+
+| | Bun | Deno | Node SEA |
+|---|---|---|---|
+| Built unchanged on Linux x64 and arm64, macOS arm64, Windows x64 | yes | yes | not tried |
+| Start-up per run, Linux x64 / macOS / Windows (ms) | 16 / 53 / 58 | 54 / 54 / 103 | not measured |
+| Size raw, Windows x64 (MB) | 115 | 80 | not measured |
+| Size compressed, Windows x64 (MB): gzip -6 / zstd -19 / xz -9 | 55 / 44 / 41 | not measured | not measured |
+| Cross-builds every target from one Linux job | yes, sizes match native builds | yes | no: needs each target's `node` binary and `postject` |
+| Cross-built macOS program carries a code signature | yes (`LC_CODE_SIGNATURE` present) | not checked | not tried |
+
+The compressed sizes and the signature were measured on 2026-11-10 on this Linux machine, from Bun 1.4.4
+cross-builds of the same probe (Linux x64 52 / 41 / 38 MB and macOS arm64 41 / 31 / 26 MB, same order). The signature
+was found by reading the Mach-O load commands; whether macOS accepts it wasn't tried on a Mac, which the
+`macos-checks` CI job can do in phase 4.
+
+Decision: Bun. It starts fastest where it matters (Linux and Windows), builds every target from one Linux job, and
+ran the probe unchanged everywhere. Deno's smaller program doesn't outweigh twice the start-up on Windows, where the
+statusline runs on every refresh ("Statusline and hooks on Windows"). Node SEA would need a build per target and has no
+numbers; it isn't worth a second probe while Bun meets every need. The project's `ts-npm` and `ts-add-package` skills
+assume npm, so they're adapted to `bun add` and `bun.lock` in phase 4.
+
+**What the program needs on a machine:** nothing. No Bun, no Node: the installer downloads one file.
+
+**Gatekeeper and SmartScreen.** Both warn only on a file marked as downloaded from the internet (quarantine flag on
+macOS, Mark of the Web on Windows). Browsers set the mark; `curl` and PowerShell's `irm`/`Invoke-WebRequest` don't, so
+the installers' downloads should run without a prompt. This is the documented behavior, not tried on a real machine.
+Apple Silicon also refuses unsigned code outright, so the macOS program needs at least an ad-hoc signature (above).
+No paid signing (Apple notarization, a Windows certificate) while the installers download from a script.
+
+**If a work machine blocks the unsigned program** (AppLocker, Defender policy): run from the clone. The user installs
+Bun in their own profile (no admin), and `mksync.cmd` in the clone runs `bun run src/main.ts`. Same code, same tests,
+only slower to start.
+
+## Code layout
+
+```text
+src/
+  core/        pure: no file, process or network access
+    config/    read and validate config v2, profiles, machine records
+    layers/    which modules, entries and layer files apply to this machine
+    merge/     one strategy per merge type: whole.ts, json.ts, import.ts, dconf.ts, dir.ts
+    values/    sanitize, hydrate, JSON escaping, inference
+    plan/      pull and push plans: a list of actions from a snapshot of files
+    preview/   grouping by receiver and the exact text of the preview
+    guard/     public-repo guard and profile-value rule
+  adapters/    run the actions: linux.ts, windows.ts, macos.ts, plus git.ts, gh.ts, dconf.ts
+  cli/         command parsing and help (the cli skill's rules load here)
+  wizard/      the first run (the wizard skill's rules load here)
+  main.ts      wires cli, adapters and core
+```
+
+- **The core is pure.** It gets a snapshot (config, layer files, local files, values, OS, line ending) and returns
+  actions (`write`, `backup`, `chmod`, `dconfLoad`, `git`…) and the text to print. The core never imports an adapter.
+  This is what lets the unit tests simulate Windows on Linux.
+- **One merge strategy per type**, each with `merge(layers) → file` and `split(file, layers) → changes per layer`. The
+  nine cases of "Merge and split" are their first tests.
+- **Adapters** do the I/O for one OS: paths (`~/` to `%USERPROFILE%\`), line endings, file modes, backups, dconf, the
+  state folder. They hold no rules.
+- The `ts-architecture-reviewer` agent checks these boundaries in phase 4.
+
+## Release and update
+
+- **From phase 4:** CI builds the four programs on every push, from one Linux job (`bun build --compile` per target),
+  and keeps them as workflow artifacts. Shared cases run against the Linux program in that job.
+- **At cut-over:** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
+  attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
+  `SHA256SUMS`; with `gh` signed in they also run `gh attestation verify`.
+- **`mksync update`** downloads the latest release the same way, checks it, and replaces itself. On Windows a running
+  program can't be overwritten, so it renames itself to `mksync.old.exe` first and deletes that on the next run.
+- **`schemaVersion` check:** a program meeting a config with a higher `schemaVersion` stops with `this config needs a
+  newer mksync: run mksync update` (exit 2), before reading anything else. A pull that fast-forwards to such a config
+  says the same.
+
+Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update; the attestation is
+checked when `gh` is there. The checksum stops a broken download; the attestation proves the file came from this
+repo's workflow, which matters once the repo is private and the release needs a token anyway.
+
+## Tests
+
+**One local command,** `tests/all.sh`, runs every layer that Linux can run, in order, and stops at the first failure:
+
+1. **Unit tests** (`bun test`): the core with fake snapshots, including Windows ones (backslash paths, CRLF, `~\`).
+2. **Shared cases** (`tests/parity/run.sh`) against the Linux program built from the tree, then against the bash
+   engine until cut-over.
+3. **Windows cases** in the local VM: the shared cases (`run.ps1`) against the Windows program, then against the
+   PowerShell engine until cut-over. Skipped with a line saying so when the VM isn't running.
+
+macOS runs in CI only.
+
+**The Windows VM, phase 4.** A Windows 11 VM in a container (podman, with KVM), with Windows PowerShell 5.1 as
+shipped. The repo is mounted into it. Phase 4 sets it up once, takes a snapshot, and proves it by running the old
+PowerShell engine's suite (Pester and `run.ps1`) green there, as CI does. Every run starts from the snapshot. Size,
+image licence and start-up time are recorded then.
+
+**Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
+without writing anything and compares them with the old engine's check and preview: the same files, the same
+placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
+use; no unexplained difference on every machine is a condition for cut-over.
+
+**Old cases without a shared twin.** `tests/linux/engine.sh` has 484 cases and the Pester suite 240; 20 and 19 of them
+have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, one row per group, are in
+`docs/design-test-moves.md`. In short:
+
+| Goes to | bash | Pester |
+|---|---|---|
+| shared case (one case often covers a bash and a Pester case with the same name) | 231 | 152 |
+| core unit test | 112 | 33 |
+| adapter test | 10 | 16 |
+| stays bash (CI scripts: `leak-scan.sh`, `check-packages.sh`, `check-plugins.sh`) | 94 | 0 |
+| dropped at cut-over (`sync` wrapper, `sync.cmd`, `-User`, Git Bash lookup, linked folders, bash internals) | 17 | 20 |
+
+Every old case stays in its suite until cut-over; nothing is removed because a new test exists.
+
+**The real-Windows checklist** (phase 9, or any time the user is at a work machine) starts with:
+
+1. The research probe and then `mksync`, installed with `irm … | iex`, run without a SmartScreen or policy block.
+2. Which shell Claude Code uses there, and `mksync statusline` showing the bar.
+3. `~` and `$HOME` in a hook and statusline command.
+4. Whether Git Bash and `jq` are installed.
+5. The run-from-clone fallback, if step 1 was blocked.
+6. Local state readable by the user only (the `Save-UserValues` ACL rule, now in the Windows adapter).
+
 ## Open
 
 ### Design
@@ -754,6 +880,14 @@ check is cheap.
   `pullOnly` machines and no work layer.
 - **Pull's own preview.** Pull lists changes by group but asks only once. Whether pull should also let the user skip a
   group (take "all machines", skip "profile work-1") is left for phase 7.
+- **Not measured for the runtime.** Node SEA (size, start-up, cross-builds) and Deno's compressed size. They'd only
+  matter if Bun hits a blocker. Also whether a cross-built macOS or Windows program runs on its target: the probe ran
+  native builds only. Phase 4's CI job runs the cross-built programs on their runners to settle it.
+- **The Windows VM.** The image and its licence (an evaluation image expires), disk size, and start-up time, recorded
+  in phase 4. If the VM can't run on this machine, the Windows layer stays CI-only and the plan says so.
+- **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
+- **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
+  re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
 
@@ -770,3 +904,6 @@ check is cheap.
   PowerShell, or only `~` does.
 - **Hooks on Windows.** Which of the Linux hooks the work machines need, and whether each gets a PowerShell twin
   (`"shell": "powershell"`) or stays Linux-only.
+- **The unsigned program.** Whether each work machine runs the downloaded `mksync.exe` (and the research probe) with
+  no SmartScreen prompt or policy block. The user tries the probe at any work machine; the phase 9 checklist covers it
+  at the latest. If blocked, the run-from-clone fallback is tried there.
