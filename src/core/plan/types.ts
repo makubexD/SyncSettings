@@ -51,6 +51,15 @@ export interface Snapshot {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Raw `--only` arguments, before they are resolved to repo paths. */
   readonly only: readonly string[];
+  /** `--force`: overwrite without asking. Never skips the `.bak` backup. */
+  readonly force?: boolean;
+  /** The repo's `HEAD` SHA, when it resolves; absent when it does not. */
+  readonly head?: string;
+  /**
+   * Raw `git status --porcelain -- dotfiles sync-config.json` output. An empty
+   * string is a clean tree; absent means git could not tell.
+   */
+  readonly porcelain?: string;
 }
 
 /** Write bytes to a repo file. No `mode` keeps an existing target's mode. */
