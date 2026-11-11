@@ -1,42 +1,80 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+SyncSettings keeps one person's settings (shell, tools, VS Code, GNOME dconf, `~/.claude`) in git and restores them on
+one personal Linux machine and several Windows work machines, one per job. macOS uses the bash engine and is tested in
+CI only.
 
-## Project Purpose
+## Direction
 
-Sync user dotfiles and config files between a machine and this git repository. Windows: PowerShell 5.1+ and Git. Linux: bash 4.4+, `jq`, `git`, `cmp`. macOS 13+: the same bash engine under Homebrew's bash and `jq` (`/bin/bash` 3.2 only reaches the re-exec guard at the top of each entry script). The Linux side syncs the shell, terminal tools, VS Code's default profile, desktop files, GNOME settings (dconf) and the Claude Code setup in `~/.claude`.
+Today two engines implement one contract: bash (Linux, macOS) and PowerShell 5.1 (Windows). The goal is one
+TypeScript engine, compiled to one program per OS, with modules, a profile per job (plus `personal`) and layered
+settings (base, OS, profile, machine). The old engines are deleted at cut-over.
 
-## Architecture
+- Roadmap: `docs/plan-single-engine.md`. The current phase is the first not marked **Done**; its steps are in
+  `docs/plan-single-engine-<n>.md`.
+- Design: `docs/design-layers.md` (phase 3) decides runtime, code layout, config v2, layers and values. No TypeScript
+  before the user approves it.
+- Spec: `docs/sync-contract.md`. The new engine is done when it passes the shared cases both old engines pass.
 
-- `sync.cmd` is the Windows entry point — it sets the working directory and routes `export`, `import`, `commit`, `preview` and `check` to the PowerShell scripts in `scripts/windows/`
-- `export.sh`, `import.sh`, `commit.sh` are the Linux entry points; shared bash helpers live in `scripts/linux/sync.sh`
-- `mksync` is the front door: status, `doctor`, `setup`, `pull`, `push`. On Linux it's `sync` linked on `PATH`, in `scripts/linux/front.sh`; on Windows it's `mksync.cmd` calling `sync.cmd`, in `scripts/windows/Front.ps1`. Both call the entry points and never sync a file themselves, with the same wording and exit codes. `install.sh` (`curl … | bash`) and `install.ps1` (`irm … | iex`) are the installers. All of them are in the "Front door" section of `docs/sync-contract.md`
-- Windows logic lives in `scripts/windows/*.ps1`. The two sides share `sync-config.json` and the `.user-values.json` format, not code
-- Each entry's required `platform` field picks its side: `"windows"` entries are PowerShell-only, `"linux"` and `"macos"` entries are bash-only on that OS, `"common"` entries run everywhere, and a list such as `["linux", "macos"]` names several. The bash OS comes from `sync_os` (`scripts/linux/os.sh`: `SYNC_OS`, else `uname -s`) into `SYNC_PLATFORM`; `localPaths.<os>` overrides `localPath` there. A missing or invalid value stops either engine before it touches a file (`Assert-ValidPlatform`, `check_platforms`)
-- `sync-config.json` is the data contract — it maps `repoPath` (inside `dotfiles/`) to `localPath` (on the machine), using `~` as a `$env:USERPROFILE` placeholder
-- `dotfiles/` is the staging area inside the repo; files live under `dotfiles/<platform>/<tool>/` (`docs/layout.md`)
-- `packages/linux/` holds hand-edited package lists (`docs/packages.md`), including `tools.txt`, the pinned downloads for tools with no apt source. No entry owns them, and export never writes them
+## Rules
 
-## Entry Points
+1. **The repo is public until phase 10.** Never commit real values: names, emails, hostnames, home paths, accounts.
+   Profiles, machine records and values stay in local state. Work-machine details are redacted (`work-tool-1`) and
+   shown to the user before any commit.
+2. **Contract first.** A rule visible in exit codes, status lines or files gets a shared case in
+   `tests/parity/cases/` first, `expect/` written from the contract, not from engine output. Then the code, then
+   `docs/sync-contract.md`.
+3. **Old engines:** a behavior change goes into both until phase 4; from phase 4 to cut-over, bug fixes only, each
+   with a shared case.
+4. **Nothing is decided silently.** Open questions go in the design's "Open" list; Windows-only ones under "Confirm on
+   Windows". Everything else runs on this Linux machine.
+5. **No Node on target machines.** Installers download a compiled program; `curl … | bash` and `irm … | iex` must keep
+   restoring a fresh machine. `bootstrap/linux.sh` stays bash.
+6. **Docs in every plan:** each step updates the contract it changes; each plan ends with a docs step.
 
-`./sync <preview|check|export|commit|import>` (`sync.cmd` on Windows) is the front door: it picks the OS and routes to the scripts below, which still work directly. `preview` runs a normal export in a temp copy and diffs it against `HEAD`, so it cannot write to the repo.
+## TypeScript engine (phase 4 on)
 
-| Command | Script | Purpose |
-|---|---|---|
-| `mksync export` (`sync.cmd export`) | `scripts/windows/Export-Settings.ps1` | Windows: copy changed local files → repo |
-| `mksync commit` (`sync.cmd commit`) | `scripts/windows/Commit-Settings.ps1` | Windows: commit `dotfiles/` on a `sync/windows-…` branch, open a PR (never pushes to `master`) |
-| `mksync import` (`sync.cmd import`) | `scripts/windows/Import-Settings.ps1` | Windows: copy repo files → local machine |
-| `./export.sh` | `scripts/linux/sync.sh` | Linux: copy changed local files → repo |
-| `./commit.sh` | (self-contained) | Linux: commit `dotfiles/` on a `sync/linux-…` branch, open a PR (never pushes to `master`) |
-| `./import.sh` | `scripts/linux/sync.sh` | Linux: copy repo files → local machine |
-| `mksync [status\|doctor\|setup\|pull\|push]` | `scripts/linux/front.sh`, `scripts/windows/Front.ps1` | Where the machine stands and the next step; pull applies the repo, push opens the PR |
-| `install.sh` | (self-contained) | Linux: install or update with one line, link `mksync`, run setup |
-| `install.ps1` | (self-contained) | Windows: install or update with one line (`irm … \| iex`, settings from `SYNCSETTINGS_*` variables), write `mksync.cmd` on the user `PATH`, run setup |
-| `./sync check` (`mksync check`) | `import.sh --check`, `Import-Settings.ps1 -Check` | List what import would change; writes nothing, exit 3 when something differs |
-| `./bootstrap/linux.sh` | `scripts/linux/sync.sh` | Linux: restore a new machine from `packages/linux/`, then import, links and plugins (`docs/restore.md`). `--dry-run` changes nothing |
+- No `package.json`, lockfile or toolchain until the design picks the runtime (Bun, Deno or Node SEA).
+- Layout: a pure core that plans actions, OS adapters that run them, one merge strategy per file type. Command parsing
+  goes under `cli/`, the first-run flow under `wizard/`: the project's CLI and wizard rules only load there.
+- Output is byte-exact: JSON key order, CRLF on Windows, trailing newline. Values hydrated into JSON are JSON-escaped.
+- Command names, flags and exit codes are fixed by the contract ("Front door"). Renames suggested by the `cli` or
+  `wizard` skill go in "Open" as a migration.
+- Project agents and skills (sigil, `.sigil/manifest.json`): `ts-architecture-reviewer` for layout and module
+  boundaries, `ts-code-reviewer` per step, `ts-security-auditor` for sanitize, values and the public-repo guard,
+  `ts-debugger` for failing tests, `cli`/`cli-auditor` for `mksync` commands, `wizard`/`wizard-auditor` for the first
+  run, `ts-add-package` before any dependency. `ts-npm` and `ts-add-package` assume npm: adapt them for Bun or Deno.
 
-Every change reaches `master` through a PR that the `review-gate` check holds red until it carries the
-`reviewed` label; see `docs/review-gate.md` and `docs/daily-workflow.md`.
+## Today's engines
+
+- `sync-config.json` maps `repoPath` (under `dotfiles/<platform>/<tool>/`) to `localPath`. The required `platform`
+  (`windows`, `linux`, `macos`, `common` or a list) picks the engine. Fields: `docs/configuration.md`; layout:
+  `docs/layout.md`. `packages/linux/` lists are hand-edited; export never writes them (`docs/packages.md`).
+- Bash 4.4+ with `jq`, `git`, `cmp` (macOS: Homebrew bash; `/bin/bash` 3.2 only reaches the re-exec guard):
+  `export.sh`, `import.sh`, `commit.sh`, helpers in `scripts/linux/`. PowerShell: `sync.cmd` → `scripts/windows/`.
+  They share the config and the `.user-values.json` format, not code.
+- `mksync` (`scripts/linux/front.sh`, `scripts/windows/Front.ps1`) is the front door: `status`, `doctor`, `setup`,
+  `pull`, `push`, `check`, `diff`, `preview`. It calls the entry points and never syncs a file itself. Push opens a PR
+  from a `sync/<os>-…` branch and never pushes to `master`.
+- Invariants: compare by content, never by date; `sanitizeRules` turn values into `<PLACEHOLDERS>` on export and
+  hydrate them on import, stopping rather than writing a placeholder; import writes `<file>.bak` first; one failing
+  file doesn't stop the rest.
+- Bash: read with `read_text`, write with `write_text`, never `$(cat f)`. No `@tsv`: parse NUL-separated
+  (`jq -j … "\u0000"`, `read -d ''`). A prompt in a piped loop reads from another fd (`read … <&3`). `cp -p` for copies,
+  `chmod --reference` for written files.
+- PowerShell 5.1: no `??`, no ternary; `[IO.File]::WriteAllText()` for UTF-8 without BOM.
+
+## Tests
+
+- Shared cases: `tests/parity/run.sh [filter]`. Bash engine: `tests/linux/engine.sh [filter]`. Bootstrap:
+  `tests/linux/bootstrap.sh [filter]`. Pester and `run.ps1` need PS 5.1, so on Linux only CI runs them.
+- Never test on the real machine: use `HOME=$(mktemp -d) ./import.sh --force < /dev/null` and a throwaway clone for
+  `commit.sh`. dconf cases run on `on_test_bus`; never `dconf load` or `dconf write` on the real bus. Bootstrap and
+  drift cases run on stubs; nothing may reach the real `sudo`, `apt-get`, `snap` or `curl`.
+- Before committing synced files: `leak-scan` green and `grep -rl "$HOME" dotfiles/` prints nothing.
+
+Every change reaches `master` through a PR that the `review-gate` check holds red until it carries the `reviewed`
+label; see `docs/review-gate.md` and `docs/daily-workflow.md`.
 
 ### Claude auto-approval (temporary, development stage)
 
@@ -49,100 +87,3 @@ once all of these hold:
    Those PRs, and any PR with a failing check, wait for the user to add the label.
 
 After a merge, `git switch master && git pull`. Remove this section when development is done; see `TODO.md`.
-
-## Key Patterns
-
-- **Content comparison:** Files without sanitize rules use `Get-FileHash -Algorithm SHA256`. Files with sanitize rules use normalized text comparison after sanitization. Never compare by date.
-- **Sanitization layer:** Files with `sanitizeRules` in `sync-config.json` have sensitive values (name, email, credentials) replaced with `<PLACEHOLDERS>` during export and hydrated back during import. Actual values are cached in `.user-values.json` (gitignored). Shared helpers live in `scripts/windows/SyncHelpers.ps1` (dot-sourced by Export and Import).
-- **User resolution:** `~` in `localPath` resolves to `$env:USERPROFILE` (current user) or `C:\Users\<name>` for `-User <name>`.
-- **Elevation:** Import targeting another user's profile triggers `Start-Process -Verb RunAs` to re-launch elevated.
-- **Backups:** Import creates `<file>.bak` before overwriting any existing local file.
-- **Error handling:** `$ErrorActionPreference = 'Stop'` at script level; per-file `try/catch` so one failure doesn't abort the rest.
-- **Exclude patterns:** Checked via `-like` before every copy. Never copy files matching patterns in `sync-config.json > excludePatterns`.
-- **dconf entries:** `"type": "dconf"` syncs a dconf `path` with one `.ini` file, bash only; PowerShell validates them and doesn't run them. `keys` is an allowlist, because the repo is public. Import merges and never resets, and it won't load unless `HOME` is the login home (`dconf_home_ok`). See `docs/sync-contract.md`.
-- **Package drift:** `report_drift` compares `packages/linux/` with the machine at the end of an export or preview, bash only. It's a report: it writes no file and changes no count or exit code. Pins and root-bound fields go through `scripts/ci/check-packages.sh`. Rules are in `docs/sync-contract.md`.
-- **PS 5.1 compatibility:** No null-coalescing (`??`), no ternary. Use `[IO.File]::WriteAllText()` for UTF-8 without BOM.
-- **Tests:** Both engines run the fixtures in `tests/fixtures/`. Bash: `tests/linux/engine.sh [case-name-filter]`. PowerShell (PS 5.1, Pester 5, from the repo root): `Invoke-Pester -Path tests/windows -CI`. CI runs them as `engine-linux` and `engine-windows`; the Pester suite calls `powershell.exe`, so on Linux `pwsh` can only parse the scripts and PowerShell changes are checked by the CI job. An engine change updates `docs/sync-contract.md` and adds a fixture case.
-
-- **Shared cases:** `tests/parity/cases/` holds engine-neutral cases (files in, one or more commands, exit codes, status lines and files out), the contract in executable form. `tests/parity/run.sh [case-name-filter]` runs them against the bash engine, `tests/parity/run.ps1` against the PowerShell one (PS 5.1, so on Linux only CI runs it); CI runs them in `engine-linux`, `engine-macos` and `engine-windows`. A contract rule that shows in exit codes, status lines and files gets a shared case first, with `expect/` written from the contract, not from the engine's output; notes, messages and internal functions stay in `engine.sh` and Pester. `expect.<os>/` (named in `differences`) is only for a row of the contract's Known differences. Format and troubleshooting: `tests/parity/README.md`. `probe/single-engine/` is a research probe, not part of the engine.
-
-- **Bootstrap tests:** `tests/linux/bootstrap.sh [case-name-filter]`, separate from `engine.sh`. `PATH` in a case holds only stubs and an allowlist of harmless tools, so nothing can reach the real `sudo`, `apt-get` or `curl`; a tool the allowlist adds must not be able to install, download, or write outside the temp folder. `scripts/ci/bootstrap-check.sh` proves the lists and pins for real in a clean `ubuntu:26.04` container (the `bootstrap-check` job). A bootstrap step checks what's there first, counts every outcome, and handles `--dry-run`.
-
-### Bash scripts (Linux)
-
-- **Byte-exact text:** read with `read_text` (keeps trailing newlines) and write with `write_text`. Never use plain `$(cat f)`.
-- **No `@tsv` for values:** jq's `@tsv` escapes backslashes and `read` with `IFS=$'\t'` collapses empty fields. Parse values and rules NUL-separated (`jq -j … "\u0000"`, `read -d ''`) and replace text literally (`${c//"$from"/"$to"}`).
-- **Prompts inside loops:** a loop that reads from a pipe must use another fd (`read … <&3` with `done 3< <(…)`), or `read` takes the next loop line as the user's answer.
-- **Modes:** `cp -p` for plain copies, `chmod --reference` for files written from text. `bin/` scripts must stay executable.
-- **Missing values:** with a placeholder value missing after the prompt, with or without a terminal, `request_values` stops rather than writing an unfilled placeholder.
-- **Testing:** use a throwaway `HOME` (`HOME=$(mktemp -d) ./import.sh --force < /dev/null`) and a throwaway `git clone` for `commit.sh`. Don't test in the real repo. A throwaway `HOME` doesn't isolate `dconf load`, which goes over the session bus: the login-home guard covers import, and dconf cases run on `on_test_bus`. Never run `dconf load` or `dconf write` on the real bus. To check the real database, compare `sha256sum ~/.config/dconf/user` before and after, but a moved hash alone doesn't mean the engine wrote it, because GNOME and open apps write there too (Resources does). Also check that `dconf list /test/` is empty. Drift cases run on stubs (`setup_drift_case`, `run_drift`), because a case that reaches the real `apt-mark`, `snap` or `code` depends on the machine.
-
-## Linked Paths (Auto-Detection)
-
-Set `"detectLinkedPaths": true` on any file entry. The script automatically parses the file content for directory paths (Unix `/c/...` or Windows `C:\...`), verifies they exist on disk, and syncs their contents.
-
-```json
-{
-  "repoPath": "dotfiles/windows/shell/.bashrc",
-  "localPath": "~\\.bashrc",
-  "platform": "windows",
-  "detectLinkedPaths": true
-}
-```
-
-Detected directories are stored under `<repoPath>.linked/<foldername>/`:
-```
-dotfiles/windows/shell/.bashrc.linked/MakuCustomAlias/vs.bat
-```
-
-- `Find-LinkedPaths` in `SyncHelpers.ps1` does the parsing — filters out system dirs, user profile, temp
-- **Export**: reads local file, detects paths, syncs each dir -> repo `.linked/` folder
-- **Import**: scans repo `.linked/` folders, resolves local paths from file content, syncs back
-- Files inside linked dirs are subject to `excludePatterns`
-- Export removes repo files that are gone from the folder. Import never deletes: a local file the repo doesn't have is reported as `EXTRA` and kept
-
-## Adding New Files to Sync
-
-Add an entry to the `files` array in `sync-config.json`. `platform` is required; `docs/configuration.md` covers every field and `docs/layout.md` says where a file goes.
-
-```json
-{
-  "repoPath": "dotfiles/windows/<tool>/<filename>",
-  "localPath": "~\\<path-relative-to-userprofile>",
-  "platform": "windows",
-  "description": "What this file configures"
-}
-```
-
-For files containing sensitive data, add `sanitizeRules`:
-
-```json
-{
-  "repoPath": "dotfiles/common/git/.gitconfig",
-  "localPath": "~/.gitconfig",
-  "platform": "common",
-  "description": "Git global configuration",
-  "sanitizeRules": [
-    { "placeholder": "<YOUR_NAME>", "prompt": "Full name for git commits" },
-    { "placeholder": "<YOUR_EMAIL>", "prompt": "Email for git commits" }
-  ]
-}
-```
-
-Then run `mksync export` (`sync.cmd export`) to pull it into the repo for the first time.
-
-For a Linux file, use `"platform": "linux"`, put it under `dotfiles/linux/<tool>/`, and use a `~/` path. A file shared by both systems uses `"platform": "common"`, `dotfiles/common/<tool>/` and a `~/` path:
-
-```json
-{
-  "repoPath": "dotfiles/linux/claude/settings.json",
-  "localPath": "~/.claude/settings.json",
-  "platform": "linux",
-  "description": "Claude Code user settings",
-  "sanitizeRules": [
-    { "placeholder": "<HOME>", "prompt": "Home directory", "defaultEnv": "HOME" }
-  ]
-}
-```
-
-Then run `./export.sh`. Check `grep -rl "$HOME" dotfiles/linux` prints nothing before committing.
