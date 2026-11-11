@@ -60,7 +60,8 @@ Every entry in `sync-config.json` today, and where it lands. The columns:
 
 - **Module:** the group a profile lists to get the entry (`git`, `shell`, `claude`…). A machine whose record says
   "Claude: none" skips `claude`; only "Claude plus DeepSeek" gets `claude-worker`.
-- **Layer:** where the file's content lives. Base is every machine; OS is one OS (or a list); profile is one profile;
+- **Layer:** where the file's content lives. Base is every machine (an entry may still be limited with `os`, as in
+  "Config v2"); OS is one OS; profile is one profile;
   machine is one machine record. Values (`<YOUR_EMAIL>`, `<HOME>`) are in "Values" in the last column, not a layer
   of their own: an account belongs to the profile, a path to the machine.
 - **Receives:** which machines end up with the file today, when their profile lists the module.
@@ -77,15 +78,15 @@ Every entry in `sync-config.json` today, and where it lands. The columns:
 | `dotfiles/macos/git/.gitconfig.local` | `git` | OS (macOS) | macOS | whole file | |
 | `dotfiles/macos/shell/.zshrc` | `shell` | OS (macOS) | macOS | whole file | |
 | `dotfiles/macos/shell/.zprofile` | `shell` | OS (macOS) | macOS | whole file | |
-| `dotfiles/windows/shell/.bashrc` | `shell` | OS (Windows) | Windows | whole file | linked folders: machine (see Open) |
+| `dotfiles/windows/shell/.bashrc` | `shell` | OS (Windows) | Windows | whole file | linked folders: profile ("Linked folders") |
 | `dotfiles/windows/shell/.bash_profile` | `shell` | OS (Windows) | Windows | whole file | |
 | `dotfiles/linux/shell/.bashrc` | `shell` | OS (Linux) | Linux | whole file | |
 | `dotfiles/linux/shell/.profile` | `shell` | OS (Linux) | Linux | whole file | |
-| `dotfiles/common/tmux/.tmux.conf` | `tmux` | OS (Linux, macOS) | Linux, macOS | whole file | |
-| `dotfiles/common/starship/starship.toml` | `starship` | OS (Linux, macOS) | Linux, macOS | whole file | |
-| `dotfiles/common/wezterm/wezterm.lua` | `wezterm` | OS (Linux, macOS) | Linux, macOS | whole file | |
-| `dotfiles/common/htop/htoprc` | `htop` | OS (Linux, macOS) | Linux, macOS | whole file | |
-| `dotfiles/common/gh/config.yml` | `gh` | OS (Linux, macOS) | Linux, macOS | whole file | |
+| `dotfiles/common/tmux/.tmux.conf` | `tmux` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
+| `dotfiles/common/starship/starship.toml` | `starship` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
+| `dotfiles/common/wezterm/wezterm.lua` | `wezterm` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
+| `dotfiles/common/htop/htoprc` | `htop` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
+| `dotfiles/common/gh/config.yml` | `gh` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
 | `dotfiles/linux/rtk` | `rtk` | OS (Linux) | Linux | dir | |
 | `dotfiles/linux/gnome/mimeapps.list` | `gnome` | OS (Linux) | Linux | whole file | |
 | `dotfiles/linux/gnome/bookmarks` | `gnome` | OS (Linux) | Linux | whole file | `<HOME>`: machine |
@@ -98,7 +99,7 @@ Every entry in `sync-config.json` today, and where it lands. The columns:
 | `dotfiles/windows/windows-terminal/settings.json` | `windows-terminal` | OS (Windows) | Windows | whole file | |
 | `dotfiles/common/claude/CLAUDE.md` | `claude` | base, profile adds one | Linux, macOS; Windows in phase 7 | `@import` | |
 | `dotfiles/common/claude/RTK.md` | `claude` | base | all with Claude | whole file | |
-| `dotfiles/linux/claude/settings.json` | `claude` | base, OS overlay | Linux | JSON | `<HOME>`: machine; `<YOUR_GH_USERNAME>`: profile |
+| `dotfiles/linux/claude/settings.json` | `claude` | OS (Linux) today; a base part moves to `dotfiles/common/` when Windows joins (phase 7) | Linux | JSON | `<HOME>`: machine; `<YOUR_GH_USERNAME>`: profile |
 | `dotfiles/linux/claude/statusline.sh` | `claude` | none: replaced by `mksync statusline` | Linux until cut-over | whole file | |
 | `dotfiles/common/claude/sampleGrok.md` | `claude` | none (see Open) | Linux, macOS | whole file | |
 | `dotfiles/linux/claude/hooks` | `claude` | OS (Linux) | Linux | dir | |
@@ -193,7 +194,7 @@ What goes in `work-base` comes from the Windows inventory (phase 7). Until then 
     "<YOUR_WORK_MARKETPLACE>": "https://marketplace.example.com/work-1"
   },
   "destinations": {
-    "vscode settings.json: chat.agent.enabled": "profile"
+    "claude settings.json: permissions.allow": "profile"
   },
   "retired": false
 }
@@ -202,7 +203,7 @@ What goes in `work-base` comes from the Windows inventory (phase 7). Until then 
 - `modules`: as above.
 - `values`: the profile's own values (next section).
 - `destinations`: the answers to "where does this new setting go?" from push, so every machine with this profile
-  knows them (see "New settings"). The key format is fixed in "Config v2".
+  knows them. Only arrays, folders and linked-folder answers are kept here ("New settings").
 - `retired`: `true` once the job ends. The profile stays as the last backup, and the first run no longer suggests it.
 
 Until the repo is private, profile files live in the machine's local state, never in the repo. The first push after
@@ -276,7 +277,7 @@ items, git first, and `defaultMode` from the base.
 
 ### Splitting a changed file
 
-Push reads the local file, hydrates nothing, and compares it, parsed, with what pull would write now. Whitespace, key
+Push reads the local file as it is and compares it, parsed, with what pull would write now (values hydrated). Whitespace, key
 order and line endings aren't changes; a different value, a new or missing key, or a new or missing array item is.
 Each change goes to one layer:
 
@@ -329,8 +330,8 @@ suggests "this profile", and stores it in the `work-1` layer. Personal Linux nev
 ### Case 6: A new top-level key
 
 Personal Linux sets `"chat.agent.enabled": true` in VS Code, a key no layer has. Push asks where it goes and suggests
-"all machines" (a personal machine). The answer is stored twice: the key goes to that layer, and the destination goes
-to the profile's `destinations`, so the next new value of the same key on another `personal` machine isn't asked again.
+"all machines" (a personal machine). The key goes to that layer. Nothing goes to `destinations`: from now on the key
+has a layer, so a later change to it is case 1 or 2, never a new setting again.
 
 ### Case 7: An edit to `CLAUDE.md` inside the base text
 
@@ -383,7 +384,7 @@ Each machine has one record. It says who the machine is and holds what belongs t
   "domain": "corp.example.com",
   "claude": "claude",
   "pullOnly": false,
-  "modules": { "add": [], "remove": ["vscode"] },
+  "modules": { "add": [], "remove": ["windows-terminal"] },
   "values": { "<HOME>": "C:\\Users\\jane", "<GH_CLI_PATH>": "C:\\Tools\\gh\\bin\\gh.exe" },
   "replaced": [],
   "retired": false
@@ -454,6 +455,12 @@ The suggested answers, in brackets:
    today. "Keep mine" runs a push (with its preview) before the pull; "stop" ends without writing anything but the
    record.
 
+**Before the repo is private** the repo holds no profiles or records, so the first run lists only `personal` and the
+profiles kept in this machine's local state (none, on a new machine), and makes no "replaces" suggestion. The user
+types a profile name, and the new profile starts with an empty module list filled from the scan's suggestions. Each
+machine then has its own copy of its profile: values and `destinations` aren't shared between two machines of one job
+until the switch. The example above is the first run after the switch.
+
 With `--yes` and no terminal, every question needs its flag; a missing one stops with `missing --profile` (exit 2).
 
 **`mksync whoami`** prints the record:
@@ -465,7 +472,7 @@ profile   work-1
 os        windows
 claude    Claude only
 mode      push with a preview
-modules   work-base, git, shell, windows-terminal, claude (vscode off on this machine)
+modules   work-base, git, shell, vscode, claude (windows-terminal off on this machine)
 ```
 
 When the hostname or domain no longer matches the record, it adds a warning on stderr and still exits 0:
@@ -570,10 +577,11 @@ A new key, a new array item or a new file in a `dir` entry has no layer yet, so 
 
 - **The suggestion:** "this profile" on any work profile, "all machines" on `personal`. A work machine's new settings
   stay with the job unless the user widens them; the personal machine shares by default.
-- **Where the answer is stored:** the setting goes into the chosen layer, and the destination goes into the profile's
-  `destinations`, keyed by module, file and key path (`vscode settings.json: chat.agent.enabled`). For an array the
-  key is the array's path (`claude settings.json: permissions.allow`), so the next item in the same array goes to the
-  same place without asking; it still shows in the preview.
+- **Where the answer is stored:** the setting goes into the chosen layer. A new key needs nothing more: it now has a
+  layer. A new array item or a new file in a folder is different, because the next one is new again, so the answer
+  also goes into the profile's `destinations`, keyed by module, file and path (`claude settings.json:
+  permissions.allow`, `vscode snippets/`). The next item there goes to the same place without asking; it still shows
+  in the preview.
 - Every machine with that profile reads the same `destinations`, so work #1's answer holds on any later work #1
   machine.
 - Whole-file entries have no new settings: a new line belongs to the layer that owns the file.
@@ -786,7 +794,7 @@ src/
 
 Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update; the attestation is
 checked when `gh` is there. The checksum stops a broken download; the attestation proves the file came from this
-repo's workflow, which matters once the repo is private and the release needs a token anyway.
+repo's workflow, not just from someone who could change `SHA256SUMS` next to it.
 
 ## Tests
 
@@ -816,10 +824,10 @@ have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, o
 
 | Goes to | bash | Pester |
 |---|---|---|
-| shared case (one case often covers a bash and a Pester case with the same name) | 231 | 152 |
+| shared case (one case often covers a bash and a Pester case with the same name) | 217 | 152 |
 | core unit test | 112 | 33 |
 | adapter test | 10 | 16 |
-| stays bash (CI scripts: `leak-scan.sh`, `check-packages.sh`, `check-plugins.sh`) | 94 | 0 |
+| stays bash (CI scripts `leak-scan.sh`, `check-packages.sh`, `check-plugins.sh`; the installers) | 108 | 0 |
 | dropped at cut-over (`sync` wrapper, `sync.cmd`, `-User`, Git Bash lookup, linked folders, bash internals) | 17 | 20 |
 
 Every old case stays in its suite until cut-over; nothing is removed because a new test exists.
@@ -874,7 +882,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   shows up (a file only an admin may write), a small wrapper runs `mksync pull` through `RunAs` on Windows or `sudo`
   elsewhere, for the one entry. Designed and built only then.
 - **`-User` at cut-over.** The flag is removed, not deprecated: the new engine has no equivalent. The cut-over notes
-  say so, and `sync.cmd -User` prints where to look instead of failing silently.
+  and the release notes say so; `sync.cmd` is deleted with the old engines.
 - **Work configs in a personal repo.** Whether each employer's policy allows its machines' configs (redacted or not) in
   the user's own repo, private or public. The user's call, per job; a job that says no gets a profile with
   `pullOnly` machines and no work layer.
@@ -885,6 +893,12 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   native builds only. Phase 4's CI job runs the cross-built programs on their runners to settle it.
 - **The Windows VM.** The image and its licence (an evaluation image expires), disk size, and start-up time, recorded
   in phase 4. If the VM can't run on this machine, the Windows layer stays CI-only and the plan says so.
+- **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
+  so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
+  public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
+- **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. At the first
+  private push, the copies of one profile are merged: modules and `destinations` joined, a value that differs between
+  copies asked about. The exact flow is phase 6's.
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
