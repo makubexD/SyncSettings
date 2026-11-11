@@ -521,6 +521,107 @@ Until the repo is private, profiles, machine records and values never reach it. 
 Example: today, personal Linux pushes a VS Code change. The preview shows the change and `held until the repo is
 private: profiles/personal.json, machines/personal-linux.json`; the PR has the VS Code change only.
 
+## Push and pull
+
+**Push** always shows a preview before anything leaves the machine. Changes are grouped by who receives them, widest
+first, and numbered so one can be moved to another group. The exact output on work #1:
+
+```text
+$ mksync push
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  vscode  settings.json      editor.fontSize: 14 -> 15
+Windows machines
+  2  M  git     .gitconfig.local   1 line changed
+Profile work-1
+  3  +  claude  settings.json      permissions.allow: Bash(work-tool-1 status)
+This machine only
+     (none)
+
+New settings
+  4  +  vscode  settings.json      chat.agent.enabled: true
+     Where does it go? 1) all machines  2) Windows machines  3) profile work-1  4) this machine [3]
+
+Held until the repo is private: machines/wk1-laptop.json, profiles/work-1.json
+
+Move a change? Type its number, or press Enter to go on:
+Open a PR with these changes? [Y/n]
+```
+
+- A line is `<number> <M|+|-> <module> <file> <what>`: a changed key with old and new value, an added or removed item,
+  or a line count for text files. Values are shown sanitized (`<YOUR_EMAIL>`), never raw.
+- Moving a change asks for its new group with the same four choices. Moving a base key to a narrower group stores an
+  override there and leaves the base as it was (case 1).
+- **`--yes`** skips the questions, not the preview or the rules: the preview prints, each new setting takes its stored
+  destination or the suggestion, nothing is moved, and the PR opens. The profile-value rule and the public-repo guard
+  still stop it.
+- The PR, branch and exit codes are today's (`sync/<os>-…`, never `master`; 0, or 1 on an error).
+- **Pull-only** machines have no push: `mksync push` prints `this machine is pull-only (see mksync whoami)` and exits 1,
+  and `mksync status` never suggests it.
+
+**Pull** stays today's command: the guard against unpushed local edits, `Apply these changes? [Y/n]`, `.bak` before
+each write, the sync point. Its list of changes uses the same groups, so the user sees that a change arrives from "all
+machines" or from "profile work-1".
+
+## New settings
+
+A new key, a new array item or a new file in a `dir` entry has no layer yet, so push asks where it goes.
+
+- **The suggestion:** "this profile" on any work profile, "all machines" on `personal`. A work machine's new settings
+  stay with the job unless the user widens them; the personal machine shares by default.
+- **Where the answer is stored:** the setting goes into the chosen layer, and the destination goes into the profile's
+  `destinations`, keyed by module, file and key path (`vscode settings.json: chat.agent.enabled`). For an array the
+  key is the array's path (`claude settings.json: permissions.allow`), so the next item in the same array goes to the
+  same place without asking; it still shows in the preview.
+- Every machine with that profile reads the same `destinations`, so work #1's answer holds on any later work #1
+  machine.
+- Whole-file entries have no new settings: a new line belongs to the layer that owns the file.
+
+Example: on personal Linux, Claude grants `Bash(npm test:*)`. The first time, push asks about `permissions.allow` and
+suggests "all machines"; the user picks "this machine". Every later grant on personal Linux goes there without the
+question, listed under "This machine only".
+
+## Profile values
+
+A profile's values must not leave the profile. Push checks every change bound for a layer wider than the profile
+(all machines, an OS): if its text holds one of this profile's `values` literally, ignoring case, push refuses it:
+
+```text
+refused: change 1 (vscode settings.json) holds a value of profile work-1 (<YOUR_EMAIL>) and would reach all machines.
+Move it to "profile work-1", or put <YOUR_EMAIL> in the file instead.
+```
+
+and exits 1 without opening a PR. The message names the placeholder, never the value.
+
+This is a literal match only. It doesn't catch a value written another way (`jane` from `jane@work1.example.com`, a
+hostname inside a URL, a value encoded or split), another profile's values, or names never stored as a value. Those are
+the leak scan's job (`scripts/ci/leak-scan.sh`, and the CI check), which looks for names, emails, hostnames and home
+paths in the whole repo. Neither is a guarantee, so the design doesn't present one as such.
+
+Example: on work #1 the user pastes the work email into the base VS Code `settings.json` as a Git author setting. The
+change is bound for all machines and holds `<YOUR_EMAIL>`'s value of `work-1`, so push refuses it. Moving it to
+"profile work-1" lets it through.
+
+## Linked folders
+
+Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
+PowerShell engine copies them under `<repoPath>.linked/` (`detectLinkedPaths`).
+
+- **The scan.** The first run, and `mksync status` afterwards, read the files of entries marked for linked folders and
+  list each folder they point to that exists and isn't synced yet. Each one is asked about once:
+
+  ```text
+  .bashrc uses ~/work-tool-1-scripts (12 files, 40 KB). Sync it as a folder? 1) this profile  2) this machine  3) no [1]
+  ```
+
+  The suggestion is "this profile" for a folder under the home with fewer than 1000 files and under 10 MB, and "no"
+  otherwise. A yes becomes a `dir` entry in that layer; a no is remembered in the profile's `destinations` and not
+  asked again.
+- **Cut-over.** Each tree under `dotfiles/windows/shell/.bashrc.linked/<folder>/` becomes a `dir` entry with the same
+  local folder, moved with `git mv` so its history follows, on the work profile that owns it (see "Open").
+  `detectLinkedPaths` and the `.linked/` layout are then removed.
+
 ## Open
 
 ### Design
@@ -536,8 +637,8 @@ private: profiles/personal.json, machines/personal-linux.json`; the PR has the V
   today. Whether each also belongs on Windows (`gh` and VS Code likely do) is a profile choice for the work machines.
 - **`sampleGrok.md`.** An old Windows `CLAUDE.md`, kept for reference. Drop it at cut-over, or keep it as a document
   outside the sync.
-- **`.bashrc` linked folders on Windows.** `detectLinkedPaths` becomes `dir` entries at cut-over (roadmap). Whether
-  those entries live on the machine record or on the work profile is decided with "Linked folders".
+- **Today's `.linked/` trees.** "Linked folders" puts a converted tree on a work profile. Which profile owns each tree
+  under `dotfiles/windows/shell/.bashrc.linked/` is the user's answer, since the repo doesn't record which job made it.
 - **Removing a key in a later layer.** JSON merge can add and replace keys, not remove one the base sets. Options: a
   `null` in the later layer removes the key, or removal isn't supported. Claude and VS Code treat some `null` values as
   meaningful, so `null` may need an explicit marker instead.
@@ -558,6 +659,16 @@ private: profiles/personal.json, machines/personal-linux.json`; the PR has the V
 - **Retiring a profile with live machines.** Refuse while a non-retired machine uses it, or warn and go on.
 - **Two records, one hostname.** A replaced machine's hostname can come back (a reinstall). The exact-match suggestion
   then names the newest record with that hostname; older ones are retired or listed in `replaced`.
+- **Elevation wrapper.** `-User` (import into another Windows account, elevated) is dropped at cut-over. If a real need
+  shows up (a file only an admin may write), a small wrapper runs `mksync pull` through `RunAs` on Windows or `sudo`
+  elsewhere, for the one entry. Designed and built only then.
+- **`-User` at cut-over.** The flag is removed, not deprecated: the new engine has no equivalent. The cut-over notes
+  say so, and `sync.cmd -User` prints where to look instead of failing silently.
+- **Work configs in a personal repo.** Whether each employer's policy allows its machines' configs (redacted or not) in
+  the user's own repo, private or public. The user's call, per job; a job that says no gets a profile with
+  `pullOnly` machines and no work layer.
+- **Pull's own preview.** Pull lists changes by group but asks only once. Whether pull should also let the user skip a
+  group (take "all machines", skip "profile work-1") is left for phase 7.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
 
