@@ -105,10 +105,10 @@ one engine picks one behavior and the contract records it.
 | Import, target folder missing | accidental | create the folder, as Linux does. A restore runs import before most apps have started once, and an empty folder for an app that isn't installed is harmless |
 | Exclude patterns | accidental | match case-insensitively everywhere. Patterns are file-name globs like `*.log`; no current pattern depends on case |
 | End of input at the overwrite prompt | accidental | count end of input as no, and name `--force` in the note. Safer than a silent yes. Bootstrap keeps the terminal as stdin (`bootstrap/linux.sh:614-616`), so its prompts don't change |
-| `detectLinkedPaths` | accidental | support it on every OS, as PowerShell does |
+| `detectLinkedPaths` | accidental | ~~support it on every OS, as PowerShell does~~ Superseded: linked folders become `dir` entries ([design](design-layers.md#linked-folders)) |
 | `type: dconf` | forced (GNOME) | run it on Linux, validate it elsewhere |
 | Package drift | forced (apt, snap, pipx are Linux tools) | report on Linux; nothing elsewhere until a Windows list exists |
-| `-User <name>` | forced (Windows profiles and elevation) | keep it Windows-only |
+| `-User <name>` | forced (Windows profiles and elevation) | ~~keep it Windows-only~~ Superseded: dropped at cut-over ([design](design-layers.md#open)) |
 | File modes | forced (NTFS has no Unix modes) | keep modes where the file system has them |
 | Status line layout | accidental | one layout: `WORD       label`, colored when the output is a terminal |
 | Sanitized text that isn't valid UTF-8 | accidental | keep the bytes, as bash does |

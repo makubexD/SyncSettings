@@ -11,6 +11,10 @@ shared case first. Text the shared runner doesn't read (notes, messages) and int
 `tests/linux/engine.sh` or `tests/windows/Engine.Tests.ps1`. A rule listed under
 [Known differences](#known-differences) applies to one engine only. Every other rule applies to both.
 
+**Planned: one engine.** A single TypeScript engine will replace both, with modules, profiles and layered settings.
+Its design is [design-layers.md](design-layers.md); until its cut-over, this page describes the two engines as they
+are.
+
 To add or change an entry in `sync-config.json`, see [configuration.md](configuration.md).
 
 ## Flow
