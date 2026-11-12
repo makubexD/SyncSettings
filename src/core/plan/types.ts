@@ -88,12 +88,16 @@ export interface WriteLocalAction {
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly mode?: number;
+  /** A repo path whose mode a created file copies (`cp -p`). */
+  readonly modeFrom?: string;
 }
 
 /** Copy a local file's old contents to `<path>.bak` before it is replaced. */
 export interface BackupAction {
   readonly kind: "backup";
   readonly path: string;
+  /** Where the dated copy goes under the state folder's `backups/`. */
+  readonly repoPath?: string;
 }
 
 /** Create a folder and its parents when missing. */
@@ -131,3 +135,67 @@ export interface Plan {
   readonly lines: readonly string[];
   readonly code: number;
 }
+
+/** One action of a file's step and the contract's reason when it fails. */
+export interface StepAction {
+  readonly action: Action;
+  readonly failure: string;
+}
+
+/**
+ * One file's actions, grouped with the status line the plan prints for it.
+ * `line` is the index of that line in `RunPlan.lines`; `counted` means the
+ * file counts towards the summary's count.
+ */
+export interface FileStep {
+  readonly label: string;
+  readonly line: number;
+  readonly counted: boolean;
+  readonly actions: readonly StepAction[];
+}
+
+/** What `import.ts`'s `summaryLines` reads besides the count. */
+export interface ImportSummary {
+  readonly kind: "import";
+  readonly onlyMatchedNothing: boolean;
+  readonly syncPoint?: string;
+}
+
+/** What `export.ts`'s `summaryLines` reads besides the count. */
+export interface ExportSummary {
+  readonly kind: "export";
+  readonly onlyMatchedNothing: boolean;
+  readonly skipped: number;
+}
+
+export type Summary = ImportSummary | ExportSummary;
+
+/**
+ * A plan the adapter runs: each file's actions grouped with its status line,
+ * the `finish` actions (the sync point) that run only when no step failed, the
+ * body lines without the summary, and the exit code.
+ */
+export interface RunPlan {
+  readonly steps: readonly FileStep[];
+  readonly finish: readonly Action[];
+  readonly lines: readonly string[];
+  readonly summary: Summary;
+  readonly code: number;
+}
+
+/**
+ * What running a plan's steps did: the contract's reason for each failed step
+ * and the warnings to print before its line, both keyed by step index, plus
+ * the dated-backup folder when a copy was made.
+ */
+export interface RunOutcome {
+  readonly failed: ReadonlyMap<number, string>;
+  readonly warnings: ReadonlyMap<number, readonly string[]>;
+  readonly backups?: string;
+}
+
+/** The outcome of a plan whose steps all succeeded and wrote no warnings. */
+export const NO_FAILURES: RunOutcome = {
+  failed: new Map(),
+  warnings: new Map(),
+};
