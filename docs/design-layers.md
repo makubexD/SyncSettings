@@ -975,11 +975,38 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
   parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
   in the contract's program column in the phase's docs step.
+- **Boundaries review, phase 4 (refactors before phase 5).** The core is pure and has no import cycles; the review's
+  high findings were fixed. Left: home-path expansion exists in `core/plan/export.ts`, `core/plan/import.ts` and
+  `adapters/paths.ts`, and the core copies treat `~\` as home on every OS (one `core/paths.ts`, adapters keep only the
+  env lookups); `import.ts` and `export.ts` share about 260 lines word for word (`--only`, exclude globs, error
+  plans); no `core/merge/` yet, so `export.ts`, `import.ts`, `check.ts` and `adapters/fs.ts` switch on the merge type
+  (phase 5 adds `json`, so the strategies come first there); `main.ts` reads files, parses `.user-values.json` and
+  resolves the OS (a `parseValuesFile` next to the writer, a pure `resolveOs`, an `adapters/snapshot.ts`); shadow's
+  process runner duplicates the git adapter's. The layout differs from the tree above (`core/plan/preview.ts`,
+  `core/compare.ts`, one `adapters/fs.ts` with `pathFor` instead of one file per OS): the docs step records it.
+- **Security review, phase 4 (before cut-over).** Fixed: sanitize and hydrate rescanning their own output. Left, each
+  needing a shared case first where it shows in files or statuses:
+  - `file` in a v2 entry isn't checked: `../` can leave `dotfiles/` (and a dated backup its folder). Reject absolute,
+    `..`, `\` and empty in `parseV2`, and check every resolved repo and backup path in the adapter.
+  - Writes follow symlinks (a committed link under `dotfiles/`, a linked `.user-values.json`, a linked folder inside a
+    dir entry), and `readRepoTree` counts a repo link as a file. Refuse links, and write through a temp file and a
+    rename, which also makes writes atomic (today a crash can empty `.user-values.json` or the sync point).
+  - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
+    that stops an export holding any known value, in every form, would catch both; bash behaves the same today.
+  - JSON escapes (`é`, `\/`) aren't matched on export; a value inferred from a JSON file is escaped twice on
+    import; value lookups use plain objects (`constructor`); JSON escaping depends on the `.json` extension, not the
+    entry.
+  - A new hydrated file and new parent folders are created with the umask before the chmod, and the backups tree is
+    0755; pruning removes any folder under `backups/`, not only run folders; `leak-scan` doesn't scan
+    `sync-config.v2.json`.
 
 ### Confirm on Windows
 
 - **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
   access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
+- **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
+  the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
+  the repo would run; if so, resolve through `PATH` only.
 - **Shell.** Which shell Claude Code uses for the statusline and hooks on each work machine: Git Bash or PowerShell.
   (`claude doctor`, or a hook that prints `$0`.) The docs say Git Bash when Git for Windows is installed.
 - **Git Bash and `jq`.** Whether Git for Windows (with Git Bash) and `jq` are installed on work #1 to #3, and whether
