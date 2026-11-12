@@ -1,0 +1,18 @@
+{
+  "description": "Import stops before touching a file when SYNC_OS names Windows off Windows: exit 1, no status line (Which system).",
+  "os": ["linux", "macos"],
+  "env": { "SYNC_OS": "windows" },
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "check" }]
+}

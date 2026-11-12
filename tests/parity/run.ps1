@@ -141,6 +141,18 @@ function Validate-Case {
         }
     }
 
+    $envProp = $case.PSObject.Properties['env']
+    if ($null -ne $envProp) {
+        if ($envProp.Value -isnot [pscustomobject]) {
+            Die 'env must be an object of strings or null'
+        }
+        foreach ($p in $envProp.Value.PSObject.Properties) {
+            if ($null -ne $p.Value -and $p.Value -isnot [string]) {
+                Die 'env must be an object of strings or null'
+            }
+        }
+    }
+
     $stubsProp = $case.PSObject.Properties['stubs']
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
@@ -596,6 +608,25 @@ function Run-Case {
             Write-GhStub -TempDir $t
         }
 
+        # Optional case env: a string sets the variable, null unsets it. Applied
+        # after HOME/USERPROFILE, so a case can unset them too.
+        $envNames = New-Object System.Collections.Generic.List[string]
+        $envValues = New-Object System.Collections.Generic.List[string]
+        $envSet = New-Object System.Collections.Generic.List[bool]
+        $caseEnvProp = $Case.PSObject.Properties['env']
+        if ($null -ne $caseEnvProp) {
+            foreach ($p in $caseEnvProp.Value.PSObject.Properties) {
+                $envNames.Add($p.Name)
+                if ($null -eq $p.Value) {
+                    $envSet.Add($false)
+                    $envValues.Add('')
+                } else {
+                    $envSet.Add($true)
+                    $envValues.Add([string]$p.Value)
+                }
+            }
+        }
+
         # Commands
         $commands = $Case.commands
         $exitCodes = New-Object System.Collections.Generic.List[string]
@@ -679,6 +710,9 @@ function Run-Case {
             $oldPath = $env:PATH
             $oldGh = $env:GH
             $oldPreference = $ErrorActionPreference
+            # A name and its value before the command, restored after it: $null
+            # marks a variable that was not set.
+            $savedEnv = New-Object System.Collections.Generic.List[object]
             Push-Location $repoDir
             try {
                 $env:USERPROFILE = $homeDir
@@ -691,6 +725,16 @@ function Run-Case {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
                     $env:GH = Join-Path $t 'bin\gh.cmd'
                 }
+                # The case's env, applied after HOME/USERPROFILE is set.
+                for ($e = 0; $e -lt $envNames.Count; $e++) {
+                    $name = $envNames[$e]
+                    $savedEnv.Add(@($name, [System.Environment]::GetEnvironmentVariable($name, 'Process')))
+                    if ($envSet[$e]) {
+                        Set-Item -Path ("Env:" + $name) -Value $envValues[$e]
+                    } else {
+                        Remove-Item -Path ("Env:" + $name) -ErrorAction SilentlyContinue
+                    }
+                }
                 # In PS 5.1 a native command's stderr redirected with 2>&1 turns
                 # into error records, which 'Stop' would throw on.
                 $ErrorActionPreference = 'Continue'
@@ -702,6 +746,18 @@ function Run-Case {
                 $rc = $LASTEXITCODE
             } finally {
                 $ErrorActionPreference = $oldPreference
+                # The case env first: its saved HOME/USERPROFILE are the runner's
+                # temporary values, which the assignments below then replace with
+                # the ones from before the command.
+                for ($e = $savedEnv.Count - 1; $e -ge 0; $e--) {
+                    $name = $savedEnv[$e][0]
+                    $oldValue = $savedEnv[$e][1]
+                    if ($null -eq $oldValue) {
+                        Remove-Item -Path ("Env:" + $name) -ErrorAction SilentlyContinue
+                    } else {
+                        Set-Item -Path ("Env:" + $name) -Value $oldValue
+                    }
+                }
                 $env:USERPROFILE = $oldProfile
                 $env:HOME = $oldHome
                 $env:LOCALAPPDATA = $oldLocal

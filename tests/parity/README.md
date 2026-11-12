@@ -68,6 +68,7 @@ cases/<name>/
 | `os` | Where it runs: a list of `linux`, `macos`, `windows`. Omit for all three |
 | `config` | The whole `sync-config.json`, written into the repo before the run |
 | `values` | Optional. Written as `.user-values.json` in the repo; omit to have none |
+| `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it |
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": … }` |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
 | `stubs` | Optional. `["gh"]` puts a `gh` stub first on `PATH`; see `expect/gh.log` below |

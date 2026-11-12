@@ -90,6 +90,10 @@ validate_case() {
         || die 'os must be a list of linux, macos or windows'
     jq -e 'all(.commands[]; if has("stdin") then (.stdin | type) == "string" else true end)' "$json" > /dev/null 2>&1 \
         || die 'stdin must be a string'
+    jq -e 'if has("env") then
+            (.env | type) == "object" and all(.env[]; type == "string" or . == null)
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'env must be an object of strings or null'
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
@@ -283,7 +287,7 @@ run_case() {
     local config_json count i cmd rc only_path out stdin_file git_mode gh_stub=false
     local want_exit want_output want_home want_repo want_values want_state want_gh calls
     local file rel got want_mode got_mode
-    local -a args=() runs=() path_env=()
+    local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
     t=$(mktemp -d)
     trap 'rm -rf "$t"' EXIT
@@ -325,6 +329,16 @@ run_case() {
         write_gh_stub "$t"
         path_env=(PATH="$t/bin:$PATH" GH="$t/bin/gh")
     fi
+
+    # Optional case env: a string sets the variable, null unsets it. Applied by
+    # `env` after HOME is set, so a case can unset HOME or USERPROFILE too.
+    while IFS= read -r key; do
+        if [[ $(jq -r --arg key "$key" '.env[$key] == null' "$dir/case.json") == true ]]; then
+            case_env_unset+=(-u "$key")
+        else
+            case_env_set+=("$key=$(jq -r --arg key "$key" '.env[$key]' "$dir/case.json")")
+        fi
+    done < <(jq -r '.env // {} | keys[]' "$dir/case.json")
 
     : > "$t/actual-exit"
     : > "$t/actual-output"
@@ -373,7 +387,8 @@ run_case() {
         rc=0
         # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
         (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
-            "${path_env[@]}" "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
+            "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
+            "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         printf '%s\n' "$rc" >> "$t/actual-exit"
         status_lines "$t/raw" >> "$t/actual-output"
     done
