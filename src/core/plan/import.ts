@@ -2,6 +2,10 @@ import { same } from "../compare.ts";
 import type { SanitizeRule } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
+import { mergeImport } from "../merge/import.ts";
+import { mergeJson } from "../merge/json.ts";
+import { strategyFor } from "../merge/strategy.ts";
+import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
@@ -49,6 +53,8 @@ const BACKUP_FAILURE = "cannot create backup";
 const COPY_FROM_REPO_FAILURE = "cannot copy from repo";
 
 const WRITE_LOCAL_FAILURE = "cannot write local file";
+
+const IMPORT_NAME_NOTE = "needs {layer} in importName";
 
 interface State {
   readonly snapshot: Snapshot;
@@ -105,6 +111,12 @@ function recordStep(
 
 function isDriveRoot(path: string): boolean {
   return /^[A-Za-z]:$/.test(path);
+}
+
+/** The folder a path sits in, using this OS's own separator. */
+function parentDir(path: string, separator: "/" | "\\"): string {
+  const slash = path.lastIndexOf(separator);
+  return slash <= 0 ? path : path.slice(0, slash);
 }
 
 /** `mkdir -p` the file's folder when the snapshot doesn't list it (decision 4). */
@@ -227,6 +239,116 @@ function applyBytes(
   writeCreated(state, label, localPath, repoPath, bytes, failure);
 }
 
+/**
+ * Each layer's bytes with its values put back, in layer order. A layer with no
+ * file is left out. A missing value is unreachable after `resolveValues`; it
+ * still gives the file its own `ERROR`.
+ */
+function hydratedLayers(
+  state: State,
+  selected: SelectedEntry,
+  label: string,
+): readonly LayerFile[] | undefined {
+  const entry = selected.entry;
+  const rules = entry.sanitize ?? [];
+  const json = entry.merge === "json" || entry.file.endsWith(".json");
+  const layers: LayerFile[] = [];
+  for (const layer of selected.layers) {
+    const bytes = state.snapshot.repoFiles.get(layer.repoPath);
+    if (bytes === undefined) {
+      continue;
+    }
+    if (rules.length === 0) {
+      layers.push({ repoPath: layer.repoPath, bytes });
+      continue;
+    }
+    const hydrated = hydrate(bytes, rules, state.values, { json });
+    if (!hydrated.ok) {
+      const line = pushStatus(state, "ERROR", label, hydrated.error.message);
+      recordStep(state, label, line, false);
+      return undefined;
+    }
+    layers.push({ repoPath: layer.repoPath, bytes: hydrated.value });
+  }
+  return layers;
+}
+
+/** The merged bytes of an entry, or its contract `ERROR` note. */
+function mergedBytes(
+  state: State,
+  selected: SelectedEntry,
+  layers: readonly LayerFile[],
+  localPath: string,
+  eol: "\n" | "\r\n",
+): { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly note: string } {
+  const entry = selected.entry;
+  if (entry.merge === "json") {
+    const local = state.snapshot.localFiles.get(localPath);
+    const merged = mergeJson(layers, eol, {
+      bytes: local !== undefined && local.kind === "file" ? local.bytes : undefined,
+      localOnlyKeys: entry.localOnlyKeys ?? [],
+    });
+    return merged.ok
+      ? { ok: true, bytes: merged.value }
+      : { ok: false, note: merged.error };
+  }
+  const strategy = strategyFor("whole");
+  if (strategy === undefined) {
+    throw new Error("merge type whole has no strategy");
+  }
+  const merged = strategy.merge(layers, { eol });
+  return merged.ok
+    ? { ok: true, bytes: merged.value }
+    : { ok: false, note: merged.error };
+}
+
+/** Write the local file, then each later layer's file beside it, each with its
+ * own status line (contract "Layers (program only)", import entries). */
+function planImportFile(
+  state: State,
+  selected: SelectedEntry,
+  layers: readonly LayerFile[],
+  localPath: string,
+  sanitized: boolean,
+  eol: "\n" | "\r\n",
+): void {
+  const entry = selected.entry;
+  // The local file is the base text plus the engine's block, so it reads and
+  // writes the base layer; each side file is the whole of its own layer.
+  const label = selected.layers[0]?.repoPath ?? primaryRepoPath(selected);
+  const importName = entry.importName;
+  if (importName === undefined) {
+    const line = pushStatus(state, "ERROR", label, IMPORT_NAME_NOTE);
+    recordStep(state, label, line, false);
+    return;
+  }
+  const hydrated = new Map(layers.map((layer) => [layer.repoPath, layer.bytes]));
+  const merged = mergeImport(
+    selected.layers.map((layer) => ({
+      label: layer.label,
+      repoPath: layer.repoPath,
+      bytes: hydrated.get(layer.repoPath),
+    })),
+    importName,
+    eol,
+  );
+  if (!merged.ok) {
+    const line = pushStatus(state, "ERROR", label, merged.error);
+    recordStep(state, label, line, false);
+    return;
+  }
+
+  ensureParentDir(state, localPath);
+  applyBytes(state, label, localPath, label, merged.value.local, sanitized);
+
+  const separator = separatorFor(state.snapshot.os);
+  const folder = parentDir(localPath, separator);
+  for (const side of merged.value.sideFiles) {
+    const sidePath = joinPath(folder, side.name, separator);
+    applyBytes(state, side.repoPath, sidePath, side.repoPath, side.bytes, sanitized);
+  }
+}
+
 function planFile(state: State, selected: SelectedEntry): void {
   const entry = selected.entry;
   const repoPath = primaryRepoPath(selected);
@@ -249,24 +371,28 @@ function planFile(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  ensureParentDir(state, localPath);
-
-  const rules = entry.sanitize ?? [];
-  if (rules.length === 0) {
-    applyBytes(state, repoPath, localPath, repoPath, bytes, false);
+  const layers = hydratedLayers(state, selected, repoPath);
+  if (layers === undefined) {
     return;
   }
 
-  const hydrated = hydrate(bytes, rules, state.values, {
-    json: entry.file.endsWith(".json"),
-  });
-  if (!hydrated.ok) {
-    // Unreachable after resolveValues; an ERROR only affects this file.
-    const line = pushStatus(state, "ERROR", repoPath, hydrated.error.message);
+  const eol = state.snapshot.os === "windows" ? "\r\n" : "\n";
+  const sanitized = (entry.sanitize ?? []).length > 0;
+
+  if (entry.merge === "import") {
+    planImportFile(state, selected, layers, localPath, sanitized, eol);
+    return;
+  }
+
+  const merged = mergedBytes(state, selected, layers, localPath, eol);
+  if (!merged.ok) {
+    const line = pushStatus(state, "ERROR", repoPath, merged.note);
     recordStep(state, repoPath, line, false);
     return;
   }
-  applyBytes(state, repoPath, localPath, repoPath, hydrated.value, true);
+
+  ensureParentDir(state, localPath);
+  applyBytes(state, repoPath, localPath, repoPath, merged.bytes, sanitized);
 }
 
 function planDir(state: State, selected: SelectedEntry): void {

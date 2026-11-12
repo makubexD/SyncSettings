@@ -101,9 +101,14 @@ function labelsNeedingValues(
     if (!holds) {
       continue;
     }
-    labels.add(
-      item.source?.repoPath ?? `${item.writeRoot}${item.entry.file}`,
-    );
+    // Every layer a status line can name, so a layered file is skipped whole.
+    if (item.layers.length === 0) {
+      labels.add(`${item.writeRoot}${item.entry.file}`);
+      continue;
+    }
+    for (const layer of item.layers) {
+      labels.add(layer.repoPath);
+    }
   }
   return labels;
 }
