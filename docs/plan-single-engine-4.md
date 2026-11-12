@@ -75,7 +75,7 @@ PowerShell engine's suite there: `run.ps1` and Pester, both green as in CI.
 
 Record in "Tests": image and its SHA256, licence and expiry date, disk size, cold and snapshot start-up times. If it
 doesn't work within the time box, write `Decision: no local Windows VM; Windows runs in CI and on the real-Windows
-checklist.` with the reason, delete the scripts, and steps 21 and 23 drop their VM parts.
+checklist.` with the reason, delete the scripts, and steps 25 and 27 drop their VM parts.
 
 Test: `tests/windows-vm/vm.sh up && tests/windows-vm/vm.sh run 'powershell -NoProfile -ExecutionPolicy Bypass -File
 tests/parity/run.ps1'`, exit 0; or `grep -c '^Decision: no local Windows VM' docs/design-layers.md` is 1.
@@ -283,16 +283,97 @@ per OS (contract "Sync point"). `fs.ts`: build the snapshot from disk (only the 
 backups copy mode and times (`cp -p`), modes skipped on Windows, errors per file turned into `ERROR` lines, never
 thrown. Tests run in a temp folder.
 
-Run-time rules the pure plans leave to this adapter (found reviewing steps 13 and 14): each `backup` action also
-makes the dated per-run copy (contract "Backups": `<run>` folder created at the first copy, newest 20 kept, a failed
-dated copy is a `WARNING`, and the summary's `  Backups    : <folder>` line when a copy was made); a `writeLocal` for a
-`CREATED` file copies the repo file's mode (`cp -p`); and when any action of the run ends in an `ERROR`, the
-`writeState` action is skipped and the `Sync point :` line is dropped (contract "Sync point"). If this makes the step
-too big for one worker run, split it at run time.
+The run-time rules this step first held (dated backups, a created file's mode, the sync point after an error) moved
+to steps 17 to 20, together with the error model they need.
 
 Test: `bun test src/adapters/fs && bun run lint`.
 
-## Step 17: Git adapter `[worker]`
+## Run, then render (steps 17 to 20)
+
+Found reviewing step 16: the plans write every status line, the applied count, the `Sync point :` line and the exit
+code before anything is written. When a write then fails, the bash engine (`import.sh`, `export.sh`) prints `ERROR`
+with the repo path and a fixed reason (`cannot create backup`, `cannot write local file`, `cannot copy to repo`, …)
+_in place of_ that file's line, stops working on that file (a failed `.bak` means no overwrite), leaves it out of the
+count and records no sync point; the run still exits 0 (contract "Statuses"). Decision (user, 2026-11-12): the core
+groups each file's actions with its label and reasons, the adapter runs the groups and reports what failed, and a pure
+core function renders the lines from that result. Output stays in the core.
+
+## Step 17: Run plan and render `[worker]`
+
+Files: `src/core/plan/types.ts`, `src/core/plan/run.ts`, `src/core/plan/run.test.ts`.
+
+Additive only; `Plan` and the planners stay as they are until steps 18 and 19. In `types.ts`:
+
+- `StepAction { action: Action; failure: string }`: `failure` is the contract's reason when that action fails.
+- `FileStep { label: string; line: number; counted: boolean; actions: readonly StepAction[] }`: `line` is the index
+  of the file's status line in `RunPlan.lines`; `counted` means it counts towards the summary's count.
+- `BackupAction` gets an optional `repoPath` (where the dated copy goes); `WriteLocalAction` gets an optional
+  `modeFrom` (a repo path whose mode a created file copies, `cp -p`).
+- `Summary`: `{ kind: "import"; onlyMatchedNothing: boolean; syncPoint?: string }` or
+  `{ kind: "export"; onlyMatchedNothing: boolean; … }` with whatever else `summaryLines` in `export.ts` reads
+  besides its count.
+- `RunPlan { steps: readonly FileStep[]; finish: readonly Action[]; lines: readonly string[]; summary: Summary;
+code: number }`: `lines` holds the body only; `finish` (the `writeState`) runs only when no step failed.
+- `RunOutcome { failed: ReadonlyMap<number, string>; warnings: ReadonlyMap<number, readonly string[]>;
+backups?: string }`, keyed by step index; `NO_FAILURES` is the empty outcome.
+
+`run.ts`: `renderRun(plan, outcome): { lines; code }`. Body lines are copied; a failed step's line becomes
+`formatLine("ERROR", label, reason)`; a step's warnings go right before its line. Then the summary, with the same
+text as `summaryLines` in `import.ts` and `export.ts` today (they move here in steps 18 and 19); the count is the
+counted steps that didn't fail. Import: `  Backups    : <folder>` and a blank line after the applied line when
+`backups` is set, and the `Sync point :` lines only when nothing failed (order as in `import.sh`'s summary).
+`code` is the plan's.
+
+Tests: no failures renders as the planners' current output, for import and export; one failed step gets
+`ERROR <label> <reason>` in place of its line and a count one lower; a failure drops `Sync point :`; a warning sits
+before its step's line; `Backups    :` sits between the applied line and `Sync point :`.
+
+Test: `bun test src/core/plan/run && bun run lint`.
+
+## Step 18: Import plan as file steps `[worker]`
+
+Files: `src/core/plan/import.ts`, `src/core/plan/import.test.ts`, `src/core/plan/check.ts`.
+
+`planImport` returns a `RunPlan`: each file's `mkdir`, `backup` and `writeLocal` actions become one `FileStep` with
+its status line's index, and `counted` where it added to `applied`. Reasons from `import.sh`: `mkdir` →
+`cannot create <folder>`, `backup` → `cannot create backup`, `writeLocal` → `cannot write local file`. `backup` sets
+`repoPath`; a `CREATED` write sets `modeFrom` to the repo path (drop the `shortcut:` comment). The `writeState` goes
+in `finish`. `summaryLines` is deleted; `check.ts` renders with `renderRun(plan, NO_FAILURES)`. Tests assert
+`renderRun(plan, NO_FAILURES).lines`, unchanged in content, plus the steps for an `UPDATED` and a `CREATED` file.
+
+Test: `bun test src/core/plan/import src/core/plan/check && bun run lint`.
+
+## Step 19: Export plan as file steps `[worker]`
+
+Files: `src/core/plan/export.ts`, `src/core/plan/export.test.ts`, `src/core/plan/preview.ts`, `src/core/plan/types.ts`.
+
+As step 18 for export: `mkdir` → `cannot create <folder>`, `writeRepo` → `cannot write repo file` for a sanitized
+entry and `cannot copy to repo` otherwise, `chmod` → `cannot copy file mode`, `removeRepo` →
+`cannot remove from repo` (reasons from `export.sh`). `preview.ts` renders with `NO_FAILURES`. Then delete the old
+`Plan` type if nothing else uses it.
+
+Test: `bun test src/core/plan && bun run lint`.
+
+## Step 20: Run a plan's steps `[worker]`
+
+Files: `src/adapters/fs.ts`, `src/adapters/fs.test.ts`.
+
+`runPlan(plan: RunPlan, context): RunOutcome` replaces `runActions`. Steps run in order, each stopping at its first
+failed action, which records that action's `failure` (not the system's message). `finish` runs only when no step
+failed. A `backup` with `repoPath` also makes the dated copy (contract "Backups"): `<state folder>/backups/<run>/
+<repoPath>`, `<run>` = `YYYYMMDD-HHMMSS-<pid>` in local time from a clock and pid in `RunContext` (so tests are
+fixed), the folder created at the first copy, mode and times kept; a failed copy adds the warning
+`  WARNING: could not keep a dated backup of <repoPath>.` and the step goes on; after the run the newest 20 run folders
+are kept, sorted by name, and `backups` is set when a copy was made. A `writeLocal` with `modeFrom` copies that repo
+file's mode (not on Windows).
+
+Tests: a failed `.bak` stops the overwrite and reports `cannot create backup`; the next step still runs; a failure
+skips `finish`; a dated copy lands under the run folder with mode and times; a failed dated copy warns and the write
+still happens; 21 run folders become 20; a created file copies the repo file's mode.
+
+Test: `bun test src/adapters/fs && bun run lint`.
+
+## Step 21: Git adapter `[worker]`
 
 Files: `src/adapters/git.ts`, `src/adapters/git.test.ts`.
 
@@ -302,7 +383,7 @@ not an exception. Tests use a temp repo.
 
 Test: `bun test src/adapters/git && bun run lint`.
 
-## Step 18: Command line `[worker]`
+## Step 22: Command line `[worker]`
 
 Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/main.ts`.
 
@@ -314,7 +395,7 @@ line at a time; end of input counts as yes.
 
 Test: `bun test src/cli && bun run lint && bun run build && ./dist/mksync export --bogus; test $? -eq 1`.
 
-## Step 19: The runners take the program `[worker]`
+## Step 23: The runners take the program `[worker]`
 
 Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
 
@@ -328,7 +409,7 @@ the option nothing changes. README: the option and the skip rule.
 Test: `tests/parity/run.sh` (old engine, all green as before); `bun run build && tests/parity/run.sh --engine
 dist/mksync export-unchanged`.
 
-## Step 20: Shared cases green on Linux `[inline: debugging]`
+## Step 24: Shared cases green on Linux `[inline: debugging]`
 
 Files: whatever under `src/` the failures point to.
 
@@ -338,7 +419,7 @@ says otherwise; fix it with a unit test that fails first. Use `ts-debugger` for 
 
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync` exits 0, with only the three `SKIP` lines.
 
-## Step 21: One local test command `[worker]`
+## Step 25: One local test command `[worker]`
 
 Files: `tests/all.sh`.
 
@@ -350,7 +431,7 @@ name and result.
 
 Test: `tests/all.sh` exits 0.
 
-## Step 22: CI builds and tests the program `[worker]`
+## Step 26: CI builds and tests the program `[worker]`
 
 Files: `.github/workflows/ci.yml`.
 
@@ -363,19 +444,19 @@ cross-builds). The `lint` job's ShellCheck line adds `tests/all.sh` and `tests/w
 stay as they are otherwise.
 
 Test: `actionlint .github/workflows/ci.yml` if installed, else `python3 -c 'import yaml,sys;
-yaml.safe_load(open(".github/workflows/ci.yml"))'`; the jobs go green on the branch push (checked in step 26).
+yaml.safe_load(open(".github/workflows/ci.yml"))'`; the jobs go green on the branch push (checked in step 30).
 
-## Step 23: Shared cases green on Windows `[inline: VM runs and debugging]`
+## Step 27: Shared cases green on Windows `[inline: VM runs and debugging]`
 
 Files: whatever under `src/` the failures point to.
 
-`tests/all.sh` with the VM up. Fix failures as in step 20. A case the VM can't run goes on the real-Windows checklist
+`tests/all.sh` with the VM up. Fix failures as in step 24. A case the VM can't run goes on the real-Windows checklist
 in the design's "Tests", with the reason. Without a VM (step 1's fallback), this step reads the `program-windows` CI
 job instead.
 
 Test: `tests/all.sh` with the VM up exits 0, or `program-windows` is green.
 
-## Step 24: Shadow mode `[worker]`
+## Step 28: Shadow mode `[worker]`
 
 Files: `src/cli/shadow.ts`, `src/cli/shadow.test.ts`, `src/main.ts`.
 
@@ -388,7 +469,7 @@ canned outputs.
 
 Test: `bun test src/cli/shadow && bun run lint`.
 
-## Step 25: Shadow on this machine `[inline: real machine, read-only]`
+## Step 29: Shadow on this machine `[inline: real machine, read-only]`
 
 Run `mksync shadow` from a fresh build in this clone (it writes only to the state folder). Explain or fix each
 difference; a fix gets a unit test, and a rule the shared cases miss gets a shared case (CLAUDE.md rule 2). Record the
@@ -397,7 +478,7 @@ differences. Windows machines run it on the real-Windows checklist (added to tha
 
 Test: `./dist/mksync shadow` exits 0, or every difference it prints is listed as explained in the design.
 
-## Step 26: Boundaries review `[inline: review]`
+## Step 30: Boundaries review `[inline: review]`
 
 Run `ts-architecture-reviewer` on `src/` against the design's "Code layout" and `ts-security-auditor` on
 `src/core/values/` and `src/adapters/`. Fix high findings in this step; the rest go in "Open". Then push the branch
@@ -406,12 +487,12 @@ and read the CI run: every job green, including the three new ones.
 Test: `! grep -rnE "from ['\"](node:fs|node:child_process|\.\./\.\./adapters|\.\./adapters)" src/core`; the CI run on
 the branch is green.
 
-## Step 27: Docs `[inline: docs]`
+## Step 31: Docs `[inline: docs]`
 
 Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/configuration.md`, `docs/layout.md`, `CLAUDE.md`,
 `README.md`.
 
-- Contract: anything steps 20, 23 and 25 settled; the program column checked against the code.
+- Contract: anything steps 24, 27 and 29 settled; the program column checked against the code.
 - Design: "Tests" (VM, shadow result, real-Windows checklist additions), "Not measured" updated from the CI run,
   "Open" with what this phase left.
 - `configuration.md`: `sync-config.v2.json`, the converter and the check, and that both files change together until
