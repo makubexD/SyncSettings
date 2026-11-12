@@ -120,6 +120,15 @@ export interface WriteStateAction {
   readonly text: string;
 }
 
+/**
+ * Save `.user-values.json` next to the config, readable by the user only
+ * (contract "Where values come from").
+ */
+export interface WriteValuesAction {
+  readonly kind: "writeValues";
+  readonly text: string;
+}
+
 export type Action =
   | WriteRepoAction
   | RemoveRepoAction
@@ -127,7 +136,8 @@ export type Action =
   | BackupAction
   | MkdirAction
   | ChmodAction
-  | WriteStateAction;
+  | WriteStateAction
+  | WriteValuesAction;
 
 /** What a plan asks the adapter to do and print, and the exit code. */
 export interface Plan {
@@ -176,11 +186,13 @@ export interface NoSummary {
 export type Summary = ImportSummary | ExportSummary | NoSummary;
 
 /**
- * A plan the adapter runs: each file's actions grouped with its status line,
- * the `finish` actions (the sync point) that run only when no step failed, the
- * body lines without the summary, and the exit code.
+ * A plan the adapter runs: the `prepare` actions (saving values) that run
+ * first, each file's actions grouped with its status line, the `finish`
+ * actions (the sync point) that run only when no step failed, the body lines
+ * without the summary, and the exit code.
  */
 export interface RunPlan {
+  readonly prepare?: readonly Action[];
   readonly steps: readonly FileStep[];
   readonly finish: readonly Action[];
   readonly lines: readonly string[];

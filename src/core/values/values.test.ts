@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { SanitizeRule } from "../config/types.ts";
 import { hydrate, inferValues, resolveValues } from "./hydrate.ts";
+import { valuesFileText } from "./file.ts";
 import { encodeUtf8, sanitize } from "./sanitize.ts";
 import type { Values } from "./sanitize.ts";
 
@@ -337,5 +338,29 @@ describe("resolveValues", () => {
       ok: true,
       value: { "<YOUR_NAME>": "Parity User" },
     });
+  });
+});
+
+describe("valuesFileText", () => {
+  test("should sort keys and indent by two spaces with a trailing newline, as jq -S does", () => {
+    // Arrange
+    const values: Values = { "<B>": "two", "<A>": "one" };
+
+    // Act
+    const text = valuesFileText(values);
+
+    // Assert
+    expect(text).toBe('{\n  "<A>": "one",\n  "<B>": "two"\n}\n');
+  });
+
+  test("should JSON-escape quotes and backslashes", () => {
+    // Arrange
+    const values: Values = { "<PATH>": 'C:\\Users\\"x"' };
+
+    // Act
+    const text = valuesFileText(values);
+
+    // Assert
+    expect(text).toBe('{\n  "<PATH>": "C:\\\\Users\\\\\\"x\\""\n}\n');
   });
 });

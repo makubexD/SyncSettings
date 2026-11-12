@@ -356,6 +356,30 @@ function writeStateFile(path: string, text: string, os: Os): void {
   writeFileSync(path, text);
 }
 
+const VALUES_FILE = ".user-values.json";
+
+/** Values are secrets: readable by the user only (contract "Where values come from"). */
+const PRIVATE_MODE = 0o600;
+
+/**
+ * Save `.user-values.json` in the repo. An existing file is tightened before
+ * the write, so new values never sit in a readable file.
+ */
+function writeValuesFile(text: string, context: RunContext): void {
+  const path = pathFor(context.os).join(context.repoRoot, VALUES_FILE);
+  if (context.os === "windows") {
+    // shortcut: the Windows ACL (no inherited access) comes with the Windows
+    // adapter; see the design's "Confirm on Windows".
+    writeFileSync(path, text);
+    return;
+  }
+  if (existingMode(path) !== undefined) {
+    chmodSync(path, PRIVATE_MODE);
+  }
+  writeFileSync(path, text, { mode: PRIVATE_MODE });
+  chmodSync(path, PRIVATE_MODE);
+}
+
 const UNHANDLED_ACTION = "unhandled action";
 
 const BACKUPS_FOLDER = "backups";
@@ -493,6 +517,9 @@ function runAction(
       case "writeState":
         writeStateFile(action.path, action.text, context.os);
         return ACTION_OK;
+      case "writeValues":
+        writeValuesFile(action.text, context);
+        return ACTION_OK;
       default: {
         const unhandled: never = action;
         throw new Error(`${UNHANDLED_ACTION}: ${String(unhandled)}`);
@@ -516,6 +543,12 @@ export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
   const failed = new Map<number, string>();
   const warnings = new Map<number, readonly string[]>();
   const dated: DatedBackups = { folder: undefined, made: false };
+
+  // shortcut: a failed values save is not reported yet; the contract names no
+  // status for it, so it goes in the design's "Open" list.
+  for (const action of plan.prepare ?? []) {
+    runAction(action, context, dated);
+  }
 
   plan.steps.forEach((step, index) => {
     const stepWarnings: string[] = [];

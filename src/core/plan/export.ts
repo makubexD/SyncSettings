@@ -4,6 +4,7 @@ import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
+import { valuesFileText } from "../values/file.ts";
 import { resolveValues } from "../values/hydrate.ts";
 import { sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
@@ -691,6 +692,11 @@ export function planExport(snapshot: Snapshot): RunPlan {
     skipped: state.skipped,
   };
   return {
+    // Bash saves every value whenever an entry with rules has a local file.
+    prepare:
+      rules.length > 0
+        ? [{ kind: "writeValues", text: valuesFileText(values.value) }]
+        : [],
     steps: state.steps,
     finish: [],
     lines: state.lines,

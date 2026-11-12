@@ -954,9 +954,20 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
+- **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
+  sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
+  Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored.
+- **Overwrite prompt on a terminal (phase 4, program).** `planImport` takes the answers as a list, so the program
+  reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
+  the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
+- **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
+  parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
+  in the contract's program column in the phase's docs step.
 
 ### Confirm on Windows
 
+- **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
+  access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
 - **Shell.** Which shell Claude Code uses for the statusline and hooks on each work machine: Git Bash or PowerShell.
   (`claude doctor`, or a hook that prints `$0`.) The docs say Git Bash when Git for Windows is installed.
 - **Git Bash and `jq`.** Whether Git for Windows (with Git Bash) and `jq` are installed on work #1 to #3, and whether

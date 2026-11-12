@@ -661,3 +661,40 @@ describe("paths", () => {
     expect(windows).toBe("C:\\Users\\user\\AppData\\Local\\SyncSettings");
   });
 });
+
+describe("runPlan values file", () => {
+  test("should write .user-values.json in the repo readable by the user only", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const text = '{\n  "<YOUR_NAME>": "Parity User"\n}\n';
+    const plan: RunPlan = {
+      ...planOf([]),
+      prepare: [{ kind: "writeValues", text }],
+    };
+
+    // Act
+    runPlan(plan, runContext(home, repo));
+
+    // Assert
+    const path = join(repo, ".user-values.json");
+    expect(readFileSync(path, "utf8")).toBe(text);
+    expect(statSync(path).mode & 0o777).toBe(PRIVATE_MODE);
+  });
+
+  test("should tighten an existing readable values file", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const path = join(repo, ".user-values.json");
+    writeFixture(path, "{}\n", FILE_MODE);
+    const plan: RunPlan = {
+      ...planOf([]),
+      prepare: [{ kind: "writeValues", text: "{}\n" }],
+    };
+
+    // Act
+    runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(statSync(path).mode & 0o777).toBe(PRIVATE_MODE);
+  });
+});

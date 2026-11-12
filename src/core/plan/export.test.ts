@@ -4,6 +4,7 @@ import { parseV1 } from "../config/v1.ts";
 import { convertV1 } from "../config/convert.ts";
 import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
+import { valuesFileText } from "../values/file.ts";
 import { planExport } from "./export.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
@@ -195,6 +196,9 @@ interface ShownAction {
 
 function shownActions(actions: readonly Action[]): readonly ShownAction[] {
   return actions.map((action) => {
+    if (action.kind === "writeValues") {
+      return { kind: action.kind, path: ".user-values.json" };
+    }
     const path = { path: action.path };
     switch (action.kind) {
       case "writeRepo":
@@ -407,5 +411,20 @@ describe("planExport", () => {
     expect(result.lines).toContain(
       formatLine("ADDED", "dotfiles/common/parity/a.conf", "sanitized"),
     );
+  });
+});
+
+describe("planExport values file", () => {
+  test("should save the values it used when an entry with rules has a local file", () => {
+    // Arrange
+    const snapshot = snapshotFor("sanitize-longest-first", "linux");
+
+    // Act
+    const plan = snapshot === undefined ? undefined : planExport(snapshot);
+
+    // Assert
+    expect(plan?.prepare).toEqual([
+      { kind: "writeValues", text: valuesFileText(snapshot?.values ?? {}) },
+    ]);
   });
 });

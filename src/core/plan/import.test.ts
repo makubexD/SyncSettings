@@ -249,6 +249,9 @@ interface ShownAction {
 
 function shownActions(actions: readonly Action[]): readonly ShownAction[] {
   return actions.map((action) => {
+    if (action.kind === "writeValues") {
+      return { kind: action.kind, path: ".user-values.json", text: action.text };
+    }
     const path = { path: action.path };
     switch (action.kind) {
       case "writeRepo":
@@ -661,5 +664,33 @@ describe("planImport file steps", () => {
         step.actions.some((entry) => entry.action.kind === "writeState"),
       ),
     ).toBe(false);
+  });
+});
+
+describe("planImport values file", () => {
+  test("should save the inferred value as the case's expected .user-values.json", () => {
+    // Arrange
+    const snapshot = snapshotFor("infer-value", "linux");
+    const expected = readFileSync(
+      new URL("infer-value/expect/values.json", CASE_ROOT),
+      "utf8",
+    );
+
+    // Act
+    const plan = snapshot === undefined ? undefined : planImport(snapshot, []);
+
+    // Assert
+    expect(plan?.prepare).toEqual([{ kind: "writeValues", text: expected }]);
+  });
+
+  test("should not write the values file when no entry has rules", () => {
+    // Arrange
+    const snapshot = snapshotFor("export-unchanged", "linux");
+
+    // Act
+    const plan = snapshot === undefined ? undefined : planImport(snapshot, []);
+
+    // Assert
+    expect(plan?.prepare ?? []).toEqual([]);
   });
 });

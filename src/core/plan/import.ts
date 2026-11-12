@@ -4,6 +4,7 @@ import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
+import { valuesFileText } from "../values/file.ts";
 import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import type {
@@ -760,6 +761,11 @@ export function planImport(
     ...(syncPoint !== undefined ? { syncPoint } : {}),
   };
   return {
+    // Bash saves every value whenever an entry has rules, before any file.
+    prepare:
+      gathered.rules.length > 0
+        ? [{ kind: "writeValues", text: valuesFileText(values.value) }]
+        : [],
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,
