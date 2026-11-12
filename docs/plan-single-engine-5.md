@@ -48,7 +48,7 @@ the design.
 3. **Export of a multi-layer `json` entry.** A changed or removed key and a removed array item go to their layer
    ("Splitting a changed file"). A new key or a new array item goes where the profile's `destinations` says; with no
    answer the file gets status `ERROR` with the note `new setting <key path>: needs a destination` and nothing of
-   that file is written; the run goes on and exits 1. A single-layer `json` entry has nowhere else to go: every change
+   that file is written; the run goes on and exits 0, as every `ERROR`. A single-layer `json` entry has nowhere else to go: every change
    goes to its one layer, as `whole` does today, so no real entry changes behavior.
 4. **JSON parsing and layout.** An own parser keeps each number's source text (`1.0` stays `1.0`, big integers
    aren't rounded), keeps key order, refuses duplicate keys, comments and trailing commas (`ERROR`, note `not valid
@@ -178,7 +178,7 @@ As step 7, failing until step 15.
   `"base2"`, with CRLF and keys reordered. `export`: the Linux layer gets `"b": 5`, the base gets `"k": "base2"`, both
   in the layout with LF; status per the contract; exit 0.
 - `json-new-setting-refused`: same layers; local adds `"c": true`. `export`: status `ERROR`, note
-  `new setting c: needs a destination`, no layer file changes, exit 1.
+  `new setting c: needs a destination`, no layer file changes, exit 0 (an `ERROR` affects only its file).
 - `import-block-edit-not-pushed`: local `CLAUDE.md` from `import-block-written` with the block line changed to
   `@CLAUDE.other.md` and one base line edited. `export`: the base layer gets the edited line; the note
   `import block is written by mksync, edit not pushed` is printed; exit 0.

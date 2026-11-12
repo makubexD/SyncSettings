@@ -693,6 +693,16 @@ time.
 records") sit next to their layer roots. Until the repo is private they live in local state, as "Public-repo guard"
 says, with the same names.
 
+**Choosing them before machine records (phase 5).** Phase 5 builds layers before phase 6 builds machine records, so
+two variables stand in for the record: `SYNC_PROFILE` and `SYNC_MACHINE`, read like `SYNC_OS`. Unset, the program has
+no profile or machine layer and every module is on, as in phase 4. Set, it reads the profile from
+`<state>/profiles/<name>.json`, the profile layer from `<state>/profiles/<name>/` and the machine layer from
+`<state>/machines/<name>/`; it never reads `profiles/` or `machines/` from the repo while it's public. Phase 6 drops
+both variables for the record.
+Example: `SYNC_PROFILE=work-1 mksync import` on a test machine with `<state>/profiles/work-1.json` listing `vscode`
+and `<state>/profiles/work-1/vscode/settings.json` holding `{"http.proxy": "http://proxy.example.com:8080"}` imports
+VS Code's settings with the proxy merged in, and skips every entry of a module `work-1` doesn't list.
+
 ### v2 while the old engines read v1
 
 Decision: `sync-config.v2.json` is a separate, hand-edited file from phase 4 on, made once by a converter from v1, and
@@ -884,6 +894,12 @@ Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholder
 - 11 package and extension `DRIFT` lines in the old engine's preview (apt, npm, pipx, a GNOME extension, an apt
   source); the program prints none. Package drift comes in phase 8.
 
+**Shared cases for layers (phase 5).** The shared cases carried only v1 until phase 5. Layers need config v2, so a
+case may give `configV2` instead of `config`, plus `env` (`SYNC_PROFILE`, `SYNC_MACHINE` only) and a `state/` tree
+copied into the state folder, with `expect/state/` compared like `expect/home/`. The old engines can't read v2: their
+runs print `SKIP <case>: v2 only`. Example: `json-merge-layers` gives a base and a Linux `parity/settings.json`; the
+program writes the merged file on Linux, macOS and Windows (CRLF there), and bash skips it.
+
 **Old cases without a shared twin.** `tests/linux/engine.sh` has 484 cases and the Pester suite 240; 20 and 19 of them
 have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, one row per group, are in
 `docs/design-test-moves.md`. In short:
@@ -948,6 +964,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
   removed item (from its layer) plus a new item (asked about). Correct, but two lines in the preview for one edit. A
   key per item (the `matcher`) would make it one change; worth it only if hook edits turn out frequent.
+- **JSON with comments (JSONC).** VS Code's `settings.json` may hold comments and trailing commas; Claude's may not.
+  Phase 5 refuses both (`not valid JSON`), since no synced file has them today. If one needs them, the parser keeps
+  comments attached to the next key, or the entry stays `whole`.
+- **`SYNC_PROFILE` and `SYNC_MACHINE`.** Stand-ins for the machine record from phase 5; phase 6 removes them, or keeps
+  them as a test-only override like `SYNC_OS`.
 - **New commands and flags.** `mksync whoami`, and `setup`'s `--profile`, `--replace`, `--claude`, `--push`/`--pull-only`
   and `--existing` are new; the contract's "Front door" changes with them. Also how a profile or machine is retired
   from the command line (`mksync retire <machine>`, `mksync profile retire <name>`?). The `cli` skill reviews the names

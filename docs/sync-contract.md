@@ -75,7 +75,8 @@ ERROR: SyncSettings runs on Linux, macOS and Windows; this is <value>.
 ```
 
 The PowerShell engine is always `windows`. The program accepts a `SYNC_OS` only for its own host: `linux` or `macos`
-off Windows, `windows` on Windows; any other value stops the run with the same line and exit code 1.
+off Windows, `windows` on Windows; any other value stops the run with the same line and exit code 1. Until phase 6
+the program also reads `SYNC_PROFILE` and `SYNC_MACHINE` ([Layers](#layers-program-only)).
 
 `os.sh` also defines `PLATFORM_SELECT_JQ`, the jq filter that picks the entries for a system. It's internal: a value
 inherited from the environment is overwritten, and only a second `source` in the same shell, where the variable is
@@ -752,6 +753,89 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.
 - Not in the program yet: `export --diff`, `import --reset-values`, `commit`, dconf, package drift and the front door's own commands.
+
+### Layers (program only)
+
+The program builds a file from up to four layers, in order: base (`dotfiles/common/`), OS (`dotfiles/<os>/`),
+profile and machine ([design, "Layers"](design-layers.md#layers)). The old engines have no layers: they read
+`sync-config.json`, where every entry has one repo file.
+
+**Profile and machine, until phase 6.** Two variables choose them, as `SYNC_OS` chooses the system:
+
+- `SYNC_PROFILE=<name>` reads the profile `<state>/profiles/<name>.json` and the profile layer `<state>/profiles/<name>/`.
+- `SYNC_MACHINE=<name>` reads the machine layer `<state>/machines/<name>/`.
+
+`<state>` is the folder of the [sync point](#sync-point). A name is lowercase letters, digits and `-`. Unset or empty
+(every machine today): no profile or machine layer, and every module is on, as before. The program never reads
+`profiles/` or `machines/` from the repo while it's public. Phase 6 replaces both variables with the machine record.
+
+```text
+ERROR: SYNC_PROFILE must be lowercase letters, digits and -; this is <value>.
+ERROR: SYNC_MACHINE must be lowercase letters, digits and -; this is <value>.
+ERROR: profile <name> not found: <state>/profiles/<name>.json
+ERROR: profile <name>: <reason>.
+```
+
+Each stops the run with exit code 2 before any file is touched. `<reason>` is `not valid JSON`, `unknown field <f>`
+or `unknown module <m>`.
+
+With a profile, an entry runs only when the profile's `modules` lists its module. A module whose `os` leaves this
+system out stays off even when listed. An entry that is off gets no status line, as one for another system.
+
+**Labels.** A status line for a layered file uses the repo path of the layer it reads or writes. A profile or machine
+layer is labeled `profiles/<name>/<file>` or `machines/<name>/<file>`. Import labels the local file with the latest
+layer that holds it, so an entry with one layer keeps its old label.
+
+**`json` entries, import.** Each layer is hydrated first; a value goes in as a JSON string body (`\` as `\\`, `"` as
+`\"`, control characters as `\uXXXX`). Then the layers are merged:
+
+- Objects merge key by key, later layers winning; two objects under one key merge the same way.
+- Arrays collect items: the base's items in order, then each later layer's items not there yet. Two items are the
+  same when they are equal as JSON, key order ignored.
+- Keys come in the base's order, then keys only later layers have, in the order those layers list them.
+- Numbers are written as their layer writes them (`1.0` stays `1.0`).
+
+The file is written with two-space indent, one key or item per line, `": "` after a key, `{}` and `[]` when empty,
+non-ASCII characters as themselves, and a trailing newline: CRLF on Windows, LF elsewhere. It's compared with the local
+file parsed, so whitespace, key order and line endings alone are `UNCHANGED`. Keys listed in the entry's
+`localOnlyKeys` keep their local value and are never pushed.
+
+A layer that isn't JSON (comments and trailing commas included) gets `ERROR` with the note
+`not valid JSON: <layer path>`, and the local file is left alone.
+
+**`json` entries, export.** The local file is parsed and compared with what import would write now. Each change goes
+to one layer, then that layer is sanitized and written in the layout above with LF:
+
+- a changed or removed key goes to the latest layer that sets it;
+- a removed array item is removed from the layer that added it;
+- a new key or a new array item goes to the layer the profile's `destinations` names for it; an entry with one layer
+  puts it there.
+
+Each layer written gets `MODIFIED` and its label; with no change the file gets one `UNCHANGED` line, labeled with the
+latest layer. A new setting with no layer to go to gives `ERROR`, note `new setting <key path>: needs a destination`,
+once per setting, and nothing of that file is written. `<key path>` joins keys with `.` and an array item as `[]`
+(`permissions.allow[]`). A local file that isn't JSON gives `ERROR`, note `not valid JSON`.
+
+**`import` entries** (`CLAUDE.md`). Import writes the local file as the base text, then, when a later layer holds the
+file, the marker line and one `@<importName>` line per such layer, in layer order:
+
+```markdown
+<!-- mksync: layers below are written by mksync pull -->
+@CLAUDE.linux.md
+@CLAUDE.work-1.md
+```
+
+Each of those layers is written next to the local file under its `importName` (`{layer}` is the OS, profile or
+machine name), with its own status line. Export stores the text above the marker in the base layer, compared with CRLF
+folded to LF; an edit to the block itself is not stored and prints the note
+`import block is written by mksync, edit not pushed` on the base's status line. Each side file is exported to its
+layer as a whole file. Text is written with CRLF on Windows and LF elsewhere.
+
+As every `ERROR` ([Both](#both)), these affect only their own file, and the run still exits 0.
+
+**Shared cases for layers** give `configV2` (written as `sync-config.v2.json`) instead of `config`, and may set
+`SYNC_PROFILE`, `SYNC_MACHINE` and files in the state folder. The old engines can't read config v2, so their runs skip
+these cases with `SKIP <case>: v2 only`; the program runs them on every OS.
 
 ## macOS
 
