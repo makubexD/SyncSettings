@@ -1,0 +1,28 @@
+{
+  "description": "Export refuses a new json setting with no destination: ERROR, the note new setting c: needs a destination, no layer file written, exit 0 (Layers (program only), json entries export).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ],
+  "differences": [
+    "Entry selection"
+  ]
+}

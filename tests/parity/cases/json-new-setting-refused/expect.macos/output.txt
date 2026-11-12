@@ -1,0 +1,1 @@
+ERROR dotfiles/macos/parity/settings.json

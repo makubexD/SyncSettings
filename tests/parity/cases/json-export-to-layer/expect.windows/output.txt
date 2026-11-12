@@ -1,0 +1,2 @@
+MODIFIED dotfiles/common/parity/settings.json
+MODIFIED dotfiles/windows/parity/settings.json

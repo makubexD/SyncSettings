@@ -1,0 +1,2 @@
+MODIFIED dotfiles/common/parity/settings.json
+MODIFIED dotfiles/macos/parity/settings.json

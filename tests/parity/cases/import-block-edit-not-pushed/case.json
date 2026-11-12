@@ -1,0 +1,29 @@
+{
+  "description": "Export stores the base text above the marker in the base layer and does not store an edit inside the block: the note says edit not pushed, exit 0 (Layers (program only), import entries).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "claude/CLAUDE.md",
+        "module": "parity",
+        "merge": "import",
+        "localPath": "~/.config/parity/CLAUDE.md",
+        "importName": "CLAUDE.{layer}.md",
+        "description": "Parity import block"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ],
+  "differences": [
+    "Entry selection"
+  ]
+}

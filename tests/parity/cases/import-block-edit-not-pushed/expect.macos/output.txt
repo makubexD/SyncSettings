@@ -1,0 +1,2 @@
+MODIFIED dotfiles/common/claude/CLAUDE.md
+UNCHANGED dotfiles/macos/claude/CLAUDE.md
