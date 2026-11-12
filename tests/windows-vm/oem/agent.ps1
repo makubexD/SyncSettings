@@ -23,7 +23,7 @@ while ($true) {
             if (Test-Path $work) { Remove-Item -LiteralPath $work -Recurse -Force }
             # No .git: thousands of small files over SMB cost minutes, and the cases make their own repos.
             # /A-:RHS: the share shows dot-files as Hidden, and Windows refuses to rewrite a hidden file.
-            robocopy (Join-Path $share 'repo') $work /MIR /MT:16 /A-:RHS /NFL /NDL /NJH /NJS /NP /XD .git node_modules dist | Out-Null
+            robocopy (Join-Path $share 'repo') $work /MIR /MT:16 /A-:RHS /NFL /NDL /NJH /NJS /NP /XD .git node_modules | Out-Null
             # -EncodedCommand: Start-Process joins arguments without quoting, so a plain -Command loses quotes.
             # No progress records: with stderr redirected they arrive as CLIXML noise.
             $cmd = "`$ProgressPreference = 'SilentlyContinue'`n" + [IO.File]::ReadAllText($running)
