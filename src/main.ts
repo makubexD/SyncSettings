@@ -18,6 +18,7 @@ import type {
 } from "./core/config/types.ts";
 import { parseV1 } from "./core/config/v1.ts";
 import { parseV2 } from "./core/config/v2.ts";
+import { pickOs } from "./core/layers/select.ts";
 import { planCheck } from "./core/plan/check.ts";
 import { planExport } from "./core/plan/export.ts";
 import { planImport } from "./core/plan/import.ts";
@@ -55,16 +56,6 @@ const SHADOW_SNAPSHOT_COMMAND: RunCommand = {
   only: [],
 };
 
-/** The OSes the program runs for, and the names `SYNC_OS` uses. */
-const OS_NAMES: readonly Os[] = ["linux", "macos", "windows"];
-
-/** `process.platform` names mapped to the contract's OS names. */
-const PLATFORM_OS: Readonly<Record<string, Os | undefined>> = {
-  linux: "linux",
-  darwin: "macos",
-  win32: "windows",
-};
-
 /** The host whose old-engine scripts shadow runs, from the real platform. */
 function hostOf(platform: string): EngineHost {
   return platform === "win32" ? "windows" : "posix";
@@ -84,33 +75,6 @@ function isResolvedCommand(
   value: Resolved,
 ): value is RunCommand | ShadowCommand {
   return "kind" in value;
-}
-
-function isOs(value: string): value is Os {
-  return (OS_NAMES as readonly string[]).includes(value);
-}
-
-function unsupportedOs(name: string): string {
-  return `ERROR: SyncSettings runs on Linux, macOS and Windows; this is ${name}.`;
-}
-
-/**
- * The contract's "Which system": `SYNC_OS` when set, else the platform this
- * program was compiled for. Any other name stops the run.
- */
-function resolveOs(
-  env: Readonly<Record<string, string | undefined>>,
-): LoadResult<Os, string> {
-  const override = env.SYNC_OS;
-  if (override !== undefined && override !== "") {
-    return isOs(override)
-      ? { ok: true, value: override }
-      : { ok: false, error: unsupportedOs(override) };
-  }
-  const platform = PLATFORM_OS[process.platform];
-  return platform === undefined
-    ? { ok: false, error: unsupportedOs(process.platform) }
-    : { ok: true, value: platform };
 }
 
 /** The folder holding a config, starting at `start` and walking up. */
@@ -165,9 +129,22 @@ function loadConfig(repoRoot: string): LoadResult<ConfigV2, ConfigError> {
   return v1.ok ? convertV1(v1.value) : v1;
 }
 
-/** `.user-values.json` next to the config, keyed by placeholder. */
-function readValues(repoRoot: string): Values {
-  const text = readText(join(repoRoot, VALUES_FILE));
+/** A value's text, jq's `tostring`: a number or boolean keeps its spelling. */
+function valueText(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (value === null) {
+    return "null";
+  }
+  return JSON.stringify(value);
+}
+
+/** `.user-values.json`'s text as values keyed by placeholder. */
+export function parseValuesText(text: string | undefined): Values {
   if (text === undefined) {
     return {};
   }
@@ -183,11 +160,14 @@ function readValues(repoRoot: string): Values {
   }
   const values: Record<string, string> = {};
   for (const [placeholder, value] of Object.entries(parsed)) {
-    if (typeof value === "string") {
-      values[placeholder] = value;
-    }
+    values[placeholder] = valueText(value);
   }
   return values;
+}
+
+/** `.user-values.json` next to the config, keyed by placeholder. */
+function readValues(repoRoot: string): Values {
+  return parseValuesText(readText(join(repoRoot, VALUES_FILE)));
 }
 
 /** The bytes of every working-tree repo file at `HEAD`, for an export preview. */
@@ -336,16 +316,21 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
     );
   }
 
-  const os = resolveOs(process.env);
+  const os = pickOs(process.env.SYNC_OS, process.platform);
   if (!os.ok) {
-    return failure(os.error);
+    return failure(os.error.message, os.error.code);
   }
+  const home = homeFolder(os.value, process.env);
+  if (home === undefined) {
+    const variable = os.value === "windows" ? "USERPROFILE" : "HOME";
+    return failure(`ERROR: the home folder is not set (${variable}).`);
+  }
+
   const config = loadConfig(repoRoot);
   if (!config.ok) {
     return failure(config.error.message, config.error.code);
   }
 
-  const home = homeFolder(os.value, process.env) ?? "";
   const state = stateFolder(os.value, home, process.env);
   if (command.kind === "shadow") {
     return executeShadow(repoRoot, config.value, os.value, home, state);

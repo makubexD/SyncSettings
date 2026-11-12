@@ -120,40 +120,48 @@ function selected(
 }
 
 describe("pickOs", () => {
-  test("SYNC_OS linux picks linux", () => {
+  test("SYNC_OS linux picks linux on a Linux host", () => {
     // Act
-    const result = pickOs("linux", "Darwin");
+    const result = pickOs("linux", "linux");
 
     // Assert
     expect(result).toEqual({ ok: true, value: "linux" });
   });
 
-  test("SYNC_OS macos picks macos", () => {
-    expect(pickOs("macos", "Linux")).toEqual({ ok: true, value: "macos" });
+  test("SYNC_OS macos picks macos on a macOS host", () => {
+    expect(pickOs("macos", "darwin")).toEqual({ ok: true, value: "macos" });
+  });
+
+  test("SYNC_OS windows picks windows on a Windows host", () => {
+    expect(pickOs("windows", "win32")).toEqual({ ok: true, value: "windows" });
+  });
+
+  test("SYNC_OS windows stops the run off Windows", () => {
+    expect(pickOs("windows", "linux")).toEqual(unsupportedOs("windows"));
+    expect(pickOs("windows", "darwin")).toEqual(unsupportedOs("windows"));
+  });
+
+  test("SYNC_OS linux or macos stops the run on a Windows host", () => {
+    expect(pickOs("linux", "win32")).toEqual(unsupportedOs("linux"));
+    expect(pickOs("macos", "win32")).toEqual(unsupportedOs("macos"));
   });
 
   test("an invalid SYNC_OS stops the run", () => {
-    expect(pickOs("freebsd", "Linux")).toEqual(unsupportedOs("freebsd"));
+    expect(pickOs("freebsd", "linux")).toEqual(unsupportedOs("freebsd"));
   });
 
-  test("an empty SYNC_OS falls back to uname", () => {
-    expect(pickOs("", "Linux")).toEqual({ ok: true, value: "linux" });
+  test("an empty SYNC_OS falls back to the host", () => {
+    expect(pickOs("", "linux")).toEqual({ ok: true, value: "linux" });
   });
 
-  test("an unset SYNC_OS reads Linux as linux", () => {
-    expect(pickOs(undefined, "Linux")).toEqual({ ok: true, value: "linux" });
+  test("an unset SYNC_OS reads each host's own OS", () => {
+    expect(pickOs(undefined, "linux")).toEqual({ ok: true, value: "linux" });
+    expect(pickOs(undefined, "darwin")).toEqual({ ok: true, value: "macos" });
+    expect(pickOs(undefined, "win32")).toEqual({ ok: true, value: "windows" });
   });
 
-  test("an unset SYNC_OS reads Darwin as macos", () => {
-    expect(pickOs(undefined, "Darwin")).toEqual({ ok: true, value: "macos" });
-  });
-
-  test("an unset SYNC_OS reads Windows_NT as windows", () => {
-    expect(pickOs(undefined, "Windows_NT")).toEqual({ ok: true, value: "windows" });
-  });
-
-  test("an unknown system name stops the run", () => {
-    expect(pickOs(undefined, "FreeBSD")).toEqual(unsupportedOs("FreeBSD"));
+  test("an unknown host stops the run", () => {
+    expect(pickOs(undefined, "freebsd")).toEqual(unsupportedOs("freebsd"));
   });
 });
 

@@ -155,6 +155,19 @@ describe("readPorcelain", () => {
     expect(porcelain).toBe(`?? ${untracked}\n`);
   });
 
+  test("should track the v2 config's changes", async () => {
+    // Arrange
+    const root = repoWithCommit();
+    const v2Config = "sync-config.v2.json";
+    writeFileSync(join(root, v2Config), "{}\n");
+
+    // Act
+    const porcelain = await readPorcelain(root);
+
+    // Assert
+    expect(porcelain).toBe(`?? ${v2Config}\n`);
+  });
+
   test("should report that git cannot tell outside a repo", async () => {
     // Arrange
     const root = tempFolder();

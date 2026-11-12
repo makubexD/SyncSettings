@@ -52,7 +52,8 @@ export async function readHead(repoRoot: string): Promise<string | undefined> {
 }
 
 /**
- * Raw `git status --porcelain -- dotfiles sync-config.json`, for
+ * Raw `git status --porcelain -- dotfiles sync-config.json
+ * sync-config.v2.json`, for
  * `Snapshot.porcelain`. An empty string is a clean tree; `undefined` means git
  * could not tell (no repo).
  */
@@ -65,6 +66,7 @@ export async function readPorcelain(
     "--",
     "dotfiles",
     "sync-config.json",
+    "sync-config.v2.json",
   ]);
   if (output === undefined || output.code !== 0) {
     return undefined;

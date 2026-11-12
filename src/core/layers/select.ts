@@ -10,10 +10,11 @@ const BASE_ROOT = "dotfiles/common/";
 
 const ALL_OS: readonly Os[] = ["windows", "linux", "macos"];
 
-const SYSTEM_OS: Readonly<Record<string, Os>> = {
-  Linux: "linux",
-  Darwin: "macos",
-  Windows_NT: "windows",
+/** `process.platform` names mapped to the contract's OS names. */
+const PLATFORM_OS: Readonly<Record<string, Os | undefined>> = {
+  linux: "linux",
+  darwin: "macos",
+  win32: "windows",
 };
 
 export interface Layer {
@@ -38,22 +39,24 @@ function unsupportedOs(value: string): Result<Os, ConfigError> {
   };
 }
 
-// Contract "Which system": SYNC_OS when set, else the uname -s name.
+// Contract "Which system": SYNC_OS when set, else the host's own OS. Off
+// Windows only linux and macos are accepted; on Windows only windows.
 export function pickOs(
   syncOs: string | undefined,
-  systemName: string,
+  host: string,
 ): Result<Os, ConfigError> {
+  const hostOs = PLATFORM_OS[host];
   if (syncOs !== undefined && syncOs !== "") {
-    if (syncOs === "linux" || syncOs === "macos") {
-      return { ok: true, value: syncOs };
+    if (hostOs === "windows") {
+      return syncOs === "windows" ? { ok: true, value: syncOs } : unsupportedOs(syncOs);
     }
-    return unsupportedOs(syncOs);
+    return syncOs === "linux" || syncOs === "macos"
+      ? { ok: true, value: syncOs }
+      : unsupportedOs(syncOs);
   }
-  const system = SYSTEM_OS[systemName];
-  if (system !== undefined) {
-    return { ok: true, value: system };
-  }
-  return unsupportedOs(systemName);
+  return hostOs === undefined
+    ? unsupportedOs(host)
+    : { ok: true, value: hostOs };
 }
 
 function osRoot(os: Os): string {
