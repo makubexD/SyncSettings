@@ -1,0 +1,21 @@
+{
+  "description": "Export rejects --force as an unknown option: exit 1, no status lines, nothing written (The program, Front door).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "First parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": { "force": true }
+    }
+  ]
+}

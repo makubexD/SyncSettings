@@ -1,0 +1,33 @@
+{
+  "description": "Import with --only infers values from every entry, not just the picked one, and caches them (Picking files, Inference on import, Values).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "First parity case file",
+        "sanitizeRules": [
+          { "placeholder": "<USER>", "prompt": "User name" }
+        ]
+      },
+      {
+        "repoPath": "dotfiles/common/parity/b.conf",
+        "localPath": "~/.config/parity/b.conf",
+        "platform": "common",
+        "description": "Second parity case file",
+        "sanitizeRules": [
+          { "placeholder": "<USER>", "prompt": "User name" }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": { "force": true, "only": ["dotfiles/common/parity/a.conf"] }
+    }
+  ]
+}
