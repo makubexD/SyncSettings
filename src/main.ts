@@ -1,32 +1,28 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
 import type { EngineHost } from "./adapters/engine.ts";
-import { readSnapshot, runPlan } from "./adapters/fs.ts";
+import { runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
-import { readHead, readHeadTree, readPorcelain } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
+import {
+  buildSnapshot,
+  findRepoRoot,
+  loadConfig,
+  previewWorkingTree,
+  V1_CONFIG,
+  V2_CONFIG,
+} from "./adapters/snapshot.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type { RunCommand, ShadowCommand } from "./cli/parse.ts";
-import { convertV1 } from "./core/config/convert.ts";
-import type {
-  ConfigError,
-  ConfigV2,
-  Os,
-  Result as LoadResult,
-} from "./core/config/types.ts";
-import { parseV1 } from "./core/config/v1.ts";
-import { parseV2 } from "./core/config/v2.ts";
+import type { ConfigV2, Os } from "./core/config/types.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { planCheck } from "./core/plan/check.ts";
 import { planExport } from "./core/plan/export.ts";
 import { planImport } from "./core/plan/import.ts";
 import { planPreview } from "./core/plan/preview.ts";
 import { renderRun } from "./core/plan/run.ts";
-import type { Plan, RepoFiles, RunPlan, Snapshot } from "./core/plan/types.ts";
+import type { Plan, RunPlan } from "./core/plan/types.ts";
 import { compareShadow, programShadow, renderShadow } from "./core/shadow.ts";
-import type { Values } from "./core/values/sanitize.ts";
 
 export { USAGE };
 
@@ -36,12 +32,6 @@ export interface Result {
   readonly stdout: string;
   readonly stderr: string;
 }
-
-const V1_CONFIG = "sync-config.json";
-
-const V2_CONFIG = "sync-config.v2.json";
-
-const VALUES_FILE = ".user-values.json";
 
 /**
  * The command whose snapshot shadow reuses: an export preview, which also
@@ -75,170 +65,6 @@ function isResolvedCommand(
   value: Resolved,
 ): value is RunCommand | ShadowCommand {
   return "kind" in value;
-}
-
-/** The folder holding a config, starting at `start` and walking up. */
-function findRepoRoot(start: string): string | undefined {
-  let folder = start;
-  for (;;) {
-    if (
-      existsSync(join(folder, V2_CONFIG)) ||
-      existsSync(join(folder, V1_CONFIG))
-    ) {
-      return folder;
-    }
-    const parent = dirname(folder);
-    if (parent === folder) {
-      return undefined;
-    }
-    folder = parent;
-  }
-}
-
-/** Read a text file, or `undefined` when it cannot be read. */
-function readText(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    // Unreadable here means a broken clone, reported as an error by the caller.
-    return undefined;
-  }
-}
-
-/** Read a file's bytes, or `undefined` when it cannot be read. */
-function readBytes(path: string): Uint8Array | undefined {
-  try {
-    return new Uint8Array(readFileSync(path));
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`
- * converted in memory by the same converter that writes the v2 file.
- */
-function loadConfig(repoRoot: string): LoadResult<ConfigV2, ConfigError> {
-  const unreadable = (file: string): LoadResult<ConfigV2, ConfigError> => ({
-    ok: false,
-    error: { message: `ERROR: cannot read ${file}.`, code: 1 },
-  });
-
-  const v2Path = join(repoRoot, V2_CONFIG);
-  if (existsSync(v2Path)) {
-    const text = readText(v2Path);
-    return text === undefined ? unreadable(V2_CONFIG) : parseV2(text);
-  }
-
-  const text = readText(join(repoRoot, V1_CONFIG));
-  if (text === undefined) {
-    return unreadable(V1_CONFIG);
-  }
-  const v1 = parseV1(text);
-  return v1.ok ? convertV1(v1.value) : v1;
-}
-
-/** A value's text, jq's `tostring`: a number or boolean keeps its spelling. */
-function valueText(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  if (value === null) {
-    return "null";
-  }
-  return JSON.stringify(value);
-}
-
-/** `.user-values.json`'s text as values keyed by placeholder. */
-export function parseValuesText(text: string | undefined): Values {
-  if (text === undefined) {
-    return {};
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    // A broken values file must not stop the run; a missing value stops it later.
-    return {};
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return {};
-  }
-  const values: Record<string, string> = {};
-  for (const [placeholder, value] of Object.entries(parsed)) {
-    values[placeholder] = valueText(value);
-  }
-  return values;
-}
-
-/** `.user-values.json` next to the config, keyed by placeholder. */
-function readValues(repoRoot: string): Values {
-  return parseValuesText(readText(join(repoRoot, VALUES_FILE)));
-}
-
-/**
- * The working tree an export preview compares with `HEAD`: the repo files the
- * snapshot read plus `sync-config.json`, which is never part of the export
- * plan. A config missing from the working tree stays absent, so `HEAD`'s copy
- * shows as a difference.
- */
-function previewWorkingTree(repoRoot: string, repoFiles: RepoFiles): RepoFiles {
-  const tree = new Map(repoFiles);
-  const config = readBytes(join(repoRoot, V1_CONFIG));
-  if (config !== undefined) {
-    tree.set(V1_CONFIG, config);
-  }
-  return tree;
-}
-
-/**
- * Build the snapshot the plan reads: the disk through `readSnapshot`, plus
- * `HEAD` and the porcelain status for the import's sync point, and `HEAD`'s
- * bytes for an export preview.
- */
-async function buildSnapshot(
-  repoRoot: string,
-  config: ConfigV2,
-  os: Os,
-  home: string,
-  command: RunCommand,
-): Promise<Snapshot> {
-  const snapshot = readSnapshot({
-    repoRoot,
-    config,
-    os,
-    home,
-    cwd: process.cwd(),
-    values: readValues(repoRoot),
-    env: process.env,
-    only: command.only,
-    force: command.force,
-  });
-  if (command.command === "export" && !command.preview) {
-    return snapshot;
-  }
-
-  const [head, porcelain] = await Promise.all([
-    readHead(repoRoot),
-    readPorcelain(repoRoot),
-  ]);
-  const git: { head?: string; porcelain?: string; headFiles?: RepoFiles } = {};
-  if (head !== undefined) {
-    git.head = head;
-  }
-  if (porcelain !== undefined) {
-    git.porcelain = porcelain;
-  }
-  if (command.command === "export" && command.preview && head !== undefined) {
-    const headFiles = await readHeadTree(repoRoot);
-    if (headFiles !== undefined) {
-      git.headFiles = headFiles;
-    }
-  }
-  return { ...snapshot, ...git };
 }
 
 /**
@@ -288,6 +114,8 @@ async function executeShadow(
       os,
       home,
       SHADOW_SNAPSHOT_COMMAND,
+      process.cwd(),
+      process.env,
     );
     const program = programShadow(snapshot);
     const engine = await engineShadow(
@@ -349,6 +177,8 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
     os.value,
     home,
     command,
+    process.cwd(),
+    process.env,
   );
   const context: RunContext = {
     repoRoot,
