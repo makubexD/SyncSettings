@@ -74,7 +74,8 @@ is `macos`). Tests set `SYNC_OS=macos` on Linux to cover macOS behavior. Any oth
 ERROR: SyncSettings runs on Linux, macOS and Windows; this is <value>.
 ```
 
-The PowerShell engine is always `windows`.
+The PowerShell engine is always `windows`. The program accepts a `SYNC_OS` only for its own host: `linux` or `macos`
+off Windows, `windows` on Windows; any other value stops the run with the same line and exit code 1.
 
 `os.sh` also defines `PLATFORM_SELECT_JQ`, the jq filter that picks the entries for a system. It's internal: a value
 inherited from the environment is overwritten, and only a second `source` in the same shell, where the variable is
@@ -164,7 +165,13 @@ ERROR: sync-config.json: entry <repoPath> has an invalid defaultEnv.
 `~` is the user's home: `$HOME` on Linux, the profile folder on Windows (`$env:USERPROFILE`, or the target user's
 profile with `-User`). A `common` entry, and any entry the bash engine runs (`linux`, `macos` or a list holding them), must
 use the `~/` form. Every `localPath` must use one of these two forms: an absolute path stops the run
-([Path safety](#path-safety)).
+([Path safety](#path-safety)). With no home folder set (`HOME`, or `USERPROFILE` on Windows) the run stops with exit
+code 1 before touching a file; the program prints `ERROR: the home folder is not set (HOME).` (`(USERPROFILE).` on
+Windows).
+
+A symlink at a file entry's `localPath` is followed: export reads the target, and import writes through the link,
+which stays a link. A link to a missing target counts as a missing local file. Inside a `dir` entry links are skipped
+([Directory entries](#directory-entries-type-dir)).
 
 `localPaths` (optional) is an object keyed by system, for a file whose content is shared but whose folder differs, such
 as VS Code's `~/.config/Code/User` on Linux and `~/Library/Application Support/Code/User` on macOS. On a system named in
@@ -238,7 +245,8 @@ placeholders. On import, hydrating puts the values back.
 
 **Where values come from**, in this order:
 
-1. `.user-values.json` next to `sync-config.json` (gitignored, keys are placeholders).
+1. `.user-values.json` next to `sync-config.json` (gitignored, keys are placeholders). A value that isn't a string
+   is read as jq's `tostring` gives it (`8080` is `"8080"`, `null` is `"null"`) and saved back as that string.
 2. Import only: values inferred from the existing local file (below). They are never used for a placeholder that
    already has a cached value.
 3. A prompt, offering a default taken from the first of these that exists: the cached value, the rule's `default`,
@@ -250,7 +258,8 @@ New values are saved back to `.user-values.json`. Each save leaves the file read
 on Linux, also tightening an existing file, and no inherited access on Windows. The Windows save doesn't need a domain
 controller, so it works on a domain laptop that's off the network.
 
-**Inference on import.** For each entry with rules whose local and repo files both exist, the engine compares the
+**Inference on import.** For each entry with rules whose local and repo files both exist, also entries left out by
+`--only`, the engine compares the
 two files line by line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder,
 paired with a local line that doesn't. If the local line starts with the text before the placeholder and ends with
 the text after it, the text in between is the value. Empty results are ignored. For a rule with
@@ -485,7 +494,8 @@ the machine.
 - The leak scan runs on the result before any diff prints. A hit prints `WARNING: the leak scan found the lines above.
   Fix them before committing.`, leaves the diff out so the leaked text stays off the screen, and the preview exits 1.
   A scan that cannot run prints `ERROR: leak scan could not run; nothing was committed.`, prints no diff and exits 1.
-- With no differences: `Nothing would be sent: the repo matches HEAD.`
+- With no differences: `Nothing would be sent: the repo matches HEAD.` A file deleted from `dotfiles/` but still in
+  `HEAD`, and an edit to `sync-config.json`, are differences.
 - `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
 - The up-to-date check does not run.
 - A preview ends with `Nothing was written. Run mksync push to send it.` on every system.
@@ -721,7 +731,7 @@ It takes the old entry points' verbs and flags unchanged:
 
 | Command | Same as |
 |---|---|
-| `mksync export [--force] [--only <path>…]` | `export.sh` |
+| `mksync export [--only <path>…]` | `export.sh` |
 | `mksync export --preview` | `export.sh --preview` ([Export preview](#export-preview)) |
 | `mksync import [--force] [--only <path>…]` | `import.sh` |
 | `mksync import --check [--only <path>…]` | `import.sh --check` ([Import check](#import-check)) |
@@ -801,6 +811,7 @@ old engines keep their own columns.
 | `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu | front door: phase 8 |
 | `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` | front door: phase 8 |
 | Installer | `install.ps1`, `irm … \| iex`, winget | `install.sh`, `curl … \| bash`, apt-get | downloads the program at cut-over (phase 9) |
+| Export, a file entry's repo folder cannot be created | not checked | `cannot create <absolute repo folder>` | `cannot create <repo-relative folder>`: the planner holds no absolute path |
 
 macOS runs the bash engine, so it has the Linux column's behavior except for these rows:
 

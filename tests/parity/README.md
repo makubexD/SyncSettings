@@ -121,7 +121,8 @@ Each file is taken from `expect.<os>/` when it's there for the OS the runner is 
 A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh` (`stubs`) and a
 prompt answer (`stdin`) are covered. `dconf` and the package managers have no stub yet, so those cases stay in
 `tests/linux/engine.sh`. Text the runner drops (notes, `ERROR:` messages, summaries) and a check of one function from
-the inside stay in that engine's own suite.
+the inside stay in that engine's own suite. A write failure, a symlink in `home/` and an uncommitted repo change can't be set up
+yet; the program's unit tests cover those ([design, "Open"](../../docs/design-layers.md#open)).
 
 ## Reading a failure
 

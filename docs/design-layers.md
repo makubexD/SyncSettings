@@ -1020,8 +1020,28 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - A new hydrated file and new parent folders are created with the umask before the chmod, and the backups tree is
     0755; pruning removes any folder under `backups/`, not only run folders; `leak-scan` doesn't scan
     `sync-config.v2.json`.
+- **Finish review, phase 4.** Fixed in steps 32 to 39: `--only` inference, `SYNC_OS` per host, an unset home,
+  non-string values, failure reasons, the preview's deletions and config, file-entry symlinks, v2 validation and the
+  full config check, `export --force`. Left:
+  - The shared-case harness can't express a write failure, a symlink in `home/` or an uncommitted repo change, so
+    those rules have unit tests only. A `setup` field (commands run before the first one) would cover the last two.
+  - Files inside a `dir` entry: bash orders them with `sort -z`, which follows the locale (`a.txt B.txt _c` under
+    `en_US.UTF-8`); the program sorts by code unit. Decide `LC_ALL=C` in bash, with a shared case, and write the
+    order into the contract.
+  - `core/plan/check.ts` finds a missing value by matching its own error text and plans again per placeholder;
+    `resolveValues` should return the placeholder as data. `isExcluded` compiles its patterns per file.
+  - `core/plan/import.ts` still skips a file entry whose snapshot entry is a symlink; the adapter no longer produces
+    one, so the branch is dead until the snapshot types drop the case.
+  - Mutants no test kills: inference keeping the last match, sanitize's doubled-form order (a value ending in `\`),
+    the placeholder tie-break order, `EXTRA` ignoring excludes, `\r` kept in inference, `paths.ts` `~\` on Linux and
+    its trailing-separator branch, `elevate !== false`.
+  - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag.
 
 ### Confirm on Windows
+
+- **Unset `USERPROFILE` (phase 4).** The PowerShell engine doesn't stop when `USERPROFILE` is unset (paths become
+  `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or
+  record it as a known difference.
 
 - **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
   access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
