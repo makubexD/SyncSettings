@@ -727,6 +727,13 @@ It takes the old entry points' verbs and flags unchanged:
 | `mksync import --check [--only <path>…]` | `import.sh --check` ([Import check](#import-check)) |
 | `mksync --version` | prints `mksync <version>`, exit 0 |
 
+`mksync shadow` is hidden from the usage line until cut-over decides its name ([design, "Open"](design-layers.md#open)).
+In the clone, it runs the program's import check, export preview and export plan without writing, and the old
+engine's `import.sh --check`, `export.sh --preview` and `export.sh` (Windows: `sync.cmd check`, `preview`, `export`).
+The export runs in a throwaway copy of the clone. It compares exit codes, the status word per label, and the
+placeholders in each exported file. It prints `shadow: same` and exits 0, or prints one line per difference, appends
+them with a timestamp to `shadow.log` in the state folder, and exits 3. It writes nothing in the repo or home.
+
 - Exit codes, status words, labels, notes and `ERROR:` lines are this contract's, as the bash engine prints them,
   except for the mksync program column of [Known differences](#known-differences).
 - An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints a usage

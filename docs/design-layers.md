@@ -791,10 +791,24 @@ src/
   state folder. They hold no rules.
 - The `ts-architecture-reviewer` agent checks these boundaries in phase 4.
 
+**As built in phase 4.** The tree above is the target; phase 4 differs where its scope is smaller:
+
+- `core/plan/` holds `export.ts`, `import.ts`, `check.ts` and `preview.ts` (the preview is phase 4's flat list, not
+  the grouping by receiver); `core/compare.ts` and `core/status.ts` sit at the core root; `core/shadow.ts` compares
+  the program with the old engine.
+- No `core/merge/` yet: phase 4 has `whole`, `dir` and `dconf` entries only, handled inside the plans. Phase 5 adds
+  `json` and `import`, so the strategies come first there ("Open").
+- `adapters/fs.ts` runs every action and switches on the OS through `adapters/paths.ts`, rather than one file per OS;
+  `adapters/git.ts` reads `HEAD`; `adapters/engine.ts` runs the old engine for shadow.
+- The review's boundary check: `! grep -rnE "node:(fs|child_process|os)|Bun\.|process\.(env|cwd|platform)" src/core
+  src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node:fs`; that's allowed.
+
 ## Release and update
 
-- **From phase 4:** CI builds the four programs on every push, from one Linux job (`bun build --compile` per target),
-  and keeps them as workflow artifacts. Shared cases run against the Linux program in that job.
+- **From phase 4:** CI builds the four programs on every pull request and every push to `master`, from one Linux job
+  (`program-build`, `bun build --compile` per target), and keeps them as one workflow artifact `mksync-<sha>` for 14
+  days. Shared cases run against the Linux program in that job, and against the cross-built macOS and Windows programs
+  on their own runners (`program-macos`, `program-windows`).
 - **At cut-over:** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
   attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
   `SHA256SUMS`; with `gh` signed in they also run `gh attestation verify`.
@@ -846,6 +860,13 @@ writes job files behind the SMB server's back, and a new job went unseen for 7 m
 on the copied repo (the share shows dot-files as hidden, and Windows won't rewrite a hidden file); and Defender
 exclusions for the work folders. The Pester suite is too slow for every run, so `tests/all.sh` runs the shared cases
 in the VM and leaves Pester to CI.
+
+`tests/all.sh` as built (phase 4) prints one line per layer: `lint`, `unit`, `config`, `build`, `parity-program`,
+`parity-bash`, then, with the VM up, `windows-exe` (the `bun-windows-x64` build), `windows-program` and
+`windows-powershell`; else `Windows: VM not running, skipped`. It ends with `all: ok`. The VM's copy of the repo keeps
+`dist/` so the Windows program reaches the guest. First green run with the VM, 2026-11-12: 34 shared cases for the
+program on both OSes (3 skipped until phase 8: `commit` and `diff`), 37 for bash, 36 for PowerShell
+(`import-eof-no-force` is skipped there).
 
 **Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
 without writing anything and compares them with the old engine's check and preview: the same files, the same
@@ -945,10 +966,10 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Pull's own preview.** Pull lists changes by group but asks only once. Whether pull should also let the user skip a
   group (take "all machines", skip "profile work-1") is left for phase 7.
 - **Not measured for the runtime.** Node SEA (size, start-up, cross-builds) and Deno's compressed size. They'd only
-  matter if Bun hits a blocker. Also whether a cross-built macOS or Windows program runs on its target: the probe ran
-  native builds only. Phase 4's CI job runs the cross-built programs on their runners to settle it.
-- **The Windows VM.** The image and its licence (an evaluation image expires), disk size, and start-up time, recorded
-  in phase 4. If the VM can't run on this machine, the Windows layer stays CI-only and the plan says so.
+  matter if Bun hits a blocker. Settled in phase 4: programs cross-built on Linux run on their targets; the macOS
+  arm64 and Windows x64 builds passed the shared cases on CI's runners (PR #74, 2026-11-12).
+- **The Windows VM.** Settled in phase 4: it runs here and is the Windows layer of `tests/all.sh` ("Tests"). Its
+  evaluation licence ends 2027-02-09.
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
