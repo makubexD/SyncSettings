@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -14,8 +15,15 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
-import type { Action, Snapshot } from "../core/plan/types.ts";
-import { readSnapshot, runActions } from "./fs.ts";
+import type {
+  Action,
+  FileStep,
+  RunPlan,
+  Snapshot,
+  StepAction,
+} from "../core/plan/types.ts";
+import { readSnapshot, runPlan } from "./fs.ts";
+import type { RunContext } from "./fs.ts";
 import { expandHome, homeFolder, stateFolder } from "./paths.ts";
 
 const FILE_MODE = 0o644;
@@ -26,7 +34,14 @@ const BACKUP_MODE = 0o640;
 
 const FOLDER_MODE = 0o755;
 
-const ERROR_PREFIX = "  ERROR      ";
+/** A local time, so the dated backup's name is the same in every time zone. */
+const RUN_TIME = new Date(2026, 1, 3, 4, 5, 6);
+
+const RUN_PID = 4242;
+
+const RUN_NAME = "20260203-040506-4242";
+
+const KEPT_BACKUP_RUNS = 20;
 
 const tempFolders: string[] = [];
 
@@ -96,8 +111,29 @@ function snapshotOf(
   });
 }
 
-function repoContext(repo: string): { readonly repoRoot: string; readonly os: Os } {
-  return { repoRoot: repo, os: "linux" };
+function runContext(home: string, repo: string): RunContext {
+  return {
+    repoRoot: repo,
+    os: "linux",
+    stateFolder: stateFolder("linux", home, {}),
+    now: () => RUN_TIME,
+    pid: RUN_PID,
+  };
+}
+
+function actionOf(action: Action, failure = "failed"): StepAction {
+  return { action, failure };
+}
+
+function stepOf(
+  actions: readonly StepAction[],
+  label = "dotfiles/common/git/config",
+): FileStep {
+  return { label, line: 0, counted: false, actions };
+}
+
+function planOf(steps: readonly FileStep[], finish: readonly Action[] = []): RunPlan {
+  return { steps, finish, lines: [], summary: { kind: "none" }, code: 0 };
 }
 
 function localFileEntry(localPath: string, file = "git/config"): ConfigV2Entry {
@@ -198,24 +234,26 @@ describe("readSnapshot", () => {
   });
 });
 
-describe("runActions", () => {
+describe("runPlan", () => {
   test("should write a repo file, creating its folder first", () => {
     // Arrange
-    const { repo } = fixture();
-    const actions: Action[] = [
-      { kind: "mkdir", path: "dotfiles/linux/shell" },
-      {
-        kind: "writeRepo",
-        path: "dotfiles/linux/shell/bashrc",
-        bytes: bytesOf("export A=1\n"),
-      },
-    ];
+    const { home, repo } = fixture();
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "mkdir", path: "dotfiles/linux/shell" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "dotfiles/linux/shell/bashrc",
+          bytes: bytesOf("export A=1\n"),
+        }),
+      ]),
+    ]);
 
     // Act
-    const lines = runActions(actions, repoContext(repo));
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(
       readFileSync(join(repo, "dotfiles", "linux", "shell", "bashrc"), "utf8"),
     ).toBe("export A=1\n");
@@ -223,18 +261,18 @@ describe("runActions", () => {
 
   test("should remove a repo file", () => {
     // Arrange
-    const { repo } = fixture();
+    const { home, repo } = fixture();
     const repoFile = join(repo, "dotfiles", "common", "git", "config");
     writeFixture(repoFile, "x\n");
+    const plan = planOf([
+      stepOf([actionOf({ kind: "removeRepo", path: "dotfiles/common/git/config" })]),
+    ]);
 
     // Act
-    const lines = runActions(
-      [{ kind: "removeRepo", path: "dotfiles/common/git/config" }],
-      repoContext(repo),
-    );
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(existsSync(repoFile)).toBe(false);
   });
 
@@ -242,38 +280,44 @@ describe("runActions", () => {
     // Arrange
     const { home, repo } = fixture();
     const localFile = join(home, ".gitconfig");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "writeLocal",
+          path: localFile,
+          bytes: bytesOf("name = user\n"),
+        }),
+      ]),
+    ]);
 
     // Act
-    const lines = runActions(
-      [{ kind: "writeLocal", path: localFile, bytes: bytesOf("name = user\n") }],
-      repoContext(repo),
-    );
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(readFileSync(localFile, "utf8")).toBe("name = user\n");
   });
 
   test("should keep an existing target's mode when writing", () => {
     // Arrange
-    const { repo } = fixture();
+    const { home, repo } = fixture();
     const repoFile = join(repo, "dotfiles", "common", "git", "config");
     writeFixture(repoFile, "old\n", PRIVATE_MODE);
-
-    // Act
-    const lines = runActions(
-      [
-        {
+    const plan = planOf([
+      stepOf([
+        actionOf({
           kind: "writeRepo",
           path: "dotfiles/common/git/config",
           bytes: bytesOf("new\n"),
-        },
-      ],
-      repoContext(repo),
-    );
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(readFileSync(repoFile, "utf8")).toBe("new\n");
     expect(statSync(repoFile).mode & 0o7777).toBe(PRIVATE_MODE);
   });
@@ -288,15 +332,13 @@ describe("runActions", () => {
     const source = statSync(localFile);
     const backup = `${localFile}.bak`;
     writeFixture(backup, "older\n", PRIVATE_MODE);
+    const plan = planOf([stepOf([actionOf({ kind: "backup", path: localFile })])]);
 
     // Act
-    const lines = runActions(
-      [{ kind: "backup", path: localFile }],
-      repoContext(repo),
-    );
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(readFileSync(backup, "utf8")).toBe("old\n");
     expect(statSync(backup).mode & 0o7777).toBe(BACKUP_MODE);
     expect(statSync(backup).mtime.getTime()).toBe(source.mtime.getTime());
@@ -306,32 +348,36 @@ describe("runActions", () => {
     // Arrange
     const { home, repo } = fixture();
     const folder = join(home, ".local", "state", "sync-settings");
+    const plan = planOf([stepOf([actionOf({ kind: "mkdir", path: folder })])]);
 
     // Act
-    const lines = runActions(
-      [{ kind: "mkdir", path: folder }],
-      repoContext(repo),
-    );
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(statSync(folder).isDirectory()).toBe(true);
   });
 
   test("should set a mode on a repo file", () => {
     // Arrange
-    const { repo } = fixture();
+    const { home, repo } = fixture();
     const repoFile = join(repo, "dotfiles", "common", "git", "config");
     writeFixture(repoFile, "x\n", FILE_MODE);
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "chmod",
+          path: "dotfiles/common/git/config",
+          mode: PRIVATE_MODE,
+        }),
+      ]),
+    ]);
 
     // Act
-    const lines = runActions(
-      [{ kind: "chmod", path: "dotfiles/common/git/config", mode: PRIVATE_MODE }],
-      repoContext(repo),
-    );
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(statSync(repoFile).mode & 0o7777).toBe(PRIVATE_MODE);
   });
 
@@ -339,40 +385,234 @@ describe("runActions", () => {
     // Arrange
     const { home, repo } = fixture();
     const stateFile = join(home, ".local", "state", "sync-settings", "last-sync");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "writeState",
+          path: stateFile,
+          text: "0123456789abcdef\n",
+        }),
+      ]),
+    ]);
 
     // Act
-    const lines = runActions(
-      [{ kind: "writeState", path: stateFile, text: "0123456789abcdef\n" }],
-      repoContext(repo),
-    );
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toEqual([]);
+    expect(outcome.failed.size).toBe(0);
     expect(readFileSync(stateFile, "utf8")).toBe("0123456789abcdef\n");
   });
 
-  test("should turn a failing write into an ERROR line and run the next action", () => {
+  test("should record a failing action's reason and run the next step", () => {
     // Arrange
     const { home, repo } = fixture();
     const blocked = join(home, "blocked");
     mkdirSync(blocked);
     const later = join(home, "later.txt");
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          { kind: "writeLocal", path: blocked, bytes: bytesOf("x\n") },
+          "cannot write local file",
+        ),
+      ]),
+      stepOf([actionOf({ kind: "writeLocal", path: later, bytes: bytesOf("later\n") })]),
+    ]);
 
     // Act
-    const lines = runActions(
-      [
-        { kind: "writeLocal", path: blocked, bytes: bytesOf("x\n") },
-        { kind: "writeLocal", path: later, bytes: bytesOf("later\n") },
-      ],
-      repoContext(repo),
-    );
+    const outcome = runPlan(plan, runContext(home, repo));
 
     // Assert
-    expect(lines).toHaveLength(1);
-    const [line] = lines;
-    expect(line?.startsWith(ERROR_PREFIX)).toBe(true);
-    expect(line).toContain(blocked);
+    expect(outcome.failed.get(0)).toBe("cannot write local file");
+    expect(outcome.failed.size).toBe(1);
     expect(readFileSync(later, "utf8")).toBe("later\n");
+  });
+
+  test("should stop a step at a failed .bak and run the next step", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const localFile = join(home, ".gitconfig");
+    writeFixture(localFile, "old\n");
+    mkdirSync(`${localFile}.bak`);
+    const next = join(home, "next.txt");
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          {
+            kind: "backup",
+            path: localFile,
+            repoPath: "dotfiles/common/git/config",
+          },
+          "cannot create backup",
+        ),
+        actionOf(
+          { kind: "writeLocal", path: localFile, bytes: bytesOf("new\n") },
+          "cannot write local file",
+        ),
+      ]),
+      stepOf([actionOf({ kind: "writeLocal", path: next, bytes: bytesOf("next\n") })]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.get(0)).toBe("cannot create backup");
+    expect(outcome.failed.size).toBe(1);
+    expect(outcome.backups).toBeUndefined();
+    expect(readFileSync(localFile, "utf8")).toBe("old\n");
+    expect(readFileSync(next, "utf8")).toBe("next\n");
+  });
+
+  test("should skip finish when a step failed", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const blocked = join(home, "blocked");
+    mkdirSync(blocked);
+    const stateFile = join(home, "state", "last-sync");
+    const plan = planOf(
+      [
+        stepOf([
+          actionOf(
+            { kind: "writeLocal", path: blocked, bytes: bytesOf("x\n") },
+            "cannot write local file",
+          ),
+        ]),
+      ],
+      [{ kind: "writeState", path: stateFile, text: "0123456789abcdef\n" }],
+    );
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(1);
+    expect(existsSync(stateFile)).toBe(false);
+  });
+
+  test("should keep a dated copy under the run folder with mode and times", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const localFile = join(home, ".gitconfig");
+    writeFixture(localFile, "old\n", BACKUP_MODE);
+    const when = new Date("2026-01-02T03:04:05Z");
+    utimesSync(localFile, when, when);
+    const source = statSync(localFile);
+    const runFolder = join(
+      stateFolder("linux", home, {}),
+      "backups",
+      RUN_NAME,
+    );
+    const dated = join(runFolder, "dotfiles", "common", "git", "config");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "backup",
+          path: localFile,
+          repoPath: "dotfiles/common/git/config",
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.backups).toBe(runFolder);
+    expect(readFileSync(dated, "utf8")).toBe("old\n");
+    expect(statSync(dated).mode & 0o7777).toBe(BACKUP_MODE);
+    expect(statSync(dated).mtime.getTime()).toBe(source.mtime.getTime());
+  });
+
+  test("should warn and keep writing when the dated copy fails", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const localFile = join(home, ".gitconfig");
+    writeFixture(localFile, "old\n");
+    const state = stateFolder("linux", home, {});
+    mkdirSync(state, { recursive: true });
+    writeFileSync(join(state, "backups"), "blocked\n");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "backup",
+          path: localFile,
+          repoPath: "dotfiles/common/git/config",
+        }),
+        actionOf({ kind: "writeLocal", path: localFile, bytes: bytesOf("new\n") }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.warnings.get(0)).toEqual([
+      "  WARNING: could not keep a dated backup of dotfiles/common/git/config.",
+    ]);
+    expect(outcome.backups).toBeUndefined();
+    expect(readFileSync(localFile, "utf8")).toBe("new\n");
+  });
+
+  test("should keep only the newest 20 run folders", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const localFile = join(home, ".gitconfig");
+    writeFixture(localFile, "old\n");
+    const backups = join(stateFolder("linux", home, {}), "backups");
+    const olderRuns = Array.from(
+      { length: KEPT_BACKUP_RUNS },
+      (_, index) => `202601${String(index + 1).padStart(2, "0")}-000000-1`,
+    );
+    for (const name of olderRuns) {
+      mkdirSync(join(backups, name), { recursive: true });
+    }
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "backup",
+          path: localFile,
+          repoPath: "dotfiles/common/git/config",
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    const kept = readdirSync(backups).sort();
+    expect(kept).toHaveLength(KEPT_BACKUP_RUNS);
+    expect(kept).not.toContain(olderRuns[0]);
+    expect(kept).toContain(RUN_NAME);
+  });
+
+  test("should copy the repo file's mode when creating a local file", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const repoFile = join(repo, "dotfiles", "common", "git", "config");
+    writeFixture(repoFile, "name = repo\n", PRIVATE_MODE);
+    const localFile = join(home, ".gitconfig");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "writeLocal",
+          path: localFile,
+          bytes: bytesOf("name = repo\n"),
+          modeFrom: "dotfiles/common/git/config",
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(statSync(localFile).mode & 0o7777).toBe(PRIVATE_MODE);
   });
 });
 

@@ -19,9 +19,10 @@ import type {
   Action,
   LocalEntry,
   LocalSymlink,
+  RunOutcome,
+  RunPlan,
   Snapshot,
 } from "../core/plan/types.ts";
-import { formatLine } from "../core/status.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { expandHome } from "./paths.ts";
 
@@ -47,10 +48,15 @@ export interface SnapshotInput {
   readonly force?: boolean;
 }
 
-/** What running a plan's actions needs to know: where the repo is and which OS paths follow. */
+/** What running a plan's steps needs to know: the repo, the OS, and the run's clock and folder. */
 export interface RunContext {
   readonly repoRoot: string;
   readonly os: Os;
+  /** The sync point's folder; dated backups sit under its `backups/`. */
+  readonly stateFolder: string;
+  /** The current time, so tests fix the dated backup's name. */
+  readonly now: () => Date;
+  readonly pid: number;
 }
 
 function pathFor(os: Os): PathApi {
@@ -330,15 +336,19 @@ function writeBytes(
   }
 }
 
+/** Copy a file keeping its mode and times, as `cp -p` does. */
+function copyPreserving(source: string, target: string, os: Os): void {
+  const stats = statSync(source);
+  copyFileSync(source, target);
+  if (os !== "windows") {
+    chmodSync(target, stats.mode & MODE_MASK);
+  }
+  utimesSync(target, stats.atime, stats.mtime);
+}
+
 /** Copy to `<file>.bak`, replacing an older one, with the mode and times (`cp -p`). */
 function backupFile(path: string, os: Os): void {
-  const stats = statSync(path);
-  const backup = `${path}.bak`;
-  copyFileSync(path, backup);
-  if (os !== "windows") {
-    chmodSync(backup, stats.mode & MODE_MASK);
-  }
-  utimesSync(backup, stats.atime, stats.mtime);
+  copyPreserving(path, `${path}.bak`, os);
 }
 
 function writeStateFile(path: string, text: string, os: Os): void {
@@ -346,20 +356,107 @@ function writeStateFile(path: string, text: string, os: Os): void {
   writeFileSync(path, text);
 }
 
-function errorReason(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message === "" ? error.name : error.message;
-  }
-  return String(error);
-}
-
 const UNHANDLED_ACTION = "unhandled action";
 
+const BACKUPS_FOLDER = "backups";
+
+/** How many run folders `backups/` keeps, newest by name (contract "Backups"). */
+const KEPT_BACKUP_RUNS = 20;
+
+const DATED_BACKUP_WARNING = "  WARNING: could not keep a dated backup of";
+
+/** The dated backups one run makes: its folder, computed at the first copy, and whether one landed. */
+interface DatedBackups {
+  folder: string | undefined;
+  made: boolean;
+}
+
+/** What one action did: whether it worked, and the warning it printed when it only warned. */
+interface ActionRun {
+  readonly ok: boolean;
+  readonly warning: string | undefined;
+}
+
+const ACTION_OK: ActionRun = { ok: true, warning: undefined };
+
+/** `<run>` in contract "Backups": `YYYYMMDD-HHMMSS-<pid>` in local time. */
+function runFolderName(at: Date, pid: number): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  const date = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}`;
+  const time = `${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+  return `${date}-${time}-${pid}`;
+}
+
 /**
- * Run an action, returning the `ERROR` line it earns or nothing when it worked.
- * The action's path is the label, and the failure's message is the note.
+ * Copy a file into this run's folder under `backups/`, keeping its mode and
+ * times. A failure only warns (contract "Backups"): the `.bak` is the backup
+ * that must succeed.
  */
-function runAction(action: Action, context: RunContext): string | undefined {
+function datedBackup(
+  source: string,
+  repoPath: string,
+  context: RunContext,
+  dated: DatedBackups,
+): string | undefined {
+  const p = pathFor(context.os);
+  try {
+    dated.folder ??= p.join(
+      context.stateFolder,
+      BACKUPS_FOLDER,
+      runFolderName(context.now(), context.pid),
+    );
+    const destination = p.join(dated.folder, repoPath);
+    mkdirSync(p.dirname(destination), { recursive: true });
+    copyPreserving(source, destination, context.os);
+    dated.made = true;
+    return undefined;
+  } catch {
+    // By contract a failed dated copy warns and the run goes on.
+    return `${DATED_BACKUP_WARNING} ${repoPath}.`;
+  }
+}
+
+/** Apply `cp -p`'s mode from the repo file a created local file copies (not on Windows). */
+function copyModeFrom(
+  path: string,
+  modeFrom: string | undefined,
+  context: RunContext,
+): void {
+  if (context.os === "windows" || modeFrom === undefined) {
+    return;
+  }
+  const mode = existingMode(pathFor(context.os).join(context.repoRoot, modeFrom));
+  if (mode !== undefined) {
+    chmodSync(path, mode);
+  }
+}
+
+/** Remove every run folder beyond the newest `KEPT_BACKUP_RUNS`, sorted by name. */
+function pruneBackups(context: RunContext): void {
+  const root = pathFor(context.os).join(context.stateFolder, BACKUPS_FOLDER);
+  const entries = listDir(root);
+  if (entries === undefined) {
+    return;
+  }
+  const runs = entries.filter((entry) => entry.isDirectory());
+  const excess = runs.length - KEPT_BACKUP_RUNS;
+  for (let index = 0; index < excess; index += 1) {
+    const run = runs[index];
+    if (run !== undefined) {
+      rmSync(pathFor(context.os).join(root, run.name), {
+        recursive: true,
+        force: true,
+      });
+    }
+  }
+}
+
+/** Run one action, returning what it did; it never throws. */
+function runAction(
+  action: Action,
+  context: RunContext,
+  dated: DatedBackups,
+): ActionRun {
   try {
     switch (action.kind) {
       case "writeRepo":
@@ -369,52 +466,87 @@ function runAction(action: Action, context: RunContext): string | undefined {
           action.mode,
           context.os,
         );
-        return undefined;
+        return ACTION_OK;
       case "removeRepo":
         rmSync(absolutePath(action.path, context), { force: true });
-        return undefined;
+        return ACTION_OK;
       case "writeLocal":
         writeBytes(action.path, action.bytes, action.mode, context.os);
-        return undefined;
-      case "backup":
+        copyModeFrom(action.path, action.modeFrom, context);
+        return ACTION_OK;
+      case "backup": {
         backupFile(action.path, context.os);
-        return undefined;
+        if (action.repoPath === undefined) {
+          return ACTION_OK;
+        }
+        const warning = datedBackup(action.path, action.repoPath, context, dated);
+        return { ok: true, warning };
+      }
       case "mkdir":
         mkdirSync(absolutePath(action.path, context), { recursive: true });
-        return undefined;
+        return ACTION_OK;
       case "chmod":
         if (context.os !== "windows") {
           chmodSync(absolutePath(action.path, context), action.mode);
         }
-        return undefined;
+        return ACTION_OK;
       case "writeState":
         writeStateFile(action.path, action.text, context.os);
-        return undefined;
+        return ACTION_OK;
       default: {
         const unhandled: never = action;
         throw new Error(`${UNHANDLED_ACTION}: ${String(unhandled)}`);
       }
     }
-  } catch (error) {
-    return formatLine("ERROR", action.path, errorReason(error));
+  } catch {
+    // The plan gives each action the contract's reason, so only success matters here.
+    return { ok: false, warning: undefined };
   }
 }
 
 /**
- * Run a plan's actions in order (contract "Statuses", "Backups" and "Sync
- * point"). A failure affects only its own file: it becomes an `ERROR` line and
- * the next action still runs. Returns the lines produced; it never throws.
+ * Run a plan's steps in order (contract "Statuses", "Backups" and "Sync point").
+ * A step stops at its first failed action, recording that action's failure; the
+ * next step still runs. `finish` runs only when no step failed. After a run
+ * that made a dated copy, `backups/` keeps its newest 20 run folders. Returns
+ * the failures and warnings keyed by step index, and the run's folder when a
+ * copy landed; it never throws.
  */
-export function runActions(
-  actions: readonly Action[],
-  context: RunContext,
-): readonly string[] {
-  const lines: string[] = [];
-  for (const action of actions) {
-    const line = runAction(action, context);
-    if (line !== undefined) {
-      lines.push(line);
+export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
+  const failed = new Map<number, string>();
+  const warnings = new Map<number, readonly string[]>();
+  const dated: DatedBackups = { folder: undefined, made: false };
+
+  plan.steps.forEach((step, index) => {
+    const stepWarnings: string[] = [];
+    for (const stepAction of step.actions) {
+      const result = runAction(stepAction.action, context, dated);
+      if (result.warning !== undefined) {
+        stepWarnings.push(result.warning);
+      }
+      if (!result.ok) {
+        failed.set(index, stepAction.failure);
+        break;
+      }
+    }
+    if (stepWarnings.length > 0) {
+      warnings.set(index, stepWarnings);
+    }
+  });
+
+  if (failed.size === 0) {
+    for (const action of plan.finish) {
+      runAction(action, context, dated);
     }
   }
-  return lines;
+
+  if (dated.made) {
+    pruneBackups(context);
+  }
+
+  const outcome: RunOutcome = { failed, warnings };
+  if (dated.made && dated.folder !== undefined) {
+    return { ...outcome, backups: dated.folder };
+  }
+  return outcome;
 }
