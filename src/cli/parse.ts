@@ -66,7 +66,7 @@ const UNKNOWN_OPTION_PREFIX = "Unknown option: ";
 
 /** The options each verb accepts besides `--only`, which takes a value. */
 const FLAGS: Readonly<Record<CommandName, readonly string[]>> = {
-  export: ["--preview", "--force"],
+  export: ["--preview"],
   import: ["--check", "--force"],
 };
 

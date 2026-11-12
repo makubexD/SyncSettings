@@ -42,8 +42,8 @@ describe("parseArgs", () => {
     expect(parseArgs(["export", "--preview"])).toEqual({ ...EXPORT, preview: true });
   });
 
-  test("should parse export --force", () => {
-    expect(parseArgs(["export", "--force"])).toEqual({ ...EXPORT, force: true });
+  test("should reject export --force as bash does", () => {
+    expect(parseArgs(["export", "--force"])).toEqual(unknownOption("--force"));
   });
 
   test("should parse import --check", () => {
@@ -68,9 +68,9 @@ describe("parseArgs", () => {
   });
 
   test("should stop collecting --only paths at the next option", () => {
-    expect(parseArgs(["export", "--only", "dotfiles/a", "--force"])).toEqual({
+    expect(parseArgs(["export", "--only", "dotfiles/a", "--preview"])).toEqual({
       ...EXPORT,
-      force: true,
+      preview: true,
       only: ["dotfiles/a"],
     });
   });

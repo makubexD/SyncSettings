@@ -741,7 +741,7 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.
-- Not in the program yet: `export --diff`, `commit`, dconf, package drift and the front door's own commands.
+- Not in the program yet: `export --diff`, `import --reset-values`, `commit`, dconf, package drift and the front door's own commands.
 
 ## macOS
 
