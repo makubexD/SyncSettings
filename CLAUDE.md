@@ -12,8 +12,8 @@ settings (base, OS, profile, machine). The old engines are deleted at cut-over.
 
 - Roadmap: `docs/plan-single-engine.md`. The current phase is the first not marked **Done**; its steps are in
   `docs/plan-single-engine-<n>.md`.
-- Design: `docs/design-layers.md` (phase 3) decides runtime, code layout, config v2, layers and values. No TypeScript
-  before the user approves it.
+- Design: `docs/design-layers.md` (phase 3, approved 2026-11-11) decides runtime, code layout, config v2, layers and
+  values.
 - Spec: `docs/sync-contract.md`. The new engine is done when it passes the shared cases both old engines pass.
 
 ## Rules
@@ -34,8 +34,8 @@ settings (base, OS, profile, machine). The old engines are deleted at cut-over.
 
 ## TypeScript engine (phase 4 on)
 
-- No `package.json`, lockfile or toolchain until the user approves the design, which proposes Bun
-  (`docs/design-layers.md`, "Runtime").
+- Toolchain approved and in place: Bun 1.4.4 (`package.json`, `bun.lock`; `bun install --frozen-lockfile`). Scripts:
+  `bun run lint` (tsc), `bun test src`, `bun run build` (`dist/mksync`). `tools/` holds dev-only scripts.
 - Layout: a pure core that plans actions, OS adapters that run them, one merge strategy per file type. Command parsing
   goes under `cli/`, the first-run flow under `wizard/`: the project's CLI and wizard rules only load there.
 - Output is byte-exact: JSON key order, CRLF on Windows, trailing newline. Values hydrated into JSON are JSON-escaped.
@@ -67,8 +67,11 @@ settings (base, OS, profile, machine). The old engines are deleted at cut-over.
 
 ## Tests
 
-- Shared cases: `tests/parity/run.sh [filter]`. Bash engine: `tests/linux/engine.sh [filter]`. Bootstrap:
-  `tests/linux/bootstrap.sh [filter]`. Pester and `run.ps1` need PS 5.1, so on Linux only CI runs them.
+- Everything local, in order, stopping at the first failure: `tests/all.sh` (lint, `bun test src`, config check, build,
+  shared cases against the program and bash, then the Windows VM layer when `tests/windows-vm/vm.sh status` is 0).
+- Shared cases: `tests/parity/run.sh [--engine dist/mksync] [filter]`. Unit tests: `bun test src`. Bash engine:
+  `tests/linux/engine.sh [filter]`. Bootstrap: `tests/linux/bootstrap.sh [filter]`. `run.ps1` runs in the local VM
+  (`tests/windows-vm/README.md`); Pester only on CI.
 - Never test on the real machine: use `HOME=$(mktemp -d) ./import.sh --force < /dev/null` and a throwaway clone for
   `commit.sh`. dconf cases run on `on_test_bus`; never `dconf load` or `dconf write` on the real bus. Bootstrap and
   drift cases run on stubs; nothing may reach the real `sudo`, `apt-get`, `snap` or `curl`.

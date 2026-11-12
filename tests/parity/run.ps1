@@ -3,7 +3,7 @@
 # PowerShell engine in a throwaway USERPROFILE, LOCALAPPDATA and repo, then
 # compare exit codes, status lines and both trees with expect/. The case format
 # is tests/parity/README.md.
-# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [case-name-filter]
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engine <path>] [case-name-filter]
 
 $ErrorActionPreference = 'Stop'
 
@@ -14,9 +14,32 @@ if ([string]::IsNullOrEmpty($Cases)) {
     $Cases = Join-Path $Repo 'tests\parity\cases'
 }
 
+# -Engine <path> hands the cases to that one program instead of the PowerShell
+# engine; without it the runner is unchanged. The rest is the case filter.
+$EnginePath = ''
 $Filter = ''
-if ($args.Count -gt 0) {
-    $Filter = $args[0]
+$argIndex = 0
+while ($argIndex -lt $args.Count) {
+    $argValue = [string]$args[$argIndex]
+    if ($argValue -ceq '-Engine') {
+        if ($argIndex + 1 -ge $args.Count) {
+            Write-Output '-Engine needs a path'
+            exit 1
+        }
+        $argIndex++
+        $EnginePath = [string]$args[$argIndex]
+    } else {
+        $Filter = $argValue
+    }
+    $argIndex++
+}
+
+if (-not [string]::IsNullOrEmpty($EnginePath)) {
+    if (-not (Test-Path -LiteralPath $EnginePath -PathType Leaf)) {
+        Write-Output "-Engine: $EnginePath is not a file"
+        exit 1
+    }
+    $EnginePath = (Resolve-Path -LiteralPath $EnginePath).Path
 }
 
 $passed = 0
@@ -118,6 +141,18 @@ function Validate-Case {
         }
     }
 
+    $envProp = $case.PSObject.Properties['env']
+    if ($null -ne $envProp) {
+        if ($envProp.Value -isnot [pscustomobject]) {
+            Die 'env must be an object of strings or null'
+        }
+        foreach ($p in $envProp.Value.PSObject.Properties) {
+            if ($null -ne $p.Value -and $p.Value -isnot [string]) {
+                Die 'env must be an object of strings or null'
+            }
+        }
+    }
+
     $stubsProp = $case.PSObject.Properties['stubs']
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
@@ -188,12 +223,37 @@ function Validate-Case {
     return $case
 }
 
+# With -Engine, expect.<os>\ only applies to a case whose differences name a
+# row the program keeps per OS; every other case uses expect\ on every OS.
+function Test-ExpectedOsFolder {
+    param([string]$Dir)
+    if ([string]::IsNullOrEmpty($EnginePath)) {
+        return $true
+    }
+    $case = $null
+    try {
+        $case = [IO.File]::ReadAllText((Join-Path $Dir 'case.json'), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+    } catch {
+        return $false
+    }
+    $prop = $case.PSObject.Properties['differences']
+    if ($null -eq $prop -or $prop.Value -isnot [System.Array]) {
+        return $false
+    }
+    foreach ($d in $prop.Value) {
+        if ($d -is [string] -and ($d -ceq 'Entry selection' -or $d -ceq 'Shared files without rules' -or $d -ceq 'Exclude patterns')) {
+            return $true
+        }
+    }
+    return $false
+}
+
 # The expected file or tree for $Name: expect.<os>\<Name> when it exists for the
 # OS the runner is on, else expect\<Name>.
 function Get-ExpectedPath {
     param([string]$Dir, [string]$Name)
     $perOs = Join-Path $Dir ("expect.$HarnessOs\$Name")
-    if (Test-Path -LiteralPath $perOs) {
+    if ((Test-ExpectedOsFolder $Dir) -and (Test-Path -LiteralPath $perOs)) {
         return $perOs
     }
     return (Join-Path $Dir ("expect\$Name"))
@@ -397,7 +457,7 @@ function Copy-Tree {
 # only the case's own files. `scripts` goes too when nothing is left in it.
 function Remove-Engine {
     param([string]$RepoDir)
-    foreach ($rel in @('sync.cmd', 'sync-config.json', '.user-values.json', 'scripts\windows', 'scripts\ci')) {
+    foreach ($rel in @('sync.cmd', 'mksync.exe', 'sync-config.json', '.user-values.json', 'scripts\windows', 'scripts\ci')) {
         $path = Join-Path $RepoDir $rel
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
@@ -499,10 +559,14 @@ function Run-Case {
         New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
 
         # Engine files (scripts\ci too: later cases need leak-scan).
-        Copy-Item -LiteralPath (Join-Path $Repo 'sync.cmd') -Destination $repoDir -Force
-        New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $Repo 'scripts\windows') -Destination (Join-Path $repoDir 'scripts\windows') -Recurse -Force
-        Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
+        if (-not [string]::IsNullOrEmpty($EnginePath)) {
+            Copy-Item -LiteralPath $EnginePath -Destination (Join-Path $repoDir 'mksync.exe') -Force
+        } else {
+            Copy-Item -LiteralPath (Join-Path $Repo 'sync.cmd') -Destination $repoDir -Force
+            New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $Repo 'scripts\windows') -Destination (Join-Path $repoDir 'scripts\windows') -Recurse -Force
+            Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
+        }
 
         # Config and values
         $configProp = $Case.PSObject.Properties['config']
@@ -544,6 +608,25 @@ function Run-Case {
             Write-GhStub -TempDir $t
         }
 
+        # Optional case env: a string sets the variable, null unsets it. Applied
+        # after HOME/USERPROFILE, so a case can unset them too.
+        $envNames = New-Object System.Collections.Generic.List[string]
+        $envValues = New-Object System.Collections.Generic.List[string]
+        $envSet = New-Object System.Collections.Generic.List[bool]
+        $caseEnvProp = $Case.PSObject.Properties['env']
+        if ($null -ne $caseEnvProp) {
+            foreach ($p in $caseEnvProp.Value.PSObject.Properties) {
+                $envNames.Add($p.Name)
+                if ($null -eq $p.Value) {
+                    $envSet.Add($false)
+                    $envValues.Add('')
+                } else {
+                    $envSet.Add($true)
+                    $envValues.Add([string]$p.Value)
+                }
+            }
+        }
+
         # Commands
         $commands = $Case.commands
         $exitCodes = New-Object System.Collections.Generic.List[string]
@@ -555,14 +638,25 @@ function Run-Case {
 
             $scriptPath = $null
             $extraArgs = @()
-            switch -CaseSensitive ($cmd) {
-                'export'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1' }
-                'import'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1' }
-                'check'   { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1'; $extraArgs += '-Check' }
-                'preview' { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Preview' }
-                'diff'    { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Diff' }
-                'commit'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Commit-Settings.ps1' }
-                default   { Die "unknown command '$cmd' in command $($i + 1)" }
+            if (-not [string]::IsNullOrEmpty($EnginePath)) {
+                $scriptPath = Join-Path $repoDir 'mksync.exe'
+                switch -CaseSensitive ($cmd) {
+                    'export'  { $extraArgs += 'export' }
+                    'import'  { $extraArgs += 'import' }
+                    'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
+                    'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
+                    default   { Die "unknown command '$cmd' in command $($i + 1)" }
+                }
+            } else {
+                switch -CaseSensitive ($cmd) {
+                    'export'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1' }
+                    'import'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1' }
+                    'check'   { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1'; $extraArgs += '-Check' }
+                    'preview' { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Preview' }
+                    'diff'    { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Diff' }
+                    'commit'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Commit-Settings.ps1' }
+                    default   { Die "unknown command '$cmd' in command $($i + 1)" }
+                }
             }
 
             $optsProp = $cmdObj.PSObject.Properties['options']
@@ -575,14 +669,25 @@ function Run-Case {
                 }
                 $forceProp = $opts.PSObject.Properties['force']
                 if ($null -ne $forceProp -and $forceProp.Value -eq $true) {
-                    $extraArgs += '-Force'
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $extraArgs += '-Force'
+                    } else {
+                        $extraArgs += '--force'
+                    }
                 }
                 $onlyProp = $opts.PSObject.Properties['only']
                 if ($null -ne $onlyProp) {
                     $onlyPaths = @($onlyProp.Value)
                     if ($onlyPaths.Count -gt 0) {
-                        $extraArgs += '-Only'
-                        $extraArgs += ($onlyPaths -join '|')
+                        if ([string]::IsNullOrEmpty($EnginePath)) {
+                            $extraArgs += '-Only'
+                            $extraArgs += ($onlyPaths -join '|')
+                        } else {
+                            foreach ($p in $onlyPaths) {
+                                $extraArgs += '--only'
+                                $extraArgs += $p
+                            }
+                        }
                     }
                 }
             }
@@ -593,7 +698,11 @@ function Run-Case {
                 $stdinText = [string]$stdinProp.Value
             }
 
-            $procArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath) + $extraArgs
+            if ([string]::IsNullOrEmpty($EnginePath)) {
+                $procArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath) + $extraArgs
+            } else {
+                $procArgs = $extraArgs
+            }
 
             $oldProfile = $env:USERPROFILE
             $oldHome = $env:HOME
@@ -601,6 +710,9 @@ function Run-Case {
             $oldPath = $env:PATH
             $oldGh = $env:GH
             $oldPreference = $ErrorActionPreference
+            # A name and its value before the command, restored after it: $null
+            # marks a variable that was not set.
+            $savedEnv = New-Object System.Collections.Generic.List[object]
             Push-Location $repoDir
             try {
                 $env:USERPROFILE = $homeDir
@@ -613,13 +725,39 @@ function Run-Case {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
                     $env:GH = Join-Path $t 'bin\gh.cmd'
                 }
+                # The case's env, applied after HOME/USERPROFILE is set.
+                for ($e = 0; $e -lt $envNames.Count; $e++) {
+                    $name = $envNames[$e]
+                    $savedEnv.Add(@($name, [System.Environment]::GetEnvironmentVariable($name, 'Process')))
+                    if ($envSet[$e]) {
+                        Set-Item -Path ("Env:" + $name) -Value $envValues[$e]
+                    } else {
+                        Remove-Item -Path ("Env:" + $name) -ErrorAction SilentlyContinue
+                    }
+                }
                 # In PS 5.1 a native command's stderr redirected with 2>&1 turns
                 # into error records, which 'Stop' would throw on.
                 $ErrorActionPreference = 'Continue'
-                $raw = $stdinText | & powershell.exe @procArgs 2>&1 | Out-String
+                if ([string]::IsNullOrEmpty($EnginePath)) {
+                    $raw = $stdinText | & powershell.exe @procArgs 2>&1 | Out-String
+                } else {
+                    $raw = $stdinText | & $scriptPath @procArgs 2>&1 | Out-String
+                }
                 $rc = $LASTEXITCODE
             } finally {
                 $ErrorActionPreference = $oldPreference
+                # The case env first: its saved HOME/USERPROFILE are the runner's
+                # temporary values, which the assignments below then replace with
+                # the ones from before the command.
+                for ($e = $savedEnv.Count - 1; $e -ge 0; $e--) {
+                    $name = $savedEnv[$e][0]
+                    $oldValue = $savedEnv[$e][1]
+                    if ($null -eq $oldValue) {
+                        Remove-Item -Path ("Env:" + $name) -ErrorAction SilentlyContinue
+                    } else {
+                        Set-Item -Path ("Env:" + $name) -Value $oldValue
+                    }
+                }
                 $env:USERPROFILE = $oldProfile
                 $env:HOME = $oldHome
                 $env:LOCALAPPDATA = $oldLocal
@@ -797,11 +935,24 @@ foreach ($caseDir in $caseDirs) {
         continue
     }
 
-    $osProp = $case.PSObject.Properties['os']
-    if ($null -ne $osProp) {
-        if (-not (@($osProp.Value) -ccontains 'windows')) {
-            Write-Output "skip $caseName"
+    # The program takes neither diff nor commit until phase 8: skip the case
+    # without counting it as a failure.
+    if (-not [string]::IsNullOrEmpty($EnginePath)) {
+        $phase8 = @($case.commands | Where-Object { $_.command -ceq 'diff' -or $_.command -ceq 'commit' })[0]
+        if ($null -ne $phase8) {
+            Write-Output "SKIP ${caseName}: $($phase8.command) comes in phase 8"
             continue
+        }
+    }
+
+    # With -Engine, import-eof-no-force counts as yes on every OS.
+    if ([string]::IsNullOrEmpty($EnginePath) -or $caseName -cne 'import-eof-no-force') {
+        $osProp = $case.PSObject.Properties['os']
+        if ($null -ne $osProp) {
+            if (-not (@($osProp.Value) -ccontains 'windows')) {
+                Write-Output "skip $caseName"
+                continue
+            }
         }
     }
 

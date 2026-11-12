@@ -35,6 +35,12 @@ param(
     [string[]]$Only
 )
 
+# Without [CmdletBinding()] an unknown option lands in $args: refuse it as bash does.
+if ($args.Count -gt 0) {
+    [Console]::Error.WriteLine("Unknown option: $($args[0])")
+    exit 1
+}
+
 $ErrorActionPreference = 'Stop'
 
 # A caller may pass several picks in one '|'-joined value; split them apart.

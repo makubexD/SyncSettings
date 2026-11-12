@@ -1,0 +1,21 @@
+{
+  "description": "Import never scans a value it put in: a value that holds another placeholder is written as it is (Sanitize and hydrate).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<A>", "prompt": "Value that looks like a placeholder" },
+          { "placeholder": "<B>", "prompt": "Plain value" }
+        ]
+      }
+    ]
+  },
+  "values": { "<A>": "x<B>y", "<B>": "Z" },
+  "commands": [{ "command": "import", "options": { "force": true } }]
+}

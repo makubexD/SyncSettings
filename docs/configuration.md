@@ -254,10 +254,11 @@ Keep `*.bak` in the list. It stops the backups that import writes inside a synce
 ## Adding an entry
 
 1. Add the entry to `files` in `sync-config.json`, with its `repoPath` where [layout.md](layout.md) says.
-2. Check that the file still parses:
+2. Add the same entry to `sync-config.v2.json` ([below](#sync-configv2json)), then check that both files parse and
+   agree:
 
    ```bash
-   jq empty sync-config.json
+   jq empty sync-config.json && bun run tools/check-config.ts
    ```
 
 3. Copy the file into the repo with `./export.sh` on Linux or `mksync export` on Windows. The new entry shows as `ADDED`.
@@ -270,3 +271,21 @@ Keep `*.bak` in the list. It stops the backups that import writes inside a synce
 
 5. Commit with `./commit.sh` or `mksync commit` on Windows, which opens the pull request. See
    [daily-workflow.md](daily-workflow.md).
+
+## `sync-config.v2.json`
+
+The compiled `mksync` program that replaces the two engines ([design](design-layers.md)) reads config v2:
+`sync-config.v2.json`, next to `sync-config.json`. Its shape (`schemaVersion: 2`, `modules` holding the entries, the
+layers) is in the design's "Config v2". The program reads v2 when the repo has it, else converts `sync-config.json` in
+memory. The old engines read only `sync-config.json`.
+
+**Until cut-over both files change together.** An entry added, removed or changed in one goes into the other in the
+same commit. Two dev tools, run from the repo root, help (they need Bun and aren't part of the program):
+
+| Command | What it does |
+|---|---|
+| `bun run tools/convert-config.ts` | Prints `sync-config.json` converted to v2, to start or compare `sync-config.v2.json` |
+| `bun run tools/check-config.ts` | Checks that the two files describe the same entries; prints `config v1 and v2 in step` or each difference, and exits 1 |
+
+`tests/all.sh` and CI's `program-build` job run the check, so a commit that changes only one file fails there. At
+cut-over `sync-config.json` is deleted and v2 is the only config.

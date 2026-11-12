@@ -6,13 +6,27 @@ under Homebrew's bash); `run.ps1` runs them against the PowerShell engine on Win
 `engine-linux`, `engine-macos` and `engine-windows`, each next to that engine's own suite.
 
 ```bash
-tests/parity/run.sh                 # every case
-tests/parity/run.sh only-           # cases whose name contains "only-"
+tests/parity/run.sh                                          # every case
+tests/parity/run.sh only-                                    # cases whose name contains "only-"
+tests/parity/run.sh --engine dist/mksync export-unchanged    # the new program
 ```
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [case-name-filter]
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engine <path>] [case-name-filter]
 ```
+
+## Running another engine
+
+`--engine <path>` (`-Engine <path>`) runs the cases against one program instead of the OS's engine: it is copied into
+the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the commands are spelled
+`./mksync export …` with the same options, and it is stripped before the repo is compared. With a program:
+
+- a case with a `diff` or `commit` command prints `SKIP <case>: <command> comes in phase 8` and is not a failure;
+- `expect.<os>/` is used only when the case's `differences` name `Entry selection`, `Shared files without rules` or
+  `Exclude patterns`; every other case uses `expect/` on every OS;
+- `import-eof-no-force` runs on every OS.
+
+Without the option the runner is unchanged.
 
 ## Adding a case
 
@@ -54,6 +68,7 @@ cases/<name>/
 | `os` | Where it runs: a list of `linux`, `macos`, `windows`. Omit for all three |
 | `config` | The whole `sync-config.json`, written into the repo before the run |
 | `values` | Optional. Written as `.user-values.json` in the repo; omit to have none |
+| `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it |
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": … }` |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
 | `stubs` | Optional. `["gh"]` puts a `gh` stub first on `PATH`; see `expect/gh.log` below |
@@ -106,7 +121,8 @@ Each file is taken from `expect.<os>/` when it's there for the OS the runner is 
 A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh` (`stubs`) and a
 prompt answer (`stdin`) are covered. `dconf` and the package managers have no stub yet, so those cases stay in
 `tests/linux/engine.sh`. Text the runner drops (notes, `ERROR:` messages, summaries) and a check of one function from
-the inside stay in that engine's own suite.
+the inside stay in that engine's own suite. A write failure, a symlink in `home/` and an uncommitted repo change can't be set up
+yet; the program's unit tests cover those ([design, "Open"](../../docs/design-layers.md#open)).
 
 ## Reading a failure
 

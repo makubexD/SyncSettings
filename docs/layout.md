@@ -41,6 +41,28 @@ bootstrap/
 Lists in `packages/` aren't under `dotfiles/`, so no entry owns them and `ORPHAN` doesn't apply. You edit them by hand; see
 [packages.md](packages.md). To restore a machine from all of this, see [restore.md](restore.md).
 
+## The new engine
+
+The compiled `mksync` program that replaces the bash and PowerShell engines at cut-over is built from these. The
+installers don't use it yet ([design](design-layers.md)).
+
+```text
+src/                 TypeScript engine (Bun)
+├── core/            pure: config, layers, values, plans, shadow comparison; no file or process access
+├── adapters/        the I/O: files, paths, git, the old engine for shadow
+├── cli/             command parsing
+└── main.ts          wires cli, adapters and core
+tools/               dev-only scripts, never compiled in: convert-config.ts, check-config.ts
+tests/all.sh         every local test layer, in order (lint, unit, config, build, shared cases, Windows VM)
+tests/windows-vm/    the local Windows 11 VM for the Windows layer; see its README.md
+package.json         Bun 1.4.4 and the scripts: lint, test, build
+bun.lock             the lockfile; install with bun install --frozen-lockfile
+dist/                build output, gitignored
+```
+
+`sync-config.v2.json` sits next to `sync-config.json` until cut-over; see
+[configuration.md](configuration.md#sync-configv2json).
+
 ## Where a file goes
 
 | The file | Where | Example |

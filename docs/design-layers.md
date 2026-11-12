@@ -677,6 +677,18 @@ Example: `git/.gitconfig.local` is one v2 entry. Linux reads `dotfiles/linux/git
 `settings.json` reads every root that has `claude/settings.json` and merges them; `CLAUDE.md` (`import`) does the same
 but writes each layer's file next to the base one instead of merging.
 
+**A file no layer holds yet.** Export can meet an entry whose file is in no layer root: a new entry, before its first
+export. It writes the file to the base root when the entry has no `os` or more than one, else to that OS's root. An
+entry with no `os` of its own takes its module's: a `gnome` entry writes to `dotfiles/linux/`.
+Example: `git/.gitconfig.local` with `os: ["linux"]` and no file yet is written to
+`dotfiles/linux/git/.gitconfig.local`; `tmux/.tmux.conf` with `os: ["linux", "macos"]` goes to
+`dotfiles/common/tmux/.tmux.conf`. Once a layer holds the file, export writes where it is. Profile and machine layers
+never receive a new file this way: the push preview asks ("New settings").
+
+**Which file the program reads.** `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in
+memory by the same converter that made the v2 file. The shared cases only carry v1, so they run the converter every
+time.
+
 **Profiles and machines.** `profiles/<name>.json` ("Modules and profiles") and `machines/<name>.json` ("Machine
 records") sit next to their layer roots. Until the repo is private they live in local state, as "Public-repo guard"
 says, with the same names.
@@ -779,10 +791,24 @@ src/
   state folder. They hold no rules.
 - The `ts-architecture-reviewer` agent checks these boundaries in phase 4.
 
+**As built in phase 4.** The tree above is the target; phase 4 differs where its scope is smaller:
+
+- `core/plan/` holds `export.ts`, `import.ts`, `check.ts` and `preview.ts` (the preview is phase 4's flat list, not
+  the grouping by receiver); `core/compare.ts` and `core/status.ts` sit at the core root; `core/shadow.ts` compares
+  the program with the old engine.
+- No `core/merge/` yet: phase 4 has `whole`, `dir` and `dconf` entries only, handled inside the plans. Phase 5 adds
+  `json` and `import`, so the strategies come first there ("Open").
+- `adapters/fs.ts` runs every action and switches on the OS through `adapters/paths.ts`, rather than one file per OS;
+  `adapters/git.ts` reads `HEAD`; `adapters/engine.ts` runs the old engine for shadow.
+- The review's boundary check: `! grep -rnE "node:(fs|child_process|os)|Bun\.|process\.(env|cwd|platform)" src/core
+  src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node:fs`; that's allowed.
+
 ## Release and update
 
-- **From phase 4:** CI builds the four programs on every push, from one Linux job (`bun build --compile` per target),
-  and keeps them as workflow artifacts. Shared cases run against the Linux program in that job.
+- **From phase 4:** CI builds the four programs on every pull request and every push to `master`, from one Linux job
+  (`program-build`, `bun build --compile` per target), and keeps them as one workflow artifact `mksync-<sha>` for 14
+  days. Shared cases run against the Linux program in that job, and against the cross-built macOS and Windows programs
+  on their own runners (`program-macos`, `program-windows`).
 - **At cut-over:** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
   attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
   `SHA256SUMS`; with `gh` signed in they also run `gh attestation verify`.
@@ -813,10 +839,50 @@ shipped. The repo is mounted into it. Phase 4 sets it up once, takes a snapshot,
 PowerShell engine's suite (Pester and `run.ps1`) green there, as CI does. Every run starts from the snapshot. Size,
 image licence and start-up time are recorded then.
 
+Decision: the local Windows VM works and is the Windows layer of `tests/all.sh`. Proved 2026-11-11 with
+`tests/windows-vm/vm.sh` (how it works: `tests/windows-vm/README.md`):
+
+| | |
+|---|---|
+| Runner | `dockurr/windows` 6.06, pinned by digest in `vm.sh`; podman 5.7 rootless with `/dev/kvm` |
+| Image | Windows 11 Enterprise Evaluation, build 26100, downloaded from Microsoft by the runner; ISO SHA256 `bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38` (7.7 GB) |
+| Licence | evaluation, 90 days from the install: this one ends 2027-02-09. Then delete the disk and the snapshot and install again |
+| In the guest | Windows PowerShell 5.1.26100, PortableGit 2.47.1 (with `bash.exe`, which the leak scan needs), Pester 6.2.0 |
+| Size | 4 GB RAM, 4 cores; a 40 GB sparse disk using 23 GB, and a snapshot of the same size |
+| First install | about 60 minutes, 45 of them the ISO download |
+| Start from the snapshot | 6 minutes; shutdown 1.5 minutes |
+| One job (copy the repo, run a command) | 6 to 10 seconds |
+| Shared cases (`run.ps1`), PowerShell engine | 36 passed, 0 failed, 3.5 minutes |
+| Pester suite, PowerShell engine | 242 passed, 0 failed, 31 minutes |
+
+Three things the VM needed, all in `tests/windows-vm/oem/`: the SMB client's folder cache turned off (the host
+writes job files behind the SMB server's back, and a new job went unseen for 7 minutes); the Hidden attribute cleared
+on the copied repo (the share shows dot-files as hidden, and Windows won't rewrite a hidden file); and Defender
+exclusions for the work folders. The Pester suite is too slow for every run, so `tests/all.sh` runs the shared cases
+in the VM and leaves Pester to CI.
+
+`tests/all.sh` as built (phase 4) prints one line per layer: `lint`, `unit`, `config`, `build`, `parity-program`,
+`parity-bash`, then, with the VM up, `windows-exe` (the `bun-windows-x64` build), `windows-program` and
+`windows-powershell`; else `Windows: VM not running, skipped`. It ends with `all: ok`. The VM's copy of the repo keeps
+`dist/` so the Windows program reaches the guest. First green run with the VM, 2026-11-12: 34 shared cases for the
+program on both OSes (3 skipped until phase 8: `commit` and `diff`), 37 for bash, 36 for PowerShell
+(`import-eof-no-force` is skipped there).
+
 **Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
 without writing anything and compares them with the old engine's check and preview: the same files, the same
 placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
 use; no unexplained difference on every machine is a condition for cut-over.
+
+`mksync shadow` (hidden, phase 4) prints `shadow: same` and exits 0, or prints one line per difference, appends them
+with a timestamp to `shadow.log` in the state folder and exits 3. The old engine's export runs in a throwaway copy of
+the clone, so the command writes nothing in the repo or home.
+
+Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholders the same in every exported file.
+
+- 10 dconf files, in the check and the preview: program `SKIPPED (not supported yet)`, engine `UNCHANGED`. dconf comes
+  in phase 8.
+- 11 package and extension `DRIFT` lines in the old engine's preview (apt, npm, pipx, a GNOME extension, an apt
+  source); the program prints none. Package drift comes in phase 8.
 
 **Old cases without a shared twin.** `tests/linux/engine.sh` has 484 cases and the Pester suite 240; 20 and 19 of them
 have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, one row per group, are in
@@ -840,6 +906,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 4. Whether Git Bash and `jq` are installed.
 5. The run-from-clone fallback, if step 1 was blocked.
 6. Local state readable by the user only (the `Save-UserValues` ACL rule, now in the Windows adapter).
+7. `mksync shadow` in the clone: `shadow: same`, or each difference explained and recorded here, redacted.
 
 ## Open
 
@@ -866,6 +933,16 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   on Windows".
 - **`<YOUR_NAME>` per profile.** It's likely the same on every profile. Keeping it per profile costs one prompt per job;
   a shared value would need a fifth place (the user), which the decisions don't have.
+- **A config that isn't valid JSON.** The contract has no line for it: the bash engine stops with `jq`'s own parse
+  error. The program prints `ERROR: sync-config.json: invalid JSON.` and exits 1 (also when `files` isn't a list),
+  pending a shared case. Likewise an entry with no `repoPath` is named `null` by bash and an empty string by the
+  program.
+- **Config v2 error lines.** The design fixes only `unsupported config schemaVersion <n>` (exit 2). The program prints
+  it as `ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.`, with `none` for a missing key, and words
+  the other v2 refusals (exit 1) as `ERROR: sync-config.v2.json: entry <file> …`: `names unknown module <m>`,
+  `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
+  `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`. They enter the
+  contract when v2 does.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
@@ -889,24 +966,88 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Pull's own preview.** Pull lists changes by group but asks only once. Whether pull should also let the user skip a
   group (take "all machines", skip "profile work-1") is left for phase 7.
 - **Not measured for the runtime.** Node SEA (size, start-up, cross-builds) and Deno's compressed size. They'd only
-  matter if Bun hits a blocker. Also whether a cross-built macOS or Windows program runs on its target: the probe ran
-  native builds only. Phase 4's CI job runs the cross-built programs on their runners to settle it.
-- **The Windows VM.** The image and its licence (an evaluation image expires), disk size, and start-up time, recorded
-  in phase 4. If the VM can't run on this machine, the Windows layer stays CI-only and the plan says so.
+  matter if Bun hits a blocker. Settled in phase 4: programs cross-built on Linux run on their targets; the macOS
+  arm64 and Windows x64 builds passed the shared cases on CI's runners (PR #74, 2026-11-12).
+- **The Windows VM.** Settled in phase 4: it runs here and is the Windows layer of `tests/all.sh` ("Tests"). Its
+  evaluation licence ends 2027-02-09.
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
 - **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. At the first
   private push, the copies of one profile are merged: modules and `destinations` joined, a value that differs between
   copies asked about. The exact flow is phase 6's.
+- **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
+  drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
+  or become hidden, is the `cli` skill's review before phase 8.
+- **ESLint.** Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
+  flat config; adding it (and which rule set) is decided when the code is big enough to need it, at the latest in
+  phase 8.
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
+- **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
+  sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
+  Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored.
+- **Overwrite prompt on a terminal (phase 4, program).** `planImport` takes the answers as a list, so the program
+  reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
+  the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
+- **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
+  parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
+  in the contract's program column in the phase's docs step.
+- **Boundaries review, phase 4 (refactors before phase 5).** The core is pure and has no import cycles; the review's
+  high findings were fixed. Left: home-path expansion exists in `core/plan/export.ts`, `core/plan/import.ts` and
+  `adapters/paths.ts`, and the core copies treat `~\` as home on every OS (one `core/paths.ts`, adapters keep only the
+  env lookups); `import.ts` and `export.ts` share about 260 lines word for word (`--only`, exclude globs, error
+  plans); no `core/merge/` yet, so `export.ts`, `import.ts`, `check.ts` and `adapters/fs.ts` switch on the merge type
+  (phase 5 adds `json`, so the strategies come first there); `main.ts` reads files, parses `.user-values.json` and
+  resolves the OS (a `parseValuesFile` next to the writer, a pure `resolveOs`, an `adapters/snapshot.ts`); shadow's
+  process runner duplicates the git adapter's. The layout differs from the tree above (`core/plan/preview.ts`,
+  `core/compare.ts`, one `adapters/fs.ts` with `pathFor` instead of one file per OS): the docs step records it.
+- **Security review, phase 4 (before cut-over).** Fixed: sanitize and hydrate rescanning their own output. Left, each
+  needing a shared case first where it shows in files or statuses:
+  - `file` in a v2 entry isn't checked: `../` can leave `dotfiles/` (and a dated backup its folder). Reject absolute,
+    `..`, `\` and empty in `parseV2`, and check every resolved repo and backup path in the adapter.
+  - Writes follow symlinks (a committed link under `dotfiles/`, a linked `.user-values.json`, a linked folder inside a
+    dir entry), and `readRepoTree` counts a repo link as a file. Refuse links, and write through a temp file and a
+    rename, which also makes writes atomic (today a crash can empty `.user-values.json` or the sync point).
+  - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
+    that stops an export holding any known value, in every form, would catch both; bash behaves the same today.
+  - JSON escapes (`é`, `\/`) aren't matched on export; a value inferred from a JSON file is escaped twice on
+    import; value lookups use plain objects (`constructor`); JSON escaping depends on the `.json` extension, not the
+    entry.
+  - A new hydrated file and new parent folders are created with the umask before the chmod, and the backups tree is
+    0755; pruning removes any folder under `backups/`, not only run folders; `leak-scan` doesn't scan
+    `sync-config.v2.json`.
+- **Finish review, phase 4.** Fixed in steps 32 to 39: `--only` inference, `SYNC_OS` per host, an unset home,
+  non-string values, failure reasons, the preview's deletions and config, file-entry symlinks, v2 validation and the
+  full config check, `export --force`. Left:
+  - The shared-case harness can't express a write failure, a symlink in `home/` or an uncommitted repo change, so
+    those rules have unit tests only. A `setup` field (commands run before the first one) would cover the last two.
+  - Files inside a `dir` entry: bash orders them with `sort -z`, which follows the locale (`a.txt B.txt _c` under
+    `en_US.UTF-8`); the program sorts by code unit. Decide `LC_ALL=C` in bash, with a shared case, and write the
+    order into the contract.
+  - `core/plan/check.ts` finds a missing value by matching its own error text and plans again per placeholder;
+    `resolveValues` should return the placeholder as data. `isExcluded` compiles its patterns per file.
+  - `core/plan/import.ts` still skips a file entry whose snapshot entry is a symlink; the adapter no longer produces
+    one, so the branch is dead until the snapshot types drop the case.
+  - Mutants no test kills: inference keeping the last match, sanitize's doubled-form order (a value ending in `\`),
+    the placeholder tie-break order, `EXTRA` ignoring excludes, `\r` kept in inference, `paths.ts` `~\` on Linux and
+    its trailing-separator branch, `elevate !== false`.
+  - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag.
 
 ### Confirm on Windows
 
+- **Unset `USERPROFILE` (phase 4).** The PowerShell engine doesn't stop when `USERPROFILE` is unset (paths become
+  `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or
+  record it as a known difference.
+
+- **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
+  access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
+- **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
+  the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
+  the repo would run; if so, resolve through `PATH` only.
 - **Shell.** Which shell Claude Code uses for the statusline and hooks on each work machine: Git Bash or PowerShell.
   (`claude doctor`, or a hook that prints `$0`.) The docs say Git Bash when Git for Windows is installed.
 - **Git Bash and `jq`.** Whether Git for Windows (with Git Bash) and `jq` are installed on work #1 to #3, and whether

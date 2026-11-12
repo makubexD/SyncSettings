@@ -15,6 +15,9 @@ Parse `$ARGUMENTS`:
 - If a second token looks like a version (e.g. `4.2.0`) → `<version>`; else auto-discover.
 - If `--dev` is present → `devDependencies` (also add `@types/<pkg>` if needed).
 
+The project uses Bun as its package manager (`.claude/rules/typescript-ts-npm.md`): every command below is `bun`,
+never `npm`, and the lockfile is `bun.lock`.
+
 ## Step 1 — Discover repo layout
 
 Locate the project root and target `package.json` (ask which workspace member, if more than one).
@@ -24,9 +27,9 @@ if found, report the current version and ask whether to **update** instead of ad
 ## Step 2 — Vet the package
 
 ```bash
-npm info <package-id> version 2>&1
-npm audit fix --dry-run 2>&1 || true
-npm install <package-id>@<version> --dry-run 2>&1   # previews transitive footprint
+bun info <package-id> version 2>&1
+bun audit 2>&1 || true                              # baseline before the add
+bun add <package-id>@<version> --dry-run 2>&1       # previews transitive footprint
 ```
 
 Check https://www.npmjs.com/package/<package-id> for:
@@ -44,25 +47,30 @@ Check https://www.npmjs.com/package/<package-id> for:
 
 ## Step 3 — Determine version
 
-Use `<version>` if provided; otherwise `npm info <package-id> dist-tags.latest` and use the latest
+Use `<version>` if provided; otherwise `bun info <package-id> dist-tags.latest` and use the latest
 stable release (avoid pre-release unless explicitly requested).
 
 ## Step 4 — Add the package
 
-`npm install <package-id>@<version>` (add `--save-dev` for `--dev`). If types aren't bundled and
-`@types/<package-id>` exists, add it too: `npm install @types/<package-id> --save-dev`.
+`bun add <package-id>@<version>` (`bun add -d` for `--dev`). If types aren't bundled and
+`@types/<package-id>` exists, add it too: `bun add -d @types/<package-id>`.
+
+Lifecycle scripts stay blocked: `trustedDependencies` in `package.json` stays `[]`. Run `bun pm untrusted`; if the
+package's scripts were blocked, check that it works without them, and if it doesn't, treat that as a vetting risk
+(read the script, ask before `bun pm trust`).
 
 ## Step 5 — Verify the install
 
 ### Lock file
 
-`git diff package-lock.json | head -40` — an unchanged lockfile means the install didn't take.
+`git diff bun.lock | head -40` — an unchanged lockfile means the install didn't take. Then
+`bun install --frozen-lockfile` must pass, as it will in CI, and `bun audit` must show no new finding.
 
 ### Quality gate
 
 Discover the gate from `package.json` scripts (`check`/`validate`/`ci`/`prepublishOnly`) and run
 that. Only if none exists, fall back to the type checker, linter, and `scripts.test` separately —
-never hardcode a specific runner. If the gate fails, **undo** (`npm uninstall <package-id>`) and
+never hardcode a specific runner. If the gate fails, **undo** (`bun remove <package-id>`) and
 report the failure.
 
 ## Step 6 — Report
@@ -81,6 +89,7 @@ Category: <dependencies / devDependencies>
 - Types: <bundled / @types/<pkg> added / ⚠ no types available>
 - ESM/CJS: <compatible / ⚠ mismatch — detail>
 - Transitive additions: <N new packages>
+- Lifecycle scripts: <none / blocked, works without / ⚠ needs trust — detail>
 - Built-in alternative: <none / ⚠ node:X can replace — recommendation>
 
 ### Gate

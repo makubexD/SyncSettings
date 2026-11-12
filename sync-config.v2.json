@@ -1,0 +1,674 @@
+{
+  "schemaVersion": 2,
+  "excludePatterns": [
+    "*.pem",
+    "*.key",
+    "*.pfx",
+    "*.p12",
+    "*.bak",
+    "id_rsa*",
+    "id_ed25519*",
+    "id_ecdsa*",
+    "*.credential*",
+    "credentials",
+    "credentials.json",
+    ".env",
+    ".env.*",
+    "*.secret*",
+    "*.token*",
+    ".git-credentials",
+    ".netrc",
+    ".npmrc",
+    ".pgpass",
+    "hosts.yml",
+    "auth.json",
+    "secrets.yaml",
+    "token",
+    "*.env",
+    "id_dsa*"
+  ],
+  "modules": {
+    "work-base": {
+      "description": "Rules every job shares; filled from the Windows inventory in phase 7"
+    },
+    "git": {
+      "description": "Git config, global ignore and per-OS credentials"
+    },
+    "shell": {
+      "description": "Shell start-up files"
+    },
+    "tmux": {
+      "description": "tmux config"
+    },
+    "starship": {
+      "description": "Starship prompt"
+    },
+    "wezterm": {
+      "description": "WezTerm config and its XWayland launcher"
+    },
+    "htop": {
+      "description": "htop config"
+    },
+    "gh": {
+      "description": "GitHub CLI config"
+    },
+    "rtk": {
+      "description": "rtk config"
+    },
+    "gnome": {
+      "description": "GNOME files and dconf settings",
+      "os": [
+        "linux"
+      ]
+    },
+    "vscode": {
+      "description": "VS Code settings and snippets"
+    },
+    "windows-terminal": {
+      "description": "Windows Terminal settings",
+      "os": [
+        "windows"
+      ]
+    },
+    "claude": {
+      "description": "Claude Code config"
+    },
+    "claude-worker": {
+      "description": "The mk-exec DeepSeek worker and its tools"
+    }
+  },
+  "entries": [
+    {
+      "file": "git/.gitconfig",
+      "module": "git",
+      "merge": "whole",
+      "localPath": "~/.gitconfig",
+      "sanitize": [
+        {
+          "placeholder": "<YOUR_NAME>",
+          "prompt": "Full name for git commits"
+        },
+        {
+          "placeholder": "<YOUR_EMAIL>",
+          "prompt": "Email for git commits"
+        }
+      ],
+      "description": "Git global configuration"
+    },
+    {
+      "file": "git/ignore",
+      "module": "git",
+      "merge": "whole",
+      "localPath": "~/.config/git/ignore",
+      "description": "Global git ignore rules"
+    },
+    {
+      "file": "git/.gitconfig.local",
+      "module": "git",
+      "merge": "whole",
+      "localPath": "~/.gitconfig.local",
+      "os": [
+        "windows"
+      ],
+      "sanitize": [
+        {
+          "placeholder": "<YOUR_GH_USERNAME>",
+          "prompt": "GitHub username"
+        },
+        {
+          "placeholder": "<YOUR_GH_ORG>",
+          "prompt": "GitHub organization (e.g., MAKUSOFT)"
+        },
+        {
+          "placeholder": "<GH_CLI_PATH>",
+          "prompt": "Path to GitHub CLI executable",
+          "default": "C:\\Program Files\\GitHub CLI\\gh.exe",
+          "escapeBackslashes": true
+        }
+      ],
+      "description": "Git credentials for Windows, included by .gitconfig"
+    },
+    {
+      "file": "git/.gitconfig.local",
+      "module": "git",
+      "merge": "whole",
+      "localPath": "~/.gitconfig.local",
+      "os": [
+        "linux"
+      ],
+      "description": "Git credentials for Linux, included by .gitconfig"
+    },
+    {
+      "file": "git/.gitconfig.local",
+      "module": "git",
+      "merge": "whole",
+      "localPath": "~/.gitconfig.local",
+      "os": [
+        "macos"
+      ],
+      "description": "Git credentials for macOS, included by .gitconfig"
+    },
+    {
+      "file": "shell/.zshrc",
+      "module": "shell",
+      "merge": "whole",
+      "localPath": "~/.zshrc",
+      "os": [
+        "macos"
+      ],
+      "description": "Zsh run commands for macOS"
+    },
+    {
+      "file": "shell/.zprofile",
+      "module": "shell",
+      "merge": "whole",
+      "localPath": "~/.zprofile",
+      "os": [
+        "macos"
+      ],
+      "description": "Zsh login profile for macOS: Homebrew and ~/.local/bin on PATH"
+    },
+    {
+      "file": "shell/.bashrc",
+      "module": "shell",
+      "merge": "whole",
+      "localPath": "~/.bashrc",
+      "os": [
+        "windows"
+      ],
+      "scanLinks": true,
+      "description": "Bash run commands"
+    },
+    {
+      "file": "shell/.bash_profile",
+      "module": "shell",
+      "merge": "whole",
+      "localPath": "~/.bash_profile",
+      "os": [
+        "windows"
+      ],
+      "description": "Bash login profile"
+    },
+    {
+      "file": "shell/.bashrc",
+      "module": "shell",
+      "merge": "whole",
+      "localPath": "~/.bashrc",
+      "os": [
+        "linux"
+      ],
+      "description": "Bash run commands"
+    },
+    {
+      "file": "shell/.profile",
+      "module": "shell",
+      "merge": "whole",
+      "localPath": "~/.profile",
+      "os": [
+        "linux"
+      ],
+      "description": "Login shell profile"
+    },
+    {
+      "file": "tmux/.tmux.conf",
+      "module": "tmux",
+      "merge": "whole",
+      "localPath": "~/.tmux.conf",
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "description": "tmux configuration"
+    },
+    {
+      "file": "starship/starship.toml",
+      "module": "starship",
+      "merge": "whole",
+      "localPath": "~/.config/starship.toml",
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "description": "Starship prompt"
+    },
+    {
+      "file": "wezterm/wezterm.lua",
+      "module": "wezterm",
+      "merge": "whole",
+      "localPath": "~/.config/wezterm/wezterm.lua",
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "description": "WezTerm terminal"
+    },
+    {
+      "file": "htop/htoprc",
+      "module": "htop",
+      "merge": "whole",
+      "localPath": "~/.config/htop/htoprc",
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "description": "htop settings"
+    },
+    {
+      "file": "gh/config.yml",
+      "module": "gh",
+      "merge": "whole",
+      "localPath": "~/.config/gh/config.yml",
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "description": "GitHub CLI settings (hosts.yml stays out)"
+    },
+    {
+      "file": "rtk",
+      "module": "rtk",
+      "merge": "dir",
+      "localPath": "~/.config/rtk",
+      "os": [
+        "linux"
+      ],
+      "description": "RTK configuration and filters"
+    },
+    {
+      "file": "gnome/mimeapps.list",
+      "module": "gnome",
+      "merge": "whole",
+      "localPath": "~/.config/mimeapps.list",
+      "description": "Default applications"
+    },
+    {
+      "file": "gnome/bookmarks",
+      "module": "gnome",
+      "merge": "whole",
+      "localPath": "~/.config/gtk-3.0/bookmarks",
+      "sanitize": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ],
+      "description": "Files sidebar bookmarks"
+    },
+    {
+      "file": "gnome/applications/disco-datos.desktop",
+      "module": "gnome",
+      "merge": "whole",
+      "localPath": "~/.local/share/applications/disco-datos.desktop",
+      "description": "Launcher for the data disk"
+    },
+    {
+      "file": "gnome/applications/mis-discos.desktop",
+      "module": "gnome",
+      "merge": "whole",
+      "localPath": "~/.local/share/applications/mis-discos.desktop",
+      "description": "Launcher for the computer's drives"
+    },
+    {
+      "file": "wezterm/wezterm-xwayland",
+      "module": "wezterm",
+      "merge": "whole",
+      "localPath": "~/.local/bin/wezterm-xwayland",
+      "os": [
+        "linux"
+      ],
+      "description": "Runs WezTerm under XWayland"
+    },
+    {
+      "file": "wezterm/wezterm-xwayland.desktop",
+      "module": "wezterm",
+      "merge": "whole",
+      "localPath": "~/.local/share/applications/wezterm-xwayland.desktop",
+      "os": [
+        "linux"
+      ],
+      "sanitize": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        }
+      ],
+      "description": "Launcher for the XWayland WezTerm"
+    },
+    {
+      "file": "vscode/settings.json",
+      "module": "vscode",
+      "merge": "json",
+      "localPath": "~/.config/Code/User/settings.json",
+      "localPaths": {
+        "macos": "~/Library/Application Support/Code/User/settings.json"
+      },
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "sanitize": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        },
+        {
+          "placeholder": "<YOUR_WORK_MARKETPLACE>",
+          "prompt": "Work plugin marketplace URL"
+        }
+      ],
+      "description": "VS Code settings, default profile"
+    },
+    {
+      "file": "vscode/snippets",
+      "module": "vscode",
+      "merge": "dir",
+      "localPath": "~/.config/Code/User/snippets",
+      "localPaths": {
+        "macos": "~/Library/Application Support/Code/User/snippets"
+      },
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "description": "VS Code snippets, default profile"
+    },
+    {
+      "file": "windows-terminal/settings.json",
+      "module": "windows-terminal",
+      "merge": "whole",
+      "localPath": "~/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json",
+      "description": "Windows Terminal settings"
+    },
+    {
+      "file": "claude/CLAUDE.md",
+      "module": "claude",
+      "merge": "import",
+      "localPath": "~/.claude/CLAUDE.md",
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "importName": "CLAUDE.{layer}.md",
+      "description": "Claude Code global instructions"
+    },
+    {
+      "file": "claude/RTK.md",
+      "module": "claude",
+      "merge": "whole",
+      "localPath": "~/.claude/RTK.md",
+      "description": "RTK command-output notes (imported by CLAUDE.md)"
+    },
+    {
+      "file": "claude/settings.json",
+      "module": "claude",
+      "merge": "json",
+      "localPath": "~/.claude/settings.json",
+      "os": [
+        "linux"
+      ],
+      "sanitize": [
+        {
+          "placeholder": "<HOME>",
+          "prompt": "Home directory",
+          "defaultEnv": "HOME"
+        },
+        {
+          "placeholder": "<YOUR_GH_USERNAME>",
+          "prompt": "GitHub username"
+        }
+      ],
+      "description": "Claude Code user settings (hooks, plugins, permissions)"
+    },
+    {
+      "file": "claude/statusline.sh",
+      "module": "claude",
+      "merge": "whole",
+      "localPath": "~/.claude/statusline.sh",
+      "os": [
+        "linux"
+      ],
+      "description": "Claude Code status line script"
+    },
+    {
+      "file": "claude/sampleGrok.md",
+      "module": "claude",
+      "merge": "whole",
+      "localPath": "~/.claude/sampleGrok.md",
+      "os": [
+        "linux",
+        "macos"
+      ],
+      "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
+    },
+    {
+      "file": "claude/hooks",
+      "module": "claude",
+      "merge": "dir",
+      "localPath": "~/.claude/hooks",
+      "os": [
+        "linux"
+      ],
+      "description": "Claude Code hook scripts"
+    },
+    {
+      "file": "claude/skills/mk-delegate",
+      "module": "claude-worker",
+      "merge": "dir",
+      "localPath": "~/.claude/skills/mk-delegate",
+      "os": [
+        "linux"
+      ],
+      "description": "/mk-delegate slash command"
+    },
+    {
+      "file": "claude/skills/mk-check",
+      "module": "claude-worker",
+      "merge": "dir",
+      "localPath": "~/.claude/skills/mk-check",
+      "os": [
+        "linux"
+      ],
+      "description": "/mk-check slash command"
+    },
+    {
+      "file": "claude/docs/token-routing-map.html",
+      "module": "claude",
+      "merge": "whole",
+      "localPath": "~/.claude/docs/token-routing-map.html",
+      "description": "Workflow guide page source"
+    },
+    {
+      "file": "claude/bin/mk-exec",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/bin/mk-exec",
+      "os": [
+        "linux"
+      ],
+      "description": "Worker wrapper: runs a task as headless Claude Code on the paid DeepSeek API, with logs"
+    },
+    {
+      "file": "claude/bin/workflow-report",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/bin/workflow-report",
+      "os": [
+        "linux"
+      ],
+      "description": "Read-only report of delegated vs inline steps and worker runs for a repo"
+    },
+    {
+      "file": "claude/bin/metrics-archive",
+      "module": "claude",
+      "merge": "whole",
+      "localPath": "~/.claude/bin/metrics-archive",
+      "os": [
+        "linux"
+      ],
+      "description": "Archives workflow metrics"
+    },
+    {
+      "file": "claude-worker/CLAUDE.md",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude-worker/CLAUDE.md",
+      "os": [
+        "linux"
+      ],
+      "description": "Worker rules for the mk-exec Claude Code process (its own config dir)"
+    },
+    {
+      "file": "claude-worker/settings.json",
+      "module": "claude-worker",
+      "merge": "json",
+      "localPath": "~/.claude-worker/settings.json",
+      "os": [
+        "linux"
+      ],
+      "description": "Worker permissions for the mk-exec Claude Code process"
+    },
+    {
+      "file": "claude/bin/worker-mode",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/bin/worker-mode",
+      "os": [
+        "linux"
+      ],
+      "description": "worker-mode on|off|status switch"
+    },
+    {
+      "file": "gnome/dconf/interface.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/desktop/interface/",
+      "description": "Accent, dark scheme, GTK and icon theme"
+    },
+    {
+      "file": "gnome/dconf/input-sources.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/desktop/input-sources/",
+      "keys": [
+        "sources",
+        "xkb-options",
+        "per-window"
+      ],
+      "description": "Keyboard layouts and options"
+    },
+    {
+      "file": "gnome/dconf/wm-keybindings.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/desktop/wm/keybindings/",
+      "description": "Workspace and window shortcuts"
+    },
+    {
+      "file": "gnome/dconf/privacy.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/desktop/privacy/",
+      "description": "Privacy preferences, problem reporting off"
+    },
+    {
+      "file": "gnome/dconf/session.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/desktop/session/",
+      "description": "Screen blank delay"
+    },
+    {
+      "file": "gnome/dconf/power.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/settings-daemon/plugins/power/",
+      "description": "Dimming and sleep on AC"
+    },
+    {
+      "file": "gnome/dconf/shell.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/shell/",
+      "keys": [
+        "favorite-apps",
+        "enabled-extensions",
+        "disabled-extensions",
+        "keybindings/*"
+      ],
+      "description": "Dock favorites, extensions, shell shortcuts"
+    },
+    {
+      "file": "gnome/dconf/ptyxis.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/Ptyxis/",
+      "keys": [
+        "audible-bell",
+        "cursor-blink-mode",
+        "cursor-shape",
+        "default-columns",
+        "default-profile-uuid",
+        "default-rows",
+        "disable-padding",
+        "enable-a11y",
+        "enable-zoom-scroll-ctrl",
+        "font-name",
+        "ignore-osc-title",
+        "inhibit-logout",
+        "interface-style",
+        "new-tab-position",
+        "profile-uuids",
+        "prompt-on-close",
+        "restore-session",
+        "restore-window-size",
+        "scrollbar-policy",
+        "tab-middle-click",
+        "text-blink-mode",
+        "toast-on-copy-clipboard",
+        "use-system-font",
+        "visual-bell",
+        "visual-process-leader",
+        "word-char-exceptions",
+        "Profiles/*/backspace-binding",
+        "Profiles/*/bold-is-bright",
+        "Profiles/*/cell-height-scale",
+        "Profiles/*/cell-width-scale",
+        "Profiles/*/cjk-ambiguous-width",
+        "Profiles/*/delete-binding",
+        "Profiles/*/exit-action",
+        "Profiles/*/label",
+        "Profiles/*/limit-scrollback",
+        "Profiles/*/login-shell",
+        "Profiles/*/opacity",
+        "Profiles/*/palette",
+        "Profiles/*/preserve-directory",
+        "Profiles/*/scroll-on-keystroke",
+        "Profiles/*/scroll-on-output",
+        "Profiles/*/scrollback-lines",
+        "Profiles/*/use-proxy"
+      ],
+      "description": "Ptyxis preferences and profiles, without window size"
+    },
+    {
+      "file": "gnome/dconf/nautilus.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gnome/nautilus/preferences/",
+      "description": "Files default view"
+    },
+    {
+      "file": "gnome/dconf/file-chooser.ini",
+      "module": "gnome",
+      "merge": "dconf",
+      "dconfPath": "/org/gtk/gtk4/settings/file-chooser/",
+      "keys": [
+        "show-*",
+        "sort-directories-first"
+      ],
+      "description": "File dialog: hidden files, folders first"
+    }
+  ]
+}

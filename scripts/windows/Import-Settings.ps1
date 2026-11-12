@@ -163,7 +163,7 @@ try {
         # Try to pre-populate from existing local files if no cache exists
         if (-not $ResetValues) {
             foreach ($entry in $config.files) {
-                if (-not (Test-OnlyEntrySelected -RepoPath $entry.repoPath -Selected $selected)) { continue }
+                # Inference ignores -Only: every entry may supply a value, as in bash.
                 $hasSanitize = $entry.PSObject.Properties['sanitizeRules'] -and $entry.sanitizeRules.Count -gt 0
                 if (-not $hasSanitize) { continue }
                 $localFile = Resolve-LocalPath -Template $entry.localPath -ProfileRoot $profileRoot

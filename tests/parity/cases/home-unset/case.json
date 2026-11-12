@@ -1,0 +1,23 @@
+{
+  "description": "Import stops before touching a file when the home folder is not set: exit 1, no status line (localPath).",
+  "os": ["linux", "macos"],
+  "env": { "HOME": null, "USERPROFILE": null },
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": { "force": true }
+    }
+  ]
+}

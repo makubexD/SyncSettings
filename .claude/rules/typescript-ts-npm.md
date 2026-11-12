@@ -1,43 +1,48 @@
 ---
 paths:
   - "**/package.json"
-  - "**/package-lock.json"
+  - "**/bun.lock"
+  - "**/bunfig.toml"
   - "**/.npmrc"
 ---
 
-# npm (TypeScript)
+# Packages with Bun (TypeScript)
+
+The engine is built and tested with Bun (`docs/design-layers.md`, "Runtime"). Bun is a build-time tool only: target
+machines get one compiled program and need neither Bun nor Node. Use `bun` for every package operation; never mix in
+another package manager, which would write a second lockfile.
 
 ## Lockfile Integrity
 
-Commit `package-lock.json` in every project. It records the exact version, resolved URL, and
-integrity hash of every transitive dependency — the only guarantee that all environments install the
-same graph.
+Commit `bun.lock` (the text lockfile) in every project. It records the exact version, resolved URL, and integrity hash
+of every transitive dependency — the only guarantee that all environments install the same graph.
 
-- **CI must use `npm ci`**, not `npm install` — it installs from the lockfile and exits non-zero if
-  `package.json` and `package-lock.json` are out of sync.
-- Never hand-edit the lockfile. Regenerate it by running `npm install`.
-- Do not add `package-lock.json` to `.gitignore`. If you see it there, remove the entry.
+- **CI must use `bun install --frozen-lockfile`** — it installs from the lockfile and exits non-zero if `package.json`
+  and `bun.lock` are out of sync.
+- Add packages with `bun add <pkg>` (`bun add -d <pkg>` for dev tools); remove them with `bun remove <pkg>`.
+- Never hand-edit the lockfile. Regenerate it with `bun install`.
+- Never commit a binary `bun.lockb`, a `package-lock.json` or a `yarn.lock`. Do not add `bun.lock` to `.gitignore`. If
+  you see it there, remove the entry.
 
 ## Vulnerability Scanning
 
-Run `npm audit` as part of the CI quality gate:
+Run `bun audit` as part of the CI quality gate, after `bun install --frozen-lockfile`:
 
 ```bash
-npm audit --omit=dev   # audit runtime deps only; fail on any severity
-npm audit              # include devDeps; acceptable to warn-only on High/Critical in dev tools
+bun audit                       # fail on any severity in runtime deps
+bun audit --audit-level=high    # acceptable bar for dev-only tools; triage the rest
 ```
 
-Triage findings before marking them as acceptable. An audited-and-ignored vulnerability is preferable
-to an unaudited one — document the justification in `package.json` under `"overrides"` with a comment
-or in a dedicated `SECURITY.md` entry.
+Triage findings before marking them as acceptable. An audited-and-ignored vulnerability is preferable to an unaudited
+one — document the justification in `SECURITY.md` or the PR description.
 
-For additional coverage, run `osv-scanner` (Google's open-source OSV scanner) against the lockfile —
-it cross-references multiple advisory databases and catches findings that `npm audit` misses.
+For additional coverage, run `osv-scanner` (Google's open-source OSV scanner) against `bun.lock` — it cross-references
+multiple advisory databases and catches findings that `bun audit` misses.
 
 ## Transitive Pinning with `overrides`
 
-When a transitive dependency has a known vulnerability but the direct dependency has not yet released
-a fix, use `overrides` to force a safe version:
+When a transitive dependency has a known vulnerability but the direct dependency has not yet released a fix, use
+`overrides` (Bun also reads `resolutions`) to force a safe version:
 
 ```json
 {
@@ -47,96 +52,65 @@ a fix, use `overrides` to force a safe version:
 }
 ```
 
-Document why in a comment in `package.json` (JSON does not allow comments — put the justification in
-`SECURITY.md` or a PR description), and remove the override once the direct dependency ships the fix.
+JSON does not allow comments — put the justification in `SECURITY.md` or the PR description, and remove the override
+once the direct dependency ships the fix.
 
-## Node Version Constraint
+## Bun Version
 
-Specify the minimum supported Node.js version in `package.json` under `"engines"`:
+Pin one Bun version for the repo, so local builds and CI produce the same program:
 
 ```json
 {
-  "engines": {
-    "node": ">=20.0.0"
-  }
+  "packageManager": "bun@1.4.4"
 }
 ```
 
-Use `nvm` / `fnm` with a `.nvmrc` or `.node-version` file for local version pinning. CI should
-enforce `engines.node` via `npm install --engine-strict` or a `check-engines` pre-step.
+CI installs exactly that version (`oven-sh/setup-bun` with `bun-version`). Bumping Bun is its own change, with the
+build and the shared cases rerun on every target.
 
 ## Lifecycle-Script Risk
 
-`postinstall`, `prepare`, and other npm lifecycle scripts run automatically during `npm install`.
-A malicious or compromised package can use these to exfiltrate environment variables, install
-backdoors, or run arbitrary code.
+`postinstall`, `prepare`, and other lifecycle scripts can exfiltrate environment variables, install backdoors, or run
+arbitrary code. Bun does not run a dependency's lifecycle scripts unless the package is listed in
+`trustedDependencies`. Keep that list explicitly empty, which also turns off Bun's built-in allow-list of popular
+packages:
 
-Before adding any package with lifecycle scripts:
-1. Read the script — `npm pack <pkg>` and inspect `scripts` in the extracted `package.json`.
-2. Evaluate whether the script is necessary for the package to function.
-3. For CI or automated installs where scripts are not needed, use:
-   ```bash
-   npm install --ignore-scripts
-   ```
-   and run required build scripts explicitly.
-
-Flag any new devDependency that adds a `postinstall` script for team review.
-
-## `.npmrc` Token Hygiene
-
-Never commit authentication tokens to `.npmrc`. Use environment-variable substitution:
-
-```ini
-# .npmrc (committed)
-@myorg:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
+```json
+{
+  "trustedDependencies": []
+}
 ```
 
-The `${NPM_TOKEN}` placeholder is expanded at install time from the environment — the literal token
-never appears in the file. Add `.npmrc.local` (with actual tokens) to `.gitignore`.
+- `bun pm untrusted` lists the scripts that were blocked. Check it after every `bun add`.
+- Trusting a package (`bun pm trust <pkg>`) needs a reason: read the script first (`bun pm pack` or the published
+  tarball), check whether the package works without it, and flag it for review in the PR.
+- Never install with `--trust` or a blanket allow-list.
 
-Scope registries narrowly — only packages under the `@myorg` scope go to the private registry;
-everything else resolves from the public registry. This prevents dependency-confusion attacks where
-a private package name could be hijacked on the public registry.
+## Registry Token Hygiene
 
-## Publishing Hygiene
+This project uses the public registry only. If a private scope is ever needed, never commit authentication tokens to
+`bunfig.toml` or `.npmrc`. Use environment-variable substitution:
 
-Before publishing a package:
+```toml
+# bunfig.toml (committed)
+[install.scopes]
+myorg = { url = "https://npm.pkg.github.com", token = "$NPM_TOKEN" }
+```
 
-1. **Declare `files`** — only ship what consumers need:
-   ```json
-   { "files": ["dist", "README.md", "LICENSE"] }
-   ```
-2. **Declare `exports`** — an explicit exports map prevents consumers from importing internal paths:
-   ```json
-   {
-     "exports": {
-       ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
-       "./utils": { "import": "./dist/utils.js", "types": "./dist/utils.d.ts" }
-     }
-   }
-   ```
-3. **Validate before publishing:**
-   ```bash
-   npm pack --dry-run              # inspect what would be uploaded
-   npx publint                    # check exports map correctness
-   npx @arethetypesright/cli      # verify ESM/CJS type resolution is correct
-   ```
-4. **Run `prepublishOnly` gate** — add to `package.json` scripts, chaining the type checker, the
-   linter, and the project's own `test` script (never hardcode a specific runner):
-   ```json
-   { "prepublishOnly": "tsc --noEmit && eslint . && npm test" }
-   ```
-5. **Publish with provenance** (npm 9.5+, GitHub Actions):
-   ```bash
-   npm publish --provenance
-   ```
-   Provenance links the published package to the specific CI workflow run and source commit —
-   consumers can verify the package was built from your repo.
+The `$NPM_TOKEN` placeholder is expanded at install time from the environment — the literal token never appears in the
+file. Scope registries narrowly — only packages under that scope go to the private registry; everything else resolves
+from the public registry. This prevents dependency-confusion attacks where a private package name could be hijacked on
+the public registry.
+
+## Not Published to npm
+
+The engine ships as compiled programs (`bun build --compile`) attached to releases, never as an npm package. Keep
+`"private": true` in `package.json` so nothing can be published by accident.
 
 ## Never
 
-- API keys or tokens as plain text in `.npmrc` committed to the repo.
-- `"*"` in version specifiers for published packages (use exact versions in `dependencies`).
-- Publishing without a `prepublishOnly` gate.
-- `npm install` in CI (use `npm ci`).
+- API keys or tokens as plain text in `bunfig.toml` or `.npmrc` committed to the repo.
+- `"*"` or `latest` as a version specifier.
+- A plain `bun install` in CI (use `bun install --frozen-lockfile`).
+- A second package manager's lockfile next to `bun.lock`.
+- A non-empty `trustedDependencies` without a recorded reason.

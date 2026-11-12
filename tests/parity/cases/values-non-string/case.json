@@ -1,0 +1,25 @@
+{
+  "description": "Import hydrates a non-string value: a JSON number is read with jq tostring, used as text and saved back as a string (Sanitize and hydrate, Values).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<PORT>", "prompt": "Port" }
+        ]
+      }
+    ]
+  },
+  "values": { "<PORT>": 8080 },
+  "commands": [
+    {
+      "command": "import",
+      "options": { "force": true }
+    }
+  ]
+}

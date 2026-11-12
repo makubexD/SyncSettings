@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x bootstrap/linux.sh export.sh import.sh commit.sh sync install.sh scripts/linux/sync.sh scripts/linux/front.sh scripts/ci/*.sh tests/linux/*.sh tests/macos/*.sh tests/parity/run.sh
+        run: shellcheck -x bootstrap/linux.sh export.sh import.sh commit.sh sync install.sh scripts/linux/sync.sh scripts/linux/front.sh scripts/ci/*.sh tests/linux/*.sh tests/macos/*.sh tests/parity/run.sh tests/all.sh tests/windows-vm/vm.sh
       - name: Validate JSON
         run: jq empty sync-config.json
       - name: Config sanity
@@ -120,6 +120,67 @@ jobs:
       - name: Shared cases (PowerShell)
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1
+  program-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Lint
+        run: bun run lint
+      - name: Unit tests
+        run: bun test src
+      - name: Config v1 and v2 in step
+        run: bun run tools/check-config.ts
+      - name: Compile for Linux x64
+        run: bun build --compile --target bun-linux-x64 src/main.ts --outfile dist/mksync-linux-x64
+      - name: Compile for Linux arm64
+        run: bun build --compile --target bun-linux-arm64 src/main.ts --outfile dist/mksync-linux-arm64
+      - name: Compile for macOS arm64
+        run: bun build --compile --target bun-darwin-arm64 src/main.ts --outfile dist/mksync-darwin-arm64
+      - name: Compile for Windows x64
+        run: bun build --compile --target bun-windows-x64 src/main.ts --outfile dist/mksync-windows-x64.exe
+      - name: Upload the programs
+        uses: actions/upload-artifact@v4
+        with:
+          name: mksync-${{ github.sha }}
+          path: dist/
+          retention-days: 14
+      - name: Shared cases (program, Linux)
+        run: chmod +x dist/mksync-linux-x64 && tests/parity/run.sh --engine dist/mksync-linux-x64
+  program-macos:
+    runs-on: macos-latest
+    needs: program-build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash and jq
+        run: brew install bash jq
+      - name: Download the programs
+        uses: actions/download-artifact@v4
+        with:
+          name: mksync-${{ github.sha }}
+          path: dist
+      - name: Make the program executable
+        run: chmod +x dist/mksync-darwin-arm64
+      - name: Shared cases (program, macOS)
+        run: /opt/homebrew/bin/bash tests/parity/run.sh --engine dist/mksync-darwin-arm64
+  program-windows:
+    runs-on: windows-latest
+    needs: program-build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the programs
+        uses: actions/download-artifact@v4
+        with:
+          name: mksync-${{ github.sha }}
+          path: dist
+      - name: Shared cases (program, Windows)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 -Engine dist/mksync-windows-x64.exe
   bootstrap-check:
     runs-on: ubuntu-latest
     container: ubuntu:26.04
