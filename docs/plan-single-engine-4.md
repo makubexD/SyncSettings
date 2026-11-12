@@ -503,3 +503,146 @@ Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/configuration.md`
 
 Test: `grep -c 'tests/all.sh' CLAUDE.md docs/layout.md` is at least 1 each; `grep -c 'sync-config.v2.json'
 docs/configuration.md` is at least 1; `tests/all.sh` exits 0.
+
+## Review fixes (finish review, 2026-11-12)
+
+The finish's `/agent-skills:review` (two `code-reviewer` passes on correctness, tests and performance at commit
+`6d5fd1f`) left the Required findings below. The review is done: after step 40 the finish resumes at its step 3 (full
+suite), not a second review. Shared cases come first where the case format can express the rule; where it can't
+(write failures, symlinks in `home/`, uncommitted repo changes), unit tests cover it and step 40 records the harness
+gap in "Open".
+
+## Step 32: Shared cases for --only inference, export --force and non-string values `[worker]`
+
+Files: `tests/parity/cases/only-infers-from-all/`, `tests/parity/cases/export-force-unknown/`,
+`tests/parity/cases/values-non-string/` (format: `tests/parity/README.md`; copy `only-one-file` as the model).
+
+- `only-infers-from-all`: two `common` entries `a.conf`, `b.conf`, both repo files hold `name=<USER>` and the config
+  rule `{placeholder: "<USER>", pattern: "name=(.*)"}` style used by `infer-value` (copy its rule shape). `home/` holds
+  only `b.conf` with `name=alice`; no values file. Command: `import --force --only dotfiles/common/parity/a.conf`.
+  Expect exit 0, `CREATED dotfiles/common/parity/a.conf`, `home/` with `a.conf` = `name=alice` and `b.conf` untouched,
+  `expect/values.json` `{"<USER>": "alice"}` (bash infers over every entry, contract "Values").
+- `export-force-unknown`: one entry; command `export` with option `force: true`. Expect exit 1, no status lines, repo
+  unchanged (bash `export.sh` rejects `--force` as an unknown option).
+- `values-non-string`: `values` `{"<PORT>": 8080}`, one entry whose repo file holds `port=<PORT>`; `import --force`.
+  Expect exit 0, `CREATED`, home file `port=8080`, `expect/values.json` `{"<PORT>": "8080"}` (bash reads values with
+  jq `tostring`).
+
+If the runner can't pass a needed option, stop and report; don't change the runner.
+
+Test: `tests/parity/run.sh only-infers-from-all && tests/parity/run.sh export-force-unknown && tests/parity/run.sh
+values-non-string` all pass on bash. Against `bun run build && tests/parity/run.sh --engine dist/mksync <name>`, the
+first two fail (expected until steps 35 and 39); record the third's result in the summary.
+
+## Step 33: `env` in shared cases, and OS and home cases `[worker]`
+
+Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`, plus cases
+`tests/parity/cases/sync-os-windows-off-windows/` and `tests/parity/cases/home-unset/`.
+
+- New optional `case.json` field `env`: an object of variable name to string (set for every command) or `null`
+  (unset for every command). Applied after the runner sets `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. Same in
+  `run.ps1`. README: one row in the field table.
+- `sync-os-windows-off-windows`: `env {"SYNC_OS": "windows"}`, command `import --check`; expect exit 1, no status
+  lines, home unchanged. It must not run on Windows: use the README's existing per-OS mechanism; if there is none, skip
+  it in both runners when the harness OS is `windows` and document that in the README.
+- `home-unset`: `env {"HOME": null, "USERPROFILE": null}`, command `import --force`, one entry; expect exit 1, no
+  status lines, repo unchanged.
+
+Test: `tests/parity/run.sh sync-os-windows && tests/parity/run.sh home-unset` pass on bash; the whole
+`tests/parity/run.sh` still passes.
+
+## Step 34: OS, home and values in the program `[worker]`
+
+Files: `src/main.ts`, `src/core/layers/select.ts`, `src/adapters/git.ts`, and their tests.
+
+- `select.ts` `pickOs(syncOs, host)` takes the host family: on a `win32` host the only accepted `SYNC_OS` is
+  `windows`; elsewhere only `linux` or `macos`. Unset or empty: the host's own OS. Anything else: the existing
+  `unsupportedOs` error, exit 1. `main.ts` uses it and deletes `resolveOs`.
+- `main.ts`: when `homeFolder(...)` is undefined or empty, stop before planning with
+  `ERROR: the home folder is not set (HOME).` (`USERPROFILE` on Windows) and exit 1.
+- `main.ts` values reader: a number or boolean value becomes `String(value)`, `null` becomes `"null"`, an object or
+  array `JSON.stringify(value)` (jq `tostring`), so saving the file keeps them.
+- `git.ts` `readPorcelain`: add `sync-config.v2.json` to the paths.
+- Unit tests: `pickOs` for each host/value pair; the values reader for 8080, true, null; porcelain path list.
+
+Test: `bun test src/core/layers src/adapters/git.test.ts src/main.test.ts && bun run lint && bun run build &&
+tests/parity/run.sh --engine dist/mksync sync-os-windows && tests/parity/run.sh --engine dist/mksync home-unset &&
+tests/parity/run.sh --engine dist/mksync values-non-string`.
+
+## Step 35: Import inference and error reasons `[worker]`
+
+Files: `src/core/plan/import.ts`, `src/core/plan/export.ts`, and their tests.
+
+- `import.ts` `collectRules`: infer values from every selected entry whose repo and local files exist, ignoring
+  `--only`; `--only` filters only which files are planned. Inferred values from unselected entries are saved like any
+  other inferred value.
+- Failure reasons as bash: import plain-file and `dir`-file copy failures are `cannot copy from repo`
+  (`import.sh:166,178`); hydrated writes stay `cannot write local file`. Export `dir`-file parent failures are
+  `cannot create parent folder` (`export.sh:227`); export file-entry parent failures are `cannot create <absolute
+repo dir>` (`export.sh:140`).
+- Unit tests for each reason and for inference under `--only` (the step 32 scenario).
+
+Test: `bun test src/core/plan && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync only-`.
+
+## Step 36: Preview sees deletions and the config `[worker]`
+
+Files: `src/adapters/git.ts`, `src/main.ts`, `src/core/plan/preview.ts`, and their tests.
+
+- `git.ts`: `readHeadTree(repoRoot)` lists `git ls-tree -r -z --full-tree HEAD -- dotfiles sync-config.json` and reads
+  the blobs with one `git cat-file --batch`, returning path to bytes; no process per file.
+- `main.ts`: the preview's `headFiles` come from `readHeadTree`; the working tree side includes `sync-config.json`.
+- `preview.ts`: a path in HEAD but not in the exported tree is a difference (already true by size; add the test), and
+  `sync-config.json` is compared like any file.
+- Unit tests: HEAD has a file the working tree lacks; the config differs; both equal gives "Nothing would be sent".
+
+Test: `bun test src/core/plan/preview.test.ts src/adapters/git.test.ts && bun run lint && bun run build &&
+tests/parity/run.sh --engine dist/mksync preview`.
+
+## Step 37: A plain-file entry follows a local symlink `[worker]`
+
+Files: `src/adapters/fs.ts`, `src/core/plan/import.ts`, `src/core/plan/export.ts`, and their tests.
+
+Both old engines follow a symlink at a file entry's `localPath` (`[[ -f ]]`, `Test-Path`): export compares and copies
+the target's bytes, import compares and writes through the link, which stays a link. Do the same: the snapshot reads a
+file entry's local path through a link (a link to a missing target is "local file not found"); import writes to the
+path without replacing the link. Inside `dir` entries links stay skipped as today. Unit tests: export and import
+through a link, the link still a link after import, a dangling link.
+
+Test: `bun test src/adapters/fs.test.ts src/core/plan && bun run lint`.
+
+## Step 38: v2 validation and a full config check `[worker]`
+
+Files: `src/core/config/v2.ts`, `src/core/config/check.ts`, and their tests.
+
+- `parseV2`: every entry needs `file` and `localPath` as strings; `os` on an entry or module, when present, must be
+  an array of `linux`, `macos`, `windows`; anything else is a load error naming the entry.
+- `checkV1V2`: compare `convertV1(v1)` with v2 per (file, os) on `localPath`, `merge`, every sanitize rule field
+  (placeholder, pattern, replacement form, `escapeBackslashes`), `excludePatterns`, `scanLinks`, `localOnlyKeys` and
+  dconf, one line per differing field.
+- Unit tests: each bad entry shape; each field difference reported; today's two config files still "in step".
+
+Test: `bun test src/core/config && bun run lint && bun tools/check-config.ts`.
+
+## Step 39: export --force is unknown `[worker]`
+
+Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `docs/sync-contract.md`.
+
+- `FLAGS.export` is `["--preview"]`; `export --force` prints `Unknown option: --force` and exits 1 as bash does.
+- Contract "Not in the program yet": add `import --reset-values`.
+
+Test: `bun test src/cli && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync
+export-force-unknown`.
+
+## Step 40: Review fixes in the docs `[inline: docs]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`, `tests/parity/README.md`.
+
+- Contract: `SYNC_OS` per host, home folder not set, non-string values, inference over every entry, file-entry
+  symlinks, preview covering deletions and the config.
+- Design "Open": harness can't express write failures, symlinks in `home/` or uncommitted repo changes; order of files
+  in a `dir` entry is locale-dependent in bash (`sort -z`), the program sorts by code unit (decide `LC_ALL=C`);
+  `check.ts` matches its own error text; `isExcluded` compiles patterns per file; mutation survivors (inference first
+  match, sanitize doubled-form order, tie-break order, `EXTRA` excludes, `\r` in inference, `paths.ts` `~\` and
+  trailing separator, `elevate`); `ci.yml` artifact actions pinned by tag.
+
+Test: `tests/all.sh` exits 0.
