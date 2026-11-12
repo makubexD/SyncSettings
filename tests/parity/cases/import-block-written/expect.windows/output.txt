@@ -1,0 +1,2 @@
+CREATED dotfiles/common/claude/CLAUDE.md
+CREATED dotfiles/windows/claude/CLAUDE.md

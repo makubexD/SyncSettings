@@ -1,0 +1,30 @@
+{
+  "description": "Import writes the base text, the marker line and one @import line per later layer, plus each layer file beside it (Layers (program only), import entries).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "claude/CLAUDE.md",
+        "module": "parity",
+        "merge": "import",
+        "localPath": "~/.config/parity/CLAUDE.md",
+        "importName": "CLAUDE.{layer}.md",
+        "description": "Parity import block"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ],
+  "differences": ["Entry selection"]
+}

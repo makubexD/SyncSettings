@@ -1,0 +1,1 @@
+CREATED dotfiles/macos/parity/settings.json
