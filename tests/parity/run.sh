@@ -14,6 +14,7 @@ filter=''
 engine_path=''
 passed=0
 failed_cases=0
+skipped=0
 case_name=''
 t=''
 
@@ -94,14 +95,24 @@ validate_case() {
             (.env | type) == "object" and all(.env[]; type == "string" or . == null)
           else true end' "$json" > /dev/null 2>&1 \
         || die 'env must be an object of strings or null'
+    if jq -e 'has("configV2")' "$json" > /dev/null 2>&1; then
+        jq -e '(.env // {}) | all(keys[]; . == "SYNC_PROFILE" or . == "SYNC_MACHINE")' "$json" \
+            > /dev/null 2>&1 || die 'a configV2 case may set only SYNC_PROFILE and SYNC_MACHINE in env'
+    fi
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
             (.stubs | type) == "array" and all(.stubs[]; . == "gh")
           else true end' "$json" > /dev/null 2>&1 \
         || die 'stubs may only hold gh'
-    jq -e 'has("config") and (.config | type) == "object"' "$json" > /dev/null 2>&1 \
-        || die 'case.json has no config'
+    if jq -e 'has("config") and has("configV2")' "$json" > /dev/null 2>&1; then
+        die 'case.json has both config and configV2'
+    fi
+    if ! jq -e 'has("config") or has("configV2")' "$json" > /dev/null 2>&1; then
+        die 'case.json has no config'
+    fi
+    jq -e 'if has("config") then (.config | type) == "object" else (.configV2 | type) == "object" end' \
+        "$json" > /dev/null 2>&1 || die 'config must be an object'
     # commit reaches gh; only the stub may answer, never a real gh.
     jq -e '(any(.commands[]; .command == "commit") | not) or ((.stubs // []) | any(. == "gh"))' \
         "$json" > /dev/null 2>&1 || die 'a commit command needs "stubs": ["gh"]'
@@ -214,7 +225,7 @@ tree_diff() {
 strip_engine() {
     local repo=$1
     rm -f "$repo/export.sh" "$repo/import.sh" "$repo/commit.sh" "$repo/sync" \
-        "$repo/mksync" "$repo/sync-config.json" "$repo/.user-values.json"
+        "$repo/mksync" "$repo/sync-config.json" "$repo/sync-config.v2.json" "$repo/.user-values.json"
     rm -rf "$repo/scripts/linux" "$repo/scripts/ci"
     rmdir "$repo/scripts" 2> /dev/null || true
 }
@@ -284,7 +295,7 @@ write_gh_stub() {
 # the EXIT trap removes the temp folder on success and failure alike.
 run_case() {
     local dir=$1
-    local config_json count i cmd rc only_path out stdin_file git_mode gh_stub=false
+    local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
     local want_exit want_output want_home want_repo want_values want_state want_gh calls
     local file rel got want_mode got_mode
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
@@ -292,7 +303,13 @@ run_case() {
     t=$(mktemp -d)
     trap 'rm -rf "$t"' EXIT
 
-    config_json=$(jq -c '.config' "$dir/case.json") || die 'case.json has no config'
+    if [[ $(jq -r 'has("configV2")' "$dir/case.json") == true ]]; then
+        config_json=$(jq -c '.configV2' "$dir/case.json") || die 'case.json has no configV2'
+        config_file=sync-config.v2.json
+    else
+        config_json=$(jq -c '.config' "$dir/case.json") || die 'case.json has no config'
+        config_file=sync-config.json
+    fi
     count=$(jq -r '.commands | length' "$dir/case.json") || die 'case.json has no commands list'
 
     mkdir -p "$t/repo" "$t/home" "$t/empty"
@@ -305,7 +322,7 @@ run_case() {
         cp -a "$REPO/scripts/linux" "$REPO/scripts/ci" "$t/repo/scripts/" \
             || die 'copying scripts/ failed'
     fi
-    printf '%s\n' "$config_json" > "$t/repo/sync-config.json"
+    printf '%s\n' "$config_json" > "$t/repo/$config_file"
     if [[ $(jq -r 'has("values")' "$dir/case.json") == true ]]; then
         jq -c '.values' "$dir/case.json" > "$t/repo/.user-values.json" \
             || die 'writing .user-values.json failed'
@@ -315,6 +332,12 @@ run_case() {
     fi
     if [[ -d $dir/home ]]; then
         cp -a "$dir/home/." "$t/home/" || die 'copying the case home/ failed'
+    fi
+    # A seeded state/ goes into the folder the engine treats as its own state,
+    # before the first command, exactly like the engine's own files.
+    if [[ -d $dir/state ]]; then
+        mkdir -p "$t/home/.local/state/sync-settings" || die 'creating the engine state folder failed'
+        cp -a "$dir/state/." "$t/home/.local/state/sync-settings/" || die 'copying the case state/ failed'
     fi
 
     git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
@@ -514,6 +537,13 @@ for dir in "$CASES"/*/; do
         fi
     fi
 
+    # A v2 case needs the program: the bash engine can't read config v2.
+    if [[ -z $engine_path ]] && [[ $(jq -r 'has("configV2")' "$dir/case.json") == true ]]; then
+        printf 'SKIP %s: v2 only\n' "$case_name"
+        skipped=$((skipped + 1))
+        continue
+    fi
+
     # With --engine, import-eof-no-force counts as yes on every OS.
     if [[ -z $engine_path || $case_name != import-eof-no-force ]]; then
         if [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
@@ -539,6 +569,10 @@ if [[ -n $filter && $matched -eq 0 ]]; then
     exit 1
 fi
 
-printf '%d passed, %d failed\n' "$passed" "$failed_cases"
+if (( skipped > 0 )); then
+    printf '%d passed, %d failed, %d skipped\n' "$passed" "$failed_cases" "$skipped"
+else
+    printf '%d passed, %d failed\n' "$passed" "$failed_cases"
+fi
 
 [[ $failed_cases -eq 0 ]]
