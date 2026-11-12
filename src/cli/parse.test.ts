@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseArgs } from "./parse.ts";
+import { parseArgs, USAGE as USAGE_TEXT } from "./parse.ts";
 
 const EXPORT = { kind: "run", command: "export", force: false, preview: false, check: false, only: [] } as const;
 
@@ -115,5 +115,9 @@ describe("parseArgs", () => {
       kind: "error",
       message: "ERROR: --only needs a path.",
     });
+  });
+
+  test("should keep shadow out of the usage line", () => {
+    expect(USAGE_TEXT.includes("shadow")).toBe(false);
   });
 });

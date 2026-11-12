@@ -1,23 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { USAGE } from "./parse.ts";
-import { appendShadowLog, compareShadow, runShadow } from "./shadow.ts";
+import { compareShadow, renderShadow } from "./shadow.ts";
 import type { ShadowResult } from "./shadow.ts";
 
 const STAMP = "2026-11-12T10:00:00.000Z";
+
+interface Codes {
+  readonly checkCode?: number;
+  readonly previewCode?: number;
+  readonly exportCode?: number;
+}
 
 function shadowResult(
   checkLines: readonly string[],
   exported: Readonly<Record<string, string>> = {},
   previewLines: readonly string[] = [],
+  codes: Codes = {},
 ): ShadowResult {
-  return { checkLines, previewLines, exported: new Map(Object.entries(exported)) };
-}
-
-function tempFolder(): string {
-  return mkdtempSync(join(tmpdir(), "mksync-shadow-test-"));
+  return {
+    checkLines,
+    previewLines,
+    exported: new Map(Object.entries(exported)),
+    checkCode: codes.checkCode ?? 0,
+    previewCode: codes.previewCode ?? 0,
+    exportCode: codes.exportCode ?? 0,
+  };
 }
 
 describe("compareShadow", () => {
@@ -86,77 +92,57 @@ describe("compareShadow", () => {
       compareShadow(shadowResult(plain), shadowResult(coloured)),
     ).toEqual([]);
   });
-});
 
-describe("appendShadowLog", () => {
-  test("should append timestamped lines to the state folder", () => {
-    const parent = tempFolder();
-    const stateFolder = join(parent, "sync-settings");
-    try {
-      appendShadowLog(
-        stateFolder,
-        ["import a: program ADDED, engine nothing", "export b: only in engine"],
-        () => new Date(STAMP),
-      );
-      expect(readFileSync(join(stateFolder, "shadow.log"), "utf8")).toBe(
-        `${STAMP} import a: program ADDED, engine nothing\n` +
-          `${STAMP} export b: only in engine\n`,
-      );
-    } finally {
-      rmSync(parent, { recursive: true, force: true });
-    }
+  test("should report a differing check exit code as one line", () => {
+    // Arrange
+    const program = shadowResult([], {}, [], { checkCode: 0 });
+    const engine = shadowResult([], {}, [], { checkCode: 1 });
+
+    // Act
+    const differences = compareShadow(program, engine);
+
+    // Assert
+    expect(differences).toEqual(["import: program exit 0, engine exit 1"]);
   });
 
-  test("should write nothing when there is no difference", () => {
-    const parent = tempFolder();
-    const stateFolder = join(parent, "sync-settings");
-    try {
-      appendShadowLog(stateFolder, []);
-      expect(existsSync(join(stateFolder, "shadow.log"))).toBe(false);
-    } finally {
-      rmSync(parent, { recursive: true, force: true });
-    }
+  test("should report a differing export exit code once", () => {
+    // Arrange
+    const path = "dotfiles/linux/git/.gitconfig";
+    const program = shadowResult([], { [path]: "name = <YOUR_NAME>\n" });
+    const engine = shadowResult([], {}, [], { exportCode: 1 });
+
+    // Act
+    const differences = compareShadow(program, engine);
+
+    // Assert
+    expect(differences).toEqual(["export run: program exit 0, engine exit 1"]);
   });
 });
 
-describe("runShadow", () => {
-  test("should print shadow: same and exit 0 when both sides match", async () => {
-    const stateFolder = join(tempFolder(), "sync-settings");
-    const outcome = await runShadow({
-      stateFolder,
-      program: () => shadowResult([]),
-      engine: async () => shadowResult([]),
+describe("renderShadow", () => {
+  test("should print shadow: same with no log text when both sides match", () => {
+    // Act
+    const rendered = renderShadow([], STAMP);
+
+    // Assert
+    expect(rendered).toEqual({ code: 0, stdout: "shadow: same\n", logText: "" });
+  });
+
+  test("should print one line per difference and stamp each log line", () => {
+    // Arrange
+    const differences = [
+      "import a: program ADDED, engine nothing",
+      "export b: only in engine",
+    ];
+
+    // Act
+    const rendered = renderShadow(differences, STAMP);
+
+    // Assert
+    expect(rendered).toEqual({
+      code: 3,
+      stdout: `${differences.join("\n")}\n`,
+      logText: differences.map((line) => `${STAMP} ${line}\n`).join(""),
     });
-    expect(outcome).toEqual({ code: 0, stdout: "shadow: same\n", stderr: "" });
-  });
-
-  test("should print one line per difference, exit 3 and log it", async () => {
-    const parent = tempFolder();
-    const stateFolder = join(parent, "sync-settings");
-    try {
-      const line = "import dotfiles/x: program ADDED, engine nothing";
-      const outcome = await runShadow({
-        stateFolder,
-        program: () => shadowResult(["  ADDED dotfiles/x"]),
-        engine: async () => shadowResult([]),
-        now: () => new Date(STAMP),
-      });
-      expect(outcome).toEqual({
-        code: 3,
-        stdout: `${line}\n`,
-        stderr: "",
-      });
-      expect(readFileSync(join(stateFolder, "shadow.log"), "utf8")).toBe(
-        `${STAMP} ${line}\n`,
-      );
-    } finally {
-      rmSync(parent, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("mksync front", () => {
-  test("should keep shadow out of the usage line", () => {
-    expect(USAGE.includes("shadow")).toBe(false);
   });
 });

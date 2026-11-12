@@ -1,13 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
+import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
+import type { EngineHost } from "./adapters/engine.ts";
 import { readSnapshot, runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
 import { readFileAtHead, readHead, readPorcelain } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type { RunCommand, ShadowCommand } from "./cli/parse.ts";
-import { engineShadow, programShadow, runShadow } from "./cli/shadow.ts";
 import { convertV1 } from "./core/config/convert.ts";
 import type {
   ConfigError,
@@ -23,6 +24,7 @@ import { planImport } from "./core/plan/import.ts";
 import { planPreview } from "./core/plan/preview.ts";
 import { renderRun } from "./core/plan/run.ts";
 import type { Plan, RepoFiles, RunPlan, Snapshot } from "./core/plan/types.ts";
+import { compareShadow, programShadow, renderShadow } from "./core/shadow.ts";
 import type { Values } from "./core/values/sanitize.ts";
 
 export { USAGE };
@@ -62,6 +64,11 @@ const PLATFORM_OS: Readonly<Record<string, Os | undefined>> = {
   darwin: "macos",
   win32: "windows",
 };
+
+/** The host whose old-engine scripts shadow runs, from the real platform. */
+function hostOf(platform: string): EngineHost {
+  return platform === "win32" ? "windows" : "posix";
+}
 
 function failure(message: string, code = 1): Result {
   return { code, stdout: "", stderr: `${message}\n` };
@@ -296,11 +303,24 @@ async function executeShadow(
       home,
       SHADOW_SNAPSHOT_COMMAND,
     );
-    return await runShadow({
-      stateFolder: state,
-      program: () => programShadow(snapshot),
-      engine: () => engineShadow(repoRoot, os),
-    });
+    const program = programShadow(snapshot);
+    const engine = await engineShadow(
+      repoRoot,
+      hostOf(process.platform),
+      process.env,
+    );
+    const rendered = renderShadow(
+      compareShadow(program, engine),
+      new Date().toISOString(),
+    );
+    let stderr = "";
+    try {
+      appendShadowLog(state, rendered.logText);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      stderr = `WARNING: cannot write the shadow log: ${message}\n`;
+    }
+    return { code: rendered.code, stdout: rendered.stdout, stderr };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return failure(`ERROR: ${message}`);
