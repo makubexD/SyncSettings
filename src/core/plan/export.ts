@@ -2,6 +2,7 @@ import { same } from "../compare.ts";
 import type { ConfigV2, ConfigV2Entry, Os, SanitizeRule } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
+import { expandHome } from "../paths.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
@@ -72,19 +73,6 @@ function joinPath(base: string, tail: string, separator: "/" | "\\"): string {
   return base.endsWith(separator) ? `${base}${tail}` : `${base}${separator}${tail}`;
 }
 
-/** `~/` (or `~\`) becomes the home folder; elsewhere `\` becomes `/` on Windows. */
-function expandHome(raw: string, os: Os, home: string): string {
-  const separator = separatorFor(os);
-  if (raw === "~") {
-    return home;
-  }
-  if (raw.startsWith("~/") || raw.startsWith("~\\")) {
-    const tail = raw.slice(2).replaceAll(otherSeparator(separator), separator);
-    return joinPath(home, tail, separator);
-  }
-  return raw.replaceAll(otherSeparator(separator), separator);
-}
-
 /** The entry's local path on this system, `localPaths` first (contract "`localPath`"). */
 function resolvedLocal(entry: ConfigV2Entry, os: Os, home: string): string {
   const raw = entry.localPaths?.[os] ?? entry.localPath ?? "";
@@ -126,12 +114,7 @@ function normalizePath(path: string, separator: "/" | "\\"): string {
 
 function absoluteLocal(raw: string, snapshot: Snapshot): string {
   const separator = separatorFor(snapshot.os);
-  let path = raw;
-  if (path === "~") {
-    path = snapshot.home;
-  } else if (path.startsWith("~/") || path.startsWith("~\\")) {
-    path = joinPath(snapshot.home, path.slice(2), separator);
-  }
+  let path = expandHome(raw, snapshot.os, snapshot.home);
   if (!isAbsolutePath(path, separator)) {
     path = joinPath(snapshot.cwd, path, separator);
   }
