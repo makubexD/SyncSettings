@@ -23,6 +23,14 @@ export interface RunCommand {
   readonly only: readonly string[];
 }
 
+/**
+ * `shadow`: compare the program and the old engine next to the clone. Hidden:
+ * it is not in `USAGE` (the design's "Open" keeps the name under review).
+ */
+export interface ShadowCommand {
+  readonly kind: "shadow";
+}
+
 /** `--version`: print the program's version, exit 0. */
 export interface VersionCommand {
   readonly kind: "version";
@@ -41,11 +49,14 @@ export interface ParseError {
 
 export type ParsedCommand =
   | RunCommand
+  | ShadowCommand
   | VersionCommand
   | UsageCommand
   | ParseError;
 
 const VERSION_OPTION = "--version";
+
+const SHADOW_COMMAND = "shadow";
 
 const ONLY_OPTION = "--only";
 
@@ -105,6 +116,12 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   }
   if (command === VERSION_OPTION) {
     return { kind: "version" };
+  }
+  if (command === SHADOW_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "shadow" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
   if (isOption(command) || !isCommandName(command)) {
     return isOption(command)
