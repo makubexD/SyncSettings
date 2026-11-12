@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   commitExists,
-  readFileAtHead,
   readHead,
+  readHeadTree,
   readPorcelain,
 } from "./git.ts";
 
@@ -180,56 +180,52 @@ describe("readPorcelain", () => {
   });
 });
 
-describe("readFileAtHead", () => {
-  test("should return a committed file's bytes", async () => {
+describe("readHeadTree", () => {
+  test("should return HEAD's bytes after a file leaves the working tree", async () => {
     // Arrange
     const root = repoWithCommit();
-
-    // Act
-    const bytes = await readFileAtHead(root, REPO_FILE);
-
-    // Assert
-    expect(bytes).toBeInstanceOf(Uint8Array);
-    expect(new TextDecoder().decode(bytes)).toBe("name = repo\n");
-  });
-
-  test("should keep a non-UTF-8 file byte for byte", async () => {
-    // Arrange
-    const root = repoWithCommit();
-    const raw = Uint8Array.from([0x68, 0x69, 0xff, 0x00, 0x74, 0x0a]);
-    const path = "dotfiles/common/git/raw.bin";
-    writeFileSync(join(root, path), raw);
+    const binaryPath = "dotfiles/common/git/raw.bin";
+    const binary = Uint8Array.from([0x68, 0x69, 0x00, 0xff, 0x0a]);
+    writeFileSync(join(root, binaryPath), binary);
     git(root, ["add", "-A"]);
-    git(root, [...IDENTITY, "commit", "-q", "-m", "raw"]);
+    git(root, [...IDENTITY, "commit", "-q", "-m", "binary"]);
+    rmSync(join(root, REPO_FILE));
+    rmSync(join(root, binaryPath));
 
     // Act
-    const bytes = await readFileAtHead(root, path);
+    const files = await readHeadTree(root);
 
     // Assert
-    expect(bytes).toBeInstanceOf(Uint8Array);
-    expect(Array.from(bytes ?? new Uint8Array())).toEqual(Array.from(raw));
+    expect(files).toBeDefined();
+    expect(new TextDecoder().decode(files?.get(CONFIG_PATH))).toBe("{}\n");
+    expect(new TextDecoder().decode(files?.get(REPO_FILE))).toBe(
+      "name = repo\n",
+    );
+    expect(Array.from(files?.get(binaryPath) ?? [])).toEqual(
+      Array.from(binary),
+    );
   });
 
-  test("should return undefined for a path that is not in HEAD", async () => {
-    // Arrange
-    const root = repoWithCommit();
-
-    // Act
-    const bytes = await readFileAtHead(root, MISSING_REPO_PATH);
-
-    // Assert
-    expect(bytes).toBeUndefined();
-  });
-
-  test("should return undefined when the repo has no commit", async () => {
+  test("should report no HEAD in an empty repo", async () => {
     // Arrange
     const root = emptyRepo();
 
     // Act
-    const bytes = await readFileAtHead(root, REPO_FILE);
+    const files = await readHeadTree(root);
 
     // Assert
-    expect(bytes).toBeUndefined();
+    expect(files).toBeUndefined();
+  });
+
+  test("should report that git cannot tell outside a repo", async () => {
+    // Arrange
+    const root = tempFolder();
+
+    // Act
+    const files = await readHeadTree(root);
+
+    // Assert
+    expect(files).toBeUndefined();
   });
 });
 

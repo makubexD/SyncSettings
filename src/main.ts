@@ -5,7 +5,7 @@ import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
 import type { EngineHost } from "./adapters/engine.ts";
 import { readSnapshot, runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
-import { readFileAtHead, readHead, readPorcelain } from "./adapters/git.ts";
+import { readHead, readHeadTree, readPorcelain } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type { RunCommand, ShadowCommand } from "./cli/parse.ts";
@@ -105,6 +105,15 @@ function readText(path: string): string | undefined {
   }
 }
 
+/** Read a file's bytes, or `undefined` when it cannot be read. */
+function readBytes(path: string): Uint8Array | undefined {
+  try {
+    return new Uint8Array(readFileSync(path));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`
  * converted in memory by the same converter that writes the v2 file.
@@ -170,25 +179,19 @@ function readValues(repoRoot: string): Values {
   return parseValuesText(readText(join(repoRoot, VALUES_FILE)));
 }
 
-/** The bytes of every working-tree repo file at `HEAD`, for an export preview. */
-async function readHeadFiles(
-  repoRoot: string,
-  repoFiles: RepoFiles,
-): Promise<RepoFiles> {
-  const paths = [...repoFiles.keys()].sort();
-  const read = await Promise.all(
-    paths.map(async (path) => {
-      const bytes = await readFileAtHead(repoRoot, path);
-      return bytes === undefined ? undefined : { path, bytes };
-    }),
-  );
-  const files = new Map<string, Uint8Array>();
-  for (const entry of read) {
-    if (entry !== undefined) {
-      files.set(entry.path, entry.bytes);
-    }
+/**
+ * The working tree an export preview compares with `HEAD`: the repo files the
+ * snapshot read plus `sync-config.json`, which is never part of the export
+ * plan. A config missing from the working tree stays absent, so `HEAD`'s copy
+ * shows as a difference.
+ */
+function previewWorkingTree(repoRoot: string, repoFiles: RepoFiles): RepoFiles {
+  const tree = new Map(repoFiles);
+  const config = readBytes(join(repoRoot, V1_CONFIG));
+  if (config !== undefined) {
+    tree.set(V1_CONFIG, config);
   }
-  return files;
+  return tree;
 }
 
 /**
@@ -230,7 +233,10 @@ async function buildSnapshot(
     git.porcelain = porcelain;
   }
   if (command.command === "export" && command.preview && head !== undefined) {
-    git.headFiles = await readHeadFiles(repoRoot, snapshot.repoFiles);
+    const headFiles = await readHeadTree(repoRoot);
+    if (headFiles !== undefined) {
+      git.headFiles = headFiles;
+    }
   }
   return { ...snapshot, ...git };
 }
@@ -354,7 +360,9 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
 
   if (command.command === "export") {
     return command.preview
-      ? renderStatic(planPreview(snapshot))
+      ? renderStatic(
+          planPreview(snapshot, previewWorkingTree(repoRoot, snapshot.repoFiles)),
+        )
       : applyPlan(planExport(snapshot), context);
   }
   return command.check

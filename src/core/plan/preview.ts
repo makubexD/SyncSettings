@@ -108,13 +108,17 @@ function previewSummary(
 
 /**
  * The export preview: what a commit would send, from a snapshot and its `HEAD`
- * bytes. It never returns a write action.
+ * bytes. `workingTree` is the tree the export is compared against `HEAD`, when
+ * the caller has more than the snapshot's repo files holds: it includes
+ * `sync-config.json`, which belongs in the comparison but never in the export
+ * plan. Without it the snapshot's own repo files are compared. It never
+ * returns a write action.
  *
  * shortcut: the leak scan and the `--stat`/diff text belong to the adapter that
  * prints the plan, so the plan carries the status lines and the messages
  * around them; the adapter prints the diff when these lines leave it out.
  */
-export function planPreview(snapshot: Snapshot): Plan {
+export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
   if (snapshot.only.length > 0) {
     return { actions: [], lines: [ONLY_ERROR], code: 1 };
   }
@@ -130,7 +134,12 @@ export function planPreview(snapshot: Snapshot): Plan {
   }
   return {
     actions: [],
-    lines: previewSummary(exported, rendered.lines, snapshot.repoFiles, head),
+    lines: previewSummary(
+      exported,
+      rendered.lines,
+      workingTree ?? snapshot.repoFiles,
+      head,
+    ),
     code: 0,
   };
 }
