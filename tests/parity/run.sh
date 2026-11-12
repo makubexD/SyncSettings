@@ -2,7 +2,7 @@
 # Shared parity cases: run every case in tests/parity/cases/ against the bash
 # engine in a throwaway HOME and repo, then compare exit codes, status lines
 # and both trees with expect/. The case format is tests/parity/README.md.
-# Usage: tests/parity/run.sh [case-name-filter]
+# Usage: tests/parity/run.sh [--engine <path>] [case-name-filter]
 
 set -euo pipefail
 
@@ -10,7 +10,8 @@ SOURCE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$SOURCE_DIR/../.." && pwd)
 CASES=${PARITY_CASES:-$REPO/tests/parity/cases}
 
-filter=${1:-}
+filter=''
+engine_path=''
 passed=0
 failed_cases=0
 case_name=''
@@ -33,6 +34,32 @@ die() {
     printf '%s\n' "$*"
     exit 1
 }
+
+# --engine <path> hands the cases to that one program instead of the bash
+# engine; without it the runner is unchanged. The rest is the case filter.
+while (( $# > 0 )); do
+    case $1 in
+        --engine)
+            [[ $# -ge 2 ]] || die '--engine needs a path'
+            engine_path=$2
+            shift 2
+            ;;
+        --engine=*)
+            engine_path=${1#--engine=}
+            shift
+            ;;
+        *)
+            [[ -z $filter ]] || die "unknown argument '$1'"
+            filter=$1
+            shift
+            ;;
+    esac
+done
+
+if [[ -n $engine_path ]]; then
+    [[ -f $engine_path ]] || die "--engine: $engine_path is not a file"
+    engine_path=$(cd "$(dirname "$engine_path")" && pwd)/$(basename "$engine_path")
+fi
 
 # Check case.json before anything is copied or run. Dies with a short reason;
 # the caller runs this in a subshell so only that case FAILs.
@@ -98,11 +125,21 @@ validate_case() {
         || die 'packages/ needs the drift stubs from phase 2'
 }
 
+# With --engine, expect.<os>/ only applies to a case whose differences name a
+# row the program keeps per OS; every other case uses expect/ on every OS.
+expected_os_folder() {
+    local dir=$1
+    [[ -z $engine_path ]] && return 0
+    jq -e '(.differences // []) | any(
+        . == "Entry selection" or . == "Shared files without rules" or . == "Exclude patterns")' \
+        "$dir/case.json" > /dev/null 2>&1
+}
+
 # The expected file or tree for $2: `expect.<os>/<name>` when it exists for the
 # OS the runner is on, else `expect/<name>`.
 expected_path() {
     local dir=$1 name=$2
-    if [[ -e $dir/expect.$HARNESS_OS/$name ]]; then
+    if expected_os_folder "$dir" && [[ -e $dir/expect.$HARNESS_OS/$name ]]; then
         printf '%s\n' "$dir/expect.$HARNESS_OS/$name"
     else
         printf '%s\n' "$dir/expect/$name"
@@ -173,7 +210,7 @@ tree_diff() {
 strip_engine() {
     local repo=$1
     rm -f "$repo/export.sh" "$repo/import.sh" "$repo/commit.sh" "$repo/sync" \
-        "$repo/sync-config.json" "$repo/.user-values.json"
+        "$repo/mksync" "$repo/sync-config.json" "$repo/.user-values.json"
     rm -rf "$repo/scripts/linux" "$repo/scripts/ci"
     rmdir "$repo/scripts" 2> /dev/null || true
 }
@@ -254,11 +291,16 @@ run_case() {
     config_json=$(jq -c '.config' "$dir/case.json") || die 'case.json has no config'
     count=$(jq -r '.commands | length' "$dir/case.json") || die 'case.json has no commands list'
 
-    mkdir -p "$t/repo" "$t/home" "$t/repo/scripts" "$t/empty"
-    cp -a "$REPO/export.sh" "$REPO/import.sh" "$REPO/commit.sh" "$REPO/sync" "$t/repo/" \
-        || die 'copying the engine failed'
-    cp -a "$REPO/scripts/linux" "$REPO/scripts/ci" "$t/repo/scripts/" \
-        || die 'copying scripts/ failed'
+    mkdir -p "$t/repo" "$t/home" "$t/empty"
+    if [[ -n $engine_path ]]; then
+        cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+    else
+        mkdir -p "$t/repo/scripts"
+        cp -a "$REPO/export.sh" "$REPO/import.sh" "$REPO/commit.sh" "$REPO/sync" "$t/repo/" \
+            || die 'copying the engine failed'
+        cp -a "$REPO/scripts/linux" "$REPO/scripts/ci" "$t/repo/scripts/" \
+            || die 'copying scripts/ failed'
+    fi
     printf '%s\n' "$config_json" > "$t/repo/sync-config.json"
     if [[ $(jq -r 'has("values")' "$dir/case.json") == true ]]; then
         jq -c '.values' "$dir/case.json" > "$t/repo/.user-values.json" \
@@ -289,15 +331,25 @@ run_case() {
     for ((i = 0; i < count; i++)); do
         cmd=$(jq -r ".commands[$i].command // empty" "$dir/case.json")
         args=()
-        case $cmd in
-            export) args=(./export.sh) ;;
-            import) args=(./import.sh) ;;
-            check) args=(./import.sh --check) ;;
-            preview) args=(./export.sh --preview) ;;
-            diff) args=(./export.sh --diff) ;;
-            commit) args=(./commit.sh) ;;
-            *) die "unknown command '$cmd' in command $((i + 1))" ;;
-        esac
+        if [[ -n $engine_path ]]; then
+            case $cmd in
+                export) args=(./mksync export) ;;
+                import) args=(./mksync import) ;;
+                check) args=(./mksync import --check) ;;
+                preview) args=(./mksync export --preview) ;;
+                *) die "unknown command '$cmd' in command $((i + 1))" ;;
+            esac
+        else
+            case $cmd in
+                export) args=(./export.sh) ;;
+                import) args=(./import.sh) ;;
+                check) args=(./import.sh --check) ;;
+                preview) args=(./export.sh --preview) ;;
+                diff) args=(./export.sh --diff) ;;
+                commit) args=(./commit.sh) ;;
+                *) die "unknown command '$cmd' in command $((i + 1))" ;;
+            esac
+        fi
         while IFS= read -r key; do
             case $key in
                 force|only) ;;
@@ -436,11 +488,25 @@ for dir in "$CASES"/*/; do
         continue
     fi
 
-    if [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
-        # shellcheck disable=SC2016  # $os is a jq argument, not a shell variable
-        if ! jq -e --arg os "$HARNESS_OS" 'any(.os[]; . == $os)' "$dir/case.json" > /dev/null; then
-            printf 'skip %s\n' "$case_name"
+    # The program takes neither diff nor commit until phase 8: skip the case
+    # without counting it as a failure.
+    if [[ -n $engine_path ]]; then
+        phase8=$(jq -r '[.commands[].command | select(. == "diff" or . == "commit")]
+            | first // empty' "$dir/case.json" 2> /dev/null) || true
+        if [[ -n $phase8 ]]; then
+            printf 'SKIP %s: %s comes in phase 8\n' "$case_name" "$phase8"
             continue
+        fi
+    fi
+
+    # With --engine, import-eof-no-force counts as yes on every OS.
+    if [[ -z $engine_path || $case_name != import-eof-no-force ]]; then
+        if [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
+            # shellcheck disable=SC2016  # $os is a jq argument, not a shell variable
+            if ! jq -e --arg os "$HARNESS_OS" 'any(.os[]; . == $os)' "$dir/case.json" > /dev/null; then
+                printf 'skip %s\n' "$case_name"
+                continue
+            fi
         fi
     fi
 

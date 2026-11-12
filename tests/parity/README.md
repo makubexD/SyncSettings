@@ -6,13 +6,27 @@ under Homebrew's bash); `run.ps1` runs them against the PowerShell engine on Win
 `engine-linux`, `engine-macos` and `engine-windows`, each next to that engine's own suite.
 
 ```bash
-tests/parity/run.sh                 # every case
-tests/parity/run.sh only-           # cases whose name contains "only-"
+tests/parity/run.sh                                          # every case
+tests/parity/run.sh only-                                    # cases whose name contains "only-"
+tests/parity/run.sh --engine dist/mksync export-unchanged    # the new program
 ```
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [case-name-filter]
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engine <path>] [case-name-filter]
 ```
+
+## Running another engine
+
+`--engine <path>` (`-Engine <path>`) runs the cases against one program instead of the OS's engine: it is copied into
+the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the commands are spelled
+`./mksync export …` with the same options, and it is stripped before the repo is compared. With a program:
+
+- a case with a `diff` or `commit` command prints `SKIP <case>: <command> comes in phase 8` and is not a failure;
+- `expect.<os>/` is used only when the case's `differences` name `Entry selection`, `Shared files without rules` or
+  `Exclude patterns`; every other case uses `expect/` on every OS;
+- `import-eof-no-force` runs on every OS.
+
+Without the option the runner is unchanged.
 
 ## Adding a case
 
