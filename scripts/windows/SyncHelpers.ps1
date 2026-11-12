@@ -494,7 +494,19 @@ function Get-UserValues {
     if (Test-Path $path) {
         $raw = Get-Content $path -Raw | ConvertFrom-Json
         foreach ($prop in $raw.PSObject.Properties) {
-            $ht[$prop.Name] = $prop.Value
+            # A value that isn't a string is read as jq's tostring gives it.
+            $value = $prop.Value
+            if ($null -eq $value) {
+                $ht[$prop.Name] = 'null'
+            } elseif ($value -is [string]) {
+                $ht[$prop.Name] = $value
+            } elseif ($value -is [bool]) {
+                $ht[$prop.Name] = $value.ToString().ToLowerInvariant()
+            } elseif ($value -is [System.Management.Automation.PSCustomObject] -or $value -is [array]) {
+                $ht[$prop.Name] = ConvertTo-Json -InputObject $value -Compress -Depth 10
+            } else {
+                $ht[$prop.Name] = [string]$value
+            }
         }
     }
     return $ht
