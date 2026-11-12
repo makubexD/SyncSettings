@@ -84,7 +84,7 @@ function labelsNeedingValues(
   }
   const selected = selectEntries(
     snapshot.config,
-    snapshot.os,
+    { os: snapshot.os },
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {

@@ -1,7 +1,10 @@
 import type { Result } from "../config/types.ts";
 import { jsonEqual, parseJson, writeJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
+import type { LayerName } from "../layers/select.ts";
 import type { LayerChange, LayerFile } from "./types.ts";
+
+export type { LayerName };
 
 const NO_LAYERS = "mergeJsonValues needs at least one layer";
 
@@ -161,8 +164,6 @@ export function mergeJson(
     local === undefined ? merged : applyLocalOnlyKeys(merged, local);
   return { ok: true, value: new TextEncoder().encode(writeJson(result, eol)) };
 }
-
-export type LayerName = "base" | "os" | "profile" | "machine";
 
 /**
  * One layer slot in layer order (base, OS, profile, machine). `bytes` is

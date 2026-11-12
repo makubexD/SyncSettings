@@ -365,7 +365,7 @@ function orphanReport(state: State): void {
 export function planExport(snapshot: Snapshot): RunPlan {
   const selected = selectEntries(
     snapshot.config,
-    snapshot.os,
+    { os: snapshot.os },
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {

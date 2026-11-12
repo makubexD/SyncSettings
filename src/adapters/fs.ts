@@ -234,7 +234,7 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
 
   const localFiles = new Map<string, LocalEntry>();
   const localDirs = new Set<string>();
-  const selected = selectEntries(input.config, input.os, new Set(repoFiles.keys()));
+  const selected = selectEntries(input.config, { os: input.os }, new Set(repoFiles.keys()));
   if (selected.ok) {
     for (const chosen of selected.value) {
       addSelectedEntry(chosen, input.os, input.home, localFiles, localDirs);

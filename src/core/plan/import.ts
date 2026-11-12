@@ -436,7 +436,7 @@ export function planImport(
 ): RunPlan {
   const selected = selectEntries(
     snapshot.config,
-    snapshot.os,
+    { os: snapshot.os },
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
