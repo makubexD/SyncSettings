@@ -583,35 +583,64 @@ _placeholders_by_length() {
 }
 
 sanitize() {
-    local c=$1 rules=$2 ph v doubled
+    local c=$1 rules=$2 ph v doubled token
+    local -a placeholders=() tokens=()
+    local i=0 n
     # Longest value first, so a value that contains a shorter one is replaced whole.
     while IFS= read -r ph; do
         v=${USER_VALUES[$ph]}
+        # The i-th placeholder's token: \x01, i+1 copies of \x02, \x03. No token
+        # is a prefix of another, so the second pass never scans what it inserted.
+        token=$'\x01'
+        for (( n = 0; n <= i; n++ )); do
+            token+=$'\x02'
+        done
+        token+=$'\x03'
+        placeholders+=("$ph")
+        tokens+=("$token")
         doubled=${v//\\/\\\\}
         # A config file may escape its backslashes (C:\\Tools): replace that form first.
         if [[ $doubled != "$v" ]]; then
-            c=${c//"$doubled"/"$ph"}
+            c=${c//"$doubled"/"$token"}
         fi
-        c=${c//"$v"/"$ph"}
+        c=${c//"$v"/"$token"}
+        i=$(( i + 1 ))
     done < <(_placeholders_by_length "$rules")
+    for (( n = 0; n < ${#placeholders[@]}; n++ )); do
+        c=${c//"${tokens[$n]}"/"${placeholders[$n]}"}
+    done
     printf '%s' "$c"
 }
 
 hydrate() {
-    local c=$1 rules=$2 ph v
+    local c=$1 rules=$2 ph v token
+    local -a placeholders=() tokens=()
     local -A escape=()
+    local i=0 n
     # Placeholders whose rule asks for backslash-doubled values on the way back.
     while IFS= read -r -d '' ph; do
         escape[$ph]=1
     done < <(jq -j '.[] | select(.escapeBackslashes == true) | .placeholder, "\u0000"' <<<"$rules")
 
     while IFS= read -r ph; do
+        token=$'\x01'
+        for (( n = 0; n <= i; n++ )); do
+            token+=$'\x02'
+        done
+        token+=$'\x03'
+        placeholders+=("$ph")
+        tokens+=("$token")
+        c=${c//"$ph"/"$token"}
+        i=$(( i + 1 ))
+    done < <(_placeholders_by_length "$rules")
+    for (( n = 0; n < ${#placeholders[@]}; n++ )); do
+        ph=${placeholders[$n]}
         v=${USER_VALUES[$ph]}
         if [[ -n ${escape[$ph]:-} && $v == *\\* ]]; then
             v=${v//\\/\\\\}
         fi
-        c=${c//"$ph"/"$v"}
-    done < <(_placeholders_by_length "$rules")
+        c=${c//"${tokens[$n]}"/"$v"}
+    done
     printf '%s' "$c"
 }
 

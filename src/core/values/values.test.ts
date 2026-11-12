@@ -96,6 +96,24 @@ describe("sanitize", () => {
     expectHydrated(hydrated, expectedHome);
   });
 
+  test("should not rescan a placeholder it inserted when a value appears inside it", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<USER_NAME>", prompt: "User name" },
+      { placeholder: "<HOST>", prompt: "Host" },
+    ];
+    const values: Values = { "<USER_NAME>": "parity-user", "<HOST>": "SER" };
+    const content = encodeUtf8("user=parity-user host=SER");
+
+    // Act
+    const actual = sanitize(content, rules, values, { json: false });
+
+    // Assert
+    expect(new TextDecoder().decode(actual)).toBe(
+      "user=<USER_NAME> host=<HOST>",
+    );
+  });
+
   test("a JSON value with quotes and backslashes round-trips", () => {
     // Arrange
     const rules: readonly SanitizeRule[] = [
@@ -187,6 +205,25 @@ describe("hydrate", () => {
         code: 1,
       },
     });
+  });
+
+  test("should not rescan a value it inserted when the value holds a placeholder", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<A>", prompt: "Value that looks like a placeholder" },
+      { placeholder: "<B>", prompt: "Plain value" },
+    ];
+    const values: Values = { "<A>": "x<B>y", "<B>": "Z" };
+    const content = encodeUtf8("a=<A> b=<B>");
+
+    // Act
+    const actual = hydrate(content, rules, values, { json: false });
+
+    // Assert
+    expect(actual.ok).toBe(true);
+    if (actual.ok) {
+      expect(new TextDecoder().decode(actual.value)).toBe("a=x<B>y b=Z");
+    }
   });
 
   test("bytes 0xff 0xfe around a placeholder survive sanitize then hydrate", () => {

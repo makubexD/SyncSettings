@@ -61,6 +61,23 @@ export function replaceAllBytes(
   return result;
 }
 
+const TOKEN_START = 0x01;
+const TOKEN_FILL = 0x02;
+const TOKEN_END = 0x03;
+
+/**
+ * The i-th placeholder's token: \x01, i+1 copies of \x02, \x03. A token is
+ * never a prefix of another token, so replacing tokens in two passes keeps
+ * inserted placeholders and values from being scanned again.
+ */
+export function placeholderToken(index: number): Uint8Array {
+  const token = new Uint8Array(index + 3);
+  token[0] = TOKEN_START;
+  token.fill(TOKEN_FILL, 1, index + 2);
+  token[index + 2] = TOKEN_END;
+  return token;
+}
+
 /** The body of a JSON string literal, as hydrate writes a value into a JSON file. */
 export function jsonStringBody(value: string): string {
   const encoded = JSON.stringify(value) as string | undefined;
@@ -128,16 +145,20 @@ export function sanitize(
   values: Values,
   options: SanitizeOptions,
 ): Uint8Array {
+  const placeholders = placeholdersByLength(rules, values);
   let result = content;
-  for (const placeholder of placeholdersByLength(rules, values)) {
+  for (const [index, placeholder] of placeholders.entries()) {
     const value = values[placeholder];
     if (value === undefined) {
       continue;
     }
-    const placeholderBytes = encodeUtf8(placeholder);
+    const token = placeholderToken(index);
     for (const form of formsFor(value, options.json)) {
-      result = replaceAllBytes(result, encodeUtf8(form), placeholderBytes);
+      result = replaceAllBytes(result, encodeUtf8(form), token);
     }
+  }
+  for (const [index, placeholder] of placeholders.entries()) {
+    result = replaceAllBytes(result, placeholderToken(index), encodeUtf8(placeholder));
   }
   return result;
 }

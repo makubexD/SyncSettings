@@ -3,6 +3,7 @@ import {
   encodeUtf8,
   indexOfBytes,
   jsonStringBody,
+  placeholderToken,
   placeholdersByLength,
   replaceAllBytes,
 } from "./sanitize.ts";
@@ -242,8 +243,19 @@ export function hydrate(
   }
 
   const escaped = escapedPlaceholders(rules);
+  const placeholders = placeholdersByLength(rules, values);
   let result = content;
-  for (const placeholder of placeholdersByLength(rules, values)) {
+  for (const [index, placeholder] of placeholders.entries()) {
+    if (values[placeholder] === undefined) {
+      continue;
+    }
+    result = replaceAllBytes(
+      result,
+      encodeUtf8(placeholder),
+      placeholderToken(index),
+    );
+  }
+  for (const [index, placeholder] of placeholders.entries()) {
     const value = values[placeholder];
     if (value === undefined) {
       continue;
@@ -251,7 +263,7 @@ export function hydrate(
     const replacement = replacementFor(placeholder, value, escaped, options);
     result = replaceAllBytes(
       result,
-      encodeUtf8(placeholder),
+      placeholderToken(index),
       encodeUtf8(replacement),
     );
   }

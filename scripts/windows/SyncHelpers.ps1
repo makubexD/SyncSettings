@@ -540,18 +540,30 @@ function ConvertTo-Sanitized {
         if ($v) { $v.Length } else { 0 }
     } -Descending
 
+    $tokens = New-Object System.Collections.Generic.List[string]
+    $placeholders = New-Object System.Collections.Generic.List[string]
     foreach ($rule in $sorted) {
         $actual = $UserValues[$rule.placeholder]
         if ($actual -and $actual.Length -gt 0) {
+            # The i-th placeholder's token: \x01, i+1 copies of \x02, \x03.
+            # No token is a prefix of another, so the second pass never scans
+            # what it inserted.
+            $index = $tokens.Count
+            $token = ([string][char]1) + (([string][char]2) * ($index + 1)) + ([string][char]3)
+            $tokens.Add($token)
+            $placeholders.Add($rule.placeholder)
             # Try escaped-backslash variant first (longer match = more specific).
             # Handles config files like .gitconfig that use \\ for literal backslashes.
             $escaped = $actual.Replace('\', '\\')
             if ($escaped -ne $actual) {
-                $Content = $Content.Replace($escaped, $rule.placeholder)
+                $Content = $Content.Replace($escaped, $token)
             }
             # Then try the literal value
-            $Content = $Content.Replace($actual, $rule.placeholder)
+            $Content = $Content.Replace($actual, $token)
         }
+    }
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        $Content = $Content.Replace($tokens[$i], $placeholders[$i])
     }
     return $Content
 }
@@ -564,6 +576,8 @@ function ConvertFrom-Sanitized {
         [array]$Rules,
         [hashtable]$UserValues
     )
+    $tokens = New-Object System.Collections.Generic.List[string]
+    $replacements = New-Object System.Collections.Generic.List[string]
     foreach ($rule in $Rules) {
         $actual = $UserValues[$rule.placeholder]
         if ($actual -and $actual.Length -gt 0 -and $Content.Contains($rule.placeholder)) {
@@ -575,8 +589,18 @@ function ConvertFrom-Sanitized {
             if ($forceEscape -and $actual.Contains('\')) {
                 $replacement = $actual.Replace('\', '\\')
             }
-            $Content = $Content.Replace($rule.placeholder, $replacement)
+            # The i-th placeholder's token: \x01, i+1 copies of \x02, \x03.
+            # No token is a prefix of another, so the second pass never scans
+            # what it inserted.
+            $index = $tokens.Count
+            $token = ([string][char]1) + (([string][char]2) * ($index + 1)) + ([string][char]3)
+            $tokens.Add($token)
+            $replacements.Add($replacement)
+            $Content = $Content.Replace($rule.placeholder, $token)
         }
+    }
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        $Content = $Content.Replace($tokens[$i], $replacements[$i])
     }
     return $Content
 }

@@ -263,6 +263,11 @@ For each value that contains `\`, its backslash-doubled form (`C:\\Tools`) is re
 **Hydrate (import).** Each placeholder gets its value. If the rule has `escapeBackslashes: true` and the value
 contains `\`, the placeholder gets the backslash-doubled value instead.
 
+**No rescan.** Neither side scans text it has already put in. A short value that also appears in another placeholder's
+name (`SER` in `<USER_NAME>`) leaves that placeholder whole, and a value that holds a placeholder (`x<B>y`) is written
+as it is. The engines replace in two passes, first with tokens made of the control bytes `\x01`-`\x03` and then with
+the result, so a synced file holding that byte run is not supported.
+
 **Missing value.** If a placeholder has no value after all of the above, with or without a terminal, the engine prints
 `missing value for <PLACEHOLDER>: add it to .user-values.json` and exits 1 before writing any file. Output names the
 placeholder, never its value.
