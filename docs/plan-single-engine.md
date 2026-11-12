@@ -133,6 +133,10 @@ Decisions made 2026-11-10, to be written into the design:
 - **Shadow mode:** on the user's real machines, the new program's `check` and `preview` run next to the old engine's,
   and their output is diffed. Every difference is explained or fixed.
 
+**Done 2026-11-12** ([plan-single-engine-4.md](plan-single-engine-4.md), PR #74). The program passes the 44 shared
+cases with bash; shadow on personal Linux explained every difference; the work machines run shadow from the
+real-Windows checklist. The finish review's fixes are steps 32 to 40; what it left is in the design's "Open".
+
 ### Phase 5: layers
 
 - The merge-and-split core from the design: JSON (objects, arrays, key order, byte-exact output, CRLF) and `@import`
