@@ -1,8 +1,10 @@
-import type { ConfigError, ConfigV2, MergeType, Result } from "./types.ts";
+import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
 
 const CONFIG_FILE = "sync-config.v2.json";
 
 const MERGE_TYPES: readonly MergeType[] = ["whole", "json", "import", "dconf", "dir"];
+
+const OSES: readonly Os[] = ["windows", "linux", "macos"];
 
 const LAYER_PLACEHOLDER = "{layer}";
 
@@ -16,6 +18,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isMergeType(value: unknown): value is MergeType {
   return typeof value === "string" && (MERGE_TYPES as readonly string[]).includes(value);
+}
+
+function isOsList(value: unknown): value is readonly Os[] {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => typeof item === "string" && (OSES as readonly string[]).includes(item))
+  );
 }
 
 function shown(value: unknown): string {
@@ -65,6 +74,18 @@ function osMessage(file: string, os: string, module: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} lists os ${os} outside module ${module}.`;
 }
 
+function entryShapeMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} needs file and localPath as strings.`;
+}
+
+function entryOsMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an os that is not a list of linux, macos or windows.`;
+}
+
+function moduleOsMessage(module: string): string {
+  return `ERROR: ${CONFIG_FILE}: module ${module} has an os that is not a list of linux, macos or windows.`;
+}
+
 function failure(message: string, code: 1 | 2): Result<ConfigV2, ConfigError> {
   return { ok: false, error: { message, code } };
 }
@@ -93,9 +114,24 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
   const modules = parsed.modules;
   const entries: readonly unknown[] = parsed.entries;
 
+  for (const [name, definition] of Object.entries(modules)) {
+    if (isRecord(definition) && Object.hasOwn(definition, "os") && !isOsList(definition.os)) {
+      return failure(moduleOsMessage(name), 1);
+    }
+  }
+
   for (const entry of entries) {
     const record = isRecord(entry) ? entry : {};
-    const file = typeof record.file === "string" ? record.file : "";
+    const entryValue = isRecord(entry) ? record.file : entry;
+    const file =
+      typeof entryValue === "string"
+        ? entryValue
+        : entryValue === undefined
+          ? "none"
+          : shown(entryValue);
+    if (!isRecord(entry) || typeof record.file !== "string") {
+      return failure(entryShapeMessage(file), 1);
+    }
 
     const moduleName = record.module;
     if (typeof moduleName !== "string" || !Object.hasOwn(modules, moduleName)) {
@@ -105,6 +141,15 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
     const merge = record.merge;
     if (!isMergeType(merge)) {
       return failure(unknownMergeMessage(file, shown(merge)), 1);
+    }
+
+    // A dconf entry has no local path: the dconf folder is its destination.
+    if (merge !== "dconf" && typeof record.localPath !== "string") {
+      return failure(entryShapeMessage(file), 1);
+    }
+
+    if (Object.hasOwn(record, "os") && !isOsList(record.os)) {
+      return failure(entryOsMessage(file), 1);
     }
 
     if (merge === "json" && hasEscapeBackslashes(record.sanitize)) {

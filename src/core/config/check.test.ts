@@ -26,6 +26,7 @@ interface V1Options {
   readonly type?: EntryType;
   readonly path?: string;
   readonly keys?: readonly string[];
+  readonly detectLinkedPaths?: boolean;
 }
 
 interface V2Options {
@@ -35,8 +36,10 @@ interface V2Options {
   readonly localPaths?: Readonly<Partial<Record<Os, string>>>;
   readonly os?: readonly Os[];
   readonly sanitize?: readonly SanitizeRule[];
+  readonly localOnlyKeys?: readonly string[];
   readonly dconfPath?: string;
   readonly keys?: readonly string[];
+  readonly scanLinks?: boolean;
   readonly module?: string;
 }
 
@@ -54,6 +57,9 @@ function v1Entry(options: V1Options): ConfigV1Entry {
     ...(options.type !== undefined ? { type: options.type } : {}),
     ...(options.path !== undefined ? { path: options.path } : {}),
     ...(options.keys !== undefined ? { keys: options.keys } : {}),
+    ...(options.detectLinkedPaths !== undefined
+      ? { detectLinkedPaths: options.detectLinkedPaths }
+      : {}),
   };
 }
 
@@ -66,17 +72,30 @@ function v2Entry(options: V2Options): ConfigV2Entry {
     ...(options.localPaths !== undefined ? { localPaths: options.localPaths } : {}),
     ...(options.os !== undefined ? { os: options.os } : {}),
     ...(options.sanitize !== undefined ? { sanitize: options.sanitize } : {}),
+    ...(options.localOnlyKeys !== undefined ? { localOnlyKeys: options.localOnlyKeys } : {}),
     ...(options.dconfPath !== undefined ? { dconfPath: options.dconfPath } : {}),
     ...(options.keys !== undefined ? { keys: options.keys } : {}),
+    ...(options.scanLinks !== undefined ? { scanLinks: options.scanLinks } : {}),
   };
 }
 
-function v1Config(files: readonly ConfigV1Entry[]): ConfigV1 {
-  return { files };
+function v1Config(
+  files: readonly ConfigV1Entry[],
+  excludePatterns?: readonly string[],
+): ConfigV1 {
+  return { files, ...(excludePatterns !== undefined ? { excludePatterns } : {}) };
 }
 
-function v2Config(entries: readonly ConfigV2Entry[]): ConfigV2 {
-  return { schemaVersion: 2, modules: MODULES, entries };
+function v2Config(
+  entries: readonly ConfigV2Entry[],
+  excludePatterns?: readonly string[],
+): ConfigV2 {
+  return {
+    schemaVersion: 2,
+    modules: MODULES,
+    entries,
+    ...(excludePatterns !== undefined ? { excludePatterns } : {}),
+  };
 }
 
 describe("checkV1V2", () => {
@@ -144,7 +163,7 @@ describe("checkV1V2", () => {
     ]);
   });
 
-  test("placeholders are sorted, deduplicated and reported when they differ", () => {
+  test("placeholders are compared in order and reported when they differ", () => {
     // Arrange
     const v1 = v1Config([
       v1Entry({
@@ -168,8 +187,248 @@ describe("checkV1V2", () => {
 
     // Assert
     expect(lines).toEqual([
-      "dotfiles/linux/git/.gitconfig: placeholders on linux differ from v2 (<A>, <B> vs <A>)",
+      "dotfiles/linux/git/.gitconfig: placeholders on linux differ from v2 (<B>, <A>, <B> vs <A>)",
+      "dotfiles/linux/git/.gitconfig: sanitize prompt on linux differs from v2 (Value for <B>, Value for <A>, Value for <B> vs Value for <A>)",
+      "dotfiles/linux/git/.gitconfig: sanitize default on linux differs from v2 (none, none, none vs none)",
+      "dotfiles/linux/git/.gitconfig: sanitize defaultEnv on linux differs from v2 (none, none, none vs none)",
+      "dotfiles/linux/git/.gitconfig: sanitize escapeBackslashes on linux differs from v2 (none, none, none vs none)",
     ]);
+  });
+
+  test("sanitize rules in another order are reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/linux/git/.gitconfig",
+        localPath: "~/.gitconfig",
+        platform: "linux",
+        sanitizeRules: [rule("<A>"), rule("<B>")],
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({
+        file: "git/.gitconfig",
+        os: ["linux"],
+        localPath: "~/.gitconfig",
+        sanitize: [rule("<B>"), rule("<A>")],
+      }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/linux/git/.gitconfig: placeholders on linux differ from v2 (<A>, <B> vs <B>, <A>)",
+      "dotfiles/linux/git/.gitconfig: sanitize prompt on linux differs from v2 (Value for <A>, Value for <B> vs Value for <B>, Value for <A>)",
+    ]);
+  });
+
+  test("a merge differing from v2 is reported for that OS", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/linux/vscode/snippets",
+        localPath: "~/.config/Code/User/snippets",
+        platform: "linux",
+        type: "dir",
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({
+        file: "vscode/snippets",
+        os: ["linux"],
+        merge: "whole",
+        localPath: "~/.config/Code/User/snippets",
+      }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/linux/vscode/snippets: merge on linux differs from v2 (dir vs whole)",
+    ]);
+  });
+
+  test("a sanitize prompt differing from v2 is reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/linux/git/.gitconfig",
+        localPath: "~/.gitconfig",
+        platform: "linux",
+        sanitizeRules: [{ placeholder: "<NAME>", prompt: "Full name" }],
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({
+        file: "git/.gitconfig",
+        os: ["linux"],
+        localPath: "~/.gitconfig",
+        sanitize: [{ placeholder: "<NAME>", prompt: "Your name" }],
+      }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/linux/git/.gitconfig: sanitize prompt on linux differs from v2 (Full name vs Your name)",
+    ]);
+  });
+
+  test("a sanitize default differing from v2 is reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/linux/git/.gitconfig",
+        localPath: "~/.gitconfig",
+        platform: "linux",
+        sanitizeRules: [{ placeholder: "<NAME>", prompt: "Full name", default: "Ada" }],
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({
+        file: "git/.gitconfig",
+        os: ["linux"],
+        localPath: "~/.gitconfig",
+        sanitize: [{ placeholder: "<NAME>", prompt: "Full name" }],
+      }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/linux/git/.gitconfig: sanitize default on linux differs from v2 (Ada vs none)",
+    ]);
+  });
+
+  test("a sanitize defaultEnv differing from v2 is reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/linux/claude/settings.json",
+        localPath: "~/.claude/settings.json",
+        platform: "linux",
+        sanitizeRules: [{ placeholder: "<HOME>", prompt: "Home folder" }],
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({
+        file: "claude/settings.json",
+        os: ["linux"],
+        localPath: "~/.claude/settings.json",
+        sanitize: [{ placeholder: "<HOME>", prompt: "Home folder", defaultEnv: "HOME" }],
+      }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/linux/claude/settings.json: sanitize defaultEnv on linux differs from v2 (none vs HOME)",
+    ]);
+  });
+
+  test("a sanitize escapeBackslashes differing from v2 is reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/linux/git/.gitconfig",
+        localPath: "~/.gitconfig",
+        platform: "linux",
+        sanitizeRules: [{ placeholder: "<PATH>", prompt: "Path", escapeBackslashes: true }],
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({
+        file: "git/.gitconfig",
+        os: ["linux"],
+        localPath: "~/.gitconfig",
+        sanitize: [{ placeholder: "<PATH>", prompt: "Path" }],
+      }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/linux/git/.gitconfig: sanitize escapeBackslashes on linux differs from v2 (true vs none)",
+    ]);
+  });
+
+  test("scanLinks differing from v2 is reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/windows/shell/.bashrc",
+        localPath: "~/.bashrc",
+        platform: "windows",
+        detectLinkedPaths: true,
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({ file: "shell/.bashrc", os: ["windows"], localPath: "~/.bashrc" }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/windows/shell/.bashrc: scanLinks on windows differs from v2 (true vs false)",
+    ]);
+  });
+
+  test("localOnlyKeys present only in v2 are reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({
+        repoPath: "dotfiles/linux/vscode/settings.json",
+        localPath: "~/.config/Code/User/settings.json",
+        platform: "linux",
+      }),
+    ]);
+    const v2 = v2Config([
+      v2Entry({
+        file: "vscode/settings.json",
+        os: ["linux"],
+        merge: "json",
+        localPath: "~/.config/Code/User/settings.json",
+        localOnlyKeys: ["window.zoomLevel"],
+      }),
+    ]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual([
+      "dotfiles/linux/vscode/settings.json: localOnlyKeys on linux differ from v2 (none vs window.zoomLevel)",
+    ]);
+  });
+
+  test("excludePatterns differing in order are reported", () => {
+    // Arrange
+    const v1 = v1Config([
+      v1Entry({ repoPath: "dotfiles/linux/git/.gitconfig", localPath: "~/.gitconfig", platform: "linux" }),
+    ], ["*.pem", "*.key"]);
+    const v2 = v2Config([
+      v2Entry({ file: "git/.gitconfig", os: ["linux"], localPath: "~/.gitconfig" }),
+    ], ["*.key", "*.pem"]);
+
+    // Act
+    const lines = checkV1V2(v1, v2);
+
+    // Assert
+    expect(lines).toEqual(["excludePatterns differ from v2 (*.pem, *.key vs *.key, *.pem)"]);
   });
 
   test("dconf keys differing from v2 are reported", () => {

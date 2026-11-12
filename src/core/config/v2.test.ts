@@ -66,6 +66,18 @@ function osError(file: string, os: string, module: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} lists os ${os} outside module ${module}.`;
 }
 
+function entryShapeError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} needs file and localPath as strings.`;
+}
+
+function entryOsError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an os that is not a list of linux, macos or windows.`;
+}
+
+function moduleOsError(module: string): string {
+  return `ERROR: ${CONFIG_FILE}: module ${module} has an os that is not a list of linux, macos or windows.`;
+}
+
 describe("parseV2", () => {
   test("invalid JSON is rejected with exit 1", () => {
     // Act / Assert
@@ -197,6 +209,97 @@ describe("parseV2", () => {
 
     // Assert
     expect(result.ok).toBe(true);
+  });
+
+  test("an entry that is not an object stops with exit 1", () => {
+    // Arrange
+    const text = configWith([42]);
+
+    // Act / Assert
+    expectError(text, entryShapeError("42"), 1);
+  });
+
+  test("an entry with no file stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: undefined });
+
+    // Act / Assert
+    expectError(configWith([bad]), entryShapeError("none"), 1);
+  });
+
+  test("an entry with a non-string file stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: 7 });
+
+    // Act / Assert
+    expectError(configWith([bad]), entryShapeError("7"), 1);
+  });
+
+  test("a non-dconf entry with no localPath stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ localPath: undefined });
+
+    // Act / Assert
+    expectError(configWith([bad]), entryShapeError(bad.file as string), 1);
+  });
+
+  test("a non-dconf entry with a non-string localPath stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ localPath: 3 });
+
+    // Act / Assert
+    expectError(configWith([bad]), entryShapeError(bad.file as string), 1);
+  });
+
+  test("a dconf entry needs no localPath", () => {
+    // Arrange
+    const good = entry({
+      file: "gnome/dconf/input.ini",
+      module: "gnome",
+      merge: "dconf",
+      localPath: undefined,
+      os: ["linux"],
+    });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok).toBe(true);
+  });
+
+  test("an entry os that is not a list stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ os: "linux" });
+
+    // Act / Assert
+    expectError(configWith([bad]), entryOsError(bad.file as string), 1);
+  });
+
+  test("an entry os naming another system stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ os: ["freebsd"] });
+
+    // Act / Assert
+    expectError(configWith([bad]), entryOsError(bad.file as string), 1);
+  });
+
+  test("a module os that is not a list stops with exit 1", () => {
+    // Arrange
+    const modules = { git: { description: "Git settings", os: "linux" } };
+    const text = configWith([], { modules });
+
+    // Act / Assert
+    expectError(text, moduleOsError("git"), 1);
+  });
+
+  test("a module os naming another system stops with exit 1", () => {
+    // Arrange
+    const modules = { git: { description: "Git settings", os: ["freebsd"] } };
+    const text = configWith([], { modules });
+
+    // Act / Assert
+    expectError(text, moduleOsError("git"), 1);
   });
 
   test("a valid config with one entry of each merge type parses ok", () => {
