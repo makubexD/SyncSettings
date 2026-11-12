@@ -1,5 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { readSnapshot } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { convertV1 } from "../config/convert.ts";
 import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
@@ -294,6 +307,74 @@ describe("planExport", () => {
       },
       { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
     ]);
+  });
+
+  test("exports a file entry read through a local symlink", () => {
+    // Arrange
+    const config = configOf("export-modified");
+    if (!config.ok) {
+      throw new Error("export-modified has an invalid config");
+    }
+    const root = mkdtempSync(join(tmpdir(), "mksync-export-link-"));
+    try {
+      const home = join(root, "home");
+      const repo = join(root, "repo");
+      const repoFile = join(repo, "dotfiles", "common", "parity", "a.conf");
+      mkdirSync(dirname(repoFile), { recursive: true });
+      writeFileSync(repoFile, "repo\n");
+      const target = join(home, ".config", "parity", "a.conf.real");
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, "local\n");
+      chmodSync(target, MODE);
+      symlinkSync(target, join(home, ".config", "parity", "a.conf"));
+      const snapshot = readSnapshot({
+        repoRoot: repo,
+        config: config.value,
+        os: "linux",
+        home,
+        cwd: home,
+        values: {},
+        env: {},
+        only: [],
+      });
+
+      // Act
+      const plan = planExport(snapshot);
+
+      // Assert
+      expect(plan.lines).toContain(
+        formatLine("MODIFIED", "dotfiles/common/parity/a.conf"),
+      );
+      const actions = plan.steps.flatMap((step) =>
+        step.actions.map((entry) => entry.action),
+      );
+      expect(shownActions(actions)).toEqual([
+        {
+          kind: "writeRepo",
+          path: "dotfiles/common/parity/a.conf",
+          text: "local\n",
+        },
+        { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps skipping a dir entry's local symlink", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-export-removed");
+    const localFile = "/home/user/.config/parity/dir/a.txt";
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localFile, { kind: "symlink", path: localFile });
+
+    // Act
+    const plan = planExport({ ...snapshot, localFiles });
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/parity/dir/a.txt", "symlink"),
+    );
   });
 
   test("export-unchanged", () => {

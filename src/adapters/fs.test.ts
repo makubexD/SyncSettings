@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -174,6 +175,49 @@ describe("readSnapshot", () => {
     expect(snapshot.porcelain).toBeUndefined();
   });
 
+  test("should read a file entry's local path through a symlink", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    writeFixture(join(repo, "dotfiles", "common", "git", "config"), "name = repo\n");
+    const target = join(home, ".config", "git", "config.real");
+    writeFixture(target, "name = user\n", PRIVATE_MODE);
+    const localFile = join(home, ".config", "git", "config");
+    symlinkSync(target, localFile);
+
+    // Act
+    const snapshot = snapshotOf(repo, home, [
+      localFileEntry("~/.config/git/config"),
+    ]);
+
+    // Assert
+    const local = snapshot.localFiles.get(localFile);
+    expect(local?.kind).toBe("file");
+    if (local?.kind !== "file") {
+      throw new Error("the local file entry was not read through the link");
+    }
+    expect(textOf(local.bytes)).toBe("name = user\n");
+    expect(local.mode).toBe(PRIVATE_MODE);
+    expect(lstatSync(localFile).isSymbolicLink()).toBe(true);
+  });
+
+  test("should leave a dangling link at a file entry out", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    writeFixture(join(repo, "dotfiles", "common", "git", "config"), "x\n");
+    const localFile = join(home, ".config", "git", "config");
+    mkdirSync(dirname(localFile), { recursive: true });
+    symlinkSync(join(home, ".config", "git", "missing"), localFile);
+
+    // Act
+    const snapshot = snapshotOf(repo, home, [
+      localFileEntry("~/.config/git/config"),
+    ]);
+
+    // Assert
+    expect(snapshot.localFiles.has(localFile)).toBe(false);
+    expect(snapshot.localDirs.has(dirname(localFile))).toBe(false);
+  });
+
   test("should recurse a dir entry and record a symlink without following it", () => {
     // Arrange
     const { home, repo } = fixture();
@@ -296,6 +340,38 @@ describe("runPlan", () => {
     // Assert
     expect(outcome.failed.size).toBe(0);
     expect(readFileSync(localFile, "utf8")).toBe("name = user\n");
+  });
+
+  test("should write through a local symlink and back up its target", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const target = join(home, ".config", "git", "config.real");
+    writeFixture(target, "old\n");
+    const localFile = join(home, ".config", "git", "config");
+    symlinkSync(target, localFile);
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "backup",
+          path: localFile,
+          repoPath: "dotfiles/common/git/config",
+        }),
+        actionOf({
+          kind: "writeLocal",
+          path: localFile,
+          bytes: bytesOf("new\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(readFileSync(target, "utf8")).toBe("new\n");
+    expect(lstatSync(localFile).isSymbolicLink()).toBe(true);
+    expect(readFileSync(`${localFile}.bak`, "utf8")).toBe("old\n");
   });
 
   test("should keep an existing target's mode when writing", () => {

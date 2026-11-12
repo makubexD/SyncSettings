@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { readSnapshot } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { convertV1 } from "../config/convert.ts";
 import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
@@ -642,6 +654,83 @@ describe("planImport file steps", () => {
       path: "/home/user/.config/parity/git.conf",
       modeFrom: "dotfiles/common/parity/git.conf",
     });
+  });
+
+  test("imports through a file entry's local symlink instead of skipping it", () => {
+    // Arrange
+    const config = configOf("import-updated-backup");
+    if (!config.ok) {
+      throw new Error("import-updated-backup has an invalid config");
+    }
+    const root = mkdtempSync(join(tmpdir(), "mksync-import-link-"));
+    try {
+      const home = join(root, "home");
+      const repo = join(root, "repo");
+      const repoFile = join(repo, "dotfiles", "common", "parity", "a.conf");
+      mkdirSync(dirname(repoFile), { recursive: true });
+      writeFileSync(repoFile, "repo\n");
+      const target = join(home, ".config", "parity", "a.conf.real");
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, "local\n");
+      const localFile = join(home, ".config", "parity", "a.conf");
+      symlinkSync(target, localFile);
+      const snapshot = readSnapshot({
+        repoRoot: repo,
+        config: config.value,
+        os: "linux",
+        home,
+        cwd: home,
+        values: {},
+        env: {},
+        only: [],
+        force: true,
+      });
+
+      // Act
+      const plan = planImport(snapshot, []);
+
+      // Assert
+      expect(plan.lines).toContain(
+        formatLine(
+          "UPDATED",
+          "dotfiles/common/parity/a.conf",
+          "backup saved as a.conf.bak",
+        ),
+      );
+      const step = plan.steps.find(
+        (entry) => entry.label === "dotfiles/common/parity/a.conf",
+      );
+      expect(step?.actions.map((entry) => entry.action.kind)).toEqual([
+        "backup",
+        "writeLocal",
+      ]);
+      expect(step?.actions[0]?.action).toMatchObject({
+        kind: "backup",
+        path: localFile,
+      });
+      expect(step?.actions[1]?.action).toMatchObject({
+        kind: "writeLocal",
+        path: localFile,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps skipping a dir entry's local symlink", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-import-extra");
+    const localFile = "/home/user/.config/parity/dir/a.txt";
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localFile, { kind: "symlink", path: localFile });
+
+    // Act
+    const plan = planImport({ ...snapshot, localFiles }, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/parity/dir/a.txt", "symlink"),
+    );
   });
 
   test("reports a dir file's copy failure as cannot copy from repo", () => {

@@ -1,7 +1,6 @@
 import {
   chmodSync,
   copyFileSync,
-  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -61,16 +60,6 @@ export interface RunContext {
 
 function pathFor(os: Os): PathApi {
   return os === "windows" ? win32 : posix;
-}
-
-/** lstat that treats an absent or unreadable path as absent. */
-function lstatOrUndefined(path: string): Stats | undefined {
-  try {
-    return lstatSync(path);
-  } catch {
-    // Unreadable or absent: the snapshot leaves it out and the plan reports it.
-    return undefined;
-  }
 }
 
 /** stat that treats an absent or unreadable path as absent, following symlinks. */
@@ -143,22 +132,18 @@ function fileEntry(path: string, stats: Stats): LocalEntry | undefined {
   return { kind: "file", path, bytes, mode: stats.mode & MODE_MASK };
 }
 
-/** Add one local file, or the symlink that stands in for it. */
+/**
+ * Add one file entry's local file. Like bash's `[[ -f ]]`, a symlink here is
+ * followed: the snapshot holds the target's bytes and mode. A dangling link
+ * is left out, so the plan reports the local file missing.
+ */
 function addLocalEntry(
   path: string,
   os: Os,
   localFiles: Map<string, LocalEntry>,
 ): void {
-  const stats = lstatOrUndefined(path);
-  if (stats === undefined) {
-    return;
-  }
-  if (stats.isSymbolicLink()) {
-    const symlink: LocalSymlink = { kind: "symlink", path };
-    localFiles.set(path, symlink);
-    return;
-  }
-  if (!stats.isFile()) {
+  const stats = statOrUndefined(path);
+  if (stats === undefined || !stats.isFile()) {
     return;
   }
   const entry = fileEntry(path, stats);
