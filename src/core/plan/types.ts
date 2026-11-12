@@ -168,7 +168,12 @@ export interface ExportSummary {
   readonly skipped: number;
 }
 
-export type Summary = ImportSummary | ExportSummary;
+/** A plan whose lines are all there is: an early error prints no summary. */
+export interface NoSummary {
+  readonly kind: "none";
+}
+
+export type Summary = ImportSummary | ExportSummary | NoSummary;
 
 /**
  * A plan the adapter runs: each file's actions grouped with its status line,

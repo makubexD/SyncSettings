@@ -5,7 +5,9 @@ import { convertV1 } from "../config/convert.ts";
 import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planImport } from "./import.ts";
-import type { Action, LocalEntry, Plan, Snapshot } from "./types.ts";
+import { renderRun } from "./run.ts";
+import { NO_FAILURES } from "./types.ts";
+import type { Action, LocalEntry, Snapshot } from "./types.ts";
 
 const CASE_ROOT = new URL("../../../tests/parity/cases/", import.meta.url);
 
@@ -164,8 +166,23 @@ interface Observed {
   readonly code: number;
 }
 
-function runSnapshot(snapshot: Snapshot, answers: readonly string[]): Plan {
-  return planImport(snapshot, answers);
+/** The plan's output and every action it would run, steps first then finish. */
+function runSnapshot(
+  snapshot: Snapshot,
+  answers: readonly string[],
+): Observed {
+  const plan = planImport(snapshot, answers);
+  const rendered = renderRun(plan, NO_FAILURES);
+  return {
+    lines: rendered.lines,
+    actions: [
+      ...plan.steps.flatMap((step) =>
+        step.actions.map((entry) => entry.action),
+      ),
+      ...plan.finish,
+    ],
+    code: rendered.code,
+  };
 }
 
 /** A case stopped by config validation never reaches a plan; exit 1, no lines. */
@@ -252,8 +269,8 @@ function shownActions(actions: readonly Action[]): readonly ShownAction[] {
   });
 }
 
-function writeStateActions(plan: Plan): readonly Action[] {
-  return plan.actions.filter((action) => action.kind === "writeState");
+function writeStateActions(observed: Observed): readonly Action[] {
+  return observed.actions.filter((action) => action.kind === "writeState");
 }
 
 describe("planImport", () => {
@@ -563,5 +580,86 @@ describe("planImport sync point", () => {
     expect(result.code).toBe(1);
     expect(writeStateActions(result)).toEqual([]);
     expect(result.lines).not.toContain(`  Sync point : ${SYNC_HEAD.slice(0, 7)}`);
+  });
+});
+
+describe("planImport file steps", () => {
+  test("groups an UPDATED file's backup and write under its status line", () => {
+    // Arrange
+    const snapshot = validSnapshot("import-updated-backup");
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.steps).toHaveLength(1);
+    const step = plan.steps[0];
+    expect(step?.label).toBe("dotfiles/common/parity/a.conf");
+    expect(step?.counted).toBe(true);
+    expect(plan.lines[step?.line ?? -1]).toBe(
+      formatLine(
+        "UPDATED",
+        "dotfiles/common/parity/a.conf",
+        "backup saved as a.conf.bak",
+      ),
+    );
+    expect(
+      step?.actions.map((entry) => [entry.action.kind, entry.failure]),
+    ).toEqual([
+      ["backup", "cannot create backup"],
+      ["writeLocal", "cannot write local file"],
+    ]);
+    expect(step?.actions[0]?.action).toMatchObject({
+      kind: "backup",
+      path: "/home/user/.config/parity/a.conf",
+      repoPath: "dotfiles/common/parity/a.conf",
+    });
+  });
+
+  test("groups a CREATED file's write and points it at the repo file", () => {
+    // Arrange
+    const snapshot = validSnapshot("hydrate-creates");
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.steps).toHaveLength(1);
+    const step = plan.steps[0];
+    expect(step?.label).toBe("dotfiles/common/parity/git.conf");
+    expect(step?.counted).toBe(true);
+    expect(plan.lines[step?.line ?? -1]).toBe(
+      formatLine("CREATED", "dotfiles/common/parity/git.conf"),
+    );
+    expect(
+      step?.actions.map((entry) => [entry.action.kind, entry.failure]),
+    ).toEqual([["writeLocal", "cannot write local file"]]);
+    expect(step?.actions[0]?.action).toMatchObject({
+      kind: "writeLocal",
+      path: "/home/user/.config/parity/git.conf",
+      modeFrom: "dotfiles/common/parity/git.conf",
+    });
+  });
+
+  test("puts the sync point in finish, outside every step", () => {
+    // Arrange
+    const snapshot = withGit(
+      validSnapshot("import-updated-backup"),
+      SYNC_HEAD,
+      "",
+    );
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.finish).toEqual([
+      { kind: "writeState", path: LAST_SYNC_FILE, text: `${SYNC_HEAD}\n` },
+    ]);
+    expect(
+      plan.steps.some((step) =>
+        step.actions.some((entry) => entry.action.kind === "writeState"),
+      ),
+    ).toBe(false);
   });
 });

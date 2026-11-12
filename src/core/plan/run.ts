@@ -72,10 +72,12 @@ function summaryLines(
   backups: string | undefined,
 ): readonly string[] {
   const lines: string[] = [];
-  if (summary.onlyMatchedNothing) {
+  if (summary.kind !== "none" && summary.onlyMatchedNothing) {
     lines.push(ONLY_WARNING);
   }
   switch (summary.kind) {
+    case "none":
+      break;
     case "import":
       lines.push(...importSummaryLines(summary, count, failed, backups));
       break;

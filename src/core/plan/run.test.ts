@@ -116,7 +116,10 @@ function twoFilePlan(): RunPlan {
 describe("renderRun", () => {
   test("renders the import planner's output unchanged when no step fails", () => {
     // Arrange
-    const expected = planImport(snapshotFor(NEW_BYTES, OLD_BYTES), []);
+    const expected = renderRun(
+      planImport(snapshotFor(NEW_BYTES, OLD_BYTES), []),
+      NO_FAILURES,
+    );
     const plan: RunPlan = {
       steps: [
         {
@@ -229,9 +232,9 @@ describe("renderRun", () => {
     const rendered = renderRun(twoFilePlan(), outcome);
 
     // Assert
-    expect(rendered.lines.some((line) => line.startsWith("  Sync point :"))).toBe(
-      false,
-    );
+    expect(
+      rendered.lines.some((line) => line.startsWith("  Sync point :")),
+    ).toBe(false);
   });
 
   test("prints a step's warning right before its line", () => {
@@ -261,7 +264,9 @@ describe("renderRun", () => {
     // Assert
     const applied = rendered.lines.indexOf("  2 file(s) applied.");
     expect(rendered.lines[applied + 1]).toBe("");
-    expect(rendered.lines[applied + 2]).toBe(`  Backups    : ${BACKUPS_FOLDER}`);
+    expect(rendered.lines[applied + 2]).toBe(
+      `  Backups    : ${BACKUPS_FOLDER}`,
+    );
     expect(rendered.lines[applied + 3]).toBe("");
     expect(rendered.lines[applied + 4]).toBe(
       `  Sync point : ${HEAD.slice(0, 7)}`,

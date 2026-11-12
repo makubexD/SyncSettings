@@ -1,7 +1,9 @@
 import { selectEntries } from "../layers/select.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planImport } from "./import.ts";
-import type { Plan, Snapshot } from "./types.ts";
+import { renderRun } from "./run.ts";
+import { NO_FAILURES } from "./types.ts";
+import type { Plan, RunPlan, Snapshot } from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
 
@@ -22,7 +24,7 @@ const STATUS_LINE = new RegExp(
 );
 
 interface ImportForCheck {
-  readonly plan: Plan;
+  readonly plan: RunPlan;
   readonly unresolved: ReadonlySet<string>;
 }
 
@@ -107,13 +109,16 @@ function labelsNeedingValues(
 }
 
 /** Turn the import's status lines into the check's, keeping their order. */
-function checkedBody(imported: Plan, needsValues: ReadonlySet<string>): CheckedBody {
+function checkedBody(
+  imported: readonly string[],
+  needsValues: ReadonlySet<string>,
+): CheckedBody {
   const lines: string[] = [];
   let changes = 0;
   let errors = 0;
   let warning: string | undefined;
 
-  for (const line of imported.lines) {
+  for (const line of imported) {
     if (line.startsWith("  WARNING:")) {
       warning = line;
       continue;
@@ -196,12 +201,13 @@ function summaryLines(body: CheckedBody): { readonly lines: readonly string[]; r
  */
 export function planCheck(snapshot: Snapshot): Plan {
   const imported = importForCheck(snapshot);
-  if (imported.plan.code !== 0) {
-    return { actions: [], lines: imported.plan.lines, code: imported.plan.code };
+  const rendered = renderRun(imported.plan, NO_FAILURES);
+  if (rendered.code !== 0) {
+    return { actions: [], lines: rendered.lines, code: rendered.code };
   }
 
   const body = checkedBody(
-    imported.plan,
+    rendered.lines,
     labelsNeedingValues(snapshot, imported.unresolved),
   );
   const summary = summaryLines(body);

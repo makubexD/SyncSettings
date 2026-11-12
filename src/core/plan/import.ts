@@ -6,7 +6,14 @@ import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
-import type { Action, Plan, Snapshot } from "./types.ts";
+import type {
+  Action,
+  FileStep,
+  ImportSummary,
+  RunPlan,
+  Snapshot,
+  StepAction,
+} from "./types.ts";
 
 const BASE_ROOT = "dotfiles/common/";
 
@@ -22,13 +29,11 @@ const SYMLINK_NOTE = "symlink";
 
 const DCONF_NOTE = "not supported yet";
 
-const ONLY_WARNING = "  WARNING: --only matched no file.";
-
-const DASHES = "  --------------------------------------------------";
-
 const SYNC_POINT_FILE = "last-sync";
 
-const SYNC_POINT_SHOWN = 7;
+const BACKUP_FAILURE = "cannot create backup";
+
+const WRITE_LOCAL_FAILURE = "cannot write local file";
 
 // The helper block below (path expansion, exclude matching and --only
 // resolution) is copied from export.ts so this step needs no change there.
@@ -149,12 +154,21 @@ function entrySelected(selected: SelectedEntry, only: readonly string[]): boolea
   );
 }
 
-function onlyFailure(argument: string): Plan {
+function errorPlan(message: string, code: number): RunPlan {
   return {
-    actions: [],
-    lines: [`ERROR: ${argument} is not synced on this machine.`],
-    code: 1,
+    steps: [],
+    finish: [],
+    lines: [message],
+    summary: { kind: "none" },
+    code,
   };
+}
+
+function onlyFailure(argument: string): RunPlan {
+  return errorPlan(
+    `ERROR: ${argument} is not synced on this machine.`,
+    1,
+  );
 }
 
 /** Contract "Picking files": turn every `--only` path into the repo path it names. */
@@ -296,7 +310,7 @@ function isExcluded(snapshot: Snapshot, path: string): boolean {
 
 type OnlyOutcome =
   | { readonly ok: true; readonly paths: readonly string[] }
-  | { readonly ok: false; readonly plan: Plan };
+  | { readonly ok: false; readonly plan: RunPlan };
 
 interface State {
   readonly snapshot: Snapshot;
@@ -304,10 +318,11 @@ interface State {
   readonly only: readonly string[];
   readonly answers: readonly string[];
   readonly force: boolean;
-  readonly actions: Action[];
+  readonly steps: FileStep[];
+  readonly finish: Action[];
   readonly lines: string[];
+  pending: StepAction[];
   answerIndex: number;
-  applied: number;
   skipped: number;
   errors: number;
   userSkips: number;
@@ -320,7 +335,7 @@ function pushStatus(
   word: StatusWord,
   label: string,
   note?: string,
-): void {
+): number {
   state.lines.push(formatLine(word, label, note));
   state.hits++;
   if (word === "ERROR") {
@@ -329,6 +344,24 @@ function pushStatus(
   if (word === "SKIPPED" && note === USER_SKIPPED_NOTE) {
     state.userSkips++;
   }
+  return state.lines.length - 1;
+}
+
+/**
+ * Tie the status line just pushed for `label` to the actions gathered for it.
+ * A file with no actions cannot fail, so it needs no step.
+ */
+function recordStep(
+  state: State,
+  label: string,
+  line: number,
+  counted: boolean,
+): void {
+  if (state.pending.length === 0) {
+    return;
+  }
+  state.steps.push({ label, line, counted, actions: state.pending });
+  state.pending = [];
 }
 
 function isDriveRoot(path: string): boolean {
@@ -350,7 +383,10 @@ function ensureParentDir(state: State, path: string): void {
     return;
   }
   state.createdDirs.add(parent);
-  state.actions.push({ kind: "mkdir", path: parent });
+  state.pending.push({
+    action: { kind: "mkdir", path: parent },
+    failure: `cannot create ${parent}`,
+  });
 }
 
 /** Contract "Overwrite prompt": an empty answer and end of input both mean yes. */
@@ -370,19 +406,43 @@ function overwriteAccepted(state: State): boolean {
   return /^[Yy]/.test(trimmed);
 }
 
-function writeCreated(state: State, label: string, localPath: string, bytes: Uint8Array): void {
-  // shortcut: the snapshot has no repo file modes, so a created file gets the
-  // adapter's default mode instead of copying the repo file's (`cp -p`).
-  state.actions.push({ kind: "writeLocal", path: localPath, bytes });
-  pushStatus(state, "CREATED", label);
-  state.applied++;
+function writeCreated(
+  state: State,
+  label: string,
+  localPath: string,
+  repoPath: string,
+  bytes: Uint8Array,
+): void {
+  state.pending.push({
+    action: { kind: "writeLocal", path: localPath, bytes, modeFrom: repoPath },
+    failure: WRITE_LOCAL_FAILURE,
+  });
+  const line = pushStatus(state, "CREATED", label);
+  recordStep(state, label, line, true);
 }
 
-function writeUpdated(state: State, label: string, localPath: string, bytes: Uint8Array): void {
-  state.actions.push({ kind: "backup", path: localPath });
-  state.actions.push({ kind: "writeLocal", path: localPath, bytes });
-  pushStatus(state, "UPDATED", label, `backup saved as ${basename(localPath)}.bak`);
-  state.applied++;
+function writeUpdated(
+  state: State,
+  label: string,
+  localPath: string,
+  repoPath: string,
+  bytes: Uint8Array,
+): void {
+  state.pending.push({
+    action: { kind: "backup", path: localPath, repoPath },
+    failure: BACKUP_FAILURE,
+  });
+  state.pending.push({
+    action: { kind: "writeLocal", path: localPath, bytes },
+    failure: WRITE_LOCAL_FAILURE,
+  });
+  const line = pushStatus(
+    state,
+    "UPDATED",
+    label,
+    `backup saved as ${basename(localPath)}.bak`,
+  );
+  recordStep(state, label, line, true);
 }
 
 /** Compare a repo side with the local file, then prompt, back up and write. */
@@ -396,7 +456,8 @@ function applyBytes(
 ): void {
   const local = state.snapshot.localFiles.get(localPath);
   if (local !== undefined && local.kind === "symlink") {
-    pushStatus(state, "SKIPPED", label, SYMLINK_NOTE);
+    const line = pushStatus(state, "SKIPPED", label, SYMLINK_NOTE);
+    recordStep(state, label, line, false);
     return;
   }
 
@@ -407,19 +468,21 @@ function applyBytes(
       sanitized,
     });
     if (equal) {
-      pushStatus(state, "UNCHANGED", label);
+      const line = pushStatus(state, "UNCHANGED", label);
+      recordStep(state, label, line, false);
       return;
     }
     if (!overwriteAccepted(state)) {
-      pushStatus(state, "SKIPPED", label, USER_SKIPPED_NOTE);
+      const line = pushStatus(state, "SKIPPED", label, USER_SKIPPED_NOTE);
       state.skipped++;
+      recordStep(state, label, line, false);
       return;
     }
-    writeUpdated(state, label, localPath, bytes);
+    writeUpdated(state, label, localPath, repoPath, bytes);
     return;
   }
 
-  writeCreated(state, label, localPath, bytes);
+  writeCreated(state, label, localPath, repoPath, bytes);
 }
 
 function planFile(state: State, selected: SelectedEntry): void {
@@ -428,6 +491,7 @@ function planFile(state: State, selected: SelectedEntry): void {
   if (!onlySelected(repoPath, state.only)) {
     return;
   }
+  state.pending = [];
 
   const localPath = resolvedLocal(entry, state.snapshot.os, state.snapshot.home);
   if (isExcluded(state.snapshot, localPath)) {
@@ -456,7 +520,8 @@ function planFile(state: State, selected: SelectedEntry): void {
   });
   if (!hydrated.ok) {
     // Unreachable after resolveValues; an ERROR only affects this file.
-    pushStatus(state, "ERROR", repoPath, hydrated.error.message);
+    const line = pushStatus(state, "ERROR", repoPath, hydrated.error.message);
+    recordStep(state, repoPath, line, false);
     return;
   }
   applyBytes(state, repoPath, localPath, repoPath, hydrated.value, true);
@@ -481,6 +546,7 @@ function planDir(state: State, selected: SelectedEntry): void {
     .sort();
 
   for (const repoName of repoNames) {
+    state.pending = [];
     const relative = repoName.slice(repoPrefix.length);
     const label = `${repoPath}/${relative}`;
     if (!onlySelected(label, state.only)) {
@@ -570,25 +636,6 @@ function shouldRecordSyncPoint(state: State): boolean {
   return state.snapshot.porcelain === "";
 }
 
-function summaryLines(state: State, syncPoint: string | undefined): readonly string[] {
-  const lines: string[] = [];
-  if (state.only.length > 0 && state.hits === 0) {
-    lines.push(ONLY_WARNING);
-  }
-  lines.push("");
-  lines.push(DASHES);
-  lines.push("");
-  lines.push(`  ${state.applied} file(s) applied.`);
-  lines.push("");
-  if (syncPoint !== undefined) {
-    lines.push(`  Sync point : ${syncPoint.slice(0, SYNC_POINT_SHOWN)}`);
-    lines.push("");
-  }
-  lines.push(DASHES);
-  lines.push("");
-  return lines;
-}
-
 function collectRules(
   snapshot: Snapshot,
   selected: readonly SelectedEntry[],
@@ -639,14 +686,14 @@ function collectRules(
 export function planImport(
   snapshot: Snapshot,
   answers: readonly string[],
-): Plan {
+): RunPlan {
   const selected = selectEntries(
     snapshot.config,
     snapshot.os,
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
-    return { actions: [], lines: [selected.error.message], code: selected.error.code };
+    return errorPlan(selected.error.message, selected.error.code);
   }
 
   const only = resolveOnly(snapshot, selected.value);
@@ -657,7 +704,7 @@ export function planImport(
   const gathered = collectRules(snapshot, selected.value, only.paths);
   const values = resolveValues(gathered.rules, snapshot.values, gathered.inferred, snapshot.env);
   if (!values.ok) {
-    return { actions: [], lines: [values.error.message], code: 1 };
+    return errorPlan(values.error.message, 1);
   }
 
   const state: State = {
@@ -666,10 +713,11 @@ export function planImport(
     only: only.paths,
     answers,
     force: snapshot.force === true,
-    actions: [],
+    steps: [],
+    finish: [],
     lines: [],
+    pending: [],
     answerIndex: 0,
-    applied: 0,
     skipped: 0,
     errors: 0,
     userSkips: 0,
@@ -698,7 +746,7 @@ export function planImport(
   if (shouldRecordSyncPoint(state)) {
     syncPoint = snapshot.head;
     if (syncPoint !== undefined) {
-      state.actions.push({
+      state.finish.push({
         kind: "writeState",
         path: lastSyncFile(snapshot),
         text: `${syncPoint}\n`,
@@ -706,6 +754,16 @@ export function planImport(
     }
   }
 
-  state.lines.push(...summaryLines(state, syncPoint));
-  return { actions: state.actions, lines: state.lines, code: 0 };
+  const summary: ImportSummary = {
+    kind: "import",
+    onlyMatchedNothing: state.only.length > 0 && state.hits === 0,
+    ...(syncPoint !== undefined ? { syncPoint } : {}),
+  };
+  return {
+    steps: state.steps,
+    finish: state.finish,
+    lines: state.lines,
+    summary,
+    code: 0,
+  };
 }
