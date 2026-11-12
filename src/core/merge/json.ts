@@ -1,7 +1,7 @@
 import type { Result } from "../config/types.ts";
 import { jsonEqual, parseJson, writeJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
-import type { LayerFile } from "./types.ts";
+import type { LayerChange, LayerFile } from "./types.ts";
 
 const NO_LAYERS = "mergeJsonValues needs at least one layer";
 
@@ -160,4 +160,418 @@ export function mergeJson(
   const result =
     local === undefined ? merged : applyLocalOnlyKeys(merged, local);
   return { ok: true, value: new TextEncoder().encode(writeJson(result, eol)) };
+}
+
+export type LayerName = "base" | "os" | "profile" | "machine";
+
+/**
+ * One layer slot in layer order (base, OS, profile, machine). `bytes` is
+ * undefined when this machine has the layer but it holds no file yet: a merge
+ * skips it, and a change may create it.
+ */
+export interface JsonLayer {
+  readonly name: LayerName;
+  readonly repoPath: string;
+  readonly bytes: Uint8Array | undefined;
+}
+
+/**
+ * A key or array item the local file holds and no layer holds yet. `path` joins
+ * object keys with "." and an array item as "[]", per the contract's wording.
+ */
+export interface NewSetting {
+  readonly path: string;
+  readonly value: JsonValue;
+}
+
+/** One change per layer whose content differs, in layer order, plus the new
+ * settings no layer could take. */
+export interface JsonSplit {
+  readonly changes: readonly LayerChange[];
+  readonly newSettings: readonly NewSetting[];
+}
+
+const INVALID_JSON = "not valid JSON";
+const EMPTY_OBJECT: JsonValue = { kind: "object", entries: new Map() };
+const EMPTY_DESTINATIONS: ReadonlyMap<string, LayerName> = new Map();
+
+interface SplitState {
+  readonly name: LayerName;
+  readonly repoPath: string;
+  value: JsonValue | undefined;
+  changed: boolean;
+}
+
+interface SplitContext {
+  readonly states: readonly SplitState[];
+  readonly destinations: ReadonlyMap<string, LayerName>;
+  readonly newSettings: NewSetting[];
+}
+
+function joinPath(segments: readonly string[]): string {
+  return segments.join(".");
+}
+
+/** Whether `value` holds every key of `segments`, each inside an object. */
+function hasKeyPath(value: JsonValue, segments: readonly string[]): boolean {
+  if (segments.length === 0) {
+    return true;
+  }
+  const head = segments[0];
+  if (head === undefined || value.kind !== "object") {
+    return false;
+  }
+  const child = value.entries.get(head);
+  return child !== undefined && hasKeyPath(child, segments.slice(1));
+}
+
+/** The value at an object-key path, or undefined when the path leaves objects. */
+function getAtPath(
+  value: JsonValue | undefined,
+  segments: readonly string[],
+): JsonValue | undefined {
+  let current = value;
+  for (const segment of segments) {
+    if (current === undefined || current.kind !== "object") {
+      return undefined;
+    }
+    current = current.entries.get(segment);
+  }
+  return current;
+}
+
+/** A copy of `value` with the key at `segments` set to `replacement`, creating
+ * missing parent objects. An existing key keeps its position. */
+function setKeyPath(
+  value: JsonValue,
+  segments: readonly string[],
+  replacement: JsonValue,
+): JsonValue {
+  if (segments.length === 0) {
+    return replacement;
+  }
+  const head = segments[0];
+  if (head === undefined) {
+    return value;
+  }
+  const tail = segments.slice(1);
+  const entries = value.kind === "object" ? new Map(value.entries) : new Map();
+  if (tail.length === 0) {
+    entries.set(head, replacement);
+  } else {
+    const child = entries.get(head);
+    entries.set(head, setKeyPath(child ?? EMPTY_OBJECT, tail, replacement));
+  }
+  return { kind: "object", entries };
+}
+
+/** A copy of `value` with the key at `segments` removed. */
+function removeKeyPath(
+  value: JsonValue,
+  segments: readonly string[],
+): JsonValue {
+  if (segments.length === 0 || value.kind !== "object") {
+    return value;
+  }
+  const head = segments[0];
+  if (head === undefined) {
+    return value;
+  }
+  const tail = segments.slice(1);
+  const entries = new Map(value.entries);
+  if (tail.length === 0) {
+    entries.delete(head);
+    return { kind: "object", entries };
+  }
+  const child = entries.get(head);
+  if (child === undefined) {
+    return value;
+  }
+  entries.set(head, removeKeyPath(child, tail));
+  return { kind: "object", entries };
+}
+
+/** A copy of `value` with `item` appended to the array at `segments`, creating
+ * the array and its parent objects when missing. */
+function appendArrayItem(
+  value: JsonValue,
+  segments: readonly string[],
+  item: JsonValue,
+): JsonValue {
+  if (segments.length === 0) {
+    const items = value.kind === "array" ? [...value.items] : [];
+    items.push(item);
+    return { kind: "array", items };
+  }
+  const head = segments[0];
+  if (head === undefined) {
+    return value;
+  }
+  const tail = segments.slice(1);
+  const entries = value.kind === "object" ? new Map(value.entries) : new Map();
+  const child = entries.get(head);
+  entries.set(head, appendArrayItem(child ?? EMPTY_OBJECT, tail, item));
+  return { kind: "object", entries };
+}
+
+/** A copy of `value` with only the `keys` (top-level) kept out. */
+function withoutTopLevelKeys(
+  value: JsonValue,
+  keys: readonly string[],
+): JsonValue {
+  if (value.kind !== "object" || keys.length === 0) {
+    return value;
+  }
+  const entries = new Map(value.entries);
+  for (const key of keys) {
+    entries.delete(key);
+  }
+  return { kind: "object", entries };
+}
+
+/** The layer slot a new setting goes to, or undefined when none can take it. */
+function resolveNewSettingTarget(
+  lookupKey: string,
+  context: SplitContext,
+): SplitState | undefined {
+  const destination = context.destinations.get(lookupKey);
+  if (destination !== undefined) {
+    const named = context.states.find((state) => state.name === destination);
+    if (named !== undefined) {
+      return named;
+    }
+  }
+  if (context.states.length === 1) {
+    return context.states[0];
+  }
+  return undefined;
+}
+
+function addNewKey(
+  segments: readonly string[],
+  value: JsonValue,
+  context: SplitContext,
+): void {
+  const path = joinPath(segments);
+  const target = resolveNewSettingTarget(path, context);
+  if (target === undefined) {
+    context.newSettings.push({ path, value });
+    return;
+  }
+  target.value = setKeyPath(target.value ?? EMPTY_OBJECT, segments, value);
+  target.changed = true;
+}
+
+function addNewArrayItem(
+  segments: readonly string[],
+  item: JsonValue,
+  context: SplitContext,
+): void {
+  const arrayPath = joinPath(segments);
+  const target = resolveNewSettingTarget(arrayPath, context);
+  if (target === undefined) {
+    context.newSettings.push({ path: `${arrayPath}[]`, value: item });
+    return;
+  }
+  target.value = appendArrayItem(target.value ?? EMPTY_OBJECT, segments, item);
+  target.changed = true;
+}
+
+/** A key removed from the local file goes out of every layer that sets it, so
+ * an earlier layer's value can't resurface. */
+function removeKeyFromEveryLayer(
+  segments: readonly string[],
+  context: SplitContext,
+): void {
+  for (const state of context.states) {
+    const value = state.value;
+    if (value !== undefined && hasKeyPath(value, segments)) {
+      state.value = removeKeyPath(value, segments);
+      state.changed = true;
+    }
+  }
+}
+
+/** An array item removed from the local file goes out of every layer whose
+ * array holds it: the layer that added it and any later repeat. */
+function removeItemFromEveryLayer(
+  segments: readonly string[],
+  item: JsonValue,
+  context: SplitContext,
+): void {
+  for (const state of context.states) {
+    const value = state.value;
+    if (value === undefined) {
+      continue;
+    }
+    const array = getAtPath(value, segments);
+    if (array === undefined || array.kind !== "array") {
+      continue;
+    }
+    const kept = array.items.filter((existing) => !jsonEqual(existing, item));
+    if (kept.length === array.items.length) {
+      continue;
+    }
+    state.value = setKeyPath(value, segments, { kind: "array", items: kept });
+    state.changed = true;
+  }
+}
+
+/** A changed scalar or a type change goes to the latest layer that sets the
+ * key path, keeping that key's position in the layer. */
+function setInLatestLayer(
+  segments: readonly string[],
+  value: JsonValue,
+  context: SplitContext,
+): void {
+  for (let index = context.states.length - 1; index >= 0; index--) {
+    const state = context.states[index];
+    if (state === undefined) {
+      continue;
+    }
+    if (state.value !== undefined && hasKeyPath(state.value, segments)) {
+      state.value = setKeyPath(state.value, segments, value);
+      state.changed = true;
+      return;
+    }
+  }
+  // A changed key always has a layer that sets it; with no present layer the
+  // merged value is the empty object, so the key is new, not changed.
+}
+
+function diffArrays(
+  local: readonly JsonValue[],
+  merged: readonly JsonValue[],
+  path: readonly string[],
+  context: SplitContext,
+): void {
+  for (const item of merged) {
+    if (!local.some((existing) => jsonEqual(existing, item))) {
+      removeItemFromEveryLayer(path, item, context);
+    }
+  }
+  for (const item of local) {
+    if (!merged.some((existing) => jsonEqual(existing, item))) {
+      addNewArrayItem(path, item, context);
+    }
+  }
+}
+
+function diffObjects(
+  local: ReadonlyMap<string, JsonValue>,
+  merged: ReadonlyMap<string, JsonValue>,
+  path: readonly string[],
+  context: SplitContext,
+): void {
+  for (const [key] of merged) {
+    if (!local.has(key)) {
+      removeKeyFromEveryLayer([...path, key], context);
+    }
+  }
+  for (const [key, localValue] of local) {
+    const mergedValue = merged.get(key);
+    if (mergedValue === undefined) {
+      addNewKey([...path, key], localValue, context);
+    } else {
+      diffValues(localValue, mergedValue, [...path, key], context);
+    }
+  }
+}
+
+function diffValues(
+  local: JsonValue,
+  merged: JsonValue,
+  path: readonly string[],
+  context: SplitContext,
+): void {
+  if (local.kind === "object" && merged.kind === "object") {
+    diffObjects(local.entries, merged.entries, path, context);
+    return;
+  }
+  if (local.kind === "array" && merged.kind === "array") {
+    diffArrays(local.items, merged.items, path, context);
+    return;
+  }
+  if (jsonEqual(local, merged)) {
+    return;
+  }
+  setInLatestLayer(path, local, context);
+}
+
+/**
+ * Splits a changed local file back into its layers, per the contract's
+ * "Splitting a changed file": the parsed local file is compared with the merge
+ * of the present layers (the empty object with none), and each difference goes
+ * to one layer. A new key or array item with no layer to take it lands in
+ * `newSettings`, and then nothing of the file changes at all. `localOnlyKeys`
+ * are ignored on both sides, and values are written as they are: the caller
+ * sanitizes.
+ *
+ * Errors: a present layer that isn't JSON is `not valid JSON: <layer path>`,
+ * and a local file that isn't valid UTF-8 or JSON is `not valid JSON`.
+ */
+export function splitJson(
+  local: Uint8Array,
+  layers: readonly JsonLayer[],
+  options: {
+    readonly destinations?: ReadonlyMap<string, LayerName>;
+    readonly localOnlyKeys?: readonly string[];
+  },
+): Result<JsonSplit, string> {
+  const localValue = parseBytes(local);
+  if (localValue === undefined) {
+    return { ok: false, error: INVALID_JSON };
+  }
+
+  const states: SplitState[] = [];
+  const values: JsonValue[] = [];
+  for (const layer of layers) {
+    const parsed =
+      layer.bytes === undefined ? undefined : parseBytes(layer.bytes);
+    if (layer.bytes !== undefined && parsed === undefined) {
+      return { ok: false, error: `not valid JSON: ${layer.repoPath}` };
+    }
+    states.push({
+      name: layer.name,
+      repoPath: layer.repoPath,
+      value: parsed,
+      changed: false,
+    });
+    if (parsed !== undefined) {
+      values.push(parsed);
+    }
+  }
+
+  const merged = values.length === 0 ? EMPTY_OBJECT : mergeJsonValues(values);
+  const localOnlyKeys = options.localOnlyKeys ?? [];
+
+  const context: SplitContext = {
+    states,
+    destinations: options.destinations ?? EMPTY_DESTINATIONS,
+    newSettings: [],
+  };
+  diffValues(
+    withoutTopLevelKeys(localValue, localOnlyKeys),
+    withoutTopLevelKeys(merged, localOnlyKeys),
+    [],
+    context,
+  );
+
+  if (context.newSettings.length > 0) {
+    return {
+      ok: true,
+      value: { changes: [], newSettings: context.newSettings },
+    };
+  }
+
+  const changes: LayerChange[] = [];
+  for (const state of states) {
+    if (state.changed && state.value !== undefined) {
+      changes.push({
+        repoPath: state.repoPath,
+        bytes: new TextEncoder().encode(writeJson(state.value, "\n")),
+      });
+    }
+  }
+  return { ok: true, value: { changes, newSettings: context.newSettings } };
 }

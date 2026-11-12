@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { parseJson, writeJson } from "../json/value.ts";
+import { jsonEqual, parseJson, writeJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
-import { mergeJson, mergeJsonValues } from "./json.ts";
-import type { LayerFile } from "./types.ts";
+import { mergeJson, mergeJsonValues, splitJson } from "./json.ts";
+import type { JsonLayer, JsonSplit, LayerName, NewSetting } from "./json.ts";
+import type { LayerChange, LayerFile } from "./types.ts";
 
 const LF = "\n";
 const CRLF = "\r\n";
@@ -316,5 +317,527 @@ describe("mergeJson", () => {
 
     // Assert
     expect(result).toBe(NUMBER_FILE_TEXT);
+  });
+});
+
+const OS_PATH = "dotfiles/linux/vscode/settings.json";
+
+const MARKET_A = "https://marketplace.example.com/a";
+const MARKET_B = "https://marketplace.example.com/b";
+const MARKET_C = "https://marketplace.example.com/c";
+
+const CASE1_BASE_TEXT = '{"editor.fontSize": 14}';
+const CASE1_LOCAL_TEXT = '{"editor.fontSize": 15}';
+const CASE1_BASE_CHANGE_TEXT = `{
+  "editor.fontSize": 15
+}
+`;
+
+const CASE2_LOCAL_TEXT = `{
+  "editor.fontSize": 14,
+  "http.proxy": "http://proxy.new.example.com:9999"
+}
+`;
+const CASE2_PROFILE_CHANGE_TEXT = `{
+  "http.proxy": "http://proxy.new.example.com:9999"
+}
+`;
+
+const MARKETPLACES_BASE_TEXT = `{
+  "chat.plugins.marketplaces": [
+    "${MARKET_A}",
+    "${MARKET_B}"
+  ]
+}
+`;
+const MARKETPLACES_LOCAL_TEXT = `{
+  "chat.plugins.marketplaces": [
+    "${MARKET_A}",
+    "${MARKET_B}",
+    "${MARKET_C}"
+  ],
+  "http.proxy": "http://proxy.example.com:8080"
+}
+`;
+const MARKETPLACES_PROFILE_CHANGE_TEXT = `{
+  "http.proxy": "http://proxy.example.com:8080",
+  "chat.plugins.marketplaces": [
+    "${MARKET_C}"
+  ]
+}
+`;
+
+const MARKETPLACES_REMOVED_LOCAL_TEXT = `{
+  "chat.plugins.marketplaces": [
+    "${MARKET_A}"
+  ]
+}
+`;
+const MARKETPLACES_REMOVED_BASE_CHANGE_TEXT = `{
+  "chat.plugins.marketplaces": [
+    "${MARKET_A}"
+  ]
+}
+`;
+
+const ALLOW_BASE_TEXT = `{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)"
+    ]
+  }
+}
+`;
+const ALLOW_LOCAL_TEXT = `{
+  "http.proxy": "http://proxy.example.com:8080",
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(npm test:*)"
+    ]
+  }
+}
+`;
+const ALLOW_PROFILE_CHANGE_TEXT = `{
+  "http.proxy": "http://proxy.example.com:8080",
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)"
+    ]
+  }
+}
+`;
+
+const AGENT_ENABLED_LOCAL_TEXT = `{
+  "editor.fontSize": 14,
+  "http.proxy": "http://proxy.example.com:8080",
+  "chat.agent.enabled": true
+}
+`;
+
+const REORDER_BASE_TEXT = '{"a": 1, "b": 2}';
+const REORDER_LOCAL_CRLF_TEXT = '{\r\n  "b": 2,\r\n  "a": 1\r\n}\r\n';
+
+const PULL_BASE_TEXT = '{"a": 1, "list": ["x"], "obj": {"k": "base"}}';
+const PULL_OS_TEXT = '{"list": ["y", "x"], "obj": {"k2": "os"}, "b": 2}';
+
+const SINGLE_BASE_TEXT = '{"a": 1, "list": ["x"]}';
+const SINGLE_LOCAL_TEXT = `{
+  "a": 2,
+  "list": [
+    "x",
+    "y"
+  ],
+  "b": true
+}
+`;
+const SINGLE_BASE_CHANGE_TEXT = SINGLE_LOCAL_TEXT;
+
+const NEW_PROFILE_LOCAL_TEXT = `{
+  "editor.fontSize": 14,
+  "http.proxy": "http://proxy.example.com:8080"
+}
+`;
+const NEW_PROFILE_CHANGE_TEXT = `{
+  "http.proxy": "http://proxy.example.com:8080"
+}
+`;
+
+const REMOVE_BASE_TEXT = '{"a": 1, "keep": "base"}';
+const REMOVE_OS_TEXT = '{"a": 2}';
+const REMOVE_LOCAL_TEXT = '{"keep": "base"}';
+const REMOVE_BASE_CHANGE_TEXT = `{
+  "keep": "base"
+}
+`;
+const REMOVE_OS_CHANGE_TEXT = "{}\n";
+
+const SPLIT_LOCAL_ONLY_BASE_TEXT =
+  '{"editor.fontSize": 14, "window.zoomLevel": 0}';
+const SPLIT_LOCAL_ONLY_LOCAL_TEXT =
+  '{"editor.fontSize": 14, "window.zoomLevel": 2}';
+const SPLIT_LOCAL_ONLY_ADDED_TEXT = '{"editor.fontSize": 14, "window.zoomLevel": 2}';
+
+const DESTINATION_ALLOW = new Map<string, LayerName>([
+  ["permissions.allow", "profile"],
+]);
+const DESTINATION_MARKETPLACES = new Map<string, LayerName>([
+  ["chat.plugins.marketplaces", "profile"],
+]);
+const DESTINATION_PROXY = new Map<string, LayerName>([
+  ["http.proxy", "profile"],
+]);
+
+function decode(value: Uint8Array): string {
+  return new TextDecoder().decode(value);
+}
+
+function jsonLayer(
+  name: LayerName,
+  repoPath: string,
+  text: string | undefined,
+): JsonLayer {
+  return { name, repoPath, bytes: text === undefined ? undefined : bytes(text) };
+}
+
+function split(
+  localText: string,
+  layers: readonly JsonLayer[],
+  options: {
+    readonly destinations?: ReadonlyMap<string, LayerName>;
+    readonly localOnlyKeys?: readonly string[];
+  } = {},
+): JsonSplit {
+  const result = splitJson(bytes(localText), layers, options);
+  if (!result.ok) {
+    throw new Error(`expected a split, got ${result.error}`);
+  }
+  return result.value;
+}
+
+function applyChanges(
+  layers: readonly JsonLayer[],
+  changes: readonly LayerChange[],
+): JsonValue[] {
+  const values: JsonValue[] = [];
+  for (const layer of layers) {
+    const change = changes.find(
+      (candidate) => candidate.repoPath === layer.repoPath,
+    );
+    if (change !== undefined) {
+      values.push(parseOk(decode(change.bytes)));
+    } else if (layer.bytes !== undefined) {
+      values.push(parseOk(decode(layer.bytes)));
+    }
+  }
+  return values;
+}
+
+function withoutLocalOnly(
+  value: JsonValue,
+  keys: readonly string[],
+): JsonValue {
+  if (value.kind !== "object" || keys.length === 0) {
+    return value;
+  }
+  const entries = new Map(value.entries);
+  for (const key of keys) {
+    entries.delete(key);
+  }
+  return { kind: "object", entries };
+}
+
+/** The property: applying a split's changes and merging again equals the local
+ * file parsed (localOnlyKeys aside). Used by every non-error case. */
+function expectRoundTrip(
+  localText: string,
+  layers: readonly JsonLayer[],
+  options: {
+    readonly destinations?: ReadonlyMap<string, LayerName>;
+    readonly localOnlyKeys?: readonly string[];
+  } = {},
+): JsonSplit {
+  const result = split(localText, layers, options);
+  const localOnlyKeys = options.localOnlyKeys ?? [];
+  const values = applyChanges(layers, result.changes);
+  const merged = values.length === 0 ? parseOk("{}") : mergeJsonValues(values);
+  expect(
+    jsonEqual(
+      withoutLocalOnly(merged, localOnlyKeys),
+      withoutLocalOnly(parseOk(localText), localOnlyKeys),
+    ),
+  ).toBe(true);
+  return result;
+}
+
+function expectLayerText(
+  changes: readonly LayerChange[],
+  repoPath: string,
+  text: string,
+): void {
+  const change = changes.find((candidate) => candidate.repoPath === repoPath);
+  expect(change).toBeDefined();
+  expect(change === undefined ? "" : decode(change.bytes)).toBe(text);
+}
+
+function expectNoLayerChange(
+  changes: readonly LayerChange[],
+  repoPath: string,
+): void {
+  expect(changes.some((change) => change.repoPath === repoPath)).toBe(false);
+}
+
+function expectNewSettings(
+  settings: readonly NewSetting[],
+  expected: readonly { readonly path: string; readonly json: string }[],
+): void {
+  expect(settings).toHaveLength(expected.length);
+  expected.forEach((entry, index) => {
+    const setting = settings[index];
+    expect(setting?.path).toBe(entry.path);
+    expect(
+      setting === undefined ? false : jsonEqual(setting.value, parseOk(entry.json)),
+    ).toBe(true);
+  });
+}
+
+describe("splitJson", () => {
+  test("case 1: a changed base key goes to the base layer", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, CASE1_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(CASE1_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(result.changes, BASE_PATH, CASE1_BASE_CHANGE_TEXT);
+  });
+
+  test("case 2: a changed profile key goes to the profile layer", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, CASE1_BASE_TEXT),
+      jsonLayer("profile", PROFILE_PATH, PROFILE_PROXY_TEXT),
+    ];
+
+    // Act
+    const result = expectRoundTrip(CASE2_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(result.changes, PROFILE_PATH, CASE2_PROFILE_CHANGE_TEXT);
+    expectNoLayerChange(result.changes, BASE_PATH);
+  });
+
+  test("case 3: a new array item with no destination is a new setting and writes nothing", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, MARKETPLACES_BASE_TEXT),
+      jsonLayer("profile", PROFILE_PATH, PROFILE_PROXY_TEXT),
+    ];
+
+    // Act
+    const result = split(MARKETPLACES_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.changes).toEqual([]);
+    expectNewSettings(result.newSettings, [
+      { path: "chat.plugins.marketplaces[]", json: `"${MARKET_C}"` },
+    ]);
+  });
+
+  test("case 3: a new array item with a profile destination goes to the profile layer", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, MARKETPLACES_BASE_TEXT),
+      jsonLayer("profile", PROFILE_PATH, PROFILE_PROXY_TEXT),
+    ];
+
+    // Act
+    const result = expectRoundTrip(MARKETPLACES_LOCAL_TEXT, layers, {
+      destinations: DESTINATION_MARKETPLACES,
+    });
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(
+      result.changes,
+      PROFILE_PATH,
+      MARKETPLACES_PROFILE_CHANGE_TEXT,
+    );
+    expectNoLayerChange(result.changes, BASE_PATH);
+  });
+
+  test("case 4: a removed base array item is removed from the base layer", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, MARKETPLACES_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(MARKETPLACES_REMOVED_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(
+      result.changes,
+      BASE_PATH,
+      MARKETPLACES_REMOVED_BASE_CHANGE_TEXT,
+    );
+  });
+
+  test("case 5: Claude's rewrite with own key order sends only the new allow item to the profile", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, ALLOW_BASE_TEXT),
+      jsonLayer("profile", PROFILE_PATH, PROFILE_PROXY_TEXT),
+    ];
+
+    // Act
+    const result = expectRoundTrip(ALLOW_LOCAL_TEXT, layers, {
+      destinations: DESTINATION_ALLOW,
+    });
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(result.changes, PROFILE_PATH, ALLOW_PROFILE_CHANGE_TEXT);
+    expectNoLayerChange(result.changes, BASE_PATH);
+  });
+
+  test("case 6: a new top-level key with no destination is a new setting", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, CASE1_BASE_TEXT),
+      jsonLayer("profile", PROFILE_PATH, PROFILE_PROXY_TEXT),
+    ];
+
+    // Act
+    const result = split(AGENT_ENABLED_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.changes).toEqual([]);
+    expectNewSettings(result.newSettings, [
+      { path: "chat.agent.enabled", json: "true" },
+    ]);
+  });
+
+  test("case 9: CRLF and key reordering alone are no change", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, REORDER_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(REORDER_LOCAL_CRLF_TEXT, layers);
+
+    // Assert
+    expect(result.changes).toEqual([]);
+    expect(result.newSettings).toEqual([]);
+  });
+
+  test("a push right after a pull finds no change", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, PULL_BASE_TEXT),
+      jsonLayer("os", OS_PATH, PULL_OS_TEXT),
+    ];
+    const localText = writeJson(
+      mergeJsonValues([parseOk(PULL_BASE_TEXT), parseOk(PULL_OS_TEXT)]),
+      LF,
+    );
+
+    // Act
+    const result = expectRoundTrip(localText, layers);
+
+    // Assert
+    expect(result.changes).toEqual([]);
+    expect(result.newSettings).toEqual([]);
+  });
+
+  test("a single layer slot takes every change, new key and new item", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, SINGLE_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(SINGLE_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(result.changes, BASE_PATH, SINGLE_BASE_CHANGE_TEXT);
+  });
+
+  test("a destination naming a profile slot with no file yet creates the profile file", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, CASE1_BASE_TEXT),
+      jsonLayer("profile", PROFILE_PATH, undefined),
+    ];
+
+    // Act
+    const result = expectRoundTrip(NEW_PROFILE_LOCAL_TEXT, layers, {
+      destinations: DESTINATION_PROXY,
+    });
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(result.changes, PROFILE_PATH, NEW_PROFILE_CHANGE_TEXT);
+    expectNoLayerChange(result.changes, BASE_PATH);
+  });
+
+  test("a removed key set by the base and the OS is removed from both", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, REMOVE_BASE_TEXT),
+      jsonLayer("os", OS_PATH, REMOVE_OS_TEXT),
+    ];
+
+    // Act
+    const result = expectRoundTrip(REMOVE_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(2);
+    expectLayerText(result.changes, BASE_PATH, REMOVE_BASE_CHANGE_TEXT);
+    expectLayerText(result.changes, OS_PATH, REMOVE_OS_CHANGE_TEXT);
+  });
+
+  test("a localOnly key that differs is not a change", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, SPLIT_LOCAL_ONLY_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(SPLIT_LOCAL_ONLY_LOCAL_TEXT, layers, {
+      localOnlyKeys: ["window.zoomLevel"],
+    });
+
+    // Assert
+    expect(result.changes).toEqual([]);
+    expect(result.newSettings).toEqual([]);
+  });
+
+  test("a localOnly key only the local file holds is not a new setting", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, CASE1_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(SPLIT_LOCAL_ONLY_ADDED_TEXT, layers, {
+      localOnlyKeys: ["window.zoomLevel"],
+    });
+
+    // Assert
+    expect(result.changes).toEqual([]);
+    expect(result.newSettings).toEqual([]);
+  });
+
+  test("a local file that isn't valid JSON is an error", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, CASE1_BASE_TEXT)];
+
+    // Act
+    const result = splitJson(bytes("{ not JSON"), layers, {});
+
+    // Assert
+    expect(result).toEqual({ ok: false, error: "not valid JSON" });
+  });
+
+  test("a layer that isn't valid JSON is an error naming the layer", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, CASE1_BASE_TEXT),
+      jsonLayer("os", OS_PATH, "{ not JSON"),
+    ];
+
+    // Act
+    const result = splitJson(bytes(CASE1_LOCAL_TEXT), layers, {});
+
+    // Assert
+    expect(result).toEqual({
+      ok: false,
+      error: `not valid JSON: ${OS_PATH}`,
+    });
   });
 });
