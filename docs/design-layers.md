@@ -852,6 +852,17 @@ without writing anything and compares them with the old engine's check and previ
 placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
 use; no unexplained difference on every machine is a condition for cut-over.
 
+`mksync shadow` (hidden, phase 4) prints `shadow: same` and exits 0, or prints one line per difference, appends them
+with a timestamp to `shadow.log` in the state folder and exits 3. The old engine's export runs in a throwaway copy of
+the clone, so the command writes nothing in the repo or home.
+
+Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholders the same in every exported file.
+
+- 10 dconf files, in the check and the preview: program `SKIPPED (not supported yet)`, engine `UNCHANGED`. dconf comes
+  in phase 8.
+- 11 package and extension `DRIFT` lines in the old engine's preview (apt, npm, pipx, a GNOME extension, an apt
+  source); the program prints none. Package drift comes in phase 8.
+
 **Old cases without a shared twin.** `tests/linux/engine.sh` has 484 cases and the Pester suite 240; 20 and 19 of them
 have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, one row per group, are in
 `docs/design-test-moves.md`. In short:
@@ -874,6 +885,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 4. Whether Git Bash and `jq` are installed.
 5. The run-from-clone fallback, if step 1 was blocked.
 6. Local state readable by the user only (the `Save-UserValues` ACL rule, now in the Windows adapter).
+7. `mksync shadow` in the clone: `shadow: same`, or each difference explained and recorded here, redacted.
 
 ## Open
 
