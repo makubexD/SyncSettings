@@ -5,7 +5,9 @@ import { convertV1 } from "../config/convert.ts";
 import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planExport } from "./export.ts";
-import type { Action, LocalEntry, Plan, Snapshot } from "./types.ts";
+import { renderRun } from "./run.ts";
+import { NO_FAILURES } from "./types.ts";
+import type { Action, LocalEntry, Snapshot } from "./types.ts";
 
 const CASE_ROOT = new URL("../../../tests/parity/cases/", import.meta.url);
 
@@ -153,8 +155,12 @@ function runCase(name: string, os: Os = "linux"): Observed {
     const config = configOf(name);
     return { lines: [], actions: [], code: config.ok ? 0 : config.error.code };
   }
-  const plan: Plan = planExport(snapshot);
-  return plan;
+  const plan = planExport(snapshot);
+  const rendered = renderRun(plan, NO_FAILURES);
+  const actions = plan.steps.flatMap((step) =>
+    step.actions.map((entry) => entry.action),
+  );
+  return { lines: rendered.lines, actions, code: rendered.code };
 }
 
 /** The status lines of a plan, each as `WORD label`, as the parity runner reads them. */

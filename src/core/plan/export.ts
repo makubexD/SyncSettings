@@ -7,7 +7,13 @@ import type { StatusWord } from "../status.ts";
 import { resolveValues } from "../values/hydrate.ts";
 import { sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
-import type { Action, Plan, Snapshot } from "./types.ts";
+import type {
+  ExportSummary,
+  FileStep,
+  RunPlan,
+  Snapshot,
+  StepAction,
+} from "./types.ts";
 
 const BASE_ROOT = "dotfiles/common/";
 
@@ -19,16 +25,23 @@ const ORPHAN_NOTE = "no entry in sync-config.json; git rm it or add an entry";
 
 const DCONF_NOTE = "not supported yet";
 
-const DASHES = "  --------------------------------------------------";
-
 const EMPTY_FOLDER_NOTE = "local folder is empty; repo files kept";
+
+const WRITE_SANITIZED_FAILURE = "cannot write repo file";
+
+const COPY_TO_REPO_FAILURE = "cannot copy to repo";
+
+const COPY_MODE_FAILURE = "cannot copy file mode";
+
+const REMOVE_REPO_FAILURE = "cannot remove from repo";
 
 interface State {
   readonly snapshot: Snapshot;
   readonly values: Values;
   readonly only: readonly string[];
-  readonly actions: Action[];
+  readonly steps: FileStep[];
   readonly lines: string[];
+  pending: StepAction[];
   changed: number;
   skipped: number;
   hits: number;
@@ -36,7 +49,7 @@ interface State {
 
 type OnlyOutcome =
   | { readonly ok: true; readonly paths: readonly string[] }
-  | { readonly ok: false; readonly plan: Plan };
+  | { readonly ok: false; readonly plan: RunPlan };
 
 function separatorFor(os: Os): "/" | "\\" {
   return os === "windows" ? "\\" : "/";
@@ -156,12 +169,21 @@ function entrySelected(selected: SelectedEntry, only: readonly string[]): boolea
   );
 }
 
-function onlyFailure(argument: string): Plan {
+function errorPlan(message: string, code: number): RunPlan {
   return {
-    actions: [],
-    lines: [`ERROR: ${argument} is not synced on this machine.`],
-    code: 1,
+    steps: [],
+    finish: [],
+    lines: [message],
+    summary: { kind: "none" },
+    code,
   };
+}
+
+function onlyFailure(argument: string): RunPlan {
+  return errorPlan(
+    `ERROR: ${argument} is not synced on this machine.`,
+    1,
+  );
 }
 
 /** Contract "Picking files": turn every `--only` path into the repo path it names. */
@@ -312,15 +334,37 @@ function pushStatus(
   word: StatusWord,
   label: string,
   note?: string,
-): void {
+): number {
   state.lines.push(formatLine(word, label, note));
   state.hits++;
+  return state.lines.length - 1;
+}
+
+/**
+ * Tie the status line just pushed for `label` to the actions gathered for it.
+ * A file with no actions cannot fail, so it needs no step.
+ */
+function recordStep(
+  state: State,
+  label: string,
+  line: number,
+  counted: boolean,
+): void {
+  if (state.pending.length === 0) {
+    return;
+  }
+  state.steps.push({ label, line, counted, actions: state.pending });
+  state.pending = [];
 }
 
 function mkdirParent(state: State, repoPath: string): void {
   const slash = repoPath.lastIndexOf("/");
   if (slash > 0) {
-    state.actions.push({ kind: "mkdir", path: repoPath.slice(0, slash) });
+    const parent = repoPath.slice(0, slash);
+    state.pending.push({
+      action: { kind: "mkdir", path: parent },
+      failure: `cannot create ${parent}`,
+    });
   }
 }
 
@@ -330,6 +374,7 @@ function planFile(state: State, selected: SelectedEntry): void {
   if (!onlySelected(repoPath, state.only)) {
     return;
   }
+  state.pending = [];
 
   const localPath = resolvedLocal(entry, state.snapshot.os, state.snapshot.home);
   if (isExcluded(state.snapshot, localPath)) {
@@ -355,26 +400,44 @@ function planFile(state: State, selected: SelectedEntry): void {
       if (same(repo, sanitized, compareOptions(state.snapshot, repoPath, true))) {
         pushStatus(state, "UNCHANGED", repoPath);
       } else {
-        state.actions.push({ kind: "writeRepo", path: repoPath, bytes: sanitized });
-        pushStatus(state, "MODIFIED", repoPath, "sanitized");
+        state.pending.push({
+          action: { kind: "writeRepo", path: repoPath, bytes: sanitized },
+          failure: WRITE_SANITIZED_FAILURE,
+        });
+        const line = pushStatus(state, "MODIFIED", repoPath, "sanitized");
         state.changed++;
+        recordStep(state, repoPath, line, true);
       }
     } else {
       mkdirParent(state, repoPath);
-      state.actions.push({ kind: "writeRepo", path: repoPath, bytes: sanitized });
-      state.actions.push({ kind: "chmod", path: repoPath, mode: local.mode });
-      pushStatus(state, "ADDED", repoPath, "sanitized");
+      state.pending.push({
+        action: { kind: "writeRepo", path: repoPath, bytes: sanitized },
+        failure: WRITE_SANITIZED_FAILURE,
+      });
+      state.pending.push({
+        action: { kind: "chmod", path: repoPath, mode: local.mode },
+        failure: COPY_MODE_FAILURE,
+      });
+      const line = pushStatus(state, "ADDED", repoPath, "sanitized");
       state.changed++;
+      recordStep(state, repoPath, line, true);
     }
     return;
   }
 
   if (repo === undefined) {
     mkdirParent(state, repoPath);
-    state.actions.push({ kind: "writeRepo", path: repoPath, bytes: local.bytes });
-    state.actions.push({ kind: "chmod", path: repoPath, mode: local.mode });
-    pushStatus(state, "ADDED", repoPath);
+    state.pending.push({
+      action: { kind: "writeRepo", path: repoPath, bytes: local.bytes },
+      failure: COPY_TO_REPO_FAILURE,
+    });
+    state.pending.push({
+      action: { kind: "chmod", path: repoPath, mode: local.mode },
+      failure: COPY_MODE_FAILURE,
+    });
+    const line = pushStatus(state, "ADDED", repoPath);
     state.changed++;
+    recordStep(state, repoPath, line, true);
     return;
   }
 
@@ -383,10 +446,17 @@ function planFile(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  state.actions.push({ kind: "writeRepo", path: repoPath, bytes: local.bytes });
-  state.actions.push({ kind: "chmod", path: repoPath, mode: local.mode });
-  pushStatus(state, "MODIFIED", repoPath);
+  state.pending.push({
+    action: { kind: "writeRepo", path: repoPath, bytes: local.bytes },
+    failure: COPY_TO_REPO_FAILURE,
+  });
+  state.pending.push({
+    action: { kind: "chmod", path: repoPath, mode: local.mode },
+    failure: COPY_MODE_FAILURE,
+  });
+  const line = pushStatus(state, "MODIFIED", repoPath);
   state.changed++;
+  recordStep(state, repoPath, line, true);
 }
 
 function planDir(state: State, selected: SelectedEntry): void {
@@ -411,6 +481,7 @@ function planDir(state: State, selected: SelectedEntry): void {
   let files = 0;
 
   for (const localPath of localPaths) {
+    state.pending = [];
     const local = state.snapshot.localFiles.get(localPath);
     if (local === undefined) {
       continue;
@@ -434,17 +505,31 @@ function planDir(state: State, selected: SelectedEntry): void {
     const repo = state.snapshot.repoFiles.get(label);
     if (repo === undefined) {
       mkdirParent(state, label);
-      state.actions.push({ kind: "writeRepo", path: label, bytes: local.bytes });
-      state.actions.push({ kind: "chmod", path: label, mode: local.mode });
-      pushStatus(state, "ADDED", label);
+      state.pending.push({
+        action: { kind: "writeRepo", path: label, bytes: local.bytes },
+        failure: COPY_TO_REPO_FAILURE,
+      });
+      state.pending.push({
+        action: { kind: "chmod", path: label, mode: local.mode },
+        failure: COPY_MODE_FAILURE,
+      });
+      const line = pushStatus(state, "ADDED", label);
       state.changed++;
+      recordStep(state, label, line, true);
     } else if (same(repo, local.bytes, compareOptions(state.snapshot, label, false))) {
       pushStatus(state, "UNCHANGED", label);
     } else {
-      state.actions.push({ kind: "writeRepo", path: label, bytes: local.bytes });
-      state.actions.push({ kind: "chmod", path: label, mode: local.mode });
-      pushStatus(state, "MODIFIED", label);
+      state.pending.push({
+        action: { kind: "writeRepo", path: label, bytes: local.bytes },
+        failure: COPY_TO_REPO_FAILURE,
+      });
+      state.pending.push({
+        action: { kind: "chmod", path: label, mode: local.mode },
+        failure: COPY_MODE_FAILURE,
+      });
+      const line = pushStatus(state, "MODIFIED", label);
       state.changed++;
+      recordStep(state, label, line, true);
     }
   }
 
@@ -460,6 +545,7 @@ function planDir(state: State, selected: SelectedEntry): void {
   }
 
   for (const repoName of repoNames) {
+    state.pending = [];
     const relative = repoName.slice(repoPrefix.length);
     const localPath = `${localDir}${separator}${relative.replaceAll("/", separator)}`;
     const local = state.snapshot.localFiles.get(localPath);
@@ -473,9 +559,13 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (!onlySelected(repoName, state.only)) {
       continue;
     }
-    state.actions.push({ kind: "removeRepo", path: repoName });
-    pushStatus(state, "REMOVED", repoName, "no longer in source");
+    state.pending.push({
+      action: { kind: "removeRepo", path: repoName },
+      failure: REMOVE_REPO_FAILURE,
+    });
+    const line = pushStatus(state, "REMOVED", repoName, "no longer in source");
     state.changed++;
+    recordStep(state, repoName, line, true);
   }
 }
 
@@ -524,49 +614,18 @@ function orphanReport(state: State): void {
   }
 }
 
-function summaryLines(state: State): readonly string[] {
-  const lines: string[] = [];
-  if (state.only.length > 0 && state.hits === 0) {
-    lines.push("  WARNING: --only matched no file.");
-  }
-  lines.push("");
-  lines.push(DASHES);
-  if (state.changed > 0) {
-    lines.push("");
-    lines.push(`  ${state.changed} file(s) copied to the repo.`);
-    lines.push("");
-    lines.push("  Review the changes, then run  mksync push");
-  } else {
-    lines.push("");
-    lines.push("  Repo is up to date. No changes detected.");
-    if (state.skipped > 0) {
-      lines.push("");
-      lines.push(
-        `  Note: ${state.skipped} file(s) skipped because they do not exist locally.`,
-      );
-      lines.push(
-        "  If this is a new machine, run  ./import.sh  first to apply the repo settings.",
-      );
-    }
-  }
-  lines.push("");
-  lines.push(DASHES);
-  lines.push("");
-  return lines;
-}
-
 /**
  * The export plan: every status line, action and the exit code the contract
  * gives export, from a snapshot and nothing else.
  */
-export function planExport(snapshot: Snapshot): Plan {
+export function planExport(snapshot: Snapshot): RunPlan {
   const selected = selectEntries(
     snapshot.config,
     snapshot.os,
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
-    return { actions: [], lines: [selected.error.message], code: selected.error.code };
+    return errorPlan(selected.error.message, selected.error.code);
   }
 
   const only = resolveOnly(snapshot, selected.value);
@@ -590,15 +649,16 @@ export function planExport(snapshot: Snapshot): Plan {
   }
   const values = resolveValues(rules, snapshot.values, {}, snapshot.env);
   if (!values.ok) {
-    return { actions: [], lines: [values.error.message], code: 1 };
+    return errorPlan(values.error.message, 1);
   }
 
   const state: State = {
     snapshot,
     values: values.value,
     only: only.paths,
-    actions: [],
+    steps: [],
     lines: [],
+    pending: [],
     changed: 0,
     skipped: 0,
     hits: 0,
@@ -625,6 +685,16 @@ export function planExport(snapshot: Snapshot): Plan {
     orphanReport(state);
   }
 
-  state.lines.push(...summaryLines(state));
-  return { actions: state.actions, lines: state.lines, code: 0 };
+  const summary: ExportSummary = {
+    kind: "export",
+    onlyMatchedNothing: state.only.length > 0 && state.hits === 0,
+    skipped: state.skipped,
+  };
+  return {
+    steps: state.steps,
+    finish: [],
+    lines: state.lines,
+    summary,
+    code: 0,
+  };
 }

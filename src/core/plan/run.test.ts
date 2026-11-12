@@ -153,7 +153,10 @@ describe("renderRun", () => {
 
   test("renders the export planner's changed-file output unchanged", () => {
     // Arrange
-    const expected = planExport(snapshotFor(OLD_BYTES, NEW_BYTES));
+    const expected = renderRun(
+      planExport(snapshotFor(OLD_BYTES, NEW_BYTES)),
+      NO_FAILURES,
+    );
     const plan: RunPlan = {
       steps: [
         {
@@ -187,7 +190,10 @@ describe("renderRun", () => {
 
   test("renders the export planner's skipped-file note unchanged", () => {
     // Arrange
-    const expected = planExport(snapshotFor(OLD_BYTES, undefined));
+    const expected = renderRun(
+      planExport(snapshotFor(OLD_BYTES, undefined)),
+      NO_FAILURES,
+    );
     const plan: RunPlan = {
       steps: [],
       finish: [],

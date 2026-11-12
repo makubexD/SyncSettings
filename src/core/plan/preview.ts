@@ -1,5 +1,7 @@
 import { planExport } from "./export.ts";
-import type { Action, Plan, RepoFiles, Snapshot } from "./types.ts";
+import { renderRun } from "./run.ts";
+import { NO_FAILURES } from "./types.ts";
+import type { Action, Plan, RepoFiles, RunPlan, Snapshot } from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
 
@@ -76,17 +78,19 @@ function differsFromHead(
  * is up to date, and the preview then says whether anything would be sent.
  */
 function previewSummary(
-  exported: Plan,
+  plan: RunPlan,
+  rendered: readonly string[],
   repo: RepoFiles,
   head: RepoFiles,
 ): readonly string[] {
-  const summaryStart = exported.lines.indexOf("");
+  const summaryStart = rendered.indexOf("");
   const body =
-    summaryStart === -1
-      ? exported.lines
-      : exported.lines.slice(0, summaryStart);
-  const written = writtenCount(exported.actions);
-  const differs = differsFromHead(repo, exported.actions, head);
+    summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
+  const actions = plan.steps.flatMap((step) =>
+    step.actions.map((entry) => entry.action),
+  );
+  const written = writtenCount(actions);
+  const differs = differsFromHead(repo, actions, head);
   const lines: string[] = [...body, "", DASHES, ""];
   lines.push(
     written > 0
@@ -120,12 +124,13 @@ export function planPreview(snapshot: Snapshot): Plan {
   }
 
   const exported = planExport(snapshot);
-  if (exported.code !== 0) {
-    return { actions: [], lines: exported.lines, code: exported.code };
+  const rendered = renderRun(exported, NO_FAILURES);
+  if (rendered.code !== 0) {
+    return { actions: [], lines: rendered.lines, code: rendered.code };
   }
   return {
     actions: [],
-    lines: previewSummary(exported, snapshot.repoFiles, head),
+    lines: previewSummary(exported, rendered.lines, snapshot.repoFiles, head),
     code: 0,
   };
 }
