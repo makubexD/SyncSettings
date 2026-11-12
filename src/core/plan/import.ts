@@ -34,6 +34,8 @@ const SYNC_POINT_FILE = "last-sync";
 
 const BACKUP_FAILURE = "cannot create backup";
 
+const COPY_FROM_REPO_FAILURE = "cannot copy from repo";
+
 const WRITE_LOCAL_FAILURE = "cannot write local file";
 
 // The helper block below (path expansion, exclude matching and --only
@@ -413,10 +415,11 @@ function writeCreated(
   localPath: string,
   repoPath: string,
   bytes: Uint8Array,
+  failure: string,
 ): void {
   state.pending.push({
     action: { kind: "writeLocal", path: localPath, bytes, modeFrom: repoPath },
-    failure: WRITE_LOCAL_FAILURE,
+    failure,
   });
   const line = pushStatus(state, "CREATED", label);
   recordStep(state, label, line, true);
@@ -428,6 +431,7 @@ function writeUpdated(
   localPath: string,
   repoPath: string,
   bytes: Uint8Array,
+  failure: string,
 ): void {
   state.pending.push({
     action: { kind: "backup", path: localPath, repoPath },
@@ -435,7 +439,7 @@ function writeUpdated(
   });
   state.pending.push({
     action: { kind: "writeLocal", path: localPath, bytes },
-    failure: WRITE_LOCAL_FAILURE,
+    failure,
   });
   const line = pushStatus(
     state,
@@ -462,6 +466,7 @@ function applyBytes(
     return;
   }
 
+  const failure = sanitized ? WRITE_LOCAL_FAILURE : COPY_FROM_REPO_FAILURE;
   if (local !== undefined) {
     const equal = same(bytes, local.bytes, {
       os: state.snapshot.os,
@@ -479,11 +484,11 @@ function applyBytes(
       recordStep(state, label, line, false);
       return;
     }
-    writeUpdated(state, label, localPath, repoPath, bytes);
+    writeUpdated(state, label, localPath, repoPath, bytes, failure);
     return;
   }
 
-  writeCreated(state, label, localPath, repoPath, bytes);
+  writeCreated(state, label, localPath, repoPath, bytes, failure);
 }
 
 function planFile(state: State, selected: SelectedEntry): void {
@@ -637,6 +642,10 @@ function shouldRecordSyncPoint(state: State): boolean {
   return state.snapshot.porcelain === "";
 }
 
+/**
+ * The sanitize rules the picked entries need and the values every entry can
+ * infer. `--only` keeps the rules narrow, but never the inference.
+ */
 function collectRules(
   snapshot: Snapshot,
   selected: readonly SelectedEntry[],
@@ -646,9 +655,6 @@ function collectRules(
   const inferred = new Map<string, string>();
 
   for (const entry of selected) {
-    if (!entrySelected(entry, only)) {
-      continue;
-    }
     if (entry.entry.merge === "dir" || entry.entry.merge === "dconf") {
       continue;
     }
@@ -661,8 +667,12 @@ function collectRules(
     if (repoBytes === undefined) {
       continue;
     }
-    rules.push(...entryRules);
+    if (entrySelected(entry, only)) {
+      rules.push(...entryRules);
+    }
 
+    // Inference ignores --only: every selected entry whose repo and local file
+    // exist can contribute a value, and it is saved like any other.
     const localPath = resolvedLocal(entry.entry, snapshot.os, snapshot.home);
     const local = snapshot.localFiles.get(localPath);
     if (local === undefined || local.kind !== "file") {

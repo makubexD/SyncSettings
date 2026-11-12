@@ -143,6 +143,15 @@ function snapshotFor(name: string, os: Os): Snapshot | undefined {
   };
 }
 
+/** A case snapshot whose config the tests know is valid. */
+function validSnapshot(name: string, os: Os = "linux"): Snapshot {
+  const snapshot = snapshotFor(name, os);
+  if (snapshot === undefined) {
+    throw new Error(`${name} has an invalid config`);
+  }
+  return snapshot;
+}
+
 interface Observed {
   readonly lines: readonly string[];
   readonly actions: readonly Action[];
@@ -411,6 +420,46 @@ describe("planExport", () => {
     expect(result.lines).toContain(
       formatLine("ADDED", "dotfiles/common/parity/a.conf", "sanitized"),
     );
+  });
+
+  test("reports a file entry's parent failure with the repo folder", () => {
+    // Arrange
+    const snapshot = validSnapshot("export-adds");
+
+    // Act
+    const plan = planExport(snapshot);
+
+    // Assert
+    const step = plan.steps.find(
+      (entry) => entry.label === "dotfiles/common/parity/app.conf",
+    );
+    expect(
+      step?.actions.map((entry) => [entry.action.kind, entry.failure]),
+    ).toEqual([
+      ["mkdir", "cannot create dotfiles/common/parity"],
+      ["writeRepo", "cannot copy to repo"],
+      ["chmod", "cannot copy file mode"],
+    ]);
+  });
+
+  test("reports a dir file's parent failure as cannot create parent folder", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-export-removed");
+    const repoFiles = new Map(snapshot.repoFiles);
+    repoFiles.delete("dotfiles/common/parity/dir/a.txt");
+    const missingRepoFile = { ...snapshot, repoFiles };
+
+    // Act
+    const plan = planExport(missingRepoFile);
+
+    // Assert
+    const step = plan.steps.find(
+      (entry) => entry.label === "dotfiles/common/parity/dir/a.txt",
+    );
+    expect(step?.actions[0]).toEqual({
+      action: { kind: "mkdir", path: "dotfiles/common/parity/dir" },
+      failure: "cannot create parent folder",
+    });
   });
 });
 

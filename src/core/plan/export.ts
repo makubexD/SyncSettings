@@ -36,6 +36,8 @@ const COPY_MODE_FAILURE = "cannot copy file mode";
 
 const REMOVE_REPO_FAILURE = "cannot remove from repo";
 
+const CREATE_PARENT_FOLDER_FAILURE = "cannot create parent folder";
+
 interface State {
   readonly snapshot: Snapshot;
   readonly values: Values;
@@ -358,13 +360,17 @@ function recordStep(
   state.pending = [];
 }
 
-function mkdirParent(state: State, repoPath: string): void {
+/**
+ * `mkdir -p` a repo file's parent folder. A file entry names the folder, a dir
+ * entry reports one fixed reason (`export.sh:140,227`).
+ */
+function mkdirParent(state: State, repoPath: string, fixedReason?: string): void {
   const slash = repoPath.lastIndexOf("/");
   if (slash > 0) {
     const parent = repoPath.slice(0, slash);
     state.pending.push({
       action: { kind: "mkdir", path: parent },
-      failure: `cannot create ${parent}`,
+      failure: fixedReason ?? `cannot create ${parent}`,
     });
   }
 }
@@ -505,7 +511,7 @@ function planDir(state: State, selected: SelectedEntry): void {
     }
     const repo = state.snapshot.repoFiles.get(label);
     if (repo === undefined) {
-      mkdirParent(state, label);
+      mkdirParent(state, label, CREATE_PARENT_FOLDER_FAILURE);
       state.pending.push({
         action: { kind: "writeRepo", path: label, bytes: local.bytes },
         failure: COPY_TO_REPO_FAILURE,

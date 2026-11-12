@@ -610,7 +610,7 @@ describe("planImport file steps", () => {
       step?.actions.map((entry) => [entry.action.kind, entry.failure]),
     ).toEqual([
       ["backup", "cannot create backup"],
-      ["writeLocal", "cannot write local file"],
+      ["writeLocal", "cannot copy from repo"],
     ]);
     expect(step?.actions[0]?.action).toMatchObject({
       kind: "backup",
@@ -642,6 +642,25 @@ describe("planImport file steps", () => {
       path: "/home/user/.config/parity/git.conf",
       modeFrom: "dotfiles/common/parity/git.conf",
     });
+  });
+
+  test("reports a dir file's copy failure as cannot copy from repo", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-import-extra");
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.delete("/home/user/.config/parity/dir/a.txt");
+    const missingLocal = { ...snapshot, localFiles };
+
+    // Act
+    const plan = planImport(missingLocal, []);
+
+    // Assert
+    const step = plan.steps.find(
+      (entry) => entry.label === "dotfiles/common/parity/dir/a.txt",
+    );
+    expect(
+      step?.actions.map((entry) => [entry.action.kind, entry.failure]),
+    ).toEqual([["writeLocal", "cannot copy from repo"]]);
   });
 
   test("puts the sync point in finish, outside every step", () => {
@@ -681,6 +700,24 @@ describe("planImport values file", () => {
 
     // Assert
     expect(plan?.prepare).toEqual([{ kind: "writeValues", text: expected }]);
+  });
+
+  test("should infer from an entry --only did not pick", () => {
+    // Arrange
+    const snapshot = validSnapshot("only-infers-from-all");
+    const expected = readFileSync(
+      new URL("only-infers-from-all/expect/values.json", CASE_ROOT),
+      "utf8",
+    );
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.prepare).toEqual([{ kind: "writeValues", text: expected }]);
+    expect(statusLines(plan.lines)).toEqual([
+      "CREATED dotfiles/common/parity/a.conf",
+    ]);
   });
 
   test("should not write the values file when no entry has rules", () => {
