@@ -228,6 +228,50 @@ describe("changeLines", () => {
     ]);
   });
 
+  test("prints an added array's items when another layer holds its key path", () => {
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: {
+        [BASE_JSON]: '{"baseKey":1,"delta":["x"]}',
+        [OS_JSON]: '{"osKey":"linux"}',
+      },
+      profile: PROFILE,
+    });
+    const plan = planOf([
+      writeRepo(OS_JSON, '{"osKey":"linux","delta":["new item"]}'),
+    ]);
+
+    expect(changeLines(plan, snapshot)).toEqual([
+      {
+        layer: "os",
+        kind: "+",
+        module: "parity",
+        file: "settings.json",
+        what: 'delta[]: "new item"',
+      },
+    ]);
+  });
+
+  test("prints a new array key no other layer holds as one line", () => {
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: "{}" },
+    });
+    const plan = planOf([
+      writeRepo(BASE_JSON, '{"list":["one","two"]}'),
+    ]);
+
+    expect(changeLines(plan, snapshot)).toEqual([
+      {
+        layer: "base",
+        kind: "+",
+        module: "parity",
+        file: "settings.json",
+        what: 'list: ["one","two"]',
+      },
+    ]);
+  });
+
   test("does not cut a value of exactly 60 characters", () => {
     const value = "x".repeat(58);
     const snapshot = snapshotOf({

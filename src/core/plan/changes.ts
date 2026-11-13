@@ -32,6 +32,9 @@ interface DraftLine {
   readonly keyPath: readonly string[];
   readonly kind: ChangeLine["kind"];
   readonly what: string;
+  /** The items of the array a new key path gains; only an added key carries
+   * them, so a layer that gains an array another layer holds prints items. */
+  readonly addedItems?: readonly JsonValue[];
 }
 
 interface MatchedLayer {
@@ -164,6 +167,7 @@ function diffValues(
           keyPath: childPath,
           kind: "+",
           what: valueText(after),
+          ...(after.kind === "array" ? { addedItems: after.items } : {}),
         });
       } else if (before !== undefined && after === undefined) {
         lines.push({
@@ -380,6 +384,41 @@ function exportFileLabel(
     : importName.replaceAll("{layer}", layer.label);
 }
 
+/** One json draft's preview lines: a new key path whose value is an array, and
+ * which another layer of the entry already holds, prints one line per item
+ * (contract "Push preview", "What changed"); any other draft prints its own
+ * line. */
+function exportedDraftLines(
+  draft: DraftLine,
+  match: MatchedLayer,
+  module: string,
+  file: string,
+  otherLayers: readonly LayerValue[],
+): readonly ChangeLine[] {
+  const items = draft.addedItems;
+  if (
+    items !== undefined &&
+    otherLayers.some((item) => hasKeyPath(item.value, draft.keyPath))
+  ) {
+    return items.map((item) => ({
+      layer: match.layer.name,
+      kind: "+",
+      module,
+      file,
+      what: `${draft.path}[]: ${valueText(item)}`,
+    }));
+  }
+  return [
+    {
+      layer: match.layer.name,
+      kind: draft.kind,
+      module,
+      file,
+      what: `${draft.path}: ${draft.what}`,
+    },
+  ];
+}
+
 function exportActionLines(
   match: MatchedLayer,
   action: Action,
@@ -404,13 +443,18 @@ function exportActionLines(
     if (oldValue === undefined || newValue === undefined) {
       return [];
     }
-    return jsonDrafts(oldValue, newValue).map((draft) => ({
-      layer: match.layer.name,
-      kind: draft.kind,
-      module: config.module,
-      file: fileLabel(config.file),
-      what: `${draft.path}: ${draft.what}`,
-    }));
+    const otherLayers = layerValues(match.entry, repoFiles).filter(
+      (item) => item.layer.repoPath !== match.layer.repoPath,
+    );
+    return jsonDrafts(oldValue, newValue).flatMap((draft) =>
+      exportedDraftLines(
+        draft,
+        match,
+        config.module,
+        fileLabel(config.file),
+        otherLayers,
+      ),
+    );
   }
 
   const file = exportFileLabel(match.entry, match.layer, action.path);
