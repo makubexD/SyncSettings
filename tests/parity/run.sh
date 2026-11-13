@@ -386,7 +386,8 @@ run_case() {
         cp -a "$dir/state/." "$t/home/.local/state/sync-settings/" || die 'copying the case state/ failed'
         # As the program leaves them: the record and profiles for the current user only.
         find "$t/home/.local/state/sync-settings" \( -path '*/sync-settings/machine.json' \
-            -o -path '*/sync-settings/profiles/*.json' \) -type f -exec chmod 600 {} + \
+            -o -path '*/sync-settings/profiles/*.json' ! -path '*/sync-settings/profiles/*/*' \) \
+            -type f -exec chmod 600 {} + \
             || die 'setting the state record modes failed'
     fi
 
@@ -566,7 +567,10 @@ run_case() {
             want_mode=$(file_mode "$file") || die "state $rel: cannot read the wanted file"
             # The record and profiles hold values, so the program writes them
             # for the current user only; git can't store mode 600.
+            # A profile file only: a layer file under profiles/<name>/ keeps
+            # its own mode (a case pattern's * also matches /).
             case $rel in
+                profiles/*/*) ;;
                 machine.json|profiles/*.json) want_mode=600 ;;
             esac
             got_mode=$(file_mode "$got") || die "state $rel: cannot read the got file"
