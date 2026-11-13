@@ -3,6 +3,7 @@ import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../core/layers/names.ts";
 import type { ClaudeMode, MachineRecord } from "../core/machine/record.ts";
+import { replaceRecord } from "../core/machine/replace.ts";
 
 /** The fourth answer: what setup does with files already on the machine. */
 export type ExistingAction = "backup" | "keep" | "stop";
@@ -457,25 +458,5 @@ function buildRecord(
       retired: false,
     };
   }
-  const moved =
-    replacing.hostname !== scan.hostname || replacing.domain !== scan.domain;
-  // shortcut: a takeover on the same hostname and domain adds no history
-  // entry; the contract doesn't say, pending the design's Open item.
-  const replaced = moved
-    ? [
-        ...replacing.replaced,
-        {
-          hostname: replacing.hostname,
-          domain: replacing.domain,
-          date: input.today,
-        },
-      ]
-    : replacing.replaced;
-  return {
-    ...replacing,
-    os: scan.os,
-    hostname: scan.hostname,
-    domain: scan.domain,
-    replaced,
-  };
+  return replaceRecord(replacing, scan, input.today);
 }
