@@ -12,19 +12,20 @@ export type OnlyOutcome =
 
 /**
  * The layer scope of a snapshot: its OS, the profile and machine it runs for,
- * and, with a profile, the modules that profile keeps on for this OS.
+ * and, with a profile or a record, the modules the machine keeps on for this
+ * OS. `machineScope` treats a missing profile as every module.
  */
 export function scopeFor(snapshot: Snapshot): SelectScope {
   return {
     os: snapshot.os,
     ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
     ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
-    ...(snapshot.profile !== undefined
+    ...(snapshot.profile !== undefined || snapshot.record !== undefined
       ? {
           modules: machineScope(
             snapshot.config,
             snapshot.profile,
-            undefined,
+            snapshot.record,
             snapshot.os,
           ).on,
         }

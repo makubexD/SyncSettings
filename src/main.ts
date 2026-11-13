@@ -73,9 +73,7 @@ function isResolvedCommand(
  * Read the import's prompt answers as a list, which is what `planImport`
  * takes. End of input counts as yes, so no answers means every file applies.
  */
-async function readAnswers(
-  command: RunCommand,
-): Promise<readonly string[]> {
+async function readAnswers(command: RunCommand): Promise<readonly string[]> {
   if (command.command !== "import" || command.force || command.check) {
     return [];
   }
@@ -98,7 +96,11 @@ function renderStatic(plan: Plan): Result {
 /** Apply a plan's steps and render what the run printed. */
 function applyPlan(plan: RunPlan, context: RunContext): Result {
   const rendered = renderRun(plan, runPlan(plan, context));
-  return { code: rendered.code, stdout: writeLines(rendered.lines), stderr: "" };
+  return {
+    code: rendered.code,
+    stdout: writeLines(rendered.lines),
+    stderr: "",
+  };
 }
 
 /** Run the hidden shadow comparisons against the repo found from here. */
@@ -171,12 +173,19 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
   }
 
   const state = stateFolder(os.value, home, process.env);
-  const layers = loadLayers(process.env, config.value, state);
+  const layers = loadLayers(state, repoRoot, config.value);
   if (!layers.ok) {
     return failure(layers.error.message, layers.error.code);
   }
   if (command.kind === "shadow") {
-    return executeShadow(repoRoot, config.value, os.value, home, state, layers.value);
+    return executeShadow(
+      repoRoot,
+      config.value,
+      os.value,
+      home,
+      state,
+      layers.value,
+    );
   }
 
   const answers = await readAnswers(command);
@@ -202,7 +211,10 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
   if (command.command === "export") {
     return command.preview
       ? renderStatic(
-          planPreview(snapshot, previewWorkingTree(repoRoot, snapshot.repoFiles)),
+          planPreview(
+            snapshot,
+            previewWorkingTree(repoRoot, snapshot.repoFiles),
+          ),
         )
       : applyPlan(planExport(snapshot), context);
   }

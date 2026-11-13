@@ -15,6 +15,7 @@ import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectedEntry } from "../core/layers/select.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
 import { scopeFor } from "../core/plan/pick.ts";
 import type {
   Action,
@@ -50,6 +51,7 @@ export interface SnapshotInput {
   readonly stateFolder?: string;
   readonly profile?: Profile;
   readonly machine?: string;
+  readonly record?: MachineRecord;
   readonly home: string;
   readonly cwd: string;
   readonly values: Values;
@@ -309,6 +311,7 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
     only: input.only,
     ...(input.profile !== undefined ? { profile: input.profile } : {}),
     ...(input.machine !== undefined ? { machine: input.machine } : {}),
+    ...(input.record !== undefined ? { record: input.record } : {}),
   };
   const selected = selectEntries(
     snapshot.config,

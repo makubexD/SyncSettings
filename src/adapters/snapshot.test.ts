@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ConfigV2 } from "../core/config/types.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
 import type { RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { readSnapshot } from "./fs.ts";
 import {
@@ -32,7 +33,9 @@ const CONFIG_BYTES = Uint8Array.from([0x7b, 0x7d, 0x0a]);
 
 const PROFILE_NAME = "work-1";
 
-const MACHINE_NAME = "home-pc";
+const MACHINE_NAME = "wk1-laptop";
+
+const BAD_PROFILE_NAME = "Work 1";
 
 const PROFILE_TEXT = '{"modules":["base"]}\n';
 
@@ -64,7 +67,10 @@ afterEach(() => {
   }
 });
 
-function expectBytes(actual: Uint8Array | undefined, expected: Uint8Array): void {
+function expectBytes(
+  actual: Uint8Array | undefined,
+  expected: Uint8Array,
+): void {
   expect(Array.from(actual ?? new Uint8Array())).toEqual(Array.from(expected));
 }
 
@@ -136,7 +142,9 @@ describe("previewWorkingTree", () => {
     const root = tempFolder();
     const configPath = join(root, V1_CONFIG);
     writeFileSync(configPath, CONFIG_BYTES);
-    const repoFiles: RepoFiles = new Map([[REPO_FILE, Uint8Array.from([0x41])]]);
+    const repoFiles: RepoFiles = new Map([
+      [REPO_FILE, Uint8Array.from([0x41])],
+    ]);
 
     // Act
     const tree = previewWorkingTree(root, repoFiles);
@@ -149,7 +157,9 @@ describe("previewWorkingTree", () => {
   test("should leave the map unchanged when sync-config.json is absent", () => {
     // Arrange
     const root = tempFolder();
-    const repoFiles: RepoFiles = new Map([[REPO_FILE, Uint8Array.from([0x41])]]);
+    const repoFiles: RepoFiles = new Map([
+      [REPO_FILE, Uint8Array.from([0x41])],
+    ]);
 
     // Act
     const tree = previewWorkingTree(root, repoFiles);
@@ -185,6 +195,38 @@ function stateFixture(): StateFixture {
   return { home, repo, state };
 }
 
+/** A full record in the contract's field set, redacted. */
+function machineRecord(name: string, profile: string): MachineRecord {
+  return {
+    name,
+    profile,
+    os: "linux",
+    hostname: name,
+    domain: null,
+    claude: "claude",
+    pullOnly: false,
+    modules: { add: [], remove: [] },
+    values: {},
+    replaced: [],
+    retired: false,
+  };
+}
+
+function recordText(name: string, profile: string): string {
+  return JSON.stringify(machineRecord(name, profile));
+}
+
+/** The fixture's layers, or a failure when they cannot be loaded. */
+function layersOf(fixture: StateFixture): Layers {
+  const layers = loadLayers(fixture.state, fixture.repo, baseConfig());
+  if (!layers.ok) {
+    throw new Error(
+      `the fixture's layers did not load: ${layers.error.message}`,
+    );
+  }
+  return layers.value;
+}
+
 function snapshotOf(fixture: StateFixture, layers: Layers): Snapshot {
   return readSnapshot({
     repoRoot: fixture.repo,
@@ -198,28 +240,36 @@ function snapshotOf(fixture: StateFixture, layers: Layers): Snapshot {
     stateFolder: fixture.state,
     ...(layers.profile !== undefined ? { profile: layers.profile } : {}),
     ...(layers.machine !== undefined ? { machine: layers.machine } : {}),
+    ...(layers.record !== undefined ? { record: layers.record } : {}),
   });
 }
 
 describe("loadLayers", () => {
-  test("should give no layers when SYNC_PROFILE and SYNC_MACHINE are unset", () => {
+  test("should give no layers when there is no record", () => {
     // Arrange
     const fixture = stateFixture();
 
     // Act
-    const layers = loadLayers({}, baseConfig(), fixture.state);
+    const layers = loadLayers(fixture.state, fixture.repo, baseConfig());
 
     // Assert
     expect(layers).toEqual({ ok: true, value: {} });
   });
 
-  test("should parse the profile file SYNC_PROFILE names", () => {
+  test("should give the record's profile, its machine name and the record", () => {
     // Arrange
     const fixture = stateFixture();
-    writeFixture(join(fixture.state, "profiles", `${PROFILE_NAME}.json`), PROFILE_TEXT);
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
 
     // Act
-    const layers = loadLayers({ SYNC_PROFILE: PROFILE_NAME }, baseConfig(), fixture.state);
+    const layers = loadLayers(fixture.state, fixture.repo, baseConfig());
 
     // Assert
     expect(layers).toEqual({
@@ -232,155 +282,28 @@ describe("loadLayers", () => {
           destinations: {},
           retired: false,
         },
+        machine: MACHINE_NAME,
+        record: machineRecord(MACHINE_NAME, PROFILE_NAME),
       },
     });
   });
 
-  test("should report an unknown profile with exit code 2", () => {
+  test("should report a bad record with exit code 2", () => {
     // Arrange
     const fixture = stateFixture();
-    const path = join(fixture.state, "profiles", `${PROFILE_NAME}.json`);
-
-    // Act
-    const layers = loadLayers({ SYNC_PROFILE: PROFILE_NAME }, baseConfig(), fixture.state);
-
-    // Assert
-    expect(layers).toEqual({
-      ok: false,
-      error: {
-        message: `ERROR: profile ${PROFILE_NAME} not found: ${path}`,
-        code: 2,
-      },
-    });
-  });
-
-  test("should report a name outside lowercase letters, digits and - with exit code 2", () => {
-    // Arrange
-    const fixture = stateFixture();
-
-    // Act
-    const layers = loadLayers({ SYNC_PROFILE: "Work_1" }, baseConfig(), fixture.state);
-
-    // Assert
-    expect(layers).toEqual({
-      ok: false,
-      error: {
-        message:
-          "ERROR: SYNC_PROFILE must be lowercase letters, digits and -; this is Work_1.",
-        code: 2,
-      },
-    });
-  });
-
-  test("should give the machine SYNC_MACHINE names", () => {
-    // Arrange
-    const fixture = stateFixture();
-
-    // Act
-    const layers = loadLayers({ SYNC_MACHINE: MACHINE_NAME }, baseConfig(), fixture.state);
-
-    // Assert
-    expect(layers).toEqual({ ok: true, value: { machine: MACHINE_NAME } });
-  });
-
-  test.each(["linux", "windows", "common", "base"])(
-    "should refuse SYNC_PROFILE %s because it names another layer",
-    (name) => {
-      // Arrange
-      const fixture = stateFixture();
-
-      // Act
-      const layers = loadLayers({ SYNC_PROFILE: name }, baseConfig(), fixture.state);
-
-      // Assert
-      expect(layers).toEqual({
-        ok: false,
-        error: {
-          message: `ERROR: SYNC_PROFILE can't be ${name}: it names another layer.`,
-          code: 2,
-        },
-      });
-    },
-  );
-
-  test("should refuse SYNC_MACHINE macos because it names another layer", () => {
-    // Arrange
-    const fixture = stateFixture();
-
-    // Act
-    const layers = loadLayers({ SYNC_MACHINE: "macos" }, baseConfig(), fixture.state);
-
-    // Assert
-    expect(layers).toEqual({
-      ok: false,
-      error: {
-        message: "ERROR: SYNC_MACHINE can't be macos: it names another layer.",
-        code: 2,
-      },
-    });
-  });
-
-  test("should refuse SYNC_MACHINE equal to SYNC_PROFILE", () => {
-    // Arrange
-    const fixture = stateFixture();
-
-    // Act
-    const layers = loadLayers(
-      { SYNC_PROFILE: PROFILE_NAME, SYNC_MACHINE: PROFILE_NAME },
-      baseConfig(),
-      fixture.state,
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, BAD_PROFILE_NAME),
     );
 
-    // Assert
-    expect(layers).toEqual({
-      ok: false,
-      error: {
-        message: `ERROR: SYNC_MACHINE can't be ${PROFILE_NAME}: it names another layer.`,
-        code: 2,
-      },
-    });
-  });
-
-  test("should accept a profile and a machine with different names", () => {
-    // Arrange
-    const fixture = stateFixture();
-    writeFixture(join(fixture.state, "profiles", `${PROFILE_NAME}.json`), PROFILE_TEXT);
-
     // Act
-    const layers = loadLayers(
-      { SYNC_PROFILE: PROFILE_NAME, SYNC_MACHINE: "laptop" },
-      baseConfig(),
-      fixture.state,
-    );
-
-    // Assert
-    expect(layers).toEqual({
-      ok: true,
-      value: {
-        profile: {
-          name: PROFILE_NAME,
-          modules: ["base"],
-          values: {},
-          destinations: {},
-          retired: false,
-        },
-        machine: "laptop",
-      },
-    });
-  });
-
-  test("should report the collision before the profile file is read", () => {
-    // Arrange
-    const fixture = stateFixture();
-
-    // Act
-    const layers = loadLayers({ SYNC_PROFILE: "base" }, baseConfig(), fixture.state);
+    const layers = loadLayers(fixture.state, fixture.repo, baseConfig());
 
     // Assert
     expect(layers).toEqual({
       ok: false,
       error: {
-        message: "ERROR: SYNC_PROFILE can't be base: it names another layer.",
+        message: `ERROR: machine record (machine.json in the state folder): profile must be lowercase letters, digits and -; this is ${BAD_PROFILE_NAME}.`,
         code: 2,
       },
     });
@@ -388,52 +311,82 @@ describe("loadLayers", () => {
 });
 
 describe("readSnapshot with layers", () => {
-  test("should leave layer files out when no profile or machine is set", () => {
+  test("should leave layer files out when no record is set", () => {
     // Arrange
     const fixture = stateFixture();
     writeFixture(join(fixture.state, PROFILE_LAYER_FILE), LAYER_BYTES);
-    const layers = loadLayers({}, baseConfig(), fixture.state);
-    if (!layers.ok) {
-      throw new Error("the fixture has no layers");
-    }
+    const layers = layersOf(fixture);
 
     // Act
-    const snapshot = snapshotOf(fixture, layers.value);
+    const snapshot = snapshotOf(fixture, layers);
 
     // Assert
     expect([...snapshot.repoFiles.keys()]).toEqual([]);
   });
 
-  test("should add a profile's layer file under profiles/<name>/", () => {
+  test("should add a record's profile layer file under profiles/<name>/", () => {
     // Arrange
     const fixture = stateFixture();
-    writeFixture(join(fixture.state, "profiles", `${PROFILE_NAME}.json`), PROFILE_TEXT);
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
     writeFixture(join(fixture.state, PROFILE_LAYER_FILE), LAYER_BYTES);
-    const layers = loadLayers({ SYNC_PROFILE: PROFILE_NAME }, baseConfig(), fixture.state);
-    if (!layers.ok) {
-      throw new Error("the fixture's profile did not parse");
-    }
+    const layers = layersOf(fixture);
 
     // Act
-    const snapshot = snapshotOf(fixture, layers.value);
+    const snapshot = snapshotOf(fixture, layers);
 
     // Assert
-    expect(textOfBytes(snapshot.repoFiles.get(PROFILE_LAYER_FILE))).toBe(LAYER_BYTES);
+    expect(textOfBytes(snapshot.repoFiles.get(PROFILE_LAYER_FILE))).toBe(
+      LAYER_BYTES,
+    );
   });
 
-  test("should add a machine's layer file under machines/<name>/", () => {
+  test("should add a record's machine layer file under machines/<name>/", () => {
     // Arrange
     const fixture = stateFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
     writeFixture(join(fixture.state, MACHINE_LAYER_FILE), LAYER_BYTES);
-    const layers = loadLayers({ SYNC_MACHINE: MACHINE_NAME }, baseConfig(), fixture.state);
-    if (!layers.ok) {
-      throw new Error("the fixture's machine did not parse");
-    }
+    const layers = layersOf(fixture);
 
     // Act
-    const snapshot = snapshotOf(fixture, layers.value);
+    const snapshot = snapshotOf(fixture, layers);
 
     // Assert
-    expect(textOfBytes(snapshot.repoFiles.get(MACHINE_LAYER_FILE))).toBe(LAYER_BYTES);
+    expect(textOfBytes(snapshot.repoFiles.get(MACHINE_LAYER_FILE))).toBe(
+      LAYER_BYTES,
+    );
+  });
+
+  test("should carry the record into the snapshot", () => {
+    // Arrange
+    const fixture = stateFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+    const layers = layersOf(fixture);
+
+    // Act
+    const snapshot = snapshotOf(fixture, layers);
+
+    // Assert
+    expect(snapshot.record?.name).toBe(MACHINE_NAME);
   });
 });
