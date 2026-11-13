@@ -892,10 +892,10 @@ not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or 
 `replaced` lists `{"hostname": <string>, "domain": <string or null>, "date": "<YYYY-MM-DD>"}`, oldest first. The program
 writes it in this key order, two-space indent, `": "` after a key, LF and a trailing newline, readable by the current
 user only (as `.user-values.json`, [Sanitize and hydrate](#sanitize-and-hydrate)); the profile file the same way. A
-bad record stops every command but `setup --replace` with exit 2 before any file is touched:
+bad record stops every command but `setup --replace` with exit 2 before any file is touched, on stderr:
 
 ```text
-ERROR: machine record <state>/machine.json: <reason>.
+ERROR: machine record (machine.json in the state folder): <reason>.
 ```
 
 `<reason>` is `not valid JSON`, `unknown field <f>`, `missing field <f>`, `<f> has the wrong type`,
@@ -1037,7 +1037,7 @@ modules   work-base, git, shell, vscode, claude (windows-terminal off on this ma
 on it says `none`. A retired record adds a seventh line, `retired   yes`. With no record:
 `ERROR: no machine record here; run mksync setup.` on stderr, exit 1.
 
-**Hostname check.** When the scan's hostname or domain isn't the record's, `machine show`, `import` and
+**Hostname check.** When the scan's OS, hostname or domain isn't the record's, `machine show`, `import` and
 `import --check` print on stderr, before anything else, and go on:
 
 ```text
@@ -1045,10 +1045,13 @@ warning: the record says hostname wk1-laptop, this machine is wk1-new.
 If this is a new machine, run: mksync setup --replace wk1-laptop
 ```
 
-(`domain` likewise: `warning: the record says domain <d>, this machine has <d>.`, `none` for `null`; both lines
-when both differ, then the `If` line.)
+(`os` and `domain` likewise: `warning: the record says os <os>, this machine is <os>.`,
+`warning: the record says domain <d>, this machine has <d>.` with `none` for `null`; one line per difference in the
+order os, hostname, domain, then the `If` line once. The layers and modules follow the system the program runs on, not
+the record's `os`.)
 
-**Push checks.** `export` stops with exit 1 before writing anything, checking in this order:
+**Push checks.** `export` stops with exit 1 before writing anything, on stderr, checking in this order (the moved
+check prints every difference line as above, as `ERROR:`):
 
 ```text
 ERROR: this machine is retired.
