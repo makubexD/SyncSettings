@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { readSnapshot } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { convertV1 } from "../config/convert.ts";
+import type { Profile } from "../config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
@@ -832,8 +833,17 @@ const LAYER_MODULES: ConfigV2["modules"] = {
   parity: { description: "Parity case files" },
 };
 
+const WORK_PROFILE: Profile = {
+  name: "work-1",
+  modules: ["parity"],
+  values: {},
+  destinations: {},
+  retired: false,
+};
+
 const JSON_BASE_TEXT = '{"a": 1, "list": ["x"], "obj": {"k": "base"}}';
 const JSON_OS_TEXT = '{"list": ["y", "x"], "obj": {"k2": "os"}, "b": 2}';
+const JSON_PROFILE_TEXT = '{"obj": {"k3": "profile"}, "c": 3}';
 const JSON_MERGED_TEXT = `{
   "a": 1,
   "list": [
@@ -845,6 +855,21 @@ const JSON_MERGED_TEXT = `{
     "k2": "os"
   },
   "b": 2
+}
+`;
+const JSON_MERGED_PROFILE_TEXT = `{
+  "a": 1,
+  "list": [
+    "x",
+    "y"
+  ],
+  "obj": {
+    "k": "base",
+    "k2": "os",
+    "k3": "profile"
+  },
+  "b": 2,
+  "c": 3
 }
 `;
 const JSON_MERGED_CRLF_TEXT = JSON_MERGED_TEXT.replaceAll("\n", "\r\n");
@@ -968,6 +993,46 @@ describe("planImport layers", () => {
         kind: "writeLocal",
         path: LOCAL_JSON,
         text: JSON_MERGED_TEXT,
+      },
+    ]);
+  });
+
+  test("should merge the profile layer and leave out a module it does not list", () => {
+    // Arrange
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [
+          jsonEntry(),
+          {
+            file: "parity/b.txt",
+            module: "other",
+            merge: "whole",
+            localPath: "~/.config/parity/b.txt",
+          },
+        ],
+        repo: {
+          "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+          "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+          "profiles/work-1/parity/settings.json": JSON_PROFILE_TEXT,
+          "dotfiles/common/parity/b.txt": "other\n",
+        },
+        dirs: [".config/parity"],
+      }),
+      profile: WORK_PROFILE,
+    };
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "CREATED profiles/work-1/parity/settings.json",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeLocal",
+        path: LOCAL_JSON,
+        text: JSON_MERGED_PROFILE_TEXT,
       },
     ]);
   });

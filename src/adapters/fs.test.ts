@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import type {
   Action,
@@ -173,6 +174,34 @@ describe("readSnapshot", () => {
     expect(snapshot.head).toBeUndefined();
     expect(snapshot.headFiles).toBeUndefined();
     expect(snapshot.porcelain).toBeUndefined();
+  });
+
+  test("should copy the run's profile onto the snapshot", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const profile: Profile = {
+      name: "work-1",
+      modules: ["shell"],
+      values: {},
+      destinations: {},
+      retired: false,
+    };
+
+    // Act
+    const snapshot = readSnapshot({
+      repoRoot: repo,
+      config: configOf([]),
+      os: "linux",
+      profile,
+      home,
+      cwd: home,
+      values: {},
+      env: {},
+      only: [],
+    });
+
+    // Assert
+    expect(snapshot.profile).toBe(profile);
   });
 
   test("should read an import entry's side file for a later layer", () => {

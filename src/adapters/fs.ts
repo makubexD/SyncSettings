@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
 import { posix, win32 } from "node:path";
+import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectedEntry } from "../core/layers/select.ts";
@@ -39,6 +40,8 @@ export interface SnapshotInput {
   readonly repoRoot: string;
   readonly config: ConfigV2;
   readonly os: Os;
+  readonly profile?: Profile;
+  readonly machine?: string;
   readonly home: string;
   readonly cwd: string;
   readonly values: Values;
@@ -234,7 +237,15 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
 
   const localFiles = new Map<string, LocalEntry>();
   const localDirs = new Set<string>();
-  const selected = selectEntries(input.config, { os: input.os }, new Set(repoFiles.keys()));
+  const selected = selectEntries(
+    input.config,
+    {
+      os: input.os,
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
+      ...(input.machine !== undefined ? { machine: input.machine } : {}),
+    },
+    new Set(repoFiles.keys()),
+  );
   if (selected.ok) {
     for (const chosen of selected.value) {
       addSelectedEntry(chosen, input.os, input.home, localFiles, localDirs);
@@ -252,6 +263,8 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
     values: input.values,
     env: input.env,
     only: input.only,
+    ...(input.profile !== undefined ? { profile: input.profile } : {}),
+    ...(input.machine !== undefined ? { machine: input.machine } : {}),
   };
   if (input.force !== undefined) {
     return { ...snapshot, force: input.force };

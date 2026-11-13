@@ -562,7 +562,11 @@ export function planImport(
 ): RunPlan {
   const selected = selectEntries(
     snapshot.config,
-    { os: snapshot.os },
+    {
+      os: snapshot.os,
+      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
+      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
+    },
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
