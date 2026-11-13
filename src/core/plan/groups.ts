@@ -6,7 +6,7 @@ import type { ChangeLine } from "./types.ts";
 const EMPTY_GROUP = "(none)";
 
 /** The group title's OS word (contract "Push preview (program only)"). */
-const OS_TITLES: Readonly<Record<Os, string>> = {
+export const OS_TITLES: Readonly<Record<Os, string>> = {
   linux: "Linux",
   windows: "Windows",
   macos: "macOS",
