@@ -1,6 +1,7 @@
 import { selectEntries } from "../layers/select.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planImport } from "./import.ts";
+import { scopeFor } from "./pick.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type { Plan, RunPlan, Snapshot } from "./types.ts";
@@ -84,11 +85,7 @@ function labelsNeedingValues(
   }
   const selected = selectEntries(
     snapshot.config,
-    {
-      os: snapshot.os,
-      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
-      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
-    },
+    scopeFor(snapshot),
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
@@ -172,16 +169,13 @@ function checkedBody(
   return { lines, changes, errors };
 }
 
-function summaryLines(body: CheckedBody): { readonly lines: readonly string[]; readonly code: number } {
+function summaryLines(body: CheckedBody): {
+  readonly lines: readonly string[];
+  readonly code: number;
+} {
   if (body.errors > 0) {
     return {
-      lines: [
-        "",
-        `  ${body.errors} error(s); ${ERROR_HINT}.`,
-        "",
-        DASHES,
-        "",
-      ],
+      lines: ["", `  ${body.errors} error(s); ${ERROR_HINT}.`, "", DASHES, ""],
       code: 1,
     };
   }

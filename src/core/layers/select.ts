@@ -30,11 +30,14 @@ export interface Layer {
   readonly repoPath: string;
 }
 
-/** What this run has: its OS, and the profile and machine chosen for it. */
+/** What this run has: its OS, the profile and machine chosen for it, and the
+ * modules it keeps on. Without a profile `modules` is absent and every module
+ * is on. */
 export interface SelectScope {
   readonly os: Os;
   readonly profile?: Profile;
   readonly machine?: string;
+  readonly modules?: readonly string[];
 }
 
 export interface SelectedEntry {
@@ -73,7 +76,9 @@ export function pickOs(
   const hostOs = PLATFORM_OS[host];
   if (syncOs !== undefined && syncOs !== "") {
     if (hostOs === "windows") {
-      return syncOs === "windows" ? { ok: true, value: syncOs } : unsupportedOs(syncOs);
+      return syncOs === "windows"
+        ? { ok: true, value: syncOs }
+        : unsupportedOs(syncOs);
     }
     return syncOs === "linux" || syncOs === "macos"
       ? { ok: true, value: syncOs }
@@ -164,7 +169,7 @@ function writeRootFor(os: readonly Os[]): string {
 }
 
 // Contract "Layers (program only)": with a profile, an entry whose module the
-// profile doesn't list is off, and an entry for another system stays off too.
+// profile doesn't keep on is off, and an entry for another system stays off too.
 export function selectEntries(
   config: ConfigV2,
   scope: SelectScope,
@@ -173,7 +178,7 @@ export function selectEntries(
   const roots = rootsFor(scope);
   const selected: SelectedEntry[] = [];
   for (const entry of config.entries) {
-    if (scope.profile !== undefined && !scope.profile.modules.includes(entry.module)) {
+    if (scope.modules !== undefined && !scope.modules.includes(entry.module)) {
       continue;
     }
     const osList = effectiveOs(config, entry);

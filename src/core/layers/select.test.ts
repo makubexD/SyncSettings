@@ -104,7 +104,10 @@ function configOf(
   return { schemaVersion: 2, modules, entries };
 }
 
-function whole(file: string, extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
+function whole(
+  file: string,
+  extra: Partial<ConfigV2Entry> = {},
+): ConfigV2Entry {
   return { file, module: "git", merge: "whole", ...extra };
 }
 
@@ -200,8 +203,12 @@ describe("selectEntries", () => {
       const entries = selected(config, { os });
 
       // Assert
-      expect(entries.map((selected) => selected.entry.file)).toEqual([...expected[os]]);
-      expect(entries.map((selected) => selected.writeRoot)).toEqual([...writeRoots[os]]);
+      expect(entries.map((selected) => selected.entry.file)).toEqual([
+        ...expected[os],
+      ]);
+      expect(entries.map((selected) => selected.writeRoot)).toEqual([
+        ...writeRoots[os],
+      ]);
       expect(entries.map((selected) => selected.source)).toEqual(
         expected[os].map(() => undefined),
       );
@@ -229,14 +236,16 @@ describe("selectEntries", () => {
     }
     const config = configOf([entryOf(common)]);
     for (const os of OSES) {
-      expect(selected(config, { os }).map((selected) => selected.entry.file)).toEqual([
-        "parity/ok.conf",
-      ]);
+      expect(
+        selected(config, { os }).map((selected) => selected.entry.file),
+      ).toEqual(["parity/ok.conf"]);
     }
   });
 
   test("module os limits the entry", () => {
-    const config = configOf([{ file: "gnome/settings.ini", module: "gnome", merge: "whole" }]);
+    const config = configOf([
+      { file: "gnome/settings.ini", module: "gnome", merge: "whole" },
+    ]);
 
     expect(selected(config, { os: "linux" })).toHaveLength(1);
     expect(selected(config, { os: "windows" })).toHaveLength(0);
@@ -276,7 +285,12 @@ describe("selectEntries", () => {
 
   test("a dir entry is found by a path under its folder", () => {
     const config = configOf([
-      { file: "nvim", module: "git", merge: "dir", localPath: "~/.config/nvim" },
+      {
+        file: "nvim",
+        module: "git",
+        merge: "dir",
+        localPath: "~/.config/nvim",
+      },
     ]);
     const files = new Set(["dotfiles/linux/nvim/init.lua"]);
 
@@ -317,13 +331,13 @@ describe("selectEntries", () => {
     const [entry] = selected(config, { os: "linux" }, files);
 
     expect(entry?.layers.map((layer) => layer.name)).toEqual(["base", "os"]);
-    expect(entry?.source?.repoPath).toBe(
-      "dotfiles/linux/claude/settings.json",
-    );
+    expect(entry?.source?.repoPath).toBe("dotfiles/linux/claude/settings.json");
   });
 
   test("an import entry with two layers reads the last one as its source", () => {
-    const config = configOf([{ file: "claude/CLAUDE.md", module: "git", merge: "import" }]);
+    const config = configOf([
+      { file: "claude/CLAUDE.md", module: "git", merge: "import" },
+    ]);
     const files = new Set([
       "dotfiles/common/claude/CLAUDE.md",
       "dotfiles/linux/claude/CLAUDE.md",
@@ -341,7 +355,9 @@ describe("selectEntries", () => {
       { file: "gnome/settings.ini", module: "gnome", merge: "whole" },
     ]);
 
-    const files = selected(config, { os: "linux" }).map((entry) => entry.entry.file);
+    const files = selected(config, { os: "linux" }).map(
+      (entry) => entry.entry.file,
+    );
 
     expect(files).toEqual(["git/.gitconfig.local", "gnome/settings.ini"]);
   });
@@ -353,9 +369,11 @@ describe("selectEntries", () => {
     ]);
     const profile = profileOf("work-1", ["git"]);
 
-    const files = selected(config, { os: "linux", profile }).map(
-      (entry) => entry.entry.file,
-    );
+    const files = selected(config, {
+      os: "linux",
+      profile,
+      modules: ["git"],
+    }).map((entry) => entry.entry.file);
 
     expect(files).toEqual(["git/.gitconfig.local"]);
   });
@@ -366,7 +384,9 @@ describe("selectEntries", () => {
     ]);
     const profile = profileOf("work-1", ["gnome"]);
 
-    expect(selected(config, { os: "windows", profile })).toEqual([]);
+    expect(
+      selected(config, { os: "windows", profile, modules: ["gnome"] }),
+    ).toEqual([]);
   });
 
   test("four layers come in order with their names and labels", () => {
@@ -419,18 +439,28 @@ describe("selectEntries", () => {
   test("writeRoot is the base root for no os", () => {
     const config = configOf([whole("tmux/.tmux.conf")]);
 
-    expect(selected(config, { os: "linux" })[0]?.writeRoot).toBe("dotfiles/common/");
+    expect(selected(config, { os: "linux" })[0]?.writeRoot).toBe(
+      "dotfiles/common/",
+    );
   });
 
   test("writeRoot is the base root for more than one system", () => {
-    const config = configOf([whole("tmux/.tmux.conf", { os: ["linux", "macos"] })]);
+    const config = configOf([
+      whole("tmux/.tmux.conf", { os: ["linux", "macos"] }),
+    ]);
 
-    expect(selected(config, { os: "linux" })[0]?.writeRoot).toBe("dotfiles/common/");
+    expect(selected(config, { os: "linux" })[0]?.writeRoot).toBe(
+      "dotfiles/common/",
+    );
   });
 
   test("writeRoot is the OS root for one system via the module", () => {
-    const config = configOf([{ file: "gnome/settings.ini", module: "gnome", merge: "whole" }]);
+    const config = configOf([
+      { file: "gnome/settings.ini", module: "gnome", merge: "whole" },
+    ]);
 
-    expect(selected(config, { os: "linux" })[0]?.writeRoot).toBe("dotfiles/linux/");
+    expect(selected(config, { os: "linux" })[0]?.writeRoot).toBe(
+      "dotfiles/linux/",
+    );
   });
 });

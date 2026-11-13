@@ -1,5 +1,10 @@
 import { foldCrlf, same } from "../compare.ts";
-import type { ConfigV2, ConfigV2Entry, Os, SanitizeRule } from "../config/types.ts";
+import type {
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+  SanitizeRule,
+} from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { Layer, LayerName, SelectedEntry } from "../layers/select.ts";
 import { splitImport } from "../merge/import.ts";
@@ -21,6 +26,7 @@ import {
   primaryRepoPath,
   resolvedLocal,
   resolveOnly,
+  scopeFor,
   separatorFor,
 } from "./pick.ts";
 import type {
@@ -82,7 +88,11 @@ interface State {
   hits: number;
 }
 
-function compareOptions(snapshot: Snapshot, repoPath: string, sanitized: boolean) {
+function compareOptions(
+  snapshot: Snapshot,
+  repoPath: string,
+  sanitized: boolean,
+) {
   return {
     os: snapshot.os,
     shared: repoPath.startsWith(BASE_ROOT),
@@ -122,7 +132,11 @@ function recordStep(
  * `mkdir -p` a repo file's parent folder. A file entry names the folder, a dir
  * entry reports one fixed reason (`export.sh:140,227`).
  */
-function mkdirParent(state: State, repoPath: string, fixedReason?: string): void {
+function mkdirParent(
+  state: State,
+  repoPath: string,
+  fixedReason?: string,
+): void {
   const slash = repoPath.lastIndexOf("/");
   if (slash > 0) {
     const parent = repoPath.slice(0, slash);
@@ -396,7 +410,11 @@ function planFile(state: State, selected: SelectedEntry): void {
   }
   state.pending = [];
 
-  const localPath = resolvedLocal(entry, state.snapshot.os, state.snapshot.home);
+  const localPath = resolvedLocal(
+    entry,
+    state.snapshot.os,
+    state.snapshot.home,
+  );
   if (state.isExcluded(localPath)) {
     pushStatus(state, "SKIPPED", repoPath, EXCLUDE_NOTE);
     return;
@@ -404,7 +422,12 @@ function planFile(state: State, selected: SelectedEntry): void {
 
   const local = state.snapshot.localFiles.get(localPath);
   if (local === undefined || local.kind !== "file") {
-    pushStatus(state, "SKIPPED", repoPath, `local file not found: ${localPath}`);
+    pushStatus(
+      state,
+      "SKIPPED",
+      repoPath,
+      `local file not found: ${localPath}`,
+    );
     state.skipped++;
     return;
   }
@@ -430,7 +453,9 @@ function planFile(state: State, selected: SelectedEntry): void {
       json: isJsonEntry(entry),
     });
     if (repo !== undefined) {
-      if (same(repo, sanitized, compareOptions(state.snapshot, repoPath, true))) {
+      if (
+        same(repo, sanitized, compareOptions(state.snapshot, repoPath, true))
+      ) {
         pushStatus(state, "UNCHANGED", repoPath);
       } else {
         state.pending.push({
@@ -474,7 +499,9 @@ function planFile(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  if (same(repo, local.bytes, compareOptions(state.snapshot, repoPath, false))) {
+  if (
+    same(repo, local.bytes, compareOptions(state.snapshot, repoPath, false))
+  ) {
     pushStatus(state, "UNCHANGED", repoPath);
     return;
   }
@@ -502,7 +529,12 @@ function planDir(state: State, selected: SelectedEntry): void {
   );
 
   if (!state.snapshot.localDirs.has(localDir)) {
-    pushStatus(state, "SKIPPED", `${repoPath}/`, `local folder not found: ${localDir}`);
+    pushStatus(
+      state,
+      "SKIPPED",
+      `${repoPath}/`,
+      `local folder not found: ${localDir}`,
+    );
     state.skipped++;
     return;
   }
@@ -519,7 +551,9 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (local === undefined) {
       continue;
     }
-    const relative = localPath.slice(localPrefix.length).replaceAll(separator, "/");
+    const relative = localPath
+      .slice(localPrefix.length)
+      .replaceAll(separator, "/");
     const label = `${repoPath}/${relative}`;
 
     if (local.kind === "symlink") {
@@ -549,7 +583,9 @@ function planDir(state: State, selected: SelectedEntry): void {
       const line = pushStatus(state, "ADDED", label);
       state.changed++;
       recordStep(state, label, line, true);
-    } else if (same(repo, local.bytes, compareOptions(state.snapshot, label, false))) {
+    } else if (
+      same(repo, local.bytes, compareOptions(state.snapshot, label, false))
+    ) {
       pushStatus(state, "UNCHANGED", label);
     } else {
       state.pending.push({
@@ -658,11 +694,7 @@ function orphanReport(state: State): void {
 export function planExport(snapshot: Snapshot): RunPlan {
   const selected = selectEntries(
     snapshot.config,
-    {
-      os: snapshot.os,
-      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
-      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
-    },
+    scopeFor(snapshot),
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
@@ -697,7 +729,10 @@ export function planExport(snapshot: Snapshot): RunPlan {
     snapshot,
     values: values.value,
     only: only.paths,
-    isExcluded: compileExcludes(snapshot.config.excludePatterns ?? [], snapshot.os),
+    isExcluded: compileExcludes(
+      snapshot.config.excludePatterns ?? [],
+      snapshot.os,
+    ),
     steps: [],
     lines: [],
     pending: [],
