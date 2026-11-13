@@ -813,6 +813,24 @@ src/
 - The review's boundary check: `! grep -rnE "node:(fs|child_process|os)|Bun\.|process\.(env|cwd|platform)" src/core
   src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node:fs`; that's allowed.
 
+**As built in phase 5.** Layers in the core, still one adapter file:
+
+- `core/merge/` holds `types.ts` (`MergeStrategy`: `merge(layers, {eol})` and `split(local, layers, context)`),
+  `whole.ts`, `json.ts` (`mergeJson`, `splitJson`), `import.ts` (`mergeImport`, `splitImport`) and `strategy.ts`.
+  `strategyFor` returns only `whole`: `json` needs the local file for `localOnlyKeys` and returns new settings from a
+  split, and `import` returns side files, so the plans call those functions directly ("Open").
+- `core/json/value.ts` is the project's own JSON parser and writer (decision 4): it keeps key order and the text of
+  each number, and writes the byte-exact layout.
+- `core/paths.ts` is the one home-path expansion (`~/`, and `~\` on Windows only); `core/plan/pick.ts` is the file
+  picking that export and import share (`--only`, exclude globs, error plans); `core/config/profile.ts` parses a
+  profile; `core/layers/select.ts` picks entries and their layer files for an OS, profile and machine.
+- `core/plan/import.ts` and `export.ts` hydrate every layer before a merge or split and sanitize each changed layer
+  after it. `check.ts` reuses the import plan.
+- `adapters/snapshot.ts` builds the snapshot (config, values, `SYNC_PROFILE` and `SYNC_MACHINE`, git state), so
+  `main.ts` only wires. `adapters/fs.ts` reads the profile and machine layers from the state folder into the
+  snapshot under `profiles/<name>/` and `machines/<name>/`, reads an `import` entry's side files, and writes those
+  layer paths back under the state folder.
+
 ## Release and update
 
 - **From phase 4:** CI builds the four programs on every pull request and every push to `master`, from one Linux job
@@ -1017,15 +1035,21 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
   parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
   in the contract's program column in the phase's docs step.
-- **Boundaries review, phase 4 (refactors before phase 5).** The core is pure and has no import cycles; the review's
-  high findings were fixed. Left: home-path expansion exists in `core/plan/export.ts`, `core/plan/import.ts` and
-  `adapters/paths.ts`, and the core copies treat `~\` as home on every OS (one `core/paths.ts`, adapters keep only the
-  env lookups); `import.ts` and `export.ts` share about 260 lines word for word (`--only`, exclude globs, error
-  plans); no `core/merge/` yet, so `export.ts`, `import.ts`, `check.ts` and `adapters/fs.ts` switch on the merge type
-  (phase 5 adds `json`, so the strategies come first there); `main.ts` reads files, parses `.user-values.json` and
-  resolves the OS (a `parseValuesFile` next to the writer, a pure `resolveOs`, an `adapters/snapshot.ts`); shadow's
-  process runner duplicates the git adapter's. The layout differs from the tree above (`core/plan/preview.ts`,
-  `core/compare.ts`, one `adapters/fs.ts` with `pathFor` instead of one file per OS): the docs step records it.
+- **Boundaries review, phase 4.** Phase 5 closed the home-path copies (`core/paths.ts`), the shared picking
+  (`core/plan/pick.ts`), the merge strategies (`core/merge/`) and the snapshot reading (`adapters/snapshot.ts`,
+  `parseValuesFile`, `pickOs`). Left:
+  - `strategyFor` covers only `whole`; the plans still switch on the merge type and call `mergeJson`, `splitJson`,
+    `mergeImport` and `splitImport` directly. Widening `MergeStrategy` (the local file in the merge context, new
+    settings and side files in the results) would let every type go through it.
+  - `import.ts`, `export.ts`, `check.ts` and `adapters/fs.ts` each build the profile and machine scope for
+    `selectEntries`: four copies of the same three lines.
+  - Shadow's process runner (`adapters/engine.ts`, `node:child_process`) duplicates the git adapter's (`Bun.spawn`).
+- **Layers, phase 5.** Left for later phases:
+  - An `import` entry whose base layer has no file but a later one does: export passes the present layers only, so
+    the first present layer is taken as the base. Pull reports `no layer holds the file`, so it can't arise from a
+    pull; a shared case should pin what export does.
+  - An `import` entry without `importName` gets `ERROR` with `needs {layer} in importName` at run time; `parseV2`
+    should reject it, so the error comes before any file.
 - **Security review, phase 4 (before cut-over).** Fixed: sanitize and hydrate rescanning their own output. Left, each
   needing a shared case first where it shows in files or statuses:
   - `file` in a v2 entry isn't checked: `../` can leave `dotfiles/` (and a dated backup its folder). Reject absolute,

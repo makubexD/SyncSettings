@@ -144,6 +144,11 @@ real-Windows checklist. The finish review's fixes are steps 32 to 40; what it le
 - Config v2 with modules and profiles, living beside v1 as the design decides.
 - Unit tests for every worked example in the design.
 
+**Done 2026-11-12** ([plan-single-engine-5.md](plan-single-engine-5.md)). The program merges `json` and `import`
+entries on import and check and splits them back on export, reads profiles and the profile and machine layers from
+the state folder (`SYNC_PROFILE`, `SYNC_MACHINE`), and passes the 47 shared cases. What's left is in the design's
+"Open" ("Boundaries review, phase 4" and "Layers, phase 5").
+
 ### Phase 6: machines
 
 - Machine records, the first-run scan and its four questions, `mksync whoami`, replacing a machine, retired profiles,

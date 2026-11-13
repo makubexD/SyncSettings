@@ -831,6 +831,9 @@ folded to LF; an edit to the block itself is not stored and prints the note
 `import block is written by mksync, edit not pushed` on the base's status line. Each side file is exported to its
 layer as a whole file. Text is written with CRLF on Windows and LF elsewhere.
 
+Side files are local files like any other: import compares each one, asks before overwriting it and backs it up as
+`<file>.bak`. On export, a side file that isn't there locally leaves its layer as it is (`UNCHANGED`).
+
 As every `ERROR` ([Both](#both)), these affect only their own file, and the run still exits 0.
 
 **Shared cases for layers** give `configV2` (written as `sync-config.v2.json`) instead of `config`, and may set
