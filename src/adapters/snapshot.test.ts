@@ -282,6 +282,109 @@ describe("loadLayers", () => {
     // Assert
     expect(layers).toEqual({ ok: true, value: { machine: MACHINE_NAME } });
   });
+
+  test.each(["linux", "windows", "common", "base"])(
+    "should refuse SYNC_PROFILE %s because it names another layer",
+    (name) => {
+      // Arrange
+      const fixture = stateFixture();
+
+      // Act
+      const layers = loadLayers({ SYNC_PROFILE: name }, baseConfig(), fixture.state);
+
+      // Assert
+      expect(layers).toEqual({
+        ok: false,
+        error: {
+          message: `ERROR: SYNC_PROFILE can't be ${name}: it names another layer.`,
+          code: 2,
+        },
+      });
+    },
+  );
+
+  test("should refuse SYNC_MACHINE macos because it names another layer", () => {
+    // Arrange
+    const fixture = stateFixture();
+
+    // Act
+    const layers = loadLayers({ SYNC_MACHINE: "macos" }, baseConfig(), fixture.state);
+
+    // Assert
+    expect(layers).toEqual({
+      ok: false,
+      error: {
+        message: "ERROR: SYNC_MACHINE can't be macos: it names another layer.",
+        code: 2,
+      },
+    });
+  });
+
+  test("should refuse SYNC_MACHINE equal to SYNC_PROFILE", () => {
+    // Arrange
+    const fixture = stateFixture();
+
+    // Act
+    const layers = loadLayers(
+      { SYNC_PROFILE: PROFILE_NAME, SYNC_MACHINE: PROFILE_NAME },
+      baseConfig(),
+      fixture.state,
+    );
+
+    // Assert
+    expect(layers).toEqual({
+      ok: false,
+      error: {
+        message: `ERROR: SYNC_MACHINE can't be ${PROFILE_NAME}: it names another layer.`,
+        code: 2,
+      },
+    });
+  });
+
+  test("should accept a profile and a machine with different names", () => {
+    // Arrange
+    const fixture = stateFixture();
+    writeFixture(join(fixture.state, "profiles", `${PROFILE_NAME}.json`), PROFILE_TEXT);
+
+    // Act
+    const layers = loadLayers(
+      { SYNC_PROFILE: PROFILE_NAME, SYNC_MACHINE: "laptop" },
+      baseConfig(),
+      fixture.state,
+    );
+
+    // Assert
+    expect(layers).toEqual({
+      ok: true,
+      value: {
+        profile: {
+          name: PROFILE_NAME,
+          modules: ["base"],
+          values: {},
+          destinations: {},
+          retired: false,
+        },
+        machine: "laptop",
+      },
+    });
+  });
+
+  test("should report the collision before the profile file is read", () => {
+    // Arrange
+    const fixture = stateFixture();
+
+    // Act
+    const layers = loadLayers({ SYNC_PROFILE: "base" }, baseConfig(), fixture.state);
+
+    // Assert
+    expect(layers).toEqual({
+      ok: false,
+      error: {
+        message: "ERROR: SYNC_PROFILE can't be base: it names another layer.",
+        code: 2,
+      },
+    });
+  });
 });
 
 describe("readSnapshot with layers", () => {

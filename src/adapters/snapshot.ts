@@ -96,6 +96,9 @@ const PROFILE_VARIABLE = "SYNC_PROFILE";
 
 const MACHINE_VARIABLE = "SYNC_MACHINE";
 
+/** Layer names a profile or machine may not take: they name another layer. */
+const RESERVED_LAYER_NAMES = ["linux", "macos", "windows", "common", "base"];
+
 /** A run's profile and machine layers, as its environment chooses them. */
 export interface Layers {
   readonly profile?: Profile;
@@ -123,11 +126,20 @@ function readLayerName(
   return { ok: true, value };
 }
 
+/** Contract "Profile and machine, until phase 6": a layer name can't name another layer. */
+function layerCollision(variable: string, name: string): ConfigError {
+  return {
+    message: `ERROR: ${variable} can't be ${name}: it names another layer.`,
+    code: 2,
+  };
+}
+
 /**
  * Contract "Profile and machine, until phase 6": the layers `SYNC_PROFILE` and
  * `SYNC_MACHINE` choose. A name outside lowercase letters, digits and `-`, a
- * profile file that is missing, or one that doesn't parse stops the run with
- * exit code 2 before any file is touched.
+ * reserved name, a machine that equals the profile, a profile file that is
+ * missing, or one that doesn't parse stops the run with exit code 2 before any
+ * file is touched.
  */
 export function loadLayers(
   env: Readonly<Record<string, string | undefined>>,
@@ -141,6 +153,27 @@ export function loadLayers(
   const machine = readLayerName(env, MACHINE_VARIABLE);
   if (!machine.ok) {
     return machine;
+  }
+  if (
+    profileName.value !== undefined &&
+    RESERVED_LAYER_NAMES.includes(profileName.value)
+  ) {
+    return {
+      ok: false,
+      error: layerCollision(PROFILE_VARIABLE, profileName.value),
+    };
+  }
+  if (
+    machine.value !== undefined &&
+    RESERVED_LAYER_NAMES.includes(machine.value)
+  ) {
+    return { ok: false, error: layerCollision(MACHINE_VARIABLE, machine.value) };
+  }
+  if (
+    profileName.value !== undefined &&
+    machine.value === profileName.value
+  ) {
+    return { ok: false, error: layerCollision(MACHINE_VARIABLE, machine.value) };
   }
 
   let profile: Profile | undefined;
