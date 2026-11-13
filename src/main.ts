@@ -4,6 +4,7 @@ import type { EngineHost } from "./adapters/engine.ts";
 import { runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
+import { readIdentity } from "./adapters/scan.ts";
 import {
   buildSnapshot,
   findRepoRoot,
@@ -18,6 +19,8 @@ import { parseArgs, USAGE } from "./cli/parse.ts";
 import type { RunCommand, ShadowCommand } from "./cli/parse.ts";
 import type { ConfigV2, Os } from "./core/config/types.ts";
 import { pickOs } from "./core/layers/select.ts";
+import { checkRecord } from "./core/machine/check.ts";
+import type { CheckMode } from "./core/machine/check.ts";
 import { planCheck } from "./core/plan/check.ts";
 import { planExport } from "./core/plan/export.ts";
 import { planImport } from "./core/plan/import.ts";
@@ -51,6 +54,14 @@ const SHADOW_SNAPSHOT_COMMAND: RunCommand = {
 /** The host whose old-engine scripts shadow runs, from the real platform. */
 function hostOf(platform: string): EngineHost {
   return platform === "win32" ? "windows" : "posix";
+}
+
+/** Decision 8: the record check a command makes. */
+function checkMode(command: RunCommand): CheckMode {
+  if (command.command !== "export") {
+    return "pull";
+  }
+  return command.preview ? "preview" : "push";
 }
 
 function failure(message: string, code = 1): Result {
@@ -188,6 +199,18 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
     );
   }
 
+  const check =
+    layers.value.record === undefined
+      ? undefined
+      : checkRecord(
+          layers.value.record,
+          readIdentity(process.env, os.value),
+          checkMode(command),
+        );
+  if (check !== undefined && check.stop) {
+    return { code: 1, stdout: "", stderr: writeLines(check.lines) };
+  }
+
   const answers = await readAnswers(command);
   const snapshot = await buildSnapshot(
     repoRoot,
@@ -208,8 +231,9 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
     pid: process.pid,
   };
 
+  let result: Result;
   if (command.command === "export") {
-    return command.preview
+    result = command.preview
       ? renderStatic(
           planPreview(
             snapshot,
@@ -217,10 +241,15 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
           ),
         )
       : applyPlan(planExport(snapshot), context);
+  } else {
+    result = command.check
+      ? renderStatic(planCheck(snapshot))
+      : applyPlan(planImport(snapshot, answers), context);
   }
-  return command.check
-    ? renderStatic(planCheck(snapshot))
-    : applyPlan(planImport(snapshot, answers), context);
+  if (check === undefined || check.lines.length === 0) {
+    return result;
+  }
+  return { ...result, stderr: writeLines(check.lines) + result.stderr };
 }
 
 /**
