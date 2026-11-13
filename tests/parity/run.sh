@@ -384,6 +384,10 @@ run_case() {
     if [[ -d $dir/state ]]; then
         mkdir -p "$t/home/.local/state/sync-settings" || die 'creating the engine state folder failed'
         cp -a "$dir/state/." "$t/home/.local/state/sync-settings/" || die 'copying the case state/ failed'
+        # As the program leaves them: the record and profiles for the current user only.
+        find "$t/home/.local/state/sync-settings" \( -path '*/sync-settings/machine.json' \
+            -o -path '*/sync-settings/profiles/*.json' \) -type f -exec chmod 600 {} + \
+            || die 'setting the state record modes failed'
     fi
 
     git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
@@ -560,6 +564,11 @@ run_case() {
             [[ -f $got ]] || die "state $rel: missing"
             cmp -s "$file" "$got" || die "state $rel: differs"
             want_mode=$(file_mode "$file") || die "state $rel: cannot read the wanted file"
+            # The record and profiles hold values, so the program writes them
+            # for the current user only; git can't store mode 600.
+            case $rel in
+                machine.json|profiles/*.json) want_mode=600 ;;
+            esac
             got_mode=$(file_mode "$got") || die "state $rel: cannot read the got file"
             [[ $want_mode == "$got_mode" ]] || die "state $rel mode: want $want_mode, got $got_mode"
         done < <(find "$want_state" -type f -print0)

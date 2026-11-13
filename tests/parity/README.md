@@ -82,7 +82,9 @@ cases/<name>/
 
 `home/`, `repo/` and `state/` are copied into the case's temp folders before the first command. `state/` goes into
 the engine's state folder (`~/.local/state/sync-settings` on Linux and macOS, `%LOCALAPPDATA%\SyncSettings` on
-Windows), so a case can start from a recorded sync point; its files are compared like any the engine wrote.
+Windows), so a case can start from a recorded sync point; its files are compared like any the engine wrote. The
+record (`machine.json`) and profiles (`profiles/*.json`) go in with mode 600, as the program writes them, and the
+bash runner wants 600 for them in `expect/state/`, since git can't store that mode.
 
 `command` is one of `export`, `import`, `check` (`import --check`, `-Check`), `preview` (`export --preview`,
 `-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, plus the program-only `setup`, `machine-show`
