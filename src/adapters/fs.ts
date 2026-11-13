@@ -393,18 +393,25 @@ function isStatePath(path: string): boolean {
   );
 }
 
+/** A repo path stays under `dotfiles/`: its first segment. */
+const REPO_CONTAINMENT_DEPTH = 1;
+
+/** A state path stays under `profiles/<name>/` or `machines/<name>/`: two segments. */
+const STATE_CONTAINMENT_DEPTH = 2;
+
 /**
- * `path` resolved under `root`, after normalizing its `.` and `..` segments.
- * Throws when it lands outside the top folder it names (`dotfiles/`,
- * `profiles/`, `machines/`), so an entry's `../` cannot reach past the repo's
- * layers or the state folder's, nor into `backups/` (contract "Layers (program
- * only)").
+ * `path` resolved under `root`, after normalizing its `.` and `..` segments,
+ * and contained to `base` (a resolved folder under `root`). Throws when it
+ * lands outside `base`, so a `..` segment cannot reach past the folder `base`
+ * names.
  */
-function containedPath(path: string, root: string, context: RunContext): string {
-  const p = pathFor(context.os);
-  const top = path.split("/")[0] ?? "";
-  const base = p.resolve(root, top);
-  const resolved = p.resolve(p.resolve(root), path);
+function containedUnder(
+  base: string,
+  root: string,
+  path: string,
+  p: PathApi,
+): string {
+  const resolved = p.resolve(root, path);
   const relative = p.relative(base, resolved);
   if (relative === "") {
     return resolved;
@@ -420,17 +427,40 @@ function containedPath(path: string, root: string, context: RunContext): string 
 }
 
 /**
- * Where an action writes: a repo path under the repo, a profile or machine
- * layer path under the state folder, and anything else as an absolute local
- * path. A repo or state path that resolves outside its root throws, failing
- * the action.
+ * `path` resolved under `root`, contained to the folder its first `depth`
+ * segments name: `dotfiles/` for a repo path, `profiles/<name>/` or
+ * `machines/<name>/` for a state path. A `..` segment cannot reach past that
+ * folder, so an entry cannot write into another layer, another profile, or
+ * `backups/` (contract "Layers (program only)").
+ */
+function containedPath(
+  path: string,
+  root: string,
+  depth: number,
+  context: RunContext,
+): string {
+  const p = pathFor(context.os);
+  const base = p.resolve(root, ...path.split("/").slice(0, depth));
+  return containedUnder(base, root, path, p);
+}
+
+/**
+ * Where an action writes: a repo path under the repo's `dotfiles/`, a profile
+ * or machine layer path under that layer's folder in the state folder, and
+ * anything else as an absolute local path. A repo or state path that resolves
+ * outside its folder throws, failing the action.
  */
 function absolutePath(path: string, context: RunContext): string {
   if (isRepoPath(path)) {
-    return containedPath(path, context.repoRoot, context);
+    return containedPath(path, context.repoRoot, REPO_CONTAINMENT_DEPTH, context);
   }
   if (isStatePath(path)) {
-    return containedPath(path, context.stateFolder, context);
+    return containedPath(
+      path,
+      context.stateFolder,
+      STATE_CONTAINMENT_DEPTH,
+      context,
+    );
   }
   return path;
 }
@@ -538,7 +568,8 @@ function runFolderName(at: Date, pid: number): string {
 
 /**
  * Copy a file into this run's folder under `backups/`, keeping its mode and
- * times. A failure only warns (contract "Backups"): the `.bak` is the backup
+ * times. A `repoPath` that would land outside the run folder fails the dated
+ * copy. A failure only warns (contract "Backups"): the `.bak` is the backup
  * that must succeed.
  */
 function datedBackup(
@@ -554,7 +585,7 @@ function datedBackup(
       BACKUPS_FOLDER,
       runFolderName(context.now(), context.pid),
     );
-    const destination = p.join(dated.folder, repoPath);
+    const destination = containedUnder(dated.folder, dated.folder, repoPath, p);
     mkdirSync(p.dirname(destination), { recursive: true });
     copyPreserving(source, destination, context.os);
     dated.made = true;

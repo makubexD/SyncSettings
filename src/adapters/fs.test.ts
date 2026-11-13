@@ -446,6 +446,37 @@ describe("runPlan", () => {
     expect(existsSync(join(repo, "x"))).toBe(false);
   });
 
+  test("should fail a state path that leaves its profile layer", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    // The state folder and the target profile exist, so only containment can stop the write.
+    mkdirSync(join(state, "profiles", "work-2"), { recursive: true });
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          {
+            kind: "writeRepo",
+            path: "profiles/work-1/../work-2/f",
+            bytes: bytesOf("x\n"),
+          },
+          "cannot write outside a profile's layer folder",
+        ),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.get(0)).toBe(
+      "cannot write outside a profile's layer folder",
+    );
+    expect(existsSync(join(state, "profiles", "work-2", "f"))).toBe(false);
+    expect(existsSync(join(state, "backups"))).toBe(false);
+    expect(existsSync(join(repo, "profiles", "work-2", "f"))).toBe(false);
+  });
+
   test("should fail a repo path that resolves outside the repo", () => {
     // Arrange
     const { home, repo } = fixture();
@@ -824,6 +855,34 @@ describe("runPlan", () => {
     ]);
     expect(outcome.backups).toBeUndefined();
     expect(readFileSync(localFile, "utf8")).toBe("new\n");
+  });
+
+  test("should warn and keep writing when a dated copy's repo path escapes the run folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const localFile = join(home, ".gitconfig");
+    writeFixture(localFile, "old\n");
+    const state = stateFolder("linux", home, {});
+    const repoPath = "dotfiles/../../x";
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "backup", path: localFile, repoPath }),
+        actionOf({ kind: "writeLocal", path: localFile, bytes: bytesOf("new\n") }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.warnings.get(0)).toEqual([
+      `  WARNING: could not keep a dated backup of ${repoPath}.`,
+    ]);
+    expect(outcome.backups).toBeUndefined();
+    expect(readFileSync(localFile, "utf8")).toBe("new\n");
+    expect(existsSync(join(state, "backups", "x"))).toBe(false);
+    expect(existsSync(join(state, "backups", RUN_NAME))).toBe(false);
   });
 
   test("should keep only the newest 20 run folders", () => {
