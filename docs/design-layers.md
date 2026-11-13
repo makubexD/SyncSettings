@@ -551,9 +551,10 @@ Until the repo is private, profiles, machine records and values never reach it. 
 - **Tests.** Fixtures push to a local bare repo, so they set `MKSYNC_VISIBILITY` to test both sides. The variable is
   ignored for a `github.com` origin, so it can't switch the guard off on the real repo.
 
-**Built in phase 6:** reading the visibility, the held line in `export --preview`, and the refusal in `export` when the
-clone already tracks `profiles/` or `machines/`. The "first backup" group and merging two machines' copies of one
-profile wait for phase 7.
+**Built in phase 6:** reading the visibility (from the push URL, with SSH host aliases resolved by `ssh -G`), the held
+line in `export --preview`, and the refusal in `export` when the clone already tracks `profiles/` or `machines/` in any
+letter case. The "first backup" group waits for phase 7; merging two machines' copies of one profile exists as a core
+function (`mergeProfileCopies`) that phase 7 wires into the first private push.
 
 Example: today, personal Linux pushes a VS Code change. The preview shows the change and `held until the repo is
 private: profiles/personal.json, machines/personal-linux.json`; the PR has the VS Code change only.
@@ -870,6 +871,27 @@ src/
   leaves `profiles/` and `machines/` out. The parser skips a leading BOM and stops at 512 levels; `splitImport` takes
   the last marker followed only by `@` lines.
 
+**As built in phase 6.** Machines and profiles as data, the first run, and the guard:
+
+- `core/machine/` holds one file per concern: `record.ts` (the `MachineRecord` type, `parseRecord`, `recordText` with
+  the byte-exact key order), `scope.ts` (`machineScope`: which modules are on, and `machineValues`: record values
+  before profile values), `check.ts` (`checkRecord`: the record checks push, preview and pull run first),
+  `values.ts` (`placeValue` and `moveUserValues`: the "Kept on" table and the one-time copy of `.user-values.json`),
+  `replace.ts` (`replaceRecord`: hostname, domain and the `replaced` history), `retire.ts` (the retire questions and
+  results), `show.ts` (`machine show`'s six lines) and `copies.ts` (`mergeProfileCopies`, not wired until phase 7).
+- `core/guard.ts` is the public-repo guard: given the visibility, the tracked paths and the local records, it returns
+  `held` and `refused`, matching `profiles/` and `machines/` case-insensitively. It imports no adapter.
+- `adapters/store.ts` reads and writes local state: `machine.json` and `profiles/<name>.json` under the state folder
+  (`readStore`, `writeRecord`, `writeProfile`) and, once private, the repo's `machines/` and `profiles/`
+  (`readRepoStore`). `adapters/scan.ts` reads the machine for `setup` (OS, hostname, domain, git email, tools, existing
+  files; `SYNC_HOSTNAME`, `SYNC_DOMAIN` and `SYNC_TOOLS` override it). `adapters/visibility.ts` reads the push URL's
+  visibility through `gh`, the GitHub API, `ssh -G` for SSH aliases and `MKSYNC_VISIBILITY`, behind injectable
+  `run` and `fetch` so its tests never reach the network.
+- `wizard/setup.ts` is the flow (`runSetup`): scan block, profile list, four questions, refusals and summary, against
+  an `io` with `write` and `readLine`. It writes nothing and returns the record, the profile, the fourth answer and
+  `replaced`. `main.ts` then asks the value questions, writes the profile and then the record, and runs the import or
+  export. `cli/parse.ts` parses `setup`, `machine show`, `machine retire` and `profile retire`.
+
 ## Release and update
 
 - **From phase 4:** CI builds the four programs on every pull request and every push to `master`, from one Linux job
@@ -1048,9 +1070,10 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
-- **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. At the first
-  private push, the copies of one profile are merged: modules and `destinations` joined, a value that differs between
-  copies asked about. The exact flow is phase 6's.
+- **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. Phase 6 built the
+  merge in `core/machine/copies.ts`: modules in first-seen order and `destinations` joined, `retired` if any copy says
+  so, and a value or destination that differs returned as a question. Where the copies come from and how the question
+  is asked is phase 7's, with the first private push.
 - **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
   drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
   or become hidden, is the `cli` skill's review before phase 8.
@@ -1159,6 +1182,10 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
     which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's
     rules would be a migration.
+  - An SSH alias that resolves to `ssh.github.com` (GitHub's SSH over port 443) is public, since only `github.com`
+    is asked. It fails closed; asking it as `github.com` would need a line in the contract first.
+  - A repeated setup flag has no shared case: the parity runner takes options as a JSON object. `src/cli/parse.test.ts`
+    pins `ERROR: <flag> is repeated.`, and the usage line is pinned to the contract the same way.
 
 ### Confirm on Windows
 

@@ -303,26 +303,44 @@ Each v2 entry has a `merge` that says how its layers combine ([contract](sync-co
 
 ### Profiles and machines
 
-Until phase 6 two variables choose the extra layers, as `SYNC_OS` chooses the system. Unset or empty (every machine
-today), there are no extra layers and every module is on.
+The machine record chooses the extra layers, as `SYNC_OS` chooses the system. `dist/mksync setup` writes it once per
+machine ([daily-workflow.md](daily-workflow.md#try-a-machine-record)); with no record (every machine today) there are
+no extra layers and every module is on. The phase 5 variables `SYNC_PROFILE` and `SYNC_MACHINE` are gone.
 
-| Variable | Reads | Layer label |
-|---|---|---|
-| `SYNC_PROFILE=<name>` | the profile `<state>/profiles/<name>.json` and the layer `<state>/profiles/<name>/` | `profiles/<name>/<file>` |
-| `SYNC_MACHINE=<name>` | the layer `<state>/machines/<name>/` | `machines/<name>/<file>` |
+| File | Holds | Layer it brings | Layer label |
+|---|---|---|---|
+| `<state>/machine.json` | the record: name, profile, OS, Claude mode, push or pull only, module changes, machine values | `<state>/machines/<name>/` | `machines/<name>/<file>` |
+| `<state>/profiles/<profile>.json` | the profile: modules, values, destinations, retired | `<state>/profiles/<profile>/` | `profiles/<profile>/<file>` |
 
 `<state>` is the state folder ([layout.md](layout.md#profiles-and-machines-in-the-state-folder)). A name is lowercase
-letters, digits and `-`, and it can't name another layer: neither variable may be `linux`, `macos`, `windows`,
-`common` or `base`, and the machine can't share the profile's name (their side files, such as `CLAUDE.<name>.md`,
-would overwrite each other). A bad name, a missing profile file or one that doesn't parse stops the run with exit 2
-before any file is touched. The profile file is JSON with four optional fields:
+letters, digits and `-`, and it can't name another layer: neither name may be `linux`, `macos`, `windows`, `common` or
+`base`, and the machine can't share its profile's name (their side files, such as `CLAUDE.<name>.md`, would overwrite
+each other). A record or profile that doesn't parse stops the run with exit 2 before any file is touched, naming the
+field ([contract, "Machines"](sync-contract.md#machines-program-only)).
+
+**The record.** Every field is required; `setup` writes it, so it's rarely edited by hand:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name` | name | this machine, and its layer folder |
+| `profile` | name | the profile it runs |
+| `os` | `linux`, `macos` or `windows` | the system it was set up on |
+| `hostname`, `domain` | string; string or `null` | what the scan read, used to suggest this record on a reinstall |
+| `claude` | `none`, `claude` or `claude-deepseek` | turns off `claude` and `claude-worker`, `claude-worker` only, or neither |
+| `pullOnly` | boolean | pull without ever pushing |
+| `modules` | `{ "add": [...], "remove": [...] }` | modules turned on or off for this machine only |
+| `values` | object | this machine's values: `<HOME>`, `<GH_CLI_PATH>`, and any placeholder answered "this machine" |
+| `replaced` | list of `{hostname, domain, date}` | earlier installs this record took over, oldest first |
+| `retired` | boolean | set by `machine retire`; a retired record can't push |
+
+**The profile** is JSON with four optional fields:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `modules` | array of module names | the modules this profile runs; an entry of any other module gets no status line |
-| `values` | object | per-profile values (phase 6; `.user-values.json` is still the only source) |
+| `values` | object | the profile's values: name, email, GitHub user and org, work marketplace, and any placeholder answered "this profile"; a record's value wins over the profile's |
 | `destinations` | object | where a new setting goes: key path (`proxy`, `permissions.allow[]`) to layer slot, `os`, `profile` or `machine`; any other value stops the run (`destination <key> is not a layer`) |
-| `retired` | boolean | a profile no machine uses any more (phase 6) |
+| `retired` | boolean | set by `profile retire`: not listed by `setup`, and refused if named |
 
 **Worked example.** A work machine gets the `parity` module and one extra key in a JSON file:
 
@@ -334,18 +352,23 @@ before any file is touched. The profile file is JSON with four optional fields:
 // dotfiles/common/parity/settings.json         (base)
 { "editor": "vim", "theme": "dark" }
 
+// <state>/machine.json                          (record, written by setup)
+{ "name": "wk1-laptop", "profile": "work-1", "os": "linux", "hostname": "wk1-laptop",
+  "domain": null, "claude": "claude", "pullOnly": false,
+  "modules": { "add": [], "remove": [] }, "values": {}, "replaced": [], "retired": false }
+
 // <state>/profiles/work-1.json                    (profile)
-{ "modules": ["parity"] }
+{ "modules": ["parity"], "values": {}, "destinations": {}, "retired": false }
 
 // <state>/profiles/work-1/parity/settings.json   (profile layer)
 { "theme": "light", "proxy": "http://proxy.example.com" }
 ```
 
 Only the program reads profiles, so the example runs `dist/mksync` (`bun run build`), not the `mksync` front door,
-which still calls the old engines. `SYNC_PROFILE=work-1 dist/mksync import` writes `~/.config/parity/settings.json` as
+which still calls the old engines. With the record in place, `dist/mksync import` writes `~/.config/parity/settings.json` as
 `{ "editor": "vim", "theme": "light", "proxy": "http://proxy.example.com" }` (laid out over several lines) and labels
 the line with the latest layer, `profiles/work-1/parity/settings.json`. Changing `theme` locally and running
-`SYNC_PROFILE=work-1 dist/mksync export` writes the new value back to the profile layer in the state folder, since that
+`dist/mksync export` writes the new value back to the profile layer in the state folder, since that
 layer set it; `dotfiles/` doesn't change. Each time export rewrites or removes a file in the state folder, the old file
 goes into the run's dated backups folder first.
 
@@ -353,5 +376,4 @@ goes into the run's dated backups folder first.
 Without an answer it stops that file with `ERROR`, note `new setting font: needs a destination`. With one in the
 profile, `{ "modules": ["parity"], "destinations": { "font": "profile" } }`, export writes it to the profile layer, and
 creates that layer's file (`ADDED`) when the profile had none for this entry. `"os"` would send it to
-`dotfiles/<os>/parity/settings.json` instead, and `"machine"` to the machine layer (an `ERROR` when `SYNC_MACHINE` is
-unset). Removing a key locally removes it from every layer that sets it.
+`dotfiles/<os>/parity/settings.json` instead, and `"machine"` to the machine layer (`machines/wk1-laptop/parity/settings.json`). Removing a key locally removes it from every layer that sets it.

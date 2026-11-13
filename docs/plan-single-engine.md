@@ -155,6 +155,13 @@ from the state folder (`SYNC_PROFILE`, `SYNC_MACHINE`), and passes the 51 shared
   profiles, and per-machine and per-profile values.
 - The public-repo guard: values stay local and are committed after the repo goes private.
 
+**Done 2026-11-13** ([plan-single-engine-6.md](plan-single-engine-6.md)). `dist/mksync setup` scans the machine, asks
+four questions and writes the record and profile to local state; `machine show`, `machine retire` and `profile retire`
+work on them, and the record picks the profile and machine layers (`SYNC_PROFILE` and `SYNC_MACHINE` are gone). The
+guard reads the push URL's visibility and holds or refuses `profiles/` and `machines/` while public. The program passes
+the 90 shared cases. Merging two copies of a profile is built but wired in phase 7; what's left is in the design's
+"Open" ("Machines, phase 6" and "Left by the phase 6 audits").
+
 ### Phase 7: push, pull and Claude
 
 - **It starts with the only Windows sitting before cut-over.** On work machine #1 the user runs one prompt that

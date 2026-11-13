@@ -71,19 +71,22 @@ and only the program reads them:
 
 ```text
 <state>/
+├── machine.json               this machine's record, written by mksync setup
 ├── profiles/
 │   ├── work-1.json            the profile: modules, values, destinations, retired
 │   └── work-1/                the profile layer, laid out like dotfiles/common/
 │       └── claude/CLAUDE.md
 └── machines/
-    └── laptop/                the machine layer, same layout
+    └── wk1-laptop/            the machine layer, same layout
         └── vscode/settings.json
 ```
 
 A layer file has the entry's `file` path under its layer folder, as in `dotfiles/<os>/`. Status lines label it
 `profiles/<name>/<file>` or `machines/<name>/<file>`, and export writes its changes back here, never to `dotfiles/`.
-Phase 6 replaces the variables that choose them with the machine record
-([configuration.md](configuration.md#profiles-and-machines)).
+`machine.json` names the machine and its profile, so it chooses which of these layers apply
+([configuration.md](configuration.md#profiles-and-machines)); no record, no extra layers. The record and profile files
+are readable by the current user only. Once the repo is private, the first push moves them to the repo's `machines/`
+and `profiles/` (phase 7) and `machine.json` keeps only a pointer, `{"name": "<name>", "home": "repo"}`.
 
 ## Where a file goes
 

@@ -1107,10 +1107,14 @@ isn't listed by `setup`; a retired machine isn't offered for `--replace` and can
 
 Until the repo is private, profiles, records and values never reach it.
 
-**Visibility.** For an `origin` on `github.com`: `gh repo view --json visibility` when `gh` is signed in, otherwise
+**Visibility.** The guard judges where a push goes: `origin`'s push URL (`git remote get-url --push origin`). For an
+origin on `github.com`: `gh repo view github.com/<owner>/<repo> --json visibility` when `gh` is signed in, otherwise
 `GET https://api.github.com/repos/<owner>/<repo>`; any failure (no network, no answer, an unknown value) counts as
-public. For any other `origin`, `MKSYNC_VISIBILITY` (`private`, anything else or unset is public); the variable is
-ignored for `github.com`.
+public. An owner must start with a letter or digit; a `github.com` origin that doesn't parse is public. An SSH origin
+(`ssh://[user@]host[:port]/path` or `[user@]host:path`) on another host name is resolved with `ssh -G <host>`: an alias
+whose `hostname` is `github.com` is asked as `github.com`; a host starting with `-`, or a failing `ssh -G`, is public.
+For any other origin, `MKSYNC_VISIBILITY` (`private`, anything else or unset is public); the variable is never read for
+`github.com`, directly or through an alias.
 
 **Held.** While public and with a record, `export --preview` ends with the local files a private push would add, sorted:
 
@@ -1121,7 +1125,8 @@ held until the repo is private: 2 file(s)
 ```
 
 **Refused.** While public, `export` stops with exit 1 before writing anything when the clone already tracks a path
-under `profiles/` or `machines/`, two lines per path, sorted:
+under `profiles/` or `machines/` (in any letter case, as a case-insensitive file system sees them; each path is shown
+as tracked), two lines per path, sorted:
 
 ```text
 refused: the repo is public, so machines/wk1-laptop.json can't be pushed.
