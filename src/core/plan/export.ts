@@ -33,6 +33,9 @@ import type {
 
 const BASE_ROOT = "dotfiles/common/";
 
+/** Contract "Orphan report": only files under `dotfiles/` can be orphans. */
+const REPO_TREE = "dotfiles/";
+
 const ALL_OS: readonly Os[] = ["windows", "linux", "macos"];
 
 const EXCLUDE_NOTE = "matches exclude pattern";
@@ -607,6 +610,10 @@ function orphanReport(state: State): void {
   }
 
   for (const path of [...state.snapshot.repoFiles.keys()].sort()) {
+    // Profile and machine layer files live in the state folder, not the repo.
+    if (!path.startsWith(REPO_TREE)) {
+      continue;
+    }
     const owned =
       exact.has(path) ||
       folders.some((prefix) => path.startsWith(prefix)) ||

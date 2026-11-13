@@ -702,6 +702,8 @@ describe("planExport values file", () => {
   });
 });
 
+const UNUSED_PROFILE_FILE = "profiles/work-1/other/unused.json";
+
 describe("planExport layers", () => {
   test("should send a json change to the layer holding the key", () => {
     // Arrange
@@ -730,6 +732,24 @@ describe("planExport layers", () => {
       { kind: "chmod", path: "dotfiles/linux/parity/settings.json", mode: MODE },
     ]);
     expect(result.code).toBe(0);
+  });
+
+  test("should not report a profile layer file as an orphan", () => {
+    // Arrange
+    const base = validSnapshot("json-export-to-layer");
+    const snapshot: Snapshot = {
+      ...base,
+      repoFiles: new Map([
+        ...base.repoFiles,
+        [UNUSED_PROFILE_FILE, new TextEncoder().encode("{}\n")],
+      ]),
+    };
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(result.lines.some((line) => line.includes(UNUSED_PROFILE_FILE))).toBe(false);
   });
 
   test("should refuse a new json setting with no destination and write nothing", () => {
