@@ -321,6 +321,16 @@ const JSON_NEW_SETTING_TEXT = `{
 }
 `;
 
+const JSON_LIST_BASE_TEXT = '{"list": ["a"]}';
+
+const JSON_LIST_ADDED_TEXT = `{
+  "list": [
+    "a",
+    "b"
+  ]
+}
+`;
+
 const PROFILE_SETTINGS_FOLDER = "profiles/work-1/parity";
 
 const PROFILE_SETTINGS_PATH = `${PROFILE_SETTINGS_FOLDER}/settings.json`;
@@ -830,6 +840,32 @@ describe("planExport layers", () => {
 
     // Assert
     expect(result.lines.some((line) => line.includes(UNUSED_PROFILE_FILE))).toBe(false);
+  });
+
+  test("should send a new json array item to the one layer a base-only file has", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: { "dotfiles/common/parity/settings.json": JSON_LIST_BASE_TEXT },
+      local: { ".config/parity/settings.json": JSON_LIST_ADDED_TEXT },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/common/parity/settings.json",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/settings.json",
+        text: JSON_LIST_ADDED_TEXT,
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/settings.json", mode: MODE },
+    ]);
+    expect(result.code).toBe(0);
   });
 
   test("should refuse a new json setting with no destination and write nothing", () => {

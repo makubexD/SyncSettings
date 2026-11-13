@@ -421,6 +421,29 @@ const REORDER_LOCAL_CRLF_TEXT = '{\r\n  "b": 2,\r\n  "a": 1\r\n}\r\n';
 const PULL_BASE_TEXT = '{"a": 1, "list": ["x"], "obj": {"k": "base"}}';
 const PULL_OS_TEXT = '{"list": ["y", "x"], "obj": {"k2": "os"}, "b": 2}';
 
+const ONE_LAYER_BASE_TEXT = '{"a": 1}';
+const ONE_LAYER_NEW_KEY_LOCAL_TEXT = `{
+  "a": 1,
+  "x": true
+}
+`;
+const ONE_LAYER_NEW_KEY_BASE_CHANGE_TEXT = ONE_LAYER_NEW_KEY_LOCAL_TEXT;
+
+const LIST_BASE_TEXT = '{"list": ["x"]}';
+const LIST_ADDED_LOCAL_TEXT = `{
+  "list": [
+    "x",
+    "y"
+  ]
+}
+`;
+const LIST_PROFILE_CHANGE_TEXT = `{
+  "list": [
+    "y"
+  ]
+}
+`;
+
 const SINGLE_BASE_TEXT = '{"a": 1, "list": ["x"]}';
 const SINGLE_LOCAL_TEXT = `{
   "a": 2,
@@ -459,14 +482,16 @@ const SPLIT_LOCAL_ONLY_LOCAL_TEXT =
 const SPLIT_LOCAL_ONLY_ADDED_TEXT = '{"editor.fontSize": 14, "window.zoomLevel": 2}';
 
 const DESTINATION_ALLOW = new Map<string, LayerName>([
-  ["permissions.allow", "profile"],
+  ["permissions.allow[]", "profile"],
 ]);
 const DESTINATION_MARKETPLACES = new Map<string, LayerName>([
-  ["chat.plugins.marketplaces", "profile"],
+  ["chat.plugins.marketplaces[]", "profile"],
 ]);
 const DESTINATION_PROXY = new Map<string, LayerName>([
   ["http.proxy", "profile"],
 ]);
+const DESTINATION_LIST = new Map<string, LayerName>([["list[]", "profile"]]);
+const DESTINATION_MACHINE = new Map<string, LayerName>([["x", "machine"]]);
 
 function decode(value: Uint8Array): string {
   return new TextDecoder().decode(value);
@@ -747,6 +772,98 @@ describe("splitJson", () => {
     expect(result.newSettings).toEqual([]);
     expect(result.changes).toHaveLength(1);
     expectLayerText(result.changes, BASE_PATH, SINGLE_BASE_CHANGE_TEXT);
+  });
+
+  test("a missing OS slot leaves the one present base layer to take a new key", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, ONE_LAYER_BASE_TEXT),
+      jsonLayer("os", OS_PATH, undefined),
+    ];
+
+    // Act
+    const result = expectRoundTrip(ONE_LAYER_NEW_KEY_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(
+      result.changes,
+      BASE_PATH,
+      ONE_LAYER_NEW_KEY_BASE_CHANGE_TEXT,
+    );
+    expectNoLayerChange(result.changes, OS_PATH);
+  });
+
+  test("a missing OS slot leaves the one present base layer to take a new array item", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, LIST_BASE_TEXT),
+      jsonLayer("os", OS_PATH, undefined),
+    ];
+
+    // Act
+    const result = expectRoundTrip(LIST_ADDED_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(result.changes, BASE_PATH, LIST_ADDED_LOCAL_TEXT);
+    expectNoLayerChange(result.changes, OS_PATH);
+  });
+
+  test("an array item's destination looks up the path the note names, with []", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, LIST_BASE_TEXT),
+      jsonLayer("os", OS_PATH, undefined),
+      jsonLayer("profile", PROFILE_PATH, undefined),
+    ];
+
+    // Act
+    const result = expectRoundTrip(LIST_ADDED_LOCAL_TEXT, layers, {
+      destinations: DESTINATION_LIST,
+    });
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(result.changes, PROFILE_PATH, LIST_PROFILE_CHANGE_TEXT);
+    expectNoLayerChange(result.changes, BASE_PATH);
+  });
+
+  test("a destination naming a slot this run lacks falls back to the one present layer", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, ONE_LAYER_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(ONE_LAYER_NEW_KEY_LOCAL_TEXT, layers, {
+      destinations: DESTINATION_MACHINE,
+    });
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+    expectLayerText(
+      result.changes,
+      BASE_PATH,
+      ONE_LAYER_NEW_KEY_BASE_CHANGE_TEXT,
+    );
+  });
+
+  test("two present layers with no destination leave a new key a new setting", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, ONE_LAYER_BASE_TEXT),
+      jsonLayer("os", OS_PATH, REMOVE_OS_TEXT),
+    ];
+
+    // Act
+    const result = split(ONE_LAYER_NEW_KEY_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.changes).toEqual([]);
+    expectNewSettings(result.newSettings, [{ path: "x", json: "true" }]);
   });
 
   test("a destination naming a profile slot with no file yet creates the profile file", () => {

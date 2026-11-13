@@ -199,6 +199,9 @@ const EMPTY_DESTINATIONS: ReadonlyMap<string, LayerName> = new Map();
 interface SplitState {
   readonly name: LayerName;
   readonly repoPath: string;
+  /** Whether this slot's file exists. Only present states can be an entry's
+   * one layer, so a missing OS slot beside a present base doesn't count. */
+  readonly present: boolean;
   value: JsonValue | undefined;
   changed: boolean;
 }
@@ -330,7 +333,8 @@ function withoutTopLevelKeys(
   return { kind: "object", entries };
 }
 
-/** The layer slot a new setting goes to, or undefined when none can take it. */
+/** The layer slot a new setting goes to, or undefined when none can take it:
+ * the destination's slot when this run has it, else the one present layer. */
 function resolveNewSettingTarget(
   lookupKey: string,
   context: SplitContext,
@@ -342,8 +346,9 @@ function resolveNewSettingTarget(
       return named;
     }
   }
-  if (context.states.length === 1) {
-    return context.states[0];
+  const present = context.states.filter((state) => state.present);
+  if (present.length === 1) {
+    return present[0];
   }
   return undefined;
 }
@@ -369,9 +374,10 @@ function addNewArrayItem(
   context: SplitContext,
 ): void {
   const arrayPath = joinPath(segments);
-  const target = resolveNewSettingTarget(arrayPath, context);
+  const itemPath = `${arrayPath}[]`;
+  const target = resolveNewSettingTarget(itemPath, context);
   if (target === undefined) {
-    context.newSettings.push({ path: `${arrayPath}[]`, value: item });
+    context.newSettings.push({ path: itemPath, value: item });
     return;
   }
   target.value = appendArrayItem(target.value ?? EMPTY_OBJECT, segments, item);
@@ -535,6 +541,7 @@ export function splitJson(
     states.push({
       name: layer.name,
       repoPath: layer.repoPath,
+      present: layer.bytes !== undefined,
       value: parsed,
       changed: false,
     });
