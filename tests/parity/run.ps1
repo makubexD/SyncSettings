@@ -153,6 +153,11 @@ function Validate-Case {
         if ($null -ne $stderrProp -and $stderrProp.Value -isnot [bool]) {
             Die 'stderr must be a boolean'
         }
+
+        $outputProp = $cmd.PSObject.Properties['output']
+        if ($null -ne $outputProp -and -not ($outputProp.Value -is [string] -and $outputProp.Value -ceq 'all')) {
+            Die 'output must be "all"'
+        }
     }
 
     $osProp = $case.PSObject.Properties['os']
@@ -353,6 +358,26 @@ function Get-StatusLines {
         if ($line -cmatch $pattern) {
             $result += ($Matches[1] + ' ' + $Matches[2])
         }
+    }
+    return ,$result
+}
+
+# Every line of a command's whole stdout, in order: ANSI color codes removed,
+# a trailing carriage return dropped, a final line without a newline kept. An
+# empty stdout adds no line (see the README's "How the runner checks it").
+function Get-WholeOutput {
+    param([string]$Raw)
+    $text = $Raw -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
+    $text = $text -replace "`r`n", "`n"
+    $result = @()
+    if ($text.Length -eq 0) {
+        return ,$result
+    }
+    if ($text.EndsWith("`n")) {
+        $text = $text.Substring(0, $text.Length - 1)
+    }
+    foreach ($line in ($text -split "`n")) {
+        $result += ($line -replace "`r$", '')
     }
     return ,$result
 }
@@ -800,13 +825,20 @@ function Run-Case {
             }
 
             # With stderr, the command's stderr is kept apart so its lines land
-            # in the output after the stdout status lines; otherwise both
-            # streams are merged as before.
+            # in the output after the stdout lines; a whole-stdout command
+            # without it also keeps stderr apart, so only stdout reaches the
+            # output; otherwise both streams are merged as before.
             $stderrMode = $false
             $stderrProp = $cmdObj.PSObject.Properties['stderr']
             if ($null -ne $stderrProp -and $stderrProp.Value -eq $true) {
                 $stderrMode = $true
             }
+            $allOutput = ($cmd -ceq 'setup' -or $cmd -ceq 'machine-show' -or
+                $cmd -ceq 'machine-retire' -or $cmd -ceq 'profile-retire')
+            if ($null -ne $cmdObj.PSObject.Properties['output']) {
+                $allOutput = $true
+            }
+            $rawErr = Join-Path $t 'raw-err'
 
             if ([string]::IsNullOrEmpty($EnginePath)) {
                 $procArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath) + $extraArgs
@@ -853,12 +885,16 @@ function Run-Case {
                 if ([string]::IsNullOrEmpty($EnginePath)) {
                     if ($stderrMode) {
                         $output = @($stdinText | & powershell.exe @procArgs 2>&1)
+                    } elseif ($allOutput) {
+                        $raw = $stdinText | & powershell.exe @procArgs 2> $rawErr | Out-String
                     } else {
                         $raw = $stdinText | & powershell.exe @procArgs 2>&1 | Out-String
                     }
                 } else {
                     if ($stderrMode) {
                         $output = @($stdinText | & $scriptPath @procArgs 2>&1)
+                    } elseif ($allOutput) {
+                        $raw = $stdinText | & $scriptPath @procArgs 2> $rawErr | Out-String
                     } else {
                         $raw = $stdinText | & $scriptPath @procArgs 2>&1 | Out-String
                     }
@@ -897,8 +933,14 @@ function Run-Case {
                     }
                     $rawText += ([string]$item) + "`n"
                 }
-                foreach ($line in (Get-StatusLines $rawText)) {
-                    $statusOut.Add($line)
+                if ($allOutput) {
+                    foreach ($line in (Get-WholeOutput $rawText)) {
+                        $statusOut.Add($line)
+                    }
+                } else {
+                    foreach ($line in (Get-StatusLines $rawText)) {
+                        $statusOut.Add($line)
+                    }
                 }
                 foreach ($item in $output) {
                     if ($item -isnot [System.Management.Automation.ErrorRecord]) {
@@ -906,6 +948,10 @@ function Run-Case {
                     }
                     $line = ([string]$item) -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
                     $statusOut.Add($line.TrimEnd("`r"))
+                }
+            } elseif ($allOutput) {
+                foreach ($line in (Get-WholeOutput $raw)) {
+                    $statusOut.Add($line)
                 }
             } else {
                 foreach ($line in (Get-StatusLines $raw)) {

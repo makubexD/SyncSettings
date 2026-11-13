@@ -94,7 +94,10 @@ are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` a
 `profile-retire`, required there and refused elsewhere. Every command runs with no terminal, as CI does, and with stdin
 empty unless the command has `stdin`: a string sent as its stdin, such as `"n\n"` for a prompt answer. Its stderr is
 merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status lines in
-`output.txt`, for the warnings the program prints there.
+`output.txt`, for the warnings the program prints there. A command's output is read as status lines (below) except for
+`setup`, `machine-show`, `machine-retire` and `profile-retire`, and any command with `"output": "all"`: those keep
+their whole stdout instead, so the `machine show` fields, the scan block and the `ERROR:`, `held` and `refused:` lines
+reach `output.txt`. `output` may only be `"all"`; anything else is a runner error.
 
 ### Per-OS expectations
 
@@ -120,8 +123,10 @@ stub on means `gh` must not be called.
    - **Status lines.** Each output line that is a status line becomes `WORD label`: the word without brackets or
      color, then the label. Notes and every other line are dropped, so the bash layout and the PowerShell
      `[WORD      ] label` layout read the same. With `stderr: true` on the command, its stderr lines are kept whole
-     (color dropped too) and come after its stdout status lines. The result must equal `expect/output.txt`, line for
-     line.
+     (color dropped too) and come after its stdout status lines. A whole-stdout command (above) keeps every line of
+     its stdout instead, in order, with color codes and a trailing `\r` removed and a final line without a newline
+     kept; an empty stdout adds no line, and its stderr is left out unless `stderr: true`. The result must equal
+     `expect/output.txt`, line for line.
    - **Trees**, byte for byte, file list and content. The runner leaves out what an engine keeps for itself:
      `.user-values.json`, the state folder (`~/.local/state/sync-settings`, `%LOCALAPPDATA%\SyncSettings`), and `.git`
      (the bare `origin` lives outside the repo). File modes are compared only where the file system keeps them.

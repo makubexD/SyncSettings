@@ -28,6 +28,7 @@ readonly HARNESS_OS
 # over CREATE and UPDATE in the alternation. IN, OUT, BOTH and ? are diff labels.
 STATUS_WORDS='ADDED|UNCHANGED|MODIFIED|SKIPPED|REMOVED|ERROR|CREATED|UPDATED|EXTRA|ORPHAN|DRIFT|CREATE|UPDATE|IN|OUT|BOTH|\?'
 ESC=$(printf '\033')
+CR=$(printf '\r')
 
 # -- Helpers -------------------------------------------------------------------
 
@@ -120,6 +121,8 @@ validate_case() {
         || die 'stdin must be a string'
     jq -e 'all(.commands[]; if has("stderr") then (.stderr | type) == "boolean" else true end)' "$json" > /dev/null 2>&1 \
         || die 'stderr must be a boolean'
+    jq -e 'all(.commands[]; if has("output") then .output == "all" else true end)' "$json" > /dev/null 2>&1 \
+        || die 'output must be "all"'
     jq -e 'if has("env") then
             (.env | type) == "object" and all(.env[]; type == "string" or . == null)
           else true end' "$json" > /dev/null 2>&1 \
@@ -201,6 +204,17 @@ status_lines() {
     sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
         | sed -E 's/^.*\? \[[Yy]\/[Nn]\][[:space:]]*//' \
         | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p"
+}
+
+# Every line of a command's whole stdout, in order: ANSI color codes removed,
+# a trailing carriage return dropped, a final line without a newline kept. An
+# empty stdout adds no line (see the README's "How the runner checks it").
+whole_output() {
+    sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
+        | sed "s/${CR}\$//" \
+        | while IFS= read -r line || [[ -n $line ]]; do
+            printf '%s\n' "$line"
+        done
 }
 
 # Compare two line files, one line per command or per status line. $1 is the
@@ -327,7 +341,7 @@ write_gh_stub() {
 run_case() {
     local dir=$1
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
-    local stderr_mode target
+    local stderr_mode all_output target
     local want_exit want_output want_home want_repo want_values want_state want_gh calls
     local file rel got want_mode got_mode
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
@@ -458,12 +472,17 @@ run_case() {
         fi
 
         # With stderr, the command's stderr is kept apart so its lines land in
-        # the output after the stdout status lines; otherwise both streams are
-        # merged as before.
+        # the output after the stdout lines; a whole-stdout command without it
+        # also keeps stderr apart, so only stdout reaches the output; otherwise
+        # both streams are merged as before.
         stderr_mode=$(jq -r ".commands[$i].stderr // false" "$dir/case.json")
+        all_output=$(jq -r ".commands[$i] | has(\"output\")" "$dir/case.json")
+        case $cmd in
+            setup|machine-show|machine-retire|profile-retire) all_output=true ;;
+        esac
         rc=0
         # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
-        if [[ $stderr_mode == true ]]; then
+        if [[ $stderr_mode == true || $all_output == true ]]; then
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
@@ -473,7 +492,11 @@ run_case() {
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         fi
         printf '%s\n' "$rc" >> "$t/actual-exit"
-        status_lines "$t/raw" >> "$t/actual-output"
+        if [[ $all_output == true ]]; then
+            whole_output "$t/raw" >> "$t/actual-output"
+        else
+            status_lines "$t/raw" >> "$t/actual-output"
+        fi
         if [[ $stderr_mode == true ]]; then
             sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$t/raw-err" \
                 | while IFS= read -r line || [[ -n $line ]]; do
