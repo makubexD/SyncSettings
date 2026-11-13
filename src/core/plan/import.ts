@@ -1,12 +1,31 @@
 import { same } from "../compare.ts";
-import type { ConfigV2Entry, Os, SanitizeRule } from "../config/types.ts";
+import type { SanitizeRule } from "../config/types.ts";
+import { jsonEqual, parseJson } from "../json/value.ts";
+import type { JsonValue } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
+import { mergeImport } from "../merge/import.ts";
+import { mergeJson } from "../merge/json.ts";
+import { strategyFor } from "../merge/strategy.ts";
+import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
 import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
+import {
+  basename,
+  compileExcludes,
+  entrySelected,
+  errorPlan,
+  isJsonEntry,
+  joinPath,
+  onlySelected,
+  primaryRepoPath,
+  resolvedLocal,
+  resolveOnly,
+  separatorFor,
+} from "./pick.ts";
 import type {
   Action,
   FileStep,
@@ -38,287 +57,13 @@ const COPY_FROM_REPO_FAILURE = "cannot copy from repo";
 
 const WRITE_LOCAL_FAILURE = "cannot write local file";
 
-// The helper block below (path expansion, exclude matching and --only
-// resolution) is copied from export.ts so this step needs no change there.
-// shortcut: a later step extracts these shared helpers into one module.
-function separatorFor(os: Os): "/" | "\\" {
-  return os === "windows" ? "\\" : "/";
-}
-
-function otherSeparator(separator: "/" | "\\"): string {
-  return separator === "/" ? "\\" : "/";
-}
-
-function joinPath(base: string, tail: string, separator: "/" | "\\"): string {
-  if (base === "") {
-    return tail;
-  }
-  if (tail === "") {
-    return base;
-  }
-  return base.endsWith(separator) ? `${base}${tail}` : `${base}${separator}${tail}`;
-}
-
-/** `~/` (or `~\`) becomes the home folder; elsewhere `\` becomes `/` on Windows. */
-function expandHome(raw: string, os: Os, home: string): string {
-  const separator = separatorFor(os);
-  if (raw === "~") {
-    return home;
-  }
-  if (raw.startsWith("~/") || raw.startsWith("~\\")) {
-    const tail = raw.slice(2).replaceAll(otherSeparator(separator), separator);
-    return joinPath(home, tail, separator);
-  }
-  return raw.replaceAll(otherSeparator(separator), separator);
-}
-
-/** The entry's local path on this system, `localPaths` first (contract "`localPath`"). */
-function resolvedLocal(entry: ConfigV2Entry, os: Os, home: string): string {
-  const raw = entry.localPaths?.[os] ?? entry.localPath ?? "";
-  return expandHome(raw, os, home);
-}
-
-function isAbsolutePath(path: string, separator: "/" | "\\"): boolean {
-  if (separator === "/") {
-    return path.startsWith("/");
-  }
-  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\");
-}
-
-/** `normalize_path` in `scripts/linux/sync.sh`, lexically and without links. */
-function normalizePath(path: string, separator: "/" | "\\"): string {
-  const unified = path.replaceAll(otherSeparator(separator), separator);
-  let prefix = "";
-  let rest = unified;
-  if (separator === "\\" && /^[A-Za-z]:/.test(unified)) {
-    prefix = `${unified.slice(0, 2)}${separator}`;
-    rest = unified.slice(2);
-  } else if (unified.startsWith(separator)) {
-    prefix = separator;
-    rest = unified.slice(1);
-  }
-  const parts: string[] = [];
-  for (const part of rest.split(separator)) {
-    if (part === "" || part === ".") {
-      continue;
-    }
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  return `${prefix}${parts.join(separator)}`;
-}
-
-function absoluteLocal(raw: string, snapshot: Snapshot): string {
-  const separator = separatorFor(snapshot.os);
-  let path = raw;
-  if (path === "~") {
-    path = snapshot.home;
-  } else if (path.startsWith("~/") || path.startsWith("~\\")) {
-    path = joinPath(snapshot.home, path.slice(2), separator);
-  }
-  if (!isAbsolutePath(path, separator)) {
-    path = joinPath(snapshot.cwd, path, separator);
-  }
-  return normalizePath(path, separator);
-}
-
-/** The entry's repo path: the layer that holds it, else decision 3's root. */
-function primaryRepoPath(selected: SelectedEntry): string {
-  return selected.source?.repoPath ?? `${selected.writeRoot}${selected.entry.file}`;
-}
-
-function onlySelected(repoPath: string, only: readonly string[]): boolean {
-  if (only.length === 0) {
-    return true;
-  }
-  return only.some(
-    (picked) =>
-      repoPath === picked ||
-      repoPath.startsWith(`${picked}/`) ||
-      repoPath.startsWith(`${picked}.linked/`),
-  );
-}
-
-function entrySelected(selected: SelectedEntry, only: readonly string[]): boolean {
-  if (only.length === 0) {
-    return true;
-  }
-  const repoPath = primaryRepoPath(selected);
-  if (onlySelected(repoPath, only)) {
-    return true;
-  }
-  return only.some(
-    (picked) =>
-      picked.startsWith(`${repoPath}/`) ||
-      picked.startsWith(`${repoPath}.linked/`),
-  );
-}
-
-function errorPlan(message: string, code: number): RunPlan {
-  return {
-    steps: [],
-    finish: [],
-    lines: [message],
-    summary: { kind: "none" },
-    code,
-  };
-}
-
-function onlyFailure(argument: string): RunPlan {
-  return errorPlan(
-    `ERROR: ${argument} is not synced on this machine.`,
-    1,
-  );
-}
-
-/** Contract "Picking files": turn every `--only` path into the repo path it names. */
-function resolveOnly(snapshot: Snapshot, selected: readonly SelectedEntry[]): OnlyOutcome {
-  const paths: string[] = [];
-  for (const argument of snapshot.only) {
-    let path = argument;
-    while (path.endsWith("/") && path !== "/") {
-      path = path.slice(0, -1);
-    }
-
-    if (path.startsWith("dotfiles/")) {
-      if (`/${path}/`.includes("/../") || path.includes(".linked/")) {
-        return { ok: false, plan: onlyFailure(argument) };
-      }
-      const found = selected.some((entry) => {
-        const repoPath = primaryRepoPath(entry);
-        return path === repoPath || (entry.entry.merge === "dir" && path.startsWith(`${repoPath}/`));
-      });
-      if (!found) {
-        return { ok: false, plan: onlyFailure(argument) };
-      }
-      paths.push(path);
-      continue;
-    }
-
-    const absolute = absoluteLocal(path, snapshot);
-    const separator = separatorFor(snapshot.os);
-    let repoPath: string | undefined;
-    for (const entry of selected) {
-      if (entry.entry.merge === "dconf") {
-        continue;
-      }
-      const local = normalizePath(
-        resolvedLocal(entry.entry, snapshot.os, snapshot.home),
-        separator,
-      );
-      if (entry.entry.merge !== "dir" && absolute === local) {
-        repoPath = primaryRepoPath(entry);
-        break;
-      }
-      if (entry.entry.merge === "dir" && absolute.startsWith(`${local}${separator}`)) {
-        const rest = absolute
-          .slice(local.length + 1)
-          .replaceAll(separator, "/");
-        repoPath = `${primaryRepoPath(entry)}/${rest}`;
-        break;
-      }
-    }
-    if (repoPath === undefined) {
-      return { ok: false, plan: onlyFailure(argument) };
-    }
-    paths.push(repoPath);
-  }
-  return { ok: true, paths };
-}
-
-function regexEscape(character: string): string {
-  return /[.*+?^${}()|[\]\\]/.test(character) ? `\\${character}` : character;
-}
-
-/** A bash-style glob: `*`, `?` and a bracket class. */
-function globSource(pattern: string): string {
-  let source = "";
-  for (let i = 0; i < pattern.length; i++) {
-    const character = pattern[i];
-    if (character === undefined) {
-      break;
-    }
-    if (character === "*") {
-      source += ".*";
-      continue;
-    }
-    if (character === "?") {
-      source += ".";
-      continue;
-    }
-    if (character === "[") {
-      const end = pattern.indexOf("]", i + 1);
-      if (end === -1) {
-        source += "\\[";
-        continue;
-      }
-      let body = pattern.slice(i + 1, end);
-      let negated = false;
-      if (body.startsWith("!") || body.startsWith("^")) {
-        negated = true;
-        body = body.slice(1);
-      }
-      source += `[${negated ? "^" : ""}${body.replaceAll("\\", "\\\\")}]`;
-      i = end;
-      continue;
-    }
-    if (character === "\\") {
-      const next = pattern[i + 1];
-      if (next === undefined) {
-        source += "\\\\";
-      } else {
-        source += regexEscape(next);
-        i++;
-      }
-      continue;
-    }
-    source += regexEscape(character);
-  }
-  return source;
-}
-
-function globMatches(text: string, pattern: string, caseInsensitive: boolean): boolean {
-  return new RegExp(`^${globSource(pattern)}$`, caseInsensitive ? "i" : "").test(text);
-}
-
-function basename(path: string): string {
-  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return slash === -1 ? path : path.slice(slash + 1);
-}
-
-/** Contract "Exclude patterns": the file name, or the end of the path. */
-function isExcluded(snapshot: Snapshot, path: string): boolean {
-  const patterns = snapshot.config.excludePatterns ?? [];
-  if (patterns.length === 0) {
-    return false;
-  }
-  const caseInsensitive = snapshot.os === "windows";
-  const leaf = basename(path);
-  return patterns.some((pattern) => {
-    if (pattern === "") {
-      return false;
-    }
-    return (
-      globMatches(leaf, pattern, caseInsensitive) ||
-      globMatches(path, `*/${pattern}`, caseInsensitive) ||
-      globMatches(path, `*\\${pattern}`, caseInsensitive)
-    );
-  });
-}
-
-// The copied helper block ends here.
-
-type OnlyOutcome =
-  | { readonly ok: true; readonly paths: readonly string[] }
-  | { readonly ok: false; readonly plan: RunPlan };
+const IMPORT_NAME_NOTE = "needs {layer} in importName";
 
 interface State {
   readonly snapshot: Snapshot;
   readonly values: Values;
   readonly only: readonly string[];
+  readonly isExcluded: (path: string) => boolean;
   readonly answers: readonly string[];
   readonly force: boolean;
   readonly steps: FileStep[];
@@ -369,6 +114,12 @@ function recordStep(
 
 function isDriveRoot(path: string): boolean {
   return /^[A-Za-z]:$/.test(path);
+}
+
+/** The folder a path sits in, using this OS's own separator. */
+function parentDir(path: string, separator: "/" | "\\"): string {
+  const slash = path.lastIndexOf(separator);
+  return slash <= 0 ? path : path.slice(0, slash);
 }
 
 /** `mkdir -p` the file's folder when the snapshot doesn't list it (decision 4). */
@@ -491,6 +242,144 @@ function applyBytes(
   writeCreated(state, label, localPath, repoPath, bytes, failure);
 }
 
+/**
+ * Each layer's bytes with its values put back, in layer order. A layer with no
+ * file is left out. A missing value is unreachable after `resolveValues`; it
+ * still gives the file its own `ERROR`.
+ */
+function hydratedLayers(
+  state: State,
+  selected: SelectedEntry,
+  label: string,
+): readonly LayerFile[] | undefined {
+  const entry = selected.entry;
+  const rules = entry.sanitize ?? [];
+  const json = isJsonEntry(entry);
+  const layers: LayerFile[] = [];
+  for (const layer of selected.layers) {
+    const bytes = state.snapshot.repoFiles.get(layer.repoPath);
+    if (bytes === undefined) {
+      continue;
+    }
+    if (rules.length === 0) {
+      layers.push({ repoPath: layer.repoPath, bytes });
+      continue;
+    }
+    const hydrated = hydrate(bytes, rules, state.values, { json });
+    if (!hydrated.ok) {
+      const line = pushStatus(state, "ERROR", label, hydrated.error.message);
+      recordStep(state, label, line, false);
+      return undefined;
+    }
+    layers.push({ repoPath: layer.repoPath, bytes: hydrated.value });
+  }
+  return layers;
+}
+
+/** The merged bytes of an entry, or its contract `ERROR` note. */
+function mergedBytes(
+  state: State,
+  selected: SelectedEntry,
+  layers: readonly LayerFile[],
+  localPath: string,
+  eol: "\n" | "\r\n",
+): { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly note: string } {
+  const entry = selected.entry;
+  if (entry.merge === "json") {
+    const local = state.snapshot.localFiles.get(localPath);
+    const merged = mergeJson(layers, eol, {
+      bytes: local !== undefined && local.kind === "file" ? local.bytes : undefined,
+      localOnlyKeys: entry.localOnlyKeys ?? [],
+    });
+    return merged.ok
+      ? { ok: true, bytes: merged.value }
+      : { ok: false, note: merged.error };
+  }
+  const strategy = strategyFor("whole");
+  if (strategy === undefined) {
+    throw new Error("merge type whole has no strategy");
+  }
+  const merged = strategy.merge(layers, { eol });
+  return merged.ok
+    ? { ok: true, bytes: merged.value }
+    : { ok: false, note: merged.error };
+}
+
+/** The JSON value a file holds, or undefined when it isn't valid UTF-8 JSON. */
+function parsedJson(bytes: Uint8Array): JsonValue | undefined {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    // Invalid UTF-8 is not JSON, as in the merge.
+    return undefined;
+  }
+  const parsed = parseJson(text);
+  return parsed.ok ? parsed.value : undefined;
+}
+
+/** Whether two files hold the same JSON value, whatever their layout. */
+function sameJson(left: Uint8Array, right: Uint8Array): boolean {
+  const leftValue = parsedJson(left);
+  const rightValue = parsedJson(right);
+  return (
+    leftValue !== undefined &&
+    rightValue !== undefined &&
+    jsonEqual(leftValue, rightValue)
+  );
+}
+
+/** Write the local file, then each later layer's file beside it, each with its
+ * own status line (contract "Layers (program only)", import entries). */
+function planImportFile(
+  state: State,
+  selected: SelectedEntry,
+  layers: readonly LayerFile[],
+  localPath: string,
+  sanitized: boolean,
+  eol: "\n" | "\r\n",
+): void {
+  const entry = selected.entry;
+  // The local file is the base text plus the engine's block, so it reads and
+  // writes the base layer; each side file is the whole of its own layer.
+  const label = selected.layers[0]?.repoPath ?? primaryRepoPath(selected);
+  const importName = entry.importName;
+  if (importName === undefined) {
+    const line = pushStatus(state, "ERROR", label, IMPORT_NAME_NOTE);
+    recordStep(state, label, line, false);
+    return;
+  }
+  const hydrated = new Map(layers.map((layer) => [layer.repoPath, layer.bytes]));
+  const merged = mergeImport(
+    selected.layers.map((layer) => ({
+      label: layer.label,
+      repoPath: layer.repoPath,
+      bytes: hydrated.get(layer.repoPath),
+    })),
+    importName,
+    eol,
+  );
+  if (!merged.ok) {
+    const line = pushStatus(state, "ERROR", label, merged.error);
+    recordStep(state, label, line, false);
+    return;
+  }
+
+  ensureParentDir(state, localPath);
+  applyBytes(state, label, localPath, label, merged.value.local, sanitized);
+
+  const separator = separatorFor(state.snapshot.os);
+  const folder = parentDir(localPath, separator);
+  for (const side of merged.value.sideFiles) {
+    const sidePath = joinPath(folder, side.name, separator);
+    if (state.isExcluded(sidePath)) {
+      pushStatus(state, "SKIPPED", side.repoPath, EXCLUDE_NOTE);
+      continue;
+    }
+    applyBytes(state, side.repoPath, sidePath, side.repoPath, side.bytes, sanitized);
+  }
+}
+
 function planFile(state: State, selected: SelectedEntry): void {
   const entry = selected.entry;
   const repoPath = primaryRepoPath(selected);
@@ -500,7 +389,7 @@ function planFile(state: State, selected: SelectedEntry): void {
   state.pending = [];
 
   const localPath = resolvedLocal(entry, state.snapshot.os, state.snapshot.home);
-  if (isExcluded(state.snapshot, localPath)) {
+  if (state.isExcluded(localPath)) {
     pushStatus(state, "SKIPPED", repoPath, EXCLUDE_NOTE);
     return;
   }
@@ -513,24 +402,43 @@ function planFile(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  ensureParentDir(state, localPath);
-
-  const rules = entry.sanitize ?? [];
-  if (rules.length === 0) {
-    applyBytes(state, repoPath, localPath, repoPath, bytes, false);
+  const layers = hydratedLayers(state, selected, repoPath);
+  if (layers === undefined) {
     return;
   }
 
-  const hydrated = hydrate(bytes, rules, state.values, {
-    json: entry.file.endsWith(".json"),
-  });
-  if (!hydrated.ok) {
-    // Unreachable after resolveValues; an ERROR only affects this file.
-    const line = pushStatus(state, "ERROR", repoPath, hydrated.error.message);
+  const eol = state.snapshot.os === "windows" ? "\r\n" : "\n";
+  const sanitized = (entry.sanitize ?? []).length > 0;
+
+  if (entry.merge === "import") {
+    planImportFile(state, selected, layers, localPath, sanitized, eol);
+    return;
+  }
+
+  const merged = mergedBytes(state, selected, layers, localPath, eol);
+  if (!merged.ok) {
+    const line = pushStatus(state, "ERROR", repoPath, merged.note);
     recordStep(state, repoPath, line, false);
     return;
   }
-  applyBytes(state, repoPath, localPath, repoPath, hydrated.value, true);
+
+  // A json entry compares parsed, so key order, whitespace and line endings
+  // alone leave the local file UNCHANGED, with no prompt and no backup.
+  if (entry.merge === "json") {
+    const local = state.snapshot.localFiles.get(localPath);
+    if (
+      local !== undefined &&
+      local.kind === "file" &&
+      sameJson(merged.bytes, local.bytes)
+    ) {
+      const line = pushStatus(state, "UNCHANGED", repoPath);
+      recordStep(state, repoPath, line, false);
+      return;
+    }
+  }
+
+  ensureParentDir(state, localPath);
+  applyBytes(state, repoPath, localPath, repoPath, merged.bytes, sanitized);
 }
 
 function planDir(state: State, selected: SelectedEntry): void {
@@ -559,7 +467,7 @@ function planDir(state: State, selected: SelectedEntry): void {
       continue;
     }
     const localPath = joinPath(localDir, relative.replaceAll("/", separator), separator);
-    if (isExcluded(state.snapshot, localPath)) {
+    if (state.isExcluded(localPath)) {
       pushStatus(state, "SKIPPED", label, EXCLUDE_NOTE);
       continue;
     }
@@ -589,7 +497,7 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (state.snapshot.repoFiles.has(`${source.repoPath}/${relative}`)) {
       continue;
     }
-    if (isExcluded(state.snapshot, localPath)) {
+    if (state.isExcluded(localPath)) {
       continue;
     }
     pushStatus(state, "EXTRA", label, EXTRA_NOTE);
@@ -700,7 +608,11 @@ export function planImport(
 ): RunPlan {
   const selected = selectEntries(
     snapshot.config,
-    snapshot.os,
+    {
+      os: snapshot.os,
+      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
+      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
+    },
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
@@ -722,6 +634,7 @@ export function planImport(
     snapshot,
     values: values.value,
     only: only.paths,
+    isExcluded: compileExcludes(snapshot.config.excludePatterns ?? [], snapshot.os),
     answers,
     force: snapshot.force === true,
     steps: [],

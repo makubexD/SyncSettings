@@ -13,6 +13,18 @@ const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
 const NOTHING_WRITTEN = "  Nothing was written. Run mksync push to send it.";
 
+/**
+ * Contract "Profile and machine, until phase 6": a profile's or machine's layer
+ * files live in the state folder, under these repo path roots. An export writes
+ * them, but they are never committed, so they are not part of the comparison
+ * with `HEAD` or of the preview's count.
+ */
+const STATE_FOLDER_ROOTS: readonly string[] = ["profiles/", "machines/"];
+
+function isStateFile(path: string): boolean {
+  return STATE_FOLDER_ROOTS.some((root) => path.startsWith(root));
+}
+
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) {
     return false;
@@ -25,24 +37,44 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-/** Files the export would write, as a count for the preview's summary. */
+/**
+ * Files the export would write to the repo, as a count for the preview's
+ * summary. State-folder layer writes are never committed, so they don't count.
+ */
 function writtenCount(actions: readonly Action[]): number {
   let count = 0;
   for (const action of actions) {
-    if (action.kind === "writeRepo" || action.kind === "removeRepo") {
+    if (
+      (action.kind === "writeRepo" || action.kind === "removeRepo") &&
+      !isStateFile(action.path)
+    ) {
       count++;
     }
   }
   return count;
 }
 
-/** The repo tree after the export: the working tree with its writes and removals applied. */
+/**
+ * The repo tree after the export: the working tree with its writes and removals
+ * applied. State-folder layers are left out, since nothing there is committed.
+ */
 function exportedTree(repo: RepoFiles, actions: readonly Action[]): RepoFiles {
-  const tree = new Map(repo);
+  const tree = new Map<string, Uint8Array>();
+  for (const [path, bytes] of repo) {
+    if (!isStateFile(path)) {
+      tree.set(path, bytes);
+    }
+  }
   for (const action of actions) {
+    if (action.kind !== "writeRepo" && action.kind !== "removeRepo") {
+      continue;
+    }
+    if (isStateFile(action.path)) {
+      continue;
+    }
     if (action.kind === "writeRepo") {
       tree.set(action.path, action.bytes);
-    } else if (action.kind === "removeRepo") {
+    } else {
       tree.delete(action.path);
     }
   }
@@ -51,8 +83,9 @@ function exportedTree(repo: RepoFiles, actions: readonly Action[]): RepoFiles {
 
 /**
  * Contract "Export preview": whether the exported result differs from `HEAD`.
- * The whole tree is compared, so changes exported earlier but not yet
- * committed show too.
+ * The whole committed tree is compared, so changes exported earlier but not yet
+ * committed show too; state-folder layers are left out, as they are never
+ * committed.
  */
 function differsFromHead(
   repo: RepoFiles,

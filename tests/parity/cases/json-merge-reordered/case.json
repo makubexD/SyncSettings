@@ -1,0 +1,29 @@
+{
+  "description": "Import and the import check compare a json entry parsed: a local file with the merged content, keys reordered and other indentation is UNCHANGED on both, with no backup (Layers (program only), json entries import).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "check"
+    },
+    {
+      "command": "import"
+    }
+  ],
+  "differences": ["Entry selection"]
+}

@@ -84,7 +84,11 @@ function labelsNeedingValues(
   }
   const selected = selectEntries(
     snapshot.config,
-    snapshot.os,
+    {
+      os: snapshot.os,
+      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
+      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
+    },
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
@@ -101,9 +105,14 @@ function labelsNeedingValues(
     if (!holds) {
       continue;
     }
-    labels.add(
-      item.source?.repoPath ?? `${item.writeRoot}${item.entry.file}`,
-    );
+    // Every layer a status line can name, so a layered file is skipped whole.
+    if (item.layers.length === 0) {
+      labels.add(`${item.writeRoot}${item.entry.file}`);
+      continue;
+    }
+    for (const layer of item.layers) {
+      labels.add(layer.repoPath);
+    }
   }
   return labels;
 }

@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
 import { posix, win32 } from "node:path";
+import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectedEntry } from "../core/layers/select.ts";
@@ -34,11 +35,20 @@ const MODE_MASK = 0o7777;
 
 const DOTFILES_FOLDER = "dotfiles";
 
+/** Contract "Profile and machine, until phase 6": the state folder's layer folders. */
+export const PROFILES_FOLDER = "profiles";
+
+export const MACHINES_FOLDER = "machines";
+
 /** Everything the snapshot adapter reads besides the disk itself. */
 export interface SnapshotInput {
   readonly repoRoot: string;
   readonly config: ConfigV2;
   readonly os: Os;
+  /** The sync point's folder, where a profile's or machine's layer files live. */
+  readonly stateFolder?: string;
+  readonly profile?: Profile;
+  readonly machine?: string;
   readonly home: string;
   readonly cwd: string;
   readonly values: Values;
@@ -95,12 +105,17 @@ function repoKey(repoRoot: string, path: string, os: Os): string {
   return pathFor(os).relative(repoRoot, path).split(separator).join("/");
 }
 
-/** Contract "Orphan report": every file under `dotfiles/` is in the snapshot. */
-function readRepoTree(
+/**
+ * Read every file under `dir` into `files`, keyed by `keyOf(path, relative)`,
+ * where `relative` is the path from `dir` joined with forward slashes. A
+ * symlink to a file is followed, as `[[ -f ]]` does; other entries are skipped.
+ */
+function readTree(
   dir: string,
-  repoRoot: string,
   os: Os,
   files: Map<string, Uint8Array>,
+  keyOf: (path: string, relative: string) => string,
+  prefix = "",
 ): void {
   const entries = listDir(dir);
   if (entries === undefined) {
@@ -110,18 +125,45 @@ function readRepoTree(
   for (const entry of entries) {
     const path = p.join(dir, entry.name);
     if (entry.isDirectory()) {
-      readRepoTree(path, repoRoot, os, files);
+      readTree(path, os, files, keyOf, `${prefix}${entry.name}/`);
       continue;
     }
-    const isFile = entry.isFile() || (entry.isSymbolicLink() && statOrUndefined(path)?.isFile() === true);
+    const isFile =
+      entry.isFile() ||
+      (entry.isSymbolicLink() && statOrUndefined(path)?.isFile() === true);
     if (!isFile) {
       continue;
     }
     const bytes = readBytes(path);
     if (bytes !== undefined) {
-      files.set(repoKey(repoRoot, path, os), bytes);
+      files.set(keyOf(path, `${prefix}${entry.name}`), bytes);
     }
   }
+}
+
+/** Contract "Orphan report": every file under `dotfiles/` is in the snapshot. */
+function readRepoTree(
+  dir: string,
+  repoRoot: string,
+  os: Os,
+  files: Map<string, Uint8Array>,
+): void {
+  readTree(dir, os, files, (path) => repoKey(repoRoot, path, os));
+}
+
+/**
+ * Contract "Profile and machine, until phase 6": a profile's or machine
+ * layer's files join the snapshot under its layer path, so entry selection
+ * sees them. Only the state folder is read, never the repo's `profiles/` or
+ * `machines/` folders.
+ */
+function readStateTree(
+  dir: string,
+  prefix: string,
+  os: Os,
+  files: Map<string, Uint8Array>,
+): void {
+  readTree(dir, os, files, (_path, relative) => `${prefix}${relative}`);
 }
 
 function fileEntry(path: string, stats: Stats): LocalEntry | undefined {
@@ -229,12 +271,41 @@ function localPathOf(
  */
 export function readSnapshot(input: SnapshotInput): Snapshot {
   const repoFiles = new Map<string, Uint8Array>();
-  const repoTree = pathFor(input.os).join(input.repoRoot, DOTFILES_FOLDER);
+  const p = pathFor(input.os);
+  const repoTree = p.join(input.repoRoot, DOTFILES_FOLDER);
   readRepoTree(repoTree, input.repoRoot, input.os, repoFiles);
+  if (input.stateFolder !== undefined) {
+    if (input.profile !== undefined) {
+      const folder = `${PROFILES_FOLDER}/${input.profile.name}`;
+      readStateTree(
+        p.join(input.stateFolder, PROFILES_FOLDER, input.profile.name),
+        `${folder}/`,
+        input.os,
+        repoFiles,
+      );
+    }
+    if (input.machine !== undefined) {
+      const folder = `${MACHINES_FOLDER}/${input.machine}`;
+      readStateTree(
+        p.join(input.stateFolder, MACHINES_FOLDER, input.machine),
+        `${folder}/`,
+        input.os,
+        repoFiles,
+      );
+    }
+  }
 
   const localFiles = new Map<string, LocalEntry>();
   const localDirs = new Set<string>();
-  const selected = selectEntries(input.config, input.os, new Set(repoFiles.keys()));
+  const selected = selectEntries(
+    input.config,
+    {
+      os: input.os,
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
+      ...(input.machine !== undefined ? { machine: input.machine } : {}),
+    },
+    new Set(repoFiles.keys()),
+  );
   if (selected.ok) {
     for (const chosen of selected.value) {
       addSelectedEntry(chosen, input.os, input.home, localFiles, localDirs);
@@ -252,6 +323,8 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
     values: input.values,
     env: input.env,
     only: input.only,
+    ...(input.profile !== undefined ? { profile: input.profile } : {}),
+    ...(input.machine !== undefined ? { machine: input.machine } : {}),
   };
   if (input.force !== undefined) {
     return { ...snapshot, force: input.force };
@@ -282,6 +355,29 @@ function addSelectedEntry(
   if (localFiles.has(path)) {
     addExistingParent(path, os, localDirs);
   }
+  addImportSideFiles(selected, path, os, localFiles);
+}
+
+/**
+ * Contract "Layers (program only)": an `import` entry's later layers each have
+ * a side file beside the local file. Pull compares and backs them up, and push
+ * exports them, so the snapshot reads them like the local file.
+ */
+function addImportSideFiles(
+  selected: SelectedEntry,
+  path: string,
+  os: Os,
+  localFiles: Map<string, LocalEntry>,
+): void {
+  const importName = selected.entry.importName;
+  if (selected.entry.merge !== "import" || importName === undefined) {
+    return;
+  }
+  const p = pathFor(os);
+  const folder = p.dirname(path);
+  for (const layer of selected.layers.slice(1)) {
+    addLocalEntry(p.join(folder, importName.replaceAll("{layer}", layer.label)), os, localFiles);
+  }
 }
 
 /** An action's path is a repo path when it is relative to `dotfiles/`. */
@@ -289,10 +385,84 @@ function isRepoPath(path: string): boolean {
   return path === "dotfiles" || path.startsWith(REPO_PREFIX);
 }
 
+/** An action's path is a state path when it names a profile or machine layer. */
+function isStatePath(path: string): boolean {
+  return (
+    path.startsWith(`${PROFILES_FOLDER}/`) ||
+    path.startsWith(`${MACHINES_FOLDER}/`)
+  );
+}
+
+/** A repo path stays under `dotfiles/`: its first segment. */
+const REPO_CONTAINMENT_DEPTH = 1;
+
+/** A state path stays under `profiles/<name>/` or `machines/<name>/`: two segments. */
+const STATE_CONTAINMENT_DEPTH = 2;
+
+/**
+ * `path` resolved under `root`, after normalizing its `.` and `..` segments,
+ * and contained to `base` (a resolved folder under `root`). Throws when it
+ * lands outside `base`, so a `..` segment cannot reach past the folder `base`
+ * names.
+ */
+function containedUnder(
+  base: string,
+  root: string,
+  path: string,
+  p: PathApi,
+): string {
+  const resolved = p.resolve(root, path);
+  const relative = p.relative(base, resolved);
+  if (relative === "") {
+    return resolved;
+  }
+  if (
+    relative === ".." ||
+    relative.startsWith(`..${p.sep}`) ||
+    p.isAbsolute(relative)
+  ) {
+    throw new Error(`path escapes its root: ${path}`);
+  }
+  return resolved;
+}
+
+/**
+ * `path` resolved under `root`, contained to the folder its first `depth`
+ * segments name: `dotfiles/` for a repo path, `profiles/<name>/` or
+ * `machines/<name>/` for a state path. A `..` segment cannot reach past that
+ * folder, so an entry cannot write into another layer, another profile, or
+ * `backups/` (contract "Layers (program only)").
+ */
+function containedPath(
+  path: string,
+  root: string,
+  depth: number,
+  context: RunContext,
+): string {
+  const p = pathFor(context.os);
+  const base = p.resolve(root, ...path.split("/").slice(0, depth));
+  return containedUnder(base, root, path, p);
+}
+
+/**
+ * Where an action writes: a repo path under the repo's `dotfiles/`, a profile
+ * or machine layer path under that layer's folder in the state folder, and
+ * anything else as an absolute local path. A repo or state path that resolves
+ * outside its folder throws, failing the action.
+ */
 function absolutePath(path: string, context: RunContext): string {
-  return isRepoPath(path)
-    ? pathFor(context.os).join(context.repoRoot, path)
-    : path;
+  if (isRepoPath(path)) {
+    return containedPath(path, context.repoRoot, REPO_CONTAINMENT_DEPTH, context);
+  }
+  if (isStatePath(path)) {
+    return containedPath(
+      path,
+      context.stateFolder,
+      STATE_CONTAINMENT_DEPTH,
+      context,
+    );
+  }
+  return path;
 }
 
 function existingMode(path: string): number | undefined {
@@ -398,7 +568,8 @@ function runFolderName(at: Date, pid: number): string {
 
 /**
  * Copy a file into this run's folder under `backups/`, keeping its mode and
- * times. A failure only warns (contract "Backups"): the `.bak` is the backup
+ * times. A `repoPath` that would land outside the run folder fails the dated
+ * copy. A failure only warns (contract "Backups"): the `.bak` is the backup
  * that must succeed.
  */
 function datedBackup(
@@ -414,7 +585,7 @@ function datedBackup(
       BACKUPS_FOLDER,
       runFolderName(context.now(), context.pid),
     );
-    const destination = p.join(dated.folder, repoPath);
+    const destination = containedUnder(dated.folder, dated.folder, repoPath, p);
     mkdirSync(p.dirname(destination), { recursive: true });
     copyPreserving(source, destination, context.os);
     dated.made = true;
@@ -423,6 +594,23 @@ function datedBackup(
     // By contract a failed dated copy warns and the run goes on.
     return `${DATED_BACKUP_WARNING} ${repoPath}.`;
   }
+}
+
+/**
+ * Contract "Writes to the state folder": before a write or remove replaces a
+ * profile or machine layer file, the old file goes into the run's dated
+ * folder. A missing file needs no copy.
+ */
+function datedBackupOfStateFile(
+  path: string,
+  repoPath: string,
+  context: RunContext,
+  dated: DatedBackups,
+): string | undefined {
+  if (!isStatePath(repoPath) || statOrUndefined(path)?.isFile() !== true) {
+    return undefined;
+  }
+  return datedBackup(path, repoPath, context, dated);
 }
 
 /** Apply `cp -p`'s mode from the repo file a created local file copies (not on Windows). */
@@ -468,17 +656,28 @@ function runAction(
 ): ActionRun {
   try {
     switch (action.kind) {
-      case "writeRepo":
-        writeBytes(
-          absolutePath(action.path, context),
-          action.bytes,
-          action.mode,
-          context.os,
+      case "writeRepo": {
+        const path = absolutePath(action.path, context);
+        const warning = datedBackupOfStateFile(
+          path,
+          action.path,
+          context,
+          dated,
         );
-        return ACTION_OK;
-      case "removeRepo":
-        rmSync(absolutePath(action.path, context), { force: true });
-        return ACTION_OK;
+        writeBytes(path, action.bytes, action.mode, context.os);
+        return { ok: true, warning };
+      }
+      case "removeRepo": {
+        const path = absolutePath(action.path, context);
+        const warning = datedBackupOfStateFile(
+          path,
+          action.path,
+          context,
+          dated,
+        );
+        rmSync(path, { force: true });
+        return { ok: true, warning };
+      }
       case "writeLocal":
         writeBytes(action.path, action.bytes, action.mode, context.os);
         copyModeFrom(action.path, action.modeFrom, context);

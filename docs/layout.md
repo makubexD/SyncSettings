@@ -63,6 +63,28 @@ dist/                build output, gitignored
 `sync-config.v2.json` sits next to `sync-config.json` until cut-over; see
 [configuration.md](configuration.md#sync-configv2json).
 
+### Profiles and machines in the state folder
+
+Profile and machine layers never go in the repo while it's public. They live in the state folder (the folder of the
+[sync point](sync-contract.md#sync-point), `${XDG_STATE_HOME:-~/.local/state}/sync-settings/` on Linux and macOS),
+and only the program reads them:
+
+```text
+<state>/
+├── profiles/
+│   ├── work-1.json            the profile: modules, values, destinations, retired
+│   └── work-1/                the profile layer, laid out like dotfiles/common/
+│       └── claude/CLAUDE.md
+└── machines/
+    └── laptop/                the machine layer, same layout
+        └── vscode/settings.json
+```
+
+A layer file has the entry's `file` path under its layer folder, as in `dotfiles/<os>/`. Status lines label it
+`profiles/<name>/<file>` or `machines/<name>/<file>`, and export writes its changes back here, never to `dotfiles/`.
+Phase 6 replaces the variables that choose them with the machine record
+([configuration.md](configuration.md#profiles-and-machines)).
+
 ## Where a file goes
 
 | The file | Where | Example |

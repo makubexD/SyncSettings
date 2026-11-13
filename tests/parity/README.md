@@ -22,6 +22,9 @@ the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the com
 `./mksync export …` with the same options, and it is stripped before the repo is compared. With a program:
 
 - a case with a `diff` or `commit` command prints `SKIP <case>: <command> comes in phase 8` and is not a failure;
+- a `configV2` case prints `SKIP <case>: v2 only` against an engine other than the program and counts as skipped, not
+  passed or failed; the summary shows the skipped count only when it is non-zero
+  (`41 passed, 0 failed, 1 skipped`);
 - `expect.<os>/` is used only when the case's `differences` name `Entry selection`, `Shared files without rules` or
   `Exclude patterns`; every other case uses `expect/` on every OS;
 - `import-eof-no-force` runs on every OS.
@@ -49,6 +52,7 @@ cases/<name>/
   case.json        what to run
   home/            the home folder before the run (optional; empty when missing)
   repo/            repo files before the run, besides sync-config.json (optional)
+  state/           the engine's state folder before the run (optional)
   expect/
     exit           one exit code per command, one per line
     output.txt     the status lines of every command, in order
@@ -66,13 +70,17 @@ cases/<name>/
 |---|---|
 | `description` | One sentence: the behavior and the contract section it checks |
 | `os` | Where it runs: a list of `linux`, `macos`, `windows`. Omit for all three |
-| `config` | The whole `sync-config.json`, written into the repo before the run |
+| `config` / `configV2` | Exactly one of the two, never both nor neither. `config` is the whole `sync-config.json`, written into the repo before the run; `configV2` is written as `sync-config.v2.json` with no `sync-config.json`, and only the program can read it |
 | `values` | Optional. Written as `.user-values.json` in the repo; omit to have none |
-| `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it |
+| `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. A `configV2` case may set only `SYNC_PROFILE` and `SYNC_MACHINE`; any other key is a runner error |
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": … }` |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
 | `stubs` | Optional. `["gh"]` puts a `gh` stub first on `PATH`; see `expect/gh.log` below |
 | `differences` | Required when the case has an `expect.<os>/` folder, and only then: the names of the rows it records |
+
+`home/`, `repo/` and `state/` are copied into the case's temp folders before the first command. `state/` goes into
+the engine's state folder (`~/.local/state/sync-settings` on Linux and macOS, `%LOCALAPPDATA%\SyncSettings` on
+Windows), so a case can start from a recorded sync point; its files are compared like any the engine wrote.
 
 `command` is one of `export`, `import`, `check` (`import --check`, `-Check`), `preview` (`export --preview`,
 `-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`. `options` uses neutral names that the runner spells for
@@ -97,7 +105,7 @@ stub on means `gh` must not be called.
 
 ## How the runner checks it
 
-1. Copy the engine into a temp repo, write `config` and `values`, copy `repo/` and `home/`.
+1. Copy the engine into a temp repo, write `config` or `configV2` and `values`, copy `repo/`, `home/` and `state/`.
 2. Run each command with the home folder as `HOME` (Linux, macOS) or `USERPROFILE` (Windows).
 3. Compare:
    - **Exit codes** with `expect/exit`.

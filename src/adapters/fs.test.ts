@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import type {
   Action,
@@ -175,6 +176,60 @@ describe("readSnapshot", () => {
     expect(snapshot.porcelain).toBeUndefined();
   });
 
+  test("should copy the run's profile onto the snapshot", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const profile: Profile = {
+      name: "work-1",
+      modules: ["shell"],
+      values: {},
+      destinations: {},
+      retired: false,
+    };
+
+    // Act
+    const snapshot = readSnapshot({
+      repoRoot: repo,
+      config: configOf([]),
+      os: "linux",
+      profile,
+      home,
+      cwd: home,
+      values: {},
+      env: {},
+      only: [],
+    });
+
+    // Assert
+    expect(snapshot.profile).toBe(profile);
+  });
+
+  test("should read an import entry's side file for a later layer", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    writeFixture(join(repo, "dotfiles", "common", "claude", "CLAUDE.md"), "base\n");
+    writeFixture(join(repo, "dotfiles", "linux", "claude", "CLAUDE.md"), "os\n");
+    const sideFile = join(home, ".claude", "CLAUDE.linux.md");
+    writeFixture(sideFile, "os edited\n");
+    const entry: ConfigV2Entry = {
+      file: "claude/CLAUDE.md",
+      module: "shell",
+      merge: "import",
+      localPath: "~/.claude/CLAUDE.md",
+      importName: "CLAUDE.{layer}.md",
+    };
+
+    // Act
+    const snapshot = snapshotOf(repo, home, [entry]);
+
+    // Assert
+    const side = snapshot.localFiles.get(sideFile);
+    if (side?.kind !== "file") {
+      throw new Error("the import side file was not read");
+    }
+    expect(textOf(side.bytes)).toBe("os edited\n");
+  });
+
   test("should read a file entry's local path through a symlink", () => {
     // Arrange
     const { home, repo } = fixture();
@@ -301,6 +356,176 @@ describe("runPlan", () => {
     expect(
       readFileSync(join(repo, "dotfiles", "linux", "shell", "bashrc"), "utf8"),
     ).toBe("export A=1\n");
+  });
+
+  test("should write a profile layer file under the state folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "mkdir", path: "profiles/work-1" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/x.json",
+          bytes: bytesOf("{\"a\":3}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(
+      readFileSync(
+        join(stateFolder("linux", home, {}), "profiles", "work-1", "x.json"),
+        "utf8",
+      ),
+    ).toBe("{\"a\":3}\n");
+    expect(existsSync(join(repo, "profiles", "work-1", "x.json"))).toBe(false);
+  });
+
+  test("should keep the old state file in the run folder before overwriting it", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    const stateFile = join(state, "profiles", "work-1", "x.json");
+    writeFixture(stateFile, "{\"a\":1}\n");
+    const runFolder = join(state, "backups", RUN_NAME);
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/x.json",
+          bytes: bytesOf("{\"a\":2}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.backups).toBe(runFolder);
+    expect(
+      readFileSync(join(runFolder, "profiles", "work-1", "x.json"), "utf8"),
+    ).toBe("{\"a\":1}\n");
+    expect(readFileSync(stateFile, "utf8")).toBe("{\"a\":2}\n");
+  });
+
+  test("should fail a state path that resolves outside the state folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    // The state folder exists, so only the containment check can stop the write.
+    mkdirSync(join(state, "profiles", "work-1"), { recursive: true });
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          {
+            kind: "writeRepo",
+            path: "profiles/work-1/../../x",
+            bytes: bytesOf("x\n"),
+          },
+          "cannot write a path outside the state folder",
+        ),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.get(0)).toBe(
+      "cannot write a path outside the state folder",
+    );
+    expect(existsSync(join(state, "x"))).toBe(false);
+    expect(existsSync(join(state, "backups"))).toBe(false);
+    expect(existsSync(join(repo, "x"))).toBe(false);
+  });
+
+  test("should fail a state path that leaves its profile layer", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    // The state folder and the target profile exist, so only containment can stop the write.
+    mkdirSync(join(state, "profiles", "work-2"), { recursive: true });
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          {
+            kind: "writeRepo",
+            path: "profiles/work-1/../work-2/f",
+            bytes: bytesOf("x\n"),
+          },
+          "cannot write outside a profile's layer folder",
+        ),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.get(0)).toBe(
+      "cannot write outside a profile's layer folder",
+    );
+    expect(existsSync(join(state, "profiles", "work-2", "f"))).toBe(false);
+    expect(existsSync(join(state, "backups"))).toBe(false);
+    expect(existsSync(join(repo, "profiles", "work-2", "f"))).toBe(false);
+  });
+
+  test("should fail a repo path that resolves outside the repo", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          {
+            kind: "writeRepo",
+            path: "dotfiles/../../x",
+            bytes: bytesOf("x\n"),
+          },
+          "cannot write a path outside the repo",
+        ),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.get(0)).toBe("cannot write a path outside the repo");
+    expect(existsSync(join(repo, "..", "x"))).toBe(false);
+  });
+
+  test("should make no backup folder when a state write creates a new file", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "mkdir", path: "profiles/work-1" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/new.json",
+          bytes: bytesOf("{\"b\":1}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.backups).toBeUndefined();
+    expect(existsSync(join(state, "backups"))).toBe(false);
+    expect(
+      readFileSync(join(state, "profiles", "work-1", "new.json"), "utf8"),
+    ).toBe("{\"b\":1}\n");
   });
 
   test("should remove a repo file", () => {
@@ -630,6 +855,34 @@ describe("runPlan", () => {
     ]);
     expect(outcome.backups).toBeUndefined();
     expect(readFileSync(localFile, "utf8")).toBe("new\n");
+  });
+
+  test("should warn and keep writing when a dated copy's repo path escapes the run folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const localFile = join(home, ".gitconfig");
+    writeFixture(localFile, "old\n");
+    const state = stateFolder("linux", home, {});
+    const repoPath = "dotfiles/../../x";
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "backup", path: localFile, repoPath }),
+        actionOf({ kind: "writeLocal", path: localFile, bytes: bytesOf("new\n") }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.warnings.get(0)).toEqual([
+      `  WARNING: could not keep a dated backup of ${repoPath}.`,
+    ]);
+    expect(outcome.backups).toBeUndefined();
+    expect(readFileSync(localFile, "utf8")).toBe("new\n");
+    expect(existsSync(join(state, "backups", "x"))).toBe(false);
+    expect(existsSync(join(state, "backups", RUN_NAME))).toBe(false);
   });
 
   test("should keep only the newest 20 run folders", () => {

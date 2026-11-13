@@ -1,0 +1,6 @@
+{
+  "modules": ["parity"],
+  "destinations": {
+    "q": "profile"
+  }
+}

@@ -1,3 +1,4 @@
+import type { Profile } from "../config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
@@ -10,23 +11,47 @@ const BASE_ROOT = "dotfiles/common/";
 
 const ALL_OS: readonly Os[] = ["windows", "linux", "macos"];
 
-/** `process.platform` names mapped to the contract's OS names. */
+/** The host OS names mapped to the contract's OS names. */
 const PLATFORM_OS: Readonly<Record<string, Os | undefined>> = {
   linux: "linux",
   darwin: "macos",
   win32: "windows",
 };
 
+/** The four layer slots, in layer order. */
+export type LayerName = "base" | "os" | "profile" | "machine";
+
 export interface Layer {
+  readonly name: LayerName;
+  /** The status line's label: "base", the OS name, or the profile's or
+   * machine's name. */
+  readonly label: string;
   readonly root: string;
   readonly repoPath: string;
 }
 
+/** What this run has: its OS, and the profile and machine chosen for it. */
+export interface SelectScope {
+  readonly os: Os;
+  readonly profile?: Profile;
+  readonly machine?: string;
+}
+
 export interface SelectedEntry {
   readonly entry: ConfigV2Entry;
+  /** Every layer this run has for the entry, in layer order, whether or not
+   * the layer holds a file. An export may create a missing file. */
+  readonly slots: readonly Layer[];
+  /** Only the layers whose file exists, in layer order. */
   readonly layers: readonly Layer[];
   readonly source: Layer | undefined;
   readonly writeRoot: string;
+}
+
+interface LayerRoot {
+  readonly name: LayerName;
+  readonly label: string;
+  readonly root: string;
 }
 
 function unsupportedOs(value: string): Result<Os, ConfigError> {
@@ -63,6 +88,31 @@ function osRoot(os: Os): string {
   return `dotfiles/${os}/`;
 }
 
+// The layer roots in layer order: base, OS, then the profile and the machine
+// when this run has one. Profile and machine paths are named the way the
+// snapshot does; the adapter maps them to the state folder.
+function rootsFor(scope: SelectScope): readonly LayerRoot[] {
+  const roots: LayerRoot[] = [
+    { name: "base", label: "base", root: BASE_ROOT },
+    { name: "os", label: scope.os, root: osRoot(scope.os) },
+  ];
+  if (scope.profile !== undefined) {
+    roots.push({
+      name: "profile",
+      label: scope.profile.name,
+      root: `profiles/${scope.profile.name}/`,
+    });
+  }
+  if (scope.machine !== undefined) {
+    roots.push({
+      name: "machine",
+      label: scope.machine,
+      root: `machines/${scope.machine}/`,
+    });
+  }
+  return roots;
+}
+
 // Entry os over module os over all three.
 function effectiveOs(config: ConfigV2, entry: ConfigV2Entry): readonly Os[] {
   if (entry.os !== undefined) {
@@ -75,26 +125,36 @@ function effectiveOs(config: ConfigV2, entry: ConfigV2Entry): readonly Os[] {
   return ALL_OS;
 }
 
-// A layer exists when the file is there, or, for a directory entry, when any
-// snapshot path sits under its folder.
-function layerOf(
-  root: string,
+/** The layer slot for `entry` under `layerRoot`; a slot exists whether or not
+ * the repo holds its file. */
+function layerAt(layerRoot: LayerRoot, entry: ConfigV2Entry): Layer {
+  return {
+    name: layerRoot.name,
+    label: layerRoot.label,
+    root: layerRoot.root,
+    repoPath: `${layerRoot.root}${entry.file}`,
+  };
+}
+
+// A slot has a layer when the file is there, or, for a directory entry, when
+// any snapshot path sits under its folder.
+function slotHasLayer(
+  layer: Layer,
   entry: ConfigV2Entry,
   files: ReadonlySet<string>,
-): Layer | undefined {
-  const repoPath = `${root}${entry.file}`;
-  if (files.has(repoPath)) {
-    return { root, repoPath };
+): boolean {
+  if (files.has(layer.repoPath)) {
+    return true;
   }
   if (entry.merge === "dir") {
-    const prefix = `${repoPath}/`;
+    const prefix = `${layer.repoPath}/`;
     for (const path of files) {
       if (path.startsWith(prefix)) {
-        return { root, repoPath };
+        return true;
       }
     }
   }
-  return undefined;
+  return false;
 }
 
 // Decision 3: the base root for no os or more than one, else that OS's root.
@@ -103,50 +163,37 @@ function writeRootFor(os: readonly Os[]): string {
   return os.length === 1 && only !== undefined ? osRoot(only) : BASE_ROOT;
 }
 
-function sourceOf(
-  entry: ConfigV2Entry,
-  layers: readonly Layer[],
-): Result<Layer | undefined, ConfigError> {
-  if ((entry.merge === "json" || entry.merge === "import") && layers.length > 1) {
-    return {
-      ok: false,
-      error: {
-        message: `ERROR: ${entry.file}: merge type ${entry.merge} needs more than one layer; not supported yet`,
-        code: 1,
-      },
-    };
-  }
-  return { ok: true, value: layers[layers.length - 1] };
-}
-
-// Contract "Entry selection": entries in config order whose effective os list
-// holds this system, each with its existing base and OS layers.
+// Contract "Layers (program only)": with a profile, an entry whose module the
+// profile doesn't list is off, and an entry for another system stays off too.
 export function selectEntries(
   config: ConfigV2,
-  os: Os,
+  scope: SelectScope,
   files: ReadonlySet<string>,
 ): Result<SelectedEntry[], ConfigError> {
+  const roots = rootsFor(scope);
   const selected: SelectedEntry[] = [];
   for (const entry of config.entries) {
-    const osList = effectiveOs(config, entry);
-    if (!osList.includes(os)) {
+    if (scope.profile !== undefined && !scope.profile.modules.includes(entry.module)) {
       continue;
     }
+    const osList = effectiveOs(config, entry);
+    if (!osList.includes(scope.os)) {
+      continue;
+    }
+    const slots: Layer[] = [];
     const layers: Layer[] = [];
-    for (const root of [BASE_ROOT, osRoot(os)]) {
-      const layer = layerOf(root, entry, files);
-      if (layer !== undefined) {
+    for (const root of roots) {
+      const layer = layerAt(root, entry);
+      slots.push(layer);
+      if (slotHasLayer(layer, entry, files)) {
         layers.push(layer);
       }
     }
-    const source = sourceOf(entry, layers);
-    if (!source.ok) {
-      return source;
-    }
     selected.push({
       entry,
+      slots,
       layers,
-      source: source.value,
+      source: layers[layers.length - 1],
       writeRoot: writeRootFor(osList),
     });
   }

@@ -1,0 +1,42 @@
+{
+  "description": "Import merges the profile layer over the base and OS layers, and a module the profile leaves out gets no line (Layers (program only), json entries import).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      },
+      "other": {
+        "description": "Parity case module kept off"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      },
+      {
+        "file": "other/a.txt",
+        "module": "other",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.txt",
+        "description": "Parity file whose module the profile leaves out"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_PROFILE": "work-1"
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ],
+  "differences": ["Entry selection"]
+}

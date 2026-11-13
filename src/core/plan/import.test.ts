@@ -14,7 +14,15 @@ import { dirname, join } from "node:path";
 import { readSnapshot } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { convertV1 } from "../config/convert.ts";
-import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
+import type { Profile } from "../config/profile.ts";
+import type {
+  ConfigError,
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+  Result,
+} from "../config/types.ts";
+import { parseJson } from "../json/value.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planImport } from "./import.ts";
 import { renderRun } from "./run.ts";
@@ -818,5 +826,446 @@ describe("planImport values file", () => {
 
     // Assert
     expect(plan?.prepare ?? []).toEqual([]);
+  });
+});
+
+const LAYER_MODULES: ConfigV2["modules"] = {
+  parity: { description: "Parity case files" },
+};
+
+const WORK_PROFILE: Profile = {
+  name: "work-1",
+  modules: ["parity"],
+  values: {},
+  destinations: {},
+  retired: false,
+};
+
+const JSON_BASE_TEXT = '{"a": 1, "list": ["x"], "obj": {"k": "base"}}';
+const JSON_OS_TEXT = '{"list": ["y", "x"], "obj": {"k2": "os"}, "b": 2}';
+const JSON_PROFILE_TEXT = '{"obj": {"k3": "profile"}, "c": 3}';
+const JSON_MERGED_TEXT = `{
+  "a": 1,
+  "list": [
+    "x",
+    "y"
+  ],
+  "obj": {
+    "k": "base",
+    "k2": "os"
+  },
+  "b": 2
+}
+`;
+const JSON_MERGED_PROFILE_TEXT = `{
+  "a": 1,
+  "list": [
+    "x",
+    "y"
+  ],
+  "obj": {
+    "k": "base",
+    "k2": "os",
+    "k3": "profile"
+  },
+  "b": 2,
+  "c": 3
+}
+`;
+const JSON_MERGED_CRLF_TEXT = JSON_MERGED_TEXT.replaceAll("\n", "\r\n");
+
+const JSON_REORDERED_TEXT =
+  '{"b": 2, "obj": {"k": "base", "k2": "os"}, "list": ["x", "y"], "a": 1}';
+const JSON_SPACED_TEXT = `{  "a" : 1 ,
+  "list" : [ "x" , "y" ] ,
+  "obj" : { "k" : "base" , "k2" : "os" } ,
+  "b" : 2  }
+`;
+const JSON_CHANGED_TEXT = JSON_MERGED_TEXT.replace('"a": 1', '"a": 2');
+
+const PLACEHOLDER_BASE_TEXT = '{"a": 1}';
+const PLACEHOLDER_OS_TEXT = '{"path": "<PATH>"}';
+const PLACEHOLDER_VALUE = 'C:\\Tools\\app "x"';
+const PLACEHOLDER_MERGED_TEXT = `{
+  "a": 1,
+  "path": "C:\\\\Tools\\\\app \\"x\\""
+}
+`;
+
+const IMPORT_BASE_TEXT = "# Base\n@RTK.md\n";
+const IMPORT_OS_TEXT = "# Linux\n";
+const IMPORT_LOCAL_TEXT = `# Base
+@RTK.md
+<!-- mksync: layers below are written by mksync pull -->
+@CLAUDE.linux.md
+`;
+
+const INVALID_JSON_TEXT = "{ not JSON";
+
+const LOCAL_JSON = "/home/user/.config/parity/settings.json";
+
+interface LayerSnapshotOptions {
+  readonly entries: readonly ConfigV2Entry[];
+  readonly repo: Readonly<Record<string, string>>;
+  readonly local?: Readonly<Record<string, string>>;
+  readonly values?: Readonly<Record<string, string>>;
+  readonly dirs?: readonly string[];
+  readonly excludePatterns?: readonly string[];
+}
+
+function bytesOf(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+/** A snapshot holding a config v2 entry set with repo and local text files. */
+function layeredSnapshot(os: Os, options: LayerSnapshotOptions): Snapshot {
+  const home = homeOf(os);
+  const separator = separatorOf(os);
+  const repoFiles = new Map<string, Uint8Array>();
+  for (const [path, text] of Object.entries(options.repo)) {
+    repoFiles.set(path, bytesOf(text));
+  }
+  const localFiles = new Map<string, LocalEntry>();
+  const localDirs = new Set<string>();
+  for (const [relative, text] of Object.entries(options.local ?? {})) {
+    const path = `${home}${separator}${relative.replaceAll("/", separator)}`;
+    localFiles.set(path, {
+      kind: "file",
+      path,
+      bytes: bytesOf(text),
+      mode: MODE,
+    });
+    localDirs.add(path.slice(0, path.lastIndexOf(separator)));
+  }
+  for (const relative of options.dirs ?? []) {
+    localDirs.add(`${home}${separator}${relative.replaceAll("/", separator)}`);
+  }
+  return {
+    config: {
+      schemaVersion: 2,
+      modules: LAYER_MODULES,
+      entries: options.entries,
+      ...(options.excludePatterns !== undefined
+        ? { excludePatterns: options.excludePatterns }
+        : {}),
+    },
+    os,
+    home,
+    cwd: home,
+    repoFiles,
+    localFiles,
+    localDirs,
+    values: options.values ?? {},
+    env: {},
+    only: [],
+    force: true,
+  };
+}
+
+function jsonEntry(extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
+  return {
+    file: "parity/settings.json",
+    module: "parity",
+    merge: "json",
+    localPath: "~/.config/parity/settings.json",
+    ...extra,
+  };
+}
+
+function importEntry(): ConfigV2Entry {
+  return {
+    file: "claude/CLAUDE.md",
+    module: "parity",
+    merge: "import",
+    localPath: "~/.config/parity/CLAUDE.md",
+    importName: "CLAUDE.{layer}.md",
+  };
+}
+
+describe("planImport json comparison", () => {
+  const UNCHANGED_JSON_LINE = "UNCHANGED dotfiles/linux/parity/settings.json";
+  const UPDATED_JSON_LINE = "UPDATED dotfiles/linux/parity/settings.json";
+
+  function jsonLocalResult(local: string): Observed {
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": local },
+    });
+    return runSnapshot(snapshot, []);
+  }
+
+  test("should leave a json entry UNCHANGED when the local keys are reordered", () => {
+    // Act
+    const result = jsonLocalResult(JSON_REORDERED_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UNCHANGED_JSON_LINE]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should leave a json entry UNCHANGED when the local file has CRLF on Linux", () => {
+    // Act
+    const result = jsonLocalResult(JSON_MERGED_CRLF_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UNCHANGED_JSON_LINE]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should leave a json entry UNCHANGED when the local file has extra whitespace", () => {
+    // Act
+    const result = jsonLocalResult(JSON_SPACED_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UNCHANGED_JSON_LINE]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should UPDATE a json entry when a local value changed", () => {
+    // Act
+    const result = jsonLocalResult(JSON_CHANGED_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UPDATED_JSON_LINE]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "backup", path: LOCAL_JSON },
+      { kind: "writeLocal", path: LOCAL_JSON, text: JSON_MERGED_TEXT },
+    ]);
+  });
+});
+
+describe("planImport layers", () => {
+  test("should merge a json entry's base and OS layers on Linux", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+      },
+      dirs: [".config/parity"],
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "CREATED dotfiles/linux/parity/settings.json",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeLocal",
+        path: LOCAL_JSON,
+        text: JSON_MERGED_TEXT,
+      },
+    ]);
+  });
+
+  test("should merge the profile layer and leave out a module it does not list", () => {
+    // Arrange
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [
+          jsonEntry(),
+          {
+            file: "parity/b.txt",
+            module: "other",
+            merge: "whole",
+            localPath: "~/.config/parity/b.txt",
+          },
+        ],
+        repo: {
+          "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+          "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+          "profiles/work-1/parity/settings.json": JSON_PROFILE_TEXT,
+          "dotfiles/common/parity/b.txt": "other\n",
+        },
+        dirs: [".config/parity"],
+      }),
+      profile: WORK_PROFILE,
+    };
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "CREATED profiles/work-1/parity/settings.json",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeLocal",
+        path: LOCAL_JSON,
+        text: JSON_MERGED_PROFILE_TEXT,
+      },
+    ]);
+  });
+
+  test("should merge a json entry's layers with CRLF on Windows", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("windows", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/windows/parity/settings.json": JSON_OS_TEXT,
+      },
+      dirs: [".config/parity"],
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "CREATED dotfiles/windows/parity/settings.json",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeLocal",
+        path: "C:\\Users\\user\\.config\\parity\\settings.json",
+        text: JSON_MERGED_CRLF_TEXT,
+      },
+    ]);
+  });
+
+  test("should JSON-escape a hydrated value in a later layer", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        jsonEntry({
+          sanitize: [{ placeholder: "<PATH>", prompt: "Path" }],
+        }),
+      ],
+      repo: {
+        "dotfiles/common/parity/settings.json": PLACEHOLDER_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": PLACEHOLDER_OS_TEXT,
+      },
+      values: { "<PATH>": PLACEHOLDER_VALUE },
+      dirs: [".config/parity"],
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+    const written = shownActions(result.actions)[0];
+
+    // Assert
+    expect(written).toEqual({
+      kind: "writeLocal",
+      path: LOCAL_JSON,
+      text: PLACEHOLDER_MERGED_TEXT,
+    });
+    const parsed = parseJson(PLACEHOLDER_MERGED_TEXT);
+    expect(parsed.ok).toBe(true);
+  });
+
+  test("should write an import entry's OS layer as a side file", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [importEntry()],
+      repo: {
+        "dotfiles/common/claude/CLAUDE.md": IMPORT_BASE_TEXT,
+        "dotfiles/linux/claude/CLAUDE.md": IMPORT_OS_TEXT,
+      },
+      local: { ".config/parity/CLAUDE.md": IMPORT_LOCAL_TEXT },
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/claude/CLAUDE.md",
+      "CREATED dotfiles/linux/claude/CLAUDE.md",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeLocal",
+        path: "/home/user/.config/parity/CLAUDE.linux.md",
+        text: IMPORT_OS_TEXT,
+      },
+    ]);
+    expect(result.lines).toContain(
+      formatLine("UNCHANGED", "dotfiles/common/claude/CLAUDE.md"),
+    );
+  });
+
+  test("should skip a side file that matches an exclude pattern", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [importEntry()],
+      repo: {
+        "dotfiles/common/claude/CLAUDE.md": IMPORT_BASE_TEXT,
+        "dotfiles/linux/claude/CLAUDE.md": IMPORT_OS_TEXT,
+      },
+      local: { ".config/parity/CLAUDE.md": IMPORT_LOCAL_TEXT },
+      excludePatterns: ["*.linux.md"],
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/claude/CLAUDE.md",
+      "SKIPPED dotfiles/linux/claude/CLAUDE.md",
+    ]);
+    expect(result.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        "dotfiles/linux/claude/CLAUDE.md",
+        "matches exclude pattern",
+      ),
+    );
+    expect(shownActions(result.actions)).toEqual([]);
+  });
+
+  test("should ERROR on a layer that is not valid JSON and go on", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        jsonEntry(),
+        {
+          file: "parity/a.txt",
+          module: "parity",
+          merge: "whole",
+          localPath: "~/.config/parity/a.txt",
+        },
+      ],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": INVALID_JSON_TEXT,
+        "dotfiles/common/parity/a.txt": "other\n",
+      },
+      dirs: [".config/parity"],
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(statusLines(result.lines)).toEqual([
+      "ERROR dotfiles/linux/parity/settings.json",
+      "CREATED dotfiles/common/parity/a.txt",
+    ]);
+    expect(result.lines).toContain(
+      formatLine(
+        "ERROR",
+        "dotfiles/linux/parity/settings.json",
+        `not valid JSON: dotfiles/linux/parity/settings.json`,
+      ),
+    );
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeLocal",
+        path: "/home/user/.config/parity/a.txt",
+        text: "other\n",
+      },
+    ]);
   });
 });

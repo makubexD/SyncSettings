@@ -1,0 +1,28 @@
+{
+  "description": "Export splits a changed json entry back into its layers: a changed OS key goes to the OS layer, a changed base key to the base, each written in the layout with LF (Layers (program only), json entries export).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ],
+  "differences": [
+    "Entry selection"
+  ]
+}

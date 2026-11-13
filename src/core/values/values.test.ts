@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { SanitizeRule } from "../config/types.ts";
 import { hydrate, inferValues, resolveValues } from "./hydrate.ts";
-import { valuesFileText } from "./file.ts";
+import { parseValuesFile, valuesFileText } from "./file.ts";
 import { encodeUtf8, sanitize } from "./sanitize.ts";
 import type { Values } from "./sanitize.ts";
 
@@ -399,5 +399,70 @@ describe("valuesFileText", () => {
 
     // Assert
     expect(text).toBe('{\n  "<PATH>": "C:\\\\Users\\\\\\"x\\""\n}\n');
+  });
+});
+
+describe("parseValuesFile", () => {
+  test("should read a number as its text", () => {
+    // Arrange
+    const text = '{"<PORT>": 8080}';
+
+    // Act
+    const values = parseValuesFile(text);
+
+    // Assert
+    expect(values).toEqual({ "<PORT>": "8080" });
+  });
+
+  test("should read true as its text", () => {
+    // Arrange
+    const text = '{"<FLAG>": true}';
+
+    // Act
+    const values = parseValuesFile(text);
+
+    // Assert
+    expect(values).toEqual({ "<FLAG>": "true" });
+  });
+
+  test("should read null as the text null", () => {
+    // Arrange
+    const text = '{"<EMPTY>": null}';
+
+    // Act
+    const values = parseValuesFile(text);
+
+    // Assert
+    expect(values).toEqual({ "<EMPTY>": "null" });
+  });
+
+  test("should keep a string as it is", () => {
+    // Arrange
+    const text = '{"<NAME>": "me"}';
+
+    // Act
+    const values = parseValuesFile(text);
+
+    // Assert
+    expect(values).toEqual({ "<NAME>": "me" });
+  });
+
+  test("should write an object as compact JSON", () => {
+    // Arrange
+    const text = '{"<SETTINGS>": {"size": 2}}';
+
+    // Act
+    const values = parseValuesFile(text);
+
+    // Assert
+    expect(values).toEqual({ "<SETTINGS>": '{"size":2}' });
+  });
+
+  test("should be empty when the file is missing", () => {
+    expect(parseValuesFile(undefined)).toEqual({});
+  });
+
+  test("should be empty when the file is not JSON", () => {
+    expect(parseValuesFile("{")).toEqual({});
   });
 });

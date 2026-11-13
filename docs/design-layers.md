@@ -693,6 +693,16 @@ time.
 records") sit next to their layer roots. Until the repo is private they live in local state, as "Public-repo guard"
 says, with the same names.
 
+**Choosing them before machine records (phase 5).** Phase 5 builds layers before phase 6 builds machine records, so
+two variables stand in for the record: `SYNC_PROFILE` and `SYNC_MACHINE`, read like `SYNC_OS`. Unset, the program has
+no profile or machine layer and every module is on, as in phase 4. Set, it reads the profile from
+`<state>/profiles/<name>.json`, the profile layer from `<state>/profiles/<name>/` and the machine layer from
+`<state>/machines/<name>/`; it never reads `profiles/` or `machines/` from the repo while it's public. Phase 6 drops
+both variables for the record.
+Example: `SYNC_PROFILE=work-1 mksync import` on a test machine with `<state>/profiles/work-1.json` listing `vscode`
+and `<state>/profiles/work-1/vscode/settings.json` holding `{"http.proxy": "http://proxy.example.com:8080"}` imports
+VS Code's settings with the proxy merged in, and skips every entry of a module `work-1` doesn't list.
+
 ### v2 while the old engines read v1
 
 Decision: `sync-config.v2.json` is a separate, hand-edited file from phase 4 on, made once by a converter from v1, and
@@ -803,6 +813,33 @@ src/
 - The review's boundary check: `! grep -rnE "node:(fs|child_process|os)|Bun\.|process\.(env|cwd|platform)" src/core
   src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node:fs`; that's allowed.
 
+**As built in phase 5.** Layers in the core, still one adapter file:
+
+- `core/merge/` holds `types.ts` (`MergeStrategy`: `merge(layers, {eol})` and `split(local, layers, context)`),
+  `whole.ts`, `json.ts` (`mergeJson`, `splitJson`), `import.ts` (`mergeImport`, `splitImport`) and `strategy.ts`.
+  `strategyFor` returns only `whole`: `json` needs the local file for `localOnlyKeys` and returns new settings from a
+  split, and `import` returns side files, so the plans call those functions directly ("Open").
+- `core/json/value.ts` is the project's own JSON parser and writer (decision 4): it keeps key order and the text of
+  each number, and writes the byte-exact layout.
+- `core/paths.ts` is the one home-path expansion (`~/`, and `~\` on Windows only); `core/plan/pick.ts` is the file
+  picking that export and import share (`--only`, exclude globs, error plans); `core/config/profile.ts` parses a
+  profile; `core/layers/select.ts` picks entries and their layer files for an OS, profile and machine.
+- `core/plan/import.ts` and `export.ts` hydrate every layer before a merge or split and sanitize each changed layer
+  after it. `check.ts` reuses the import plan.
+- `adapters/snapshot.ts` builds the snapshot (config, values, `SYNC_PROFILE` and `SYNC_MACHINE`, git state), so
+  `main.ts` only wires. `adapters/fs.ts` reads the profile and machine layers from the state folder into the
+  snapshot under `profiles/<name>/` and `machines/<name>/`, reads an `import` entry's side files, and writes those
+  layer paths back under the state folder.
+- After the finish review (steps 19 to 31): `SelectedEntry` carries `slots`, every layer the run has for an entry
+  whether its file exists or not, beside `layers` (those whose file exists); export splits over the slots so a
+  destination can create a layer file; `splitJson` sends a new setting with no usable destination to the one slot
+  whose file exists, and looks array items up as `<path>[]`. `pick.ts` has `isJsonEntry`, the one rule for JSON escaping. Import compares a `json` entry
+  parsed (`jsonEqual`). `loadLayers` refuses a layer name that names another layer, and `profile.ts` a destination
+  that isn't a slot. `adapters/fs.ts` resolves a repo or state path under the top folder it names (`dotfiles/`,
+  `profiles/<name>/`, `machines/<name>/`), keeps a dated copy inside its run folder, and copies a state file into the run's dated folder before replacing it; the preview
+  leaves `profiles/` and `machines/` out. The parser skips a leading BOM and stops at 512 levels; `splitImport` takes
+  the last marker followed only by `@` lines.
+
 ## Release and update
 
 - **From phase 4:** CI builds the four programs on every pull request and every push to `master`, from one Linux job
@@ -884,6 +921,12 @@ Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholder
 - 11 package and extension `DRIFT` lines in the old engine's preview (apt, npm, pipx, a GNOME extension, an apt
   source); the program prints none. Package drift comes in phase 8.
 
+**Shared cases for layers (phase 5).** The shared cases carried only v1 until phase 5. Layers need config v2, so a
+case may give `configV2` instead of `config`, plus `env` (`SYNC_PROFILE`, `SYNC_MACHINE` only) and a `state/` tree
+copied into the state folder, with `expect/state/` compared like `expect/home/`. The old engines can't read v2: their
+runs print `SKIP <case>: v2 only`. Example: `json-merge-layers` gives a base and a Linux `parity/settings.json`; the
+program writes the merged file on Linux, macOS and Windows (CRLF there), and bash skips it.
+
 **Old cases without a shared twin.** `tests/linux/engine.sh` has 484 cases and the Pester suite 240; 20 and 19 of them
 have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, one row per group, are in
 `docs/design-test-moves.md`. In short:
@@ -948,6 +991,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
   removed item (from its layer) plus a new item (asked about). Correct, but two lines in the preview for one edit. A
   key per item (the `matcher`) would make it one change; worth it only if hook edits turn out frequent.
+- **JSON with comments (JSONC).** VS Code's `settings.json` may hold comments and trailing commas; Claude's may not.
+  Phase 5 refuses both (`not valid JSON`), since no synced file has them today. If one needs them, the parser keeps
+  comments attached to the next key, or the entry stays `whole`.
+- **`SYNC_PROFILE` and `SYNC_MACHINE`.** Stand-ins for the machine record from phase 5; phase 6 removes them, or keeps
+  them as a test-only override like `SYNC_OS`.
 - **New commands and flags.** `mksync whoami`, and `setup`'s `--profile`, `--replace`, `--claude`, `--push`/`--pull-only`
   and `--existing` are new; the contract's "Front door" changes with them. Also how a profile or machine is retired
   from the command line (`mksync retire <machine>`, `mksync profile retire <name>`?). The `cli` skill reviews the names
@@ -996,27 +1044,33 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
   parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
   in the contract's program column in the phase's docs step.
-- **Boundaries review, phase 4 (refactors before phase 5).** The core is pure and has no import cycles; the review's
-  high findings were fixed. Left: home-path expansion exists in `core/plan/export.ts`, `core/plan/import.ts` and
-  `adapters/paths.ts`, and the core copies treat `~\` as home on every OS (one `core/paths.ts`, adapters keep only the
-  env lookups); `import.ts` and `export.ts` share about 260 lines word for word (`--only`, exclude globs, error
-  plans); no `core/merge/` yet, so `export.ts`, `import.ts`, `check.ts` and `adapters/fs.ts` switch on the merge type
-  (phase 5 adds `json`, so the strategies come first there); `main.ts` reads files, parses `.user-values.json` and
-  resolves the OS (a `parseValuesFile` next to the writer, a pure `resolveOs`, an `adapters/snapshot.ts`); shadow's
-  process runner duplicates the git adapter's. The layout differs from the tree above (`core/plan/preview.ts`,
-  `core/compare.ts`, one `adapters/fs.ts` with `pathFor` instead of one file per OS): the docs step records it.
+- **Boundaries review, phase 4.** Phase 5 closed the home-path copies (`core/paths.ts`), the shared picking
+  (`core/plan/pick.ts`), the merge strategies (`core/merge/`) and the snapshot reading (`adapters/snapshot.ts`,
+  `parseValuesFile`, `pickOs`). Left:
+  - `strategyFor` covers only `whole`; the plans still switch on the merge type and call `mergeJson`, `splitJson`,
+    `mergeImport` and `splitImport` directly. Widening `MergeStrategy` (the local file in the merge context, new
+    settings and side files in the results) would let every type go through it.
+  - `import.ts`, `export.ts`, `check.ts` and `adapters/fs.ts` each build the profile and machine scope for
+    `selectEntries`: four copies of the same three lines.
+  - Shadow's process runner (`adapters/engine.ts`, `node:child_process`) duplicates the git adapter's (`Bun.spawn`).
+- **Layers, phase 5.** Left for later phases:
+  - An `import` entry whose base layer has no file but a later one does: export passes the present layers only, so
+    the first present layer is taken as the base. Pull reports `no layer holds the file`, so it can't arise from a
+    pull; a shared case should pin what export does.
+  - An `import` entry without `importName` gets `ERROR` with `needs {layer} in importName` at run time; `parseV2`
+    should reject it, so the error comes before any file.
 - **Security review, phase 4 (before cut-over).** Fixed: sanitize and hydrate rescanning their own output. Left, each
   needing a shared case first where it shows in files or statuses:
-  - `file` in a v2 entry isn't checked: `../` can leave `dotfiles/` (and a dated backup its folder). Reject absolute,
-    `..`, `\` and empty in `parseV2`, and check every resolved repo and backup path in the adapter.
+  - `file` in a v2 entry isn't checked when the config is read. Since phase 5 step 28 the adapter fails a repo or
+    state write that resolves outside `dotfiles/`, `profiles/` or `machines/`; left: reject absolute, `..`, `\` and
+    empty in `parseV2` so the error comes first, and check the resolved dated-backup path.
   - Writes follow symlinks (a committed link under `dotfiles/`, a linked `.user-values.json`, a linked folder inside a
     dir entry), and `readRepoTree` counts a repo link as a file. Refuse links, and write through a temp file and a
     rename, which also makes writes atomic (today a crash can empty `.user-values.json` or the sync point).
   - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
     that stops an export holding any known value, in every form, would catch both; bash behaves the same today.
   - JSON escapes (`é`, `\/`) aren't matched on export; a value inferred from a JSON file is escaped twice on
-    import; value lookups use plain objects (`constructor`); JSON escaping depends on the `.json` extension, not the
-    entry.
+    import; value lookups use plain objects (`constructor`).
   - A new hydrated file and new parent folders are created with the umask before the chmod, and the backups tree is
     0755; pruning removes any folder under `backups/`, not only run folders; `leak-scan` doesn't scan
     `sync-config.v2.json`.
@@ -1036,6 +1090,18 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
     the placeholder tie-break order, `EXTRA` ignoring excludes, `\r` kept in inference, `paths.ts` `~\` on Linux and
     its trailing-separator branch, `elevate !== false`.
   - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag.
+- **Finish review, phase 5.** Fixed in steps 19 to 31. Left:
+  - A removed key leaves every layer that sets it (contract, "Layers"), so a machine can't drop a key the base sets
+    without dropping it for every machine. A later layer that masks a key (a tombstone value) would allow it; it needs
+    a written form in JSON and a rule for arrays.
+  - Value inference on an entry with more than one layer lines the local file up with the latest layer only, so a
+    value that only an earlier layer's text holds isn't inferred.
+  - A line other than `@…` or a blank one added under the import block by hand turns the block into base text
+    (contract, "Layers"), so the next push stores the marker and its `@` lines in the base. A note on that status line
+    would catch it.
+  - `core/plan/preview.ts` names `profiles/` and `machines/` again, as `adapters/fs.ts` does; one core constant would
+    hold both.
+  - `parsedJson` in `core/plan/import.ts` repeats the private `parseBytes` of `core/merge/json.ts`.
 
 ### Confirm on Windows
 

@@ -1,3 +1,4 @@
+import type { Profile } from "../config/profile.ts";
 import type { ConfigV2, Os } from "../config/types.ts";
 import type { Values } from "../values/sanitize.ts";
 
@@ -35,6 +36,10 @@ export type LocalEntry = LocalFile | LocalSymlink;
 export interface Snapshot {
   readonly config: ConfigV2;
   readonly os: Os;
+  /** Contract "Layers (program only)": the profile layer this run uses. */
+  readonly profile?: Profile;
+  /** Contract "Layers (program only)": the machine layer this run uses. */
+  readonly machine?: string;
   /** The user's home folder, so a `~/` local path can be resolved. */
   readonly home: string;
   /** The caller's folder, for a `--only` path that is not absolute. */

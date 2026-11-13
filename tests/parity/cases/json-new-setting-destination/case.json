@@ -1,0 +1,28 @@
+{
+  "description": "Export sends a new json setting to the layer its destination names, creating the missing profile layer file with ADDED and leaving the repo layers as they were, exit 0 (Layers (program only), json entries export).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_PROFILE": "work-1"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+ERROR dotfiles/windows/parity/settings.json

@@ -44,6 +44,7 @@ if (-not [string]::IsNullOrEmpty($EnginePath)) {
 
 $passed = 0
 $failed = 0
+$skipped = 0
 $matched = 0
 
 # The runner is Windows-only: every case runs for the PowerShell engine.
@@ -141,6 +142,16 @@ function Validate-Case {
         }
     }
 
+    # Exactly one of config or configV2; checked before env, which v2 restricts.
+    $configProp = $case.PSObject.Properties['config']
+    $configV2Prop = $case.PSObject.Properties['configV2']
+    if ($null -ne $configProp -and $null -ne $configV2Prop) {
+        Die 'case.json has both config and configV2'
+    }
+    if ($null -eq $configProp -and $null -eq $configV2Prop) {
+        Die 'case.json has no config'
+    }
+
     $envProp = $case.PSObject.Properties['env']
     if ($null -ne $envProp) {
         if ($envProp.Value -isnot [pscustomobject]) {
@@ -149,6 +160,13 @@ function Validate-Case {
         foreach ($p in $envProp.Value.PSObject.Properties) {
             if ($null -ne $p.Value -and $p.Value -isnot [string]) {
                 Die 'env must be an object of strings or null'
+            }
+        }
+        if ($null -ne $configV2Prop) {
+            foreach ($p in $envProp.Value.PSObject.Properties) {
+                if ($p.Name -cne 'SYNC_PROFILE' -and $p.Name -cne 'SYNC_MACHINE') {
+                    Die 'a configV2 case may set only SYNC_PROFILE and SYNC_MACHINE in env'
+                }
             }
         }
     }
@@ -166,9 +184,14 @@ function Validate-Case {
         }
     }
 
-    $configProp = $case.PSObject.Properties['config']
-    if ($null -eq $configProp -or $configProp.Value -isnot [pscustomobject]) {
-        Die 'case.json has no config'
+    $configValue = $null
+    if ($null -ne $configProp) {
+        $configValue = $configProp.Value
+    } else {
+        $configValue = $configV2Prop.Value
+    }
+    if ($configValue -isnot [pscustomobject]) {
+        Die 'config must be an object'
     }
     # commit reaches gh; only the stub may answer, never a real gh.
     $hasCommit = @($case.commands | Where-Object { $_.command -ceq 'commit' }).Count -gt 0
@@ -457,7 +480,7 @@ function Copy-Tree {
 # only the case's own files. `scripts` goes too when nothing is left in it.
 function Remove-Engine {
     param([string]$RepoDir)
-    foreach ($rel in @('sync.cmd', 'mksync.exe', 'sync-config.json', '.user-values.json', 'scripts\windows', 'scripts\ci')) {
+    foreach ($rel in @('sync.cmd', 'mksync.exe', 'sync-config.json', 'sync-config.v2.json', '.user-values.json', 'scripts\windows', 'scripts\ci')) {
         $path = Join-Path $RepoDir $rel
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
@@ -569,12 +592,18 @@ function Run-Case {
         }
 
         # Config and values
-        $configProp = $Case.PSObject.Properties['config']
-        if ($null -eq $configProp) {
-            Die 'case.json has no config'
+        $configV2Prop = $Case.PSObject.Properties['configV2']
+        if ($null -ne $configV2Prop) {
+            $configJson = $configV2Prop.Value | ConvertTo-Json -Depth 32 -Compress
+            [IO.File]::WriteAllText((Join-Path $repoDir 'sync-config.v2.json'), $configJson, [System.Text.UTF8Encoding]::new($false))
+        } else {
+            $configProp = $Case.PSObject.Properties['config']
+            if ($null -eq $configProp) {
+                Die 'case.json has no config'
+            }
+            $configJson = $configProp.Value | ConvertTo-Json -Depth 32 -Compress
+            [IO.File]::WriteAllText((Join-Path $repoDir 'sync-config.json'), $configJson, [System.Text.UTF8Encoding]::new($false))
         }
-        $configJson = $configProp.Value | ConvertTo-Json -Depth 32 -Compress
-        [IO.File]::WriteAllText((Join-Path $repoDir 'sync-config.json'), $configJson, [System.Text.UTF8Encoding]::new($false))
 
         $valuesProp = $Case.PSObject.Properties['values']
         if ($null -ne $valuesProp) {
@@ -587,6 +616,11 @@ function Run-Case {
         }
         if (Test-Path -LiteralPath (Join-Path $Dir 'home') -PathType Container) {
             Copy-Tree (Join-Path $Dir 'home') $homeDir
+        }
+        # A seeded state/ goes into the folder the engine treats as its own
+        # state, before the first command, exactly like the engine's own files.
+        if (Test-Path -LiteralPath (Join-Path $Dir 'state') -PathType Container) {
+            Copy-Tree (Join-Path $Dir 'state') (Join-Path $localDir 'SyncSettings')
         }
 
         # Git: everything committed on master, and for `remote` also a bare
@@ -945,6 +979,13 @@ foreach ($caseDir in $caseDirs) {
         }
     }
 
+    # A v2 case needs the program: the PowerShell engine can't read config v2.
+    if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $case.PSObject.Properties['configV2']) {
+        Write-Output "SKIP ${caseName}: v2 only"
+        $skipped++
+        continue
+    }
+
     # With -Engine, import-eof-no-force counts as yes on every OS.
     if ([string]::IsNullOrEmpty($EnginePath) -or $caseName -cne 'import-eof-no-force') {
         $osProp = $case.PSObject.Properties['os']
@@ -977,7 +1018,11 @@ if ($Filter -ne '' -and $matched -eq 0) {
     exit 1
 }
 
-Write-Output "$passed passed, $failed failed"
+if ($skipped -gt 0) {
+    Write-Output "$passed passed, $failed failed, $skipped skipped"
+} else {
+    Write-Output "$passed passed, $failed failed"
+}
 
 if ($failed -gt 0) {
     exit 1

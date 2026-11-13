@@ -1,0 +1,29 @@
+{
+  "description": "Import merges a json entry's base and OS layers: arrays collect, objects merge, key order is the base's, layout rules apply (Layers (program only), json entries import).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ],
+  "differences": ["Entry selection"]
+}
