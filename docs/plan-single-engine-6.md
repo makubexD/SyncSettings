@@ -428,9 +428,10 @@ Test: `bun test src/adapters/visibility.test.ts && bun run lint`.
 Files: `src/core/guard.ts`, `src/core/guard.test.ts`, `src/main.ts`, `src/cli/parse.ts`, `src/cli/parse.test.ts`.
 
 The guard compares `profiles/` and `machines/` case-insensitively; the origin is the push URL
-(`git remote get-url --push origin`); the usage line drops `export --force`.
+(`git remote get-url --push origin`); the usage line drops `export --force`, pinned by a unit test that compares
+`USAGE` with the contract's line (the parity runner has no bare-run form).
 
-Test: `bun test src/core/guard.test.ts src/cli && bun run build && tests/parity/run.sh --engine dist/mksync usage-line && tests/parity/run.sh --engine dist/mksync guard-`.
+Test: `bun test src/core/guard.test.ts src/cli && bun run build && tests/parity/run.sh --engine dist/mksync guard-`.
 
 ## Step 28: Docs `[inline: docs step, enriched per the docs rule]`
 
