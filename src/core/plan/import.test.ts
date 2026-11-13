@@ -910,6 +910,7 @@ interface LayerSnapshotOptions {
   readonly local?: Readonly<Record<string, string>>;
   readonly values?: Readonly<Record<string, string>>;
   readonly dirs?: readonly string[];
+  readonly excludePatterns?: readonly string[];
 }
 
 function bytesOf(text: string): Uint8Array {
@@ -944,6 +945,9 @@ function layeredSnapshot(os: Os, options: LayerSnapshotOptions): Snapshot {
       schemaVersion: 2,
       modules: LAYER_MODULES,
       entries: options.entries,
+      ...(options.excludePatterns !== undefined
+        ? { excludePatterns: options.excludePatterns }
+        : {}),
     },
     os,
     home,
@@ -1188,6 +1192,36 @@ describe("planImport layers", () => {
     expect(result.lines).toContain(
       formatLine("UNCHANGED", "dotfiles/common/claude/CLAUDE.md"),
     );
+  });
+
+  test("should skip a side file that matches an exclude pattern", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [importEntry()],
+      repo: {
+        "dotfiles/common/claude/CLAUDE.md": IMPORT_BASE_TEXT,
+        "dotfiles/linux/claude/CLAUDE.md": IMPORT_OS_TEXT,
+      },
+      local: { ".config/parity/CLAUDE.md": IMPORT_LOCAL_TEXT },
+      excludePatterns: ["*.linux.md"],
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/claude/CLAUDE.md",
+      "SKIPPED dotfiles/linux/claude/CLAUDE.md",
+    ]);
+    expect(result.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        "dotfiles/linux/claude/CLAUDE.md",
+        "matches exclude pattern",
+      ),
+    );
+    expect(shownActions(result.actions)).toEqual([]);
   });
 
   test("should ERROR on a layer that is not valid JSON and go on", () => {

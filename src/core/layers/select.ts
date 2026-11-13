@@ -11,7 +11,7 @@ const BASE_ROOT = "dotfiles/common/";
 
 const ALL_OS: readonly Os[] = ["windows", "linux", "macos"];
 
-/** `process.platform` names mapped to the contract's OS names. */
+/** The host OS names mapped to the contract's OS names. */
 const PLATFORM_OS: Readonly<Record<string, Os | undefined>> = {
   linux: "linux",
   darwin: "macos",

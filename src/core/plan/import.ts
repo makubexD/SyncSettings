@@ -372,6 +372,10 @@ function planImportFile(
   const folder = parentDir(localPath, separator);
   for (const side of merged.value.sideFiles) {
     const sidePath = joinPath(folder, side.name, separator);
+    if (state.isExcluded(sidePath)) {
+      pushStatus(state, "SKIPPED", side.repoPath, EXCLUDE_NOTE);
+      continue;
+    }
     applyBytes(state, side.repoPath, sidePath, side.repoPath, side.bytes, sanitized);
   }
 }
