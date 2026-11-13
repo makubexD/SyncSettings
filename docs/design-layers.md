@@ -1262,11 +1262,6 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     layer's group. If its value holds a profile value, the refusal still stops the run, but its `change <n>` names
     the first change line of that file, or `0` when the file has none, not the setting's own number. No shared case
     covers it; the fix is to number hits on new settings with the setting's line.
-- **Left by phase 7 step 18.**
-  - The first backup of a profile the repo already holds: a profile layer file under `profiles/<name>/` whose repo
-    text differs from this machine's is not merged or overwritten. The repo's copy stays, and `planFirstBackup`
-    lists it in `layerConflicts`. Decision 9 only covers values and destinations; the contract has no line or
-    question for a differing layer file yet.
 
 ### Confirm on Windows
 
