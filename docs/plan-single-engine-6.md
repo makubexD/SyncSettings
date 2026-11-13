@@ -347,17 +347,97 @@ Test: `bun test src/core/machine/copies.test.ts && bun run lint`.
 ## Step 20: Audits `[inline: review of user-facing work]`
 
 Run `wizard-auditor` on `setup`, `cli-auditor` on `setup`, `machine show` and the retire commands, and
-`ts-security-auditor` on the store, the guard and the visibility reader. Fixes become steps 22 on, with shared cases
-first where they change output; what's left goes in the design's Open.
+`ts-security-auditor` on the store, the guard and the visibility reader. Fixes become steps 21 to 27, with shared
+cases first where they change output; what's left goes in the design's Open. The docs step moves to the end (28).
 
 Test: `tests/all.sh`.
 
-## Step 21: Docs `[inline: docs step, enriched per the docs rule]`
+## Step 21: The audits' decisions in the contract `[inline: contract wording decided from the audits]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`.
+
+Contract lines, written before their cases:
+
+- Front door usage: `mksync export [--preview] [--only <path>...]` (no `--force`, which export refuses).
+- Setup flag errors, exit 1 like an unknown option: `ERROR: <flag> needs a value.`, `ERROR: <flag> is repeated.`,
+  `ERROR: <flag> must be one of <a>, <b>, <c>.`
+- Setup refuses before writing: a retired profile named by `--profile` or typed at question 1,
+  `ERROR: profile <name> is retired; pick another name.`, exit 1; `--existing keep` (or answer 2) with a pull-only
+  mode, `ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.`, exit 1.
+- Taking over the record the hostname suggests is a replace: machine values are asked again, as with `--replace`.
+- Retire: `Profile <name> is already retired.`, exit 0.
+- Open: retire against the repo store once private (phase 7, with the pointer write); unpushed history under
+  `profiles/` or `machines/`; old machine values printed on a piped replace; a `__proto__` placeholder dropped;
+  profile and retire names not checked against the layer-name rule; unknown verb in a group exits 1 but an unknown
+  command exits 2; no `--help` or `--name=value`; `--profile`, `--claude` and `--mode` ignored with `--replace`.
+
+Test: `npx prettier --check docs/plan-single-engine-6.md`.
+
+## Step 22: Shared cases for usage and retire `[worker]`
+
+Files: `tests/parity/cases/usage-line/`, `tests/parity/cases/retire-profile/`,
+`tests/parity/cases/retire-profile-already/`, `tests/parity/cases/retire-machine-already/`.
+
+From step 21's lines: no command prints the usage line (exit 2); `profile retire work-1 --yes` with no record using
+it retires it; each already-retired case prints its line, exit 0, state unchanged. Follow `retire-machine`'s layout.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync retire-` (the usage case fails until step 27).
+
+## Step 23: Shared cases for setup `[worker]`
+
+Files: `tests/parity/cases/setup-flag-errors/`, `tests/parity/cases/setup-retired-profile/`,
+`tests/parity/cases/setup-pullonly-keep/`, `tests/parity/cases/setup-values-piped/`.
+
+From step 21's lines and the contract's "mksync setup": a repeated and a bad-choice flag (exit 1); `--profile` naming a
+retired profile (exit 1, no state written); `--mode pull-only --existing keep` (exit 1, no state written); an unknown
+placeholder answered `2` on piped stdin, saved on the machine.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync setup-` (the new cases fail until steps 24 and 25).
+
+## Step 24: Setup refusals in the flow `[worker]`
+
+Files: `src/wizard/setup.ts`, `src/wizard/setup.test.ts`.
+
+Refuse a retired profile (flag or typed) and pull-only with keep, before the outcome; the outcome carries
+`replaced: boolean`, true for `--replace` and for the hostname suggestion taken.
+
+Test: `bun test src/wizard && bun run lint`.
+
+## Step 25: Setup writes and answers `[worker]`
+
+Files: `src/main.ts`.
+
+Write the profile before the record (the record marks the machine as set up), naming the file that failed; ask
+unknown placeholders from piped stdin as the contract says (only `--yes` skips); ask machine values again when
+`outcome.replaced`.
+
+Test: `bun test src && bun run build && tests/parity/run.sh --engine dist/mksync setup-`.
+
+## Step 26: Visibility hardening `[worker]`
+
+Files: `src/adapters/visibility.ts`, `src/adapters/visibility.test.ts`.
+
+`gh repo view github.com/<owner>/<repo>` (never another host); an owner starting with `-` is not parsed (public); an
+SSH origin's host alias resolved with `ssh -G <host>` (its `hostname`), so an alias of `github.com` is asked as
+github.com and never reads `MKSYNC_VISIBILITY`; a failing `ssh -G` on an SSH origin is public.
+
+Test: `bun test src/adapters/visibility.test.ts && bun run lint`.
+
+## Step 27: Guard and usage fixes `[worker]`
+
+Files: `src/core/guard.ts`, `src/core/guard.test.ts`, `src/main.ts`, `src/cli/parse.ts`, `src/cli/parse.test.ts`.
+
+The guard compares `profiles/` and `machines/` case-insensitively; the origin is the push URL
+(`git remote get-url --push origin`); the usage line drops `export --force`.
+
+Test: `bun test src/core/guard.test.ts src/cli && bun run build && tests/parity/run.sh --engine dist/mksync usage-line && tests/parity/run.sh --engine dist/mksync guard-`.
+
+## Step 28: Docs `[inline: docs step, enriched per the docs rule]`
 
 Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/configuration.md`, `docs/layout.md`,
 `docs/daily-workflow.md`, `docs/plan-single-engine.md`.
 
-Contract: every line steps 3 to 19 rely on matches the program. Design: "As built in phase 6" under "Code layout"
+Contract: every line steps 3 to 27 rely on matches the program. Design: "As built in phase 6" under "Code layout"
 (`core/machine/`, `core/guard.ts`, `adapters/store.ts`, `adapters/scan.ts`, `adapters/visibility.ts`, `wizard/`);
 settled Open items out, what's left in. `configuration.md`: the record and profile files with a worked example;
 `layout.md`: `machine.json` in the state folder; `daily-workflow.md`: running `dist/mksync setup` on a machine to
