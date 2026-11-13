@@ -617,6 +617,41 @@ function datedBackupOfStateFile(
   return datedBackup(path, repoPath, context, dated);
 }
 
+/** What one dated state backup did: the run folder it used and the warning a
+ * failed copy printed, which only warns (contract "Backups"). */
+export interface StateBackup {
+  readonly folder: string;
+  readonly warning?: string;
+}
+
+/**
+ * Contract "Writes to the state folder": copy a state file into a run's dated
+ * backup folder. `runFolder` names a folder the plan already made, so both
+ * copies share it; without one, the folder is named and `backups/` pruned as a
+ * run's would be. A failed copy only warns.
+ */
+export function backupStateFile(
+  source: string,
+  repoPath: string,
+  context: RunContext,
+  runFolder?: string,
+): StateBackup {
+  const created = runFolder === undefined;
+  const folder =
+    runFolder ??
+    pathFor(context.os).join(
+      context.stateFolder,
+      BACKUPS_FOLDER,
+      runFolderName(context.now(), context.pid),
+    );
+  const dated: DatedBackups = { folder, made: false };
+  const warning = datedBackup(source, repoPath, context, dated);
+  if (created && dated.made) {
+    pruneBackups(context);
+  }
+  return warning === undefined ? { folder } : { folder, warning };
+}
+
 /** Apply `cp -p`'s mode from the repo file a created local file copies (not on Windows). */
 function copyModeFrom(
   path: string,

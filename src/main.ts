@@ -5,7 +5,7 @@ import { join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
 import type { EngineHost } from "./adapters/engine.ts";
-import { runPlan } from "./adapters/fs.ts";
+import { backupStateFile, runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
 import { readIdentity, readScan } from "./adapters/scan.ts";
@@ -27,6 +27,7 @@ import {
   writeRecord,
 } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
+import { askNewSettings } from "./cli/ask.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   MachineShowCommand,
@@ -40,6 +41,7 @@ import type { ConfigV2, Os } from "./core/config/types.ts";
 import { guard, PROFILES_FOLDER } from "./core/guard.ts";
 import type { GuardDecision } from "./core/guard.ts";
 import { pickOs } from "./core/layers/select.ts";
+import type { LayerName } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { CheckMode } from "./core/machine/check.ts";
 import { RECORD_ERROR_PREFIX } from "./core/machine/record.ts";
@@ -60,11 +62,28 @@ import { moveUserValues, placeValue } from "./core/machine/values.ts";
 import { planCheck } from "./core/plan/check.ts";
 import { changeLines } from "./core/plan/changes.ts";
 import { planExport } from "./core/plan/export.ts";
-import { groupBlock } from "./core/plan/groups.ts";
+import {
+  groupBlock,
+  groupedBlock,
+  withoutNewSettings,
+} from "./core/plan/groups.ts";
 import { planImport } from "./core/plan/import.ts";
+import {
+  newSettingChoices,
+  storeDestination,
+} from "./core/plan/newsettings.ts";
+import type {
+  NewSettingChoice,
+  NewSettingQuestion,
+} from "./core/plan/newsettings.ts";
 import { planPreview } from "./core/plan/preview.ts";
 import { renderRun } from "./core/plan/run.ts";
-import type { Plan, RunPlan } from "./core/plan/types.ts";
+import type {
+  NewSettingLine,
+  Plan,
+  RunPlan,
+  Snapshot,
+} from "./core/plan/types.ts";
 import { compareShadow, programShadow, renderShadow } from "./core/shadow.ts";
 import { parseValuesFile } from "./core/values/file.ts";
 import type { Values } from "./core/values/sanitize.ts";
@@ -220,14 +239,34 @@ function renderStatic(plan: Plan): Result {
   return { code: plan.code, stdout: writeLines(plan.lines), stderr: "" };
 }
 
+/** What running a plan gave back: its printed result and the run's dated
+ * backup folder when a copy landed. */
+interface AppliedPlan {
+  readonly result: Result;
+  readonly backups: string | undefined;
+}
+
+/** Apply a plan's steps and render what the run printed, keeping the run's
+ * dated backup folder. */
+function applyPlanAndBackup(
+  plan: RunPlan,
+  context: RunContext,
+): AppliedPlan {
+  const outcome = runPlan(plan, context);
+  const rendered = renderRun(plan, outcome);
+  return {
+    result: {
+      code: rendered.code,
+      stdout: writeLines(rendered.lines),
+      stderr: "",
+    },
+    backups: outcome.backups,
+  };
+}
+
 /** Apply a plan's steps and render what the run printed. */
 function applyPlan(plan: RunPlan, context: RunContext): Result {
-  const rendered = renderRun(plan, runPlan(plan, context));
-  return {
-    code: rendered.code,
-    stdout: writeLines(rendered.lines),
-    stderr: "",
-  };
+  return applyPlanAndBackup(plan, context).result;
 }
 
 const VALUES_FILE = ".user-values.json";
@@ -689,6 +728,189 @@ async function executeShadow(
   }
 }
 
+/** The answers a list of choices gives, key path to layer slot. */
+function answersOf(
+  settings: readonly NewSettingLine[],
+  choices: readonly NewSettingChoice[],
+): ReadonlyMap<string, LayerName> {
+  const answers = new Map<string, LayerName>();
+  settings.forEach((setting, index) => {
+    const choice = choices[index];
+    if (choice !== undefined) {
+      answers.set(setting.path, choice.layer);
+    }
+  });
+  return answers;
+}
+
+/** Every new setting taking the suggestion, which is what `--yes` answers. */
+function suggestionAnswers(
+  settings: readonly NewSettingLine[],
+  question: NewSettingQuestion,
+): ReadonlyMap<string, LayerName> {
+  return answersOf(
+    settings,
+    settings.map(() => question.suggestion),
+  );
+}
+
+/**
+ * Contract "New settings (program only)", Asking: print the block up to the
+ * settings and ask each one through the terminal `setup` uses. The head is
+ * computed with the suggestion as a provisional answer, since the answered
+ * plan isn't known until the questions are through.
+ */
+async function askSettings(
+  snapshot: Snapshot,
+  settings: readonly NewSettingLine[],
+  question: NewSettingQuestion,
+): Promise<readonly NewSettingChoice[]> {
+  const tentative = planExport(
+    snapshot,
+    suggestionAnswers(settings, question),
+  );
+  const grouped = groupedBlock(
+    withoutNewSettings(changeLines(tentative, snapshot), settings),
+    snapshot.record,
+    snapshot.os,
+    "push",
+    settings,
+  );
+  const terminal = setupTerminal();
+  try {
+    for (const line of grouped.head) {
+      terminal.io.write(`${line}\n`);
+    }
+    return await askNewSettings(terminal.io, grouped, question);
+  } finally {
+    terminal.close();
+  }
+}
+
+/**
+ * Contract "New settings (program only)", The answer is stored: an array
+ * item's answer also goes into the profile's `destinations`, with its dated
+ * backup before the write. A new key's answer isn't stored, since the key now
+ * has a layer. The write prints no status line.
+ */
+function storeItemDestinations(
+  snapshot: Snapshot,
+  context: RunContext,
+  settings: readonly NewSettingLine[],
+  choices: readonly NewSettingChoice[],
+  applied: AppliedPlan,
+): Result {
+  const profile = snapshot.profile;
+  const result = applied.result;
+  if (profile === undefined || result.code !== 0) {
+    return result;
+  }
+  let updated = profile;
+  settings.forEach((setting, index) => {
+    const choice = choices[index];
+    if (setting.kind === "item" && choice !== undefined) {
+      updated = storeDestination(updated, setting.path, choice.layer, "item");
+    }
+  });
+  if (updated === profile) {
+    return result;
+  }
+  const backup = backupStateFile(
+    join(context.stateFolder, PROFILES_FOLDER, `${profile.name}.json`),
+    `${PROFILES_FOLDER}/${profile.name}.json`,
+    context,
+    applied.backups,
+  );
+  try {
+    writeProfile(context.stateFolder, updated);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ...result,
+      code: 1,
+      stderr: `${result.stderr}ERROR: cannot write the profile ${profile.name}: ${message}\n`,
+    };
+  }
+  return backup.warning === undefined
+    ? result
+    : { ...result, stderr: `${result.stderr}${backup.warning}\n` };
+}
+
+/**
+ * Run an export plan and print its grouped block before its status lines. The
+ * answered new settings are listed under `New settings` and never repeated in
+ * their layer's group.
+ */
+function runExport(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  context: RunContext,
+  settings: readonly NewSettingLine[] = [],
+): AppliedPlan {
+  const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
+  const applied = applyPlanAndBackup(plan, context);
+  if (lines.length === 0 && settings.length === 0) {
+    return applied;
+  }
+  return {
+    ...applied,
+    result: {
+      ...applied.result,
+      stdout:
+        writeLines(
+          groupBlock(
+            lines,
+            snapshot.record,
+            snapshot.os,
+            "push",
+            settings,
+          ),
+        ) + applied.result.stdout,
+    },
+  };
+}
+
+/**
+ * The push side with a record: ask where each new setting goes, plan with the
+ * answers, run, then store an array item's answer in the profile (contract
+ * "New settings (program only)"). Without a record, or with no new setting,
+ * the export is the plan as it stands.
+ */
+async function executeExport(
+  snapshot: Snapshot,
+  command: RunCommand,
+  context: RunContext,
+): Promise<Result> {
+  const planned = planExport(snapshot);
+  const settings = planned.newSettings ?? [];
+  const question = newSettingChoices(snapshot.record, snapshot.os);
+  if (question === undefined || settings.length === 0) {
+    return runExport(planned, snapshot, context).result;
+  }
+
+  if (command.yes) {
+    const choices = settings.map(() => question.suggestion);
+    const plan = planExport(snapshot, answersOf(settings, choices));
+    return storeItemDestinations(
+      snapshot,
+      context,
+      settings,
+      choices,
+      runExport(plan, snapshot, context, settings),
+    );
+  }
+
+  const choices = await askSettings(snapshot, settings, question);
+  const plan = planExport(snapshot, answersOf(settings, choices));
+  return storeItemDestinations(
+    snapshot,
+    context,
+    settings,
+    choices,
+    applyPlanAndBackup(plan, context),
+  );
+}
+
 /** Run the command against the repo found from the working folder. */
 async function execute(command: ExecutableCommand): Promise<Result> {
   const repoRoot = findRepoRoot(process.cwd());
@@ -811,19 +1033,7 @@ async function execute(command: ExecutableCommand): Promise<Result> {
         planPreview(snapshot, previewWorkingTree(repoRoot, snapshot.repoFiles)),
       );
     } else {
-      const plan = planExport(snapshot);
-      const lines = changeLines(plan, snapshot);
-      const applied = applyPlan(plan, context);
-      result =
-        lines.length === 0
-          ? applied
-          : {
-              ...applied,
-              stdout:
-                writeLines(
-                  groupBlock(lines, snapshot.record, snapshot.os, "push"),
-                ) + applied.stdout,
-            };
+      result = await executeExport(snapshot, command, context);
     }
     if (
       command.preview &&
