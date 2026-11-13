@@ -441,7 +441,7 @@ Profiles in this repo:
 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1]
 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --push --existing backup
+Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup
 ```
 
 The suggested answers, in brackets:
@@ -461,12 +461,16 @@ types a profile name, and the new profile starts with an empty module list fille
 machine then has its own copy of its profile: values and `destinations` aren't shared between two machines of one job
 until the switch. The example above is the first run after the switch.
 
-With `--yes` and no terminal, every question needs its flag; a missing one stops with `missing --profile` (exit 2).
+A question takes its flag; without one, it's asked, and an empty answer or end of input takes the suggestion in
+brackets. `--yes` takes every suggestion without asking. A question with no suggestion (the profile, unless a record has
+this hostname) that gets end of input, or `--yes` and no flag, stops with `ERROR: missing --profile` (exit 2) before
+anything is written. `--name` with `--replace` stops with `ERROR: --name and --replace can't be used together.` (exit
+1).
 
-**`mksync whoami`** prints the record:
+**`mksync machine show`** prints the record:
 
 ```text
-$ mksync whoami
+$ mksync machine show
 machine   wk1-laptop
 profile   work-1
 os        windows
@@ -564,7 +568,7 @@ Open a PR with these changes? [Y/n]
   destination or the suggestion, nothing is moved, and the PR opens. The profile-value rule and the public-repo guard
   still stop it.
 - The PR, branch and exit codes are today's (`sync/<os>-…`, never `master`; 0, or 1 on an error).
-- **Pull-only** machines have no push: `mksync push` prints `this machine is pull-only (see mksync whoami)` and exits 1,
+- **Pull-only** machines have no push: `mksync push` prints `this machine is pull-only (see mksync machine show)` and exits 1,
   and `mksync status` never suggests it.
 
 **Pull** stays today's command: the guard against unpushed local edits, `Apply these changes? [Y/n]`, `.bak` before
@@ -996,10 +1000,16 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   comments attached to the next key, or the entry stays `whole`.
 - **`SYNC_PROFILE` and `SYNC_MACHINE`.** Stand-ins for the machine record from phase 5; phase 6 removes them, or keeps
   them as a test-only override like `SYNC_OS`.
-- **New commands and flags.** `mksync whoami`, and `setup`'s `--profile`, `--replace`, `--claude`, `--push`/`--pull-only`
-  and `--existing` are new; the contract's "Front door" changes with them. Also how a profile or machine is retired
-  from the command line (`mksync retire <machine>`, `mksync profile retire <name>`?). The `cli` skill reviews the names
-  before phase 6.
+- **New commands and flags.** Settled by the `cli` skill's review (phase 6, step 1; `docs/plan-single-engine-6.md`
+  decision 5). The proposed `mksync whoami` became `mksync machine show`: the top level keeps its eight daily verbs, and
+  `machine` is a noun group anyway. Nothing shipped as `whoami`, so there is no alias and no migration.
+  `--push`/`--pull-only` became `--mode push|pull-only`, one option per question like `--claude` and `--existing`.
+  Retiring is `mksync machine retire <name> [--yes]` and `mksync profile retire <name> [--yes]` (asks `[y/N]`), not a
+  top-level `mksync retire`. Kept: `setup`'s `--name`, `--profile`, `--replace`, `--claude`, `--existing`, `--yes`, and
+  `--bootstrap` (handed to the program in phase 8). Migration note, not decided: the front door exits 1 on an unknown
+  option or clashing flags and 2 only on a missing command or answer; the `cli` skill's contract uses 2 for every usage
+  error. Moving `Unknown option` to exit 2 changes `pull`, `push` and `diff`, so it waits for the cut-over (phase 9)
+  with a shared case, or stays as is.
 - **Retiring a profile with live machines.** Refuse while a non-retired machine uses it, or warn and go on.
 - **Two records, one hostname.** A replaced machine's hostname can come back (a reinstall). The exact-match suggestion
   then names the newest record with that hostname; older ones are retired or listed in `replaced`.

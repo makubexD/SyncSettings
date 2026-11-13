@@ -3,7 +3,7 @@
 Roadmap: `docs/plan-single-engine.md`, phase 6. Design: `docs/design-layers.md` ("Machine records", "First run",
 "Replace and retire", "Public-repo guard", "Values", "Modules and profiles"). Goal: a machine record replaces
 `SYNC_PROFILE` and `SYNC_MACHINE`; `mksync setup` scans, asks four questions, writes the record and runs the first
-pull; `mksync whoami` prints the record; values live on the profile and the machine; a machine can be replaced and a
+pull; `mksync machine show` prints the record; values live on the profile and the machine; a machine can be replaced and a
 machine or profile retired; and the public-repo guard keeps profiles, records and values out of the repo.
 
 ## Shared rules
@@ -31,8 +31,8 @@ machine or profile retired; and the public-repo guard keeps profiles, records an
 - The push preview grouped by receiver, the "where does this new setting go?" question and the first-backup group in
   the preview: phase 7. This phase builds the guard's decision and the merge of profile copies as pure functions and
   shows only the "held" line in `export --preview`.
-- `commit`, the PR per profile, and the bash front door handing `setup` and `whoami` to the program: phase 8. Until
-  then the commands run as `dist/mksync setup` and `dist/mksync whoami`.
+- `commit`, the PR per profile, and the bash front door handing `setup` and `machine show` to the program: phase 8. Until
+  then the commands run as `dist/mksync setup` and `dist/mksync machine show`.
 - Making the repo private and lifting the guard: phase 10. Nothing in this phase writes `profiles/` or `machines/`
   into the repo.
 - What goes in `work-base`, the Claude layers in use: phase 7.
@@ -58,20 +58,37 @@ the design.
    shadow still use it). A placeholder not in the table is asked once: `<P>: kept on 1) this profile 2) this machine
 [1]`; with `--yes` and no terminal it goes on the profile. A value asked for during a pull is saved by the same
    rule. The table is a constant in `src/core/machine/values.ts`.
-5. **Command names**, pending the `cli` skill's review in step 1: `mksync setup [--name <machine>] [--profile <name>]
-[--replace <machine>] [--claude none|claude|claude-deepseek] [--push | --pull-only] [--existing
-backup|keep|stop] [--yes]`, `mksync whoami`, `mksync machine retire <name>`, `mksync profile retire <name>`. A
-   missing answer with `--yes` and no terminal: `missing --<flag>`, exit 2.
+5. **Command names**, reviewed by the `cli` skill in step 1:
+   `mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek]
+[--mode push|pull-only] [--existing backup|keep|stop] [--yes]`, `mksync machine show`,
+   `mksync machine retire <name> [--yes]`, `mksync profile retire <name> [--yes]`. The review's changes to the
+   proposal:
+   - `whoami` became `mksync machine show`. The top level already has eight verbs for daily work, and `machine` is a
+     noun group anyway (`retire`), so the record's reader is a verb in it. Nothing shipped, so no alias.
+   - `--push | --pull-only` became `--mode push|pull-only`: one question, one option taking a value, like `--claude`
+     and `--existing`. `setup --push` also read as "push after setup", which `--existing keep` really does.
+   - A question takes its flag; without one, it's asked; an empty answer or end of input takes the suggestion in
+     brackets. `--yes` takes the suggestions without asking, as it answers `[Y/n]` today. A question with no
+     suggestion (the profile, unless a record has this hostname) that gets end of input, or `--yes` and no flag, stops
+     with `ERROR: missing --<flag>`, exit 2, before anything is written.
+   - Retire asks `Retire machine <name>? It can't push after this. [y/N]` (or `profile <name>`); `--yes` answers it.
+     No answer, or end of input, retires nothing: exit 1.
+   - `--name` with `--replace` (the record keeps the replaced name) stops with
+     `ERROR: --name and --replace can't be used together.`, exit 1, as `--preview` with `--only` does today. Unknown
+     options stay `Unknown option: <arg>`, exit 1. Exit 2 stays for a missing command and a missing answer.
+   - Kept: `setup`, `--name`, `--profile`, `--replace`, `--claude` and its values, `--existing` and its values, and
+     the noun groups `machine` and `profile` (rejected: a top-level `mksync retire <machine>`, which leaves no place
+     for `profile retire`). `setup --bootstrap` stays in the front door; the program takes it over in phase 8.
 6. **Replace while public.** A new machine has no local records, so `--replace <name>` finds nothing:
-   `ERROR: no machine <name> here; records are shared once the repo is private.`, exit 2. A rerun of `setup` on a
+   `ERROR: no machine <name> here; records are shared once the repo is private.`, exit 1. A rerun of `setup` on a
    machine that already has a record is `ERROR: this machine is already <name>; use --replace to take over another
-record.`, exit 2. Replace proper runs against the repo store and is tested with `MKSYNC_VISIBILITY=private`
+record.`, exit 1 (the `cli` review: these are the machine's state, not a usage error). Replace proper runs against the repo store and is tested with `MKSYNC_VISIBILITY=private`
    fixtures.
 7. **Retire.** `machine retire` marks a record; a retired record can't push (`this machine is retired`, exit 1) and
    isn't offered for `--replace`. `profile retire` is refused while a non-retired record in the store uses it
    (`profile <name> is used by machine <m>`, exit 1); this settles the Open item. **Two records, one hostname:** the
    suggestion names the one non-retired record with that hostname; with two or more, no suggestion.
-8. **Hostname check.** `whoami` and `import` print the warning on stderr and go on; `export` (the push side) stops on
+8. **Hostname check.** `machine show` and `import` print the warning on stderr and go on; `export` (the push side) stops on
    it with exit 1, as do a pull-only and a retired record. `export --preview` and `import --check` only warn.
 9. **"Keep mine" before the program can commit.** Answer 4's "keep mine" runs `export` then `import`; the PR waits for
    phase 8, so `setup` prints `pushed into the repo folder; commit it with mksync push`.
@@ -97,21 +114,21 @@ Test: `grep -c 'whoami' docs/design-layers.md` is at least 2; `npx prettier --ch
 Files: `docs/sync-contract.md`, `docs/design-layers.md`.
 
 - Contract: a "Machines (program only)" section: the record's fields and checks, where it's kept (decision 3), the
-  scan and its overrides (decision 2), `setup` with its four questions, suggestions, flags and exact output, `whoami`
+  scan and its overrides (decision 2), `setup` with its four questions, suggestions, flags and exact output, `machine show`
   and the hostname warning, replace, retire, values on profile and machine (decision 4), and every `ERROR:`, warning
   and refusal line with its exit code. "Profile and machine, until phase 6" is replaced. A "Public-repo guard
   (program only)" section with the held and refused lines (decision 10). The front door table gets the program's
-  `setup` and `whoami` rows, marked "program only until phase 8".
+  `setup` and `machine show` rows, marked "program only until phase 8".
 - Design: decisions 1 to 10 as rules with an example where the design has none; the settled Open items taken out.
 
-Test: `grep -c 'whoami' docs/sync-contract.md` is at least 2; `grep -c 'held until the repo is private'
+Test: `grep -c 'machine show' docs/sync-contract.md` is at least 2; `grep -c 'held until the repo is private'
 docs/sync-contract.md` is at least 1; `! grep -n 'SYNC_PROFILE' docs/sync-contract.md | grep -v 'removed'`.
 
 ## Step 3: Runner for records and the new commands `[worker]`
 
 Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
 
-- `command` may also be `setup`, `whoami`, `machine-retire`, `profile-retire`; with an engine other than the program
+- `command` may also be `setup`, `machine-show`, `machine-retire`, `profile-retire`; with an engine other than the program
   they print `SKIP <case>: <command> is program only` and count as skipped.
 - `options` adds `name`, `profile`, `replace`, `claude`, `push: true`, `pullOnly: true`, `existing`, `yes: true` and
   `target` (the retire argument), spelled as decision 5.
@@ -119,7 +136,7 @@ Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
   else stays a runner error.
 - `stderr: true` on a command adds its stderr lines to `output.txt` after its stdout lines (for the warnings).
 
-Test: `tests/parity/run.sh --engine dist/mksync` passes as before (51 passed); a scratch case using `whoami` against
+Test: `tests/parity/run.sh --engine dist/mksync` passes as before (51 passed); a scratch case using `machine-show` against
 bash prints the skip line (made in the scratchpad, not committed).
 
 ## Step 4: Shared cases for records `[worker]`
@@ -132,8 +149,8 @@ New cases, each `configV2`, `expect/` from step 2's contract:
 | Case                     | Input                                                                      | Expected                                            |
 | ------------------------ | -------------------------------------------------------------------------- | --------------------------------------------------- |
 | `machine-none`           | no record, `import --force`                                                | as phase 5: every module on, exit 0                 |
-| `machine-whoami`         | record `wk1-laptop`, profile `work-1`, `whoami`                            | the six lines of the contract, exit 0               |
-| `machine-whoami-moved`   | `SYNC_HOSTNAME=wk1-new`, `whoami` with `stderr`                            | the six lines, then the two warning lines, exit 0   |
+| `machine-show`           | record `wk1-laptop`, profile `work-1`, `machine-show`                      | the six lines of the contract, exit 0               |
+| `machine-show-moved`     | `SYNC_HOSTNAME=wk1-new`, `machine-show` with `stderr`                      | the six lines, then the two warning lines, exit 0   |
 | `machine-claude-none`    | record `claude: none`, entries in `claude` and `git`                       | `claude` entries get no line, `git` imports         |
 | `machine-module-remove`  | record `modules.remove: ["other"]`                                         | `other` gets no line                                |
 | `machine-pull-only`      | record `pullOnly: true`, `export`                                          | `this machine is pull-only`, exit 1, repo unchanged |
@@ -150,25 +167,28 @@ next steps).
 
 Files: `tests/parity/cases/setup-*/`, `tests/parity/cases/retire-*/` (new).
 
-| Case                    | Input                                                                                                | Expected                                                                                                                  |
-| ----------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `setup-flags`           | no record, `setup --yes --name wk1-laptop --profile work-1 --claude claude --push --existing backup` | scan block, summary, `Same as:` line; `state/machine.json` and `state/profiles/work-1.json` written; import lines; exit 0 |
-| `setup-missing-flag`    | `setup --yes` without `--profile`                                                                    | `missing --profile`, exit 2, nothing written                                                                              |
-| `setup-stdin`           | answers `work-1\n2\n1\n1\n` on stdin                                                                 | same record as `setup-flags`                                                                                              |
-| `setup-values-move`     | `.user-values.json` with `<YOUR_EMAIL>` and `<HOME>`                                                 | email on the profile, home on the record, `.user-values.json` unchanged                                                   |
-| `setup-values-unknown`  | `.user-values.json` with `<OTHER>`, `--yes`                                                          | `<OTHER>` on the profile                                                                                                  |
-| `setup-existing-stop`   | `--existing stop`                                                                                    | record written, no file imported, exit 0                                                                                  |
-| `setup-again`           | a record already there                                                                               | the contract's `already` error, exit 2                                                                                    |
-| `setup-replace-public`  | `--replace wk1-laptop`, public                                                                       | the contract's `no machine` error, exit 2                                                                                 |
-| `setup-replace-private` | `MKSYNC_VISIBILITY=private`, repo store holds `machines/wk1-laptop.json`, `SYNC_HOSTNAME=wk1-new`    | record kept, `hostname: wk1-new`, one `replaced` line                                                                     |
-| `setup-suggest`         | private store, one record with this hostname, stdin `\n…`                                            | the `This looks like` line, the suggested profile taken                                                                   |
-| `retire-machine`        | `machine retire wk1-laptop`, then `export`                                                           | record `retired: true`; export exit 1                                                                                     |
-| `retire-profile-used`   | `profile retire work-1` while the record uses it                                                     | the contract's refusal, exit 1                                                                                            |
+| Case                    | Input                                                                                                     | Expected                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `setup-flags`           | no record, `setup --yes --name wk1-laptop --profile work-1 --claude claude --mode push --existing backup` | scan block, summary, `Same as:` line; `state/machine.json` and `state/profiles/work-1.json` written; import lines; exit 0       |
+| `setup-missing-flag`    | `setup --yes` without `--profile`                                                                         | `missing --profile`, exit 2, nothing written                                                                                    |
+| `setup-stdin`           | answers `work-1\n2\n1\n1\n` on stdin                                                                      | same record as `setup-flags`                                                                                                    |
+| `setup-values-move`     | `.user-values.json` with `<YOUR_EMAIL>` and `<HOME>`                                                      | email on the profile, home on the record, `.user-values.json` unchanged                                                         |
+| `setup-values-unknown`  | `.user-values.json` with `<OTHER>`, `--yes`                                                               | `<OTHER>` on the profile                                                                                                        |
+| `setup-existing-stop`   | `--existing stop`                                                                                         | record written, no file imported, exit 0                                                                                        |
+| `setup-again`           | a record already there                                                                                    | the contract's `already` error, exit 1                                                                                          |
+| `setup-replace-public`  | `--replace wk1-laptop`, public                                                                            | the contract's `no machine` error, exit 1                                                                                       |
+| `setup-replace-private` | `MKSYNC_VISIBILITY=private`, repo store holds `machines/wk1-laptop.json`, `SYNC_HOSTNAME=wk1-new`         | record kept, `hostname: wk1-new`, one `replaced` line                                                                           |
+| `setup-suggest`         | private store, one record with this hostname, stdin `\n…`                                                 | the `This looks like` line, the suggested profile taken                                                                         |
+| `retire-machine`        | `machine retire wk1-laptop --yes`, then `export`                                                          | record `retired: true`; export exit 1                                                                                           |
+| `retire-profile-used`   | `profile retire work-1 --yes` while the record uses it                                                    | the contract's refusal, exit 1                                                                                                  |
+| `retire-declined`       | `machine retire wk1-laptop`, end of input                                                                 | record unchanged, exit 1                                                                                                        |
+| `setup-name-replace`    | `setup --name a --replace wk1-laptop`                                                                     | the contract's `can't be used together` error, exit 1, nothing written                                                          |
+| `setup-yes-suggests`    | `setup --yes --profile work-1`, no other flag                                                             | the suggestions taken: name from `SYNC_HOSTNAME`, `claude` when `SYNC_TOOLS` has it, `--mode push`, `--existing backup`; exit 0 |
 
 The `replaced` line's date: the cases set `SOURCE_DATE_EPOCH`-style `SYNC_DATE` if step 2's contract adds it; else
 the case compares the record without the date (the step writes which).
 
-Test: `tests/parity/run.sh --engine dist/mksync 'setup-|retire-'` shows 12 failures for the reasons above.
+Test: `tests/parity/run.sh --engine dist/mksync 'setup-|retire-'` shows 15 failures for the reasons above.
 
 ## Step 6: Shared cases for the guard `[worker]`
 
@@ -200,7 +220,7 @@ Files: `src/core/machine/scope.ts`, `src/core/machine/scope.test.ts`, `src/core/
 
 `machineScope(profile, record, os)`: the profile's modules, plus `add`, minus `remove`, minus `claude` and
 `claude-worker` by the Claude mode, minus modules limited to other OSes, with the reason for each module turned off
-(for `whoami`). `machineValues(profile, record)`: machine wins. `pick.ts` takes the scope instead of building it (this
+(for `machine show`). `machineValues(profile, record)`: machine wins. `pick.ts` takes the scope instead of building it (this
 closes the Open item "four copies of the same three lines"). Unit cases: each source of "off", an `add` of another
 OS's module, a value on both.
 
@@ -248,14 +268,14 @@ overrides and a temp `PATH`.
 
 Test: `bun test src/adapters/scan.test.ts && bun run lint`.
 
-## Step 13: `mksync whoami` `[worker]`
+## Step 13: `mksync machine show` `[worker]`
 
 Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/main.ts`.
 
-Parse `whoami`; print the contract's lines from the store and `machineScope`; no record: the contract's line and exit.
+Parse `machine show`; print the contract's lines from the store and `machineScope`; no record: the contract's line and exit.
 Hostname warning from step 11.
 
-Test: `bun test src/cli && bun run build && tests/parity/run.sh --engine dist/mksync whoami`.
+Test: `bun test src/cli && bun run build && tests/parity/run.sh --engine dist/mksync machine-show`.
 
 ## Step 14: The first-run flow `[inline: user-facing prompts, wizard skill]`
 
@@ -322,7 +342,7 @@ Test: `bun test src/core/machine/copies.test.ts && bun run lint`.
 
 ## Step 20: Audits `[inline: review of user-facing work]`
 
-Run `wizard-auditor` on `setup`, `cli-auditor` on `setup`, `whoami` and the retire commands, and
+Run `wizard-auditor` on `setup`, `cli-auditor` on `setup`, `machine show` and the retire commands, and
 `ts-security-auditor` on the store, the guard and the visibility reader. Fixes become steps 22 on, with shared cases
 first where they change output; what's left goes in the design's Open.
 

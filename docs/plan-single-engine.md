@@ -91,7 +91,7 @@ Decisions made 2026-11-10, to be written into the design:
   - Claude here: none, Claude only, or Claude plus DeepSeek?
   - Push with a preview, or pull only?
   - What happens to files that are already here?
-- The answers go to the machine record (profile, Claude mode, pull-only), and `mksync whoami` prints it.
+- The answers go to the machine record (profile, Claude mode, pull-only), and `mksync machine show` prints it.
 - **Replacing a broken machine:** the new one takes over the old one's record.
 
 **Push and pull**
@@ -151,8 +151,8 @@ from the state folder (`SYNC_PROFILE`, `SYNC_MACHINE`), and passes the 51 shared
 
 ### Phase 6: machines
 
-- Machine records, the first-run scan and its four questions, `mksync whoami`, replacing a machine, retired profiles,
-  and per-machine and per-profile values.
+- Machine records, the first-run scan and its four questions, `mksync machine show`, replacing a machine, retired
+  profiles, and per-machine and per-profile values.
 - The public-repo guard: values stay local and are committed after the repo goes private.
 
 ### Phase 7: push, pull and Claude
