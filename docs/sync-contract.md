@@ -890,7 +890,9 @@ not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or 
 `domain` a string or `null`; `claude` is `none`, `claude` or `claude-deepseek`; `pullOnly` and `retired` booleans;
 `modules.add` and `modules.remove` lists of the config's module names; `values` maps placeholders to strings;
 `replaced` lists `{"hostname": <string>, "domain": <string or null>, "date": "<YYYY-MM-DD>"}`, oldest first. The program
-writes it in this key order, two-space indent, `": "` after a key, LF and a trailing newline, readable by the current
+writes it in this key order in the layout of `json` entries ([Layers](#layers-program-only)): two-space indent, one key or
+item per line (the example's one-line `modules` and `values` are input the program reads, not what it writes), `{}` and
+`[]` when empty, LF and a trailing newline, readable by the current
 user only (as `.user-values.json`, [Sanitize and hydrate](#sanitize-and-hydrate)); the profile file the same way. A
 bad record stops every command but `setup --replace` with exit 2 before any file is touched, on stderr:
 
@@ -981,6 +983,9 @@ Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup
 ```
 
+- **Layout.** The scan block, the profile list, the questions and the summary are separated by one blank line; each
+  question is printed with one space after it and no newline, so answers piped on stdin leave the questions on one
+  line. A question a flag answers isn't printed.
 - **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
   the suggestion in brackets. `--yes` takes every suggestion without asking. The first question takes a number or a new
   profile name; a bad answer prints `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as
@@ -1017,7 +1022,9 @@ A machine that already has a record stops without `--replace`:
 scan's, and the old pair goes to `replaced` with today's date. Each machine value is asked again with the old one as
 the suggestion: `<HOME> [<old value>]`. A record not in the store, or retired, stops with
 `ERROR: no machine <name> here; records are shared once the repo is private.`, exit 1 (while public the store holds
-only this machine's own record, so only a moved disk can take one over).
+only this machine's own record, so only a moved disk can take one over). Until the first private push (phase 7) the
+taken-over record and its profile are written to local state; the repo's `machines/` and `profiles/` are left as they
+are.
 
 #### `mksync machine show`
 
@@ -1076,7 +1083,7 @@ Retire machine wk1-laptop? It can't push after this. [y/N]
 Retire profile work-1? A first run won't offer it after this. [y/N]
 ```
 
-Yes prints `Machine <name> retired.` (`Profile <name> retired.`), exit 0. No, an empty answer or end of input prints
+The question is printed with one space after it and no newline. Yes prints `Machine <name> retired.` (`Profile <name> retired.`), exit 0. No, an empty answer or end of input prints
 `Nothing retired.`, exit 1. Already retired: `Machine <name> is already retired.`, exit 0. A machine not in the store:
 the `no machine <name> here` error above, exit 1; a profile not in the store:
 `ERROR: profile <name> not found: <state>/profiles/<name>.json`, exit 1. A profile still used by a record that isn't
