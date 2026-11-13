@@ -29,6 +29,12 @@ export function resolvedLocal(entry: ConfigV2Entry, os: Os, home: string): strin
   return expandHome(raw, os, home);
 }
 
+/** Whether the entry's values are JSON string bodies: `merge: "json"`, or a
+ * file the extension marks as JSON. */
+export function isJsonEntry(entry: ConfigV2Entry): boolean {
+  return entry.merge === "json" || entry.file.endsWith(".json");
+}
+
 export function isAbsolutePath(path: string, separator: "/" | "\\"): boolean {
   if (separator === "/") {
     return path.startsWith("/");

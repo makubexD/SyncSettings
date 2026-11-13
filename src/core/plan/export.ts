@@ -15,6 +15,7 @@ import {
   compileExcludes,
   entrySelected,
   errorPlan,
+  isJsonEntry,
   joinPath,
   onlySelected,
   primaryRepoPath,
@@ -150,7 +151,7 @@ function hydratedLayers(
 ): readonly HydratedLayer[] | undefined {
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
-  const json = entry.merge === "json" || entry.file.endsWith(".json");
+  const json = isJsonEntry(entry);
   const layers: HydratedLayer[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -276,7 +277,7 @@ function planJsonFile(
   for (const change of split.value.changes) {
     const bytes = sanitized
       ? sanitize(change.bytes, rules, state.values, {
-          json: entry.file.endsWith(".json"),
+          json: isJsonEntry(entry),
         })
       : change.bytes;
     state.pending = [];
@@ -323,7 +324,7 @@ function planImportFile(
   } else {
     const bytes = sanitized
       ? sanitize(split.base, rules, state.values, {
-          json: entry.file.endsWith(".json"),
+          json: isJsonEntry(entry),
         })
       : split.base;
     state.pending = [];
@@ -356,7 +357,7 @@ function planImportFile(
     const folded = foldCrlf(side.bytes);
     const bytes = sanitized
       ? sanitize(folded, rules, state.values, {
-          json: entry.file.endsWith(".json"),
+          json: isJsonEntry(entry),
         })
       : folded;
     state.pending = [];
@@ -403,7 +404,7 @@ function planFile(state: State, selected: SelectedEntry): void {
 
   if (rules.length > 0) {
     const sanitized = sanitize(local.bytes, rules, state.values, {
-      json: entry.file.endsWith(".json"),
+      json: isJsonEntry(entry),
     });
     if (repo !== undefined) {
       if (same(repo, sanitized, compareOptions(state.snapshot, repoPath, true))) {

@@ -18,6 +18,7 @@ import {
   compileExcludes,
   entrySelected,
   errorPlan,
+  isJsonEntry,
   joinPath,
   onlySelected,
   primaryRepoPath,
@@ -253,7 +254,7 @@ function hydratedLayers(
 ): readonly LayerFile[] | undefined {
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
-  const json = entry.merge === "json" || entry.file.endsWith(".json");
+  const json = isJsonEntry(entry);
   const layers: LayerFile[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);

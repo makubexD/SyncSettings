@@ -731,6 +731,20 @@ describe("planExport values file", () => {
 
 const UNUSED_PROFILE_FILE = "profiles/work-1/other/unused.json";
 
+const EXTENSIONLESS_JSON_FILE = "parity/settings";
+
+const EXTENSIONLESS_JSON_LOCAL = ".config/parity/settings";
+
+const EXTENSIONLESS_JSON_VALUE = '/home/user/a"b';
+
+const EXTENSIONLESS_JSON_REPO_TEXT = '{"path": "<PATH>", "b": 2}';
+
+const EXTENSIONLESS_JSON_CHANGED_TEXT = `{
+  "path": "<PATH>",
+  "b": 5
+}
+`;
+
 describe("planExport layers", () => {
   test("should send a json change to the layer holding the key", () => {
     // Arrange
@@ -961,6 +975,44 @@ describe("planExport layers", () => {
     expect(result.lines).toContain(
       formatLine("MODIFIED", "dotfiles/linux/parity/settings.json", "sanitized"),
     );
+  });
+
+  test("should treat a merge json entry with no extension as json", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        jsonEntry({
+          file: EXTENSIONLESS_JSON_FILE,
+          localPath: `~/${EXTENSIONLESS_JSON_LOCAL}`,
+          sanitize: [{ placeholder: "<PATH>", prompt: "Path" }],
+        }),
+      ],
+      repo: {
+        [`dotfiles/common/${EXTENSIONLESS_JSON_FILE}`]: EXTENSIONLESS_JSON_REPO_TEXT,
+      },
+      local: {
+        [EXTENSIONLESS_JSON_LOCAL]: JSON.stringify({
+          path: EXTENSIONLESS_JSON_VALUE,
+          b: 5,
+        }),
+      },
+      values: { "<PATH>": EXTENSIONLESS_JSON_VALUE },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `MODIFIED dotfiles/common/${EXTENSIONLESS_JSON_FILE}`,
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: `dotfiles/common/${EXTENSIONLESS_JSON_FILE}`,
+        text: EXTENSIONLESS_JSON_CHANGED_TEXT,
+      },
+    ]);
   });
 
   test("should leave an unchanged layered json file alone", () => {
