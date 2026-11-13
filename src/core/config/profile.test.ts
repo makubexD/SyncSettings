@@ -113,10 +113,48 @@ describe("parseProfile", () => {
     );
   });
 
-  test("refuses destinations that aren't an object of strings", () => {
+  test("refuses destinations that aren't an object", () => {
     expectFailureText(
-      JSON.stringify({ destinations: { "settings.json: a": true } }),
+      JSON.stringify({ destinations: [] }),
       `ERROR: profile ${NAME}: destinations has the wrong type.`,
+    );
+  });
+
+  test.each(["os", "profile", "machine"])(
+    "accepts destination %s",
+    (slot) => {
+      // Act
+      const result = parseProfile(
+        NAME,
+        JSON.stringify({ destinations: { "settings.json: a": slot } }),
+        CONFIG,
+      );
+
+      // Assert
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.destinations).toEqual({
+          "settings.json: a": slot,
+        });
+      }
+    },
+  );
+
+  test.each(["base", "repo"])("refuses destination %s", (slot) => {
+    expectFailureText(
+      JSON.stringify({ destinations: { "settings.json: a": slot } }),
+      `ERROR: profile ${NAME}: destination settings.json: a is not a layer.`,
+    );
+  });
+
+  test("refuses a destination that isn't a string", () => {
+    expectFailureText(
+      JSON.stringify({ destinations: { "settings.json: a": 1 } }),
+      `ERROR: profile ${NAME}: destination settings.json: a is not a layer.`,
+    );
+    expectFailureText(
+      JSON.stringify({ destinations: { "settings.json: a": null } }),
+      `ERROR: profile ${NAME}: destination settings.json: a is not a layer.`,
     );
   });
 

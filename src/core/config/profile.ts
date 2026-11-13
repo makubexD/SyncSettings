@@ -19,6 +19,10 @@ const FIELDS: readonly string[] = [
 
 const NOT_VALID_JSON = "not valid JSON";
 
+/** The layer slots a new setting can go to. `base` and every other value is
+ * refused: a destination only answers where a new setting goes. */
+const DESTINATION_LAYERS: readonly string[] = ["os", "profile", "machine"];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -57,11 +61,31 @@ function stringRecord(
   return Object.fromEntries(entries);
 }
 
+/** Every destination must name one of the three writable slots; the reason
+ * names the key, since `destinations has the wrong type` would hide which. */
+function destinationRecord(
+  value: unknown,
+): Result<Readonly<Record<string, string>>, string> {
+  if (!isRecord(value)) {
+    return { ok: false, error: "destinations has the wrong type" };
+  }
+  const entries: [string, string][] = [];
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "string" || !DESTINATION_LAYERS.includes(item)) {
+      return { ok: false, error: `destination ${key} is not a layer` };
+    }
+    entries.push([key, item]);
+  }
+  return { ok: true, value: Object.fromEntries(entries) };
+}
+
 /**
  * Parses a profile file. All errors are exit code 2: the text isn't JSON or
  * isn't an object (`not valid JSON`), a top-level key other than the four
  * (`unknown field <f>`), a known field of the wrong type (`<f> has the wrong
- * type`), and a module name config v2 doesn't know (`unknown module <m>`).
+ * type`), a module name config v2 doesn't know (`unknown module <m>`), and a
+ * destination that isn't `os`, `profile` or `machine`
+ * (`destination <key> is not a layer`).
  * Missing fields default to no modules, no values, no destinations and not
  * retired.
  */
@@ -100,10 +124,10 @@ export function parseProfile(
 
   const destinations =
     parsed.destinations === undefined
-      ? {}
-      : stringRecord(parsed.destinations);
-  if (destinations === undefined) {
-    return failure(name, "destinations has the wrong type");
+      ? { ok: true as const, value: {} }
+      : destinationRecord(parsed.destinations);
+  if (!destinations.ok) {
+    return failure(name, destinations.error);
   }
 
   const retired = parsed.retired === undefined ? false : parsed.retired;
@@ -117,5 +141,14 @@ export function parseProfile(
     }
   }
 
-  return { ok: true, value: { name, modules, values, destinations, retired } };
+  return {
+    ok: true,
+    value: {
+      name,
+      modules,
+      values,
+      destinations: destinations.value,
+      retired,
+    },
+  };
 }
