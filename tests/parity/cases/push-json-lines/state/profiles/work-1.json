@@ -1,0 +1,9 @@
+{
+  "modules": ["parity"],
+  "values": {},
+  "destinations": {
+    "bravo": "base",
+    "delta[]": "base"
+  },
+  "retired": false
+}

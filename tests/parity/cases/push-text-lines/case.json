@@ -1,0 +1,44 @@
+{
+  "description": "export --preview describes a changed whole file as 3 line(s) changed and an import entry's changed side file as 1 line(s) changed, each under the group of its layer (Push preview (program only), What changed and The file).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "claude": {
+        "description": "Claude notes"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "claude/CLAUDE.md",
+        "module": "claude",
+        "merge": "import",
+        "localPath": "~/.config/parity/CLAUDE.md",
+        "importName": "CLAUDE.{layer}.md",
+        "description": "Claude notes with a profile side file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "preview",
+      "output": "all"
+    }
+  ]
+}

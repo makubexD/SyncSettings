@@ -1,0 +1,6 @@
+{
+  "alpha": 1,
+  "bravo": "new value",
+  "delta": ["x", "added item"],
+  "echo": "the quick brown fox jumps over the lazy dog while the second fox naps"
+}

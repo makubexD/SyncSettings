@@ -102,10 +102,10 @@ validate_case() {
           and (if ($o | has("mode")) then $cmd == "setup" else true end)
           and (if ($o | has("existing")) then $cmd == "setup" else true end)
           and (if ($o | has("yes")) then
-                  $cmd == "setup" or $cmd == "export"
+                  $cmd == "setup" or $cmd == "export" or $cmd == "preview"
                   or $cmd == "machine-retire" or $cmd == "profile-retire"
                else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, machine-retire or profile-retire'
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then

@@ -1255,8 +1255,8 @@ New settings
 
 - Choice 1 is the base, 2 this machine's OS layer, 3 the profile, 4 the machine. The suggestion in brackets is
   `3` (the profile), or `1` when the profile is named `personal`.
-- An array item whose path has a destination in the profile's `destinations` isn't new: it goes there without asking
-  and is listed in that layer's group.
+- A key or array item whose path has a destination in the profile's `destinations` isn't new: it goes there without
+  asking and is listed in that layer's group.
 - **Asking.** `export` asks each new setting in number order. The question is printed with one space after it and no
   newline; answers are read as [`setup`](#mksync-setup) reads them: an empty answer or end of input takes the
   suggestion, an answer that isn't `1` to `4` prints `Pick 1 to 4.` and asks again. `--yes` takes every suggestion

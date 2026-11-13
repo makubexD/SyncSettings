@@ -1,0 +1,33 @@
+{
+  "description": "export --preview groups a changed json entry's changes by the layer each is written to: base, OS and profile lines numbered in order, the machine group empty, and the held line after the summary (Push preview (program only); Public-repo guard (program only), Held).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "preview",
+      "output": "all"
+    }
+  ]
+}

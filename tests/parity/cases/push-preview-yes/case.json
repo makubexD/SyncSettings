@@ -1,0 +1,22 @@
+{
+  "description": "export --preview with --yes stops before anything runs with the clash ERROR line and exit 1 (New settings (program only), preview with --yes).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": []
+  },
+  "commands": [
+    {
+      "command": "preview",
+      "options": {
+        "yes": true
+      },
+      "output": "all",
+      "stderr": true
+    }
+  ]
+}

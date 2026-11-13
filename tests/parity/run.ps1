@@ -132,12 +132,12 @@ function Validate-Case {
         }
         foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing')) {
             if ($optNames -ccontains $key -and $cmd.command -cne 'setup') {
-                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, machine-retire or profile-retire'
+                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
             }
         }
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
-            $cmd.command -cne 'machine-retire' -and $cmd.command -cne 'profile-retire') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, machine-retire or profile-retire'
+            $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and $cmd.command -cne 'profile-retire') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {

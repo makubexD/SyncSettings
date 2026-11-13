@@ -93,7 +93,7 @@ bash runner wants 600 for them in `expect/state/`, since git can't store that mo
 `options` uses neutral names that the runner spells for each engine: `force: true` is `--force` or `-Force`,
 `only: [paths]` is `--only` or `-Only`. For the program, `name`, `profile`, `replace`, `claude`, `mode` and `existing`
 are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes` on `setup`, `export`,
-`machine-retire` and `profile-retire`; and `target`, a string, is the name argument of `machine-retire` and
+`preview`, `machine-retire` and `profile-retire`; and `target`, a string, is the name argument of `machine-retire` and
 `profile-retire`, required there and refused elsewhere. Every command runs with no terminal, as CI does, and with stdin
 empty unless the command has `stdin`: a string sent as its stdin, such as `"n\n"` for a prompt answer. Its stderr is
 merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status lines in
