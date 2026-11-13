@@ -175,6 +175,32 @@ describe("readSnapshot", () => {
     expect(snapshot.porcelain).toBeUndefined();
   });
 
+  test("should read an import entry's side file for a later layer", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    writeFixture(join(repo, "dotfiles", "common", "claude", "CLAUDE.md"), "base\n");
+    writeFixture(join(repo, "dotfiles", "linux", "claude", "CLAUDE.md"), "os\n");
+    const sideFile = join(home, ".claude", "CLAUDE.linux.md");
+    writeFixture(sideFile, "os edited\n");
+    const entry: ConfigV2Entry = {
+      file: "claude/CLAUDE.md",
+      module: "shell",
+      merge: "import",
+      localPath: "~/.claude/CLAUDE.md",
+      importName: "CLAUDE.{layer}.md",
+    };
+
+    // Act
+    const snapshot = snapshotOf(repo, home, [entry]);
+
+    // Assert
+    const side = snapshot.localFiles.get(sideFile);
+    if (side?.kind !== "file") {
+      throw new Error("the import side file was not read");
+    }
+    expect(textOf(side.bytes)).toBe("os edited\n");
+  });
+
   test("should read a file entry's local path through a symlink", () => {
     // Arrange
     const { home, repo } = fixture();

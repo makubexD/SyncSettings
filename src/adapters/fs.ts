@@ -282,6 +282,29 @@ function addSelectedEntry(
   if (localFiles.has(path)) {
     addExistingParent(path, os, localDirs);
   }
+  addImportSideFiles(selected, path, os, localFiles);
+}
+
+/**
+ * Contract "Layers (program only)": an `import` entry's later layers each have
+ * a side file beside the local file. Pull compares and backs them up, and push
+ * exports them, so the snapshot reads them like the local file.
+ */
+function addImportSideFiles(
+  selected: SelectedEntry,
+  path: string,
+  os: Os,
+  localFiles: Map<string, LocalEntry>,
+): void {
+  const importName = selected.entry.importName;
+  if (selected.entry.merge !== "import" || importName === undefined) {
+    return;
+  }
+  const p = pathFor(os);
+  const folder = p.dirname(path);
+  for (const layer of selected.layers.slice(1)) {
+    addLocalEntry(p.join(folder, importName.replaceAll("{layer}", layer.label)), os, localFiles);
+  }
 }
 
 /** An action's path is a repo path when it is relative to `dotfiles/`. */
