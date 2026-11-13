@@ -34,6 +34,12 @@ const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
 const NO_CHANGES = "  Repo is up to date. No changes detected.";
 
+const PUSH_HEADER = "Changes on this machine:";
+
+const CHANGED_LINE = "  1  M  test  conf  1 line(s) changed";
+
+const CHANGES_SUMMARY = "  1 file(s) would change.";
+
 const CONFIG: ConfigV2 = {
   schemaVersion: 2,
   modules: {},
@@ -175,6 +181,45 @@ describe("planPreview", () => {
     expect(result.code).toBe(0);
     expect(result.lines).toContain(NO_CHANGES);
     expect(result.lines).toContain(MATCHES_HEAD);
+  });
+
+  test("should print the grouped block when the export would change a file", () => {
+    // Arrange
+    const repoFile = bytes("old\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview = snapshot(repoFiles, headFiles, bytes("new\n"));
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(PUSH_HEADER);
+    expect(result.lines).toContain("All machines");
+    expect(result.lines).toContain(CHANGED_LINE);
+    expect(result.lines).toContain("Linux machines");
+    expect(result.lines).toContain("     (none)");
+    expect(result.lines.indexOf(PUSH_HEADER)).toBeLessThan(
+      result.lines.indexOf(CHANGES_SUMMARY),
+    );
+  });
+
+  test("should print no grouped block when the export would change nothing", () => {
+    // Arrange
+    const repoFile = bytes("same\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview = snapshot(repoFiles, headFiles, repoFile);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(NO_CHANGES);
+    expect(result.lines).not.toContain(PUSH_HEADER);
+    expect(result.lines).not.toContain("All machines");
   });
 
   test.each([

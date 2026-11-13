@@ -1,5 +1,7 @@
 import { STATE_FOLDER_ROOTS } from "../guard.ts";
+import { changeLines } from "./changes.ts";
 import { planExport } from "./export.ts";
+import { groupBlock } from "./groups.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type { Action, Plan, RepoFiles, RunPlan, Snapshot } from "./types.ts";
@@ -110,12 +112,15 @@ function differsFromHead(
  * The export's summary is replaced by the preview's, mirroring the nested
  * export a preview runs: it says how many files would change, or that the repo
  * is up to date, and the preview then says whether anything would be sent.
+ * `block` is the grouped block, printed after the body; the caller passes no
+ * lines when there is nothing to group.
  */
 function previewSummary(
   plan: RunPlan,
   rendered: readonly string[],
   repo: RepoFiles,
   head: RepoFiles,
+  block: readonly string[],
 ): readonly string[] {
   const summaryStart = rendered.indexOf("");
   const body = summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
@@ -124,7 +129,7 @@ function previewSummary(
   );
   const written = writtenCount(actions);
   const differs = differsFromHead(repo, actions, head);
-  const lines: string[] = [...body, "", DASHES, ""];
+  const lines: string[] = [...body, "", ...block, DASHES, ""];
   lines.push(
     written > 0
       ? `  ${written} file(s) would change.`
@@ -165,6 +170,11 @@ export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
   if (rendered.code !== 0) {
     return { actions: [], lines: rendered.lines, code: rendered.code };
   }
+  const changes = changeLines(exported, snapshot);
+  const block =
+    changes.length === 0
+      ? []
+      : groupBlock(changes, snapshot.record, snapshot.os, "push");
   return {
     actions: [],
     lines: previewSummary(
@@ -172,6 +182,7 @@ export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
       rendered.lines,
       workingTree ?? snapshot.repoFiles,
       head,
+      block,
     ),
     code: 0,
   };
