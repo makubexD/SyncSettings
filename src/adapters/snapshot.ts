@@ -13,6 +13,7 @@ import type {
 import { parseV1 } from "../core/config/v1.ts";
 import { parseV2 } from "../core/config/v2.ts";
 import type { RepoFiles, Snapshot } from "../core/plan/types.ts";
+import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../core/layers/names.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { MACHINES_FOLDER, PROFILES_FOLDER, readSnapshot } from "./fs.ts";
@@ -65,7 +66,9 @@ function readBytes(path: string): Uint8Array | undefined {
  * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`
  * converted in memory by the same converter that writes the v2 file.
  */
-export function loadConfig(repoRoot: string): LoadResult<ConfigV2, ConfigError> {
+export function loadConfig(
+  repoRoot: string,
+): LoadResult<ConfigV2, ConfigError> {
   const unreadable = (file: string): LoadResult<ConfigV2, ConfigError> => ({
     ok: false,
     error: { message: `ERROR: cannot read ${file}.`, code: 1 },
@@ -90,14 +93,9 @@ function readValues(repoRoot: string): Values {
   return parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
 }
 
-const LAYER_NAME = /^[a-z0-9-]+$/;
-
 const PROFILE_VARIABLE = "SYNC_PROFILE";
 
 const MACHINE_VARIABLE = "SYNC_MACHINE";
-
-/** Layer names a profile or machine may not take: they name another layer. */
-const RESERVED_LAYER_NAMES = ["linux", "macos", "windows", "common", "base"];
 
 /** A run's profile and machine layers, as its environment chooses them. */
 export interface Layers {
@@ -167,13 +165,16 @@ export function loadLayers(
     machine.value !== undefined &&
     RESERVED_LAYER_NAMES.includes(machine.value)
   ) {
-    return { ok: false, error: layerCollision(MACHINE_VARIABLE, machine.value) };
+    return {
+      ok: false,
+      error: layerCollision(MACHINE_VARIABLE, machine.value),
+    };
   }
-  if (
-    profileName.value !== undefined &&
-    machine.value === profileName.value
-  ) {
-    return { ok: false, error: layerCollision(MACHINE_VARIABLE, machine.value) };
+  if (profileName.value !== undefined && machine.value === profileName.value) {
+    return {
+      ok: false,
+      error: layerCollision(MACHINE_VARIABLE, machine.value),
+    };
   }
 
   let profile: Profile | undefined;
