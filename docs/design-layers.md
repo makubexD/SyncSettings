@@ -1144,6 +1144,18 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1. Retiring a machine
     whose `machine.json` is a repo-home pointer writes the whole record to the state folder; once pointers exist
     (phase 7) it must write the repo's `machines/<name>.json` instead.
+- **Left by the phase 6 audits.** Each is a behavior the contract doesn't fix yet:
+  - Retire reads only local state; once the repo is private it must read the repo store, both for the machine and for
+    "used by" (phase 7, with the pointer write above).
+  - The guard checks tracked paths, not unpushed history: a state file committed and then `git rm --cached` still
+    goes out with the next push. Phase 8 owns the push.
+  - A piped `setup --replace` prints the old machine values as suggestions on stdout.
+  - A `__proto__` placeholder in `.user-values.json` is dropped without a message.
+  - Profile names read from file names, and retire names, aren't checked against the layer-name rule.
+  - An unknown verb in a group (`mksync machine list`) exits 1 as an unknown option; an unknown command prints the
+    usage line, exit 2.
+  - No `--help` at any level and no `--name=value` form (a migration, per the `cli` skill).
+  - `--profile`, `--claude` and `--mode` given with `--replace` are ignored without a message.
   - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
     which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's
     rules would be a migration.

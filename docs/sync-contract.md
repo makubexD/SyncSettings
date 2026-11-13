@@ -751,8 +751,12 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 
 - Exit codes, status words, labels, notes and `ERROR:` lines are this contract's, as the bash engine prints them,
   except for the mksync program column of [Known differences](#known-differences).
-- An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints a usage
-  line and exits 2.
+- An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints this usage
+  line on stderr and exits 2:
+
+  ```text
+  usage: mksync export [--preview] [--only <path>...] | mksync import [--check] [--force] [--only <path>...] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync --version
+  ```
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.
@@ -1014,10 +1018,18 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
   runs `import --force`; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
   import's or export's code.
 
+A flag that can't be read stops before the scan, exit 1, like an unknown option: `ERROR: <flag> needs a value.`,
+`ERROR: <flag> is repeated.`, `ERROR: <flag> must be one of <a>, <b>, <c>.` (the choices in the usage line's order).
+
+Two answers are refused before anything is written, exit 1. A retired profile, named by `--profile` or typed at the
+first question: `ERROR: profile <name> is retired; pick another name.` "Keep mine" (`--existing keep` or answer 2)
+with a pull-only mode, since keep pushes first:
+`ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.`
+
 A machine that already has a record stops without `--replace`:
 `ERROR: this machine is already <name>; use --replace to take over another record.`, exit 1.
 
-**Replace.** `--replace <machine>` takes over a record from the store: it keeps the name, profile, Claude mode,
+**Replace.** `--replace <machine>`, or taking the record the hostname suggests, takes over a record from the store: it keeps the name, profile, Claude mode,
 `pullOnly` and module overrides, so the second and third questions aren't asked. `hostname` and `domain` take the
 scan's, and the old pair goes to `replaced` with today's date. Each machine value is asked again with the old one as
 the suggestion: `<HOME> [<old value>]`. A record not in the store, or retired, stops with
@@ -1084,7 +1096,7 @@ Retire profile work-1? A first run won't offer it after this. [y/N]
 ```
 
 The question is printed with one space after it and no newline. Yes prints `Machine <name> retired.` (`Profile <name> retired.`), exit 0. No, an empty answer or end of input prints
-`Nothing retired.`, exit 1. Already retired: `Machine <name> is already retired.`, exit 0. A machine not in the store:
+`Nothing retired.`, exit 1. Already retired: `Machine <name> is already retired.` (`Profile <name> is already retired.`), exit 0, nothing asked or written. A machine not in the store:
 the `no machine <name> here` error above, exit 1; a profile not in the store:
 `ERROR: profile <name> not found: <state>/profiles/<name>.json`, exit 1. A profile still used by a record that isn't
 retired is refused, naming the first such record by name:
