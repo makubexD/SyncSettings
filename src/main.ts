@@ -16,11 +16,17 @@ import {
 } from "./adapters/snapshot.ts";
 import type { Layers } from "./adapters/snapshot.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
-import type { RunCommand, ShadowCommand } from "./cli/parse.ts";
+import type {
+  MachineShowCommand,
+  RunCommand,
+  ShadowCommand,
+} from "./cli/parse.ts";
 import type { ConfigV2, Os } from "./core/config/types.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { CheckMode } from "./core/machine/check.ts";
+import { machineScope } from "./core/machine/scope.ts";
+import { renderMachineShow } from "./core/machine/show.ts";
 import { planCheck } from "./core/plan/check.ts";
 import { planExport } from "./core/plan/export.ts";
 import { planImport } from "./core/plan/import.ts";
@@ -72,13 +78,16 @@ function writeLines(lines: readonly string[]): string {
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
 }
 
-type Resolved = Result | RunCommand | ShadowCommand;
+type Resolved = Result | RunCommand | ShadowCommand | MachineShowCommand;
 
-function isResolvedCommand(
-  value: Resolved,
-): value is RunCommand | ShadowCommand {
+type ExecutableCommand = RunCommand | ShadowCommand | MachineShowCommand;
+
+function isResolvedCommand(value: Resolved): value is ExecutableCommand {
   return "kind" in value;
 }
+
+/** The contract's no-record line, and exit 1. */
+const NO_RECORD = "ERROR: no machine record here; run mksync setup.";
 
 /**
  * Read the import's prompt answers as a list, which is what `planImport`
@@ -160,7 +169,7 @@ async function executeShadow(
 }
 
 /** Run the command against the repo found from the working folder. */
-async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
+async function execute(command: ExecutableCommand): Promise<Result> {
   const repoRoot = findRepoRoot(process.cwd());
   if (repoRoot === undefined) {
     return failure(
@@ -197,6 +206,26 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
       state,
       layers.value,
     );
+  }
+  if (command.kind === "machine-show") {
+    const record = layers.value.record;
+    if (record === undefined) {
+      return failure(NO_RECORD);
+    }
+    const warnings = checkRecord(
+      record,
+      readIdentity(process.env, os.value),
+      "pull",
+    );
+    const lines = renderMachineShow(
+      record,
+      machineScope(config.value, layers.value.profile, record, os.value),
+    );
+    return {
+      code: 0,
+      stdout: writeLines(lines),
+      stderr: writeLines(warnings.lines),
+    };
   }
 
   const check =
@@ -262,6 +291,8 @@ export function run(argv: readonly string[]): Resolved {
     case "run":
       return parsed;
     case "shadow":
+      return parsed;
+    case "machine-show":
       return parsed;
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };

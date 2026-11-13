@@ -1,13 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs, USAGE as USAGE_TEXT } from "./parse.ts";
 
-const EXPORT = { kind: "run", command: "export", force: false, preview: false, check: false, only: [] } as const;
+const EXPORT = {
+  kind: "run",
+  command: "export",
+  force: false,
+  preview: false,
+  check: false,
+  only: [],
+} as const;
 
-const IMPORT = { kind: "run", command: "import", force: false, preview: false, check: false, only: [] } as const;
+const IMPORT = {
+  kind: "run",
+  command: "import",
+  force: false,
+  preview: false,
+  check: false,
+  only: [],
+} as const;
 
 const USAGE = { kind: "usage" } as const;
 
 const VERSION = { kind: "version" } as const;
+
+const MACHINE_SHOW = { kind: "machine-show" } as const;
 
 function unknownOption(arg: string): { kind: "error"; message: string } {
   return { kind: "error", message: `Unknown option: ${arg}` };
@@ -39,7 +55,10 @@ describe("parseArgs", () => {
   });
 
   test("should parse export --preview", () => {
-    expect(parseArgs(["export", "--preview"])).toEqual({ ...EXPORT, preview: true });
+    expect(parseArgs(["export", "--preview"])).toEqual({
+      ...EXPORT,
+      preview: true,
+    });
   });
 
   test("should reject export --force as bash does", () => {
@@ -47,11 +66,17 @@ describe("parseArgs", () => {
   });
 
   test("should parse import --check", () => {
-    expect(parseArgs(["import", "--check"])).toEqual({ ...IMPORT, check: true });
+    expect(parseArgs(["import", "--check"])).toEqual({
+      ...IMPORT,
+      check: true,
+    });
   });
 
   test("should parse import --force", () => {
-    expect(parseArgs(["import", "--force"])).toEqual({ ...IMPORT, force: true });
+    expect(parseArgs(["import", "--force"])).toEqual({
+      ...IMPORT,
+      force: true,
+    });
   });
 
   test("should collect one path per repeated --only", () => {
@@ -61,7 +86,9 @@ describe("parseArgs", () => {
   });
 
   test("should collect every path after one --only", () => {
-    expect(parseArgs(["import", "--only", "/home/user/.gitconfig", "dotfiles/b"])).toEqual({
+    expect(
+      parseArgs(["import", "--only", "/home/user/.gitconfig", "dotfiles/b"]),
+    ).toEqual({
       ...IMPORT,
       only: ["/home/user/.gitconfig", "dotfiles/b"],
     });
@@ -96,11 +123,15 @@ describe("parseArgs", () => {
   });
 
   test("should refuse export's flag on import", () => {
-    expect(parseArgs(["import", "--preview"])).toEqual(unknownOption("--preview"));
+    expect(parseArgs(["import", "--preview"])).toEqual(
+      unknownOption("--preview"),
+    );
   });
 
   test("should refuse a stray argument as an unknown option", () => {
-    expect(parseArgs(["export", "dotfiles/a"])).toEqual(unknownOption("dotfiles/a"));
+    expect(parseArgs(["export", "dotfiles/a"])).toEqual(
+      unknownOption("dotfiles/a"),
+    );
   });
 
   test("should refuse --only with no path", () => {
@@ -117,7 +148,35 @@ describe("parseArgs", () => {
     });
   });
 
+  test("should parse machine show", () => {
+    expect(parseArgs(["machine", "show"])).toEqual(MACHINE_SHOW);
+  });
+
+  test("should ask for the usage line when machine has no verb", () => {
+    expect(parseArgs(["machine"])).toEqual(USAGE);
+  });
+
+  test("should refuse a machine noun that isn't show", () => {
+    expect(parseArgs(["machine", "retire"])).toEqual(unknownOption("retire"));
+  });
+
+  test("should refuse an option after machine show", () => {
+    expect(parseArgs(["machine", "show", "--force"])).toEqual(
+      unknownOption("--force"),
+    );
+  });
+
+  test("should refuse a stray argument after machine show", () => {
+    expect(parseArgs(["machine", "show", "extra"])).toEqual(
+      unknownOption("extra"),
+    );
+  });
+
   test("should keep shadow out of the usage line", () => {
     expect(USAGE_TEXT.includes("shadow")).toBe(false);
+  });
+
+  test("should name machine show in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync machine show")).toBe(true);
   });
 });

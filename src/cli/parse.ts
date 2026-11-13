@@ -6,7 +6,8 @@
 
 export const USAGE =
   "usage: mksync export [--preview] [--force] [--only <path>...] | " +
-  "mksync import [--check] [--force] [--only <path>...] | mksync --version";
+  "mksync import [--check] [--force] [--only <path>...] | " +
+  "mksync machine show | mksync --version";
 
 export type CommandName = "export" | "import";
 
@@ -31,6 +32,11 @@ export interface ShadowCommand {
   readonly kind: "shadow";
 }
 
+/** `machine show`: print the machine record, exit 0. */
+export interface MachineShowCommand {
+  readonly kind: "machine-show";
+}
+
 /** `--version`: print the program's version, exit 0. */
 export interface VersionCommand {
   readonly kind: "version";
@@ -50,6 +56,7 @@ export interface ParseError {
 export type ParsedCommand =
   | RunCommand
   | ShadowCommand
+  | MachineShowCommand
   | VersionCommand
   | UsageCommand
   | ParseError;
@@ -57,6 +64,10 @@ export type ParsedCommand =
 const VERSION_OPTION = "--version";
 
 const SHADOW_COMMAND = "shadow";
+
+const MACHINE_COMMAND = "machine";
+
+const MACHINE_SHOW_VERB = "show";
 
 const ONLY_OPTION = "--only";
 
@@ -121,6 +132,19 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     const extra = argv[1];
     return extra === undefined
       ? { kind: "shadow" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === MACHINE_COMMAND) {
+    const verb = argv[1];
+    if (verb === undefined) {
+      return { kind: "usage" };
+    }
+    if (verb !== MACHINE_SHOW_VERB) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${verb}`);
+    }
+    const extra = argv[2];
+    return extra === undefined
+      ? { kind: "machine-show" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
   if (isOption(command) || !isCommandName(command)) {
