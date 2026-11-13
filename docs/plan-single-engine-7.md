@@ -58,8 +58,9 @@ the design.
    `<n> line(s) changed`; for `dir`, the file name inside the folder. Values are the sanitized text. Order: entry order
    of the config, then the order the split reports. Header and blank lines as in the design's example.
 4. **The new-setting question.** Only `export` with a record asks; `export --preview` lists each new setting under
-   `New settings` with its suggestion and `(asked by mksync export)`. The question is the design's, numbered after the
-   changes: `1) all machines  2) <Os> machines  3) profile <p>  4) this machine [<s>]`. The suggestion is the profile's
+   `New settings` with its suggestion and `(asked by mksync export)`. The question is the design's, under the
+   setting's numbered line: `Where does it go? 1) all machines  2) <Os> machines  3) profile <p>  4) this machine
+[<s>]`. The suggestion is the profile's
    stored destination when there is one (then nothing is asked and the line shows where it went), else `profile <p>`,
    or `all machines` when the profile is `personal`. Answers are read as `setup` reads them: a piped line or the
    terminal, empty or end of input takes the suggestion, anything else prints `Pick 1 to 4.` and asks again; `--yes`
@@ -87,13 +88,31 @@ the design.
    drops the check.
 9. **The first backup.** When the guard reads private, `export` copies the local profile, its layer folder, the
    record and its machine layer into `profiles/` and `machines/`. A profile the repo already holds is merged with
-   `mergeProfileCopies`; each differing value asks `<P> differs on profile <p>: 1) keep the repo's  2) take this
-machine's [1]`. After every write succeeds, `<state>/machine.json` becomes the `{"name", "home": "repo"}` pointer.
+   `mergeProfileCopies`; each differing value prints `<P> differs on profile <p>:`, then `  repo:         <value>` and
+   `  this machine: <value>`, and asks `Keep which? 1) the repo's  2) this machine's [1]` (the `cli` review: the
+   question can't be answered without the two values; they are the user's own, on their own screen, and `--yes`
+   prints none of them because it asks nothing and keeps the repo's). After every write succeeds, `<state>/machine.json` becomes the `{"name", "home": "repo"}` pointer.
    The preview shows a group `First backup: profiles and machines` listing the paths. Phase 8's push commits them.
 10. **The repo store.** With a pointer record, `machine retire` and `profile retire` read and write `machines/` and
     `profiles/` in the repo, "used by" included. An unreadable repo file prints `ERROR: <repo path> can't be read:
 <reason>.`, exit 2.
 11. **Command names**, reviewed by the `cli` skill in step 2: `mksync statusline` (no flags) and `mksync export --yes`.
+    The review's verdict:
+    - `statusline` kept as a top-level command. It's the program Claude Code calls, the name was fixed in phase 3, and
+      a `claude` noun group would hold one verb (the skill's depth rule). It takes no options or arguments: any
+      argument is `Unknown option: <arg>`, exit 1, as elsewhere. The line is its stdout payload; it prints nothing on
+      stderr, so "exit 0 after an error" can't happen. It writes ANSI colors with stdout a pipe and ignores
+      `NO_COLOR`, as `statusline.sh` does: Claude Code renders them. The skill's color rule says otherwise; that goes in
+      the design's Open as a known exception, not a migration.
+    - `export --yes` kept: the same flag, with the same meaning ("take the suggestions without asking"), as `setup` and
+      the retire commands. `--preview` with `--yes` stops with `ERROR: --preview and --yes can't be used together.`,
+      exit 1, as `--preview` with `--only` does (the skill: clashing options fail naming both; the exit code stays the
+      contract's 1, see Open "Exit code for usage errors").
+    - Prompts stay on stdout and piped answers stay accepted, as `setup` does today (Open, "Left by the phase 6
+      audits": the `wizard` skill's rules would be a migration of every prompt at once).
+    - The new-setting question carries the design's `Where does it go?`, under the numbered setting line, so the
+      choice numbers (1 to 4) aren't read as change numbers. `Pick 1 to 4.` matches `setup`.
+    - The first-backup question shows both values (decision 9), since it can't be answered blind.
 
 ## Step 1: The Windows survey prompt `[inline: user-facing prompt for work machine #1]`
 
@@ -153,16 +172,17 @@ Files: `tests/parity/cases/push-*/` (new).
 
 Each `configV2`, `"output": "all"`, `expect/` from step 3's "Push preview":
 
-| Case                   | Input                                                                           | Expected                                                   |
-| ---------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `push-groups`          | record `wk1-laptop`/`work-1`; changes in a base, a Windows, a profile json file | the header and four groups, lines 1 to 3, `(none)` for one |
-| `push-groups-norecord` | no record, a base and a Linux change                                            | `Changes on this machine:`, two groups only                |
-| `push-json-lines`      | json key changed, key added, key removed, array item added                      | the four `<what>` forms, long value cut with `...`         |
-| `push-text-lines`      | `whole` file with 3 lines changed, an `import` side file changed                | `3 line(s) changed` and the side file's line               |
-| `push-sanitized`       | changed value that sanitize turns into `<YOUR_EMAIL>`                           | the line shows `<YOUR_EMAIL>`, never the value             |
-| `push-export-prints`   | `push-groups` input, `export --yes`                                             | the same block, then the export's status lines, exit 0     |
+| Case                   | Input                                                                           | Expected                                                     |
+| ---------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `push-groups`          | record `wk1-laptop`/`work-1`; changes in a base, a Windows, a profile json file | the header and four groups, lines 1 to 3, `(none)` for one   |
+| `push-groups-norecord` | no record, a base and a Linux change                                            | `Changes on this machine:`, two groups only                  |
+| `push-json-lines`      | json key changed, key added, key removed, array item added                      | the four `<what>` forms, long value cut with `...`           |
+| `push-text-lines`      | `whole` file with 3 lines changed, an `import` side file changed                | `3 line(s) changed` and the side file's line                 |
+| `push-sanitized`       | changed value that sanitize turns into `<YOUR_EMAIL>`                           | the line shows `<YOUR_EMAIL>`, never the value               |
+| `push-export-prints`   | `push-groups` input, `export --yes`                                             | the same block, then the export's status lines, exit 0       |
+| `push-preview-yes`     | `export --preview --yes`                                                        | `ERROR: --preview and --yes can't be used together.`, exit 1 |
 
-Test: `bun run build && tests/parity/run.sh --engine dist/mksync push-` shows 6 failures for the reasons above.
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync push-` shows 7 failures for the reasons above.
 
 ## Step 6: Shared cases for new settings `[worker]`
 
@@ -265,8 +285,8 @@ Test: `bun test src/core/plan && bun run build && tests/parity/run.sh --engine d
 
 Files: `src/core/config/profile.ts`, `src/core/plan/newsettings.ts` (new), `src/core/plan/newsettings.test.ts`.
 
-`destinations` accepts `base`. `newSettingChoices(record, profile, os)` returns the four choices (two with no record)
-and the suggestion of decision 4; `storeDestination(profile, path, layer)` returns the profile with the array-item
+`destinations` accepts `base`. `newSettingChoices(record, profile, os)` returns the four choices and
+the suggestion of decision 4 (with no record there is no question: `undefined`, and today's `ERROR` stays); `storeDestination(profile, path, layer)` returns the profile with the array-item
 destination added. Unit cases: work and `personal` suggestions, a stored destination, a new key not stored, `base`
 parsed.
 

@@ -33,13 +33,13 @@ call fails, and the bar shows the fallback text or nothing. On work #2 without G
 
 The two options:
 
-| | One shared `statusline.sh` | `mksync statusline` |
-|---|---|---|
-| Needs on Windows | Git Bash and `jq` | the `mksync` program, already installed by the restore |
-| Runs under | Git Bash only | Git Bash or PowerShell: the command is a program name, the same in both |
-| Code | one bash file, as today | one TypeScript command, tested by the shared cases |
+|                     | One shared `statusline.sh`                  | `mksync statusline`                                                       |
+| ------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
+| Needs on Windows    | Git Bash and `jq`                           | the `mksync` program, already installed by the restore                    |
+| Runs under          | Git Bash only                               | Git Bash or PowerShell: the command is a program name, the same in both   |
+| Code                | one bash file, as today                     | one TypeScript command, tested by the shared cases                        |
 | Start-up on Windows | Git Bash, then `jq` and `git`; not measured | about 57 ms (Bun, `docs/single-engine-research.md` section 3), plus `git` |
-| Change by hand | edit the file, see it on the next refresh | edit the source and rebuild, or wait for a release |
+| Change by hand      | edit the file, see it on the next refresh   | edit the source and rebuild, or wait for a release                        |
 
 Decision: the statusline becomes `mksync statusline`, on every OS. The work machines may have neither Git Bash nor
 `jq`, and the subcommand needs only the program the restore already installs, under whichever shell Claude Code picks.
@@ -69,62 +69,62 @@ Every entry in `sync-config.json` today, and where it lands. The columns:
   keys, later layers win. "`@import`" keeps one file per layer and the base file imports the others. "dconf" loads
   only the listed keys. "Dir" syncs a folder entry by entry.
 
-| Entry | Module | Layer | Receives | Merge | Values |
-|---|---|---|---|---|---|
-| `dotfiles/common/git/.gitconfig` | `git` | base | all | whole file | `<YOUR_NAME>`, `<YOUR_EMAIL>`: profile |
-| `dotfiles/common/git/ignore` | `git` | base | all | whole file | |
-| `dotfiles/windows/git/.gitconfig.local` | `git` | OS (Windows) | Windows | whole file | `<YOUR_GH_USERNAME>`, `<YOUR_GH_ORG>`: profile; `<GH_CLI_PATH>`: machine |
-| `dotfiles/linux/git/.gitconfig.local` | `git` | OS (Linux) | Linux | whole file | |
-| `dotfiles/macos/git/.gitconfig.local` | `git` | OS (macOS) | macOS | whole file | |
-| `dotfiles/macos/shell/.zshrc` | `shell` | OS (macOS) | macOS | whole file | |
-| `dotfiles/macos/shell/.zprofile` | `shell` | OS (macOS) | macOS | whole file | |
-| `dotfiles/windows/shell/.bashrc` | `shell` | OS (Windows) | Windows | whole file | linked folders: profile ("Linked folders") |
-| `dotfiles/windows/shell/.bash_profile` | `shell` | OS (Windows) | Windows | whole file | |
-| `dotfiles/linux/shell/.bashrc` | `shell` | OS (Linux) | Linux | whole file | |
-| `dotfiles/linux/shell/.profile` | `shell` | OS (Linux) | Linux | whole file | |
-| `dotfiles/common/tmux/.tmux.conf` | `tmux` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
-| `dotfiles/common/starship/starship.toml` | `starship` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
-| `dotfiles/common/wezterm/wezterm.lua` | `wezterm` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
-| `dotfiles/common/htop/htoprc` | `htop` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
-| `dotfiles/common/gh/config.yml` | `gh` | base, `os`: Linux, macOS | Linux, macOS | whole file | |
-| `dotfiles/linux/rtk` | `rtk` | OS (Linux) | Linux | dir | |
-| `dotfiles/linux/gnome/mimeapps.list` | `gnome` | OS (Linux) | Linux | whole file | |
-| `dotfiles/linux/gnome/bookmarks` | `gnome` | OS (Linux) | Linux | whole file | `<HOME>`: machine |
-| `dotfiles/linux/gnome/applications/disco-datos.desktop` | `gnome` | machine (see Open) | personal Linux | whole file | |
-| `dotfiles/linux/gnome/applications/mis-discos.desktop` | `gnome` | machine (see Open) | personal Linux | whole file | |
-| `dotfiles/linux/wezterm/wezterm-xwayland` | `wezterm` | OS (Linux) | Linux | whole file | |
-| `dotfiles/linux/wezterm/wezterm-xwayland.desktop` | `wezterm` | OS (Linux) | Linux | whole file | `<HOME>`: machine |
-| `dotfiles/common/vscode/settings.json` | `vscode` | base | Linux, macOS (Windows: see Open) | JSON | `<HOME>`: machine; `<YOUR_WORK_MARKETPLACE>`: profile |
-| `dotfiles/common/vscode/snippets` | `vscode` | base | Linux, macOS (Windows: see Open) | dir | |
-| `dotfiles/windows/windows-terminal/settings.json` | `windows-terminal` | OS (Windows) | Windows | whole file | |
-| `dotfiles/common/claude/CLAUDE.md` | `claude` | base, profile adds one | Linux, macOS; Windows in phase 7 | `@import` | |
-| `dotfiles/common/claude/RTK.md` | `claude` | base | all with Claude | whole file | |
-| `dotfiles/linux/claude/settings.json` | `claude` | OS (Linux) today; a base part moves to `dotfiles/common/` when Windows joins (phase 7) | Linux | JSON | `<HOME>`: machine; `<YOUR_GH_USERNAME>`: profile |
-| `dotfiles/linux/claude/statusline.sh` | `claude` | none: replaced by `mksync statusline` | Linux until cut-over | whole file | |
-| `dotfiles/common/claude/sampleGrok.md` | `claude` | none (see Open) | Linux, macOS | whole file | |
-| `dotfiles/linux/claude/hooks` | `claude` | OS (Linux) | Linux | dir | |
-| `dotfiles/linux/claude/skills/mk-delegate` | `claude-worker` | OS (Linux) | Linux with DeepSeek | dir | |
-| `dotfiles/linux/claude/skills/mk-check` | `claude-worker` | OS (Linux) | Linux with DeepSeek | dir | |
-| `dotfiles/common/claude/docs/token-routing-map.html` | `claude` | base | all with Claude | whole file | |
-| `dotfiles/linux/claude/bin/mk-exec` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
-| `dotfiles/linux/claude/bin/workflow-report` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
-| `dotfiles/linux/claude/bin/metrics-archive` | `claude` | OS (Linux) | Linux | whole file | |
-| `dotfiles/linux/claude-worker/CLAUDE.md` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
-| `dotfiles/linux/claude-worker/settings.json` | `claude-worker` | OS (Linux) | Linux with DeepSeek | JSON | |
-| `dotfiles/linux/claude/bin/worker-mode` | `claude-worker` | OS (Linux) | Linux with DeepSeek | whole file | |
-| `dotfiles/linux/gnome/dconf/interface.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/input-sources.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/wm-keybindings.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/privacy.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/session.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/power.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/shell.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/ptyxis.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/nautilus.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| `dotfiles/linux/gnome/dconf/file-chooser.ini` | `gnome` | OS (Linux) | Linux | dconf | |
-| Windows Claude settings (expected) | `claude` | OS (Windows) overlay on the base | Windows; confirm in phase 7 | JSON | `<HOME>`: machine |
-| Windows statusline (expected) | `claude` | none: `mksync statusline` | Windows; confirm in phase 7 | (no file) | |
-| Windows `CLAUDE.md` (expected) | `claude` | base, work profile adds one | Windows; confirm in phase 7 | `@import` | |
+| Entry                                                   | Module             | Layer                                                                                  | Receives                         | Merge      | Values                                                                   |
+| ------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------- | -------------------------------- | ---------- | ------------------------------------------------------------------------ |
+| `dotfiles/common/git/.gitconfig`                        | `git`              | base                                                                                   | all                              | whole file | `<YOUR_NAME>`, `<YOUR_EMAIL>`: profile                                   |
+| `dotfiles/common/git/ignore`                            | `git`              | base                                                                                   | all                              | whole file |                                                                          |
+| `dotfiles/windows/git/.gitconfig.local`                 | `git`              | OS (Windows)                                                                           | Windows                          | whole file | `<YOUR_GH_USERNAME>`, `<YOUR_GH_ORG>`: profile; `<GH_CLI_PATH>`: machine |
+| `dotfiles/linux/git/.gitconfig.local`                   | `git`              | OS (Linux)                                                                             | Linux                            | whole file |                                                                          |
+| `dotfiles/macos/git/.gitconfig.local`                   | `git`              | OS (macOS)                                                                             | macOS                            | whole file |                                                                          |
+| `dotfiles/macos/shell/.zshrc`                           | `shell`            | OS (macOS)                                                                             | macOS                            | whole file |                                                                          |
+| `dotfiles/macos/shell/.zprofile`                        | `shell`            | OS (macOS)                                                                             | macOS                            | whole file |                                                                          |
+| `dotfiles/windows/shell/.bashrc`                        | `shell`            | OS (Windows)                                                                           | Windows                          | whole file | linked folders: profile ("Linked folders")                               |
+| `dotfiles/windows/shell/.bash_profile`                  | `shell`            | OS (Windows)                                                                           | Windows                          | whole file |                                                                          |
+| `dotfiles/linux/shell/.bashrc`                          | `shell`            | OS (Linux)                                                                             | Linux                            | whole file |                                                                          |
+| `dotfiles/linux/shell/.profile`                         | `shell`            | OS (Linux)                                                                             | Linux                            | whole file |                                                                          |
+| `dotfiles/common/tmux/.tmux.conf`                       | `tmux`             | base, `os`: Linux, macOS                                                               | Linux, macOS                     | whole file |                                                                          |
+| `dotfiles/common/starship/starship.toml`                | `starship`         | base, `os`: Linux, macOS                                                               | Linux, macOS                     | whole file |                                                                          |
+| `dotfiles/common/wezterm/wezterm.lua`                   | `wezterm`          | base, `os`: Linux, macOS                                                               | Linux, macOS                     | whole file |                                                                          |
+| `dotfiles/common/htop/htoprc`                           | `htop`             | base, `os`: Linux, macOS                                                               | Linux, macOS                     | whole file |                                                                          |
+| `dotfiles/common/gh/config.yml`                         | `gh`               | base, `os`: Linux, macOS                                                               | Linux, macOS                     | whole file |                                                                          |
+| `dotfiles/linux/rtk`                                    | `rtk`              | OS (Linux)                                                                             | Linux                            | dir        |                                                                          |
+| `dotfiles/linux/gnome/mimeapps.list`                    | `gnome`            | OS (Linux)                                                                             | Linux                            | whole file |                                                                          |
+| `dotfiles/linux/gnome/bookmarks`                        | `gnome`            | OS (Linux)                                                                             | Linux                            | whole file | `<HOME>`: machine                                                        |
+| `dotfiles/linux/gnome/applications/disco-datos.desktop` | `gnome`            | machine (see Open)                                                                     | personal Linux                   | whole file |                                                                          |
+| `dotfiles/linux/gnome/applications/mis-discos.desktop`  | `gnome`            | machine (see Open)                                                                     | personal Linux                   | whole file |                                                                          |
+| `dotfiles/linux/wezterm/wezterm-xwayland`               | `wezterm`          | OS (Linux)                                                                             | Linux                            | whole file |                                                                          |
+| `dotfiles/linux/wezterm/wezterm-xwayland.desktop`       | `wezterm`          | OS (Linux)                                                                             | Linux                            | whole file | `<HOME>`: machine                                                        |
+| `dotfiles/common/vscode/settings.json`                  | `vscode`           | base                                                                                   | Linux, macOS (Windows: see Open) | JSON       | `<HOME>`: machine; `<YOUR_WORK_MARKETPLACE>`: profile                    |
+| `dotfiles/common/vscode/snippets`                       | `vscode`           | base                                                                                   | Linux, macOS (Windows: see Open) | dir        |                                                                          |
+| `dotfiles/windows/windows-terminal/settings.json`       | `windows-terminal` | OS (Windows)                                                                           | Windows                          | whole file |                                                                          |
+| `dotfiles/common/claude/CLAUDE.md`                      | `claude`           | base, profile adds one                                                                 | Linux, macOS; Windows in phase 7 | `@import`  |                                                                          |
+| `dotfiles/common/claude/RTK.md`                         | `claude`           | base                                                                                   | all with Claude                  | whole file |                                                                          |
+| `dotfiles/linux/claude/settings.json`                   | `claude`           | OS (Linux) today; a base part moves to `dotfiles/common/` when Windows joins (phase 7) | Linux                            | JSON       | `<HOME>`: machine; `<YOUR_GH_USERNAME>`: profile                         |
+| `dotfiles/linux/claude/statusline.sh`                   | `claude`           | none: replaced by `mksync statusline`                                                  | Linux until cut-over             | whole file |                                                                          |
+| `dotfiles/common/claude/sampleGrok.md`                  | `claude`           | none (see Open)                                                                        | Linux, macOS                     | whole file |                                                                          |
+| `dotfiles/linux/claude/hooks`                           | `claude`           | OS (Linux)                                                                             | Linux                            | dir        |                                                                          |
+| `dotfiles/linux/claude/skills/mk-delegate`              | `claude-worker`    | OS (Linux)                                                                             | Linux with DeepSeek              | dir        |                                                                          |
+| `dotfiles/linux/claude/skills/mk-check`                 | `claude-worker`    | OS (Linux)                                                                             | Linux with DeepSeek              | dir        |                                                                          |
+| `dotfiles/common/claude/docs/token-routing-map.html`    | `claude`           | base                                                                                   | all with Claude                  | whole file |                                                                          |
+| `dotfiles/linux/claude/bin/mk-exec`                     | `claude-worker`    | OS (Linux)                                                                             | Linux with DeepSeek              | whole file |                                                                          |
+| `dotfiles/linux/claude/bin/workflow-report`             | `claude-worker`    | OS (Linux)                                                                             | Linux with DeepSeek              | whole file |                                                                          |
+| `dotfiles/linux/claude/bin/metrics-archive`             | `claude`           | OS (Linux)                                                                             | Linux                            | whole file |                                                                          |
+| `dotfiles/linux/claude-worker/CLAUDE.md`                | `claude-worker`    | OS (Linux)                                                                             | Linux with DeepSeek              | whole file |                                                                          |
+| `dotfiles/linux/claude-worker/settings.json`            | `claude-worker`    | OS (Linux)                                                                             | Linux with DeepSeek              | JSON       |                                                                          |
+| `dotfiles/linux/claude/bin/worker-mode`                 | `claude-worker`    | OS (Linux)                                                                             | Linux with DeepSeek              | whole file |                                                                          |
+| `dotfiles/linux/gnome/dconf/interface.ini`              | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/input-sources.ini`          | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/wm-keybindings.ini`         | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/privacy.ini`                | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/session.ini`                | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/power.ini`                  | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/shell.ini`                  | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/ptyxis.ini`                 | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/nautilus.ini`               | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| `dotfiles/linux/gnome/dconf/file-chooser.ini`           | `gnome`            | OS (Linux)                                                                             | Linux                            | dconf      |                                                                          |
+| Windows Claude settings (expected)                      | `claude`           | OS (Windows) overlay on the base                                                       | Windows; confirm in phase 7      | JSON       | `<HOME>`: machine                                                        |
+| Windows statusline (expected)                           | `claude`           | none: `mksync statusline`                                                              | Windows; confirm in phase 7      | (no file)  |                                                                          |
+| Windows `CLAUDE.md` (expected)                          | `claude`           | base, work profile adds one                                                            | Windows; confirm in phase 7      | `@import`  |                                                                          |
 
 Example, a base file with a value per profile: `dotfiles/common/vscode/settings.json` lists three Copilot plugin
 marketplaces, the last one `<YOUR_WORK_MARKETPLACE>`. The file is base: the same on every machine with the `vscode`
@@ -138,13 +138,13 @@ A file is built from up to four layers, in this order: **base**, **OS**, **profi
 the same thing, the later one wins: the machine beats the profile, the profile beats the OS, the OS beats the base.
 "The same thing" depends on the merge type from the catalog:
 
-| Merge | What two layers can both set | Who wins |
-|---|---|---|
-| whole file | the whole file | the latest layer that has the file; the others aren't read |
-| JSON | one key path (`editor.fontSize`); one array item | the latest layer with that key. Objects merge key by key; arrays collect the items of every layer ("Merge and split") |
-| `@import` | nothing: each layer has its own file | no conflict. The base file imports the others, base first, so Claude reads the machine's lines last |
-| dconf | one listed key | the latest layer with that key |
-| dir | one file inside the folder | the latest layer with that file; files from all layers are kept |
+| Merge      | What two layers can both set                     | Who wins                                                                                                              |
+| ---------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| whole file | the whole file                                   | the latest layer that has the file; the others aren't read                                                            |
+| JSON       | one key path (`editor.fontSize`); one array item | the latest layer with that key. Objects merge key by key; arrays collect the items of every layer ("Merge and split") |
+| `@import`  | nothing: each layer has its own file             | no conflict. The base file imports the others, base first, so Claude reads the machine's lines last                   |
+| dconf      | one listed key                                   | the latest layer with that key                                                                                        |
+| dir        | one file inside the folder                       | the latest layer with that file; files from all layers are kept                                                       |
 
 A layer that has nothing for an entry is skipped. Most entries have one layer today (the catalog's "Layer" column);
 the extra layers are there for the day a profile or a machine needs to differ.
@@ -173,10 +173,10 @@ module, and each work profile lists it.
 
 Example: the module lists.
 
-| Profile | Modules |
-|---|---|
+| Profile    | Modules                                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- |
 | `personal` | `git`, `shell`, `tmux`, `starship`, `wezterm`, `htop`, `gh`, `rtk`, `gnome`, `vscode`, `claude`, `claude-worker` |
-| `work-1` | `work-base`, `git`, `shell`, `vscode`, `windows-terminal`, `claude` |
+| `work-1`   | `work-base`, `git`, `shell`, `vscode`, `windows-terminal`, `claude`                                              |
 
 On work #1 (Windows) `personal`'s `gnome` would be off anyway; on a second personal machine running macOS, `gnome`
 and `windows-terminal` are off and the rest apply.
@@ -187,7 +187,14 @@ What goes in `work-base` comes from the Windows inventory (phase 7). Until then 
 
 ```json
 {
-  "modules": ["work-base", "git", "shell", "vscode", "windows-terminal", "claude"],
+  "modules": [
+    "work-base",
+    "git",
+    "shell",
+    "vscode",
+    "windows-terminal",
+    "claude"
+  ],
   "values": {
     "<YOUR_EMAIL>": "jane@example.com",
     "<YOUR_GH_ORG>": "example-org",
@@ -216,15 +223,15 @@ lists `personal`, `work-1` and `work-3`, not `work-2`.
 
 A value fills a `<PLACEHOLDER>` on pull and turns back into it on push, as today. What changes is where it's kept:
 
-| Value | Kept on | Why |
-|---|---|---|
-| `<YOUR_NAME>` | profile | the name on the job's accounts |
-| `<YOUR_EMAIL>` | profile | an account |
-| `<YOUR_GH_USERNAME>` | profile | an account |
-| `<YOUR_GH_ORG>` | profile | an account |
-| `<YOUR_WORK_MARKETPLACE>` | profile | the job's service |
-| `<HOME>` | machine | a path |
-| `<GH_CLI_PATH>` | machine | a path |
+| Value                     | Kept on | Why                            |
+| ------------------------- | ------- | ------------------------------ |
+| `<YOUR_NAME>`             | profile | the name on the job's accounts |
+| `<YOUR_EMAIL>`            | profile | an account                     |
+| `<YOUR_GH_USERNAME>`      | profile | an account                     |
+| `<YOUR_GH_ORG>`           | profile | an account                     |
+| `<YOUR_WORK_MARKETPLACE>` | profile | the job's service              |
+| `<HOME>`                  | machine | a path                         |
+| `<GH_CLI_PATH>`           | machine | a path                         |
 
 The rule for a new placeholder: an account, a name or an address of the job's service goes on the profile; a path or
 anything about this one computer goes on the machine. If a placeholder ends up in both, the machine wins, as in
@@ -348,6 +355,7 @@ The import block is the last lines of the local `CLAUDE.md`, after a marker line
 
 ```markdown
 <!-- mksync: layers below are written by mksync pull -->
+
 @CLAUDE.windows.md
 @CLAUDE.work-1.md
 ```
@@ -387,7 +395,10 @@ Each machine has one record. It says who the machine is and holds what belongs t
   "claude": "claude",
   "pullOnly": false,
   "modules": { "add": [], "remove": ["windows-terminal"] },
-  "values": { "<HOME>": "C:\\Users\\jane", "<GH_CLI_PATH>": "C:\\Tools\\gh\\bin\\gh.exe" },
+  "values": {
+    "<HOME>": "C:\\Users\\jane",
+    "<GH_CLI_PATH>": "C:\\Tools\\gh\\bin\\gh.exe"
+  },
   "replaced": [],
   "retired": false
 }
@@ -462,7 +473,7 @@ The suggested answers, in brackets:
 4. **Existing files.** "Back up and replace": each file is backed up as `<file>.bak` before the pull writes it, as
    today. "Keep mine" runs a push (with its preview) before the pull; "stop" ends without writing anything but the
    record. Until the program can commit (phase 8), "keep mine" runs `export` then `import` and prints `Pushed into the
-   repo folder; commit it with mksync push.`
+repo folder; commit it with mksync push.`
 
 **Before the repo is private** the repo holds no profiles or records, so the first run lists only `personal` and the
 profiles kept in this machine's local state (none, on a new machine), and makes no "replaces" suggestion. The user
@@ -544,6 +555,7 @@ Until the repo is private, profiles, machine records and values never reach it. 
 
   and exits 1. In a normal push, the held files show in the preview as `held until the repo is private: 2 files`, and
   the push goes on with the rest (exit 0).
+
 - **The first push after going private.** The guard now reads private. The preview gets a group "first backup:
   profiles and machines", with each local profile and record, values included. Push commits them under `profiles/`
   and `machines/` in the same PR as any other change. From then on the repo is their home and local state keeps only
@@ -611,7 +623,7 @@ A new key, a new array item or a new file in a `dir` entry has no layer yet, so 
 - **Where the answer is stored:** the setting goes into the chosen layer. A new key needs nothing more: it now has a
   layer. A new array item or a new file in a folder is different, because the next one is new again, so the answer
   also goes into the profile's `destinations`, keyed by module, file and path (`claude settings.json:
-  permissions.allow`, `vscode snippets/`). The next item there goes to the same place without asking; it still shows
+permissions.allow`, `vscode snippets/`). The next item there goes to the same place without asking; it still shows
   in the preview.
 - Every machine with that profile reads the same `destinations`, so work #1's answer holds on any later work #1
   machine.
@@ -657,6 +669,7 @@ PowerShell engine copies them under `<repoPath>.linked/` (`detectLinkedPaths`).
   The suggestion is "this profile" for a folder under the home with fewer than 1000 files and under 10 MB, and "no"
   otherwise. A yes becomes a `dir` entry in that layer; a no is remembered in the profile's `destinations` and not
   asked again.
+
 - **Cut-over.** Each tree under `dotfiles/windows/shell/.bashrc.linked/<folder>/` becomes a `dir` entry with the same
   local folder, moved with `git mv` so its history follows, on the work profile that owns it (see "Open").
   `detectLinkedPaths` and the `.linked/` layout are then removed.
@@ -696,12 +709,12 @@ each merge type.
 under each one, in layer order. A layer without the file is skipped. An entry applies on a machine when its module is
 on and at least one layer has the file.
 
-| Layer | Root |
-|---|---|
-| base | `dotfiles/common/` |
-| OS | `dotfiles/<os>/` (`linux`, `windows`, `macos`) |
-| profile | `profiles/<name>/` |
-| machine | `machines/<name>/` |
+| Layer   | Root                                           |
+| ------- | ---------------------------------------------- |
+| base    | `dotfiles/common/`                             |
+| OS      | `dotfiles/<os>/` (`linux`, `windows`, `macos`) |
+| profile | `profiles/<name>/`                             |
+| machine | `machines/<name>/`                             |
 
 Example: `git/.gitconfig.local` is one v2 entry. Linux reads `dotfiles/linux/git/.gitconfig.local`, Windows
 `dotfiles/windows/git/.gitconfig.local`; the three v1 entries for it become one. A `json` entry such as Claude's
@@ -751,36 +764,36 @@ check is cheap.
 
 ### v1 to v2, field by field
 
-| v1 field | v2 |
-|---|---|
-| `version` | `schemaVersion: 2` |
-| `defaultUser` | dropped: no engine reads it, and `-User` goes at cut-over |
-| `excludePatterns` | `excludePatterns`, unchanged |
-| `files` | `entries` |
-| `repoPath` | split into a layer root and `file`: `dotfiles/linux/git/.gitconfig.local` is the Linux OS layer of `git/.gitconfig.local`. v1 entries that differ only by OS folder become one entry |
-| `localPath` | `localPath`, with `~\` turned into `~/` and `\` into `/` |
-| `localPaths` | `localPaths`, same rewrite |
-| `platform` | which layer root holds the file, plus `os` when the entry is narrower than its module. `common` with no list: no `os`. A list such as `["linux", "macos"]`: `os` with that list |
-| `description` | `description`, unchanged |
-| `type` | `merge`: `dir` → `dir`, `dconf` → `dconf`, absent → `whole`, then `json` or `import` set by hand on the entries the catalog marks so |
-| `sanitizeRules` | `sanitize`, same fields; values move to the profile and machine ("Values") |
-| `detectLinkedPaths` | `scanLinks: true`; the `.linked/` trees become `dir` entries ("Linked folders") |
-| `keys` | `keys`, unchanged (dconf only) |
-| `path` | `dconfPath` (dconf only), renamed because `file` now names the repo side |
+| v1 field            | v2                                                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `version`           | `schemaVersion: 2`                                                                                                                                                                   |
+| `defaultUser`       | dropped: no engine reads it, and `-User` goes at cut-over                                                                                                                            |
+| `excludePatterns`   | `excludePatterns`, unchanged                                                                                                                                                         |
+| `files`             | `entries`                                                                                                                                                                            |
+| `repoPath`          | split into a layer root and `file`: `dotfiles/linux/git/.gitconfig.local` is the Linux OS layer of `git/.gitconfig.local`. v1 entries that differ only by OS folder become one entry |
+| `localPath`         | `localPath`, with `~\` turned into `~/` and `\` into `/`                                                                                                                             |
+| `localPaths`        | `localPaths`, same rewrite                                                                                                                                                           |
+| `platform`          | which layer root holds the file, plus `os` when the entry is narrower than its module. `common` with no list: no `os`. A list such as `["linux", "macos"]`: `os` with that list      |
+| `description`       | `description`, unchanged                                                                                                                                                             |
+| `type`              | `merge`: `dir` → `dir`, `dconf` → `dconf`, absent → `whole`, then `json` or `import` set by hand on the entries the catalog marks so                                                 |
+| `sanitizeRules`     | `sanitize`, same fields; values move to the profile and machine ("Values")                                                                                                           |
+| `detectLinkedPaths` | `scanLinks: true`; the `.linked/` trees become `dir` entries ("Linked folders")                                                                                                      |
+| `keys`              | `keys`, unchanged (dconf only)                                                                                                                                                       |
+| `path`              | `dconfPath` (dconf only), renamed because `file` now names the repo side                                                                                                             |
 
 ## Runtime
 
 The research probe (`docs/single-engine-research.md` section 3) built the same `main.ts` with Bun 1.4.4 and Deno 2.9.8
 on four runners. Node SEA wasn't probed.
 
-| | Bun | Deno | Node SEA |
-|---|---|---|---|
-| Built unchanged on Linux x64 and arm64, macOS arm64, Windows x64 | yes | yes | not tried |
-| Start-up per run, Linux x64 / macOS / Windows (ms) | 16 / 53 / 58 | 54 / 54 / 103 | not measured |
-| Size raw, Windows x64 (MB) | 115 | 80 | not measured |
-| Size compressed, Windows x64 (MB): gzip -6 / zstd -19 / xz -9 | 55 / 44 / 41 | not measured | not measured |
-| Cross-builds every target from one Linux job | yes, sizes match native builds | yes | no: needs each target's `node` binary and `postject` |
-| Cross-built macOS program carries a code signature | yes (`LC_CODE_SIGNATURE` present) | not checked | not tried |
+|                                                                  | Bun                               | Deno          | Node SEA                                             |
+| ---------------------------------------------------------------- | --------------------------------- | ------------- | ---------------------------------------------------- |
+| Built unchanged on Linux x64 and arm64, macOS arm64, Windows x64 | yes                               | yes           | not tried                                            |
+| Start-up per run, Linux x64 / macOS / Windows (ms)               | 16 / 53 / 58                      | 54 / 54 / 103 | not measured                                         |
+| Size raw, Windows x64 (MB)                                       | 115                               | 80            | not measured                                         |
+| Size compressed, Windows x64 (MB): gzip -6 / zstd -19 / xz -9    | 55 / 44 / 41                      | not measured  | not measured                                         |
+| Cross-builds every target from one Linux job                     | yes, sizes match native builds    | yes           | no: needs each target's `node` binary and `postject` |
+| Cross-built macOS program carries a code signature               | yes (`LC_CODE_SIGNATURE` present) | not checked   | not tried                                            |
 
 The compressed sizes and the signature were measured on 2026-11-10 on this Linux machine, from Bun 1.4.4
 cross-builds of the same probe (Linux x64 52 / 41 / 38 MB and macOS arm64 41 / 31 / 26 MB, same order). The signature
@@ -842,7 +855,7 @@ src/
 - `adapters/fs.ts` runs every action and switches on the OS through `adapters/paths.ts`, rather than one file per OS;
   `adapters/git.ts` reads `HEAD`; `adapters/engine.ts` runs the old engine for shadow.
 - The review's boundary check: `! grep -rnE "node:(fs|child_process|os)|Bun\.|process\.(env|cwd|platform)" src/core
-  src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node:fs`; that's allowed.
+src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node:fs`; that's allowed.
 
 **As built in phase 5.** Layers in the core, still one adapter file:
 
@@ -916,7 +929,7 @@ src/
 - **`mksync update`** downloads the latest release the same way, checks it, and replaces itself. On Windows a running
   program can't be overwritten, so it renames itself to `mksync.old.exe` first and deletes that on the next run.
 - **`schemaVersion` check:** a program meeting a config with a higher `schemaVersion` stops with `this config needs a
-  newer mksync: run mksync update` (exit 2), before reading anything else. A pull that fast-forwards to such a config
+newer mksync: run mksync update` (exit 2), before reading anything else. A pull that fast-forwards to such a config
   says the same.
 
 Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update; the attestation is
@@ -943,18 +956,18 @@ image licence and start-up time are recorded then.
 Decision: the local Windows VM works and is the Windows layer of `tests/all.sh`. Proved 2026-11-11 with
 `tests/windows-vm/vm.sh` (how it works: `tests/windows-vm/README.md`):
 
-| | |
-|---|---|
-| Runner | `dockurr/windows` 6.06, pinned by digest in `vm.sh`; podman 5.7 rootless with `/dev/kvm` |
-| Image | Windows 11 Enterprise Evaluation, build 26100, downloaded from Microsoft by the runner; ISO SHA256 `bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38` (7.7 GB) |
-| Licence | evaluation, 90 days from the install: this one ends 2027-02-09. Then delete the disk and the snapshot and install again |
-| In the guest | Windows PowerShell 5.1.26100, PortableGit 2.47.1 (with `bash.exe`, which the leak scan needs), Pester 6.2.0 |
-| Size | 4 GB RAM, 4 cores; a 40 GB sparse disk using 23 GB, and a snapshot of the same size |
-| First install | about 60 minutes, 45 of them the ISO download |
-| Start from the snapshot | 6 minutes; shutdown 1.5 minutes |
-| One job (copy the repo, run a command) | 6 to 10 seconds |
-| Shared cases (`run.ps1`), PowerShell engine | 36 passed, 0 failed, 3.5 minutes |
-| Pester suite, PowerShell engine | 242 passed, 0 failed, 31 minutes |
+|                                             |                                                                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Runner                                      | `dockurr/windows` 6.06, pinned by digest in `vm.sh`; podman 5.7 rootless with `/dev/kvm`                                                                                       |
+| Image                                       | Windows 11 Enterprise Evaluation, build 26100, downloaded from Microsoft by the runner; ISO SHA256 `bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38` (7.7 GB) |
+| Licence                                     | evaluation, 90 days from the install: this one ends 2027-02-09. Then delete the disk and the snapshot and install again                                                        |
+| In the guest                                | Windows PowerShell 5.1.26100, PortableGit 2.47.1 (with `bash.exe`, which the leak scan needs), Pester 6.2.0                                                                    |
+| Size                                        | 4 GB RAM, 4 cores; a 40 GB sparse disk using 23 GB, and a snapshot of the same size                                                                                            |
+| First install                               | about 60 minutes, 45 of them the ISO download                                                                                                                                  |
+| Start from the snapshot                     | 6 minutes; shutdown 1.5 minutes                                                                                                                                                |
+| One job (copy the repo, run a command)      | 6 to 10 seconds                                                                                                                                                                |
+| Shared cases (`run.ps1`), PowerShell engine | 36 passed, 0 failed, 3.5 minutes                                                                                                                                               |
+| Pester suite, PowerShell engine             | 242 passed, 0 failed, 31 minutes                                                                                                                                               |
 
 Three things the VM needed, all in `tests/windows-vm/oem/`: the SMB client's folder cache turned off (the host
 writes job files behind the SMB server's back, and a new job went unseen for 7 minutes); the Hidden attribute cleared
@@ -996,13 +1009,13 @@ program writes the merged file on Linux, macOS and Windows (CRLF there), and bas
 have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, one row per group, are in
 `docs/design-test-moves.md`. In short:
 
-| Goes to | bash | Pester |
-|---|---|---|
-| shared case (one case often covers a bash and a Pester case with the same name) | 217 | 152 |
-| core unit test | 112 | 33 |
-| adapter test | 10 | 16 |
-| stays bash (CI scripts `leak-scan.sh`, `check-packages.sh`, `check-plugins.sh`; the installers) | 108 | 0 |
-| dropped at cut-over (`sync` wrapper, `sync.cmd`, `-User`, Git Bash lookup, linked folders, bash internals) | 17 | 20 |
+| Goes to                                                                                                    | bash | Pester |
+| ---------------------------------------------------------------------------------------------------------- | ---- | ------ |
+| shared case (one case often covers a bash and a Pester case with the same name)                            | 217  | 152    |
+| core unit test                                                                                             | 112  | 33     |
+| adapter test                                                                                               | 10   | 16     |
+| stays bash (CI scripts `leak-scan.sh`, `check-packages.sh`, `check-plugins.sh`; the installers)            | 108  | 0      |
+| dropped at cut-over (`sync` wrapper, `sync.cmd`, `-User`, Git Bash lookup, linked folders, bash internals) | 17   | 20     |
 
 Every old case stays in its suite until cut-over; nothing is removed because a new test exists.
 
@@ -1063,7 +1076,16 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   missing command or a missing answer; the `cli` skill's contract uses 2 for every usage error (its review in phase 6,
   step 1, which settled the new command names: `mksync whoami` became `mksync machine show`, `--push`/`--pull-only`
   became `--mode`). Moving `Unknown option` to exit 2 changes `pull`, `push` and `diff`, so it waits for the cut-over
-  (phase 9) with a shared case, or stays as is.
+  (phase 9) with a shared case, or stays as is. Phase 7's review (step 2) kept the same rule for its additions:
+  `export --preview --yes` exits 1, as `--preview --only` does.
+- **Phase 7 command names (settled by the `cli` review, step 2).** `mksync statusline` stays a top-level command with
+  no options, and `mksync export --yes` means what `setup --yes` means. The new-setting question is
+  `Where does it go? 1) all machines  2) <Os> machines  3) profile <p>  4) this machine [<s>]`; the first-backup
+  question shows the repo's and this machine's value before `Keep which? 1) the repo's  2) this machine's [1]`.
+- **The statusline's colors.** `mksync statusline` writes ANSI colors though its stdout is a pipe, and ignores
+  `NO_COLOR`, as `statusline.sh` does, because Claude Code renders them. The `cli` skill's color rule (color only on a
+  terminal, `NO_COLOR` turns it off) doesn't fit a program whose only reader is Claude Code's bar. Kept as a known
+  exception; honoring `NO_COLOR` would be a one-line change if a machine sets it globally and wants a plain bar.
 - **Elevation wrapper.** `-User` (import into another Windows account, elevated) is dropped at cut-over. If a real need
   shows up (a file only an admin may write), a small wrapper runs `mksync pull` through `RunAs` on Windows or `sudo`
   elsewhere, for the one entry. Designed and built only then.
@@ -1104,7 +1126,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
   the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
-  parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
+parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
   in the contract's program column in the phase's docs step.
 - **Boundaries review, phase 4.** Phase 5 closed the home-path copies (`core/paths.ts`), the shared picking
   (`core/plan/pick.ts`), the merge strategies (`core/merge/`) and the snapshot reading (`adapters/snapshot.ts`,
@@ -1196,7 +1218,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - An SSH alias that resolves to `ssh.github.com` (GitHub's SSH over port 443) is public, since only `github.com`
     is asked. It fails closed; asking it as `github.com` would need a line in the contract first.
   - An unreadable `machines/<name>.json` or `profiles/<name>.json` in the repo prints the state folder's `can't be
-    read` line (`adapters/store.ts`); the contract names no repo line yet. Phase 7, with the repo store.
+read` line (`adapters/store.ts`); the contract names no repo line yet. Phase 7, with the repo store.
   - The guard's stop when `git ls-files` fails in a clone has no shared case: the runner can't break a clone's index
     (the `setup` field from phase 4 would). A folder with no `.git` lists nothing, which the 18 export cases run
     outside a clone rely on.
