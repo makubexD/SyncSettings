@@ -119,7 +119,10 @@ function rootsFor(scope: SelectScope): readonly LayerRoot[] {
 }
 
 // Entry os over module os over all three.
-function effectiveOs(config: ConfigV2, entry: ConfigV2Entry): readonly Os[] {
+export function effectiveOs(
+  config: ConfigV2,
+  entry: ConfigV2Entry,
+): readonly Os[] {
   if (entry.os !== undefined) {
     return entry.os;
   }
