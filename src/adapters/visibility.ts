@@ -2,8 +2,10 @@
  * Read whether the repo may receive profiles, machine records and values
  * (design "Public-repo guard"): a `github.com` origin is asked through `gh`,
  * then the public GitHub API, and every failure counts as public so the guard
- * fails closed. Any other origin follows `MKSYNC_VISIBILITY`, which is ignored
- * for `github.com` so it cannot switch the guard off on the real repo.
+ * fails closed. An SSH origin is resolved with `ssh -G` first: an alias of
+ * `github.com` is asked the same way, and a host that is unsafe or cannot be
+ * resolved is public. Any other origin follows `MKSYNC_VISIBILITY`, which is
+ * ignored for `github.com` so it cannot switch the guard off on the real repo.
  */
 
 /** Whether the repo can receive profiles, machine records and values. */
@@ -21,7 +23,7 @@ export interface ApiReply {
   json(): Promise<unknown>;
 }
 
-/** What the reader reaches outside itself: `gh` and the GitHub API. */
+/** What the reader reaches outside itself: `gh`, `ssh` and the GitHub API. */
 export interface VisibilityDeps {
   readonly run: (
     command: string,
@@ -36,18 +38,38 @@ interface GitHubRepo {
   readonly repo: string;
 }
 
+/** One parsed SSH origin: the host or alias to resolve and the repo path. */
+interface SshOrigin {
+  readonly host: string;
+  readonly path: string;
+}
+
+const GITHUB_HOST_NAME = "github.com";
+
 /** The origin forms that name a repo on `github.com`. */
 const GITHUB_ORIGIN_PREFIXES = [
-  "https://github.com/",
-  "git@github.com:",
-  "ssh://git@github.com/",
+  `https://${GITHUB_HOST_NAME}/`,
+  `git@${GITHUB_HOST_NAME}:`,
+  `ssh://git@${GITHUB_HOST_NAME}/`,
 ] as const;
 
-/** `<owner>/<repo>`, with an optional `.git` suffix on the repo. */
-const OWNER_REPO = /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?$/;
+/**
+ * `<owner>/<repo>`, with an optional `.git` suffix on the repo. The owner must
+ * start with a letter or digit so an option-like `-o` never names a repo.
+ */
+const OWNER_REPO = /^([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9._-]+?)(?:\.git)?$/;
 
 /** Any origin naming the `github.com` host, parsed or not. */
 const GITHUB_HOST = /(^|[@/.])github\.com([:/]|$)/i;
+
+/** The `ssh://[user@]host[:port]/path` origin form. */
+const SSH_URL = /^ssh:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.*)$/;
+
+/** The scp origin form `[user@]host:path`, whose host has no slash. */
+const SCP_ORIGIN = /^(?:[^@/]+@)?([^/:]+):(.*)$/;
+
+/** The lowered host name `ssh -G` prints. */
+const SSH_HOSTNAME_PREFIX = "hostname ";
 
 const GITHUB_API = "https://api.github.com/repos/";
 
@@ -102,31 +124,98 @@ const DEFAULT_DEPS: VisibilityDeps = {
   fetch: async (url, signal) => await fetch(url, { signal }),
 };
 
+/** The `owner/repo` a text names, or `undefined` when it names none. */
+function parseOwnerRepo(text: string): GitHubRepo | undefined {
+  const match = OWNER_REPO.exec(text);
+  if (match === null) {
+    return undefined;
+  }
+  const owner = match[1];
+  const repo = match[2];
+  if (owner === undefined || repo === undefined) {
+    return undefined;
+  }
+  return { owner, repo };
+}
+
 /**
  * The `owner/repo` a `github.com` origin names, or `undefined` when the origin
  * is not one of its HTTPS or SSH forms.
  */
 function parseGitHubOrigin(origin: string): GitHubRepo | undefined {
   for (const prefix of GITHUB_ORIGIN_PREFIXES) {
-    if (!origin.startsWith(prefix)) {
-      continue;
+    if (origin.startsWith(prefix)) {
+      return parseOwnerRepo(origin.slice(prefix.length));
     }
-    const match = OWNER_REPO.exec(origin.slice(prefix.length));
-    if (match === null) {
-      continue;
-    }
-    const owner = match[1];
-    const repo = match[2];
-    if (owner === undefined || repo === undefined) {
-      continue;
-    }
-    return { owner, repo };
   }
   return undefined;
 }
 
 /**
- * `gh repo view <owner>/<repo> --json visibility`, or `undefined` when `gh` is
+ * The host and repo path an SSH origin names, or `undefined` for any other
+ * origin. A Windows drive path such as `C:\x` is not SSH: its host is one
+ * character long.
+ */
+function parseSshOrigin(origin: string): SshOrigin | undefined {
+  if (origin.startsWith("ssh://")) {
+    const match = SSH_URL.exec(origin);
+    if (match === null) {
+      return undefined;
+    }
+    const host = match[1];
+    const path = match[2];
+    if (host === undefined || path === undefined) {
+      return undefined;
+    }
+    return { host, path };
+  }
+  if (origin.includes("://")) {
+    return undefined;
+  }
+  const match = SCP_ORIGIN.exec(origin);
+  if (match === null) {
+    return undefined;
+  }
+  const host = match[1];
+  const path = match[2];
+  if (host === undefined || path === undefined || host.length <= 1) {
+    return undefined;
+  }
+  return { host, path };
+}
+
+/**
+ * The real host an SSH host or alias names, from `ssh -G <host>`; `undefined`
+ * when it fails or prints no host name, so the caller fails closed.
+ */
+async function resolveSshHost(
+  host: string,
+  run: VisibilityDeps["run"],
+): Promise<string | undefined> {
+  let output: CommandOutput;
+  try {
+    output = await run("ssh", ["-G", host]);
+  } catch {
+    return undefined;
+  }
+  if (output.code !== 0) {
+    return undefined;
+  }
+  for (const line of output.stdout.split("\n")) {
+    if (line.startsWith(SSH_HOSTNAME_PREFIX)) {
+      const hostname = line
+        .slice(SSH_HOSTNAME_PREFIX.length)
+        .trim()
+        .toLowerCase();
+      return hostname === "" ? undefined : hostname;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * `gh repo view github.com/<owner>/<repo> --json visibility`, host-qualified
+ * so a same-named repo on another host cannot answer; `undefined` when `gh` is
  * missing, failing, not signed in, or answers anything but a visibility. An
  * `INTERNAL` repo is private: it is not public.
  */
@@ -139,7 +228,7 @@ async function readFromGh(
     output = await run("gh", [
       "repo",
       "view",
-      `${repo.owner}/${repo.repo}`,
+      `${GITHUB_HOST_NAME}/${repo.owner}/${repo.repo}`,
       "--json",
       "visibility",
     ]);
@@ -188,10 +277,58 @@ async function readFromApi(
   }
 }
 
+/** Ask `gh` about a parsed repo, then the API; both fail closed to public. */
+async function askGitHub(
+  repo: GitHubRepo,
+  deps: VisibilityDeps,
+): Promise<Visibility> {
+  const fromGh = await readFromGh(repo, deps.run);
+  if (fromGh !== undefined) {
+    return fromGh;
+  }
+  return await readFromApi(repo, deps.fetch);
+}
+
+/** Follow `MKSYNC_VISIBILITY`, defaulting to public. */
+function readVariable(
+  env: Readonly<Record<string, string | undefined>>,
+): Visibility {
+  return env[VISIBILITY_VARIABLE] === "private" ? "private" : "public";
+}
+
 /**
- * Whether the repo is public or private. A `github.com` origin ignores
- * `MKSYNC_VISIBILITY` and fails closed; every other origin, including no
- * origin at all, reads the variable and defaults to public.
+ * The visibility an SSH origin names: an alias of `github.com` is asked as
+ * `github.com` and never reads the variable; any other resolved host keeps the
+ * fallback; a host that is unsafe or cannot be resolved is public.
+ */
+async function readSshOrigin(
+  ssh: SshOrigin,
+  env: Readonly<Record<string, string | undefined>>,
+  deps: VisibilityDeps,
+): Promise<Visibility> {
+  if (ssh.host.length === 0 || ssh.host.startsWith("-")) {
+    return "public";
+  }
+  const hostname = await resolveSshHost(ssh.host, deps.run);
+  if (hostname === undefined) {
+    return "public";
+  }
+  if (hostname === GITHUB_HOST_NAME) {
+    const repo = parseOwnerRepo(ssh.path.replace(/^\//, ""));
+    return repo === undefined ? "public" : await askGitHub(repo, deps);
+  }
+  if (GITHUB_HOST.test(hostname)) {
+    return "public";
+  }
+  return readVariable(env);
+}
+
+/**
+ * Whether the repo is public or private. A `github.com` origin, directly or
+ * through an SSH host alias, ignores `MKSYNC_VISIBILITY` and fails closed;
+ * every other origin, including no origin at all, reads the variable and
+ * defaults to public. An SSH host that is unsafe or cannot be resolved is
+ * public, and no other origin ever runs `ssh`.
  */
 export async function readVisibility(
   origin: string | undefined,
@@ -199,17 +336,17 @@ export async function readVisibility(
   deps: VisibilityDeps = DEFAULT_DEPS,
 ): Promise<Visibility> {
   const repo = origin === undefined ? undefined : parseGitHubOrigin(origin);
-  if (repo === undefined) {
-    // A github.com origin in a form the parser doesn't know (a trailing slash,
-    // a user name, other case) must not reach the variable: it fails closed.
-    if (origin !== undefined && GITHUB_HOST.test(origin)) {
-      return "public";
-    }
-    return env[VISIBILITY_VARIABLE] === "private" ? "private" : "public";
+  if (repo !== undefined) {
+    return await askGitHub(repo, deps);
   }
-  const fromGh = await readFromGh(repo, deps.run);
-  if (fromGh !== undefined) {
-    return fromGh;
+  const ssh = origin === undefined ? undefined : parseSshOrigin(origin);
+  if (ssh !== undefined) {
+    return await readSshOrigin(ssh, env, deps);
   }
-  return await readFromApi(repo, deps.fetch);
+  // A github.com origin in a form the parser doesn't know (a trailing slash,
+  // a user name, other case) must not reach the variable: it fails closed.
+  if (origin !== undefined && GITHUB_HOST.test(origin)) {
+    return "public";
+  }
+  return readVariable(env);
 }

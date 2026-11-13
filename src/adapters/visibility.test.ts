@@ -17,7 +17,9 @@ const GITHUB_HTTPS = `https://github.com/${SLUG}`;
 
 const API_URL = `https://api.github.com/repos/${SLUG}`;
 
-const GH_ARGS = ["gh", "repo", "view", SLUG, "--json", "visibility"];
+const GH_SLUG = `github.com/${SLUG}`;
+
+const GH_ARGS = ["gh", "repo", "view", GH_SLUG, "--json", "visibility"];
 
 const GITHUB_ORIGINS: readonly string[] = [
   GITHUB_HTTPS,
@@ -34,13 +36,13 @@ const UNPARSED_GITHUB_ORIGINS: readonly string[] = [
   `https://user@github.com/${SLUG}.git`,
   `https://GitHub.com/${SLUG}`,
   `https://www.github.com/${SLUG}`,
+  "https://github.com/-o/r",
 ];
 
 /** Origins that name no repo on `github.com`, including look-alikes. */
 const OTHER_ORIGINS: readonly string[] = [
   "/tmp/fixtures/bare.git",
   "https://gitlab.com/someone/repo",
-  "git@bitbucket.org:team/repo.git",
   `https://github.com.evil.example/${SLUG}`,
 ];
 
@@ -73,6 +75,46 @@ function deps(
       options.fetch ??
       (() => Promise.reject(new Error("the API must not be called"))),
   };
+}
+
+/** The `owner/repo` a `github.com` SSH alias is resolved to. */
+const ALIAS_SLUG = "o/r";
+
+const ALIAS_ORIGIN = "git@gh-alias:o/r.git";
+
+const ALIAS_SSH_URL = "ssh://git@gh-alias:2222/o/r.git";
+
+const ALIAS_GH_ARGS = [
+  "gh",
+  "repo",
+  "view",
+  `github.com/${ALIAS_SLUG}`,
+  "--json",
+  "visibility",
+];
+
+/** An `ssh -G` answer: config lines ending in the lowered hostname. */
+function sshHostname(hostname: string): CommandOutput {
+  return commandOutput(0, `user git\nhostname ${hostname}\n`);
+}
+
+/**
+ * A run stub that records every call and answers `ssh -G` and `gh`; a command
+ * without an answer fails, so no case reaches a real binary.
+ */
+function runStub(answers: {
+  readonly ssh?: (host: string) => CommandOutput;
+  readonly gh?: () => CommandOutput;
+}): { readonly calls: string[][]; readonly run: VisibilityDeps["run"] } {
+  const calls: string[][] = [];
+  const run: VisibilityDeps["run"] = async (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "ssh") {
+      return answers.ssh?.(args[1] ?? "") ?? commandOutput(1, "");
+    }
+    return answers.gh?.() ?? commandOutput(1, "");
+  };
+  return { calls, run };
 }
 
 /** The gh answers that must send the reader on to the GitHub API. */
@@ -295,5 +337,128 @@ describe("readVisibility", () => {
 
     // Assert
     expect(visibility).toBe("private");
+  });
+
+  describe("SSH host aliases", () => {
+    test("should ask gh about the github.com an SSH alias resolves to", async () => {
+      // Arrange
+      const stub = runStub({
+        ssh: () => sshHostname("github.com"),
+        gh: () => ghAnswer("PRIVATE"),
+      });
+
+      // Act
+      const visibility = await readVisibility(
+        ALIAS_ORIGIN,
+        {},
+        deps({ run: stub.run }),
+      );
+
+      // Assert
+      expect(visibility).toBe("private");
+      expect(stub.calls).toEqual([["ssh", "-G", "gh-alias"], ALIAS_GH_ARGS]);
+    });
+
+    test("should ignore MKSYNC_VISIBILITY for an SSH alias of github.com", async () => {
+      // Arrange
+      const stub = runStub({
+        ssh: () => sshHostname("github.com"),
+        gh: () => ghAnswer("PUBLIC"),
+      });
+
+      // Act
+      const visibility = await readVisibility(
+        ALIAS_ORIGIN,
+        { MKSYNC_VISIBILITY: "private" },
+        deps({ run: stub.run }),
+      );
+
+      // Assert
+      expect(visibility).toBe("public");
+      expect(stub.calls).toEqual([["ssh", "-G", "gh-alias"], ALIAS_GH_ARGS]);
+    });
+
+    test("should resolve the host of an ssh:// alias before asking gh", async () => {
+      // Arrange
+      const stub = runStub({
+        ssh: () => sshHostname("github.com"),
+        gh: () => ghAnswer("PRIVATE"),
+      });
+
+      // Act
+      const visibility = await readVisibility(
+        ALIAS_SSH_URL,
+        {},
+        deps({ run: stub.run }),
+      );
+
+      // Assert
+      expect(visibility).toBe("private");
+      expect(stub.calls).toEqual([["ssh", "-G", "gh-alias"], ALIAS_GH_ARGS]);
+    });
+
+    test("should read a failed ssh -G as public", async () => {
+      // Arrange
+      const stub = runStub({ ssh: () => commandOutput(255, "") });
+
+      // Act
+      const visibility = await readVisibility(
+        ALIAS_ORIGIN,
+        { MKSYNC_VISIBILITY: "private" },
+        deps({ run: stub.run }),
+      );
+
+      // Assert
+      expect(visibility).toBe("public");
+      expect(stub.calls).toEqual([["ssh", "-G", "gh-alias"]]);
+    });
+
+    test("should read the variable for an SSH host that is not github.com", async () => {
+      // Arrange
+      const stub = runStub({ ssh: () => sshHostname("gitlab.example.com") });
+
+      // Act
+      const visibility = await readVisibility(
+        "git@gitlab-alias:o/r.git",
+        { MKSYNC_VISIBILITY: "private" },
+        deps({ run: stub.run }),
+      );
+
+      // Assert
+      expect(visibility).toBe("private");
+      expect(stub.calls).toEqual([["ssh", "-G", "gitlab-alias"]]);
+    });
+
+    test("should never pass a host starting with - to ssh", async () => {
+      // Arrange
+      const stub = runStub({});
+
+      // Act
+      const visibility = await readVisibility(
+        "-oProxyCommand=x:o/r",
+        { MKSYNC_VISIBILITY: "private" },
+        deps({ run: stub.run }),
+      );
+
+      // Assert
+      expect(visibility).toBe("public");
+      expect(stub.calls).toEqual([]);
+    });
+
+    test("should never call ssh for a local path", async () => {
+      // Arrange
+      const stub = runStub({});
+
+      // Act
+      const visibility = await readVisibility(
+        "/srv/git/repo.git",
+        { MKSYNC_VISIBILITY: "private" },
+        deps({ run: stub.run }),
+      );
+
+      // Assert
+      expect(visibility).toBe("private");
+      expect(stub.calls).toEqual([]);
+    });
   });
 });
