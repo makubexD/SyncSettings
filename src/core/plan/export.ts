@@ -14,6 +14,7 @@ import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
 import { hydrate, resolveValues } from "../values/hydrate.ts";
+import type { ValueOwner } from "../values/hydrate.ts";
 import { sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import {
@@ -153,6 +154,16 @@ function parentDir(path: string, separator: "/" | "\\"): string {
   return slash <= 0 ? path : path.slice(0, slash);
 }
 
+/** The profile and machine a missing value could be added to, when a record
+ * names them. */
+function valueOwner(snapshot: Snapshot): ValueOwner | undefined {
+  const record = snapshot.record;
+  if (record === undefined) {
+    return undefined;
+  }
+  return { profile: record.profile, machine: record.name };
+}
+
 /**
  * Each selected layer's bytes with the run's values put back, in layer order. A
  * layer the snapshot holds no file for is left out. A missing value is
@@ -166,6 +177,7 @@ function hydratedLayers(
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
+  const owner = valueOwner(state.snapshot);
   const layers: HydratedLayer[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -176,7 +188,10 @@ function hydratedLayers(
       layers.push({ layer, bytes });
       continue;
     }
-    const hydrated = hydrate(bytes, rules, state.values, { json });
+    const hydrated = hydrate(bytes, rules, state.values, {
+      json,
+      ...(owner !== undefined ? { owner } : {}),
+    });
     if (!hydrated.ok) {
       const line = pushStatus(state, "ERROR", label, hydrated.error.message);
       recordStep(state, label, line, false);
@@ -720,9 +735,19 @@ export function planExport(snapshot: Snapshot): RunPlan {
       rules.push(...(entry.entry.sanitize ?? []));
     }
   }
-  const values = resolveValues(rules, snapshot.values, {}, snapshot.env);
+  const values = resolveValues(
+    rules,
+    snapshot.values,
+    {},
+    snapshot.env,
+    valueOwner(snapshot),
+  );
   if (!values.ok) {
-    return errorPlan(values.error.message, 1);
+    const placeholder = values.error.placeholder;
+    return {
+      ...errorPlan(values.error.message, 1),
+      ...(placeholder !== undefined ? { missing: placeholder } : {}),
+    };
   }
 
   const state: State = {

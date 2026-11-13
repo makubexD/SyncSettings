@@ -206,6 +206,8 @@ export interface RunPlan {
   readonly lines: readonly string[];
   readonly summary: Summary;
   readonly code: number;
+  /** The placeholder whose missing value stopped the plan. */
+  readonly missing?: string;
 }
 
 /**

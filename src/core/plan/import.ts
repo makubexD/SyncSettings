@@ -12,6 +12,7 @@ import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
 import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
+import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import {
   basename,
@@ -243,6 +244,16 @@ function applyBytes(
   writeCreated(state, label, localPath, repoPath, bytes, failure);
 }
 
+/** The profile and machine a missing value could be added to, when a record
+ * names them. */
+function valueOwner(snapshot: Snapshot): ValueOwner | undefined {
+  const record = snapshot.record;
+  if (record === undefined) {
+    return undefined;
+  }
+  return { profile: record.profile, machine: record.name };
+}
+
 /**
  * Each layer's bytes with its values put back, in layer order. A layer with no
  * file is left out. A missing value is unreachable after `resolveValues`; it
@@ -256,6 +267,7 @@ function hydratedLayers(
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
+  const owner = valueOwner(state.snapshot);
   const layers: LayerFile[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -266,7 +278,10 @@ function hydratedLayers(
       layers.push({ repoPath: layer.repoPath, bytes });
       continue;
     }
-    const hydrated = hydrate(bytes, rules, state.values, { json });
+    const hydrated = hydrate(bytes, rules, state.values, {
+      json,
+      ...(owner !== undefined ? { owner } : {}),
+    });
     if (!hydrated.ok) {
       const line = pushStatus(state, "ERROR", label, hydrated.error.message);
       recordStep(state, label, line, false);
@@ -663,9 +678,14 @@ export function planImport(
     snapshot.values,
     gathered.inferred,
     snapshot.env,
+    valueOwner(snapshot),
   );
   if (!values.ok) {
-    return errorPlan(values.error.message, 1);
+    const placeholder = values.error.placeholder;
+    return {
+      ...errorPlan(values.error.message, 1),
+      ...(placeholder !== undefined ? { missing: placeholder } : {}),
+    };
   }
 
   const state: State = {
