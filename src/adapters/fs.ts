@@ -394,17 +394,43 @@ function isStatePath(path: string): boolean {
 }
 
 /**
+ * `path` resolved under `root`, after normalizing its `.` and `..` segments.
+ * Throws when it lands outside the top folder it names (`dotfiles/`,
+ * `profiles/`, `machines/`), so an entry's `../` cannot reach past the repo's
+ * layers or the state folder's, nor into `backups/` (contract "Layers (program
+ * only)").
+ */
+function containedPath(path: string, root: string, context: RunContext): string {
+  const p = pathFor(context.os);
+  const top = path.split("/")[0] ?? "";
+  const base = p.resolve(root, top);
+  const resolved = p.resolve(p.resolve(root), path);
+  const relative = p.relative(base, resolved);
+  if (relative === "") {
+    return resolved;
+  }
+  if (
+    relative === ".." ||
+    relative.startsWith(`..${p.sep}`) ||
+    p.isAbsolute(relative)
+  ) {
+    throw new Error(`path escapes its root: ${path}`);
+  }
+  return resolved;
+}
+
+/**
  * Where an action writes: a repo path under the repo, a profile or machine
  * layer path under the state folder, and anything else as an absolute local
- * path.
+ * path. A repo or state path that resolves outside its root throws, failing
+ * the action.
  */
 function absolutePath(path: string, context: RunContext): string {
-  const p = pathFor(context.os);
   if (isRepoPath(path)) {
-    return p.join(context.repoRoot, path);
+    return containedPath(path, context.repoRoot, context);
   }
   if (isStatePath(path)) {
-    return p.join(context.stateFolder, path);
+    return containedPath(path, context.stateFolder, context);
   }
   return path;
 }
@@ -539,6 +565,23 @@ function datedBackup(
   }
 }
 
+/**
+ * Contract "Writes to the state folder": before a write or remove replaces a
+ * profile or machine layer file, the old file goes into the run's dated
+ * folder. A missing file needs no copy.
+ */
+function datedBackupOfStateFile(
+  path: string,
+  repoPath: string,
+  context: RunContext,
+  dated: DatedBackups,
+): string | undefined {
+  if (!isStatePath(repoPath) || statOrUndefined(path)?.isFile() !== true) {
+    return undefined;
+  }
+  return datedBackup(path, repoPath, context, dated);
+}
+
 /** Apply `cp -p`'s mode from the repo file a created local file copies (not on Windows). */
 function copyModeFrom(
   path: string,
@@ -582,17 +625,28 @@ function runAction(
 ): ActionRun {
   try {
     switch (action.kind) {
-      case "writeRepo":
-        writeBytes(
-          absolutePath(action.path, context),
-          action.bytes,
-          action.mode,
-          context.os,
+      case "writeRepo": {
+        const path = absolutePath(action.path, context);
+        const warning = datedBackupOfStateFile(
+          path,
+          action.path,
+          context,
+          dated,
         );
-        return ACTION_OK;
-      case "removeRepo":
-        rmSync(absolutePath(action.path, context), { force: true });
-        return ACTION_OK;
+        writeBytes(path, action.bytes, action.mode, context.os);
+        return { ok: true, warning };
+      }
+      case "removeRepo": {
+        const path = absolutePath(action.path, context);
+        const warning = datedBackupOfStateFile(
+          path,
+          action.path,
+          context,
+          dated,
+        );
+        rmSync(path, { force: true });
+        return { ok: true, warning };
+      }
       case "writeLocal":
         writeBytes(action.path, action.bytes, action.mode, context.os);
         copyModeFrom(action.path, action.modeFrom, context);

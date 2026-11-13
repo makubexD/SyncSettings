@@ -386,6 +386,117 @@ describe("runPlan", () => {
     expect(existsSync(join(repo, "profiles", "work-1", "x.json"))).toBe(false);
   });
 
+  test("should keep the old state file in the run folder before overwriting it", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    const stateFile = join(state, "profiles", "work-1", "x.json");
+    writeFixture(stateFile, "{\"a\":1}\n");
+    const runFolder = join(state, "backups", RUN_NAME);
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/x.json",
+          bytes: bytesOf("{\"a\":2}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.backups).toBe(runFolder);
+    expect(
+      readFileSync(join(runFolder, "profiles", "work-1", "x.json"), "utf8"),
+    ).toBe("{\"a\":1}\n");
+    expect(readFileSync(stateFile, "utf8")).toBe("{\"a\":2}\n");
+  });
+
+  test("should fail a state path that resolves outside the state folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    // The state folder exists, so only the containment check can stop the write.
+    mkdirSync(join(state, "profiles", "work-1"), { recursive: true });
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          {
+            kind: "writeRepo",
+            path: "profiles/work-1/../../x",
+            bytes: bytesOf("x\n"),
+          },
+          "cannot write a path outside the state folder",
+        ),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.get(0)).toBe(
+      "cannot write a path outside the state folder",
+    );
+    expect(existsSync(join(state, "x"))).toBe(false);
+    expect(existsSync(join(state, "backups"))).toBe(false);
+    expect(existsSync(join(repo, "x"))).toBe(false);
+  });
+
+  test("should fail a repo path that resolves outside the repo", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          {
+            kind: "writeRepo",
+            path: "dotfiles/../../x",
+            bytes: bytesOf("x\n"),
+          },
+          "cannot write a path outside the repo",
+        ),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.get(0)).toBe("cannot write a path outside the repo");
+    expect(existsSync(join(repo, "..", "x"))).toBe(false);
+  });
+
+  test("should make no backup folder when a state write creates a new file", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "mkdir", path: "profiles/work-1" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/new.json",
+          bytes: bytesOf("{\"b\":1}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.backups).toBeUndefined();
+    expect(existsSync(join(state, "backups"))).toBe(false);
+    expect(
+      readFileSync(join(state, "profiles", "work-1", "new.json"), "utf8"),
+    ).toBe("{\"b\":1}\n");
+  });
+
   test("should remove a repo file", () => {
     // Arrange
     const { home, repo } = fixture();
