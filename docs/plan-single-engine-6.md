@@ -71,7 +71,7 @@ the design.
      brackets. `--yes` takes the suggestions without asking, as it answers `[Y/n]` today. A question with no
      suggestion (the profile, unless a record has this hostname) that gets end of input, or `--yes` and no flag, stops
      with `ERROR: missing --<flag>`, exit 2, before anything is written.
-   - Retire asks `Retire machine <name>? It can't push after this. [y/N]` (or `profile <name>`); `--yes` answers it.
+   - Retire asks `[y/N]` first (the contract's "Retire" has both questions); `--yes` answers it.
      No answer, or end of input, retires nothing: exit 1.
    - `--name` with `--replace` (the record keeps the replaced name) stops with
      `ERROR: --name and --replace can't be used together.`, exit 1, as `--preview` with `--only` does today. Unknown
@@ -130,7 +130,7 @@ Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
 
 - `command` may also be `setup`, `machine-show`, `machine-retire`, `profile-retire`; with an engine other than the program
   they print `SKIP <case>: <command> is program only` and count as skipped.
-- `options` adds `name`, `profile`, `replace`, `claude`, `push: true`, `pullOnly: true`, `existing`, `yes: true` and
+- `options` adds `name`, `profile`, `replace`, `claude`, `mode`, `existing`, `yes: true` and
   `target` (the retire argument), spelled as decision 5.
 - `env` in a `configV2` case may set `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`, `MKSYNC_VISIBILITY`; anything
   else stays a runner error.
@@ -194,12 +194,12 @@ Test: `tests/parity/run.sh --engine dist/mksync 'setup-|retire-'` shows 15 failu
 
 Files: `tests/parity/cases/guard-*/` (new).
 
-| Case                     | Input                                                                             | Expected                                                 |
-| ------------------------ | --------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `guard-preview-held`     | record and profile in state, `git: remote`, `MKSYNC_VISIBILITY=public`, `preview` | `held until the repo is private: 2 files` and both paths |
-| `guard-refuse-committed` | repo holds `machines/wk1-laptop.json` committed, public, `export`                 | the two `refused:` lines, exit 1, repo unchanged         |
-| `guard-private`          | same as `guard-preview-held` with `private`                                       | no held line                                             |
-| `guard-default-public`   | `MKSYNC_VISIBILITY` unset, local origin                                           | the held line                                            |
+| Case                     | Input                                                                             | Expected                                                   |
+| ------------------------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `guard-preview-held`     | record and profile in state, `git: remote`, `MKSYNC_VISIBILITY=public`, `preview` | `held until the repo is private: 2 file(s)` and both paths |
+| `guard-refuse-committed` | repo holds `machines/wk1-laptop.json` committed, public, `export`                 | the two `refused:` lines, exit 1, repo unchanged           |
+| `guard-private`          | same as `guard-preview-held` with `private`                                       | no held line                                               |
+| `guard-default-public`   | `MKSYNC_VISIBILITY` unset, local origin                                           | the held line                                              |
 
 Test: `tests/parity/run.sh --engine dist/mksync guard-` shows 4 failures.
 
@@ -282,8 +282,8 @@ Test: `bun test src/cli && bun run build && tests/parity/run.sh --engine dist/mk
 Files: `src/wizard/setup.ts`, `src/wizard/setup.test.ts`.
 
 Built with the `wizard` skill. A pure flow over the scan and the store: the four questions with their suggestions
-(design "First run", decisions 6 and 7), answers from flags first, then stdin or the terminal, `missing --<flag>` with
-`--yes` and no terminal, the summary and the `Same as:` line. It returns the record, the profile and the actions
+(design "First run", decisions 6 and 7), answers from flags first, then stdin or the terminal, the suggestion on an empty answer, end of
+input or `--yes`, `missing --<flag>` where there is no suggestion, the summary and the `Same as:` line. It returns the record, the profile and the actions
 (`backup`, `keep`, `stop`); it writes nothing. Unit cases: each question's suggestion, each flag, a typed new profile,
 the missing-flag stop, back to a question on a bad answer.
 

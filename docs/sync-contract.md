@@ -75,8 +75,10 @@ ERROR: SyncSettings runs on Linux, macOS and Windows; this is <value>.
 ```
 
 The PowerShell engine is always `windows`. The program accepts a `SYNC_OS` only for its own host: `linux` or `macos`
-off Windows, `windows` on Windows; any other value stops the run with the same line and exit code 1. Until phase 6
-the program also reads `SYNC_PROFILE` and `SYNC_MACHINE` ([Layers](#layers-program-only)).
+off Windows, `windows` on Windows; any other value stops the run with the same line and exit code 1. The program's
+profile and machine come from the machine record ([Machines](#machines-program-only)); the phase 5 variables for them
+were removed in phase 6. `SYNC_HOSTNAME`, `SYNC_DOMAIN` and `SYNC_TOOLS` stand in for the scan, as `SYNC_OS` does for
+the system ([The scan](#the-scan)).
 
 `os.sh` also defines `PLATFORM_SELECT_JQ`, the jq filter that picks the entries for a system. It's internal: a value
 inherited from the environment is overwritten, and only a second `source` in the same shell, where the variable is
@@ -643,6 +645,7 @@ codes are the same on both systems, except where this section says otherwise.
 | `mksync diff [path…]` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
+| `dist/mksync setup …`, `dist/mksync machine show` | Program only until phase 8, when the front door hands them over: the first run that writes the machine record, and the record ([Machines](#machines-program-only)) | as there |
 
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
 sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
@@ -737,6 +740,7 @@ It takes the old entry points' verbs and flags unchanged:
 | `mksync import [--force] [--only <path>…]` | `import.sh` |
 | `mksync import --check [--only <path>…]` | `import.sh --check` ([Import check](#import-check)) |
 | `mksync --version` | prints `mksync <version>`, exit 0 |
+| `mksync setup …`, `mksync machine show`, `mksync machine retire <name>`, `mksync profile retire <name>` | new in phase 6 ([Machines](#machines-program-only)) |
 
 `mksync shadow` is hidden from the usage line until cut-over decides its name ([design, "Open"](design-layers.md#open)).
 In the clone, it runs the program's import check, export preview and export plan without writing, and the old
@@ -760,30 +764,25 @@ The program builds a file from up to four layers, in order: base (`dotfiles/comm
 profile and machine ([design, "Layers"](design-layers.md#layers)). The old engines have no layers: they read
 `sync-config.json`, where every entry has one repo file.
 
-**Profile and machine, until phase 6.** Two variables choose them, as `SYNC_OS` chooses the system:
+**Profile and machine.** They come from the machine record ([Machines](#machines-program-only)): the profile
+`<state>/profiles/<profile>.json` with its layer `<state>/profiles/<profile>/`, and the machine layer
+`<state>/machines/<name>/`. `<state>` is the folder of the [sync point](#sync-point). With no record (every machine
+before its first `mksync setup`): no profile or machine layer, and every module is on, as before. The program never
+reads `profiles/` or `machines/` from the repo while it's public. The phase 5 variables that chose them by hand
+(`SYNC_PROFILE`, `SYNC_MACHINE`) were removed in phase 6.
 
-- `SYNC_PROFILE=<name>` reads the profile `<state>/profiles/<name>.json` and the profile layer `<state>/profiles/<name>/`.
-- `SYNC_MACHINE=<name>` reads the machine layer `<state>/machines/<name>/`.
-
-`<state>` is the folder of the [sync point](#sync-point). A name is lowercase letters, digits and `-`. Unset or empty
-(every machine today): no profile or machine layer, and every module is on, as before. The program never reads
-`profiles/` or `machines/` from the repo while it's public. Phase 6 replaces both variables with the machine record.
-
-A layer name can't name another layer: neither variable may be `linux`, `macos`, `windows`, `common` or `base`, and
-`SYNC_MACHINE` may not equal `SYNC_PROFILE`. Side files are named after their layer (`CLAUDE.<name>.md`), so two layers
-with one name would overwrite each other's file, and the next push would send one layer's text into the other.
+A name is lowercase letters, digits and `-`. A layer name can't name another layer: neither the profile nor the machine
+may be `linux`, `macos`, `windows`, `common` or `base`, and the machine may not have its profile's name. Side files are
+named after their layer (`CLAUDE.<name>.md`), so two layers with one name would overwrite each other's file, and the
+next push would send one layer's text into the other.
 
 ```text
-ERROR: SYNC_PROFILE must be lowercase letters, digits and -; this is <value>.
-ERROR: SYNC_MACHINE must be lowercase letters, digits and -; this is <value>.
-ERROR: SYNC_PROFILE can't be <name>: it names another layer.
-ERROR: SYNC_MACHINE can't be <name>: it names another layer.
 ERROR: profile <name> not found: <state>/profiles/<name>.json
 ERROR: profile <name>: <reason>.
 ```
 
-Each stops the run with exit code 2 before any file is touched; the name checks come before the profile file is read.
-`<reason>` is `not valid JSON`, `unknown field <f>`, `<f> has the wrong type`, `unknown module <m>` or
+Each stops the run with exit code 2 before any file is touched, as the record's own errors do. `<reason>` is
+`not valid JSON`, `unknown field <f>`, `<f> has the wrong type`, `unknown module <m>` or
 `destination <key> is not a layer`.
 
 A profile's `destinations` maps a key path (as in the `needs a destination` note below) to a layer slot: `os`,
@@ -795,8 +794,8 @@ A profile's `destinations` maps a key path (as in the `needs a destination` note
 [export preview](#export-preview) leaves them out. A path that would resolve outside `<state>` or the repo (`../` in a
 `file`) fails that action with `ERROR`, and the run goes on.
 
-With a profile, an entry runs only when the profile's `modules` lists its module. A module whose `os` leaves this
-system out stays off even when listed. An entry that is off gets no status line, as one for another system.
+With a record, an entry runs only when its module is on ([Modules on a machine](#modules-on-a-machine)). An entry
+that is off gets no status line, as one for another system.
 
 **Labels.** A status line for a layered file uses the repo path of the layer it reads or writes. A profile or machine
 layer is labeled `profiles/<name>/<file>` or `machines/<name>/<file>`. Import labels the local file with the latest
@@ -857,9 +856,257 @@ Side files are local files like any other: import compares each one, asks before
 
 As every `ERROR` ([Both](#both)), these affect only their own file, and the run still exits 0.
 
-**Shared cases for layers** give `configV2` (written as `sync-config.v2.json`) instead of `config`, and may set
-`SYNC_PROFILE`, `SYNC_MACHINE` and files in the state folder. The old engines can't read config v2, so their runs skip
-these cases with `SKIP <case>: v2 only`; the program runs them on every OS.
+**Shared cases for layers** give `configV2` (written as `sync-config.v2.json`) instead of `config`, and may set files
+in the state folder (`state/machine.json` and `state/profiles/` for the record) and, in `env`, `SYNC_HOSTNAME`,
+`SYNC_DOMAIN`, `SYNC_TOOLS` and `MKSYNC_VISIBILITY` (the phase 5 `SYNC_PROFILE` and `SYNC_MACHINE` were removed).
+The old engines can't read config v2, so their runs skip these cases with `SKIP <case>: v2 only`; the program runs
+them on every OS.
+
+### Machines (program only)
+
+Each machine has one record, written by `mksync setup` ([design, "Machine records"](design-layers.md#machine-records)).
+Until phase 8 these commands run as `dist/mksync …`; the bash and PowerShell front doors don't know them.
+
+**The record** is `<state>/machine.json`:
+
+```json
+{
+  "name": "wk1-laptop",
+  "profile": "work-1",
+  "os": "windows",
+  "hostname": "wk1-laptop",
+  "domain": "corp.example.com",
+  "claude": "claude",
+  "pullOnly": false,
+  "modules": { "add": [], "remove": ["windows-terminal"] },
+  "values": { "<HOME>": "C:\\Users\\user" },
+  "replaced": [],
+  "retired": false
+}
+```
+
+Every field is required and no other is allowed. `name` and `profile` are names (lowercase letters, digits and `-`,
+not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or `windows`; `hostname` a string;
+`domain` a string or `null`; `claude` is `none`, `claude` or `claude-deepseek`; `pullOnly` and `retired` booleans;
+`modules.add` and `modules.remove` lists of the config's module names; `values` maps placeholders to strings;
+`replaced` lists `{"hostname": <string>, "domain": <string or null>, "date": "<YYYY-MM-DD>"}`, oldest first. The program
+writes it in this key order, two-space indent, `": "` after a key, LF and a trailing newline, readable by the current
+user only (as `.user-values.json`, [Sanitize and hydrate](#sanitize-and-hydrate)); the profile file the same way. A
+bad record stops every command but `setup --replace` with exit 2 before any file is touched:
+
+```text
+ERROR: machine record <state>/machine.json: <reason>.
+```
+
+`<reason>` is `not valid JSON`, `unknown field <f>`, `missing field <f>`, `<f> has the wrong type`,
+`<f> must be lowercase letters, digits and -; this is <value>`, `<f> can't be <value>: it names another layer`,
+`<f> can't be <value>` (an `os` or `claude` outside its list) or `unknown module <m>`.
+
+**Where records are kept.** While the repo is public, only in local state: the record in `<state>/machine.json`, its
+profile and any other profile made on this machine in `<state>/profiles/<name>.json`. Once the repo is private, the
+first push moves them to the repo (phase 7 and 8) and rewrites the local record as `{"name": "<name>", "home": "repo"}`;
+from then on the record is `machines/<name>.json` and the profiles `profiles/<name>.json` in the clone. Reading a record
+never needs the network. A `home` record whose file isn't in the clone stops with
+`ERROR: machine <name> not found: machines/<name>.json`, exit 2.
+
+#### Modules on a machine
+
+A module is on when the profile's `modules` or the record's `modules.add` lists it, the record's `modules.remove`
+doesn't, the Claude mode keeps it (`none` turns off `claude` and `claude-worker`; `claude` turns off `claude-worker`),
+and its `os` includes this system. The order is the profile's, then `add`'s.
+
+#### Values on a machine
+
+With a record, a placeholder's value comes from the record's `values`, then the profile's `values`; `.user-values.json`
+is not read. Inference and the prompt ([Sanitize and hydrate](#sanitize-and-hydrate)) follow as before, and a new value
+is saved where it belongs:
+
+| Placeholder | Kept on |
+|---|---|
+| `<YOUR_NAME>`, `<YOUR_EMAIL>`, `<YOUR_GH_USERNAME>`, `<YOUR_GH_ORG>`, `<YOUR_WORK_MARKETPLACE>` | profile |
+| `<HOME>`, `<GH_CLI_PATH>` | machine |
+
+Any other placeholder is asked once, and the answer saved with it:
+
+```text
+<OTHER>: kept on 1) this profile 2) this machine [1]
+```
+
+An empty answer, end of input or `--yes` takes `1`. With no value after all of this, the run prints
+`missing value for <PLACEHOLDER>: add it to profile <profile> or machine <name>` and exits 1 before writing any file.
+
+#### The scan
+
+`setup` reads the machine first: the OS (as [Which system](#which-system)), the hostname (lowercase), the domain
+(`USERDNSDOMAIN` on Windows, lowercase; `null` elsewhere), the global git email (shown, never stored), which of
+`git`, `gh`, `jq`, `code`, `claude`, `tmux`, `starship`, `wezterm`, `htop` and `rtk` are on `PATH`, and how many of this
+system's config entries already exist locally. `SYNC_HOSTNAME`, `SYNC_DOMAIN` (empty means `null`) and `SYNC_TOOLS` (a
+comma list of the tools found) replace what the scan reads; tests set them.
+
+```text
+Scanning this machine...
+  OS         windows
+  Hostname   wk1-laptop
+  Domain     corp.example.com
+  Git email  user@example.com
+  Tools      git, gh, code, claude (not found: jq, tmux, starship, wezterm, htop, rtk)
+  Files      9 of 14 windows entries already exist here
+```
+
+A missing domain or git email shows `none`; with every tool found the `(not found: …)` part is left out.
+
+#### `mksync setup`
+
+```text
+mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek]
+             [--mode push|pull-only] [--existing backup|keep|stop] [--yes]
+```
+
+It scans, lists the profiles, asks four questions, writes the record and the profile, then runs the first pull. The
+profiles listed are `personal` and every profile in the store that isn't retired, each with its non-retired machines;
+while public the heading is `Profiles on this machine:`, after the switch `Profiles in this repo:`:
+
+```text
+Profiles on this machine:
+  1) personal
+  2) work-1      machine wk1-laptop
+  This looks like wk1-laptop (same hostname): choosing 2 replaces it.
+
+1/4 What is this machine for? [2]
+2/4 Claude here? 1) none  2) Claude only  3) Claude plus DeepSeek [2]
+3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1]
+4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1]
+
+Machine wk1-laptop: profile work-1, Claude only, push with a preview.
+Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup
+```
+
+- **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
+  the suggestion in brackets. `--yes` takes every suggestion without asking. The first question takes a number or a new
+  profile name; a bad answer prints `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as
+  below).
+- **Suggestions.** The profile: the one whose non-retired record has exactly this hostname, with the `This looks like`
+  line; two or more such records, or none, give no suggestion and no line (always none while public). Claude: `2` when
+  the scan found `claude`, else `1`. Mode: `1`. Existing files: `1`.
+- **No suggestion.** End of input on a question with no suggestion, or `--yes` without its flag, stops with
+  `ERROR: missing --<flag>`, exit 2, before anything is written.
+- **Name.** `--name`, else the hostname. A name that isn't valid stops with
+  `ERROR: <value> isn't a valid machine name; use --name <machine>.`, exit 2; a profile name likewise with
+  `--profile <name>`. `--name` with `--replace` stops with `ERROR: --name and --replace can't be used together.`,
+  exit 1.
+- **A new profile** gets `shell`, `git`, then each module whose tool the scan found (`gh`, `code` for `vscode`, `claude`
+  for `claude` and, with Claude plus DeepSeek, `claude-worker`, `tmux`, `starship`, `wezterm`, `htop`, `rtk`), then
+  `gnome` on Linux and `windows-terminal` on Windows, in the config's module order; `destinations` empty, `retired`
+  false.
+- **Values.** `.user-values.json`, if there is one, is copied once by the table in
+  [Values on a machine](#values-on-a-machine), asking about any other placeholder as there; a key the profile or record
+  already has keeps its value. The file is left as it is.
+- **Summary.** `Machine <name>: profile <profile>, <Claude>, <mode>.` and the `Same as:` line, which always names
+  `--profile`, then `--replace <name>` or `--name <name>`, `--claude`, `--mode` and `--existing`. `<Claude>` is
+  `none`, `Claude only` or `Claude plus DeepSeek`; `<mode>` is `push with a preview` or `pull only`.
+- **Then** it writes the record and the profile, and acts on the fourth answer: `backup` runs `import --force` (each
+  file keeps its `.bak`); `keep` runs `export`, prints `Pushed into the repo folder; commit it with mksync push.`, then
+  runs `import --force`; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
+  import's or export's code.
+
+A machine that already has a record stops without `--replace`:
+`ERROR: this machine is already <name>; use --replace to take over another record.`, exit 1.
+
+**Replace.** `--replace <machine>` takes over a record from the store: it keeps the name, profile, Claude mode,
+`pullOnly` and module overrides, so the second and third questions aren't asked. `hostname` and `domain` take the
+scan's, and the old pair goes to `replaced` with today's date. Each machine value is asked again with the old one as
+the suggestion: `<HOME> [<old value>]`. A record not in the store, or retired, stops with
+`ERROR: no machine <name> here; records are shared once the repo is private.`, exit 1 (while public the store holds
+only this machine's own record, so only a moved disk can take one over).
+
+#### `mksync machine show`
+
+Prints the record, six lines, exit 0:
+
+```text
+machine   wk1-laptop
+profile   work-1
+os        windows
+claude    Claude only
+mode      push with a preview
+modules   work-base, git, shell, vscode, claude (windows-terminal off on this machine)
+```
+
+`modules` lists the modules that are on, then in brackets each one the profile lists that is off and why, joined by
+`; `: `<m> off on this machine` (the record's `remove`), `<m> off, <os> only`, `<m> off by the Claude mode`. With none
+on it says `none`. A retired record adds a seventh line, `retired   yes`. With no record:
+`ERROR: no machine record here; run mksync setup.` on stderr, exit 1.
+
+**Hostname check.** When the scan's hostname or domain isn't the record's, `machine show`, `import` and
+`import --check` print on stderr, before anything else, and go on:
+
+```text
+warning: the record says hostname wk1-laptop, this machine is wk1-new.
+If this is a new machine, run: mksync setup --replace wk1-laptop
+```
+
+(`domain` likewise: `warning: the record says domain <d>, this machine has <d>.`, `none` for `null`; both lines
+when both differ, then the `If` line.)
+
+**Push checks.** `export` stops with exit 1 before writing anything, checking in this order:
+
+```text
+ERROR: this machine is retired.
+ERROR: this machine is pull-only (see mksync machine show).
+ERROR: the record says hostname wk1-laptop, this machine is wk1-new.
+If this is a new machine, run: mksync setup --replace wk1-laptop
+```
+
+`export --preview` prints the same lines as `warning:` and goes on.
+
+#### Retire
+
+```text
+mksync machine retire <name> [--yes]
+mksync profile retire <name> [--yes]
+```
+
+Retiring sets `retired: true`; nothing is deleted. Each asks first, and `--yes` answers:
+
+```text
+Retire machine wk1-laptop? It can't push after this. [y/N]
+Retire profile work-1? A first run won't offer it after this. [y/N]
+```
+
+Yes prints `Machine <name> retired.` (`Profile <name> retired.`), exit 0. No, an empty answer or end of input prints
+`Nothing retired.`, exit 1. Already retired: `Machine <name> is already retired.`, exit 0. A machine not in the store:
+the `no machine <name> here` error above, exit 1; a profile not in the store:
+`ERROR: profile <name> not found: <state>/profiles/<name>.json`, exit 1. A profile still used by a record that isn't
+retired is refused, naming the first such record by name:
+`ERROR: profile <name> is used by machine <machine>; retire or move that machine first.`, exit 1. A retired profile
+isn't listed by `setup`; a retired machine isn't offered for `--replace` and can't push.
+
+### Public-repo guard (program only)
+
+Until the repo is private, profiles, records and values never reach it.
+
+**Visibility.** For an `origin` on `github.com`: `gh repo view --json visibility` when `gh` is signed in, otherwise
+`GET https://api.github.com/repos/<owner>/<repo>`; any failure (no network, no answer, an unknown value) counts as
+public. For any other `origin`, `MKSYNC_VISIBILITY` (`private`, anything else or unset is public); the variable is
+ignored for `github.com`.
+
+**Held.** While public and with a record, `export --preview` ends with the local files a private push would add, sorted:
+
+```text
+held until the repo is private: 2 file(s)
+  machines/wk1-laptop.json
+  profiles/work-1.json
+```
+
+**Refused.** While public, `export` stops with exit 1 before writing anything when the clone already tracks a path
+under `profiles/` or `machines/`, two lines per path, sorted:
+
+```text
+refused: the repo is public, so machines/wk1-laptop.json can't be pushed.
+It is kept on this machine and goes in with the first push after the repo is private.
+```
+
+The record checks run first, then this one.
 
 ## macOS
 
