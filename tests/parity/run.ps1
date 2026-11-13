@@ -92,6 +92,7 @@ function Validate-Case {
         }
 
         $optsProp = $cmd.PSObject.Properties['options']
+        $opts = $null
         if ($null -ne $optsProp) {
             $opts = $optsProp.Value
             if ($opts -isnot [pscustomobject]) {
@@ -113,11 +114,44 @@ function Validate-Case {
                     }
                 }
             }
+            foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing', 'target')) {
+                $p = $opts.PSObject.Properties[$key]
+                if ($null -ne $p -and $p.Value -isnot [string]) {
+                    Die 'options name, profile, replace, claude, mode, existing and target must be strings'
+                }
+            }
+            $yesProp = $opts.PSObject.Properties['yes']
+            if ($null -ne $yesProp -and $yesProp.Value -isnot [bool]) {
+                Die 'options.yes must be a boolean'
+            }
+        }
+
+        $optNames = @()
+        if ($null -ne $opts) {
+            $optNames = @($opts.PSObject.Properties.Name)
+        }
+        foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing')) {
+            if ($optNames -ccontains $key -and $cmd.command -cne 'setup') {
+                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, machine-retire or profile-retire'
+            }
+        }
+        if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and
+            $cmd.command -cne 'machine-retire' -and $cmd.command -cne 'profile-retire') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, machine-retire or profile-retire'
+        }
+        $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
+        if ($isRetire -ne ($optNames -ccontains 'target')) {
+            Die 'options.target is required for machine-retire and profile-retire, and nowhere else'
         }
 
         $stdinProp = $cmd.PSObject.Properties['stdin']
         if ($null -ne $stdinProp -and $stdinProp.Value -isnot [string]) {
             Die 'stdin must be a string'
+        }
+
+        $stderrProp = $cmd.PSObject.Properties['stderr']
+        if ($null -ne $stderrProp -and $stderrProp.Value -isnot [bool]) {
+            Die 'stderr must be a boolean'
         }
     }
 
@@ -164,8 +198,10 @@ function Validate-Case {
         }
         if ($null -ne $configV2Prop) {
             foreach ($p in $envProp.Value.PSObject.Properties) {
-                if ($p.Name -cne 'SYNC_PROFILE' -and $p.Name -cne 'SYNC_MACHINE') {
-                    Die 'a configV2 case may set only SYNC_PROFILE and SYNC_MACHINE in env'
+                if ($p.Name -cne 'SYNC_PROFILE' -and $p.Name -cne 'SYNC_MACHINE' -and
+                    $p.Name -cne 'SYNC_HOSTNAME' -and $p.Name -cne 'SYNC_DOMAIN' -and
+                    $p.Name -cne 'SYNC_TOOLS' -and $p.Name -cne 'MKSYNC_VISIBILITY') {
+                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS and MKSYNC_VISIBILITY in env'
                 }
             }
         }
@@ -674,11 +710,28 @@ function Run-Case {
             $extraArgs = @()
             if (-not [string]::IsNullOrEmpty($EnginePath)) {
                 $scriptPath = Join-Path $repoDir 'mksync.exe'
+                $targetProp = $null
+                $cmdOptsProp = $cmdObj.PSObject.Properties['options']
+                if ($null -ne $cmdOptsProp -and $null -ne $cmdOptsProp.Value) {
+                    $targetProp = $cmdOptsProp.Value.PSObject.Properties['target']
+                }
                 switch -CaseSensitive ($cmd) {
                     'export'  { $extraArgs += 'export' }
                     'import'  { $extraArgs += 'import' }
                     'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
                     'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
+                    'setup'   { $extraArgs += 'setup' }
+                    'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
+                    'machine-retire' {
+                        $extraArgs += 'machine'
+                        $extraArgs += 'retire'
+                        $extraArgs += [string]$targetProp.Value
+                    }
+                    'profile-retire' {
+                        $extraArgs += 'profile'
+                        $extraArgs += 'retire'
+                        $extraArgs += [string]$targetProp.Value
+                    }
                     default   { Die "unknown command '$cmd' in command $($i + 1)" }
                 }
             } else {
@@ -697,7 +750,10 @@ function Run-Case {
             if ($null -ne $optsProp) {
                 $opts = $optsProp.Value
                 foreach ($key in $opts.PSObject.Properties.Name) {
-                    if ($key -cne 'force' -and $key -cne 'only') {
+                    if ($key -cne 'force' -and $key -cne 'only' -and $key -cne 'name' -and
+                        $key -cne 'profile' -and $key -cne 'replace' -and $key -cne 'claude' -and
+                        $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'yes' -and
+                        $key -cne 'target') {
                         Die "unknown option '$key' in command $($i + 1)"
                     }
                 }
@@ -724,12 +780,32 @@ function Run-Case {
                         }
                     }
                 }
+                foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing')) {
+                    $p = $opts.PSObject.Properties[$key]
+                    if ($null -ne $p) {
+                        $extraArgs += ("--" + $key)
+                        $extraArgs += [string]$p.Value
+                    }
+                }
+                $yesProp = $opts.PSObject.Properties['yes']
+                if ($null -ne $yesProp -and $yesProp.Value -eq $true) {
+                    $extraArgs += '--yes'
+                }
             }
 
             $stdinText = ''
             $stdinProp = $cmdObj.PSObject.Properties['stdin']
             if ($null -ne $stdinProp) {
                 $stdinText = [string]$stdinProp.Value
+            }
+
+            # With stderr, the command's stderr is kept apart so its lines land
+            # in the output after the stdout status lines; otherwise both
+            # streams are merged as before.
+            $stderrMode = $false
+            $stderrProp = $cmdObj.PSObject.Properties['stderr']
+            if ($null -ne $stderrProp -and $stderrProp.Value -eq $true) {
+                $stderrMode = $true
             }
 
             if ([string]::IsNullOrEmpty($EnginePath)) {
@@ -744,6 +820,8 @@ function Run-Case {
             $oldPath = $env:PATH
             $oldGh = $env:GH
             $oldPreference = $ErrorActionPreference
+            $raw = ''
+            $output = @()
             # A name and its value before the command, restored after it: $null
             # marks a variable that was not set.
             $savedEnv = New-Object System.Collections.Generic.List[object]
@@ -773,9 +851,17 @@ function Run-Case {
                 # into error records, which 'Stop' would throw on.
                 $ErrorActionPreference = 'Continue'
                 if ([string]::IsNullOrEmpty($EnginePath)) {
-                    $raw = $stdinText | & powershell.exe @procArgs 2>&1 | Out-String
+                    if ($stderrMode) {
+                        $output = @($stdinText | & powershell.exe @procArgs 2>&1)
+                    } else {
+                        $raw = $stdinText | & powershell.exe @procArgs 2>&1 | Out-String
+                    }
                 } else {
-                    $raw = $stdinText | & $scriptPath @procArgs 2>&1 | Out-String
+                    if ($stderrMode) {
+                        $output = @($stdinText | & $scriptPath @procArgs 2>&1)
+                    } else {
+                        $raw = $stdinText | & $scriptPath @procArgs 2>&1 | Out-String
+                    }
                 }
                 $rc = $LASTEXITCODE
             } finally {
@@ -801,8 +887,30 @@ function Run-Case {
             }
 
             $exitCodes.Add([string]$rc)
-            foreach ($line in (Get-StatusLines $raw)) {
-                $statusOut.Add($line)
+            if ($stderrMode) {
+                # Stdout lines are the strings; stderr lines arrive as error
+                # records and go after the stdout status lines.
+                $rawText = ''
+                foreach ($item in $output) {
+                    if ($item -is [System.Management.Automation.ErrorRecord]) {
+                        continue
+                    }
+                    $rawText += ([string]$item) + "`n"
+                }
+                foreach ($line in (Get-StatusLines $rawText)) {
+                    $statusOut.Add($line)
+                }
+                foreach ($item in $output) {
+                    if ($item -isnot [System.Management.Automation.ErrorRecord]) {
+                        continue
+                    }
+                    $line = ([string]$item) -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
+                    $statusOut.Add($line.TrimEnd("`r"))
+                }
+            } else {
+                foreach ($line in (Get-StatusLines $raw)) {
+                    $statusOut.Add($line)
+                }
             }
         }
 
@@ -975,6 +1083,20 @@ foreach ($caseDir in $caseDirs) {
         $phase8 = @($case.commands | Where-Object { $_.command -ceq 'diff' -or $_.command -ceq 'commit' })[0]
         if ($null -ne $phase8) {
             Write-Output "SKIP ${caseName}: $($phase8.command) comes in phase 8"
+            continue
+        }
+    }
+
+    # setup, machine show and the retire commands are the program's alone: the
+    # old engines don't know them, so the case is skipped, not failed.
+    if ([string]::IsNullOrEmpty($EnginePath)) {
+        $programOnly = @($case.commands | Where-Object {
+            $_.command -ceq 'setup' -or $_.command -ceq 'machine-show' -or
+            $_.command -ceq 'machine-retire' -or $_.command -ceq 'profile-retire'
+        })[0]
+        if ($null -ne $programOnly) {
+            Write-Output "SKIP ${caseName}: $($programOnly.command) is program only"
+            $skipped++
             continue
         }
     }

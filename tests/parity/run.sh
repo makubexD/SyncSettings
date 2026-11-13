@@ -83,6 +83,33 @@ validate_case() {
             if ($o.only | type) == "array" then all($o.only[]; type == "string") else false end
           else true end)' "$json" > /dev/null 2>&1 \
         || die 'options.only must be an array of strings'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | all($o | to_entries[] | select(.key == "name" or .key == "profile" or .key == "replace"
+            or .key == "claude" or .key == "mode" or .key == "existing" or .key == "target");
+            .value | type == "string"))' "$json" > /dev/null 2>&1 \
+        || die 'options name, profile, replace, claude, mode, existing and target must be strings'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("yes")) then ($o.yes | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.yes must be a boolean'
+    jq -e 'all(.commands[];
+        .command as $cmd
+        | (.options // {}) as $o
+        | (if ($o | has("name")) then $cmd == "setup" else true end)
+          and (if ($o | has("profile")) then $cmd == "setup" else true end)
+          and (if ($o | has("replace")) then $cmd == "setup" else true end)
+          and (if ($o | has("claude")) then $cmd == "setup" else true end)
+          and (if ($o | has("mode")) then $cmd == "setup" else true end)
+          and (if ($o | has("existing")) then $cmd == "setup" else true end)
+          and (if ($o | has("yes")) then
+                  $cmd == "setup" or $cmd == "machine-retire" or $cmd == "profile-retire"
+               else true end))' "$json" > /dev/null 2>&1 \
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, machine-retire or profile-retire'
+    jq -e 'all(.commands[];
+        .command as $cmd | (.options // {}) as $o
+        | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
+              ($o | has("target"))
+          else (($o | has("target")) | not) end)' "$json" > /dev/null 2>&1 \
+        || die 'options.target is required for machine-retire and profile-retire, and nowhere else'
     jq -e 'if has("os") then
             if (.os | type) == "array" then
                 all(.os[]; . == "linux" or . == "macos" or . == "windows")
@@ -91,13 +118,17 @@ validate_case() {
         || die 'os must be a list of linux, macos or windows'
     jq -e 'all(.commands[]; if has("stdin") then (.stdin | type) == "string" else true end)' "$json" > /dev/null 2>&1 \
         || die 'stdin must be a string'
+    jq -e 'all(.commands[]; if has("stderr") then (.stderr | type) == "boolean" else true end)' "$json" > /dev/null 2>&1 \
+        || die 'stderr must be a boolean'
     jq -e 'if has("env") then
             (.env | type) == "object" and all(.env[]; type == "string" or . == null)
           else true end' "$json" > /dev/null 2>&1 \
         || die 'env must be an object of strings or null'
     if jq -e 'has("configV2")' "$json" > /dev/null 2>&1; then
-        jq -e '(.env // {}) | all(keys[]; . == "SYNC_PROFILE" or . == "SYNC_MACHINE")' "$json" \
-            > /dev/null 2>&1 || die 'a configV2 case may set only SYNC_PROFILE and SYNC_MACHINE in env'
+        jq -e '(.env // {}) | all(keys[];
+                . == "SYNC_PROFILE" or . == "SYNC_MACHINE" or . == "SYNC_HOSTNAME" or . == "SYNC_DOMAIN"
+                or . == "SYNC_TOOLS" or . == "MKSYNC_VISIBILITY")' "$json" > /dev/null 2>&1 \
+            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS and MKSYNC_VISIBILITY in env'
     fi
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
@@ -296,6 +327,7 @@ write_gh_stub() {
 run_case() {
     local dir=$1
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
+    local stderr_mode target
     local want_exit want_output want_home want_repo want_values want_state want_gh calls
     local file rel got want_mode got_mode
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
@@ -374,6 +406,16 @@ run_case() {
                 import) args=(./mksync import) ;;
                 check) args=(./mksync import --check) ;;
                 preview) args=(./mksync export --preview) ;;
+                setup) args=(./mksync setup) ;;
+                machine-show) args=(./mksync machine show) ;;
+                machine-retire)
+                    target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
+                    args=(./mksync machine retire "$target")
+                    ;;
+                profile-retire)
+                    target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
+                    args=(./mksync profile retire "$target")
+                    ;;
                 *) die "unknown command '$cmd' in command $((i + 1))" ;;
             esac
         else
@@ -389,7 +431,7 @@ run_case() {
         fi
         while IFS= read -r key; do
             case $key in
-                force|only) ;;
+                force|only|name|profile|replace|claude|mode|existing|yes|target) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -399,6 +441,14 @@ run_case() {
         while IFS= read -r -d '' only_path; do
             args+=(--only "$only_path")
         done < <(jq -j ".commands[$i].options.only // [] | .[] | . , \"\\u0000\"" "$dir/case.json")
+        for key in name profile replace claude mode existing; do
+            if [[ $(jq -r --arg key "$key" ".commands[$i].options // {} | has(\$key)" "$dir/case.json") == true ]]; then
+                args+=("--$key" "$(jq -r --arg key "$key" ".commands[$i].options[\$key]" "$dir/case.json")")
+            fi
+        done
+        if [[ $(jq -r ".commands[$i].options.yes // false" "$dir/case.json") == true ]]; then
+            args+=(--yes)
+        fi
 
         stdin_file=/dev/null
         if [[ $(jq -r ".commands[$i] | has(\"stdin\")" "$dir/case.json") == true ]]; then
@@ -407,13 +457,29 @@ run_case() {
                 || die "writing stdin for command $((i + 1)) failed"
         fi
 
+        # With stderr, the command's stderr is kept apart so its lines land in
+        # the output after the stdout status lines; otherwise both streams are
+        # merged as before.
+        stderr_mode=$(jq -r ".commands[$i].stderr // false" "$dir/case.json")
         rc=0
         # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
-        (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
-            "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
-            "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
+        if [[ $stderr_mode == true ]]; then
+            (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
+                "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
+                "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
+        else
+            (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
+                "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
+                "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
+        fi
         printf '%s\n' "$rc" >> "$t/actual-exit"
         status_lines "$t/raw" >> "$t/actual-output"
+        if [[ $stderr_mode == true ]]; then
+            sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$t/raw-err" \
+                | while IFS= read -r line || [[ -n $line ]]; do
+                    printf '%s\n' "$line"
+                done >> "$t/actual-output"
+        fi
     done
 
     # Each gh call is cut to its first two words, so branch names and titles
@@ -533,6 +599,19 @@ for dir in "$CASES"/*/; do
             | first // empty' "$dir/case.json" 2> /dev/null) || true
         if [[ -n $phase8 ]]; then
             printf 'SKIP %s: %s comes in phase 8\n' "$case_name" "$phase8"
+            continue
+        fi
+    fi
+
+    # setup, machine show and the retire commands are the program's alone: the
+    # old engines don't know them, so the case is skipped, not failed.
+    if [[ -z $engine_path ]]; then
+        program_only=$(jq -r '[.commands[].command
+            | select(. == "setup" or . == "machine-show" or . == "machine-retire" or . == "profile-retire")]
+            | first // empty' "$dir/case.json" 2> /dev/null) || true
+        if [[ -n $program_only ]]; then
+            printf 'SKIP %s: %s is program only\n' "$case_name" "$program_only"
+            skipped=$((skipped + 1))
             continue
         fi
     fi
