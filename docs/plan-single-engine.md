@@ -155,7 +155,7 @@ from the state folder (`SYNC_PROFILE`, `SYNC_MACHINE`), and passes the 51 shared
   profiles, and per-machine and per-profile values.
 - The public-repo guard: values stay local and are committed after the repo goes private.
 
-**Done 2026-11-13** ([plan-single-engine-6.md](plan-single-engine-6.md)). `dist/mksync setup` scans the machine, asks
+**Done 2026-11-13** ([plan-single-engine-6.md](plan-single-engine-6.md), PR #76). `dist/mksync setup` scans the machine, asks
 four questions and writes the record and profile to local state; `machine show`, `machine retire` and `profile retire`
 work on them, and the record picks the profile and machine layers (`SYNC_PROFILE` and `SYNC_MACHINE` are gone). The
 guard reads the push URL's visibility and holds or refuses `profiles/` and `machines/` while public. The finish review's
