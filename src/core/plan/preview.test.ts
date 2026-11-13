@@ -31,6 +31,19 @@ const PROFILE: Profile = {
   retired: false,
 };
 
+const VALUE_PLACEHOLDER = "<YOUR_EMAIL>";
+
+const PROFILE_VALUE = "jane@work1.example.com";
+
+const PROFILE_WITH_VALUE: Profile = {
+  ...PROFILE,
+  values: { [VALUE_PLACEHOLDER]: PROFILE_VALUE },
+};
+
+const REFUSED_LINE = `refused: change 1 (test conf) holds a value of profile ${PROFILE_NAME} (${VALUE_PLACEHOLDER}) and would reach all machines.`;
+
+const REFUSED_ADVICE = `Move it to "profile ${PROFILE_NAME}", or put ${VALUE_PLACEHOLDER} in the file instead.`;
+
 const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
 const NO_CHANGES = "  Repo is up to date. No changes detected.";
@@ -294,6 +307,50 @@ describe("planPreview", () => {
     expect(result.lines.indexOf(PUSH_HEADER)).toBeLessThan(
       result.lines.indexOf(CHANGES_SUMMARY),
     );
+  });
+
+  test("should refuse when a base write holds a profile value", () => {
+    // Arrange
+    const base = bytes('{"email": "old@example.com"}');
+    const repoFiles = new Map([[REPO_FILE, base]]);
+    const headFiles = new Map([[REPO_FILE, base]]);
+    const preview = snapshot(
+      repoFiles,
+      headFiles,
+      bytes(`{"email": "${PROFILE_VALUE}"}`),
+      PROFILE_WITH_VALUE,
+    );
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.lines).toContain(PUSH_HEADER);
+    expect(result.lines.slice(-2)).toEqual([REFUSED_LINE, REFUSED_ADVICE]);
+  });
+
+  test("should print no refused lines when no shared-layer write holds a profile value", () => {
+    // Arrange
+    const repoFile = bytes("old\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview = snapshot(
+      repoFiles,
+      headFiles,
+      bytes("new\n"),
+      PROFILE_WITH_VALUE,
+    );
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines.some((line) => line.startsWith("refused:"))).toBe(
+      false,
+    );
+    expect(result.lines).toContain(CHANGES_SUMMARY);
   });
 
   test("should print no grouped block when the export would change nothing", () => {

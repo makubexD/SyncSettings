@@ -77,8 +77,10 @@ import type {
   NewSettingQuestion,
 } from "./core/plan/newsettings.ts";
 import { planPreview } from "./core/plan/preview.ts";
+import { profileValueHits, refusedLines } from "./core/plan/profilevalues.ts";
 import { renderRun } from "./core/plan/run.ts";
 import type {
+  ChangeLine,
   NewSettingLine,
   Plan,
   RunPlan,
@@ -837,9 +839,29 @@ function storeItemDestinations(
 }
 
 /**
+ * Contract "Profile values (program only)": the refused lines a final export
+ * plan would print after its block, or undefined when no layer text bound for
+ * a shared layer holds a profile value. `lines` is the change line list the
+ * block is built from.
+ */
+function exportRefusal(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  lines: readonly ChangeLine[],
+): readonly string[] | undefined {
+  const hits = profileValueHits(plan, snapshot, lines);
+  const profileName = snapshot.record?.profile ?? snapshot.profile?.name;
+  if (hits.length === 0 || profileName === undefined) {
+    return undefined;
+  }
+  return refusedLines(hits, profileName, snapshot.os);
+}
+
+/**
  * Run an export plan and print its grouped block before its status lines. The
  * answered new settings are listed under `New settings` and never repeated in
- * their layer's group.
+ * their layer's group. A profile value bound for a shared layer stops the run
+ * before anything is written, with the refused lines after the block.
  */
 function runExport(
   plan: RunPlan,
@@ -848,6 +870,21 @@ function runExport(
   settings: readonly NewSettingLine[] = [],
 ): AppliedPlan {
   const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
+  const refused = exportRefusal(plan, snapshot, lines);
+  if (refused !== undefined) {
+    const block =
+      lines.length === 0 && settings.length === 0
+        ? []
+        : groupBlock(lines, snapshot.record, snapshot.os, "push", settings);
+    return {
+      result: {
+        code: 1,
+        stdout: writeLines(block) + writeLines(refused),
+        stderr: "",
+      },
+      backups: undefined,
+    };
+  }
   const applied = applyPlanAndBackup(plan, context);
   if (lines.length === 0 && settings.length === 0) {
     return applied;
@@ -902,6 +939,16 @@ async function executeExport(
 
   const choices = await askSettings(snapshot, settings, question);
   const plan = planExport(snapshot, answersOf(settings, choices));
+  // The head and the questions are already on the terminal, so only the blank
+  // line that ends the last question and the refused lines follow.
+  const refused = exportRefusal(
+    plan,
+    snapshot,
+    withoutNewSettings(changeLines(plan, snapshot), settings),
+  );
+  if (refused !== undefined) {
+    return { code: 1, stdout: writeLines(["", ...refused]), stderr: "" };
+  }
   return storeItemDestinations(
     snapshot,
     context,

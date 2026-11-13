@@ -3,6 +3,7 @@ import { changeLines } from "./changes.ts";
 import { planExport } from "./export.ts";
 import { groupBlock, withoutNewSettings } from "./groups.ts";
 import { newSettingChoices } from "./newsettings.ts";
+import { profileValueHits, refusedLines } from "./profilevalues.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type { Action, Plan, RepoFiles, RunPlan, Snapshot } from "./types.ts";
@@ -110,6 +111,15 @@ function differsFromHead(
 }
 
 /**
+ * The status lines before the summary's first blank line, or all of them when
+ * it has none.
+ */
+function statusBody(rendered: readonly string[]): readonly string[] {
+  const summaryStart = rendered.indexOf("");
+  return summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
+}
+
+/**
  * The export's summary is replaced by the preview's, mirroring the nested
  * export a preview runs: it says how many files would change, or that the repo
  * is up to date, and the preview then says whether anything would be sent.
@@ -123,8 +133,7 @@ function previewSummary(
   head: RepoFiles,
   block: readonly string[],
 ): readonly string[] {
-  const summaryStart = rendered.indexOf("");
-  const body = summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
+  const body = statusBody(rendered);
   const actions = plan.steps.flatMap((step) =>
     step.actions.map((entry) => entry.action),
   );
@@ -192,13 +201,15 @@ export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
     return { actions: [], lines: rendered.lines, code: rendered.code };
   }
   const changes = changeLines(plan, snapshot);
+  const lines =
+    question === undefined ? changes : withoutNewSettings(changes, settings);
   const block =
     question === undefined
-      ? changes.length === 0
+      ? lines.length === 0
         ? []
-        : groupBlock(changes, snapshot.record, snapshot.os, "push")
+        : groupBlock(lines, snapshot.record, snapshot.os, "push")
       : groupBlock(
-          withoutNewSettings(changes, settings),
+          lines,
           snapshot.record,
           snapshot.os,
           "push",
@@ -208,6 +219,22 @@ export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
               `goes to: ${question.suggestion.words} (asked by mksync export)`,
           ),
         );
+  // Contract "Profile values (program only)": a hit stops the preview with the
+  // refused lines after the block, instead of the summary and exit 0.
+  const hits = profileValueHits(plan, snapshot, lines);
+  const profileName = snapshot.record?.profile ?? snapshot.profile?.name;
+  if (hits.length > 0 && profileName !== undefined) {
+    return {
+      actions: [],
+      lines: [
+        ...statusBody(rendered.lines),
+        "",
+        ...block,
+        ...refusedLines(hits, profileName, snapshot.os),
+      ],
+      code: 1,
+    };
+  }
   return {
     actions: [],
     lines: previewSummary(
