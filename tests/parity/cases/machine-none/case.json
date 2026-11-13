@@ -1,0 +1,43 @@
+{
+  "description": "With no machine record, import turns every config module on as before the record existed, exit 0 (Machines (program only), modules on a machine).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      },
+      "other": {
+        "description": "Second parity module"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity file"
+      },
+      {
+        "file": "other/b.txt",
+        "module": "other",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.txt",
+        "description": "Parity file of the second module"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

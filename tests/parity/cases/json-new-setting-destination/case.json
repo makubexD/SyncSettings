@@ -18,7 +18,8 @@
     ]
   },
   "env": {
-    "SYNC_PROFILE": "work-1"
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
   },
   "commands": [
     {

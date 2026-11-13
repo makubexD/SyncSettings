@@ -1,0 +1,1 @@
+ERROR: machine record (machine.json in the state folder): profile must be lowercase letters, digits and -; this is Work 1.

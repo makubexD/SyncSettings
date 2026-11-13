@@ -1,0 +1,43 @@
+{
+  "description": "A module in the record's modules.remove gets no status line even though the profile lists it (Machines (program only), modules on a machine).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      },
+      "other": {
+        "description": "Parity case module turned off by the record"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity file"
+      },
+      {
+        "file": "other/b.txt",
+        "module": "other",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.txt",
+        "description": "Parity file of the removed module"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

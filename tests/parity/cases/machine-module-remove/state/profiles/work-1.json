@@ -1,0 +1,6 @@
+{
+  "modules": ["parity", "other"],
+  "values": {},
+  "destinations": {},
+  "retired": false
+}

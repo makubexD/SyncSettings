@@ -1,0 +1,6 @@
+{
+  "modules": ["claude", "git"],
+  "values": {},
+  "destinations": {},
+  "retired": false
+}

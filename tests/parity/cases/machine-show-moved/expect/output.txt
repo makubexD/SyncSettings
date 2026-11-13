@@ -1,0 +1,8 @@
+machine   wk1-laptop
+profile   work-1
+os        linux
+claude    Claude plus DeepSeek
+mode      push with a preview
+modules   work-base, git, shell
+warning: the record says hostname wk1-laptop, this machine is wk1-new.
+If this is a new machine, run: mksync setup --replace wk1-laptop

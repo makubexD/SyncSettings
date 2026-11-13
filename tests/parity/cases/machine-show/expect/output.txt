@@ -1,0 +1,6 @@
+machine   wk1-laptop
+profile   work-1
+os        linux
+claude    Claude plus DeepSeek
+mode      push with a preview
+modules   work-base, git, shell

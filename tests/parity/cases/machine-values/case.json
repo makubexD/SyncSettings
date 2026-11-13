@@ -1,0 +1,43 @@
+{
+  "description": "Import hydrates a value from the record before the profile, so the machine's <HOME> wins and the profile's email fills its placeholder (Machines (program only), values on a machine).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/git.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/git.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_EMAIL>",
+            "prompt": "Email for git commits"
+          },
+          {
+            "placeholder": "<HOME>",
+            "prompt": "Home folder"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

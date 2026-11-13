@@ -1,0 +1,9 @@
+{
+  "modules": ["parity"],
+  "values": {
+    "<YOUR_EMAIL>": "work@example.com",
+    "<HOME>": "/home/profile-home"
+  },
+  "destinations": {},
+  "retired": false
+}

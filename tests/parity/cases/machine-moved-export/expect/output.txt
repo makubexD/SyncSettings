@@ -1,0 +1,2 @@
+ERROR: the record says hostname wk1-laptop, this machine is wk1-new.
+If this is a new machine, run: mksync setup --replace wk1-laptop
