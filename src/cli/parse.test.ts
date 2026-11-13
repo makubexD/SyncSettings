@@ -9,6 +9,7 @@ const EXPORT = {
   force: false,
   preview: false,
   check: false,
+  yes: false,
   only: [],
 } as const;
 
@@ -18,6 +19,7 @@ const IMPORT = {
   force: false,
   preview: false,
   check: false,
+  yes: false,
   only: [],
 } as const;
 
@@ -71,6 +73,35 @@ describe("parseArgs", () => {
 
   test("should reject export --force as bash does", () => {
     expect(parseArgs(["export", "--force"])).toEqual(unknownOption("--force"));
+  });
+
+  test("should parse export --yes", () => {
+    expect(parseArgs(["export", "--yes"])).toEqual({
+      ...EXPORT,
+      yes: true,
+    });
+  });
+
+  test("should refuse --yes given twice after export", () => {
+    expect(parseArgs(["export", "--yes", "--yes"])).toEqual(
+      usageError("ERROR: --yes is repeated."),
+    );
+  });
+
+  test("should refuse export --preview --yes", () => {
+    expect(parseArgs(["export", "--preview", "--yes"])).toEqual(
+      usageError("ERROR: --preview and --yes can't be used together."),
+    );
+  });
+
+  test("should refuse export --yes --preview", () => {
+    expect(parseArgs(["export", "--yes", "--preview"])).toEqual(
+      usageError("ERROR: --preview and --yes can't be used together."),
+    );
+  });
+
+  test("should refuse import --yes", () => {
+    expect(parseArgs(["import", "--yes"])).toEqual(unknownOption("--yes"));
   });
 
   test("should parse import --check", () => {
@@ -401,6 +432,12 @@ describe("parseArgs", () => {
 
   test("should name setup in the usage line", () => {
     expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
+  });
+
+  test("should name export --yes in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes("mksync export [--preview] [--yes] [--only <path>...]"),
+    ).toBe(true);
   });
 });
 

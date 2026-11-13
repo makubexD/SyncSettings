@@ -58,7 +58,9 @@ import { renderMachineShow } from "./core/machine/show.ts";
 import type { ValuePlace } from "./core/machine/values.ts";
 import { moveUserValues, placeValue } from "./core/machine/values.ts";
 import { planCheck } from "./core/plan/check.ts";
+import { changeLines } from "./core/plan/changes.ts";
 import { planExport } from "./core/plan/export.ts";
+import { groupBlock } from "./core/plan/groups.ts";
 import { planImport } from "./core/plan/import.ts";
 import { planPreview } from "./core/plan/preview.ts";
 import { renderRun } from "./core/plan/run.ts";
@@ -88,6 +90,7 @@ const SHADOW_SNAPSHOT_COMMAND: RunCommand = {
   force: false,
   preview: true,
   check: false,
+  yes: false,
   only: [],
 };
 
@@ -531,6 +534,7 @@ async function executeSetup(
     force: true,
     preview: false,
     check: false,
+    yes: false,
     only: [],
   };
   if (outcome.action === "backup") {
@@ -542,6 +546,7 @@ async function executeSetup(
     force: false,
     preview: false,
     check: false,
+    yes: false,
     only: [],
   };
   const exported = await execute(exportCommand);
@@ -801,14 +806,25 @@ async function execute(command: ExecutableCommand): Promise<Result> {
 
   let result: Result;
   if (command.command === "export") {
-    result = command.preview
-      ? renderStatic(
-          planPreview(
-            snapshot,
-            previewWorkingTree(repoRoot, snapshot.repoFiles),
-          ),
-        )
-      : applyPlan(planExport(snapshot), context);
+    if (command.preview) {
+      result = renderStatic(
+        planPreview(snapshot, previewWorkingTree(repoRoot, snapshot.repoFiles)),
+      );
+    } else {
+      const plan = planExport(snapshot);
+      const lines = changeLines(plan, snapshot);
+      const applied = applyPlan(plan, context);
+      result =
+        lines.length === 0
+          ? applied
+          : {
+              ...applied,
+              stdout:
+                writeLines(
+                  groupBlock(lines, snapshot.record, snapshot.os, "push"),
+                ) + applied.stdout,
+            };
+    }
     if (
       command.preview &&
       result.code === 0 &&
