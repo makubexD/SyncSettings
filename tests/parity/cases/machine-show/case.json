@@ -1,0 +1,28 @@
+{
+  "description": "machine show prints the record as the contract's six lines, exit 0 (Machines (program only), mksync machine show).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      },
+      "git": {
+        "description": "Git settings"
+      },
+      "shell": {
+        "description": "Shell start-up files"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "machine-show"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "wk1-old",
+  "profile": "work-1",
+  "os": "linux",
+  "hostname": "wk1-old",
+  "domain": null,
+  "claude": "claude",
+  "pullOnly": false,
+  "modules": {
+    "add": [],
+    "remove": []
+  },
+  "values": {},
+  "replaced": [],
+  "retired": false,
+  "extra": true
+}

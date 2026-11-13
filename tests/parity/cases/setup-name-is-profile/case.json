@@ -1,0 +1,48 @@
+{
+  "description": "setup with the hostname equal to the chosen profile stops with the contract's can't-share-its-profile's-name error and exit 2, before anything is written (Machines (program only), mksync setup, Name).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "work-1",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git"
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "work-1",
+        "claude": "none",
+        "mode": "push",
+        "existing": "stop"
+      },
+      "stderr": true
+    }
+  ]
+}

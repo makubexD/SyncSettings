@@ -1,6 +1,7 @@
 import { selectEntries } from "../layers/select.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planImport } from "./import.ts";
+import { scopeFor } from "./pick.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type { Plan, RunPlan, Snapshot } from "./types.ts";
@@ -16,8 +17,6 @@ const CHECK_WORD_WIDTH = 10;
 
 /** A value that no real file holds, so a flagged entry never reads as unchanged. */
 const MISSING_SENTINEL = "\u0000mksync-needs-values:";
-
-const MISSING_VALUE = /^missing value for (.+): add it to \.user-values\.json$/;
 
 const STATUS_LINE = new RegExp(
   `^ {2}(${STATUS_WORDS.join("|")}) +(.+?)(?: {2}\\(.*\\))?$`,
@@ -39,13 +38,6 @@ function checkLine(word: "CREATE" | "UPDATE", label: string): string {
   return `  ${word.padEnd(CHECK_WORD_WIDTH)} ${label}`;
 }
 
-function missingPlaceholder(line: string | undefined): string | undefined {
-  if (line === undefined) {
-    return undefined;
-  }
-  return MISSING_VALUE.exec(line)?.[1];
-}
-
 /**
  * The import plan the check reads its decisions from. An import stops on the
  * first placeholder with no value; a check instead reports that entry as
@@ -60,7 +52,7 @@ function importForCheck(snapshot: Snapshot): ImportForCheck {
     if (plan.code !== 1) {
       return { plan, unresolved };
     }
-    const missing = missingPlaceholder(plan.lines[0]);
+    const missing = plan.missing;
     if (missing === undefined || unresolved.has(missing)) {
       return { plan, unresolved };
     }
@@ -84,11 +76,7 @@ function labelsNeedingValues(
   }
   const selected = selectEntries(
     snapshot.config,
-    {
-      os: snapshot.os,
-      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
-      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
-    },
+    scopeFor(snapshot),
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
@@ -172,16 +160,13 @@ function checkedBody(
   return { lines, changes, errors };
 }
 
-function summaryLines(body: CheckedBody): { readonly lines: readonly string[]; readonly code: number } {
+function summaryLines(body: CheckedBody): {
+  readonly lines: readonly string[];
+  readonly code: number;
+} {
   if (body.errors > 0) {
     return {
-      lines: [
-        "",
-        `  ${body.errors} error(s); ${ERROR_HINT}.`,
-        "",
-        DASHES,
-        "",
-      ],
+      lines: ["", `  ${body.errors} error(s); ${ERROR_HINT}.`, "", DASHES, ""],
       code: 1,
     };
   }

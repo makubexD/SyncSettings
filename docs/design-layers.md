@@ -231,8 +231,10 @@ anything about this one computer goes on the machine. If a placeholder ends up i
 "Layers".
 
 **Moving `.user-values.json`.** On a machine's first run of the new engine, each key of `.user-values.json` goes to the
-profile or to the machine by the table above. A placeholder that isn't in the table is asked about once. The old file
-is left as it is, so the old engine still works until cut-over, and is deleted then.
+profile or to the machine by the table above. A placeholder that isn't in the table is asked about once,
+`<OTHER>: kept on 1) this profile 2) this machine [1]`, and `--yes` or end of input keeps it on the profile. The old
+file is left as it is, so the old engine still works until cut-over, and is deleted then. With a record the program reads
+values only from the machine, then the profile; a value asked for during a pull is saved by the same rule.
 
 Example: personal Linux has `{"<YOUR_EMAIL>": "jane@example.com", "<HOME>": "/home/jane"}`. After the first run, the
 `personal` profile holds the email and the machine record holds `/home/jane`. On work #1, the same move puts the work
@@ -409,7 +411,13 @@ The machine layer's files (overrides from "Layers") sit next to the record.
 
 **Where it's kept.** Until the repo is private, in the machine's local state: `~/.local/state/sync-settings/` on Linux
 and macOS, `%LOCALAPPDATA%\sync-settings\` on Windows, as `machine.json`, with the profile it uses under `profiles/`.
-After the switch, in the repo as `machines/<name>.json`, and the local state keeps only the record's name.
+After the switch, in the repo as `machines/<name>.json`, and the local state keeps only a pointer,
+`{"name": "<name>", "home": "repo"}`, written by the first private push; reading a record never needs the network, only
+the guard does.
+
+A machine with no record (every machine before its first `mksync setup`) runs as in phase 5 with no profile: no profile
+or machine layer, every module on, values from `.user-values.json`. The record replaced phase 5's `SYNC_PROFILE` and
+`SYNC_MACHINE` stand-ins in phase 6.
 
 Example: personal Linux's record is `{"name": "personal-linux", "profile": "personal", "os": "linux", "claude":
 "claude-deepseek", "pullOnly": false, …}` with `<HOME>` = `/home/jane` in its values.
@@ -441,19 +449,20 @@ Profiles in this repo:
 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1]
 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --push --existing backup
+Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup
 ```
 
 The suggested answers, in brackets:
 
-1. **The profile.** The profile of the record whose hostname is exactly this one, with "replaces `<machine>`". With no
-   exact match there is no suggestion and no scoring: the user picks a number or types a new profile name. Retired
-   profiles aren't listed.
+1. **The profile.** The profile of the one non-retired record whose hostname is exactly this one, with "replaces
+   `<machine>`". With no exact match, or two or more (a reinstalled machine's hostname coming back), there is no
+   suggestion and no scoring: the user picks a number or types a new profile name. Retired profiles aren't listed.
 2. **Claude.** "Claude only" when the scan found `claude`, else "none". DeepSeek is never suggested; it's chosen.
 3. **Push or pull only.** "Push with a preview".
 4. **Existing files.** "Back up and replace": each file is backed up as `<file>.bak` before the pull writes it, as
    today. "Keep mine" runs a push (with its preview) before the pull; "stop" ends without writing anything but the
-   record.
+   record. Until the program can commit (phase 8), "keep mine" runs `export` then `import` and prints `Pushed into the
+   repo folder; commit it with mksync push.`
 
 **Before the repo is private** the repo holds no profiles or records, so the first run lists only `personal` and the
 profiles kept in this machine's local state (none, on a new machine), and makes no "replaces" suggestion. The user
@@ -461,12 +470,19 @@ types a profile name, and the new profile starts with an empty module list fille
 machine then has its own copy of its profile: values and `destinations` aren't shared between two machines of one job
 until the switch. The example above is the first run after the switch.
 
-With `--yes` and no terminal, every question needs its flag; a missing one stops with `missing --profile` (exit 2).
+A question takes its flag; without one, it's asked, and an empty answer or end of input takes the suggestion in
+brackets. `--yes` takes every suggestion without asking. A question with no suggestion (the profile, unless a record has
+this hostname) that gets end of input, or `--yes` and no flag, stops with `ERROR: missing --profile` (exit 2) before
+anything is written. `--name` with `--replace` stops with `ERROR: --name and --replace can't be used together.` (exit
+1).
 
-**`mksync whoami`** prints the record:
+**Tests** replace the scan with `SYNC_HOSTNAME`, `SYNC_DOMAIN` (empty means none) and `SYNC_TOOLS` (a comma list of the
+tools found), as `SYNC_OS` replaces the OS, so a shared case prints the same scan on every runner.
+
+**`mksync machine show`** prints the record:
 
 ```text
-$ mksync whoami
+$ mksync machine show
 machine   wk1-laptop
 profile   work-1
 os        windows
@@ -482,7 +498,8 @@ warning: the record says hostname wk1-laptop, this machine is wk1-new.
 If this is a new machine, run: mksync setup --replace wk1-laptop
 ```
 
-Push and pull print the same warning, and push stops on it (exit 1), so two machines never push from one record.
+Pull and its check print the same warning and go on; push stops on it (exit 1), so two machines never push from one
+record. Push also stops for a retired or pull-only record. The push preview only warns.
 
 ## Replace and retire
 
@@ -498,7 +515,16 @@ in `replaced`.
 **Retire.** A machine record gets `retired: true` when the machine is gone for good; a profile gets it when the job
 ends. Nothing is deleted: the repo keeps both as the last backup. A retired profile isn't offered on a first run; a
 retired machine isn't offered for `--replace` and can't push. Retiring a profile doesn't retire its machines: each is
-retired or moved to another profile on its own.
+retired or moved to another profile on its own, and a profile still used by a record that isn't retired can't be
+retired (`profile work-1 is used by machine wk1-laptop`, exit 1). Both ask `[y/N]` first; `--yes` answers.
+
+**While public** a new machine has no local records, so `--replace wk1-laptop` there stops with `no machine wk1-laptop
+here; records are shared once the repo is private.` (exit 1). Replace proper needs the repo store, which tests reach
+with `MKSYNC_VISIBILITY=private` fixtures. A rerun of `setup` on a machine that has a record stops too, pointing to
+`--replace`.
+
+Example: on personal Linux, `mksync profile retire personal` is refused while `personal-linux` uses it; `mksync machine
+retire personal-linux --yes` first, then the profile can be retired.
 
 ## Public-repo guard
 
@@ -524,6 +550,11 @@ Until the repo is private, profiles, machine records and values never reach it. 
   the record's name.
 - **Tests.** Fixtures push to a local bare repo, so they set `MKSYNC_VISIBILITY` to test both sides. The variable is
   ignored for a `github.com` origin, so it can't switch the guard off on the real repo.
+
+**Built in phase 6:** reading the visibility (from the push URL, with SSH host aliases resolved by `ssh -G`), the held
+line in `export --preview`, and the refusal in `export` when the clone already tracks `profiles/` or `machines/` in any
+letter case. The "first backup" group waits for phase 7; merging two machines' copies of one profile exists as a core
+function (`mergeProfileCopies`) that phase 7 wires into the first private push.
 
 Example: today, personal Linux pushes a VS Code change. The preview shows the change and `held until the repo is
 private: profiles/personal.json, machines/personal-linux.json`; the PR has the VS Code change only.
@@ -564,7 +595,7 @@ Open a PR with these changes? [Y/n]
   destination or the suggestion, nothing is moved, and the PR opens. The profile-value rule and the public-repo guard
   still stop it.
 - The PR, branch and exit codes are today's (`sync/<os>-…`, never `master`; 0, or 1 on an error).
-- **Pull-only** machines have no push: `mksync push` prints `this machine is pull-only (see mksync whoami)` and exits 1,
+- **Pull-only** machines have no push: `mksync push` prints `this machine is pull-only (see mksync machine show)` and exits 1,
   and `mksync status` never suggests it.
 
 **Pull** stays today's command: the guard against unpushed local edits, `Apply these changes? [Y/n]`, `.bak` before
@@ -697,8 +728,8 @@ says, with the same names.
 two variables stand in for the record: `SYNC_PROFILE` and `SYNC_MACHINE`, read like `SYNC_OS`. Unset, the program has
 no profile or machine layer and every module is on, as in phase 4. Set, it reads the profile from
 `<state>/profiles/<name>.json`, the profile layer from `<state>/profiles/<name>/` and the machine layer from
-`<state>/machines/<name>/`; it never reads `profiles/` or `machines/` from the repo while it's public. Phase 6 drops
-both variables for the record.
+`<state>/machines/<name>/`; it never reads `profiles/` or `machines/` from the repo while it's public. Phase 6
+removed both variables: the record ("Machine records") names the profile and the machine.
 Example: `SYNC_PROFILE=work-1 mksync import` on a test machine with `<state>/profiles/work-1.json` listing `vscode`
 and `<state>/profiles/work-1/vscode/settings.json` holding `{"http.proxy": "http://proxy.example.com:8080"}` imports
 VS Code's settings with the proxy merged in, and skips every entry of a module `work-1` doesn't list.
@@ -840,6 +871,39 @@ src/
   leaves `profiles/` and `machines/` out. The parser skips a leading BOM and stops at 512 levels; `splitImport` takes
   the last marker followed only by `@` lines.
 
+**As built in phase 6.** Machines and profiles as data, the first run, and the guard:
+
+- `core/machine/` holds one file per concern: `record.ts` (the `MachineRecord` type, `parseRecord`, `recordText` with
+  the byte-exact key order), `scope.ts` (`machineScope`: which modules are on, and `machineValues`: record values
+  before profile values), `check.ts` (`checkRecord`: the record checks push, preview and pull run first),
+  `values.ts` (`placeValue` and `moveUserValues`: the "Kept on" table and the one-time copy of `.user-values.json`),
+  `replace.ts` (`replaceRecord`: hostname, domain and the `replaced` history), `retire.ts` (the retire questions and
+  results), `show.ts` (`machine show`'s six lines) and `copies.ts` (`mergeProfileCopies`, not wired until phase 7).
+- `core/guard.ts` is the public-repo guard: given the visibility, the tracked paths and the local records, it returns
+  `held` and `refused`, matching `profiles/` and `machines/` case-insensitively. It imports no adapter.
+- `adapters/store.ts` reads and writes local state: `machine.json` and `profiles/<name>.json` under the state folder
+  (`readStore`, `writeRecord`, `writeProfile`) and, once private, the repo's `machines/` and `profiles/`
+  (`readRepoStore`). `adapters/scan.ts` reads the machine for `setup` (OS, hostname, domain, git email, tools, existing
+  files; `SYNC_HOSTNAME`, `SYNC_DOMAIN` and `SYNC_TOOLS` override it). `adapters/visibility.ts` reads the push URL's
+  visibility through `gh`, the GitHub API, `ssh -G` for SSH aliases and `MKSYNC_VISIBILITY`, behind injectable
+  `run` and `fetch` so its tests never reach the network.
+- `wizard/setup.ts` is the flow (`runSetup`): scan block, profile list, four questions, refusals and summary, against
+  an `io` with `write` and `readLine`. It writes nothing and returns the record, the profile, the fourth answer and
+  `replaced`. `main.ts` then asks the value questions, writes the profile and then the record, and runs the import or
+  export. `cli/parse.ts` parses `setup`, `machine show`, `machine retire` and `profile retire`.
+- Values with a record: `adapters/snapshot.ts` reads them as `machineValues` (record over profile) and leaves
+  `.user-values.json` unread. `resolveValues` and `hydrate` take the record's profile and machine names as a
+  `ValueOwner`, so a missing value's error names both and carries its `placeholder` as data; `planImport` and
+  `planExport` copy it to `RunPlan.missing`, which `core/plan/check.ts` reads to flag the entry and plan again.
+  `core/plan/machine-values.ts` (`valuesPrepare`) picks the `prepare` action: `writeValues` with no record, else one
+  `writeMachineValues` carrying the record and profile with this run's new values merged in (split by `placeValue`;
+  an unnamed placeholder goes on the profile), or nothing when no value is new. `adapters/fs.ts` writes the profile,
+  then the record, through `writeProfile` and `writeRecord`. A failed save still isn't reported (phase 4 entry).
+- Store reads: `readText` in `adapters/store.ts` treats only `ENOENT` as missing; any other error on `machine.json` or
+  a profile is `can't be read`, exit 2, except under `setup --replace`, which goes on as if this machine had no
+  record. `main.ts` stops a public export when `git ls-files` fails, and `adapters/visibility.ts` aborts `gh` after
+  the API's 5-second limit.
+
 ## Release and update
 
 - **From phase 4:** CI builds the four programs on every pull request and every push to `master`, from one Linux job
@@ -922,7 +986,8 @@ Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholder
   source); the program prints none. Package drift comes in phase 8.
 
 **Shared cases for layers (phase 5).** The shared cases carried only v1 until phase 5. Layers need config v2, so a
-case may give `configV2` instead of `config`, plus `env` (`SYNC_PROFILE`, `SYNC_MACHINE` only) and a `state/` tree
+case may give `configV2` instead of `config`, plus `env` (from phase 6: `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`
+and `MKSYNC_VISIBILITY`; phase 5's `SYNC_PROFILE` and `SYNC_MACHINE` were removed) and a `state/` tree
 copied into the state folder, with `expect/state/` compared like `expect/home/`. The old engines can't read v2: their
 runs print `SKIP <case>: v2 only`. Example: `json-merge-layers` gives a base and a Linux `parity/settings.json`; the
 program writes the merged file on Linux, macOS and Windows (CRLF there), and bash skips it.
@@ -994,15 +1059,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **JSON with comments (JSONC).** VS Code's `settings.json` may hold comments and trailing commas; Claude's may not.
   Phase 5 refuses both (`not valid JSON`), since no synced file has them today. If one needs them, the parser keeps
   comments attached to the next key, or the entry stays `whole`.
-- **`SYNC_PROFILE` and `SYNC_MACHINE`.** Stand-ins for the machine record from phase 5; phase 6 removes them, or keeps
-  them as a test-only override like `SYNC_OS`.
-- **New commands and flags.** `mksync whoami`, and `setup`'s `--profile`, `--replace`, `--claude`, `--push`/`--pull-only`
-  and `--existing` are new; the contract's "Front door" changes with them. Also how a profile or machine is retired
-  from the command line (`mksync retire <machine>`, `mksync profile retire <name>`?). The `cli` skill reviews the names
-  before phase 6.
-- **Retiring a profile with live machines.** Refuse while a non-retired machine uses it, or warn and go on.
-- **Two records, one hostname.** A replaced machine's hostname can come back (a reinstall). The exact-match suggestion
-  then names the newest record with that hostname; older ones are retired or listed in `replaced`.
+- **Exit code for usage errors.** The front door exits 1 on an unknown option or clashing flags and 2 only on a
+  missing command or a missing answer; the `cli` skill's contract uses 2 for every usage error (its review in phase 6,
+  step 1, which settled the new command names: `mksync whoami` became `mksync machine show`, `--push`/`--pull-only`
+  became `--mode`). Moving `Unknown option` to exit 2 changes `pull`, `push` and `diff`, so it waits for the cut-over
+  (phase 9) with a shared case, or stays as is.
 - **Elevation wrapper.** `-User` (import into another Windows account, elevated) is dropped at cut-over. If a real need
   shows up (a file only an admin may write), a small wrapper runs `mksync pull` through `RunAs` on Windows or `sudo`
   elsewhere, for the one entry. Designed and built only then.
@@ -1021,9 +1082,10 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
-- **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. At the first
-  private push, the copies of one profile are merged: modules and `destinations` joined, a value that differs between
-  copies asked about. The exact flow is phase 6's.
+- **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. Phase 6 built the
+  merge in `core/machine/copies.ts`: modules in first-seen order and `destinations` joined, `retired` if any copy says
+  so, and a value or destination that differs returned as a question. Where the copies come from and how the question
+  is asked is phase 7's, with the first private push.
 - **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
   drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
   or become hidden, is the `cli` skill's review before phase 8.
@@ -1082,8 +1144,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - Files inside a `dir` entry: bash orders them with `sort -z`, which follows the locale (`a.txt B.txt _c` under
     `en_US.UTF-8`); the program sorts by code unit. Decide `LC_ALL=C` in bash, with a shared case, and write the
     order into the contract.
-  - `core/plan/check.ts` finds a missing value by matching its own error text and plans again per placeholder;
-    `resolveValues` should return the placeholder as data. `isExcluded` compiles its patterns per file.
+  - `isExcluded` compiles its patterns per file.
   - `core/plan/import.ts` still skips a file entry whose snapshot entry is a symlink; the adapter no longer produces
     one, so the branch is dead until the snapshot types drop the case.
   - Mutants no test kills: inference keeping the last match, sanitize's doubled-form order (a value ending in `\`),
@@ -1102,6 +1163,47 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - `core/plan/preview.ts` names `profiles/` and `machines/` again, as `adapters/fs.ts` does; one core constant would
     hold both.
   - `parsedJson` in `core/plan/import.ts` repeats the private `parseBytes` of `core/merge/json.ts`.
+- **Machines, phase 6.** Chosen in the build where the contract is silent; confirm or change in the contract:
+  - A module limited to several systems is off as `<m> off, linux or macos only` (`core/machine/scope.ts`).
+  - A record whose `name` equals its `profile` is refused as `name can't be <value>` (`core/machine/record.ts`).
+  - A repo-home record that doesn't parse uses the state folder's `machine record (machine.json …)` line.
+  - Setup: a bad answer to questions 2 to 4 prints `Pick 1 to <n>.` and asks again; an answer of digits only is
+    never a new profile's name (the contract now fixes a choice as digits only); the profile list pads a name with machines to 12 characters and
+    shows several as `machines a, b`; a takeover on the same hostname and domain adds no `replaced` entry;
+    `--profile` with `--replace` takes the record's profile.
+  - Setup "keep mine": a failed export stops before the import, with the export's exit code, so local files that
+    weren't pushed are never overwritten.
+  - Replace asks each machine value as `<KEY> [<old value>] ` in the record's key order; no shared case has a value
+    yet.
+  - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1. Retiring a machine
+    whose `machine.json` is a repo-home pointer writes the whole record to the state folder; once pointers exist
+    (phase 7) it must write the repo's `machines/<name>.json` instead.
+- **Left by the phase 6 audits.** Each is a behavior the contract doesn't fix yet:
+  - Retire reads only local state; once the repo is private it must read the repo store, both for the machine and for
+    "used by" (phase 7, with the pointer write above).
+  - The guard checks tracked paths, not unpushed history: a state file committed and then `git rm --cached` still
+    goes out with the next push. Phase 8 owns the push.
+  - A piped `setup --replace` prints the old machine values as suggestions on stdout.
+  - A `__proto__` placeholder in `.user-values.json` is dropped without a message.
+  - Profile names read from file names, and retire names, aren't checked against the layer-name rule.
+  - An unknown verb in a group (`mksync machine list`) exits 1 as an unknown option; an unknown command prints the
+    usage line, exit 2.
+  - No `--help` at any level and no `--name=value` form (a migration, per the `cli` skill).
+  - `--profile`, `--claude` and `--mode` given with `--replace` are ignored without a message.
+  - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
+    which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's
+    rules would be a migration.
+  - An SSH alias that resolves to `ssh.github.com` (GitHub's SSH over port 443) is public, since only `github.com`
+    is asked. It fails closed; asking it as `github.com` would need a line in the contract first.
+  - An unreadable `machines/<name>.json` or `profiles/<name>.json` in the repo prints the state folder's `can't be
+    read` line (`adapters/store.ts`); the contract names no repo line yet. Phase 7, with the repo store.
+  - The guard's stop when `git ls-files` fails in a clone has no shared case: the runner can't break a clone's index
+    (the `setup` field from phase 4 would). A folder with no `.git` lists nothing, which the 18 export cases run
+    outside a clone rely on.
+  - `ENOTDIR` counts as a missing record, like `ENOENT`: a file where the state folder should be reads as "no record
+    yet", and `setup` then fails at the write instead of before the questions.
+  - A repeated setup flag has no shared case: the parity runner takes options as a JSON object. `src/cli/parse.test.ts`
+    pins `ERROR: <flag> is repeated.`, and the usage line is pinned to the contract the same way.
 
 ### Confirm on Windows
 

@@ -1,0 +1,24 @@
+{
+  "description": "export while the repo is public stops with the contract's two refused lines and exit 1 when the clone already tracks machines/wk1-laptop.json, and writes nothing (Public-repo guard (program only), Refused).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true,
+      "output": "all"
+    }
+  ]
+}

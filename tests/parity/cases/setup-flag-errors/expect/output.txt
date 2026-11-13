@@ -1,0 +1,1 @@
+ERROR: --mode must be one of push, pull-only.

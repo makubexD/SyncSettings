@@ -1,0 +1,25 @@
+{
+  "description": "export --preview with MKSYNC_VISIBILITY unset and a local origin counts as public and ends with the held line and both paths (Public-repo guard (program only), Visibility and Held).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": null
+  },
+  "git": "remote",
+  "commands": [
+    {
+      "command": "preview",
+      "output": "all"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import type { ConfigV2Entry, Os } from "../config/types.ts";
-import type { SelectedEntry } from "../layers/select.ts";
+import type { SelectScope, SelectedEntry } from "../layers/select.ts";
+import { machineScope } from "../machine/scope.ts";
 import { expandHome, separatorFor } from "../paths.ts";
 import type { RunPlan, Snapshot } from "./types.ts";
 
@@ -9,22 +10,55 @@ export type OnlyOutcome =
   | { readonly ok: true; readonly paths: readonly string[] }
   | { readonly ok: false; readonly plan: RunPlan };
 
+/**
+ * The layer scope of a snapshot: its OS, the profile and machine it runs for,
+ * and, with a profile or a record, the modules the machine keeps on for this
+ * OS. `machineScope` treats a missing profile as every module.
+ */
+export function scopeFor(snapshot: Snapshot): SelectScope {
+  return {
+    os: snapshot.os,
+    ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
+    ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
+    ...(snapshot.profile !== undefined || snapshot.record !== undefined
+      ? {
+          modules: machineScope(
+            snapshot.config,
+            snapshot.profile,
+            snapshot.record,
+            snapshot.os,
+          ).on,
+        }
+      : {}),
+  };
+}
+
 export function otherSeparator(separator: "/" | "\\"): string {
   return separator === "/" ? "\\" : "/";
 }
 
-export function joinPath(base: string, tail: string, separator: "/" | "\\"): string {
+export function joinPath(
+  base: string,
+  tail: string,
+  separator: "/" | "\\",
+): string {
   if (base === "") {
     return tail;
   }
   if (tail === "") {
     return base;
   }
-  return base.endsWith(separator) ? `${base}${tail}` : `${base}${separator}${tail}`;
+  return base.endsWith(separator)
+    ? `${base}${tail}`
+    : `${base}${separator}${tail}`;
 }
 
 /** The entry's local path on this system, `localPaths` first (contract "`localPath`"). */
-export function resolvedLocal(entry: ConfigV2Entry, os: Os, home: string): string {
+export function resolvedLocal(
+  entry: ConfigV2Entry,
+  os: Os,
+  home: string,
+): string {
   const raw = entry.localPaths?.[os] ?? entry.localPath ?? "";
   return expandHome(raw, os, home);
 }
@@ -79,10 +113,15 @@ export function absoluteLocal(raw: string, snapshot: Snapshot): string {
 
 /** The entry's repo path: the layer that holds it, else the write root. */
 export function primaryRepoPath(selected: SelectedEntry): string {
-  return selected.source?.repoPath ?? `${selected.writeRoot}${selected.entry.file}`;
+  return (
+    selected.source?.repoPath ?? `${selected.writeRoot}${selected.entry.file}`
+  );
 }
 
-export function onlySelected(repoPath: string, only: readonly string[]): boolean {
+export function onlySelected(
+  repoPath: string,
+  only: readonly string[],
+): boolean {
   if (only.length === 0) {
     return true;
   }
@@ -94,7 +133,10 @@ export function onlySelected(repoPath: string, only: readonly string[]): boolean
   );
 }
 
-export function entrySelected(selected: SelectedEntry, only: readonly string[]): boolean {
+export function entrySelected(
+  selected: SelectedEntry,
+  only: readonly string[],
+): boolean {
   if (only.length === 0) {
     return true;
   }
@@ -120,14 +162,14 @@ export function errorPlan(message: string, code: number): RunPlan {
 }
 
 export function onlyFailure(argument: string): RunPlan {
-  return errorPlan(
-    `ERROR: ${argument} is not synced on this machine.`,
-    1,
-  );
+  return errorPlan(`ERROR: ${argument} is not synced on this machine.`, 1);
 }
 
 /** Contract "Picking files": turn every `--only` path into the repo path it names. */
-export function resolveOnly(snapshot: Snapshot, selected: readonly SelectedEntry[]): OnlyOutcome {
+export function resolveOnly(
+  snapshot: Snapshot,
+  selected: readonly SelectedEntry[],
+): OnlyOutcome {
   const paths: string[] = [];
   for (const argument of snapshot.only) {
     let path = argument;
@@ -141,7 +183,10 @@ export function resolveOnly(snapshot: Snapshot, selected: readonly SelectedEntry
       }
       const found = selected.some((entry) => {
         const repoPath = primaryRepoPath(entry);
-        return path === repoPath || (entry.entry.merge === "dir" && path.startsWith(`${repoPath}/`));
+        return (
+          path === repoPath ||
+          (entry.entry.merge === "dir" && path.startsWith(`${repoPath}/`))
+        );
       });
       if (!found) {
         return { ok: false, plan: onlyFailure(argument) };
@@ -165,7 +210,10 @@ export function resolveOnly(snapshot: Snapshot, selected: readonly SelectedEntry
         repoPath = primaryRepoPath(entry);
         break;
       }
-      if (entry.entry.merge === "dir" && absolute.startsWith(`${local}${separator}`)) {
+      if (
+        entry.entry.merge === "dir" &&
+        absolute.startsWith(`${local}${separator}`)
+      ) {
         const rest = absolute
           .slice(local.length + 1)
           .replaceAll(separator, "/");

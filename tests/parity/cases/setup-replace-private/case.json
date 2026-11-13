@@ -1,0 +1,52 @@
+{
+  "description": "setup --replace takes over a record from the repo store while MKSYNC_VISIBILITY is private: the record keeps the name and profile and the scan's new hostname, and machine show then confirms it; a new machine has no local record, so the store searched is the repo's machines/ (Machines (program only), replace). The record's replaced line carries today's date, so machine.json is left out of expect/state.",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-new",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "work-1",
+        "replace": "wk1-laptop",
+        "existing": "stop"
+      }
+    },
+    {
+      "command": "machine-show",
+      "stderr": true
+    }
+  ]
+}

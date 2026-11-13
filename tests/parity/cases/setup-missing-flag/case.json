@@ -1,0 +1,45 @@
+{
+  "description": "setup --yes with no --profile stops on the profile question, which has no suggestion while public, with the contract's missing-flag error and exit 2, after the scan and the profile list and before anything is written (Machines (program only), mksync setup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "yes": true
+      },
+      "stderr": true
+    }
+  ]
+}

@@ -3,7 +3,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseV1 } from "../config/v1.ts";
 import { convertV1 } from "../config/convert.ts";
 import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
-import { STATUS_WORDS } from "../status.ts";
+import type { MachineRecord } from "../machine/record.ts";
+import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planCheck } from "./check.ts";
 import { planPreview } from "./preview.ts";
 import type { LocalEntry, Plan, Snapshot } from "./types.ts";
@@ -14,11 +15,32 @@ const HOME = "/home/user";
 
 const MODE = 0o644;
 
+/** A record naming the profile and machine a missing value could go in. */
+const RECORD: MachineRecord = {
+  name: "wk1-laptop",
+  profile: "work",
+  os: "linux",
+  hostname: "wk1",
+  domain: null,
+  claude: "none",
+  pullOnly: false,
+  modules: { add: [], remove: [] },
+  values: {},
+  replaced: [],
+  retired: false,
+};
+
 const CHECK_WORDS = [...STATUS_WORDS, "CREATE", "UPDATE"];
 
 const STATUS_LINE = new RegExp(
   `^\\s*\\[?\\s*(${CHECK_WORDS.join("|")})\\s*\\]?\\s+(\\S+)`,
 );
+
+const MISSING_VALUE_CASE = "missing-value-stops";
+
+const MISSING_VALUE_LABEL = "dotfiles/common/parity/a.conf";
+
+const NEEDS_VALUES_NOTE = "needs values: run mksync setup";
 
 interface CaseOptions {
   readonly only?: readonly string[];
@@ -191,6 +213,11 @@ function withLocalBytes(
   return { ...snapshot, localFiles };
 }
 
+/** A copy of `snapshot` with the machine record this run reads. */
+function withRecord(snapshot: Snapshot, record: MachineRecord): Snapshot {
+  return { ...snapshot, record };
+}
+
 describe("planCheck", () => {
   test("check-one-change", () => {
     // Act
@@ -211,6 +238,49 @@ describe("planCheck", () => {
     expect(result.lines).toContain(
       "  If you changed them on this machine, run mksync push first.",
     );
+  });
+
+  test("should flag a missing value when no record names a profile or machine", () => {
+    // Act
+    const result = runCase(MISSING_VALUE_CASE, planCheck);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `SKIPPED ${MISSING_VALUE_LABEL}`,
+    ]);
+    expect(result.code).toBe(3);
+    expect(result.actions).toEqual([]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", MISSING_VALUE_LABEL, NEEDS_VALUES_NOTE),
+    );
+    expect(
+      result.lines.some((line) => line.includes("missing value for")),
+    ).toBe(false);
+  });
+
+  test("should flag a missing value when a record names where it could go", () => {
+    // Arrange
+    const snapshot = snapshotFor(MISSING_VALUE_CASE);
+    expect(snapshot).toBeDefined();
+    if (snapshot === undefined) {
+      return;
+    }
+
+    // Act
+    const result = planCheck(withRecord(snapshot, RECORD));
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `SKIPPED ${MISSING_VALUE_LABEL}`,
+    ]);
+    expect(result.code).toBe(3);
+    expect(result.actions).toEqual([]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", MISSING_VALUE_LABEL, NEEDS_VALUES_NOTE),
+    );
+    expect(
+      result.lines.some((line) => line.includes("missing value for")),
+    ).toBe(false);
   });
 });
 

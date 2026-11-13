@@ -1,5 +1,6 @@
 import type { Profile } from "../config/profile.ts";
 import type { ConfigV2, Os } from "../config/types.ts";
+import type { MachineRecord } from "../machine/record.ts";
 import type { Values } from "../values/sanitize.ts";
 
 /**
@@ -40,6 +41,8 @@ export interface Snapshot {
   readonly profile?: Profile;
   /** Contract "Layers (program only)": the machine layer this run uses. */
   readonly machine?: string;
+  /** Contract "Where records are kept": the record this run reads. */
+  readonly record?: MachineRecord;
   /** The user's home folder, so a `~/` local path can be resolved. */
   readonly home: string;
   /** The caller's folder, for a `--only` path that is not absolute. */
@@ -134,6 +137,17 @@ export interface WriteValuesAction {
   readonly text: string;
 }
 
+/**
+ * Save a record's and profile's values in the state folder (contract "Values
+ * on a machine"). The record and profile carry the values new this run already
+ * merged in; the core does the merge, the adapter only writes.
+ */
+export interface WriteMachineValuesAction {
+  readonly kind: "writeMachineValues";
+  readonly record: MachineRecord;
+  readonly profile?: Profile;
+}
+
 export type Action =
   | WriteRepoAction
   | RemoveRepoAction
@@ -142,7 +156,8 @@ export type Action =
   | MkdirAction
   | ChmodAction
   | WriteStateAction
-  | WriteValuesAction;
+  | WriteValuesAction
+  | WriteMachineValuesAction;
 
 /** What a plan asks the adapter to do and print, and the exit code. */
 export interface Plan {
@@ -203,6 +218,8 @@ export interface RunPlan {
   readonly lines: readonly string[];
   readonly summary: Summary;
   readonly code: number;
+  /** The placeholder whose missing value stopped the plan. */
+  readonly missing?: string;
 }
 
 /**

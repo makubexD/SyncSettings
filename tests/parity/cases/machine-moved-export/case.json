@@ -1,0 +1,32 @@
+{
+  "description": "Export on another hostname stops with the contract's ERROR line and the If line, exit 1, and the repo is unchanged (Machines (program only), hostname check).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-new",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true,
+      "output": "all"
+    }
+  ]
+}

@@ -13,8 +13,11 @@ import type { Dirent, Stats } from "node:fs";
 import { posix, win32 } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectedEntry } from "../core/layers/select.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
+import { scopeFor } from "../core/plan/pick.ts";
 import type {
   Action,
   LocalEntry,
@@ -25,6 +28,7 @@ import type {
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { expandHome } from "./paths.ts";
+import { writeProfile, writeRecord } from "./store.ts";
 
 /** The parts of a path this OS writes: `posix` on Linux and macOS, `win32` on Windows. */
 type PathApi = typeof posix;
@@ -35,11 +39,6 @@ const MODE_MASK = 0o7777;
 
 const DOTFILES_FOLDER = "dotfiles";
 
-/** Contract "Profile and machine, until phase 6": the state folder's layer folders. */
-export const PROFILES_FOLDER = "profiles";
-
-export const MACHINES_FOLDER = "machines";
-
 /** Everything the snapshot adapter reads besides the disk itself. */
 export interface SnapshotInput {
   readonly repoRoot: string;
@@ -49,6 +48,7 @@ export interface SnapshotInput {
   readonly stateFolder?: string;
   readonly profile?: Profile;
   readonly machine?: string;
+  readonly record?: MachineRecord;
   readonly home: string;
   readonly cwd: string;
   readonly values: Values;
@@ -236,11 +236,7 @@ function addLocalDir(
   }
 }
 
-function addExistingParent(
-  path: string,
-  os: Os,
-  localDirs: Set<string>,
-): void {
+function addExistingParent(path: string, os: Os, localDirs: Set<string>): void {
   const parent = pathFor(os).dirname(path);
   if (parent === path) {
     return;
@@ -297,21 +293,8 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
 
   const localFiles = new Map<string, LocalEntry>();
   const localDirs = new Set<string>();
-  const selected = selectEntries(
-    input.config,
-    {
-      os: input.os,
-      ...(input.profile !== undefined ? { profile: input.profile } : {}),
-      ...(input.machine !== undefined ? { machine: input.machine } : {}),
-    },
-    new Set(repoFiles.keys()),
-  );
-  if (selected.ok) {
-    for (const chosen of selected.value) {
-      addSelectedEntry(chosen, input.os, input.home, localFiles, localDirs);
-    }
-  }
-
+  // The snapshot is built first so the selection can read the same scope a
+  // plan will; the maps it holds are filled below.
   const snapshot: Snapshot = {
     config: input.config,
     os: input.os,
@@ -325,7 +308,19 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
     only: input.only,
     ...(input.profile !== undefined ? { profile: input.profile } : {}),
     ...(input.machine !== undefined ? { machine: input.machine } : {}),
+    ...(input.record !== undefined ? { record: input.record } : {}),
   };
+  const selected = selectEntries(
+    snapshot.config,
+    scopeFor(snapshot),
+    new Set(repoFiles.keys()),
+  );
+  if (selected.ok) {
+    for (const chosen of selected.value) {
+      addSelectedEntry(chosen, input.os, input.home, localFiles, localDirs);
+    }
+  }
+
   if (input.force !== undefined) {
     return { ...snapshot, force: input.force };
   }
@@ -376,7 +371,11 @@ function addImportSideFiles(
   const p = pathFor(os);
   const folder = p.dirname(path);
   for (const layer of selected.layers.slice(1)) {
-    addLocalEntry(p.join(folder, importName.replaceAll("{layer}", layer.label)), os, localFiles);
+    addLocalEntry(
+      p.join(folder, importName.replaceAll("{layer}", layer.label)),
+      os,
+      localFiles,
+    );
   }
 }
 
@@ -452,7 +451,12 @@ function containedPath(
  */
 function absolutePath(path: string, context: RunContext): string {
   if (isRepoPath(path)) {
-    return containedPath(path, context.repoRoot, REPO_CONTAINMENT_DEPTH, context);
+    return containedPath(
+      path,
+      context.repoRoot,
+      REPO_CONTAINMENT_DEPTH,
+      context,
+    );
   }
   if (isStatePath(path)) {
     return containedPath(
@@ -622,7 +626,9 @@ function copyModeFrom(
   if (context.os === "windows" || modeFrom === undefined) {
     return;
   }
-  const mode = existingMode(pathFor(context.os).join(context.repoRoot, modeFrom));
+  const mode = existingMode(
+    pathFor(context.os).join(context.repoRoot, modeFrom),
+  );
   if (mode !== undefined) {
     chmodSync(path, mode);
   }
@@ -687,7 +693,12 @@ function runAction(
         if (action.repoPath === undefined) {
           return ACTION_OK;
         }
-        const warning = datedBackup(action.path, action.repoPath, context, dated);
+        const warning = datedBackup(
+          action.path,
+          action.repoPath,
+          context,
+          dated,
+        );
         return { ok: true, warning };
       }
       case "mkdir":
@@ -703,6 +714,12 @@ function runAction(
         return ACTION_OK;
       case "writeValues":
         writeValuesFile(action.text, context);
+        return ACTION_OK;
+      case "writeMachineValues":
+        if (action.profile !== undefined) {
+          writeProfile(context.stateFolder, action.profile);
+        }
+        writeRecord(context.stateFolder, action.record);
         return ACTION_OK;
       default: {
         const unhandled: never = action;

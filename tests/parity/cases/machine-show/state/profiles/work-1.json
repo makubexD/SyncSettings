@@ -1,0 +1,6 @@
+{
+  "modules": ["work-base", "git", "shell"],
+  "values": {},
+  "destinations": {},
+  "retired": false
+}

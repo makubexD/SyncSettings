@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
 import type {
   Action,
   FileStep,
@@ -1025,5 +1026,53 @@ describe("runPlan values file", () => {
 
     // Assert
     expect(statSync(path).mode & 0o777).toBe(PRIVATE_MODE);
+  });
+});
+
+describe("runPlan machine values", () => {
+  test("should write the record and profile with their merged values", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const record: MachineRecord = {
+      name: "wk1-laptop",
+      profile: "work-1",
+      os: "linux",
+      hostname: "wk1-laptop",
+      domain: null,
+      claude: "claude",
+      pullOnly: false,
+      modules: { add: [], remove: [] },
+      values: { "<HOME>": "/home/user" },
+      replaced: [],
+      retired: false,
+    };
+    const profile: Profile = {
+      name: "work-1",
+      modules: ["shell"],
+      values: { "<YOUR_NAME>": "Parity User" },
+      destinations: {},
+      retired: false,
+    };
+    const plan: RunPlan = {
+      ...planOf([]),
+      prepare: [{ kind: "writeMachineValues", record, profile }],
+    };
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    const state = stateFolder("linux", home, {});
+    const machinePath = join(state, "machine.json");
+    const profilePath = join(state, "profiles", "work-1.json");
+    expect(readFileSync(machinePath, "utf8")).toContain(
+      '"<HOME>": "/home/user"',
+    );
+    expect(readFileSync(profilePath, "utf8")).toContain(
+      '"<YOUR_NAME>": "Parity User"',
+    );
+    expect(statSync(machinePath).mode & 0o777).toBe(PRIVATE_MODE);
+    expect(statSync(profilePath).mode & 0o777).toBe(PRIVATE_MODE);
   });
 });

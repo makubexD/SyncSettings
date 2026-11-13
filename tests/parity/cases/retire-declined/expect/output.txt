@@ -1,0 +1,1 @@
+Retire machine wk1-laptop? It can't push after this. [y/N] Nothing retired.

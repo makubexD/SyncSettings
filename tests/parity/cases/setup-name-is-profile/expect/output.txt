@@ -1,0 +1,12 @@
+Scanning this machine...
+  OS         linux
+  Hostname   work-1
+  Domain     none
+  Git email  none
+  Tools      git (not found: gh, jq, code, claude, tmux, starship, wezterm, htop, rtk)
+  Files      0 of 2 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+ERROR: machine work-1 can't share its profile's name; use --name <machine>.

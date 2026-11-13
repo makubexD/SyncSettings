@@ -1,0 +1,11 @@
+{
+  "modules": [
+    "shell",
+    "git"
+  ],
+  "values": {
+    "<OTHER>": "kept"
+  },
+  "destinations": {},
+  "retired": false
+}

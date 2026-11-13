@@ -91,7 +91,7 @@ Decisions made 2026-11-10, to be written into the design:
   - Claude here: none, Claude only, or Claude plus DeepSeek?
   - Push with a preview, or pull only?
   - What happens to files that are already here?
-- The answers go to the machine record (profile, Claude mode, pull-only), and `mksync whoami` prints it.
+- The answers go to the machine record (profile, Claude mode, pull-only), and `mksync machine show` prints it.
 - **Replacing a broken machine:** the new one takes over the old one's record.
 
 **Push and pull**
@@ -151,9 +151,19 @@ from the state folder (`SYNC_PROFILE`, `SYNC_MACHINE`), and passes the 51 shared
 
 ### Phase 6: machines
 
-- Machine records, the first-run scan and its four questions, `mksync whoami`, replacing a machine, retired profiles,
-  and per-machine and per-profile values.
+- Machine records, the first-run scan and its four questions, `mksync machine show`, replacing a machine, retired
+  profiles, and per-machine and per-profile values.
 - The public-repo guard: values stay local and are committed after the repo goes private.
+
+**Done 2026-11-13** ([plan-single-engine-6.md](plan-single-engine-6.md), PR #76). `dist/mksync setup` scans the machine, asks
+four questions and writes the record and profile to local state; `machine show`, `machine retire` and `profile retire`
+work on them, and the record picks the profile and machine layers (`SYNC_PROFILE` and `SYNC_MACHINE` are gone). The
+guard reads the push URL's visibility and holds or refuses `profiles/` and `machines/` while public. The finish review's
+fixes (steps 29 to 37) landed before the PR: with a record, values are read from and saved on the record and profile,
+never `.user-values.json`; a machine can't share its profile's name; an unreadable record or profile stops with exit 2;
+the guard stops an export when it can't list the clone; `gh` gets a 5-second limit. The program passes the 94 shared
+cases. Merging two copies of a profile is built but wired in phase 7; what's left is in the design's
+"Open" ("Machines, phase 6" and "Left by the phase 6 audits").
 
 ### Phase 7: push, pull and Claude
 

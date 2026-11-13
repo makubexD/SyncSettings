@@ -1,0 +1,23 @@
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      0 of 2 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+1/4 What is this machine for? 2/4 Claude here? 1) none  2) Claude only  3) Claude plus DeepSeek [2] 3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1] 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1] 
+Machine wk1-laptop: profile work-1, Claude only, push with a preview.
+Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup
+  CREATED    dotfiles/common/shell/bashrc
+  CREATED    dotfiles/common/git/gitconfig
+
+  --------------------------------------------------
+
+  2 file(s) applied.
+
+  --------------------------------------------------
+

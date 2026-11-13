@@ -1,3 +1,4 @@
+import { STATE_FOLDER_ROOTS } from "../guard.ts";
 import { planExport } from "./export.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
@@ -14,15 +15,15 @@ const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 const NOTHING_WRITTEN = "  Nothing was written. Run mksync push to send it.";
 
 /**
- * Contract "Profile and machine, until phase 6": a profile's or machine's layer
- * files live in the state folder, under these repo path roots. An export writes
- * them, but they are never committed, so they are not part of the comparison
- * with `HEAD` or of the preview's count.
+ * A profile's or machine's layer files live in the state folder, under the
+ * guard's repo path roots. An export writes them, but they are never committed,
+ * so they are not part of the comparison with `HEAD` or of the preview's count.
+ * Compared case-insensitively, as the guard folds them: a case-insensitive
+ * filesystem treats `Profiles/` as `profiles/`.
  */
-const STATE_FOLDER_ROOTS: readonly string[] = ["profiles/", "machines/"];
-
 function isStateFile(path: string): boolean {
-  return STATE_FOLDER_ROOTS.some((root) => path.startsWith(root));
+  const folded = path.toLowerCase();
+  return STATE_FOLDER_ROOTS.some((root) => folded.startsWith(root));
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -117,8 +118,7 @@ function previewSummary(
   head: RepoFiles,
 ): readonly string[] {
   const summaryStart = rendered.indexOf("");
-  const body =
-    summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
+  const body = summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
   const actions = plan.steps.flatMap((step) =>
     step.actions.map((entry) => entry.action),
   );

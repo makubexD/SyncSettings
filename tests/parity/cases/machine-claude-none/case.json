@@ -1,0 +1,43 @@
+{
+  "description": "A record with claude none turns the claude module off, so its entry gets no status line while the git entry imports (Machines (program only), modules on a machine).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "claude": {
+        "description": "Claude Code config"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "claude/demo.md",
+        "module": "claude",
+        "merge": "whole",
+        "localPath": "~/.config/parity/claude.md",
+        "description": "Parity Claude file"
+      },
+      {
+        "file": "git/demo.conf",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/git.conf",
+        "description": "Parity git file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

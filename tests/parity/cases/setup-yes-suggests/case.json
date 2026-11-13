@@ -1,0 +1,45 @@
+{
+  "description": "setup --yes --profile takes every suggestion without asking: the name from SYNC_HOSTNAME, Claude only because the scan found claude, push with a preview and back up and replace; the summary and Same as: line name them, then the first pull imports both entries (Machines (program only), mksync setup, suggestions).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "work-1",
+        "yes": true
+      }
+    }
+  ]
+}

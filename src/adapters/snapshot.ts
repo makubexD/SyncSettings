@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import type { RunCommand } from "../cli/parse.ts";
 import { convertV1 } from "../core/config/convert.ts";
 import type { Profile } from "../core/config/profile.ts";
-import { parseProfile } from "../core/config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
@@ -12,11 +11,14 @@ import type {
 } from "../core/config/types.ts";
 import { parseV1 } from "../core/config/v1.ts";
 import { parseV2 } from "../core/config/v2.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
+import { machineValues } from "../core/machine/scope.ts";
 import type { RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
-import { MACHINES_FOLDER, PROFILES_FOLDER, readSnapshot } from "./fs.ts";
+import { readSnapshot } from "./fs.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
+import { readStore, readText } from "./store.ts";
 
 export const V1_CONFIG = "sync-config.json";
 
@@ -42,16 +44,6 @@ export function findRepoRoot(start: string): string | undefined {
   }
 }
 
-/** Read a text file, or `undefined` when it cannot be read. */
-function readText(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    // Unreadable here means a broken clone, reported as an error by the caller.
-    return undefined;
-  }
-}
-
 /** Read a file's bytes, or `undefined` when it cannot be read. */
 function readBytes(path: string): Uint8Array | undefined {
   try {
@@ -65,7 +57,9 @@ function readBytes(path: string): Uint8Array | undefined {
  * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`
  * converted in memory by the same converter that writes the v2 file.
  */
-export function loadConfig(repoRoot: string): LoadResult<ConfigV2, ConfigError> {
+export function loadConfig(
+  repoRoot: string,
+): LoadResult<ConfigV2, ConfigError> {
   const unreadable = (file: string): LoadResult<ConfigV2, ConfigError> => ({
     ok: false,
     error: { message: `ERROR: cannot read ${file}.`, code: 1 },
@@ -90,118 +84,34 @@ function readValues(repoRoot: string): Values {
   return parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
 }
 
-const LAYER_NAME = /^[a-z0-9-]+$/;
-
-const PROFILE_VARIABLE = "SYNC_PROFILE";
-
-const MACHINE_VARIABLE = "SYNC_MACHINE";
-
-/** Layer names a profile or machine may not take: they name another layer. */
-const RESERVED_LAYER_NAMES = ["linux", "macos", "windows", "common", "base"];
-
-/** A run's profile and machine layers, as its environment chooses them. */
+/** A run's profile, machine and record layers, as the record store holds them. */
 export interface Layers {
   readonly profile?: Profile;
   readonly machine?: string;
-}
-
-/** Contract "Profile and machine, until phase 6": unset or empty means no layer. */
-function readLayerName(
-  env: Readonly<Record<string, string | undefined>>,
-  variable: string,
-): LoadResult<string | undefined, ConfigError> {
-  const value = env[variable];
-  if (value === undefined || value === "") {
-    return { ok: true, value: undefined };
-  }
-  if (!LAYER_NAME.test(value)) {
-    return {
-      ok: false,
-      error: {
-        message: `ERROR: ${variable} must be lowercase letters, digits and -; this is ${value}.`,
-        code: 2,
-      },
-    };
-  }
-  return { ok: true, value };
-}
-
-/** Contract "Profile and machine, until phase 6": a layer name can't name another layer. */
-function layerCollision(variable: string, name: string): ConfigError {
-  return {
-    message: `ERROR: ${variable} can't be ${name}: it names another layer.`,
-    code: 2,
-  };
+  readonly record?: MachineRecord;
 }
 
 /**
- * Contract "Profile and machine, until phase 6": the layers `SYNC_PROFILE` and
- * `SYNC_MACHINE` choose. A name outside lowercase letters, digits and `-`, a
- * reserved name, a machine that equals the profile, a profile file that is
- * missing, or one that doesn't parse stops the run with exit code 2 before any
- * file is touched.
+ * Contract "Where records are kept": the layers the machine's record chooses.
+ * No record means no profile or machine layer. A bad record, or one whose
+ * profile file is missing, stops the run with exit code 2 before any file is
+ * touched.
  */
 export function loadLayers(
-  env: Readonly<Record<string, string | undefined>>,
-  config: ConfigV2,
   stateFolder: string,
+  repoRoot: string,
+  config: ConfigV2,
 ): LoadResult<Layers, ConfigError> {
-  const profileName = readLayerName(env, PROFILE_VARIABLE);
-  if (!profileName.ok) {
-    return profileName;
+  const store = readStore(stateFolder, repoRoot, config);
+  if (!store.ok) {
+    return store;
   }
-  const machine = readLayerName(env, MACHINE_VARIABLE);
-  if (!machine.ok) {
-    return machine;
-  }
-  if (
-    profileName.value !== undefined &&
-    RESERVED_LAYER_NAMES.includes(profileName.value)
-  ) {
-    return {
-      ok: false,
-      error: layerCollision(PROFILE_VARIABLE, profileName.value),
-    };
-  }
-  if (
-    machine.value !== undefined &&
-    RESERVED_LAYER_NAMES.includes(machine.value)
-  ) {
-    return { ok: false, error: layerCollision(MACHINE_VARIABLE, machine.value) };
-  }
-  if (
-    profileName.value !== undefined &&
-    machine.value === profileName.value
-  ) {
-    return { ok: false, error: layerCollision(MACHINE_VARIABLE, machine.value) };
-  }
-
-  let profile: Profile | undefined;
-  if (profileName.value !== undefined) {
-    const name = profileName.value;
-    const path = join(stateFolder, PROFILES_FOLDER, `${name}.json`);
-    const text = readText(path);
-    if (text === undefined) {
-      return {
-        ok: false,
-        error: {
-          message: `ERROR: profile ${name} not found: ${path}`,
-          code: 2,
-        },
-      };
-    }
-    const parsed = parseProfile(name, text, config);
-    if (!parsed.ok) {
-      return parsed;
-    }
-    profile = parsed.value;
-  }
-
+  const { profile, record } = store.value;
   return {
     ok: true,
     value: {
       ...(profile !== undefined ? { profile } : {}),
-      ...(machine.value !== undefined ? { machine: machine.value } : {}),
+      ...(record !== undefined ? { machine: record.name, record } : {}),
     },
   };
 }
@@ -226,9 +136,10 @@ export function previewWorkingTree(
 
 /**
  * Build the snapshot the plan reads: the disk through `readSnapshot` (with the
- * profile and machine layers from the state folder), plus `HEAD` and the
- * porcelain status for the import's sync point, and `HEAD`'s bytes for an
- * export preview.
+ * profile, machine and record layers the record store holds), plus `HEAD` and
+ * the porcelain status for the import's sync point, and `HEAD`'s bytes for an
+ * export preview. Decision 4: with a record the values come from the profile
+ * and the record, and `.user-values.json` is not read.
  */
 export async function buildSnapshot(
   repoRoot: string,
@@ -241,6 +152,10 @@ export async function buildSnapshot(
   stateFolder: string,
   layers: Layers,
 ): Promise<Snapshot> {
+  const values =
+    layers.record !== undefined
+      ? machineValues(layers.profile, layers.record)
+      : readValues(repoRoot);
   const snapshot = readSnapshot({
     repoRoot,
     config,
@@ -248,12 +163,13 @@ export async function buildSnapshot(
     home,
     stateFolder,
     cwd,
-    values: readValues(repoRoot),
+    values,
     env,
     only: command.only,
     force: command.force,
     ...(layers.profile !== undefined ? { profile: layers.profile } : {}),
     ...(layers.machine !== undefined ? { machine: layers.machine } : {}),
+    ...(layers.record !== undefined ? { record: layers.record } : {}),
   });
   if (command.command === "export" && !command.preview) {
     return snapshot;

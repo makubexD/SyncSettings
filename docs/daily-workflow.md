@@ -273,6 +273,41 @@ On Windows, the export copies the whole `.gitconfig`, credentials included, into
 the cached-value check. On Linux, the export deletes lines from the shared file instead, and `commit` doesn't stop, so
 don't rely on it: read the diff.
 
+## Try a machine record
+
+Until phase 8 the `mksync` front door doesn't know machine records; only the program does. To try one on a machine,
+build it and run its `setup`, telling it to stop before touching any file:
+
+```bash
+bun install --frozen-lockfile && bun run build
+dist/mksync setup --existing stop
+```
+
+It shows what it read (OS, hostname, tools, how many config entries already exist), lists the profiles (`personal` and
+any made on this machine), and asks what the machine is for, Claude, and push or pull only; Enter takes the suggestion
+in brackets. It prints the same choices as one command (`Same as: mksync setup …`), then writes
+`~/.local/state/sync-settings/machine.json` and the profile next to it, and stops:
+`Stopped: the record is written, no file was changed.` If `.user-values.json` has a value it doesn't know where to keep,
+it asks once: `<KEY>: kept on 1) this profile 2) this machine [1]`.
+
+```bash
+dist/mksync machine show      # the record, six lines
+dist/mksync import --check    # what an import would change, with the profile and machine layers
+```
+
+`--existing backup` instead of `stop` runs the first import right away (each file keeps its `.bak`); `keep` exports this
+machine's files first, so it can't be used with `--mode pull-only`. Running `setup` again stops, because the machine
+already has a record; `--replace <name>` takes over a record, for a reinstall. To go back to no layers at all, delete
+`machine.json`; `machine retire` only marks the record so it can't push. While the repo is public, nothing of this goes
+into it: `export` holds the record and profile, and refuses if the clone already tracks `profiles/` or `machines/`.
+
+Once the record exists, `.user-values.json` is left alone: `setup` copied its values onto the record and the profile,
+and from then on `dist/mksync import` and `export` neither read nor write it. A value found during a run (a path, a
+rule's default) is saved on the record or the profile instead, and a missing one stops the run with
+`missing value for <KEY>: add it to profile <profile> or machine <name>`
+([configuration.md](configuration.md#profiles-and-machines)). The old engines still use the file, so keep it while
+`mksync` runs them; deleting `machine.json` brings it back into use for `dist/mksync` too.
+
 ## When `commit.sh` stops
 
 | Message | What to do |

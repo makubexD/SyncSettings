@@ -10,9 +10,9 @@ import { strategyFor } from "../merge/strategy.ts";
 import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
-import { valuesFileText } from "../values/file.ts";
 import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
+import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
   basename,
   compileExcludes,
@@ -24,6 +24,7 @@ import {
   primaryRepoPath,
   resolvedLocal,
   resolveOnly,
+  scopeFor,
   separatorFor,
 } from "./pick.ts";
 import type {
@@ -255,6 +256,7 @@ function hydratedLayers(
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
+  const owner = valueOwner(state.snapshot);
   const layers: LayerFile[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -265,7 +267,10 @@ function hydratedLayers(
       layers.push({ repoPath: layer.repoPath, bytes });
       continue;
     }
-    const hydrated = hydrate(bytes, rules, state.values, { json });
+    const hydrated = hydrate(bytes, rules, state.values, {
+      json,
+      ...(owner !== undefined ? { owner } : {}),
+    });
     if (!hydrated.ok) {
       const line = pushStatus(state, "ERROR", label, hydrated.error.message);
       recordStep(state, label, line, false);
@@ -283,12 +288,15 @@ function mergedBytes(
   layers: readonly LayerFile[],
   localPath: string,
   eol: "\n" | "\r\n",
-): { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly note: string } {
+):
+  | { readonly ok: true; readonly bytes: Uint8Array }
+  | { readonly ok: false; readonly note: string } {
   const entry = selected.entry;
   if (entry.merge === "json") {
     const local = state.snapshot.localFiles.get(localPath);
     const merged = mergeJson(layers, eol, {
-      bytes: local !== undefined && local.kind === "file" ? local.bytes : undefined,
+      bytes:
+        local !== undefined && local.kind === "file" ? local.bytes : undefined,
       localOnlyKeys: entry.localOnlyKeys ?? [],
     });
     return merged.ok
@@ -349,7 +357,9 @@ function planImportFile(
     recordStep(state, label, line, false);
     return;
   }
-  const hydrated = new Map(layers.map((layer) => [layer.repoPath, layer.bytes]));
+  const hydrated = new Map(
+    layers.map((layer) => [layer.repoPath, layer.bytes]),
+  );
   const merged = mergeImport(
     selected.layers.map((layer) => ({
       label: layer.label,
@@ -376,7 +386,14 @@ function planImportFile(
       pushStatus(state, "SKIPPED", side.repoPath, EXCLUDE_NOTE);
       continue;
     }
-    applyBytes(state, side.repoPath, sidePath, side.repoPath, side.bytes, sanitized);
+    applyBytes(
+      state,
+      side.repoPath,
+      sidePath,
+      side.repoPath,
+      side.bytes,
+      sanitized,
+    );
   }
 }
 
@@ -388,14 +405,21 @@ function planFile(state: State, selected: SelectedEntry): void {
   }
   state.pending = [];
 
-  const localPath = resolvedLocal(entry, state.snapshot.os, state.snapshot.home);
+  const localPath = resolvedLocal(
+    entry,
+    state.snapshot.os,
+    state.snapshot.home,
+  );
   if (state.isExcluded(localPath)) {
     pushStatus(state, "SKIPPED", repoPath, EXCLUDE_NOTE);
     return;
   }
 
   const source = selected.source;
-  const bytes = source === undefined ? undefined : state.snapshot.repoFiles.get(source.repoPath);
+  const bytes =
+    source === undefined
+      ? undefined
+      : state.snapshot.repoFiles.get(source.repoPath);
   if (source === undefined || bytes === undefined) {
     pushStatus(state, "SKIPPED", repoPath, REPO_MISSING_NOTE);
     state.skipped++;
@@ -466,7 +490,11 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (!onlySelected(label, state.only)) {
       continue;
     }
-    const localPath = joinPath(localDir, relative.replaceAll("/", separator), separator);
+    const localPath = joinPath(
+      localDir,
+      relative.replaceAll("/", separator),
+      separator,
+    );
     if (state.isExcluded(localPath)) {
       pushStatus(state, "SKIPPED", label, EXCLUDE_NOTE);
       continue;
@@ -489,7 +517,9 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (local === undefined || local.kind !== "file") {
       continue;
     }
-    const relative = localPath.slice(localPrefix.length).replaceAll(separator, "/");
+    const relative = localPath
+      .slice(localPrefix.length)
+      .replaceAll(separator, "/");
     const label = `${repoPath}/${relative}`;
     if (!onlySelected(label, state.only)) {
       continue;
@@ -522,14 +552,22 @@ function lastSyncFile(snapshot: Snapshot): string {
       localAppData !== undefined && localAppData !== ""
         ? localAppData
         : joinPath(snapshot.home, `AppData${separator}Local`, separator);
-    return joinPath(joinPath(base, "SyncSettings", separator), SYNC_POINT_FILE, separator);
+    return joinPath(
+      joinPath(base, "SyncSettings", separator),
+      SYNC_POINT_FILE,
+      separator,
+    );
   }
   const stateHome = snapshot.env.XDG_STATE_HOME;
   const base =
     stateHome !== undefined && stateHome !== ""
       ? stateHome
       : joinPath(snapshot.home, `.local${separator}state`, separator);
-  return joinPath(joinPath(base, "sync-settings", separator), SYNC_POINT_FILE, separator);
+  return joinPath(
+    joinPath(base, "sync-settings", separator),
+    SYNC_POINT_FILE,
+    separator,
+  );
 }
 
 /** Contract "Sync point": every condition must hold before HEAD is recorded. */
@@ -571,7 +609,10 @@ function collectRules(
       continue;
     }
     const source = entry.source;
-    const repoBytes = source === undefined ? undefined : snapshot.repoFiles.get(source.repoPath);
+    const repoBytes =
+      source === undefined
+        ? undefined
+        : snapshot.repoFiles.get(source.repoPath);
     if (repoBytes === undefined) {
       continue;
     }
@@ -608,11 +649,7 @@ export function planImport(
 ): RunPlan {
   const selected = selectEntries(
     snapshot.config,
-    {
-      os: snapshot.os,
-      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
-      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
-    },
+    scopeFor(snapshot),
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
@@ -625,16 +662,29 @@ export function planImport(
   }
 
   const gathered = collectRules(snapshot, selected.value, only.paths);
-  const values = resolveValues(gathered.rules, snapshot.values, gathered.inferred, snapshot.env);
+  const values = resolveValues(
+    gathered.rules,
+    snapshot.values,
+    gathered.inferred,
+    snapshot.env,
+    valueOwner(snapshot),
+  );
   if (!values.ok) {
-    return errorPlan(values.error.message, 1);
+    const placeholder = values.error.placeholder;
+    return {
+      ...errorPlan(values.error.message, 1),
+      ...(placeholder !== undefined ? { missing: placeholder } : {}),
+    };
   }
 
   const state: State = {
     snapshot,
     values: values.value,
     only: only.paths,
-    isExcluded: compileExcludes(snapshot.config.excludePatterns ?? [], snapshot.os),
+    isExcluded: compileExcludes(
+      snapshot.config.excludePatterns ?? [],
+      snapshot.os,
+    ),
     answers,
     force: snapshot.force === true,
     steps: [],
@@ -685,10 +735,7 @@ export function planImport(
   };
   return {
     // Bash saves every value whenever an entry has rules, before any file.
-    prepare:
-      gathered.rules.length > 0
-        ? [{ kind: "writeValues", text: valuesFileText(values.value) }]
-        : [],
+    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values.value),
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,

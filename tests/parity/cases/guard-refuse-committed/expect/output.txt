@@ -1,0 +1,2 @@
+refused: the repo is public, so machines/wk1-laptop.json can't be pushed.
+It is kept on this machine and goes in with the first push after the repo is private.

@@ -1,0 +1,29 @@
+{
+  "description": "machine show on another hostname prints the six lines, then the hostname warning and the If line on stderr, exit 0 (Machines (program only), hostname check).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      },
+      "git": {
+        "description": "Git settings"
+      },
+      "shell": {
+        "description": "Shell start-up files"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-new",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "machine-show",
+      "stderr": true
+    }
+  ]
+}

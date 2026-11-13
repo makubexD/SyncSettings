@@ -1,5 +1,10 @@
 import { foldCrlf, same } from "../compare.ts";
-import type { ConfigV2, ConfigV2Entry, Os, SanitizeRule } from "../config/types.ts";
+import type {
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+  SanitizeRule,
+} from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { Layer, LayerName, SelectedEntry } from "../layers/select.ts";
 import { splitImport } from "../merge/import.ts";
@@ -7,10 +12,10 @@ import { splitJson } from "../merge/json.ts";
 import type { JsonLayer } from "../merge/json.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
-import { valuesFileText } from "../values/file.ts";
 import { hydrate, resolveValues } from "../values/hydrate.ts";
 import { sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
+import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
   compileExcludes,
   entrySelected,
@@ -21,6 +26,7 @@ import {
   primaryRepoPath,
   resolvedLocal,
   resolveOnly,
+  scopeFor,
   separatorFor,
 } from "./pick.ts";
 import type {
@@ -82,7 +88,11 @@ interface State {
   hits: number;
 }
 
-function compareOptions(snapshot: Snapshot, repoPath: string, sanitized: boolean) {
+function compareOptions(
+  snapshot: Snapshot,
+  repoPath: string,
+  sanitized: boolean,
+) {
   return {
     os: snapshot.os,
     shared: repoPath.startsWith(BASE_ROOT),
@@ -122,7 +132,11 @@ function recordStep(
  * `mkdir -p` a repo file's parent folder. A file entry names the folder, a dir
  * entry reports one fixed reason (`export.sh:140,227`).
  */
-function mkdirParent(state: State, repoPath: string, fixedReason?: string): void {
+function mkdirParent(
+  state: State,
+  repoPath: string,
+  fixedReason?: string,
+): void {
   const slash = repoPath.lastIndexOf("/");
   if (slash > 0) {
     const parent = repoPath.slice(0, slash);
@@ -152,6 +166,7 @@ function hydratedLayers(
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
+  const owner = valueOwner(state.snapshot);
   const layers: HydratedLayer[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -162,7 +177,10 @@ function hydratedLayers(
       layers.push({ layer, bytes });
       continue;
     }
-    const hydrated = hydrate(bytes, rules, state.values, { json });
+    const hydrated = hydrate(bytes, rules, state.values, {
+      json,
+      ...(owner !== undefined ? { owner } : {}),
+    });
     if (!hydrated.ok) {
       const line = pushStatus(state, "ERROR", label, hydrated.error.message);
       recordStep(state, label, line, false);
@@ -396,7 +414,11 @@ function planFile(state: State, selected: SelectedEntry): void {
   }
   state.pending = [];
 
-  const localPath = resolvedLocal(entry, state.snapshot.os, state.snapshot.home);
+  const localPath = resolvedLocal(
+    entry,
+    state.snapshot.os,
+    state.snapshot.home,
+  );
   if (state.isExcluded(localPath)) {
     pushStatus(state, "SKIPPED", repoPath, EXCLUDE_NOTE);
     return;
@@ -404,7 +426,12 @@ function planFile(state: State, selected: SelectedEntry): void {
 
   const local = state.snapshot.localFiles.get(localPath);
   if (local === undefined || local.kind !== "file") {
-    pushStatus(state, "SKIPPED", repoPath, `local file not found: ${localPath}`);
+    pushStatus(
+      state,
+      "SKIPPED",
+      repoPath,
+      `local file not found: ${localPath}`,
+    );
     state.skipped++;
     return;
   }
@@ -430,7 +457,9 @@ function planFile(state: State, selected: SelectedEntry): void {
       json: isJsonEntry(entry),
     });
     if (repo !== undefined) {
-      if (same(repo, sanitized, compareOptions(state.snapshot, repoPath, true))) {
+      if (
+        same(repo, sanitized, compareOptions(state.snapshot, repoPath, true))
+      ) {
         pushStatus(state, "UNCHANGED", repoPath);
       } else {
         state.pending.push({
@@ -474,7 +503,9 @@ function planFile(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  if (same(repo, local.bytes, compareOptions(state.snapshot, repoPath, false))) {
+  if (
+    same(repo, local.bytes, compareOptions(state.snapshot, repoPath, false))
+  ) {
     pushStatus(state, "UNCHANGED", repoPath);
     return;
   }
@@ -502,7 +533,12 @@ function planDir(state: State, selected: SelectedEntry): void {
   );
 
   if (!state.snapshot.localDirs.has(localDir)) {
-    pushStatus(state, "SKIPPED", `${repoPath}/`, `local folder not found: ${localDir}`);
+    pushStatus(
+      state,
+      "SKIPPED",
+      `${repoPath}/`,
+      `local folder not found: ${localDir}`,
+    );
     state.skipped++;
     return;
   }
@@ -519,7 +555,9 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (local === undefined) {
       continue;
     }
-    const relative = localPath.slice(localPrefix.length).replaceAll(separator, "/");
+    const relative = localPath
+      .slice(localPrefix.length)
+      .replaceAll(separator, "/");
     const label = `${repoPath}/${relative}`;
 
     if (local.kind === "symlink") {
@@ -549,7 +587,9 @@ function planDir(state: State, selected: SelectedEntry): void {
       const line = pushStatus(state, "ADDED", label);
       state.changed++;
       recordStep(state, label, line, true);
-    } else if (same(repo, local.bytes, compareOptions(state.snapshot, label, false))) {
+    } else if (
+      same(repo, local.bytes, compareOptions(state.snapshot, label, false))
+    ) {
       pushStatus(state, "UNCHANGED", label);
     } else {
       state.pending.push({
@@ -658,11 +698,7 @@ function orphanReport(state: State): void {
 export function planExport(snapshot: Snapshot): RunPlan {
   const selected = selectEntries(
     snapshot.config,
-    {
-      os: snapshot.os,
-      ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
-      ...(snapshot.machine !== undefined ? { machine: snapshot.machine } : {}),
-    },
+    scopeFor(snapshot),
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
@@ -688,16 +724,29 @@ export function planExport(snapshot: Snapshot): RunPlan {
       rules.push(...(entry.entry.sanitize ?? []));
     }
   }
-  const values = resolveValues(rules, snapshot.values, {}, snapshot.env);
+  const values = resolveValues(
+    rules,
+    snapshot.values,
+    {},
+    snapshot.env,
+    valueOwner(snapshot),
+  );
   if (!values.ok) {
-    return errorPlan(values.error.message, 1);
+    const placeholder = values.error.placeholder;
+    return {
+      ...errorPlan(values.error.message, 1),
+      ...(placeholder !== undefined ? { missing: placeholder } : {}),
+    };
   }
 
   const state: State = {
     snapshot,
     values: values.value,
     only: only.paths,
-    isExcluded: compileExcludes(snapshot.config.excludePatterns ?? [], snapshot.os),
+    isExcluded: compileExcludes(
+      snapshot.config.excludePatterns ?? [],
+      snapshot.os,
+    ),
     steps: [],
     lines: [],
     pending: [],
@@ -734,10 +783,7 @@ export function planExport(snapshot: Snapshot): RunPlan {
   };
   return {
     // Bash saves every value whenever an entry with rules has a local file.
-    prepare:
-      rules.length > 0
-        ? [{ kind: "writeValues", text: valuesFileText(values.value) }]
-        : [],
+    prepare: valuesPrepare(snapshot, rules.length > 0, values.value),
     steps: state.steps,
     finish: [],
     lines: state.lines,
