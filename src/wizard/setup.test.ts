@@ -132,6 +132,7 @@ describe("runSetup", () => {
     if (!outcome.ok) return;
     expect(outcome.action).toBe("backup");
     expect(outcome.newProfile).toBe(true);
+    expect(outcome.replaced).toBe(false);
     expect(outcome.profile).toEqual(
       profile("work-1", ["shell", "git", "gh", "claude", "gnome"]),
     );
@@ -146,7 +147,7 @@ describe("runSetup", () => {
           name: "wk1-laptop",
           profile: "work-1",
           claude: "claude-deepseek",
-          mode: "pull-only",
+          mode: "push",
           existing: "keep",
           yes: true,
         },
@@ -154,14 +155,14 @@ describe("runSetup", () => {
     );
     expect(output).not.toContain("1/4");
     expect(output).toContain(
-      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude-deepseek --mode pull-only --existing keep\n",
+      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude-deepseek --mode push --existing keep\n",
     );
     expect(output).toContain(
-      "Machine wk1-laptop: profile work-1, Claude plus DeepSeek, pull only.\n",
+      "Machine wk1-laptop: profile work-1, Claude plus DeepSeek, push with a preview.\n",
     );
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.action).toBe("keep");
-    expect(outcome.record.pullOnly).toBe(true);
+    expect(outcome.record.pullOnly).toBe(false);
     expect(outcome.record.claude).toBe("claude-deepseek");
     expect(outcome.profile.modules).toEqual([
       "shell",
@@ -260,6 +261,47 @@ describe("runSetup", () => {
     );
   });
 
+  test("should refuse a retired profile named by --profile", async () => {
+    const retired = { ...profile("work-1"), retired: true };
+    const { outcome, output } = await run(
+      input(
+        { profiles: [retired] },
+        {
+          profile: "work-1",
+          claude: "claude",
+          mode: "push",
+          existing: "backup",
+          yes: true,
+        },
+      ),
+    );
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: profile work-1 is retired; pick another name.",
+      code: 1,
+    });
+    expect(output).toBe(
+      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n`,
+    );
+    expect(output).not.toContain("Machine ");
+  });
+
+  test("should refuse a retired profile typed at the first question", async () => {
+    const setup = input({
+      profiles: [{ ...profile("work-1"), retired: true }],
+    });
+    const { outcome, output } = await run(setup, ["work-1"]);
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: profile work-1 is retired; pick another name.",
+      code: 1,
+    });
+    expect(output).toBe(
+      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q1}\n`,
+    );
+    expect(output).not.toContain("2/4");
+  });
+
   test("should suggest the profile of the record with this hostname once private", async () => {
     const setup = input({
       profiles: [profile("work-1")],
@@ -277,6 +319,7 @@ describe("runSetup", () => {
     );
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.record).toEqual(record());
+    expect(outcome.replaced).toBe(true);
   });
 
   test("should not suggest while public", async () => {
@@ -311,6 +354,48 @@ describe("runSetup", () => {
       hostname: "wk1-laptop",
       replaced: [{ hostname: "wk1-old", domain: null, date: TODAY }],
     });
+    expect(outcome.replaced).toBe(true);
+  });
+
+  test("should refuse keep with a pull-only mode given by flags", async () => {
+    const { outcome, output } = await run(
+      input(
+        {},
+        {
+          profile: "work-1",
+          claude: "claude",
+          mode: "pull-only",
+          existing: "keep",
+        },
+      ),
+    );
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.",
+      code: 1,
+    });
+    expect(output).toBe(
+      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n`,
+    );
+    expect(output).not.toContain("Machine ");
+  });
+
+  test("should refuse keep answered after pull-only", async () => {
+    const { outcome, output } = await run(
+      input({}, { profile: "work-1", claude: "claude" }),
+      ["2", "2"],
+    );
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.",
+      code: 1,
+    });
+    expect(output).toBe(
+      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q3}${Q4}\n`,
+    );
+    expect(output).not.toContain("Machine ");
   });
 
   test("should refuse --replace of a missing or retired record", async () => {

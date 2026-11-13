@@ -52,6 +52,9 @@ export type SetupOutcome =
       /** The profile isn't in the store yet and must be written. */
       readonly newProfile: boolean;
       readonly action: ExistingAction;
+      /** True when an existing record is taken over, by `--replace` or by
+       * choosing the profile the hostname suggests. */
+      readonly replaced: boolean;
     }
   | { readonly ok: false; readonly message: string; readonly code: 1 | 2 };
 
@@ -366,6 +369,20 @@ export async function runSetup(
   }
   if (
     replacing === undefined &&
+    input.profiles.some(
+      (candidate) => candidate.name === profileName && candidate.retired,
+    )
+  ) {
+    if (asked) {
+      io.write("\n");
+    }
+    return stop(
+      `ERROR: profile ${profileName} is retired; pick another name.`,
+      1,
+    );
+  }
+  if (
+    replacing === undefined &&
     match !== undefined &&
     profileName === match.profile
   ) {
@@ -406,6 +423,12 @@ export async function runSetup(
   if (asked) {
     io.write("\n");
   }
+  if (mode === "pull-only" && action === "keep") {
+    return stop(
+      "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.",
+      1,
+    );
+  }
 
   const existing = profileNamed(input, profileName);
   const profile: Profile = existing ?? {
@@ -431,6 +454,7 @@ export async function runSetup(
     profile,
     newProfile: existing === undefined,
     action,
+    replaced: replacing !== undefined,
   };
 }
 
