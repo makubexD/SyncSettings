@@ -1,17 +1,21 @@
 import { same } from "../compare.ts";
 import type { ConfigV2, ConfigV2Entry, Os, SanitizeRule } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
-import type { SelectedEntry } from "../layers/select.ts";
+import type { Layer, SelectedEntry } from "../layers/select.ts";
+import { splitImport } from "../merge/import.ts";
+import { splitJson } from "../merge/json.ts";
+import type { JsonLayer } from "../merge/json.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
-import { resolveValues } from "../values/hydrate.ts";
+import { hydrate, resolveValues } from "../values/hydrate.ts";
 import { sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import {
   compileExcludes,
   entrySelected,
   errorPlan,
+  joinPath,
   onlySelected,
   primaryRepoPath,
   resolvedLocal,
@@ -21,6 +25,7 @@ import {
 import type {
   ExportSummary,
   FileStep,
+  LocalFile,
   RunPlan,
   Snapshot,
   StepAction,
@@ -47,6 +52,18 @@ const COPY_MODE_FAILURE = "cannot copy file mode";
 const REMOVE_REPO_FAILURE = "cannot remove from repo";
 
 const CREATE_PARENT_FOLDER_FAILURE = "cannot create parent folder";
+
+const SANITIZED_NOTE = "sanitized";
+
+const IMPORT_NAME_NOTE = "needs {layer} in importName";
+
+const IMPORT_BLOCK_NOTE = "import block is written by mksync, edit not pushed";
+
+/** One layer's bytes with its values put back, ready for a split. */
+interface HydratedLayer {
+  readonly layer: Layer;
+  readonly bytes: Uint8Array;
+}
 
 interface State {
   readonly snapshot: Snapshot;
@@ -112,6 +129,235 @@ function mkdirParent(state: State, repoPath: string, fixedReason?: string): void
   }
 }
 
+/** The folder a path sits in, using this OS's own separator. */
+function parentDir(path: string, separator: "/" | "\\"): string {
+  const slash = path.lastIndexOf(separator);
+  return slash <= 0 ? path : path.slice(0, slash);
+}
+
+/**
+ * Each selected layer's bytes with the run's values put back, in layer order. A
+ * layer the snapshot holds no file for is left out. A missing value is
+ * unreachable after `resolveValues`; it still gives the file its own `ERROR`.
+ */
+function hydratedLayers(
+  state: State,
+  selected: SelectedEntry,
+  label: string,
+): readonly HydratedLayer[] | undefined {
+  const entry = selected.entry;
+  const rules = entry.sanitize ?? [];
+  const json = entry.merge === "json" || entry.file.endsWith(".json");
+  const layers: HydratedLayer[] = [];
+  for (const layer of selected.layers) {
+    const bytes = state.snapshot.repoFiles.get(layer.repoPath);
+    if (bytes === undefined) {
+      continue;
+    }
+    if (rules.length === 0) {
+      layers.push({ layer, bytes });
+      continue;
+    }
+    const hydrated = hydrate(bytes, rules, state.values, { json });
+    if (!hydrated.ok) {
+      const line = pushStatus(state, "ERROR", label, hydrated.error.message);
+      recordStep(state, label, line, false);
+      return undefined;
+    }
+    layers.push({ layer, bytes: hydrated.value });
+  }
+  return layers;
+}
+
+/**
+ * Write one repo file with the status line export gives it: `ADDED` and a
+ * `mkdir` for a layer new to the repo, `UNCHANGED` for the same content,
+ * `MODIFIED` otherwise. `note` replaces the `sanitized` note, as a block edit
+ * does on an import entry's base layer.
+ */
+function writeRepoFile(
+  state: State,
+  repoPath: string,
+  local: LocalFile,
+  bytes: Uint8Array,
+  sanitized: boolean,
+  note?: string,
+): void {
+  const writtenNote = note ?? (sanitized ? SANITIZED_NOTE : undefined);
+  const failure = sanitized ? WRITE_SANITIZED_FAILURE : COPY_TO_REPO_FAILURE;
+  const repo = state.snapshot.repoFiles.get(repoPath);
+
+  if (repo === undefined) {
+    mkdirParent(state, repoPath);
+    state.pending.push({
+      action: { kind: "writeRepo", path: repoPath, bytes },
+      failure,
+    });
+    state.pending.push({
+      action: { kind: "chmod", path: repoPath, mode: local.mode },
+      failure: COPY_MODE_FAILURE,
+    });
+    const line = pushStatus(state, "ADDED", repoPath, writtenNote);
+    state.changed++;
+    recordStep(state, repoPath, line, true);
+    return;
+  }
+
+  if (same(repo, bytes, compareOptions(state.snapshot, repoPath, sanitized))) {
+    pushStatus(state, "UNCHANGED", repoPath, note);
+    return;
+  }
+
+  state.pending.push({
+    action: { kind: "writeRepo", path: repoPath, bytes },
+    failure,
+  });
+  if (!sanitized) {
+    state.pending.push({
+      action: { kind: "chmod", path: repoPath, mode: local.mode },
+      failure: COPY_MODE_FAILURE,
+    });
+  }
+  const line = pushStatus(state, "MODIFIED", repoPath, writtenNote);
+  state.changed++;
+  recordStep(state, repoPath, line, true);
+}
+
+/**
+ * Contract "Layers (program only)", json export: split the local file into its
+ * layers, sanitize each changed layer and write it. A new setting with no
+ * destination is an `ERROR` for the file and nothing of it is written.
+ */
+function planJsonFile(
+  state: State,
+  selected: SelectedEntry,
+  local: LocalFile,
+  hydrated: readonly HydratedLayer[],
+): void {
+  const entry = selected.entry;
+  const repoPath = primaryRepoPath(selected);
+  const layers: JsonLayer[] = hydrated.map((item) => ({
+    name: item.layer.name,
+    repoPath: item.layer.repoPath,
+    bytes: item.bytes,
+  }));
+  const split = splitJson(local.bytes, layers, {
+    localOnlyKeys: entry.localOnlyKeys ?? [],
+  });
+  if (!split.ok) {
+    const line = pushStatus(state, "ERROR", repoPath, split.error);
+    recordStep(state, repoPath, line, false);
+    return;
+  }
+
+  if (split.value.newSettings.length > 0) {
+    for (const setting of split.value.newSettings) {
+      const line = pushStatus(
+        state,
+        "ERROR",
+        repoPath,
+        `new setting ${setting.path}: needs a destination`,
+      );
+      recordStep(state, repoPath, line, false);
+    }
+    return;
+  }
+
+  if (split.value.changes.length === 0) {
+    pushStatus(state, "UNCHANGED", repoPath);
+    return;
+  }
+
+  const rules = entry.sanitize ?? [];
+  const sanitized = rules.length > 0;
+  for (const change of split.value.changes) {
+    const bytes = sanitized
+      ? sanitize(change.bytes, rules, state.values, {
+          json: entry.file.endsWith(".json"),
+        })
+      : change.bytes;
+    state.pending = [];
+    writeRepoFile(state, change.repoPath, local, bytes, sanitized);
+  }
+}
+
+/**
+ * Contract "Layers (program only)", import export: the text above the marker
+ * goes to the base layer, a block edit prints its note, and each later layer's
+ * side file is exported as a whole file.
+ */
+function planImportFile(
+  state: State,
+  selected: SelectedEntry,
+  local: LocalFile,
+  hydrated: readonly HydratedLayer[],
+  label: string,
+): void {
+  const entry = selected.entry;
+  const importName = entry.importName;
+  if (importName === undefined) {
+    const line = pushStatus(state, "ERROR", label, IMPORT_NAME_NOTE);
+    recordStep(state, label, line, false);
+    return;
+  }
+
+  const baseRepoPath = hydrated[0]?.layer.repoPath ?? label;
+  const split = splitImport(
+    local.bytes,
+    hydrated.map((item) => ({
+      label: item.layer.label,
+      repoPath: item.layer.repoPath,
+      bytes: item.bytes,
+    })),
+    importName,
+  );
+  const rules = entry.sanitize ?? [];
+  const sanitized = rules.length > 0;
+  const note = split.blockEdited ? IMPORT_BLOCK_NOTE : undefined;
+
+  if (split.base === undefined) {
+    pushStatus(state, "UNCHANGED", baseRepoPath, note);
+  } else {
+    const bytes = sanitized
+      ? sanitize(split.base, rules, state.values, {
+          json: entry.file.endsWith(".json"),
+        })
+      : split.base;
+    state.pending = [];
+    writeRepoFile(state, baseRepoPath, local, bytes, sanitized, note);
+  }
+
+  const separator = separatorFor(state.snapshot.os);
+  const folder = parentDir(local.path, separator);
+  for (const item of hydrated.slice(1)) {
+    const repoPath = item.layer.repoPath;
+    const sidePath = joinPath(
+      folder,
+      importName.replaceAll("{layer}", item.layer.label),
+      separator,
+    );
+    const side = state.snapshot.localFiles.get(sidePath);
+    if (side === undefined || side.kind !== "file") {
+      // The snapshot reads an entry's own local path, not the layer files beside
+      // it, so a side file it doesn't list has nothing to push: the layer file
+      // stays as it is.
+      pushStatus(state, "UNCHANGED", repoPath);
+      continue;
+    }
+    if (state.isExcluded(sidePath)) {
+      pushStatus(state, "SKIPPED", repoPath, EXCLUDE_NOTE);
+      continue;
+    }
+    const bytes = sanitized
+      ? sanitize(side.bytes, rules, state.values, {
+          json: entry.file.endsWith(".json"),
+        })
+      : side.bytes;
+    state.pending = [];
+    writeRepoFile(state, repoPath, side, bytes, sanitized);
+  }
+}
+
 function planFile(state: State, selected: SelectedEntry): void {
   const entry = selected.entry;
   const repoPath = primaryRepoPath(selected);
@@ -130,6 +376,19 @@ function planFile(state: State, selected: SelectedEntry): void {
   if (local === undefined || local.kind !== "file") {
     pushStatus(state, "SKIPPED", repoPath, `local file not found: ${localPath}`);
     state.skipped++;
+    return;
+  }
+
+  if (entry.merge === "json" || entry.merge === "import") {
+    const layers = hydratedLayers(state, selected, repoPath);
+    if (layers === undefined) {
+      return;
+    }
+    if (entry.merge === "json") {
+      planJsonFile(state, selected, local, layers);
+    } else {
+      planImportFile(state, selected, local, layers, repoPath);
+    }
     return;
   }
 
