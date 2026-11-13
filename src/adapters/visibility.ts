@@ -108,7 +108,7 @@ function parseObject(text: string): Record<string, unknown> | undefined {
  * the signal fires the child is killed and the run reports `FAILED_TO_START`,
  * so a `gh` that hangs counts as "gh cannot tell" and the API is asked.
  */
-async function runCommand(
+export async function runCommand(
   command: string,
   args: readonly string[],
   signal?: AbortSignal,
@@ -146,13 +146,24 @@ async function runCommand(
       const stdoutPromise = new Response(child.stdout).text();
       const code = await Promise.race([child.exited, aborted]);
       if (code === FAILED_TO_START) {
-        // SIGKILL was sent; reap it so no `gh` is left running.
+        // SIGKILL was sent; reap it so no `gh` is left running. Its output is
+        // dropped unread: a process `gh` started may still hold the pipe open,
+        // and waiting for it would bring back the hang the limit stops.
         await child.exited;
-        await stdoutPromise;
+        void stdoutPromise.catch(() => "");
         return { code: FAILED_TO_START, stdout: "" };
       }
-      const stdout = await stdoutPromise;
-      return { code, stdout };
+      // `gh` has exited, but a process it started may still hold the pipe; the
+      // same limit bounds the read, and a cut read counts as "gh cannot tell".
+      const read = await Promise.race([
+        stdoutPromise.then((text) => ({ text })),
+        aborted.then(() => undefined),
+      ]);
+      if (read === undefined) {
+        void stdoutPromise.catch(() => "");
+        return { code: FAILED_TO_START, stdout: "" };
+      }
+      return { code, stdout: read.text };
     } finally {
       signal?.removeEventListener("abort", killChild);
     }

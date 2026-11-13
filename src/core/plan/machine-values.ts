@@ -1,7 +1,18 @@
 import { placeValue } from "../machine/values.ts";
 import { valuesFileText } from "../values/file.ts";
+import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import type { Action, Snapshot, WriteMachineValuesAction } from "./types.ts";
+
+/** The profile and machine a missing value could be added to, when a record
+ * names them. */
+export function valueOwner(snapshot: Snapshot): ValueOwner | undefined {
+  const record = snapshot.record;
+  if (record === undefined) {
+    return undefined;
+  }
+  return { profile: record.profile, machine: record.name };
+}
 
 /**
  * The `writeMachineValues` action for a run with a record: the values this run

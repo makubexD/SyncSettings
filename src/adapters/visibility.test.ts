@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readVisibility } from "./visibility.ts";
+import { readVisibility, runCommand } from "./visibility.ts";
 import type {
   ApiReply,
   CommandOutput,
@@ -255,11 +255,7 @@ describe("readVisibility", () => {
     // Arrange
     const calls: string[][] = [];
     const signals: Array<AbortSignal | undefined> = [];
-    const hangingRun: VisibilityDeps["run"] = async (
-      command,
-      args,
-      signal,
-    ) => {
+    const hangingRun: VisibilityDeps["run"] = async (command, args, signal) => {
       calls.push([command, ...args]);
       signals.push(signal);
       return await new Promise<CommandOutput>((_resolve, reject) => {
@@ -513,5 +509,45 @@ describe("readVisibility", () => {
       expect(visibility).toBe("private");
       expect(stub.calls).toEqual([]);
     });
+  });
+});
+
+describe("runCommand", () => {
+  test("should stop waiting when a process the command started keeps its output open", async () => {
+    // Arrange: sh exits at once, but the background sleep holds stdout.
+    const signal = AbortSignal.timeout(200);
+    const started = Date.now();
+
+    // Act
+    const actual = await runCommand("sh", ["-c", "sleep 5 & echo x"], signal);
+
+    // Assert
+    expect(actual).toEqual({ code: -1, stdout: "" });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  test("should kill a command that runs past its limit", async () => {
+    // Arrange
+    const signal = AbortSignal.timeout(100);
+    const started = Date.now();
+
+    // Act
+    const actual = await runCommand("sleep", ["5"], signal);
+
+    // Assert
+    expect(actual).toEqual({ code: -1, stdout: "" });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  test("should return the output of a command that ends in time", async () => {
+    // Act
+    const actual = await runCommand(
+      "sh",
+      ["-c", "echo x"],
+      AbortSignal.timeout(2000),
+    );
+
+    // Assert
+    expect(actual).toEqual({ code: 0, stdout: "x\n" });
   });
 });

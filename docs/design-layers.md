@@ -1195,6 +1195,13 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
     rules would be a migration.
   - An SSH alias that resolves to `ssh.github.com` (GitHub's SSH over port 443) is public, since only `github.com`
     is asked. It fails closed; asking it as `github.com` would need a line in the contract first.
+  - An unreadable `machines/<name>.json` or `profiles/<name>.json` in the repo prints the state folder's `can't be
+    read` line (`adapters/store.ts`); the contract names no repo line yet. Phase 7, with the repo store.
+  - The guard's stop when `git ls-files` fails in a clone has no shared case: the runner can't break a clone's index
+    (the `setup` field from phase 4 would). A folder with no `.git` lists nothing, which the 18 export cases run
+    outside a clone rely on.
+  - `ENOTDIR` counts as a missing record, like `ENOENT`: a file where the state folder should be reads as "no record
+    yet", and `setup` then fails at the write instead of before the questions.
   - A repeated setup flag has no shared case: the parity runner takes options as a JSON object. `src/cli/parse.test.ts`
     pins `ERROR: <flag> is repeated.`, and the usage line is pinned to the contract the same way.
 

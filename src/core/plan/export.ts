@@ -13,10 +13,9 @@ import type { JsonLayer } from "../merge/json.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { hydrate, resolveValues } from "../values/hydrate.ts";
-import type { ValueOwner } from "../values/hydrate.ts";
 import { sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
-import { valuesPrepare } from "./machine-values.ts";
+import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
   compileExcludes,
   entrySelected,
@@ -152,16 +151,6 @@ function mkdirParent(
 function parentDir(path: string, separator: "/" | "\\"): string {
   const slash = path.lastIndexOf(separator);
   return slash <= 0 ? path : path.slice(0, slash);
-}
-
-/** The profile and machine a missing value could be added to, when a record
- * names them. */
-function valueOwner(snapshot: Snapshot): ValueOwner | undefined {
-  const record = snapshot.record;
-  if (record === undefined) {
-    return undefined;
-  }
-  return { profile: record.profile, machine: record.name };
 }
 
 /**

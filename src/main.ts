@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type { Interface } from "node:readline";
 import { join } from "node:path";
@@ -148,14 +149,21 @@ async function readOrigin(repoRoot: string): Promise<string | undefined> {
   return origin === "" ? undefined : origin;
 }
 
+/** A clone's git folder, or the file a worktree has in its place. */
+const GIT_DIR = ".git";
+
 /**
  * The paths the clone tracks, from `git ls-files`, for the public-repo guard.
+ * A folder with no `.git` isn't a clone and tracks nothing. In a clone,
  * `undefined` when git can't list them (it fails or can't start), so the
  * guard fails closed rather than seeing an empty clone.
  */
 async function readTrackedPaths(
   repoRoot: string,
 ): Promise<readonly string[] | undefined> {
+  if (!existsSync(join(repoRoot, GIT_DIR))) {
+    return [];
+  }
   const output = await runGitText(repoRoot, ["ls-files", "-z"]);
   if (output === undefined || output.code !== 0) {
     return undefined;

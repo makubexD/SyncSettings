@@ -1152,6 +1152,7 @@ It is kept on this machine and goes in with the first push after the repo is pri
 The record checks run first, then this one. While public, a clone whose tracked files can't be listed (`git ls-files`
 fails or git can't start) stops `export` the same way, exit 1:
 `ERROR: can't list the clone's files, so the public-repo guard can't check them.` A private repo needs no listing.
+A folder with no `.git` isn't a clone and tracks nothing, so nothing is refused.
 
 ## macOS
 

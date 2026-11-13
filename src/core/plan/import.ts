@@ -11,9 +11,8 @@ import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
-import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
-import { valuesPrepare } from "./machine-values.ts";
+import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
   basename,
   compileExcludes,
@@ -242,16 +241,6 @@ function applyBytes(
   }
 
   writeCreated(state, label, localPath, repoPath, bytes, failure);
-}
-
-/** The profile and machine a missing value could be added to, when a record
- * names them. */
-function valueOwner(snapshot: Snapshot): ValueOwner | undefined {
-  const record = snapshot.record;
-  if (record === undefined) {
-    return undefined;
-  }
-  return { profile: record.profile, machine: record.name };
 }
 
 /**
