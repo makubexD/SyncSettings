@@ -445,3 +445,127 @@ settled Open items out, what's left in. `configuration.md`: the record and profi
 try the record before phase 8. Roadmap: phase 6 marked done with the PR.
 
 Test: `grep -c '^\*\*Done' docs/plan-single-engine.md` grows by one; `npx prettier --check docs/plan-single-engine-6.md`.
+
+## Review fixes (steps 29 to 37)
+
+The finish review (2026-11-13) found three Required gaps, all reproduced, and six smaller ones. The user chose to fix
+all of them in phase 6 before the PR. Step 28's roadmap line stays; its PR number is added in the finish.
+
+## Step 29: Review decisions in the contract `[inline: contract wording for the review fixes]`
+
+Files: `docs/sync-contract.md`.
+
+Contract lines, written before their cases:
+
+- Setup: a machine name equal to the chosen profile (from the hostname, `--name`, or a profile typed or picked at
+  question 1) stops before anything is written, exit 2:
+  `ERROR: machine <name> can't share its profile's name; use --name <machine>.`
+- Setup `--replace` reads past a bad local record: it goes on as if this machine had no record, so a record nothing
+  else can read can be replaced. Every other command still stops on it.
+- A record or profile file that exists but can't be read (not missing) stops every command with exit 2:
+  `ERROR: machine record (machine.json in the state folder): can't be read.` (`profile <name> (profiles/<name>.json in
+the state folder): can't be read.`). Only a missing file means "no record yet".
+- Guard: while public, a clone whose tracked files can't be listed (`git ls-files` fails) stops `export` with exit 1:
+  `ERROR: can't list the clone's files, so the public-repo guard can't check them.`
+- Visibility: `gh repo view` gets the same 5-second limit as the API; past it, `gh` can't tell and the API is asked.
+- Values with a record, on import and export ("Values on a machine"): a value inferred or asked during the run is saved
+  on the profile or the record by the table (an unknown placeholder goes on the profile), written to the state folder
+  as setup writes them; `.user-values.json` is neither read nor written. A missing value prints
+  `missing value for <PLACEHOLDER>: add it to profile <profile> or machine <name>`, exit 1, before any file is written.
+  Without a record, nothing changes.
+- Setup answers: a choice is digits only (`0x2` or `2.0` is a bad answer). The value question is skipped for a
+  placeholder the profile or the record already has.
+- Export preview counts `profiles/` and `machines/` in any letter case, as the guard does.
+
+Test: `npx prettier --check docs/plan-single-engine-6.md`.
+
+## Step 30: Shared cases for the review fixes `[worker]`
+
+Files: `tests/parity/cases/setup-name-is-profile/`, `tests/parity/cases/setup-replace-bad-record/`,
+`tests/parity/cases/values-record-save/`, `tests/parity/cases/values-record-missing/`.
+
+From step 29's lines: `SYNC_HOSTNAME=work-1` with `--profile work-1` and every other flag (exit 2, no state written);
+a seeded `machine.json` with an unknown field and `setup --replace wk1-laptop` where the store has no such record
+(the `no machine wk1-laptop here` error, exit 1, which proves the bad record no longer stops it first); a record whose
+profile lacks `<HOME>` and an entry with a `<HOME>` rule, `import --force`: the file is written, `<HOME>` saved on the
+record in `expect/state/machine.json`, no `.user-values.json` in the repo; the same with `<YOUR_NAME>` and no value
+anywhere: the missing line naming `work-1` and `wk1-laptop`, exit 1, no file written.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync setup-` and `… values-record-` (the new cases fail
+until steps 31 and 36).
+
+## Step 31: Setup name and answers `[worker]`
+
+Files: `src/wizard/setup.ts`, `src/wizard/setup.test.ts`, `src/main.ts`.
+
+`runSetup` refuses a name equal to the profile (step 29's line, exit 2) once the profile is known, after any question-1
+answer and before the summary; `pick` accepts `/^[0-9]+$/` only. In `main.ts`: `valueAnswers` skips a placeholder the
+outcome's profile or record already has; `executeSetup` with `--replace` treats a store error on the local record as
+no `own` record (profiles still read; a profile error still stops). Unit cases: name equals a flag profile, equals a
+typed profile; `0x2` and `2.0` asked again.
+
+Test: `bun test src/wizard && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync setup-`.
+
+## Step 32: Unreadable state files `[worker]`
+
+Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`.
+
+`readText` returns `undefined` only for `ENOENT`; any other read error of `machine.json` or a profile file becomes
+step 29's `can't be read` error, exit 2. Unit cases: a directory named `machine.json`, a mode-000 profile file (skipped
+when run as root), a missing file still absent.
+
+Test: `bun test src/adapters/store.test.ts && bun run lint`.
+
+## Step 33: Guard fails closed, preview folds case `[worker]`
+
+Files: `src/main.ts`, `src/core/plan/preview.ts`, `src/core/plan/preview.test.ts`.
+
+`readTrackedPaths` returns `undefined` when `git ls-files` fails or git can't start; `exportGuard` while public then
+stops with step 29's line, exit 1 (private: no listing needed). `isStateFile` in `preview.ts` lowercases before
+comparing, as `core/guard.ts` does. Unit cases: `Profiles/x.json` and `MACHINES/y.json` count as state files.
+
+Test: `bun test src/core/plan && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync guard-`.
+
+## Step 34: gh time limit `[worker]`
+
+Files: `src/adapters/visibility.ts`, `src/adapters/visibility.test.ts`.
+
+`readFromGh` gives `run` an `AbortSignal.timeout(API_TIMEOUT_MS)`; `runCommand` kills the child when it fires and
+returns `FAILED_TO_START`, so the API is asked next. `VisibilityDeps.run` takes the signal as an optional third
+argument. Unit case: a `run` that never resolves until aborted falls through to the API's answer.
+
+Test: `bun test src/adapters/visibility.test.ts && bun run lint`.
+
+## Step 35: Missing value names the profile and machine `[worker]`
+
+Files: `src/core/values/hydrate.ts`, `src/core/plan/check.ts`, `src/core/values/values.test.ts`.
+
+`missingValue` takes an optional `{ profile, machine }`; with it, the message is step 29's line, without it the
+current `.user-values.json` line. The error carries `placeholder` as a field, and `check.ts` reads that field instead
+of matching `MISSING_VALUE` on the text (the regex goes). Callers pass the names from `snapshot.record`. Unit cases:
+both messages; check still flags an entry whose value is missing, with and without a record.
+
+Test: `bun test src/core && bun run lint`.
+
+## Step 36: Values saved on the record and profile `[worker:high: reasoning: which values are new this run, and where each goes, across import and export]`
+
+Files: `src/core/plan/import.ts`, `src/core/plan/export.ts`, `src/core/plan/types.ts`, `src/adapters/fs.ts`.
+
+With `snapshot.record`, the plans don't emit `writeValues`; they emit one `writeMachineValues` action carrying the
+values new this run (inferred or asked, not already on the record or the profile), split with `placeValue` (`ask` goes
+to the profile). `fs.ts` runs it by merging them into the record and profile and writing both with `writeRecord` and
+`writeProfile` from `adapters/store.ts` (mode 600), profile first. Without a record, nothing changes. Unit cases in the
+plans' tests: an inferred `<HOME>` goes to the record, `<YOUR_NAME>` to the profile, nothing new means no action.
+
+Test: `bun test src/core/plan src/adapters/fs.test.ts && bun run lint && bun run build && tests/parity/run.sh --engine
+dist/mksync values-record-`.
+
+## Step 37: Docs for the review fixes `[inline: docs step, enriched per the docs rule]`
+
+Files: `docs/design-layers.md`, `docs/configuration.md`, `docs/daily-workflow.md`, `docs/plan-single-engine.md`.
+
+Design: "As built in phase 6" gains the values path and the new action; the Open entries these steps settle come out.
+`configuration.md`: where a value lands with a record. `daily-workflow.md`: `.user-values.json` is left alone once a
+record exists. Roadmap: the phase 6 line mentions the review fixes.
+
+Test: `npx prettier --check docs/plan-single-engine-6.md`; `tests/all.sh` in the finish.
