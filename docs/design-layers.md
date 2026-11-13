@@ -891,6 +891,18 @@ src/
   an `io` with `write` and `readLine`. It writes nothing and returns the record, the profile, the fourth answer and
   `replaced`. `main.ts` then asks the value questions, writes the profile and then the record, and runs the import or
   export. `cli/parse.ts` parses `setup`, `machine show`, `machine retire` and `profile retire`.
+- Values with a record: `adapters/snapshot.ts` reads them as `machineValues` (record over profile) and leaves
+  `.user-values.json` unread. `resolveValues` and `hydrate` take the record's profile and machine names as a
+  `ValueOwner`, so a missing value's error names both and carries its `placeholder` as data; `planImport` and
+  `planExport` copy it to `RunPlan.missing`, which `core/plan/check.ts` reads to flag the entry and plan again.
+  `core/plan/machine-values.ts` (`valuesPrepare`) picks the `prepare` action: `writeValues` with no record, else one
+  `writeMachineValues` carrying the record and profile with this run's new values merged in (split by `placeValue`;
+  an unnamed placeholder goes on the profile), or nothing when no value is new. `adapters/fs.ts` writes the profile,
+  then the record, through `writeProfile` and `writeRecord`. A failed save still isn't reported (phase 4 entry).
+- Store reads: `readText` in `adapters/store.ts` treats only `ENOENT` as missing; any other error on `machine.json` or
+  a profile is `can't be read`, exit 2, except under `setup --replace`, which goes on as if this machine had no
+  record. `main.ts` stops a public export when `git ls-files` fails, and `adapters/visibility.ts` aborts `gh` after
+  the API's 5-second limit.
 
 ## Release and update
 
@@ -1132,8 +1144,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - Files inside a `dir` entry: bash orders them with `sort -z`, which follows the locale (`a.txt B.txt _c` under
     `en_US.UTF-8`); the program sorts by code unit. Decide `LC_ALL=C` in bash, with a shared case, and write the
     order into the contract.
-  - `core/plan/check.ts` finds a missing value by matching its own error text and plans again per placeholder;
-    `resolveValues` should return the placeholder as data. `isExcluded` compiles its patterns per file.
+  - `isExcluded` compiles its patterns per file.
   - `core/plan/import.ts` still skips a file entry whose snapshot entry is a symlink; the adapter no longer produces
     one, so the branch is dead until the snapshot types drop the case.
   - Mutants no test kills: inference keeping the last match, sanitize's doubled-form order (a value ending in `\`),
@@ -1157,7 +1168,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - A record whose `name` equals its `profile` is refused as `name can't be <value>` (`core/machine/record.ts`).
   - A repo-home record that doesn't parse uses the state folder's `machine record (machine.json …)` line.
   - Setup: a bad answer to questions 2 to 4 prints `Pick 1 to <n>.` and asks again; an answer of digits only is
-    always a choice, never a new profile's name; the profile list pads a name with machines to 12 characters and
+    never a new profile's name (the contract now fixes a choice as digits only); the profile list pads a name with machines to 12 characters and
     shows several as `machines a, b`; a takeover on the same hostname and domain adds no `replaced` entry;
     `--profile` with `--replace` takes the record's profile.
   - Setup "keep mine": a failed export stops before the import, with the export's exit code, so local files that

@@ -377,3 +377,14 @@ Without an answer it stops that file with `ERROR`, note `new setting font: needs
 profile, `{ "modules": ["parity"], "destinations": { "font": "profile" } }`, export writes it to the profile layer, and
 creates that layer's file (`ADDED`) when the profile had none for this entry. `"os"` would send it to
 `dotfiles/<os>/parity/settings.json` instead, and `"machine"` to the machine layer (`machines/wk1-laptop/parity/settings.json`). Removing a key locally removes it from every layer that sets it.
+
+**Values with a record.** A placeholder's value comes from the record's `values`, then the profile's;
+`.user-values.json` is neither read nor written, even when it is still there. A value found during an `import` or
+`export` (inferred from the local file, a rule's `default` or its `defaultEnv`) is saved before any file is written,
+on the side the table in [the contract](sync-contract.md#values-on-a-machine) gives it: with the entry above sanitized
+by a `<HOME>` rule whose default is `/home/user`, the first import adds `"<HOME>": "/home/user"` to `machine.json`; a
+`<YOUR_NAME>` default would go into `profiles/work-1.json`, and any placeholder the table doesn't name goes on the
+profile too. The profile is written first, then the record, both readable by you only. A run that finds nothing new
+writes neither, and a preview saves nothing. With no value at all, the run stops before any file with
+`missing value for <HOME>: add it to profile work-1 or machine wk1-laptop`, exit 1: add the value to the `values`
+of `profiles/work-1.json` or `machine.json` and run again.

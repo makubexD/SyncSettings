@@ -301,6 +301,13 @@ already has a record; `--replace <name>` takes over a record, for a reinstall. T
 `machine.json`; `machine retire` only marks the record so it can't push. While the repo is public, nothing of this goes
 into it: `export` holds the record and profile, and refuses if the clone already tracks `profiles/` or `machines/`.
 
+Once the record exists, `.user-values.json` is left alone: `setup` copied its values onto the record and the profile,
+and from then on `dist/mksync import` and `export` neither read nor write it. A value found during a run (a path, a
+rule's default) is saved on the record or the profile instead, and a missing one stops the run with
+`missing value for <KEY>: add it to profile <profile> or machine <name>`
+([configuration.md](configuration.md#profiles-and-machines)). The old engines still use the file, so keep it while
+`mksync` runs them; deleting `machine.json` brings it back into use for `dist/mksync` too.
+
 ## When `commit.sh` stops
 
 | Message | What to do |
