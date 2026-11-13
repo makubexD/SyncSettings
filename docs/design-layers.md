@@ -1257,6 +1257,11 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     yet", and `setup` then fails at the write instead of before the questions.
   - A repeated setup flag has no shared case: the parity runner takes options as a JSON object. `src/cli/parse.test.ts`
     pins `ERROR: <flag> is repeated.`, and the usage line is pinned to the contract the same way.
+- **Left by phase 7 steps 13 and 14.**
+  - A new setting answered (or suggested) into the base or an OS layer is listed under `New settings`, not in that
+    layer's group. If its value holds a profile value, the refusal still stops the run, but its `change <n>` names
+    the first change line of that file, or `0` when the file has none, not the setting's own number. No shared case
+    covers it; the fix is to number hits on new settings with the setting's line.
 
 ### Confirm on Windows
 
