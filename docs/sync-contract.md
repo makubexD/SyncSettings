@@ -898,7 +898,7 @@ writes it in this key order in the layout of `json` entries ([Layers](#layers-pr
 item per line (the example's one-line `modules` and `values` are input the program reads, not what it writes), `{}` and
 `[]` when empty, LF and a trailing newline, readable by the current
 user only (as `.user-values.json`, [Sanitize and hydrate](#sanitize-and-hydrate)); the profile file the same way. A
-bad record stops every command but `setup --replace` with exit 2 before any file is touched, on stderr:
+bad record stops every command with exit 2 before any file is touched, on stderr:
 
 ```text
 ERROR: machine record (machine.json in the state folder): <reason>.
@@ -906,7 +906,14 @@ ERROR: machine record (machine.json in the state folder): <reason>.
 
 `<reason>` is `not valid JSON`, `unknown field <f>`, `missing field <f>`, `<f> has the wrong type`,
 `<f> must be lowercase letters, digits and -; this is <value>`, `<f> can't be <value>: it names another layer`,
-`<f> can't be <value>` (an `os` or `claude` outside its list) or `unknown module <m>`.
+`<f> can't be <value>` (an `os` or `claude` outside its list), `unknown module <m>` or `can't be read`. A bad profile
+file stops the same way as `ERROR: profile <name> (profiles/<name>.json in the state folder): <reason>.`
+
+Only a missing file means "no record yet" (or no such profile). A record or profile file that is there but can't be
+read (a folder in its place, no read permission) is `can't be read`, never treated as missing.
+
+The one exception is `setup --replace`: it reads past a bad local record and goes on as if this machine had none, so a
+record nothing else can read can be replaced. A bad profile file still stops it.
 
 **Where records are kept.** While the repo is public, only in local state: the record in `<state>/machine.json`, its
 profile and any other profile made on this machine in `<state>/profiles/<name>.json`. Once the repo is private, the
@@ -923,23 +930,27 @@ and its `os` includes this system. The order is the profile's, then `add`'s.
 
 #### Values on a machine
 
-With a record, a placeholder's value comes from the record's `values`, then the profile's `values`; `.user-values.json`
-is not read. Inference and the prompt ([Sanitize and hydrate](#sanitize-and-hydrate)) follow as before, and a new value
-is saved where it belongs:
+With a record, on `import`, `export` and `setup` alike, a placeholder's value comes from the record's `values`, then
+the profile's `values`; `.user-values.json` is neither read nor written. Inference and the prompt
+([Sanitize and hydrate](#sanitize-and-hydrate)) follow as before, and a value inferred or asked during the run is saved
+where it belongs, in the state folder, the way `setup` writes the record and the profile (profile first):
 
 | Placeholder | Kept on |
 |---|---|
 | `<YOUR_NAME>`, `<YOUR_EMAIL>`, `<YOUR_GH_USERNAME>`, `<YOUR_GH_ORG>`, `<YOUR_WORK_MARKETPLACE>` | profile |
 | `<HOME>`, `<GH_CLI_PATH>` | machine |
 
-Any other placeholder is asked once, and the answer saved with it:
+On `import` and `export`, any other placeholder goes on the profile. `setup` asks about it once, and saves the answer
+with it:
 
 ```text
 <OTHER>: kept on 1) this profile 2) this machine [1]
 ```
 
 An empty answer, end of input or `--yes` takes `1`. With no value after all of this, the run prints
-`missing value for <PLACEHOLDER>: add it to profile <profile> or machine <name>` and exits 1 before writing any file.
+`missing value for <PLACEHOLDER>: add it to profile <profile> or machine <name>` and exits 1 before writing any file. A
+preview saves nothing ([Export preview](#export-preview)). Without a record, values work as in
+[Sanitize and hydrate](#sanitize-and-hydrate), `.user-values.json` included.
 
 #### The scan
 
@@ -991,9 +1002,9 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
   question is printed with one space after it and no newline, so answers piped on stdin leave the questions on one
   line. A question a flag answers isn't printed.
 - **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
-  the suggestion in brackets. `--yes` takes every suggestion without asking. The first question takes a number or a new
-  profile name; a bad answer prints `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as
-  below).
+  the suggestion in brackets. `--yes` takes every suggestion without asking. A choice is digits only (`0x2` or `2.0`
+  is a bad answer). The first question takes a number or a new profile name; a bad answer prints
+  `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below).
 - **Suggestions.** The profile: the one whose non-retired record has exactly this hostname, with the `This looks like`
   line; two or more such records, or none, give no suggestion and no line (always none while public). Claude: `2` when
   the scan found `claude`, else `1`. Mode: `1`. Existing files: `1`.
@@ -1002,14 +1013,16 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
 - **Name.** `--name`, else the hostname. A name that isn't valid stops with
   `ERROR: <value> isn't a valid machine name; use --name <machine>.`, exit 2; a profile name likewise with
   `--profile <name>`. `--name` with `--replace` stops with `ERROR: --name and --replace can't be used together.`,
-  exit 1.
+  exit 1. A machine name equal to the chosen profile (from the hostname, `--name`, or a profile typed or picked at
+  question 1) stops before anything is written with
+  `ERROR: machine <name> can't share its profile's name; use --name <machine>.`, exit 2.
 - **A new profile** gets `shell`, `git`, then each module whose tool the scan found (`gh`, `code` for `vscode`, `claude`
   for `claude` and, with Claude plus DeepSeek, `claude-worker`, `tmux`, `starship`, `wezterm`, `htop`, `rtk`), then
   `gnome` on Linux and `windows-terminal` on Windows, in the config's module order; `destinations` empty, `retired`
   false.
 - **Values.** `.user-values.json`, if there is one, is copied once by the table in
   [Values on a machine](#values-on-a-machine), asking about any other placeholder as there; a key the profile or record
-  already has keeps its value. The file is left as it is.
+  already has keeps its value, and the value question is skipped for it. The file is left as it is.
 - **Summary.** `Machine <name>: profile <profile>, <Claude>, <mode>.` and the `Same as:` line, which always names
   `--profile`, then `--replace <name>` or `--name <name>`, `--claude`, `--mode` and `--existing`. `<Claude>` is
   `none`, `Claude only` or `Claude plus DeepSeek`; `<mode>` is `push with a preview` or `pull only`.
@@ -1109,8 +1122,8 @@ Until the repo is private, profiles, records and values never reach it.
 
 **Visibility.** The guard judges where a push goes: `origin`'s push URL (`git remote get-url --push origin`). For an
 origin on `github.com`: `gh repo view github.com/<owner>/<repo> --json visibility` when `gh` is signed in, otherwise
-`GET https://api.github.com/repos/<owner>/<repo>`; any failure (no network, no answer, an unknown value) counts as
-public. An owner must start with a letter or digit; a `github.com` origin that doesn't parse is public. An SSH origin
+`GET https://api.github.com/repos/<owner>/<repo>`; each gets 5 seconds. A `gh` that fails or runs past its 5 seconds
+can't tell, and the API is asked; any API failure (no network, no answer in time, an unknown value) counts as public. An owner must start with a letter or digit; a `github.com` origin that doesn't parse is public. An SSH origin
 (`ssh://[user@]host[:port]/path` or `[user@]host:path`) on another host name is resolved with `ssh -G <host>`: an alias
 whose `hostname` is `github.com` is asked as `github.com`; a host starting with `-`, or a failing `ssh -G`, is public.
 For any other origin, `MKSYNC_VISIBILITY` (`private`, anything else or unset is public); the variable is never read for
@@ -1124,6 +1137,9 @@ held until the repo is private: 2 file(s)
   profiles/work-1.json
 ```
 
+The preview's diff and its count of files sent leave out paths under `profiles/` and `machines/` in any letter case,
+as the guard below folds them.
+
 **Refused.** While public, `export` stops with exit 1 before writing anything when the clone already tracks a path
 under `profiles/` or `machines/` (in any letter case, as a case-insensitive file system sees them; each path is shown
 as tracked), two lines per path, sorted:
@@ -1133,7 +1149,9 @@ refused: the repo is public, so machines/wk1-laptop.json can't be pushed.
 It is kept on this machine and goes in with the first push after the repo is private.
 ```
 
-The record checks run first, then this one.
+The record checks run first, then this one. While public, a clone whose tracked files can't be listed (`git ls-files`
+fails or git can't start) stops `export` the same way, exit 1:
+`ERROR: can't list the clone's files, so the public-repo guard can't check them.` A private repo needs no listing.
 
 ## macOS
 
