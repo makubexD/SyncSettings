@@ -1,5 +1,7 @@
 import { same } from "../compare.ts";
 import type { SanitizeRule } from "../config/types.ts";
+import { jsonEqual, parseJson } from "../json/value.ts";
+import type { JsonValue } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
 import { mergeImport } from "../merge/import.ts";
@@ -302,6 +304,30 @@ function mergedBytes(
     : { ok: false, note: merged.error };
 }
 
+/** The JSON value a file holds, or undefined when it isn't valid UTF-8 JSON. */
+function parsedJson(bytes: Uint8Array): JsonValue | undefined {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    // Invalid UTF-8 is not JSON, as in the merge.
+    return undefined;
+  }
+  const parsed = parseJson(text);
+  return parsed.ok ? parsed.value : undefined;
+}
+
+/** Whether two files hold the same JSON value, whatever their layout. */
+function sameJson(left: Uint8Array, right: Uint8Array): boolean {
+  const leftValue = parsedJson(left);
+  const rightValue = parsedJson(right);
+  return (
+    leftValue !== undefined &&
+    rightValue !== undefined &&
+    jsonEqual(leftValue, rightValue)
+  );
+}
+
 /** Write the local file, then each later layer's file beside it, each with its
  * own status line (contract "Layers (program only)", import entries). */
 function planImportFile(
@@ -389,6 +415,21 @@ function planFile(state: State, selected: SelectedEntry): void {
     const line = pushStatus(state, "ERROR", repoPath, merged.note);
     recordStep(state, repoPath, line, false);
     return;
+  }
+
+  // A json entry compares parsed, so key order, whitespace and line endings
+  // alone leave the local file UNCHANGED, with no prompt and no backup.
+  if (entry.merge === "json") {
+    const local = state.snapshot.localFiles.get(localPath);
+    if (
+      local !== undefined &&
+      local.kind === "file" &&
+      sameJson(merged.bytes, local.bytes)
+    ) {
+      const line = pushStatus(state, "UNCHANGED", repoPath);
+      recordStep(state, repoPath, line, false);
+      return;
+    }
   }
 
   ensureParentDir(state, localPath);

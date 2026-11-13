@@ -874,6 +874,15 @@ const JSON_MERGED_PROFILE_TEXT = `{
 `;
 const JSON_MERGED_CRLF_TEXT = JSON_MERGED_TEXT.replaceAll("\n", "\r\n");
 
+const JSON_REORDERED_TEXT =
+  '{"b": 2, "obj": {"k": "base", "k2": "os"}, "list": ["x", "y"], "a": 1}';
+const JSON_SPACED_TEXT = `{  "a" : 1 ,
+  "list" : [ "x" , "y" ] ,
+  "obj" : { "k" : "base" , "k2" : "os" } ,
+  "b" : 2  }
+`;
+const JSON_CHANGED_TEXT = JSON_MERGED_TEXT.replace('"a": 1', '"a": 2');
+
 const PLACEHOLDER_BASE_TEXT = '{"a": 1}';
 const PLACEHOLDER_OS_TEXT = '{"path": "<PATH>"}';
 const PLACEHOLDER_VALUE = 'C:\\Tools\\app "x"';
@@ -968,6 +977,62 @@ function importEntry(): ConfigV2Entry {
     importName: "CLAUDE.{layer}.md",
   };
 }
+
+describe("planImport json comparison", () => {
+  const UNCHANGED_JSON_LINE = "UNCHANGED dotfiles/linux/parity/settings.json";
+  const UPDATED_JSON_LINE = "UPDATED dotfiles/linux/parity/settings.json";
+
+  function jsonLocalResult(local: string): Observed {
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": local },
+    });
+    return runSnapshot(snapshot, []);
+  }
+
+  test("should leave a json entry UNCHANGED when the local keys are reordered", () => {
+    // Act
+    const result = jsonLocalResult(JSON_REORDERED_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UNCHANGED_JSON_LINE]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should leave a json entry UNCHANGED when the local file has CRLF on Linux", () => {
+    // Act
+    const result = jsonLocalResult(JSON_MERGED_CRLF_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UNCHANGED_JSON_LINE]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should leave a json entry UNCHANGED when the local file has extra whitespace", () => {
+    // Act
+    const result = jsonLocalResult(JSON_SPACED_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UNCHANGED_JSON_LINE]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should UPDATE a json entry when a local value changed", () => {
+    // Act
+    const result = jsonLocalResult(JSON_CHANGED_TEXT);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([UPDATED_JSON_LINE]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "backup", path: LOCAL_JSON },
+      { kind: "writeLocal", path: LOCAL_JSON, text: JSON_MERGED_TEXT },
+    ]);
+  });
+});
 
 describe("planImport layers", () => {
   test("should merge a json entry's base and OS layers on Linux", () => {
