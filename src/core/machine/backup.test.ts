@@ -22,6 +22,13 @@ const HOME_HERE = "/home/user";
 
 const HOME_REPO = "/home/jane";
 
+/** Sorts after `<HOME>`, though the repo copy lists it first. */
+const EMAIL_KEY = "<YOUR_EMAIL>";
+
+const EMAIL_HERE = "jane.doe@work1.example.com";
+
+const EMAIL_REPO = "jane@work1.example.com";
+
 const PROFILE_FILE = "profiles/work-1.json";
 
 const RECORD_FILE = "machines/wk1-laptop.json";
@@ -82,7 +89,7 @@ function makeRecord(): MachineRecord {
 }
 
 function makeRepo(overrides: Partial<RepoBackup> = {}): RepoBackup {
-  return { profileLayer: [], ...overrides };
+  return { ...overrides };
 }
 
 function makeAnswers(
@@ -107,7 +114,6 @@ describe("planFirstBackup", () => {
       PROFILE_LAYER_REPO_PATH,
     ]);
     expect(plan.questions).toEqual([]);
-    expect(plan.layerConflicts).toEqual([]);
   });
 
   test("joins the modules with no questions when the repo's profile agrees", () => {
@@ -178,41 +184,26 @@ describe("planFirstBackup", () => {
     ]);
   });
 
-  test("keeps the repo's copy of a profile layer file whose text differs", () => {
+  test("should ask in key order when several keys differ", () => {
     // Arrange
-    const local = makeLocal();
+    const local = makeLocal({
+      profile: makeProfile({
+        values: { [EMAIL_KEY]: EMAIL_HERE, [HOME_KEY]: HOME_HERE },
+      }),
+    });
     const repo = makeRepo({
-      profileLayer: [{ path: PROFILE_LAYER_PATH, text: "[user]\n" }],
+      profile: makeProfile({
+        values: { [EMAIL_KEY]: EMAIL_REPO, [HOME_KEY]: HOME_REPO },
+      }),
     });
 
     // Act
     const plan = planFirstBackup(local, repo);
 
     // Assert
-    expect(plan.layerConflicts).toEqual([PROFILE_LAYER_REPO_PATH]);
-    expect(plan.paths).toEqual([
-      RECORD_FILE,
-      MACHINE_LAYER_REPO_PATH,
-      PROFILE_FILE,
-    ]);
-  });
-
-  test("does not rewrite a profile layer file whose text agrees", () => {
-    // Arrange
-    const local = makeLocal();
-
-    // Act
-    const plan = planFirstBackup(
-      local,
-      makeRepo({ profileLayer: [PROFILE_LAYER_FILE] }),
-    );
-
-    // Assert
-    expect(plan.layerConflicts).toEqual([]);
-    expect(plan.paths).toEqual([
-      RECORD_FILE,
-      MACHINE_LAYER_REPO_PATH,
-      PROFILE_FILE,
+    expect(plan.questions.map((question) => question.key)).toEqual([
+      HOME_KEY,
+      EMAIL_KEY,
     ]);
   });
 });
@@ -318,19 +309,17 @@ describe("firstBackupWrites", () => {
     expect(writes.profile.destinations).toEqual({ [HOME_KEY]: "machine" });
   });
 
-  test("leaves a conflicting profile layer file to the repo's copy", () => {
+  test("should write every layer file from this machine", () => {
     // Arrange
     const local = makeLocal();
-    const repo = makeRepo({
-      profileLayer: [{ path: PROFILE_LAYER_PATH, text: "[user]\n" }],
-    });
 
     // Act
-    const writes = firstBackupWrites(local, repo, makeAnswers());
+    const writes = firstBackupWrites(local, makeRepo(), makeAnswers());
 
     // Assert
     expect(writes.files).toEqual([
       { path: MACHINE_LAYER_REPO_PATH, text: MACHINE_LAYER_FILE.text },
+      { path: PROFILE_LAYER_REPO_PATH, text: PROFILE_LAYER_FILE.text },
     ]);
   });
 });

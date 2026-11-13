@@ -23,10 +23,11 @@ export interface LocalBackup {
   readonly machineLayer: readonly LayerFile[];
 }
 
-/** What the repo already holds for this profile. */
+/** What the repo already holds for this profile: its `profiles/<name>.json`.
+ * Layer files are always written from this machine (contract, "The first
+ * backup"); the adapter reports each as `ADDED` or `MODIFIED`. */
 export interface RepoBackup {
   readonly profile?: Profile;
-  readonly profileLayer: readonly LayerFile[];
 }
 
 /** One value or destination the repo's copy and this machine's disagree on.
@@ -39,12 +40,10 @@ export interface BackupQuestion {
   readonly machine: string;
 }
 
-/** The first backup's files to write, its questions, and the layer files
- * whose repo copy stays because the two sides differ. */
+/** The first backup's files to write and its questions. */
 export interface FirstBackupPlan {
   readonly paths: readonly string[];
   readonly questions: readonly BackupQuestion[];
-  readonly layerConflicts: readonly string[];
 }
 
 /** Which side's value a question keeps. */
@@ -73,13 +72,6 @@ function recordPath(name: string): string {
 
 function layerPath(folder: string, name: string, path: string): string {
   return `${folder}/${name}/${path}`;
-}
-
-function repoFile(
-  layer: readonly LayerFile[],
-  path: string,
-): LayerFile | undefined {
-  return layer.find((file) => file.path === path);
 }
 
 function byPath(
@@ -146,9 +138,9 @@ function mergedProfile(
 }
 
 /**
- * The first backup's plan: every repo path it writes, one question per value
- * or destination the repo's profile and this machine's disagree on, and the
- * profile layer files whose repo copy differs and so stays as it is.
+ * The first backup's plan: every repo path it writes (the record, the profile
+ * and every file in both layer folders) and one question per value or
+ * destination the repo's profile and this machine's disagree on.
  */
 export function planFirstBackup(
   local: LocalBackup,
@@ -166,38 +158,25 @@ export function planFirstBackup(
     }
   }
 
-  const writtenProfileLayer: string[] = [];
-  const layerConflicts: string[] = [];
-  for (const file of local.profileLayer) {
-    const path = layerPath(PROFILES_FOLDER, local.profile.name, file.path);
-    const held = repoFile(repo.profileLayer, file.path);
-    if (held === undefined) {
-      writtenProfileLayer.push(path);
-    } else if (held.text !== file.text) {
-      // shortcut: a differing layer file is left to a later step, so the
-      // repo's copy stays and the backup reports it instead of picking one.
-      layerConflicts.push(path);
-    }
-  }
-
-  const machineLayer = local.machineLayer.map((file) =>
-    layerPath(MACHINES_FOLDER, local.record.name, file.path),
-  );
   const paths = [
     profilePath(local.profile.name),
     recordPath(local.record.name),
-    ...writtenProfileLayer,
-    ...machineLayer,
+    ...local.profileLayer.map((file) =>
+      layerPath(PROFILES_FOLDER, local.profile.name, file.path),
+    ),
+    ...local.machineLayer.map((file) =>
+      layerPath(MACHINES_FOLDER, local.record.name, file.path),
+    ),
   ].sort();
 
-  return { paths, questions, layerConflicts: layerConflicts.sort() };
+  // Contract: asked once per key, in key order.
+  questions.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return { paths, questions };
 }
 
 /**
  * The first backup's writes: the merged profile, the record unchanged, and
- * every profile layer file the repo doesn't already hold plus every machine
- * layer file. A profile layer file the repo holds, same or different, is not
- * rewritten; a differing one is reported by the plan.
+ * every file in both layer folders, this machine's text over the repo's.
  */
 export function firstBackupWrites(
   local: LocalBackup,
@@ -206,9 +185,6 @@ export function firstBackupWrites(
 ): FirstBackupWrites {
   const files: BackupFile[] = [];
   for (const file of local.profileLayer) {
-    if (repoFile(repo.profileLayer, file.path) !== undefined) {
-      continue;
-    }
     files.push({
       path: layerPath(PROFILES_FOLDER, local.profile.name, file.path),
       text: file.text,
