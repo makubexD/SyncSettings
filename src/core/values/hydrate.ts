@@ -12,18 +12,34 @@ import type { Values } from "./sanitize.ts";
 const NEWLINE = 0x0a;
 const CARRIAGE_RETURN = 0x0d;
 
-export interface HydrateOptions {
-  readonly json: boolean;
+export interface ValueOwner {
+  readonly profile: string;
+  readonly machine: string;
 }
 
-function missingValueMessage(placeholder: string): string {
+export interface HydrateOptions {
+  readonly json: boolean;
+  readonly owner?: ValueOwner;
+}
+
+function missingValueMessage(placeholder: string, owner?: ValueOwner): string {
+  if (owner !== undefined) {
+    return `missing value for ${placeholder}: add it to profile ${owner.profile} or machine ${owner.machine}`;
+  }
   return `missing value for ${placeholder}: add it to .user-values.json`;
 }
 
-function missingValue(placeholder: string): Result<never, ConfigError> {
+function missingValue(
+  placeholder: string,
+  owner?: ValueOwner,
+): Result<never, ConfigError> {
   return {
     ok: false,
-    error: { message: missingValueMessage(placeholder), code: 1 },
+    error: {
+      message: missingValueMessage(placeholder, owner),
+      code: 1,
+      placeholder,
+    },
   };
 }
 
@@ -59,8 +75,7 @@ function stripCarriageReturn(line: Uint8Array): Uint8Array {
 
 function startsWithBytes(content: Uint8Array, prefix: Uint8Array): boolean {
   return (
-    content.length >= prefix.length &&
-    indexOfBytes(content, prefix, 0) === 0
+    content.length >= prefix.length && indexOfBytes(content, prefix, 0) === 0
   );
 }
 
@@ -107,7 +122,9 @@ export function inferValues(
         continue;
       }
       const prefix = repoLine.subarray(0, repoPlaceholder);
-      const suffix = repoLine.subarray(repoPlaceholder + placeholderBytes.length);
+      const suffix = repoLine.subarray(
+        repoPlaceholder + placeholderBytes.length,
+      );
       if (!startsWithBytes(localLine, prefix)) {
         continue;
       }
@@ -150,6 +167,7 @@ export function resolveValues(
   cached: Values,
   inferred: Values,
   env: Readonly<Record<string, string | undefined>>,
+  owner?: ValueOwner,
 ): Result<Values, ConfigError> {
   const resolved = new Map<string, string>(Object.entries(cached));
   for (const [placeholder, value] of Object.entries(inferred)) {
@@ -179,7 +197,7 @@ export function resolveValues(
       resolved.set(placeholder, fromEnv);
       continue;
     }
-    return missingValue(placeholder);
+    return missingValue(placeholder, owner);
   }
 
   return { ok: true, value: Object.fromEntries(resolved) };
@@ -207,7 +225,9 @@ function firstMissingInContent(
   return undefined;
 }
 
-function escapedPlaceholders(rules: readonly SanitizeRule[]): ReadonlySet<string> {
+function escapedPlaceholders(
+  rules: readonly SanitizeRule[],
+): ReadonlySet<string> {
   return new Set(
     rules
       .filter((rule) => rule.escapeBackslashes === true)
@@ -239,7 +259,7 @@ export function hydrate(
 ): Result<Uint8Array, ConfigError> {
   const missing = firstMissingInContent(content, rules, values);
   if (missing !== undefined) {
-    return missingValue(missing);
+    return missingValue(missing, options.owner);
   }
 
   const escaped = escapedPlaceholders(rules);

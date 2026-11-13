@@ -32,7 +32,9 @@ function caseValues(name: string): Values {
 }
 
 function caseBytes(name: string, relative: string): Uint8Array {
-  return new Uint8Array(readFileSync(new URL(`${name}/${relative}`, CASE_ROOT)));
+  return new Uint8Array(
+    readFileSync(new URL(`${name}/${relative}`, CASE_ROOT)),
+  );
 }
 
 function expectBytes(actual: Uint8Array, expected: Uint8Array): void {
@@ -134,7 +136,9 @@ describe("sanitize", () => {
     // Assert
     expect(hydrated.ok).toBe(true);
     if (hydrated.ok) {
-      const parsed: unknown = JSON.parse(new TextDecoder().decode(hydrated.value));
+      const parsed: unknown = JSON.parse(
+        new TextDecoder().decode(hydrated.value),
+      );
       expect(parsed).toEqual({ v: 'C:\\Users\\jane "JJ"' });
       expectBytes(sanitized, content);
     }
@@ -200,9 +204,60 @@ describe("hydrate", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message:
-          "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
         code: 1,
+        placeholder: "<YOUR_NAME>",
+      },
+    });
+  });
+
+  test("should name the placeholder when it reports one missing value", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+    const content = encodeUtf8("home=<HOME>");
+
+    // Act
+    const actual = hydrate(content, rules, {}, { json: false });
+
+    // Assert
+    expect(actual).toEqual({
+      ok: false,
+      error: {
+        message: "missing value for <HOME>: add it to .user-values.json",
+        code: 1,
+        placeholder: "<HOME>",
+      },
+    });
+  });
+
+  test("should name the owner when options.owner is set", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+    const content = encodeUtf8("home=<HOME>");
+
+    // Act
+    const actual = hydrate(
+      content,
+      rules,
+      {},
+      {
+        json: false,
+        owner: { profile: "work", machine: "wk1-laptop" },
+      },
+    );
+
+    // Assert
+    expect(actual).toEqual({
+      ok: false,
+      error: {
+        message:
+          "missing value for <HOME>: add it to profile work or machine wk1-laptop",
+        code: 1,
+        placeholder: "<HOME>",
       },
     });
   });
@@ -266,14 +321,8 @@ describe("inferValues", () => {
   test("infer-value", () => {
     // Arrange
     const rules = caseRules("infer-value");
-    const local = caseBytes(
-      "infer-value",
-      "home/.config/parity/a.conf",
-    );
-    const repo = caseBytes(
-      "infer-value",
-      "repo/dotfiles/common/parity/a.conf",
-    );
+    const local = caseBytes("infer-value", "home/.config/parity/a.conf");
+    const repo = caseBytes("infer-value", "repo/dotfiles/common/parity/a.conf");
     const expected = JSON.parse(
       new TextDecoder().decode(caseBytes("infer-value", "expect/values.json")),
     ) as Values;
@@ -300,9 +349,59 @@ describe("resolveValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message:
-          "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
         code: 1,
+        placeholder: "<YOUR_NAME>",
+      },
+    });
+  });
+
+  test("should name the placeholder when no owner is given", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+
+    // Act
+    const actual = resolveValues(rules, {}, {}, {});
+
+    // Assert
+    expect(actual).toEqual({
+      ok: false,
+      error: {
+        message: "missing value for <HOME>: add it to .user-values.json",
+        code: 1,
+        placeholder: "<HOME>",
+      },
+    });
+  });
+
+  test("should name the owner when one is given", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+
+    // Act
+    const actual = resolveValues(
+      rules,
+      {},
+      {},
+      {},
+      {
+        profile: "work",
+        machine: "wk1-laptop",
+      },
+    );
+
+    // Assert
+    expect(actual).toEqual({
+      ok: false,
+      error: {
+        message:
+          "missing value for <HOME>: add it to profile work or machine wk1-laptop",
+        code: 1,
+        placeholder: "<HOME>",
       },
     });
   });
@@ -328,7 +427,12 @@ describe("resolveValues", () => {
   test("default then defaultEnv order", () => {
     // Arrange
     const withDefault: readonly SanitizeRule[] = [
-      { placeholder: "<A>", prompt: "A", default: "from-default", defaultEnv: "E" },
+      {
+        placeholder: "<A>",
+        prompt: "A",
+        default: "from-default",
+        defaultEnv: "E",
+      },
     ];
     const withEnvOnly: readonly SanitizeRule[] = [
       { placeholder: "<A>", prompt: "A", defaultEnv: "E" },
@@ -366,9 +470,9 @@ describe("resolveValues", () => {
     expect(noValue).toEqual({
       ok: false,
       error: {
-        message:
-          "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
         code: 1,
+        placeholder: "<YOUR_NAME>",
       },
     });
     expect(cached).toEqual({

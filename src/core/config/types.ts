@@ -3,6 +3,8 @@ export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 export interface ConfigError {
   readonly message: string;
   readonly code: 1 | 2;
+  /** Set when the error is a missing value, naming its placeholder. */
+  readonly placeholder?: string;
 }
 
 export type Os = "windows" | "linux" | "macos";
