@@ -1,9 +1,31 @@
 import type { Os } from "../config/types.ts";
 import type { LayerName } from "../layers/select.ts";
-import type { ChangeLine } from "./types.ts";
+import type { ChangeLine, NewSettingLine } from "./types.ts";
 
 /** The line an empty group prints, indented to the kind column. */
 const EMPTY_GROUP = "(none)";
+
+/** The title of the block's last section, the new settings. */
+const NEW_SETTINGS_TITLE = "New settings";
+
+/** The kind column a new setting prints, which has no change kind of its own. */
+const NEW_SETTING_KIND = "+";
+
+/** The grouped block's parts: its lines up to the new settings, one line per
+ * new setting, and the indent that reaches the kind column. */
+export interface GroupedBlock {
+  readonly head: readonly string[];
+  readonly settings: readonly string[];
+  readonly indent: string;
+}
+
+/** The columns every line of the block pads: a change line or a new setting. */
+interface BlockLine {
+  readonly kind: string;
+  readonly module: string;
+  readonly file: string;
+  readonly what: string;
+}
 
 /** The group title's OS word (contract "Push preview (program only)"). */
 export const OS_TITLES: Readonly<Record<Os, string>> = {
@@ -67,8 +89,8 @@ function headerOf(
 
 /** The widest value `of` returns over `lines`, or 0 for no lines. */
 function widestOf(
-  lines: readonly ChangeLine[],
-  of: (line: ChangeLine) => string,
+  lines: readonly { readonly module: string; readonly file: string }[],
+  of: (line: { readonly module: string; readonly file: string }) => string,
 ): number {
   let width = 0;
   for (const line of lines) {
@@ -77,9 +99,10 @@ function widestOf(
   return width;
 }
 
-/** One change's line, numbered and padded to the block's columns. */
+/** One change's or new setting's line, numbered and padded to the block's
+ * columns. */
 function formatLine(
-  line: ChangeLine,
+  line: BlockLine,
   number: number,
   widths: BlockWidths,
 ): string {
@@ -90,39 +113,107 @@ function formatLine(
 }
 
 /**
+ * The grouped block split into its parts: the header, a blank line, each group
+ * with its numbered lines or `(none)`, then a blank line and `New settings`
+ * when there are any, with one numbered line per new setting. Numbers and
+ * widths run over the change lines and the new settings together, the settings
+ * numbered after the groups (contract "Push preview", "New settings").
+ */
+export function groupedBlock(
+  lines: readonly ChangeLine[],
+  record: { readonly name: string; readonly profile: string } | undefined,
+  os: Os,
+  header: "push" | "pull",
+  newSettings: readonly NewSettingLine[],
+): GroupedBlock {
+  const groups = groupsOf(lines, record, os);
+  const shown = groups.flatMap((group) => group.lines);
+  const numbered = [...shown, ...newSettings];
+  const widths: BlockWidths = {
+    number: String(Math.max(numbered.length, 1)).length,
+    module: widestOf(numbered, (line) => line.module),
+    file: widestOf(numbered, (line) => line.file),
+  };
+  const indent = " ".repeat(2 + widths.number + 2);
+
+  const head: string[] = [headerOf(record, header), ""];
+  let number = 0;
+  for (const group of groups) {
+    head.push(group.title);
+    if (group.lines.length === 0) {
+      head.push(`${indent}${EMPTY_GROUP}`);
+      continue;
+    }
+    for (const line of group.lines) {
+      number += 1;
+      head.push(formatLine(line, number, widths));
+    }
+  }
+
+  const settings = newSettings.map((setting) => {
+    number += 1;
+    return formatLine(
+      {
+        kind: NEW_SETTING_KIND,
+        module: setting.module,
+        file: setting.file,
+        what: setting.what,
+      },
+      number,
+      widths,
+    );
+  });
+  if (newSettings.length > 0) {
+    head.push("", NEW_SETTINGS_TITLE);
+  }
+  return { head, settings, indent };
+}
+
+/**
  * The grouped block of the push preview and the import check: the header, a
- * blank line, each group with its numbered lines or `(none)`, and a trailing
- * blank line (contract "Push preview (program only)"). Numbers run from 1 in
- * display order across the groups; input order is kept within a group.
+ * blank line, each group with its numbered lines or `(none)`, then the new
+ * settings each followed by its note, and a trailing blank line (contract
+ * "Push preview (program only)", "New settings (program only)"). Numbers run
+ * from 1 in display order across the groups, then on through the settings;
+ * input order is kept within a group.
  */
 export function groupBlock(
   lines: readonly ChangeLine[],
   record: { readonly name: string; readonly profile: string } | undefined,
   os: Os,
   header: "push" | "pull",
+  newSettings: readonly NewSettingLine[] = [],
+  notes: readonly string[] = [],
 ): readonly string[] {
-  const groups = groupsOf(lines, record, os);
-  const shown = groups.flatMap((group) => group.lines);
-  const widths: BlockWidths = {
-    number: String(Math.max(shown.length, 1)).length,
-    module: widestOf(shown, (line) => line.module),
-    file: widestOf(shown, (line) => line.file),
-  };
-  const noneIndent = " ".repeat(2 + widths.number + 2);
-
-  const block: string[] = [headerOf(record, header), ""];
-  let number = 0;
-  for (const group of groups) {
-    block.push(group.title);
-    if (group.lines.length === 0) {
-      block.push(`${noneIndent}${EMPTY_GROUP}`);
-      continue;
-    }
-    for (const line of group.lines) {
-      number += 1;
-      block.push(formatLine(line, number, widths));
-    }
+  const grouped = groupedBlock(lines, record, os, header, newSettings);
+  if (newSettings.length === 0) {
+    return [...grouped.head, ""];
   }
+  const block: string[] = [...grouped.head];
+  grouped.settings.forEach((line, index) => {
+    block.push(line);
+    const note = notes[index];
+    if (note !== undefined) {
+      block.push(`${grouped.indent}${note}`);
+    }
+  });
   block.push("");
   return block;
+}
+
+/** The change lines with the answered new settings dropped: a setting listed
+ * under `New settings` isn't repeated in its layer's group. */
+export function withoutNewSettings(
+  lines: readonly ChangeLine[],
+  settings: readonly NewSettingLine[],
+): readonly ChangeLine[] {
+  return lines.filter(
+    (line) =>
+      !settings.some(
+        (setting) =>
+          setting.module === line.module &&
+          setting.file === line.file &&
+          setting.what === line.what,
+      ),
+  );
 }

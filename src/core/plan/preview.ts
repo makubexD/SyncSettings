@@ -1,7 +1,8 @@
 import { STATE_FOLDER_ROOTS } from "../guard.ts";
 import { changeLines } from "./changes.ts";
 import { planExport } from "./export.ts";
-import { groupBlock } from "./groups.ts";
+import { groupBlock, withoutNewSettings } from "./groups.ts";
+import { newSettingChoices } from "./newsettings.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type { Action, Plan, RepoFiles, RunPlan, Snapshot } from "./types.ts";
@@ -166,19 +167,51 @@ export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
   }
 
   const exported = planExport(snapshot);
-  const rendered = renderRun(exported, NO_FAILURES);
+  const settings = exported.newSettings ?? [];
+  // The preview never asks: it plans the export again with every new setting
+  // answered by the suggestion, so its status lines and summary show the
+  // writes `export --yes` would make (contract "New settings", The preview).
+  const question =
+    settings.length > 0
+      ? newSettingChoices(snapshot.record, snapshot.os)
+      : undefined;
+  const plan =
+    question === undefined
+      ? exported
+      : planExport(
+          snapshot,
+          new Map(
+            settings.map((setting) => [
+              setting.path,
+              question.suggestion.layer,
+            ]),
+          ),
+        );
+  const rendered = renderRun(plan, NO_FAILURES);
   if (rendered.code !== 0) {
     return { actions: [], lines: rendered.lines, code: rendered.code };
   }
-  const changes = changeLines(exported, snapshot);
+  const changes = changeLines(plan, snapshot);
   const block =
-    changes.length === 0
-      ? []
-      : groupBlock(changes, snapshot.record, snapshot.os, "push");
+    question === undefined
+      ? changes.length === 0
+        ? []
+        : groupBlock(changes, snapshot.record, snapshot.os, "push")
+      : groupBlock(
+          withoutNewSettings(changes, settings),
+          snapshot.record,
+          snapshot.os,
+          "push",
+          settings,
+          settings.map(
+            () =>
+              `goes to: ${question.suggestion.words} (asked by mksync export)`,
+          ),
+        );
   return {
     actions: [],
     lines: previewSummary(
-      exported,
+      plan,
       rendered.lines,
       workingTree ?? snapshot.repoFiles,
       head,

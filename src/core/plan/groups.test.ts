@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { groupBlock } from "./groups.ts";
-import type { ChangeLine } from "./types.ts";
+import {
+  groupBlock,
+  groupedBlock,
+  withoutNewSettings,
+} from "./groups.ts";
+import type { ChangeLine, NewSettingLine } from "./types.ts";
 
 const RECORD = { name: "wk1-laptop", profile: "work-1" };
 
@@ -37,6 +41,16 @@ function baseLine(index: number): ChangeLine {
     what: `key${index}: 1 -> 2`,
   };
 }
+
+const NEW_ITEM: NewSettingLine = {
+  module: "parity",
+  file: "settings.json",
+  path: "delta[]",
+  kind: "item",
+  what: 'delta[]: "new item"',
+};
+
+const GOES_TO = "goes to: profile work-1 (asked by mksync export)";
 
 describe("groupBlock", () => {
   test("prints the four groups of a push with a record", () => {
@@ -157,5 +171,108 @@ describe("groupBlock", () => {
     const block = groupBlock([OS_LINE], undefined, os, "push");
 
     expect(block[4]).toBe(title);
+  });
+
+  test("prints the same block when there are no new settings", () => {
+    const block = groupBlock([BASE_LINE], RECORD, "linux", "push", [], []);
+
+    expect(block).toEqual([
+      "Changes on wk1-laptop (profile work-1):",
+      "",
+      "All machines",
+      "  1  M  parity  settings.json  baseKey: 1 -> 2",
+      "Linux machines",
+      "     (none)",
+      "Profile work-1",
+      "     (none)",
+      "This machine only",
+      "     (none)",
+      "",
+    ]);
+  });
+
+  test("numbers new settings after the groups and indents their notes to the kind column", () => {
+    const block = groupBlock(
+      [BASE_LINE, OS_LINE, PROFILE_LINE],
+      RECORD,
+      "linux",
+      "push",
+      [NEW_ITEM],
+      [GOES_TO],
+    );
+
+    expect(block).toEqual([
+      "Changes on wk1-laptop (profile work-1):",
+      "",
+      "All machines",
+      "  1  M  parity  settings.json  baseKey: 1 -> 2",
+      "Linux machines",
+      '  2  M  parity  settings.json  osKey: "linux" -> "linux-2"',
+      "Profile work-1",
+      "  3  M  parity  settings.json  profileKey: true -> false",
+      "This machine only",
+      "     (none)",
+      "",
+      "New settings",
+      '  4  +  parity  settings.json  delta[]: "new item"',
+      `     ${GOES_TO}`,
+      "",
+    ]);
+  });
+
+  test("widens the columns over the change lines and the new settings", () => {
+    const git: ChangeLine = {
+      layer: "base",
+      kind: "M",
+      module: "git",
+      file: "x",
+      what: "1 line(s) changed",
+    };
+    const setting: NewSettingLine = {
+      module: "vscode",
+      file: "settings.json",
+      path: "chat.agent.enabled",
+      kind: "key",
+      what: "chat.agent.enabled: true",
+    };
+
+    const block = groupedBlock([git], undefined, "linux", "push", [setting]);
+
+    expect(block.head).toContain(
+      "  1  M  git     x              1 line(s) changed",
+    );
+    expect(block.settings).toEqual([
+      "  2  +  vscode  settings.json  chat.agent.enabled: true",
+    ]);
+    expect(block.indent).toBe("     ");
+  });
+});
+
+describe("withoutNewSettings", () => {
+  const answered: ChangeLine = {
+    layer: "profile",
+    kind: "+",
+    module: "parity",
+    file: "settings.json",
+    what: 'delta[]: "new item"',
+  };
+
+  test("drops the change line of an answered new setting", () => {
+    expect(withoutNewSettings([answered], [NEW_ITEM])).toEqual([]);
+  });
+
+  test("keeps a change line whose value differs", () => {
+    const other: ChangeLine = { ...answered, what: 'delta[]: "other item"' };
+
+    expect(withoutNewSettings([other], [NEW_ITEM])).toEqual([other]);
+  });
+
+  test.each([
+    ["module", { module: "vscode" }],
+    ["file", { file: "other.json" }],
+  ] as const)("keeps a change line with another %s", (_, change) => {
+    const other: ChangeLine = { ...answered, ...change };
+
+    expect(withoutNewSettings([other], [NEW_ITEM])).toEqual([other]);
   });
 });

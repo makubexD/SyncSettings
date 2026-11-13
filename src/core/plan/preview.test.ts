@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Profile } from "../config/profile.ts";
 import type { ConfigV2 } from "../config/types.ts";
+import type { MachineRecord } from "../machine/record.ts";
 import { planPreview } from "./preview.ts";
 import type { LocalEntry, RepoFiles, Snapshot } from "./types.ts";
 
@@ -53,6 +54,62 @@ const CONFIG: ConfigV2 = {
   ],
 };
 
+const JSON_BASE_PATH = "dotfiles/common/parity/settings.json";
+
+const JSON_OS_PATH = "dotfiles/linux/parity/settings.json";
+
+const JSON_LOCAL_PATH = "/home/user/.config/parity/settings.json";
+
+const JSON_CONFIG: ConfigV2 = {
+  schemaVersion: 2,
+  modules: { parity: { description: "Parity case files" } },
+  entries: [
+    {
+      file: "parity/settings.json",
+      module: "parity",
+      merge: "json",
+      localPath: "~/.config/parity/settings.json",
+    },
+  ],
+};
+
+const JSON_BASE_TEXT = '{"baseKey": 1, "delta": ["x"]}';
+
+const JSON_OS_TEXT = '{"osKey": "linux"}';
+
+const JSON_LOCAL_TEXT =
+  '{"baseKey": 2, "osKey": "linux", "delta": ["x", "new item"]}';
+
+const PARITY_PROFILE: Profile = {
+  name: PROFILE_NAME,
+  modules: ["parity"],
+  values: {},
+  destinations: {},
+  retired: false,
+};
+
+const RECORD: MachineRecord = {
+  name: "wk1-laptop",
+  profile: PROFILE_NAME,
+  os: "linux",
+  hostname: "wk1-laptop",
+  domain: null,
+  claude: "claude",
+  pullOnly: false,
+  modules: { add: [], remove: [] },
+  values: {},
+  replaced: [],
+  retired: false,
+};
+
+const NEW_SETTINGS_TITLE = "New settings";
+
+const NEW_SETTING_LINE = '  2  +  parity  settings.json  delta[]: "new item"';
+
+const GOES_TO_LINE = "     goes to: profile work-1 (asked by mksync export)";
+
+const PROFILE_SETTINGS_ADDED = "profiles/work-1/parity/settings.json";
+
 function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
 }
@@ -82,6 +139,40 @@ function snapshot(
     only: [],
     ...(profile !== undefined ? { profile } : {}),
     headFiles,
+  };
+}
+
+/** A snapshot whose json entry holds a new array item, with a machine record
+ * when one is given. */
+function jsonPreview(record?: MachineRecord): Snapshot {
+  const base = bytes(JSON_BASE_TEXT);
+  const os = bytes(JSON_OS_TEXT);
+  const local: LocalEntry = {
+    kind: "file",
+    path: JSON_LOCAL_PATH,
+    bytes: bytes(JSON_LOCAL_TEXT),
+    mode: 0o644,
+  };
+  return {
+    config: JSON_CONFIG,
+    os: "linux",
+    home: HOME,
+    cwd: HOME,
+    repoFiles: new Map([
+      [JSON_BASE_PATH, base],
+      [JSON_OS_PATH, os],
+    ]),
+    localFiles: new Map([[JSON_LOCAL_PATH, local]]),
+    localDirs: new Set(["/home/user/.config/parity"]),
+    values: {},
+    env: {},
+    only: [],
+    profile: PARITY_PROFILE,
+    headFiles: new Map([
+      [JSON_BASE_PATH, base],
+      [JSON_OS_PATH, os],
+    ]),
+    ...(record !== undefined ? { record } : {}),
   };
 }
 
@@ -220,6 +311,24 @@ describe("planPreview", () => {
     expect(result.lines).toContain(NO_CHANGES);
     expect(result.lines).not.toContain(PUSH_HEADER);
     expect(result.lines).not.toContain("All machines");
+  });
+
+  test("should list a new setting with its goes-to line and the suggestion's layer in the status lines", () => {
+    // Arrange
+    const preview = jsonPreview(RECORD);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(NEW_SETTINGS_TITLE);
+    expect(result.lines).toContain(NEW_SETTING_LINE);
+    expect(result.lines).toContain(GOES_TO_LINE);
+    expect(result.lines).toContain(
+      `  ADDED      ${PROFILE_SETTINGS_ADDED}`,
+    );
+    expect(result.lines.some((line) => line.includes("ERROR"))).toBe(false);
   });
 
   test.each([
