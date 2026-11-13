@@ -312,14 +312,16 @@ today), there are no extra layers and every module is on.
 | `SYNC_MACHINE=<name>` | the layer `<state>/machines/<name>/` | `machines/<name>/<file>` |
 
 `<state>` is the state folder ([layout.md](layout.md#profiles-and-machines-in-the-state-folder)). A name is lowercase
-letters, digits and `-`. A bad name, a missing profile file or one that doesn't parse stops the run with exit 2
+letters, digits and `-`, and it can't name another layer: neither variable may be `linux`, `macos`, `windows`,
+`common` or `base`, and the machine can't share the profile's name (their side files, such as `CLAUDE.<name>.md`,
+would overwrite each other). A bad name, a missing profile file or one that doesn't parse stops the run with exit 2
 before any file is touched. The profile file is JSON with four optional fields:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `modules` | array of module names | the modules this profile runs; an entry of any other module gets no status line |
 | `values` | object | per-profile values (phase 6; `.user-values.json` is still the only source) |
-| `destinations` | object | where a new setting goes, by key path (phase 7) |
+| `destinations` | object | where a new setting goes: key path (`proxy`, `permissions.allow[]`) to layer slot, `os`, `profile` or `machine`; any other value stops the run (`destination <key> is not a layer`) |
 | `retired` | boolean | a profile no machine uses any more (phase 6) |
 
 **Worked example.** A work machine gets the `parity` module and one extra key in a JSON file:
@@ -344,4 +346,12 @@ which still calls the old engines. `SYNC_PROFILE=work-1 dist/mksync import` writ
 `{ "editor": "vim", "theme": "light", "proxy": "http://proxy.example.com" }` (laid out over several lines) and labels
 the line with the latest layer, `profiles/work-1/parity/settings.json`. Changing `theme` locally and running
 `SYNC_PROFILE=work-1 dist/mksync export` writes the new value back to the profile layer in the state folder, since that
-layer set it; `dotfiles/` doesn't change.
+layer set it; `dotfiles/` doesn't change. Each time export rewrites or removes a file in the state folder, the old file
+goes into the run's dated backups folder first.
+
+**A new setting.** Adding `"font": "mono"` locally is a key no layer has yet, so export needs to know where it goes.
+Without an answer it stops that file with `ERROR`, note `new setting font: needs a destination`. With one in the
+profile, `{ "modules": ["parity"], "destinations": { "font": "profile" } }`, export writes it to the profile layer, and
+creates that layer's file (`ADDED`) when the profile had none for this entry. `"os"` would send it to
+`dotfiles/<os>/parity/settings.json` instead, and `"machine"` to the machine layer (an `ERROR` when `SYNC_MACHINE` is
+unset). Removing a key locally removes it from every layer that sets it.

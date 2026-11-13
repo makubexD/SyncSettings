@@ -830,6 +830,15 @@ src/
   `main.ts` only wires. `adapters/fs.ts` reads the profile and machine layers from the state folder into the
   snapshot under `profiles/<name>/` and `machines/<name>/`, reads an `import` entry's side files, and writes those
   layer paths back under the state folder.
+- After the finish review (steps 19 to 31): `SelectedEntry` carries `slots`, every layer the run has for an entry
+  whether its file exists or not, beside `layers` (those whose file exists); export splits over the slots so a
+  destination can create a layer file, and a single-layer entry with no destination splits a second time with that
+  layer as the answer. `pick.ts` has `isJsonEntry`, the one rule for JSON escaping. Import compares a `json` entry
+  parsed (`jsonEqual`). `loadLayers` refuses a layer name that names another layer, and `profile.ts` a destination
+  that isn't a slot. `adapters/fs.ts` resolves a repo or state path under the top folder it names (`dotfiles/`,
+  `profiles/`, `machines/`) and copies a state file into the run's dated folder before replacing it; the preview
+  leaves `profiles/` and `machines/` out. The parser skips a leading BOM and stops at 512 levels; `splitImport` takes
+  the last marker followed only by `@` lines.
 
 ## Release and update
 
@@ -1052,16 +1061,16 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
     should reject it, so the error comes before any file.
 - **Security review, phase 4 (before cut-over).** Fixed: sanitize and hydrate rescanning their own output. Left, each
   needing a shared case first where it shows in files or statuses:
-  - `file` in a v2 entry isn't checked: `../` can leave `dotfiles/` (and a dated backup its folder). Reject absolute,
-    `..`, `\` and empty in `parseV2`, and check every resolved repo and backup path in the adapter.
+  - `file` in a v2 entry isn't checked when the config is read. Since phase 5 step 28 the adapter fails a repo or
+    state write that resolves outside `dotfiles/`, `profiles/` or `machines/`; left: reject absolute, `..`, `\` and
+    empty in `parseV2` so the error comes first, and check the resolved dated-backup path.
   - Writes follow symlinks (a committed link under `dotfiles/`, a linked `.user-values.json`, a linked folder inside a
     dir entry), and `readRepoTree` counts a repo link as a file. Refuse links, and write through a temp file and a
     rename, which also makes writes atomic (today a crash can empty `.user-values.json` or the sync point).
   - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
     that stops an export holding any known value, in every form, would catch both; bash behaves the same today.
   - JSON escapes (`é`, `\/`) aren't matched on export; a value inferred from a JSON file is escaped twice on
-    import; value lookups use plain objects (`constructor`); JSON escaping depends on the `.json` extension, not the
-    entry.
+    import; value lookups use plain objects (`constructor`).
   - A new hydrated file and new parent folders are created with the umask before the chmod, and the backups tree is
     0755; pruning removes any folder under `backups/`, not only run folders; `leak-scan` doesn't scan
     `sync-config.v2.json`.
@@ -1087,6 +1096,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
     a written form in JSON and a rule for arrays.
   - Value inference on an entry with more than one layer lines the local file up with the latest layer only, so a
     value that only an earlier layer's text holds isn't inferred.
+  - A line other than `@…` added under the import block by hand turns the block into base text (contract, "Layers"),
+    so the next push stores the marker and its `@` lines in the base. A note on that status line would catch it.
+  - `core/plan/preview.ts` names `profiles/` and `machines/` again, as `adapters/fs.ts` does; one core constant would
+    hold both. `splitJson` could take the single-layer fallback as an option instead of the second split in export.
+  - `parsedJson` in `core/plan/import.ts` repeats the private `parseBytes` of `core/merge/json.ts`.
 
 ### Confirm on Windows
 
