@@ -1,4 +1,4 @@
-import { same } from "../compare.ts";
+import { foldCrlf, same } from "../compare.ts";
 import type { ConfigV2, ConfigV2Entry, Os, SanitizeRule } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { Layer, SelectedEntry } from "../layers/select.ts";
@@ -351,11 +351,14 @@ function planImportFile(
       pushStatus(state, "SKIPPED", repoPath, EXCLUDE_NOTE);
       continue;
     }
+    // Pull writes a side file with this OS's line endings; the layer file in
+    // the repo holds LF, so fold as `splitImport` does for the base.
+    const folded = foldCrlf(side.bytes);
     const bytes = sanitized
-      ? sanitize(side.bytes, rules, state.values, {
+      ? sanitize(folded, rules, state.values, {
           json: entry.file.endsWith(".json"),
         })
-      : side.bytes;
+      : folded;
     state.pending = [];
     writeRepoFile(state, repoPath, side, bytes, sanitized);
   }

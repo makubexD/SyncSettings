@@ -22,6 +22,7 @@ import type {
   ConfigV2Entry,
   Os,
   Result,
+  SanitizeRule,
 } from "../config/types.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
@@ -361,6 +362,32 @@ function jsonEntry(extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
     module: "parity",
     merge: "json",
     localPath: "~/.config/parity/settings.json",
+    ...extra,
+  };
+}
+
+const IMPORT_BASE_TEXT = "# Base\n";
+
+const IMPORT_LINUX_TEXT = "# Linux\n";
+
+const IMPORT_WINDOWS_TEXT = "# Windows\n";
+
+const IMPORT_MARKER_CRLF =
+  "# Base\r\n<!-- mksync: layers below are written by mksync pull -->\r\n@CLAUDE.windows.md\r\n";
+
+const IMPORT_VALUE = "/home/user/tools";
+
+const IMPORT_PATH_RULES: readonly SanitizeRule[] = [
+  { placeholder: "<PATH>", prompt: "Path" },
+];
+
+function importEntry(extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
+  return {
+    file: "claude/CLAUDE.md",
+    module: "parity",
+    merge: "import",
+    localPath: "~/.config/parity/CLAUDE.md",
+    importName: "CLAUDE.{layer}.md",
     ...extra,
   };
 }
@@ -811,6 +838,93 @@ describe("planExport layers", () => {
         "import block is written by mksync, edit not pushed",
       ),
     );
+  });
+
+  test("should leave a Windows side file unchanged when pull wrote it with CRLF", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("windows", {
+      entries: [importEntry()],
+      repo: {
+        "dotfiles/common/claude/CLAUDE.md": IMPORT_BASE_TEXT,
+        "dotfiles/windows/claude/CLAUDE.md": IMPORT_WINDOWS_TEXT,
+      },
+      local: {
+        ".config/parity/CLAUDE.md": IMPORT_MARKER_CRLF,
+        ".config/parity/CLAUDE.windows.md": IMPORT_WINDOWS_TEXT.replaceAll(
+          "\n",
+          "\r\n",
+        ),
+      },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/claude/CLAUDE.md",
+      "UNCHANGED dotfiles/windows/claude/CLAUDE.md",
+    ]);
+    expect(shownActions(result.actions)).toEqual([]);
+  });
+
+  test("should store a real value in the import base as its placeholder", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [importEntry({ sanitize: IMPORT_PATH_RULES })],
+      repo: { "dotfiles/common/claude/CLAUDE.md": IMPORT_BASE_TEXT },
+      local: {
+        ".config/parity/CLAUDE.md": `${IMPORT_BASE_TEXT}path ${IMPORT_VALUE}\n`,
+      },
+      values: { "<PATH>": IMPORT_VALUE },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/common/claude/CLAUDE.md",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/claude/CLAUDE.md",
+        text: `${IMPORT_BASE_TEXT}path <PATH>\n`,
+      },
+    ]);
+  });
+
+  test("should store a real value in an import side file as its placeholder", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [importEntry({ sanitize: IMPORT_PATH_RULES })],
+      repo: {
+        "dotfiles/common/claude/CLAUDE.md": IMPORT_BASE_TEXT,
+        "dotfiles/linux/claude/CLAUDE.md": IMPORT_LINUX_TEXT,
+      },
+      local: {
+        ".config/parity/CLAUDE.md": IMPORT_BASE_TEXT,
+        ".config/parity/CLAUDE.linux.md": `${IMPORT_LINUX_TEXT}path ${IMPORT_VALUE}\n`,
+      },
+      values: { "<PATH>": IMPORT_VALUE },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/claude/CLAUDE.md",
+      "MODIFIED dotfiles/linux/claude/CLAUDE.md",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/linux/claude/CLAUDE.md",
+        text: `${IMPORT_LINUX_TEXT}path <PATH>\n`,
+      },
+    ]);
   });
 
   test("should write a sanitized value in a changed json layer as its placeholder", () => {
