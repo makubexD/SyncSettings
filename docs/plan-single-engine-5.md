@@ -312,3 +312,169 @@ variables, with a worked example; `layout.md`: the state folder's `profiles/` an
 done with the PR.
 
 Test: `grep -c '^\*\*Done' docs/plan-single-engine.md` grows by one; `npx prettier --check docs/plan-single-engine-5.md`.
+
+## Finish review fixes
+
+The finish review (`ts-code-reviewer`, 2026-11-12) found no critical issue and eight required ones; steps 19 to 32
+fix them and the optional ones worth doing now. Same shared rules. Two proposals to confirm before `/next`:
+
+- **A. A removed key leaves every layer that sets it** (today's behavior), so a pull right after the push finds
+  nothing. The contract says "the latest layer that sets it", which would let an earlier layer's value come back.
+  Proposal: write today's behavior into the contract, and put "a later layer masks a key" (a tombstone) in "Open".
+- **B. Layer names can't collide.** `SYNC_PROFILE` and `SYNC_MACHINE` may not be `linux`, `macos`, `windows`,
+  `common` or `base`, nor equal each other: their side files (`CLAUDE.<name>.md`) would overwrite each other, and the
+  next push would send profile text into `dotfiles/<os>/`. Exit 2, `ERROR: SYNC_PROFILE can't be <name>: it names
+another layer.` (and the same for `SYNC_MACHINE`).
+
+## Step 19: Contract for the review fixes `[inline: contract decisions]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`.
+
+Contract, "Layers (program only)": proposals A and B with their `ERROR` lines; `destinations` values are layer slots
+(`os`, `profile`, `machine`; anything else is `ERROR: profile <name>: destination <key> is not a layer.`, exit 2), and
+a destination may create a layer file that doesn't exist yet (`ADDED`); the profile reason `<f> has the wrong type`;
+a write to a profile or machine layer keeps a dated copy under `backups/<run>/`; a side file is compared and stored
+with CRLF folded to LF on every OS; a UTF-8 BOM at the start of a JSON file is ignored on read and never written; JSON
+nested deeper than 512 levels is `not valid JSON`; the import marker that counts is the last one followed only by
+`@` lines. Design "Open": value inference on a multi-layer entry lines the local file up with the latest layer only.
+
+Test: `grep -c 'names another layer\|is not a layer\|wrong type' docs/sync-contract.md` is at least 3.
+
+## Step 20: Shared cases for the review fixes `[worker]`
+
+Files: `tests/parity/cases/json-merge-reordered/`, `tests/parity/cases/layer-name-collision/`,
+`tests/parity/cases/json-new-setting-destination/`.
+
+From the contract, not from engine output (rule 2):
+
+- `json-merge-reordered`: base and OS layers; the local file holds the merged content with keys reordered and
+  different indentation. `import --check` and `import`: `UNCHANGED dotfiles/linux/parity/settings.json`, no `.bak`,
+  exit 0 (`expect.windows` and `expect.macos` with their OS labels).
+- `layer-name-collision`: `SYNC_PROFILE=linux`, a profile file `linux.json` in `state/profiles/`. `import`: the
+  step 19 `ERROR` line, exit 2, no file written.
+- `json-new-setting-destination`: profile `work-1` with `destinations: {"q": "profile"}` and no profile layer file;
+  local adds `"q": 1`. `export`: `ADDED profiles/work-1/parity/settings.json`, the state file holds `{"q": 1}`, the
+  repo layers unchanged, exit 0.
+
+Test: `tests/parity/run.sh --engine dist/mksync json-merge-reordered` fails today with `UPDATED`;
+`tests/parity/run.sh layer-name-collision` (bash) prints `SKIP … v2 only`.
+
+## Step 21: Import compares a JSON entry parsed `[worker]`
+
+Files: `src/core/plan/import.ts`, `src/core/plan/import.test.ts`.
+
+For `merge: "json"`, the merged result equals the local file when both parse and are equal as JSON values (key order,
+whitespace and line endings ignored, `localOnlyKeys` already applied by `mergeJson`): `UNCHANGED`, no prompt, no `.bak`.
+A local file that doesn't parse compares unequal, as today. Reuse `parseJson` and the JSON equality the merge uses for
+array items. Unit cases: reordered keys, CRLF on Linux, extra whitespace (all `UNCHANGED`); a changed value (`UPDATED`).
+
+Test: `bun test src/core/plan && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync json-`.
+
+## Step 22: Side files and the import base on export `[worker]`
+
+Files: `src/core/plan/export.ts`, `src/core/plan/export.test.ts`.
+
+Fold CRLF to LF in each side file before it is sanitized and compared, as `splitImport` does for the base. Unit cases:
+a Windows side file exactly as pull wrote it (CRLF) is `UNCHANGED`; a real value in the base text and in a side file
+is stored as its `<PLACEHOLDER>` (these two fail if either `sanitize` call is removed: check by removing each once).
+
+Test: `bun test src/core/plan && bun run lint`.
+
+## Step 23: One rule for JSON escaping `[worker]`
+
+Files: `src/core/plan/pick.ts`, `src/core/plan/import.ts`, `src/core/plan/export.ts`.
+
+One exported `isJsonEntry(entry)` (`merge === "json"` or `file` ends in `.json`) in `pick.ts`, used by every
+`hydrate`, `sanitize` and `inferValues` call in both plans. Unit case in `export.test.ts`: a `merge: "json"` entry
+named `settings` (no extension) with a value holding `"` is stored as its placeholder.
+
+Test: `bun test src/core/plan && bun run lint`.
+
+## Step 24: Profile destinations validated `[worker]`
+
+Files: `src/core/config/profile.ts`, `src/core/config/profile.test.ts`.
+
+Each `destinations` value must be `os`, `profile` or `machine`; otherwise the step 19 `ERROR`, exit 2. Unit cases:
+each valid slot, `base`, an unknown word, a non-string.
+
+Test: `bun test src/core/config && bun run lint`.
+
+## Step 25: Export sends a new setting to its destination `[worker]`
+
+Files: `src/core/layers/select.ts`, `src/core/plan/export.ts`, `src/core/plan/export.test.ts`.
+
+`SelectedEntry` gets `slots`: every layer this run has for the entry (base, OS, profile, machine) with its repo path,
+whether a file exists or not; `layers` stays as it is. Export passes `slots` to `splitJson` (`bytes` undefined for a
+missing file) with `destinations` from `snapshot.profile`, so a new key can create a layer file (`ADDED`, `mkdir`).
+Unit cases: the step 20 case at unit level; a destination naming `machine` with no machine set stays `ERROR`.
+
+Test: `bun test src/core && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync json-`.
+
+## Step 26: Layer names can't collide `[worker]`
+
+Files: `src/adapters/snapshot.ts`, `src/adapters/snapshot.test.ts`.
+
+In `loadLayers`: proposal B, the step 19 `ERROR` lines, exit 2, before the profile file is read. Unit cases: profile
+`linux`, `windows`, `common`, `base`; machine equal to the profile; a valid pair.
+
+Test: `bun test src/adapters && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync layer-`.
+
+## Step 27: The preview ignores state-folder layers `[worker]`
+
+Files: `src/adapters/snapshot.ts`, `src/core/plan/preview.ts`, `src/core/plan/preview.test.ts`.
+
+The working tree compared with `HEAD` holds only `dotfiles/` and the config files; `profiles/` and `machines/` keys
+are never part of it, nor of the "would change" count (state writes are never committed). Unit case: a profile set,
+nothing changed → the "matches HEAD" line.
+
+Test: `bun test src/core/plan src/adapters && bun run lint`.
+
+## Step 28: State-folder writes: dated copy and containment `[worker]`
+
+Files: `src/adapters/fs.ts`, `src/adapters/fs.test.ts`.
+
+Before `writeRepo` or `removeRepo` on a `profiles/` or `machines/` path whose file exists, copy it to
+`<state>/backups/<run>/<path>` as dated backups do. `absolutePath` refuses (action fails with its reason, the run goes
+on) a repo or state path that resolves outside its root (`../` in an entry's `file`). Unit cases: a state write keeps
+the old bytes in the run folder; `profiles/work-1/../../x` fails and nothing is written.
+
+Test: `bun test src/adapters && bun run lint`.
+
+## Step 29: JSON parser: BOM and depth `[worker]`
+
+Files: `src/core/json/value.ts`, `src/core/json/value.test.ts`.
+
+A UTF-8 BOM at the start is skipped; nesting deeper than 512 levels is `not valid JSON` (no `RangeError`). Unit cases:
+BOM + object parses; 513 nested `[` is `not valid JSON`; 512 parses.
+
+Test: `bun test src/core/json && bun run lint`.
+
+## Step 30: The import marker that counts `[worker]`
+
+Files: `src/core/merge/import.ts`, `src/core/merge/import.test.ts`.
+
+`splitImport` uses the last marker line followed only by `@` lines (and the trailing newline); a marker line inside
+the base text stays base text. Unit cases: base text quoting the marker plus a real block; marker with a non-`@` line
+after it.
+
+Test: `bun test src/core/merge && bun run lint`.
+
+## Step 31: Excludes on import side files, boundary comment `[worker:low]`
+
+Files: `src/core/plan/import.ts`, `src/core/plan/import.test.ts`, `src/core/layers/select.ts`.
+
+Import checks each side file's local path against `excludePatterns` (`SKIPPED`, note `matches exclude pattern`), as
+export does. Reword the comment at `select.ts:14` so it doesn't contain `process.platform`. Unit case: an excluded
+side file is `SKIPPED`.
+
+Test: `bun test src/core && bun run lint && ! grep -rnE "node:(fs|child_process|os)|Bun\.|process\.(env|cwd|platform)"
+src/core src/cli --include=*.ts --exclude=*.test.ts`.
+
+## Step 32: Docs after the review `[inline: docs step, enriched per the docs rule]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/configuration.md`.
+
+Contract lines steps 19 to 31 rely on match the program. `configuration.md`: `destinations` with its slots in the
+profile table and the worked example. Design: "As built in phase 5" updated; "Open" loses what these steps closed.
+
+Test: `npx prettier --check docs/plan-single-engine-5.md`.
