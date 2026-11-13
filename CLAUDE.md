@@ -86,8 +86,10 @@ Claude may add the `reviewed` label and merge a PR (`gh pr merge <n> --merge --d
 once all of these hold:
 
 1. Claude has read the full diff and rerun the PR's tests.
-2. `lint` and `leak-scan` are green.
-3. The PR touches none of: `.github/workflows/`, `docs/review-gate.md`, `.claude/settings.json`, or this section.
-   Those PRs, and any PR with a failing check, wait for the user to add the label.
+2. Every check is green except `review-gate`, which only waits for the label.
+
+No PR waits for the user during development, including ones that change workflows, `docs/review-gate.md`,
+`.claude/settings.json` or this section. Stop only for a failing check that can't be fixed on the branch, a review
+finding that can't be settled, or a classifier denial. Never `--admin`, never force-push.
 
 After a merge, `git switch master && git pull`. Remove this section when development is done; see `TODO.md`.
