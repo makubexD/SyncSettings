@@ -25,13 +25,19 @@ import type {
   Result,
   SanitizeRule,
 } from "../config/types.ts";
+import type { LayerName } from "../layers/select.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
 import { planExport } from "./export.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
-import type { Action, LocalEntry, Snapshot } from "./types.ts";
+import type {
+  Action,
+  LocalEntry,
+  NewSettingLine,
+  Snapshot,
+} from "./types.ts";
 
 const CASE_ROOT = new URL("../../../tests/parity/cases/", import.meta.url);
 
@@ -349,6 +355,26 @@ const JSON_LIST_ADDED_TEXT = `{
 }
 `;
 
+const NEW_SETTING_BASE_TEXT = '{"baseKey": 1, "delta": ["x"]}';
+
+const NEW_SETTING_OS_TEXT = '{"osKey": "linux"}';
+
+const NEW_SETTING_LOCAL_TEXT =
+  '{"baseKey": 1, "osKey": "linux", "delta": ["x", "new item"], "newKey": true}';
+
+const NEW_SETTING_ITEM_LOCAL_TEXT =
+  '{"baseKey": 1, "osKey": "linux", "delta": ["x", "new item"]}';
+
+const NEW_SETTING_SANITIZED_LOCAL_TEXT =
+  '{"baseKey": 1, "osKey": "linux", "tool": "/home/user/tools/tool"}';
+
+const PROFILE_ITEM_TEXT = `{
+  "delta": [
+    "new item"
+  ]
+}
+`;
+
 const PROFILE_SETTINGS_FOLDER = "profiles/work-1/parity";
 
 const PROFILE_SETTINGS_PATH = `${PROFILE_SETTINGS_FOLDER}/settings.json`;
@@ -463,11 +489,16 @@ interface ObservedPlan {
   readonly lines: readonly string[];
   readonly actions: readonly Action[];
   readonly code: number;
+  readonly newSettings?: readonly NewSettingLine[];
 }
 
-/** The status lines, actions and exit code the export plan gives a snapshot. */
-function observe(snapshot: Snapshot): ObservedPlan {
-  const plan = planExport(snapshot);
+/** The status lines, actions, exit code and new settings the export plan gives
+ * a snapshot, with optional answers for the new settings. */
+function observe(
+  snapshot: Snapshot,
+  answers?: ReadonlyMap<string, LayerName>,
+): ObservedPlan {
+  const plan = planExport(snapshot, answers);
   const rendered = renderRun(plan, NO_FAILURES);
   return {
     lines: rendered.lines,
@@ -475,6 +506,9 @@ function observe(snapshot: Snapshot): ObservedPlan {
       step.actions.map((entry) => entry.action),
     ),
     code: rendered.code,
+    ...(plan.newSettings !== undefined
+      ? { newSettings: plan.newSettings }
+      : {}),
   };
 }
 
@@ -1223,5 +1257,132 @@ describe("planExport layers", () => {
       ),
     );
     expect(result.code).toBe(0);
+  });
+});
+
+describe("planExport new settings", () => {
+  test("should list an unresolved array item and key with the error", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": NEW_SETTING_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": NEW_SETTING_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": NEW_SETTING_LOCAL_TEXT },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ERROR dotfiles/linux/parity/settings.json",
+      "ERROR dotfiles/linux/parity/settings.json",
+    ]);
+    expect(result.newSettings).toEqual([
+      {
+        module: "parity",
+        file: "settings.json",
+        path: "delta[]",
+        kind: "item",
+        what: 'delta[]: "new item"',
+      },
+      {
+        module: "parity",
+        file: "settings.json",
+        path: "newKey",
+        kind: "key",
+        what: "newKey: true",
+      },
+    ]);
+    expect(shownActions(result.actions)).toEqual([]);
+    expect(result.code).toBe(0);
+  });
+
+  test("should show a new setting's sanitized value", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry({ sanitize: IMPORT_PATH_RULES })],
+      repo: {
+        "dotfiles/common/parity/settings.json": NEW_SETTING_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": NEW_SETTING_OS_TEXT,
+      },
+      local: {
+        ".config/parity/settings.json": NEW_SETTING_SANITIZED_LOCAL_TEXT,
+      },
+      values: { "<PATH>": IMPORT_VALUE },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(result.newSettings).toEqual([
+      {
+        module: "parity",
+        file: "settings.json",
+        path: "tool",
+        kind: "key",
+        what: 'tool: "<PATH>/tool"',
+      },
+    ]);
+    expect(result.lines.join("\n")).not.toContain(IMPORT_VALUE);
+  });
+
+  test("should write an answered item to the layer the answer names", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": NEW_SETTING_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": NEW_SETTING_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": NEW_SETTING_ITEM_LOCAL_TEXT },
+      profile: profileOf({}),
+    });
+    const answers = new Map<string, LayerName>([["delta[]", "profile"]]);
+
+    // Act
+    const result = observe(snapshot, answers);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `ADDED ${PROFILE_SETTINGS_PATH}`,
+    ]);
+    expect(result.lines.some((line) => line.includes("ERROR"))).toBe(false);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: PROFILE_SETTINGS_FOLDER },
+      {
+        kind: "writeRepo",
+        path: PROFILE_SETTINGS_PATH,
+        text: PROFILE_ITEM_TEXT,
+      },
+      { kind: "chmod", path: PROFILE_SETTINGS_PATH, mode: MODE },
+    ]);
+    expect(result.newSettings).toBeUndefined();
+  });
+
+  test("should route a stored destination with no answers", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": NEW_SETTING_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": NEW_SETTING_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": NEW_SETTING_ITEM_LOCAL_TEXT },
+      profile: profileOf({ "delta[]": "os" }),
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/linux/parity/settings.json",
+    ]);
+    expect(result.lines.some((line) => line.includes("ERROR"))).toBe(false);
+    expect(result.newSettings).toBeUndefined();
   });
 });

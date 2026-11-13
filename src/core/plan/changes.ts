@@ -95,7 +95,7 @@ function quote(text: string): string {
 
 /** Compact JSON on one line, keeping a number's source text: `"text"`, `14`,
  * `{"a":1}`, `[1,2]`. `value.ts` writes only the contract's multi-line form. */
-function compactJson(value: JsonValue): string {
+export function compactJson(value: JsonValue): string {
   switch (value.kind) {
     case "null":
       return "null";
@@ -121,7 +121,7 @@ function compactJson(value: JsonValue): string {
 }
 
 /** A change's value, compact and cut to the contract's 60 characters. */
-function valueText(value: JsonValue): string {
+export function valueText(value: JsonValue): string {
   const text = compactJson(value);
   return text.length > VALUE_LIMIT
     ? `${text.slice(0, KEPT_VALUE_LENGTH)}${ELLIPSIS}`
@@ -282,8 +282,8 @@ function changedLines(oldBytes: Uint8Array, newBytes: Uint8Array): number {
 }
 
 /** The entry's `file` without its first folder: `claude/docs/x.html` is
- * `docs/x.html`. */
-function fileLabel(file: string): string {
+ * `docs/x.html` (contract "Push preview (program only)", The file). */
+export function fileLabel(file: string): string {
   const slash = file.indexOf("/");
   return slash === -1 ? file : file.slice(slash + 1);
 }

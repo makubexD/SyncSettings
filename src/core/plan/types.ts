@@ -18,6 +18,21 @@ export interface ChangeLine {
 }
 
 /**
+ * One new setting the plan can't route: a json key or an array item with no
+ * destination (contract "New settings (program only)"). The adapter asks where
+ * it goes; the core only names it. `file` is the entry's file without its first
+ * folder, as a change line's is; `what` is `<path>: <value>`, the value
+ * compact, sanitized and cut as a change line's.
+ */
+export interface NewSettingLine {
+  readonly module: string;
+  readonly file: string;
+  readonly path: string;
+  readonly kind: "key" | "item";
+  readonly what: string;
+}
+
+/**
  * A file under `dotfiles/`, keyed by its repo path in forward slashes, with the
  * bytes the snapshot read. The whole tree is present so the orphan report can
  * see files no entry owns.
@@ -234,6 +249,11 @@ export interface RunPlan {
   readonly code: number;
   /** The placeholder whose missing value stopped the plan. */
   readonly missing?: string;
+  /**
+   * The new settings the plan couldn't route, in config entry order then the
+   * split's order. Absent when the plan lists none.
+   */
+  readonly newSettings?: readonly NewSettingLine[];
 }
 
 /**

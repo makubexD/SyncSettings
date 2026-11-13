@@ -5,6 +5,8 @@ import type {
   Os,
   SanitizeRule,
 } from "../config/types.ts";
+import { parseJson } from "../json/value.ts";
+import type { JsonValue } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { Layer, LayerName, SelectedEntry } from "../layers/select.ts";
 import { splitImport } from "../merge/import.ts";
@@ -13,8 +15,9 @@ import type { JsonLayer } from "../merge/json.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { hydrate, resolveValues } from "../values/hydrate.ts";
-import { sanitize } from "../values/sanitize.ts";
+import { encodeUtf8, sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
+import { compactJson, fileLabel, valueText } from "./changes.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
   compileExcludes,
@@ -33,6 +36,7 @@ import type {
   ExportSummary,
   FileStep,
   LocalFile,
+  NewSettingLine,
   RunPlan,
   Snapshot,
   StepAction,
@@ -80,8 +84,12 @@ interface State {
   readonly values: Values;
   readonly only: readonly string[];
   readonly isExcluded: (path: string) => boolean;
+  /** The profile's stored destinations and this run's answers, key path to
+   * layer slot. */
+  readonly destinations: ReadonlyMap<string, LayerName>;
   readonly steps: FileStep[];
   readonly lines: string[];
+  readonly newSettings: NewSettingLine[];
   pending: StepAction[];
   changed: number;
   skipped: number;
@@ -260,6 +268,49 @@ function destinationsOf(snapshot: Snapshot): ReadonlyMap<string, LayerName> {
   );
 }
 
+/** The stored destinations with this run's answers on top: an answer names the
+ * layer the user just picked, so it wins over a stored slot. */
+function mergedDestinations(
+  snapshot: Snapshot,
+  answers: ReadonlyMap<string, LayerName> | undefined,
+): ReadonlyMap<string, LayerName> {
+  const merged = new Map(destinationsOf(snapshot));
+  if (answers !== undefined) {
+    for (const [path, layer] of answers) {
+      merged.set(path, layer);
+    }
+  }
+  return merged;
+}
+
+/**
+ * A new setting's `what`: its key path and compact value, sanitized as the
+ * layer would hold it and cut as a change line is. `json` picks the escaped
+ * value forms, as the plan's sanitize call on layer bytes does.
+ */
+function newSettingWhat(
+  path: string,
+  value: JsonValue,
+  state: State,
+  rules: readonly SanitizeRule[],
+  json: boolean,
+): string {
+  const text = compactJson(value);
+  if (rules.length === 0) {
+    return `${path}: ${valueText(value)}`;
+  }
+  const sanitized = new TextDecoder().decode(
+    sanitize(encodeUtf8(text), rules, state.values, { json }),
+  );
+  const parsed = parseJson(sanitized);
+  if (!parsed.ok) {
+    // shortcut: sanitize left text this value can't be read back from, so the
+    // 60-character cut can't run; it is short in every case that can happen.
+    return `${path}: ${sanitized}`;
+  }
+  return `${path}: ${valueText(parsed.value)}`;
+}
+
 /**
  * Contract "Layers (program only)", json export: split the local file into its
  * layers, sanitize each changed layer and write it. A slot whose file doesn't
@@ -283,9 +334,8 @@ function planJsonFile(
     repoPath: slot.repoPath,
     bytes: existing.get(slot.repoPath),
   }));
-  const destinations = destinationsOf(state.snapshot);
   const options = {
-    destinations,
+    destinations: state.destinations,
     localOnlyKeys: entry.localOnlyKeys ?? [],
   };
   const split = splitJson(local.bytes, layers, options);
@@ -296,6 +346,7 @@ function planJsonFile(
   }
 
   if (split.value.newSettings.length > 0) {
+    const rules = entry.sanitize ?? [];
     for (const setting of split.value.newSettings) {
       const line = pushStatus(
         state,
@@ -304,6 +355,19 @@ function planJsonFile(
         `new setting ${setting.path}: needs a destination`,
       );
       recordStep(state, repoPath, line, false);
+      state.newSettings.push({
+        module: entry.module,
+        file: fileLabel(entry.file),
+        path: setting.path,
+        kind: setting.path.endsWith("[]") ? "item" : "key",
+        what: newSettingWhat(
+          setting.path,
+          setting.value,
+          state,
+          rules,
+          isJsonEntry(entry),
+        ),
+      });
     }
     return;
   }
@@ -693,9 +757,15 @@ function orphanReport(state: State): void {
 
 /**
  * The export plan: every status line, action and the exit code the contract
- * gives export, from a snapshot and nothing else.
+ * gives export, from a snapshot and nothing else. `answers` are this run's
+ * choices for new settings, key path to layer slot; they join the profile's
+ * stored destinations, so an answered setting is written instead of listed in
+ * `newSettings`.
  */
-export function planExport(snapshot: Snapshot): RunPlan {
+export function planExport(
+  snapshot: Snapshot,
+  answers?: ReadonlyMap<string, LayerName>,
+): RunPlan {
   const selected = selectEntries(
     snapshot.config,
     scopeFor(snapshot),
@@ -747,8 +817,10 @@ export function planExport(snapshot: Snapshot): RunPlan {
       snapshot.config.excludePatterns ?? [],
       snapshot.os,
     ),
+    destinations: mergedDestinations(snapshot, answers),
     steps: [],
     lines: [],
+    newSettings: [],
     pending: [],
     changed: 0,
     skipped: 0,
@@ -789,5 +861,8 @@ export function planExport(snapshot: Snapshot): RunPlan {
     lines: state.lines,
     summary,
     code: 0,
+    ...(state.newSettings.length > 0
+      ? { newSettings: state.newSettings }
+      : {}),
   };
 }
