@@ -8,10 +8,12 @@ import {
   buildSnapshot,
   findRepoRoot,
   loadConfig,
+  loadLayers,
   previewWorkingTree,
   V1_CONFIG,
   V2_CONFIG,
 } from "./adapters/snapshot.ts";
+import type { Layers } from "./adapters/snapshot.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type { RunCommand, ShadowCommand } from "./cli/parse.ts";
 import type { ConfigV2, Os } from "./core/config/types.ts";
@@ -106,6 +108,7 @@ async function executeShadow(
   os: Os,
   home: string,
   state: string,
+  layers: Layers,
 ): Promise<Result> {
   try {
     const snapshot = await buildSnapshot(
@@ -116,6 +119,8 @@ async function executeShadow(
       SHADOW_SNAPSHOT_COMMAND,
       process.cwd(),
       process.env,
+      state,
+      layers,
     );
     const program = programShadow(snapshot);
     const engine = await engineShadow(
@@ -166,8 +171,12 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
   }
 
   const state = stateFolder(os.value, home, process.env);
+  const layers = loadLayers(process.env, config.value, state);
+  if (!layers.ok) {
+    return failure(layers.error.message, layers.error.code);
+  }
   if (command.kind === "shadow") {
-    return executeShadow(repoRoot, config.value, os.value, home, state);
+    return executeShadow(repoRoot, config.value, os.value, home, state, layers.value);
   }
 
   const answers = await readAnswers(command);
@@ -179,6 +188,8 @@ async function execute(command: RunCommand | ShadowCommand): Promise<Result> {
     command,
     process.cwd(),
     process.env,
+    state,
+    layers.value,
   );
   const context: RunContext = {
     repoRoot,

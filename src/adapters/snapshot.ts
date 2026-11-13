@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RunCommand } from "../cli/parse.ts";
 import { convertV1 } from "../core/config/convert.ts";
+import type { Profile } from "../core/config/profile.ts";
+import { parseProfile } from "../core/config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
@@ -13,7 +15,7 @@ import { parseV2 } from "../core/config/v2.ts";
 import type { RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
-import { readSnapshot } from "./fs.ts";
+import { MACHINES_FOLDER, PROFILES_FOLDER, readSnapshot } from "./fs.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
 
 export const V1_CONFIG = "sync-config.json";
@@ -88,6 +90,89 @@ function readValues(repoRoot: string): Values {
   return parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
 }
 
+const LAYER_NAME = /^[a-z0-9-]+$/;
+
+const PROFILE_VARIABLE = "SYNC_PROFILE";
+
+const MACHINE_VARIABLE = "SYNC_MACHINE";
+
+/** A run's profile and machine layers, as its environment chooses them. */
+export interface Layers {
+  readonly profile?: Profile;
+  readonly machine?: string;
+}
+
+/** Contract "Profile and machine, until phase 6": unset or empty means no layer. */
+function readLayerName(
+  env: Readonly<Record<string, string | undefined>>,
+  variable: string,
+): LoadResult<string | undefined, ConfigError> {
+  const value = env[variable];
+  if (value === undefined || value === "") {
+    return { ok: true, value: undefined };
+  }
+  if (!LAYER_NAME.test(value)) {
+    return {
+      ok: false,
+      error: {
+        message: `ERROR: ${variable} must be lowercase letters, digits and -; this is ${value}.`,
+        code: 2,
+      },
+    };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * Contract "Profile and machine, until phase 6": the layers `SYNC_PROFILE` and
+ * `SYNC_MACHINE` choose. A name outside lowercase letters, digits and `-`, a
+ * profile file that is missing, or one that doesn't parse stops the run with
+ * exit code 2 before any file is touched.
+ */
+export function loadLayers(
+  env: Readonly<Record<string, string | undefined>>,
+  config: ConfigV2,
+  stateFolder: string,
+): LoadResult<Layers, ConfigError> {
+  const profileName = readLayerName(env, PROFILE_VARIABLE);
+  if (!profileName.ok) {
+    return profileName;
+  }
+  const machine = readLayerName(env, MACHINE_VARIABLE);
+  if (!machine.ok) {
+    return machine;
+  }
+
+  let profile: Profile | undefined;
+  if (profileName.value !== undefined) {
+    const name = profileName.value;
+    const path = join(stateFolder, PROFILES_FOLDER, `${name}.json`);
+    const text = readText(path);
+    if (text === undefined) {
+      return {
+        ok: false,
+        error: {
+          message: `ERROR: profile ${name} not found: ${path}`,
+          code: 2,
+        },
+      };
+    }
+    const parsed = parseProfile(name, text, config);
+    if (!parsed.ok) {
+      return parsed;
+    }
+    profile = parsed.value;
+  }
+
+  return {
+    ok: true,
+    value: {
+      ...(profile !== undefined ? { profile } : {}),
+      ...(machine.value !== undefined ? { machine: machine.value } : {}),
+    },
+  };
+}
+
 /**
  * The working tree an export preview compares with `HEAD`: the repo files the
  * snapshot read plus `sync-config.json`, which is never part of the export
@@ -107,9 +192,10 @@ export function previewWorkingTree(
 }
 
 /**
- * Build the snapshot the plan reads: the disk through `readSnapshot`, plus
- * `HEAD` and the porcelain status for the import's sync point, and `HEAD`'s
- * bytes for an export preview.
+ * Build the snapshot the plan reads: the disk through `readSnapshot` (with the
+ * profile and machine layers from the state folder), plus `HEAD` and the
+ * porcelain status for the import's sync point, and `HEAD`'s bytes for an
+ * export preview.
  */
 export async function buildSnapshot(
   repoRoot: string,
@@ -119,17 +205,22 @@ export async function buildSnapshot(
   command: RunCommand,
   cwd: string,
   env: Readonly<Record<string, string | undefined>>,
+  stateFolder: string,
+  layers: Layers,
 ): Promise<Snapshot> {
   const snapshot = readSnapshot({
     repoRoot,
     config,
     os,
     home,
+    stateFolder,
     cwd,
     values: readValues(repoRoot),
     env,
     only: command.only,
     force: command.force,
+    ...(layers.profile !== undefined ? { profile: layers.profile } : {}),
+    ...(layers.machine !== undefined ? { machine: layers.machine } : {}),
   });
   if (command.command === "export" && !command.preview) {
     return snapshot;

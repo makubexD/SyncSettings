@@ -358,6 +358,34 @@ describe("runPlan", () => {
     ).toBe("export A=1\n");
   });
 
+  test("should write a profile layer file under the state folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "mkdir", path: "profiles/work-1" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/x.json",
+          bytes: bytesOf("{\"a\":3}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(
+      readFileSync(
+        join(stateFolder("linux", home, {}), "profiles", "work-1", "x.json"),
+        "utf8",
+      ),
+    ).toBe("{\"a\":3}\n");
+    expect(existsSync(join(repo, "profiles", "work-1", "x.json"))).toBe(false);
+  });
+
   test("should remove a repo file", () => {
     // Arrange
     const { home, repo } = fixture();

@@ -35,11 +35,18 @@ const MODE_MASK = 0o7777;
 
 const DOTFILES_FOLDER = "dotfiles";
 
+/** Contract "Profile and machine, until phase 6": the state folder's layer folders. */
+export const PROFILES_FOLDER = "profiles";
+
+export const MACHINES_FOLDER = "machines";
+
 /** Everything the snapshot adapter reads besides the disk itself. */
 export interface SnapshotInput {
   readonly repoRoot: string;
   readonly config: ConfigV2;
   readonly os: Os;
+  /** The sync point's folder, where a profile's or machine's layer files live. */
+  readonly stateFolder?: string;
   readonly profile?: Profile;
   readonly machine?: string;
   readonly home: string;
@@ -98,12 +105,17 @@ function repoKey(repoRoot: string, path: string, os: Os): string {
   return pathFor(os).relative(repoRoot, path).split(separator).join("/");
 }
 
-/** Contract "Orphan report": every file under `dotfiles/` is in the snapshot. */
-function readRepoTree(
+/**
+ * Read every file under `dir` into `files`, keyed by `keyOf(path, relative)`,
+ * where `relative` is the path from `dir` joined with forward slashes. A
+ * symlink to a file is followed, as `[[ -f ]]` does; other entries are skipped.
+ */
+function readTree(
   dir: string,
-  repoRoot: string,
   os: Os,
   files: Map<string, Uint8Array>,
+  keyOf: (path: string, relative: string) => string,
+  prefix = "",
 ): void {
   const entries = listDir(dir);
   if (entries === undefined) {
@@ -113,18 +125,45 @@ function readRepoTree(
   for (const entry of entries) {
     const path = p.join(dir, entry.name);
     if (entry.isDirectory()) {
-      readRepoTree(path, repoRoot, os, files);
+      readTree(path, os, files, keyOf, `${prefix}${entry.name}/`);
       continue;
     }
-    const isFile = entry.isFile() || (entry.isSymbolicLink() && statOrUndefined(path)?.isFile() === true);
+    const isFile =
+      entry.isFile() ||
+      (entry.isSymbolicLink() && statOrUndefined(path)?.isFile() === true);
     if (!isFile) {
       continue;
     }
     const bytes = readBytes(path);
     if (bytes !== undefined) {
-      files.set(repoKey(repoRoot, path, os), bytes);
+      files.set(keyOf(path, `${prefix}${entry.name}`), bytes);
     }
   }
+}
+
+/** Contract "Orphan report": every file under `dotfiles/` is in the snapshot. */
+function readRepoTree(
+  dir: string,
+  repoRoot: string,
+  os: Os,
+  files: Map<string, Uint8Array>,
+): void {
+  readTree(dir, os, files, (path) => repoKey(repoRoot, path, os));
+}
+
+/**
+ * Contract "Profile and machine, until phase 6": a profile's or machine
+ * layer's files join the snapshot under its layer path, so entry selection
+ * sees them. Only the state folder is read, never the repo's `profiles/` or
+ * `machines/` folders.
+ */
+function readStateTree(
+  dir: string,
+  prefix: string,
+  os: Os,
+  files: Map<string, Uint8Array>,
+): void {
+  readTree(dir, os, files, (_path, relative) => `${prefix}${relative}`);
 }
 
 function fileEntry(path: string, stats: Stats): LocalEntry | undefined {
@@ -232,8 +271,29 @@ function localPathOf(
  */
 export function readSnapshot(input: SnapshotInput): Snapshot {
   const repoFiles = new Map<string, Uint8Array>();
-  const repoTree = pathFor(input.os).join(input.repoRoot, DOTFILES_FOLDER);
+  const p = pathFor(input.os);
+  const repoTree = p.join(input.repoRoot, DOTFILES_FOLDER);
   readRepoTree(repoTree, input.repoRoot, input.os, repoFiles);
+  if (input.stateFolder !== undefined) {
+    if (input.profile !== undefined) {
+      const folder = `${PROFILES_FOLDER}/${input.profile.name}`;
+      readStateTree(
+        p.join(input.stateFolder, PROFILES_FOLDER, input.profile.name),
+        `${folder}/`,
+        input.os,
+        repoFiles,
+      );
+    }
+    if (input.machine !== undefined) {
+      const folder = `${MACHINES_FOLDER}/${input.machine}`;
+      readStateTree(
+        p.join(input.stateFolder, MACHINES_FOLDER, input.machine),
+        `${folder}/`,
+        input.os,
+        repoFiles,
+      );
+    }
+  }
 
   const localFiles = new Map<string, LocalEntry>();
   const localDirs = new Set<string>();
@@ -325,10 +385,28 @@ function isRepoPath(path: string): boolean {
   return path === "dotfiles" || path.startsWith(REPO_PREFIX);
 }
 
+/** An action's path is a state path when it names a profile or machine layer. */
+function isStatePath(path: string): boolean {
+  return (
+    path.startsWith(`${PROFILES_FOLDER}/`) ||
+    path.startsWith(`${MACHINES_FOLDER}/`)
+  );
+}
+
+/**
+ * Where an action writes: a repo path under the repo, a profile or machine
+ * layer path under the state folder, and anything else as an absolute local
+ * path.
+ */
 function absolutePath(path: string, context: RunContext): string {
-  return isRepoPath(path)
-    ? pathFor(context.os).join(context.repoRoot, path)
-    : path;
+  const p = pathFor(context.os);
+  if (isRepoPath(path)) {
+    return p.join(context.repoRoot, path);
+  }
+  if (isStatePath(path)) {
+    return p.join(context.stateFolder, path);
+  }
+  return path;
 }
 
 function existingMode(path: string): number | undefined {
