@@ -13,7 +13,8 @@ export const USAGE =
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
   "[--existing backup|keep|stop] [--yes] | " +
-  "mksync machine show | mksync --version";
+  "mksync machine show | mksync machine retire <name> [--yes] | " +
+  "mksync profile retire <name> [--yes] | mksync --version";
 
 export type CommandName = "export" | "import";
 
@@ -43,6 +44,25 @@ export interface MachineShowCommand {
   readonly kind: "machine-show";
 }
 
+/** `machine retire <name>`: the record to retire and whether `--yes` answers
+ * the question. */
+export interface MachineRetireCommand {
+  readonly kind: "machine-retire";
+  readonly target: string;
+  readonly yes: boolean;
+}
+
+/** `profile retire <name>`: the profile to retire and whether `--yes` answers
+ * the question. */
+export interface ProfileRetireCommand {
+  readonly kind: "profile-retire";
+  readonly target: string;
+  readonly yes: boolean;
+}
+
+/** Either retire command. */
+export type RetireCommand = MachineRetireCommand | ProfileRetireCommand;
+
 /** `setup`: the first-run flow's flags, parsed but not validated. */
 export interface SetupCommand extends SetupFlags {
   readonly kind: "setup";
@@ -68,6 +88,8 @@ export type ParsedCommand =
   | RunCommand
   | ShadowCommand
   | MachineShowCommand
+  | MachineRetireCommand
+  | ProfileRetireCommand
   | SetupCommand
   | VersionCommand
   | UsageCommand
@@ -80,6 +102,11 @@ const SHADOW_COMMAND = "shadow";
 const MACHINE_COMMAND = "machine";
 
 const MACHINE_SHOW_VERB = "show";
+
+const PROFILE_COMMAND = "profile";
+
+/** The verb both retire commands share. */
+const RETIRE_VERB = "retire";
 
 const SETUP_COMMAND = "setup";
 
@@ -182,6 +209,48 @@ function flagNeedsValue(flag: string): ParseError {
 
 function notAChoice(flag: string, choices: readonly string[]): ParseError {
   return setupError(`${flag} must be one of ${choices.join(", ")}.`);
+}
+
+/** The retire commands' missing target, in the `needs a …` form. */
+function retireNeedsName(noun: string): ParseError {
+  return setupError(`${noun} retire needs a name.`);
+}
+
+/**
+ * `machine retire <name> [--yes]` and `profile retire <name> [--yes]`
+ * (decision 5): one target, with `--yes` either side of it. The store lookup
+ * and the question belong to the caller.
+ */
+function parseRetire(
+  argv: readonly string[],
+  kind: "machine-retire" | "profile-retire",
+): RetireCommand | ParseError {
+  const noun = kind === "machine-retire" ? "machine" : "profile";
+  let target: string | undefined;
+  let yes = false;
+
+  let index = 2;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === SETUP_YES) {
+      if (yes) {
+        return repeatedFlag(arg);
+      }
+      yes = true;
+      index++;
+      continue;
+    }
+    if (isOption(arg) || target !== undefined) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    target = arg;
+    index++;
+  }
+
+  return target === undefined ? retireNeedsName(noun) : { kind, target, yes };
 }
 
 /**
@@ -305,6 +374,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     if (verb === undefined) {
       return { kind: "usage" };
     }
+    if (verb === RETIRE_VERB) {
+      return parseRetire(argv, "machine-retire");
+    }
     if (verb !== MACHINE_SHOW_VERB) {
       return error(`${UNKNOWN_OPTION_PREFIX}${verb}`);
     }
@@ -312,6 +384,16 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     return extra === undefined
       ? { kind: "machine-show" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === PROFILE_COMMAND) {
+    const verb = argv[1];
+    if (verb === undefined) {
+      return { kind: "usage" };
+    }
+    if (verb !== RETIRE_VERB) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${verb}`);
+    }
+    return parseRetire(argv, "profile-retire");
   }
   if (command === SETUP_COMMAND) {
     return parseSetup(argv);

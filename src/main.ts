@@ -529,6 +529,9 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "setup":
       return parsed;
+    case "machine-retire":
+    case "profile-retire":
+      return failure("ERROR: retire is not wired yet", 2);
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };
     case "usage":

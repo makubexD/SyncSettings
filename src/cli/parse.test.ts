@@ -162,8 +162,16 @@ describe("parseArgs", () => {
     expect(parseArgs(["machine"])).toEqual(USAGE);
   });
 
-  test("should refuse a machine noun that isn't show", () => {
-    expect(parseArgs(["machine", "retire"])).toEqual(unknownOption("retire"));
+  test("should ask for a name when machine retire has none", () => {
+    expect(parseArgs(["machine", "retire"])).toEqual(
+      usageError("ERROR: machine retire needs a name."),
+    );
+  });
+
+  test("should refuse a machine noun that isn't show or retire", () => {
+    expect(parseArgs(["machine", "frobnicate"])).toEqual(
+      unknownOption("frobnicate"),
+    );
   });
 
   test("should refuse an option after machine show", () => {
@@ -175,6 +183,84 @@ describe("parseArgs", () => {
   test("should refuse a stray argument after machine show", () => {
     expect(parseArgs(["machine", "show", "extra"])).toEqual(
       unknownOption("extra"),
+    );
+  });
+
+  test("should parse machine retire with a name", () => {
+    expect(parseArgs(["machine", "retire", "wk1-laptop"])).toEqual({
+      kind: "machine-retire",
+      target: "wk1-laptop",
+      yes: false,
+    });
+  });
+
+  test("should parse machine retire --yes after the name", () => {
+    expect(parseArgs(["machine", "retire", "wk1-laptop", "--yes"])).toEqual({
+      kind: "machine-retire",
+      target: "wk1-laptop",
+      yes: true,
+    });
+  });
+
+  test("should parse machine retire --yes before the name", () => {
+    expect(parseArgs(["machine", "retire", "--yes", "wk1-laptop"])).toEqual({
+      kind: "machine-retire",
+      target: "wk1-laptop",
+      yes: true,
+    });
+  });
+
+  test("should refuse --yes given twice after machine retire", () => {
+    expect(
+      parseArgs(["machine", "retire", "wk1-laptop", "--yes", "--yes"]),
+    ).toEqual(usageError("ERROR: --yes is repeated."));
+  });
+
+  test("should refuse an unknown option after machine retire", () => {
+    expect(parseArgs(["machine", "retire", "--force"])).toEqual(
+      unknownOption("--force"),
+    );
+  });
+
+  test("should refuse a stray argument after the machine retire name", () => {
+    expect(parseArgs(["machine", "retire", "wk1-laptop", "extra"])).toEqual(
+      unknownOption("extra"),
+    );
+  });
+
+  test("should ask for the usage line when profile has no verb", () => {
+    expect(parseArgs(["profile"])).toEqual(USAGE);
+  });
+
+  test("should refuse a profile noun that isn't retire", () => {
+    expect(parseArgs(["profile", "show"])).toEqual(unknownOption("show"));
+  });
+
+  test("should ask for a name when profile retire has none", () => {
+    expect(parseArgs(["profile", "retire"])).toEqual(
+      usageError("ERROR: profile retire needs a name."),
+    );
+  });
+
+  test("should parse profile retire with a name", () => {
+    expect(parseArgs(["profile", "retire", "work-1"])).toEqual({
+      kind: "profile-retire",
+      target: "work-1",
+      yes: false,
+    });
+  });
+
+  test("should parse profile retire --yes before the name", () => {
+    expect(parseArgs(["profile", "retire", "--yes", "work-1"])).toEqual({
+      kind: "profile-retire",
+      target: "work-1",
+      yes: true,
+    });
+  });
+
+  test("should refuse an unknown option after profile retire", () => {
+    expect(parseArgs(["profile", "retire", "work-1", "--force"])).toEqual(
+      unknownOption("--force"),
     );
   });
 
@@ -297,6 +383,18 @@ describe("parseArgs", () => {
 
   test("should name machine show in the usage line", () => {
     expect(USAGE_TEXT.includes("mksync machine show")).toBe(true);
+  });
+
+  test("should name machine retire in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync machine retire <name> [--yes]")).toBe(
+      true,
+    );
+  });
+
+  test("should name profile retire in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync profile retire <name> [--yes]")).toBe(
+      true,
+    );
   });
 
   test("should name setup in the usage line", () => {
