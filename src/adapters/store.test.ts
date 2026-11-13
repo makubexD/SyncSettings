@@ -1,14 +1,27 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { Profile } from "../core/config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
   Result as LoadResult,
 } from "../core/config/types.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
 import type { Store } from "./store.ts";
-import { readStore } from "./store.ts";
+import {
+  readRepoStore,
+  readStore,
+  writeProfile,
+  writeRecord,
+} from "./store.ts";
 
 const MACHINE_NAME = "wk1-laptop";
 
@@ -94,7 +107,7 @@ function storeOf(fixture: StoreFixture): LoadResult<Store, ConfigError> {
   return readStore(fixture.state, fixture.repo, baseConfig());
 }
 
-function expectOk(result: LoadResult<Store, ConfigError>): Store {
+function expectOk<T>(result: LoadResult<T, ConfigError>): T {
   if (!result.ok) {
     throw new Error(`expected a store, got ${result.error.message}`);
   }
@@ -263,5 +276,96 @@ describe("readStore", () => {
     // Assert
     expect(error.message).toBe(MISSING_MACHINE_MESSAGE);
     expect(error.code).toBe(2);
+  });
+});
+
+const PRIVATE_MODE = 0o600;
+
+const RECORD_VALUES = { "<HOME>": "C:\\Users\\user" };
+
+const PROFILE_VALUES = { "<YOUR_EMAIL>": "work@example.com" };
+
+function recordOf(): MachineRecord {
+  return {
+    name: MACHINE_NAME,
+    profile: PROFILE_NAME,
+    os: "windows",
+    hostname: MACHINE_NAME,
+    domain: "corp.example.com",
+    claude: "claude",
+    pullOnly: false,
+    modules: { add: [], remove: [] },
+    values: RECORD_VALUES,
+    replaced: [],
+    retired: false,
+  };
+}
+
+function profileOf(): Profile {
+  return {
+    name: PROFILE_NAME,
+    modules: ["base"],
+    values: PROFILE_VALUES,
+    destinations: {},
+    retired: false,
+  };
+}
+
+describe("writeRecord and writeProfile", () => {
+  test("should write a record and profile readStore reads back", () => {
+    // Arrange
+    const fixture = storeFixture();
+
+    // Act
+    writeRecord(fixture.state, recordOf());
+    writeProfile(fixture.state, profileOf());
+    const store = expectOk(storeOf(fixture));
+
+    // Assert
+    expect(store.record).toEqual(recordOf());
+    expect(store.profile).toEqual(profileOf());
+    expect(store.profiles).toEqual([profileOf()]);
+  });
+
+  test("should write both files for the current user only", () => {
+    // Arrange
+    const fixture = storeFixture();
+
+    // Act
+    writeRecord(fixture.state, recordOf());
+    writeProfile(fixture.state, profileOf());
+    const recordMode = statSync(join(fixture.state, "machine.json")).mode;
+    const profileMode = statSync(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+    ).mode;
+
+    // Assert
+    expect(recordMode & 0o777).toBe(PRIVATE_MODE);
+    expect(profileMode & 0o777).toBe(PRIVATE_MODE);
+  });
+});
+
+describe("readRepoStore", () => {
+  test("should read every machine record and profile from the repo", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+
+    // Act
+    const repo = expectOk(readRepoStore(fixture.repo, baseConfig()));
+
+    // Assert
+    expect(repo.records.map((record) => record.name)).toEqual([MACHINE_NAME]);
+    expect(repo.profiles.map((profile) => profile.name)).toEqual([
+      PROFILE_NAME,
+    ]);
+    expect(repo.profiles[0]?.modules).toEqual(["base"]);
   });
 });

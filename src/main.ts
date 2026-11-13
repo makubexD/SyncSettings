@@ -1,10 +1,13 @@
+import { createInterface } from "node:readline";
+import type { Interface } from "node:readline";
+import { join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
 import type { EngineHost } from "./adapters/engine.ts";
 import { runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
-import { readIdentity } from "./adapters/scan.ts";
+import { readIdentity, readScan } from "./adapters/scan.ts";
 import {
   buildSnapshot,
   findRepoRoot,
@@ -15,18 +18,30 @@ import {
   V2_CONFIG,
 } from "./adapters/snapshot.ts";
 import type { Layers } from "./adapters/snapshot.ts";
+import {
+  readRepoStore,
+  readStore,
+  readText,
+  writeProfile,
+  writeRecord,
+} from "./adapters/store.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   MachineShowCommand,
   RunCommand,
+  SetupCommand,
   ShadowCommand,
 } from "./cli/parse.ts";
+import type { Profile } from "./core/config/profile.ts";
 import type { ConfigV2, Os } from "./core/config/types.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { CheckMode } from "./core/machine/check.ts";
+import type { MachineRecord } from "./core/machine/record.ts";
 import { machineScope } from "./core/machine/scope.ts";
 import { renderMachineShow } from "./core/machine/show.ts";
+import type { ValuePlace } from "./core/machine/values.ts";
+import { moveUserValues, placeValue } from "./core/machine/values.ts";
 import { planCheck } from "./core/plan/check.ts";
 import { planExport } from "./core/plan/export.ts";
 import { planImport } from "./core/plan/import.ts";
@@ -34,6 +49,10 @@ import { planPreview } from "./core/plan/preview.ts";
 import { renderRun } from "./core/plan/run.ts";
 import type { Plan, RunPlan } from "./core/plan/types.ts";
 import { compareShadow, programShadow, renderShadow } from "./core/shadow.ts";
+import { parseValuesFile } from "./core/values/file.ts";
+import type { Values } from "./core/values/sanitize.ts";
+import type { SetupFlags, SetupIo } from "./wizard/setup.ts";
+import { runSetup } from "./wizard/setup.ts";
 
 export { USAGE };
 
@@ -78,9 +97,11 @@ function writeLines(lines: readonly string[]): string {
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
 }
 
-type Resolved = Result | RunCommand | ShadowCommand | MachineShowCommand;
+type Resolved =
+  Result | RunCommand | ShadowCommand | MachineShowCommand | SetupCommand;
 
-type ExecutableCommand = RunCommand | ShadowCommand | MachineShowCommand;
+type ExecutableCommand =
+  RunCommand | ShadowCommand | MachineShowCommand | SetupCommand;
 
 function isResolvedCommand(value: Resolved): value is ExecutableCommand {
   return "kind" in value;
@@ -120,6 +141,215 @@ function applyPlan(plan: RunPlan, context: RunContext): Result {
     code: rendered.code,
     stdout: writeLines(rendered.lines),
     stderr: "",
+  };
+}
+
+const VALUES_FILE = ".user-values.json";
+
+/** The setup flow's terminal: text to stdout, answers from stdin. */
+interface SetupTerminal {
+  readonly io: SetupIo;
+  close(): void;
+}
+
+/**
+ * `setup`'s io: text goes to stdout at once, so a question shows before its
+ * answer is read; `readLine` pulls stdin lines on demand, `undefined` at end
+ * of input.
+ */
+function setupTerminal(): SetupTerminal {
+  let reader: Interface | undefined;
+  const queued: string[] = [];
+  const waiting: ((line: string | undefined) => void)[] = [];
+  let ended = false;
+  const push = (line: string): void => {
+    const resolve = waiting.shift();
+    if (resolve === undefined) {
+      queued.push(line);
+    } else {
+      resolve(line);
+    }
+  };
+  const end = (): void => {
+    ended = true;
+    for (const resolve of waiting.splice(0)) {
+      resolve(undefined);
+    }
+  };
+  return {
+    io: {
+      write: (text) => {
+        process.stdout.write(text);
+      },
+      readLine: async () => {
+        if (reader === undefined) {
+          reader = createInterface({ input: process.stdin });
+          reader.on("line", push);
+          reader.on("close", end);
+        }
+        const line = queued.shift();
+        if (line !== undefined) {
+          return line;
+        }
+        if (ended) {
+          return undefined;
+        }
+        return new Promise((resolve) => {
+          waiting.push(resolve);
+        });
+      },
+    },
+    close: () => {
+      reader?.close();
+    },
+  };
+}
+
+/** Today as `YYYY-MM-DD` in the machine's own time zone. */
+function localDate(now: Date): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Decision 4: where a placeholder `.user-values.json` holds outside the table
+ * goes. With `--yes` or no terminal it takes the suggestion, the profile;
+ * otherwise it is asked once.
+ */
+async function valueAnswers(
+  values: Values,
+  flags: SetupFlags,
+  io: SetupIo,
+): Promise<Readonly<Record<string, ValuePlace>>> {
+  const answers: Record<string, ValuePlace> = {};
+  if (flags.yes === true || process.stdin.isTTY !== true) {
+    return answers;
+  }
+  for (const placeholder of Object.keys(values)) {
+    if (placeValue(placeholder) !== "ask") {
+      continue;
+    }
+    io.write(`${placeholder}: kept on 1) this profile 2) this machine [1] `);
+    const line = await io.readLine();
+    answers[placeholder] = line?.trim() === "2" ? "machine" : "profile";
+  }
+  return answers;
+}
+
+/**
+ * Run `mksync setup` end to end: read the store and the scan, run the flow,
+ * move `.user-values.json`, write the record and profile, then act on the
+ * fourth answer (decision 9).
+ */
+async function executeSetup(
+  repoRoot: string,
+  config: ConfigV2,
+  os: Os,
+  home: string,
+  state: string,
+  command: SetupCommand,
+): Promise<Result> {
+  const store = readStore(state, repoRoot, config);
+  if (!store.ok) {
+    return failure(store.error.message, store.error.code);
+  }
+  // shortcut: the real visibility reader is step 17; until then the test
+  // variable decides.
+  const isPrivate = process.env.MKSYNC_VISIBILITY === "private";
+  const repoStore = isPrivate ? readRepoStore(repoRoot, config) : undefined;
+  if (repoStore !== undefined && !repoStore.ok) {
+    return failure(repoStore.error.message, repoStore.error.code);
+  }
+  const profiles = repoStore?.value.profiles ?? store.value.profiles;
+  const records = new Map<string, MachineRecord>();
+  if (store.value.record !== undefined) {
+    records.set(store.value.record.name, store.value.record);
+  }
+  for (const record of repoStore?.value.records ?? []) {
+    records.set(record.name, record);
+  }
+
+  const scan = await readScan(process.env, os, home, config);
+  const terminal = setupTerminal();
+  const outcome = await runSetup(
+    {
+      scan,
+      config,
+      profiles,
+      records: [...records.values()],
+      ...(store.value.record !== undefined ? { own: store.value.record } : {}),
+      isPrivate,
+      today: localDate(new Date()),
+      flags: command,
+    },
+    terminal.io,
+  );
+  if (!outcome.ok) {
+    terminal.close();
+    return failure(outcome.message, outcome.code);
+  }
+
+  const values = parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
+  const answers = await valueAnswers(values, command, terminal.io);
+  terminal.close();
+  const moved = moveUserValues(values, answers);
+  const record: MachineRecord = {
+    ...outcome.record,
+    values: { ...moved.machine, ...outcome.record.values },
+  };
+  const profile: Profile = {
+    ...outcome.profile,
+    values: { ...moved.profile, ...outcome.profile.values },
+  };
+  try {
+    writeRecord(state, record);
+    writeProfile(state, profile);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return failure(`ERROR: cannot write the machine record: ${message}`);
+  }
+
+  if (outcome.action === "stop") {
+    return {
+      code: 0,
+      stdout: "Stopped: the record is written, no file was changed.\n",
+      stderr: "",
+    };
+  }
+  const importCommand: RunCommand = {
+    kind: "run",
+    command: "import",
+    force: true,
+    preview: false,
+    check: false,
+    only: [],
+  };
+  if (outcome.action === "backup") {
+    return execute(importCommand);
+  }
+  const exportCommand: RunCommand = {
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: false,
+    check: false,
+    only: [],
+  };
+  const exported = await execute(exportCommand);
+  if (exported.code !== 0) {
+    // The local files weren't saved, so importing now would overwrite them.
+    return exported;
+  }
+  const imported = await execute(importCommand);
+  return {
+    code: imported.code,
+    stdout:
+      exported.stdout +
+      "Pushed into the repo folder; commit it with mksync push.\n" +
+      imported.stdout,
+    stderr: `${exported.stderr}${imported.stderr}`,
   };
 }
 
@@ -193,6 +423,9 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   }
 
   const state = stateFolder(os.value, home, process.env);
+  if (command.kind === "setup") {
+    return executeSetup(repoRoot, config.value, os.value, home, state, command);
+  }
   const layers = loadLayers(state, repoRoot, config.value);
   if (!layers.ok) {
     return failure(layers.error.message, layers.error.code);
@@ -295,7 +528,7 @@ export function run(argv: readonly string[]): Resolved {
     case "machine-show":
       return parsed;
     case "setup":
-      return failure("ERROR: setup is not wired yet", 2);
+      return parsed;
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };
     case "usage":

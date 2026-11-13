@@ -1,6 +1,12 @@
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import type { Dirent } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import { parseProfile } from "../core/config/profile.ts";
 import type {
@@ -8,9 +14,15 @@ import type {
   ConfigV2,
   Result as LoadResult,
 } from "../core/config/types.ts";
+import type { JsonValue } from "../core/json/value.ts";
+import { writeJson } from "../core/json/value.ts";
 import { LAYER_NAME } from "../core/layers/names.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
-import { parseRecord, recordMessage } from "../core/machine/record.ts";
+import {
+  parseRecord,
+  recordMessage,
+  recordText,
+} from "../core/machine/record.ts";
 import { MACHINES_FOLDER, PROFILES_FOLDER } from "./fs.ts";
 
 /** The state folder's record file; contract "The record". */
@@ -23,10 +35,21 @@ const REPO_HOME = "repo";
 
 const PROFILE_EXTENSION = ".json";
 
+/** The record and profile hold values; contract "The record" wants them
+ * readable by the current user only. */
+const PRIVATE_MODE = 0o600;
+
 /** What a run reads from the record store: contract "Where records are kept". */
 export interface Store {
   readonly record?: MachineRecord;
   readonly profile?: Profile;
+  readonly profiles: readonly Profile[];
+}
+
+/** What a repo-home store holds: records other machines could take over, and
+ * every profile in the clone. */
+export interface RepoStore {
+  readonly records: readonly MachineRecord[];
   readonly profiles: readonly Profile[];
 }
 
@@ -92,8 +115,8 @@ function readRecord(
   };
 }
 
-/** The `.json` files in a profiles folder, without their extension, sorted by name. */
-function profileNames(folder: string): readonly string[] {
+/** The `.json` files in a folder, without their extension, sorted by name. */
+function jsonNames(folder: string): readonly string[] {
   let entries: readonly Dirent[];
   try {
     entries = readdirSync(folder, { withFileTypes: true });
@@ -130,7 +153,7 @@ function readProfiles(
   config: ConfigV2,
 ): LoadResult<readonly Profile[], ConfigError> {
   const profiles: Profile[] = [];
-  for (const name of profileNames(folder)) {
+  for (const name of jsonNames(folder)) {
     const parsed = readProfileFile(folder, name, config);
     if (!parsed.ok) {
       return parsed;
@@ -232,5 +255,90 @@ export function readStore(
   return storeValue(
     { record: record.value, profilesFolder: join(repoRoot, PROFILES_FOLDER) },
     config,
+  );
+}
+
+/**
+ * Contract "Where records are kept": the repo store, every machine record in
+ * the clone's `machines/` and every profile in its `profiles/`, sorted by
+ * name. `setup` reads it when the repo is private; a bad record stops with
+ * exit code 2.
+ */
+export function readRepoStore(
+  repoRoot: string,
+  config: ConfigV2,
+): LoadResult<RepoStore, ConfigError> {
+  const records: MachineRecord[] = [];
+  const machinesFolder = join(repoRoot, MACHINES_FOLDER);
+  for (const name of jsonNames(machinesFolder)) {
+    const text = readText(join(machinesFolder, `${name}${PROFILE_EXTENSION}`));
+    if (text === undefined) {
+      continue;
+    }
+    const record = readRecord(text, config);
+    if (!record.ok) {
+      return record;
+    }
+    records.push(record.value);
+  }
+  const profiles = readProfiles(join(repoRoot, PROFILES_FOLDER), config);
+  if (!profiles.ok) {
+    return profiles;
+  }
+  return { ok: true, value: { records, profiles: profiles.value } };
+}
+
+function jsonString(value: string): JsonValue {
+  return { kind: "string", value };
+}
+
+function jsonStrings(values: readonly string[]): JsonValue {
+  return { kind: "array", items: values.map(jsonString) };
+}
+
+function jsonStringRecord(values: Readonly<Record<string, string>>): JsonValue {
+  const entries: [string, JsonValue][] = Object.entries(values).map(
+    ([key, value]) => [key, jsonString(value)],
+  );
+  return { kind: "object", entries: new Map(entries) };
+}
+
+function profileValue(profile: Profile): JsonValue {
+  return {
+    kind: "object",
+    entries: new Map<string, JsonValue>([
+      ["modules", jsonStrings(profile.modules)],
+      ["values", jsonStringRecord(profile.values)],
+      ["destinations", jsonStringRecord(profile.destinations)],
+      ["retired", { kind: "bool", value: profile.retired }],
+    ]),
+  };
+}
+
+/** The profile as the contract writes it: the key order above, the `json`
+ * entry layout, LF and a trailing newline. */
+function profileText(profile: Profile): string {
+  return writeJson(profileValue(profile), "\n");
+}
+
+/** Write a record or profile file, creating its folder, for the current user
+ * only (contract "The record"). */
+function writePrivateFile(path: string, text: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text, { mode: PRIVATE_MODE });
+  // `mode` at creation is masked by the umask; the contract wants 0600.
+  chmodSync(path, PRIVATE_MODE);
+}
+
+/** Write this machine's record to `<state>/machine.json`. */
+export function writeRecord(stateFolder: string, record: MachineRecord): void {
+  writePrivateFile(join(stateFolder, MACHINE_FILE), recordText(record));
+}
+
+/** Write a profile to `<state>/profiles/<name>.json`. */
+export function writeProfile(stateFolder: string, profile: Profile): void {
+  writePrivateFile(
+    join(stateFolder, PROFILES_FOLDER, `${profile.name}${PROFILE_EXTENSION}`),
+    profileText(profile),
   );
 }
