@@ -135,6 +135,10 @@ Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
 - `env` in a `configV2` case may set `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`, `MKSYNC_VISIBILITY`; anything
   else stays a runner error.
 - `stderr: true` on a command adds its stderr lines to `output.txt` after its stdout lines (for the warnings).
+- Follow-up (found in review: the runner keeps only `WORD label` status lines, so the six `machine show` lines, the
+  scan block and the `ERROR:`, `held` and `refused:` lines would be dropped): a command's stdout is kept whole (every
+  line, ANSI codes and `\r` removed) for `setup`, `machine-show`, `machine-retire`, `profile-retire`, and for any
+  command with `"output": "all"`; the rest keep status lines as today.
 
 Test: `tests/parity/run.sh --engine dist/mksync` passes as before (51 passed); a scratch case using `machine-show` against
 bash prints the skip line (made in the scratchpad, not committed).
