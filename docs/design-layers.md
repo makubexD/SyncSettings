@@ -1129,6 +1129,17 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   - `core/plan/preview.ts` names `profiles/` and `machines/` again, as `adapters/fs.ts` does; one core constant would
     hold both.
   - `parsedJson` in `core/plan/import.ts` repeats the private `parseBytes` of `core/merge/json.ts`.
+- **Machines, phase 6.** Chosen in the build where the contract is silent; confirm or change in the contract:
+  - A module limited to several systems is off as `<m> off, linux or macos only` (`core/machine/scope.ts`).
+  - A record whose `name` equals its `profile` is refused as `name can't be <value>` (`core/machine/record.ts`).
+  - A repo-home record that doesn't parse uses the state folder's `machine record (machine.json …)` line.
+  - Setup: a bad answer to questions 2 to 4 prints `Pick 1 to <n>.` and asks again; an answer of digits only is
+    always a choice, never a new profile's name; the profile list pads a name with machines to 12 characters and
+    shows several as `machines a, b`; a takeover on the same hostname and domain adds no `replaced` entry;
+    `--profile` with `--replace` takes the record's profile.
+  - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
+    which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's
+    rules would be a migration.
 
 ### Confirm on Windows
 
