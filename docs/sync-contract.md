@@ -1048,10 +1048,10 @@ If this is a new machine, run: mksync setup --replace wk1-laptop
 (`os` and `domain` likewise: `warning: the record says os <os>, this machine is <os>.`,
 `warning: the record says domain <d>, this machine has <d>.` with `none` for `null`; one line per difference in the
 order os, hostname, domain, then the `If` line once. The layers and modules follow the system the program runs on, not
-the record's `os`.)
+the record's `os`, and an `os` difference alone only warns, push included: each system keeps its own state folder.)
 
-**Push checks.** `export` stops with exit 1 before writing anything, on stderr, checking in this order (the moved
-check prints every difference line as above, as `ERROR:`):
+**Push checks.** `export` stops with exit 1 before writing anything, on stderr, checking in this order (a hostname
+or domain difference prints every difference line as above, as `ERROR:`):
 
 ```text
 ERROR: this machine is retired.
