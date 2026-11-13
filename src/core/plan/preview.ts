@@ -18,9 +18,12 @@ const NOTHING_WRITTEN = "  Nothing was written. Run mksync push to send it.";
  * A profile's or machine's layer files live in the state folder, under the
  * guard's repo path roots. An export writes them, but they are never committed,
  * so they are not part of the comparison with `HEAD` or of the preview's count.
+ * Compared case-insensitively, as the guard folds them: a case-insensitive
+ * filesystem treats `Profiles/` as `profiles/`.
  */
 function isStateFile(path: string): boolean {
-  return STATE_FOLDER_ROOTS.some((root) => path.startsWith(root));
+  const folded = path.toLowerCase();
+  return STATE_FOLDER_ROOTS.some((root) => folded.startsWith(root));
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

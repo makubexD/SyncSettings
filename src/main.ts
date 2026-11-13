@@ -148,11 +148,17 @@ async function readOrigin(repoRoot: string): Promise<string | undefined> {
   return origin === "" ? undefined : origin;
 }
 
-/** The paths the clone tracks, from `git ls-files`, for the public-repo guard. */
-async function readTrackedPaths(repoRoot: string): Promise<readonly string[]> {
+/**
+ * The paths the clone tracks, from `git ls-files`, for the public-repo guard.
+ * `undefined` when git can't list them (it fails or can't start), so the
+ * guard fails closed rather than seeing an empty clone.
+ */
+async function readTrackedPaths(
+  repoRoot: string,
+): Promise<readonly string[] | undefined> {
   const output = await runGitText(repoRoot, ["ls-files", "-z"]);
   if (output === undefined || output.code !== 0) {
-    return [];
+    return undefined;
   }
   return output.stdout.split("\u0000").filter((path) => path !== "");
 }
@@ -343,23 +349,34 @@ async function replaceValues(
 
 /**
  * Decision 10: the public-repo guard's decision for an export. A private repo
- * holds and refuses nothing; while public, the local store names the held files
- * and `git ls-files` names the refused paths.
+ * holds and refuses nothing and needs no listing; while public, the local store
+ * names the held files and `git ls-files` names the refused paths.
+ * `undefined` means a public repo whose tracked files can't be listed, so the
+ * guard can't check them.
  */
 async function exportGuard(
   repoRoot: string,
   state: string,
   config: ConfigV2,
-): Promise<GuardDecision> {
+): Promise<GuardDecision | undefined> {
   const origin = await readOrigin(repoRoot);
   const visibility = await readVisibility(origin, process.env);
   if (visibility === "private") {
     return { held: [], refused: [] };
   }
+  const tracked = await readTrackedPaths(repoRoot);
+  if (tracked === undefined) {
+    return undefined;
+  }
   const store = readStore(state, repoRoot, config);
   const localRecords = store.ok ? store.value : { profiles: [] };
-  return guard(visibility, await readTrackedPaths(repoRoot), localRecords);
+  return guard(visibility, tracked, localRecords);
 }
+
+/** Contract "Public-repo guard (program only)": while public, a clone whose
+ * tracked files can't be listed stops export: the guard fails closed. */
+const CANNOT_LIST_TRACKED =
+  "ERROR: can't list the clone's files, so the public-repo guard can't check them.";
 
 /** Contract "Public-repo guard (program only)", Refused: two lines per path. */
 function refusedText(paths: readonly string[]): string {
@@ -739,10 +756,13 @@ async function execute(command: ExecutableCommand): Promise<Result> {
 
   // The record checks run first, then the public-repo guard's (contract
   // "Public-repo guard (program only)").
-  const guardDecision =
-    command.command === "export"
-      ? await exportGuard(repoRoot, state, config.value)
-      : undefined;
+  let guardDecision: GuardDecision | undefined;
+  if (command.command === "export") {
+    guardDecision = await exportGuard(repoRoot, state, config.value);
+    if (guardDecision === undefined) {
+      return failure(CANNOT_LIST_TRACKED);
+    }
+  }
   if (
     guardDecision !== undefined &&
     !command.preview &&

@@ -18,6 +18,10 @@ const PROFILE_NAME = "work-1";
 
 const PROFILE_FILE = `profiles/${PROFILE_NAME}/test/conf`;
 
+const UPPERCASE_PROFILE_FILE = "Profiles/x.json";
+
+const UPPERCASE_MACHINE_FILE = "MACHINES/y.json";
+
 const PROFILE: Profile = {
   name: PROFILE_NAME,
   modules: ["test"],
@@ -172,4 +176,28 @@ describe("planPreview", () => {
     expect(result.lines).toContain(NO_CHANGES);
     expect(result.lines).toContain(MATCHES_HEAD);
   });
+
+  test.each([
+    [UPPERCASE_PROFILE_FILE],
+    [UPPERCASE_MACHINE_FILE],
+  ])(
+    "should leave %s out of the count and the compared tree",
+    (stateFile) => {
+      // Arrange
+      const repoFiles = new Map([
+        [PROFILE_FILE, bytes("new\n")],
+        [stateFile, bytes("new\n")],
+      ]);
+      const headFiles = new Map<string, Uint8Array>();
+      const preview = snapshot(repoFiles, headFiles, bytes("same\n"), PROFILE);
+
+      // Act
+      const result = planPreview(preview);
+
+      // Assert
+      expect(result.code).toBe(0);
+      expect(result.lines).toContain(NO_CHANGES);
+      expect(result.lines).toContain(MATCHES_HEAD);
+    },
+  );
 });
