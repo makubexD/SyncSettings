@@ -236,9 +236,9 @@ step 3's "Statusline", ANSI codes kept in the expected text as the contract writ
 | `statusline-ctx-write`   | `session_id` `abc-1`, `context_window_size` 200000              | file `CTX_WINDOW_DIR/abc-1` holds `200000` |
 | `statusline-bad-session` | `session_id` `../x`                                             | no file written                            |
 | `statusline-worker`      | `~/.claude/state/worker-mode` exists in the temp home           | the worker-mode section                    |
-| `statusline-git`         | `git: local` clone as cwd with one change, `SYNC_GIT` unset     | branch and change count                    |
 
-Test: `bun run build && tests/parity/run.sh --engine dist/mksync statusline-` shows 8 failures (unknown command).
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync statusline-` shows 7 failures (unknown command). No shared case
+for the git sections: the age (`%cr`) of the runner's fresh commit isn't fixed, so step 16 covers them in unit tests.
 
 ## Step 9: Shared cases for the first backup and the repo store `[worker]`
 
@@ -335,7 +335,7 @@ The facts of step 15: clock, `/proc/loadavg` and `/proc/meminfo` (none on Window
 ahead/behind, last commit age and changes as the script runs them, the worker-mode flag, the files that set the
 project type; the overrides of decision 7. The context-window write with the script's checks. `mksync statusline`
 reads stdin, prints the line, exits 0 whatever fails. Unit cases with temp folders: overrides, bad session id, git
-missing.
+missing, and git in a temp repo (branch, `*`, `(+<ins>,-<del>)`, `<n>?`, the age from an injected clock).
 
 Test: `bun test src/adapters/statusline.test.ts && bun run build && tests/parity/run.sh --engine dist/mksync
 statusline-`.
