@@ -1,0 +1,28 @@
+{
+  "description": "A profile whose name names another layer stops import before any file is touched: the contract's ERROR line, exit 2, nothing written (Layers (program only), profile and machine).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_PROFILE": "linux"
+  },
+  "commands": [
+    {
+      "command": "import"
+    }
+  ]
+}

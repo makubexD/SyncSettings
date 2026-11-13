@@ -1,0 +1,2 @@
+UNCHANGED dotfiles/linux/parity/settings.json
+UNCHANGED dotfiles/linux/parity/settings.json

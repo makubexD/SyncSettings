@@ -1,0 +1,2 @@
+UNCHANGED dotfiles/windows/parity/settings.json
+UNCHANGED dotfiles/windows/parity/settings.json
