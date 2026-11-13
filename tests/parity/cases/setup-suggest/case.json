@@ -1,0 +1,43 @@
+{
+  "description": "setup in the private repo store finds one non-retired record with this hostname and prints the This looks like line; empty answers take every suggestion, so choosing profile 2 replaces wk1-laptop and the first pull imports both entries (Machines (program only), mksync setup, suggestions). The record's replaced line carries today's date, so machine.json is left out of expect/state. This machine has no local record: the store searched is the repo's machines/, because MKSYNC_VISIBILITY is private.",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "stdin": "\n\n\n\n"
+    }
+  ]
+}
