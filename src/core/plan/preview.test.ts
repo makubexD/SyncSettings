@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Profile } from "../config/profile.ts";
 import type { ConfigV2 } from "../config/types.ts";
 import { planPreview } from "./preview.ts";
 import type { LocalEntry, RepoFiles, Snapshot } from "./types.ts";
@@ -12,6 +13,18 @@ const REPO_FILE = "dotfiles/common/test/conf";
 const LOCAL_FILE = "/home/user/.config/test/conf";
 
 const MISSING_FROM_WORKING_TREE = "dotfiles/common/test/gone";
+
+const PROFILE_NAME = "work-1";
+
+const PROFILE_FILE = `profiles/${PROFILE_NAME}/test/conf`;
+
+const PROFILE: Profile = {
+  name: PROFILE_NAME,
+  modules: ["test"],
+  values: {},
+  destinations: {},
+  retired: false,
+};
 
 const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
@@ -38,6 +51,7 @@ function snapshot(
   repoFiles: RepoFiles,
   headFiles: RepoFiles,
   localBytes: Uint8Array,
+  profile?: Profile,
 ): Snapshot {
   const local: LocalEntry = {
     kind: "file",
@@ -56,6 +70,7 @@ function snapshot(
     values: {},
     env: {},
     only: [],
+    ...(profile !== undefined ? { profile } : {}),
     headFiles,
   };
 }
@@ -120,6 +135,37 @@ describe("planPreview", () => {
 
     // Act
     const result = planPreview(preview, workingTree);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(NO_CHANGES);
+    expect(result.lines).toContain(MATCHES_HEAD);
+  });
+
+  test("should say nothing would be sent when a profile layer file is unchanged", () => {
+    // Arrange
+    const layerBytes = bytes("same\n");
+    const repoFiles = new Map([[PROFILE_FILE, layerBytes]]);
+    const headFiles = new Map<string, Uint8Array>();
+    const preview = snapshot(repoFiles, headFiles, layerBytes, PROFILE);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(NO_CHANGES);
+    expect(result.lines).toContain(MATCHES_HEAD);
+  });
+
+  test("should say nothing would be sent when only a profile layer file would change", () => {
+    // Arrange
+    const repoFiles = new Map([[PROFILE_FILE, bytes("old\n")]]);
+    const headFiles = new Map<string, Uint8Array>();
+    const preview = snapshot(repoFiles, headFiles, bytes("new\n"), PROFILE);
+
+    // Act
+    const result = planPreview(preview);
 
     // Assert
     expect(result.code).toBe(0);
