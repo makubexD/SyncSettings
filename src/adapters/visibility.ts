@@ -25,11 +25,15 @@ export interface ApiReply {
 
 /** What the reader reaches outside itself: `gh`, `ssh` and the GitHub API. */
 export interface VisibilityDeps {
+  /** Run one command; the signal aborts it once its time limit passes. */
   readonly run: (
     command: string,
     args: readonly string[],
+    signal?: AbortSignal,
   ) => Promise<CommandOutput>;
   readonly fetch: (url: string, signal: AbortSignal) => Promise<ApiReply>;
+  /** How long `gh` and the API may take; `API_TIMEOUT_MS` when omitted. */
+  readonly timeoutMs?: number;
 }
 
 /** One parsed `github.com` origin: the repo the guard will ask about. */
@@ -99,20 +103,59 @@ function parseObject(text: string): Record<string, unknown> | undefined {
   return isRecord(parsed) ? parsed : undefined;
 }
 
-/** Run one command with an argument array and no shell, as `git.ts` does. */
+/**
+ * Run one command with an argument array and no shell, as `git.ts` does. When
+ * the signal fires the child is killed and the run reports `FAILED_TO_START`,
+ * so a `gh` that hangs counts as "gh cannot tell" and the API is asked.
+ */
 async function runCommand(
   command: string,
   args: readonly string[],
+  signal?: AbortSignal,
 ): Promise<CommandOutput> {
+  if (signal?.aborted === true) {
+    return { code: FAILED_TO_START, stdout: "" };
+  }
   try {
     const child = Bun.spawn([command, ...args], {
       stdin: "ignore",
       stdout: "pipe",
       stderr: "ignore",
     });
-    const stdout = await new Response(child.stdout).text();
-    const code = await child.exited;
-    return { code, stdout };
+    let settleAbort: (() => void) | undefined;
+    const killChild = (): void => {
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+      settleAbort?.();
+    };
+    const aborted = new Promise<number>((resolve) => {
+      settleAbort = () => {
+        resolve(FAILED_TO_START);
+      };
+      if (signal === undefined) {
+        return;
+      }
+      if (signal.aborted) {
+        killChild();
+        return;
+      }
+      signal.addEventListener("abort", killChild, { once: true });
+    });
+    try {
+      const stdoutPromise = new Response(child.stdout).text();
+      const code = await Promise.race([child.exited, aborted]);
+      if (code === FAILED_TO_START) {
+        // SIGKILL was sent; reap it so no `gh` is left running.
+        await child.exited;
+        await stdoutPromise;
+        return { code: FAILED_TO_START, stdout: "" };
+      }
+      const stdout = await stdoutPromise;
+      return { code, stdout };
+    } finally {
+      signal?.removeEventListener("abort", killChild);
+    }
   } catch {
     // A missing `gh` is reported as "gh cannot tell", so the API is asked.
     return { code: FAILED_TO_START, stdout: "" };
@@ -217,21 +260,28 @@ async function resolveSshHost(
  * `gh repo view github.com/<owner>/<repo> --json visibility`, host-qualified
  * so a same-named repo on another host cannot answer; `undefined` when `gh` is
  * missing, failing, not signed in, or answers anything but a visibility. An
- * `INTERNAL` repo is private: it is not public.
+ * `INTERNAL` repo is private: it is not public. The signal stops a hanging
+ * `gh` after `timeoutMs`, which counts as "gh cannot tell".
  */
 async function readFromGh(
   repo: GitHubRepo,
   run: VisibilityDeps["run"],
+  timeoutMs: number,
 ): Promise<Visibility | undefined> {
   let output: CommandOutput;
   try {
-    output = await run("gh", [
-      "repo",
-      "view",
-      `${GITHUB_HOST_NAME}/${repo.owner}/${repo.repo}`,
-      "--json",
-      "visibility",
-    ]);
+    const signal = AbortSignal.timeout(timeoutMs);
+    output = await run(
+      "gh",
+      [
+        "repo",
+        "view",
+        `${GITHUB_HOST_NAME}/${repo.owner}/${repo.repo}`,
+        "--json",
+        "visibility",
+      ],
+      signal,
+    );
   } catch {
     return undefined;
   }
@@ -260,9 +310,10 @@ async function readFromGh(
 async function readFromApi(
   repo: GitHubRepo,
   fetchReply: VisibilityDeps["fetch"],
+  timeoutMs: number,
 ): Promise<Visibility> {
   try {
-    const signal = AbortSignal.timeout(API_TIMEOUT_MS);
+    const signal = AbortSignal.timeout(timeoutMs);
     const reply = await fetchReply(
       `${GITHUB_API}${repo.owner}/${repo.repo}`,
       signal,
@@ -282,11 +333,12 @@ async function askGitHub(
   repo: GitHubRepo,
   deps: VisibilityDeps,
 ): Promise<Visibility> {
-  const fromGh = await readFromGh(repo, deps.run);
+  const timeoutMs = deps.timeoutMs ?? API_TIMEOUT_MS;
+  const fromGh = await readFromGh(repo, deps.run, timeoutMs);
   if (fromGh !== undefined) {
     return fromGh;
   }
-  return await readFromApi(repo, deps.fetch);
+  return await readFromApi(repo, deps.fetch, timeoutMs);
 }
 
 /** Follow `MKSYNC_VISIBILITY`, defaulting to public. */

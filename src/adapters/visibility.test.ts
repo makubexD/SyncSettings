@@ -67,6 +67,7 @@ function deps(
   options: {
     readonly run?: VisibilityDeps["run"];
     readonly fetch?: VisibilityDeps["fetch"];
+    readonly timeoutMs?: number;
   } = {},
 ): VisibilityDeps {
   return {
@@ -74,6 +75,9 @@ function deps(
     fetch:
       options.fetch ??
       (() => Promise.reject(new Error("the API must not be called"))),
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs }),
   };
 }
 
@@ -116,6 +120,9 @@ function runStub(answers: {
   };
   return { calls, run };
 }
+
+/** A time limit short enough that the timeout case runs in a few milliseconds. */
+const FAST_TIMEOUT_MS = 10;
 
 /** The gh answers that must send the reader on to the GitHub API. */
 const GH_FAILURES: ReadonlyArray<readonly [string, VisibilityDeps["run"]]> = [
@@ -243,6 +250,52 @@ describe("readVisibility", () => {
       expect(urls).toEqual([API_URL]);
     },
   );
+
+  test("should fall to the API when gh runs past its time limit", async () => {
+    // Arrange
+    const calls: string[][] = [];
+    const signals: Array<AbortSignal | undefined> = [];
+    const hangingRun: VisibilityDeps["run"] = async (
+      command,
+      args,
+      signal,
+    ) => {
+      calls.push([command, ...args]);
+      signals.push(signal);
+      return await new Promise<CommandOutput>((_resolve, reject) => {
+        if (signal === undefined) {
+          reject(new Error("gh must be given a signal"));
+          return;
+        }
+        signal.addEventListener(
+          "abort",
+          () => {
+            reject(new Error("gh was aborted"));
+          },
+          { once: true },
+        );
+      });
+    };
+    const urls: string[] = [];
+    const fakes = deps({
+      run: hangingRun,
+      timeoutMs: FAST_TIMEOUT_MS,
+      fetch: async (url) => {
+        urls.push(url);
+        return apiReply(200, { private: true });
+      },
+    });
+
+    // Act
+    const visibility = await readVisibility(GITHUB_HTTPS, {}, fakes);
+
+    // Assert
+    expect(visibility).toBe("private");
+    expect(calls).toEqual([GH_ARGS]);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(urls).toEqual([API_URL]);
+  });
 
   test.each(API_ANSWERS)(
     "should read %s from the API as %s",
