@@ -8,7 +8,7 @@ import type { ClaudeMode } from "../core/machine/record.ts";
 import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
-  "usage: mksync export [--preview] [--force] [--only <path>...] | " +
+  "usage: mksync export [--preview] [--only <path>...] | " +
   "mksync import [--check] [--force] [--only <path>...] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +

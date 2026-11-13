@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs, USAGE as USAGE_TEXT } from "./parse.ts";
 
 const EXPORT = {
@@ -399,5 +401,20 @@ describe("parseArgs", () => {
 
   test("should name setup in the usage line", () => {
     expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
+  });
+});
+
+describe("USAGE", () => {
+  test("should match the usage line in the contract", () => {
+    const contract = readFileSync(
+      join(import.meta.dir, "../../docs/sync-contract.md"),
+      "utf8",
+    );
+    const usageLine = contract
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("usage: mksync "));
+
+    expect(usageLine).toBe(USAGE_TEXT);
   });
 });
