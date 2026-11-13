@@ -654,6 +654,46 @@ Example: on work #1 the user pastes the work email into the base VS Code `settin
 change is bound for all machines and holds `<YOUR_EMAIL>`'s value of `work-1`, so push refuses it. Moving it to
 "profile work-1" lets it through.
 
+## Decided in phase 7
+
+The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are in the contract's program sections
+("Push preview", "New settings", "Profile values", "Statusline", "Public-repo guard", "Retire", "Import check").
+
+- **The push side until phase 8 is `mksync export`.** `export --preview` prints the grouped block, `export` prints it,
+  asks, checks the profile values, then writes. The front door's `mksync push` and the PR come in phase 8, with
+  "Move a change?". Example: on work #1, `dist/mksync export --preview` shows `Profile work-1` with the new
+  `permissions.allow[]` item; nothing is written.
+- **A block only when something changes.** A run with nothing to send prints what it printed before phase 7, so the
+  older cases keep their output.
+- **One group per layer written.** A changed key the base sets is under "All machines", even on a work machine,
+  because that's where the change lands. Example: on work #1, `editor.fontSize` 14 → 15 in the base `settings.json` is
+  line 1 under "All machines": pushing it changes personal Linux too, which is why it's shown first.
+- **The suggestion is by profile name.** `personal` suggests "all machines", any other profile "profile <p>". A stored
+  destination for an array path answers before any suggestion. Example: personal Linux answers `4` once for a new
+  `permissions.allow[]` item; the profile's `destinations` now holds `"permissions.allow[]": "machine"` (the key path,
+  as the contract's `needs a destination` note writes it), and later grants go to the machine layer with no question.
+- **"All machines" is a stored answer too.** `destinations` accepts `base`, so personal's default sticks.
+- **No record, no question.** The question needs a profile to store the answer, so a machine before `setup` keeps
+  the `needs a destination` error.
+- **The profile-value rule searches the written text.** It runs after sanitize, so a value the entry's own rule turns
+  into its placeholder never trips it; a value the entry has no rule for does. Example: the work email pasted into the
+  base VS Code `settings.json` (no `<YOUR_EMAIL>` rule there) is refused; the same email in `.gitconfig`, whose rule
+  turns it into `<YOUR_EMAIL>`, goes through.
+- **The statusline is one program, colors always on.** `mksync statusline` prints what `statusline.sh` prints, ANSI
+  included, under Git Bash or PowerShell; Load and Memory are Linux and macOS only. Its hand tweaks go through the
+  source ("Statusline and hooks on Windows").
+- **The Claude layout waits for cut-over.** The v1/v2 check refuses a v2 entry that covers an OS its v1 twin doesn't,
+  and v1 is frozen, so the split `settings.json` (a base for every OS, a Linux overlay with `hooks` and the keys that
+  hold `<HOME>` or a `.sh` path, a Windows overlay) and the Windows rows in the catalog are written by
+  `tools/claude-layout.ts`, tested now and run in phase 9.
+- **The first backup merges, then points.** The first private export copies the record, the profile and their layer
+  folders into the repo, merging with a profile copy already there; only after every write succeeds does
+  `machine.json` become the pointer, so a failed backup leaves the machine as it was. Example: work #1's laptop backs
+  up `profiles/work-1.json`; later the desktop's first backup finds it, adds its own module, and asks about the one
+  value that differs.
+- **The Windows survey runs once, early.** One prompt on work machine #1 (`docs/windows-survey.md`) answers "Confirm
+  on Windows" with names and shapes only.
+
 ## Linked folders
 
 Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
@@ -1094,8 +1134,9 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Work configs in a personal repo.** Whether each employer's policy allows its machines' configs (redacted or not) in
   the user's own repo, private or public. The user's call, per job; a job that says no gets a profile with
   `pullOnly` machines and no work layer.
-- **Pull's own preview.** Pull lists changes by group but asks only once. Whether pull should also let the user skip a
-  group (take "all machines", skip "profile work-1") is left for phase 7.
+- **Pull's own preview.** Pull lists changes by group but asks only once (phase 7: `import --check` prints the
+  groups). Whether pull should also let the user skip a group (take "all machines", skip "profile work-1") stays open:
+  nothing has asked for it yet.
 - **Not measured for the runtime.** Node SEA (size, start-up, cross-builds) and Deno's compressed size. They'd only
   matter if Bun hits a blocker. Settled in phase 4: programs cross-built on Linux run on their targets; the macOS
   arm64 and Windows x64 builds passed the shared cases on CI's runners (PR #74, 2026-11-12).
@@ -1104,10 +1145,6 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
-- **Two copies of one profile.** Before the switch, each machine keeps its own copy of its profile. Phase 6 built the
-  merge in `core/machine/copies.ts`: modules in first-seen order and `destinations` joined, `retired` if any copy says
-  so, and a value or destination that differs returned as a question. Where the copies come from and how the question
-  is asked is phase 7's, with the first private push.
 - **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
   drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
   or become hidden, is the `cli` skill's review before phase 8.
@@ -1197,12 +1234,8 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     weren't pushed are never overwritten.
   - Replace asks each machine value as `<KEY> [<old value>] ` in the record's key order; no shared case has a value
     yet.
-  - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1. Retiring a machine
-    whose `machine.json` is a repo-home pointer writes the whole record to the state folder; once pointers exist
-    (phase 7) it must write the repo's `machines/<name>.json` instead.
+  - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1.
 - **Left by the phase 6 audits.** Each is a behavior the contract doesn't fix yet:
-  - Retire reads only local state; once the repo is private it must read the repo store, both for the machine and for
-    "used by" (phase 7, with the pointer write above).
   - The guard checks tracked paths, not unpushed history: a state file committed and then `git rm --cached` still
     goes out with the next push. Phase 8 owns the push.
   - A piped `setup --replace` prints the old machine values as suggestions on stdout.
@@ -1217,8 +1250,6 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     rules would be a migration.
   - An SSH alias that resolves to `ssh.github.com` (GitHub's SSH over port 443) is public, since only `github.com`
     is asked. It fails closed; asking it as `github.com` would need a line in the contract first.
-  - An unreadable `machines/<name>.json` or `profiles/<name>.json` in the repo prints the state folder's `can't be
-read` line (`adapters/store.ts`); the contract names no repo line yet. Phase 7, with the repo store.
   - The guard's stop when `git ls-files` fails in a clone has no shared case: the runner can't break a clone's index
     (the `setup` field from phase 4 would). A folder with no `.git` lists nothing, which the 18 export cases run
     outside a clone rely on.

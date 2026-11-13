@@ -449,4 +449,5 @@ cases. Design: an "As built in phase 7" note per section; Open updated (settled 
 the phase 9 steps the layout tool needs). Roadmap: phase 9 lists running `tools/claude-layout.ts --cutover`, switching
 `statusLine`, and retiring `statusline.sh`.
 
-Test: `npx prettier --check docs/*.md && tests/parity/run.sh --engine dist/mksync`.
+Test: `npx prettier --check docs/plan-single-engine-7.md docs/design-layers.md && tests/parity/run.sh --engine
+dist/mksync` (`docs/sync-contract.md` isn't Prettier-formatted; never run `prettier --write` on it).
