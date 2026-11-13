@@ -1,0 +1,23 @@
+
+  SyncSettings -- IMPORT CHECK (linux)
+
+  UPDATE     profiles/work-1/parity/settings.json
+
+Changes from the repo:
+
+All machines
+  1  M  parity  settings.json  baseKey: 1 -> 2
+Linux machines
+     (none)
+Profile work-1
+  2  M  parity  settings.json  profileKey: "old" -> "new"
+This machine only
+     (none)
+
+  --------------------------------------------------
+
+  1 file(s) would change. mksync pull overwrites them (each keeps a .bak).
+  If you changed them on this machine, run mksync push first.
+
+  --------------------------------------------------
+
