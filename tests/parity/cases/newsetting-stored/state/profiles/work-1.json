@@ -1,0 +1,8 @@
+{
+  "modules": ["parity"],
+  "values": {},
+  "destinations": {
+    "delta[]": "os"
+  },
+  "retired": false
+}

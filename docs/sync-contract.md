@@ -1260,13 +1260,14 @@ New settings
 - **Asking.** `export` asks each new setting in number order. The question is printed with one space after it and no
   newline; answers are read as [`setup`](#mksync-setup) reads them: an empty answer or end of input takes the
   suggestion, an answer that isn't `1` to `4` prints `Pick 1 to 4.` and asks again. `--yes` takes every suggestion
-  without asking; the block still prints.
+  without asking; the block still prints, with no question line.
 - **The answer is stored.** The setting is written to the chosen layer (a missing layer file is created, `ADDED`). For
   an array item, the path also goes into the profile's `destinations` with the layer slot (`base`, `os`, `profile`,
   `machine`), so the next item there isn't asked; the profile is written with its backup, as every state write. A new
   key's answer isn't stored: the key now has a layer.
 - **The preview** never asks: in place of the question it prints `     goes to: <choice> (asked by mksync export)`,
-  `<choice>` the suggestion's words (`profile work-1`).
+  `<choice>` the suggestion's words (`profile work-1`). Its status lines show the writes `export --yes` would make,
+  the suggestion's layer included (`ADDED profiles/work-1/<file>` when that layer file is new).
 - `--preview` with `--yes` stops with `ERROR: --preview and --yes can't be used together.`, exit 1, before anything
   runs.
 - With no record nothing is asked: the [`needs a destination`](#layers-program-only) `ERROR` stays. A new file in a

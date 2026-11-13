@@ -1,0 +1,11 @@
+
+  SyncSettings -- IMPORT CHECK (linux)
+
+  UNCHANGED  dotfiles/linux/parity/settings.json
+
+  --------------------------------------------------
+
+  This machine matches the repo.
+
+  --------------------------------------------------
+

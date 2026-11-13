@@ -1,0 +1,5 @@
+{
+  "baseKey": 2,
+  "osKey": "linux",
+  "delta": ["x", "new item"]
+}

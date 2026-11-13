@@ -1,0 +1,10 @@
+{
+  "modules": [
+    "parity"
+  ],
+  "values": {},
+  "destinations": {
+    "delta[]": "machine"
+  },
+  "retired": false
+}

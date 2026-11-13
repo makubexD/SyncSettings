@@ -1,0 +1,22 @@
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  parity  settings.json  baseKey: 1 -> 2
+Linux machines
+  2  +  parity  settings.json  delta[]: "new item"
+Profile work-1
+     (none)
+This machine only
+     (none)
+
+  MODIFIED   dotfiles/common/parity/settings.json
+  MODIFIED   dotfiles/linux/parity/settings.json
+
+  --------------------------------------------------
+
+  2 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+

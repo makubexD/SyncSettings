@@ -1,0 +1,33 @@
+{
+  "description": "import --check accepts a profile destination of base, added for the all-machines answer, instead of refusing it as not a layer: the machine matches the repo, exit 0 (Layers (program only), destinations; New settings (program only), Choice).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "check",
+      "output": "all"
+    }
+  ]
+}

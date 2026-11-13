@@ -1,0 +1,8 @@
+  ERROR      dotfiles/linux/parity/settings.json  (new setting delta[]: needs a destination)
+
+  --------------------------------------------------
+
+  Repo is up to date. No changes detected.
+
+  --------------------------------------------------
+

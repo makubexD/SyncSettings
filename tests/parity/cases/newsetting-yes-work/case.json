@@ -1,0 +1,36 @@
+{
+  "description": "export --yes sends a new array item to the suggested profile layer, prints the block without asking, creates the missing layer file with ADDED and stores the path in the profile's destinations as profile, exit 0 (New settings (program only), Asking and The answer is stored).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "yes": true
+      },
+      "output": "all"
+    }
+  ]
+}
