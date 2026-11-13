@@ -41,6 +41,7 @@ import type { GuardDecision } from "./core/guard.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { CheckMode } from "./core/machine/check.ts";
+import { RECORD_ERROR_PREFIX } from "./core/machine/record.ts";
 import type { MachineRecord } from "./core/machine/record.ts";
 import {
   isYes,
@@ -288,6 +289,8 @@ function localDate(now: Date): string {
  */
 async function valueAnswers(
   values: Values,
+  profile: Profile,
+  record: MachineRecord,
   flags: SetupFlags,
   io: SetupIo,
 ): Promise<Readonly<Record<string, ValuePlace>>> {
@@ -297,6 +300,12 @@ async function valueAnswers(
   }
   for (const placeholder of Object.keys(values)) {
     if (placeValue(placeholder) !== "ask") {
+      continue;
+    }
+    if (
+      Object.hasOwn(profile.values, placeholder) ||
+      Object.hasOwn(record.values, placeholder)
+    ) {
       continue;
     }
     io.write(`${placeholder}: kept on 1) this profile 2) this machine [1] `);
@@ -370,6 +379,11 @@ function heldText(paths: readonly string[]): string {
   ]);
 }
 
+/** True for the contract's bad-record line, the one `setup --replace` reads past. */
+function isBadRecord(message: string): boolean {
+  return message.startsWith(RECORD_ERROR_PREFIX);
+}
+
 /**
  * Run `mksync setup` end to end: read the store and the scan, run the flow,
  * move `.user-values.json`, write the record and profile, then act on the
@@ -384,7 +398,25 @@ async function executeSetup(
   command: SetupCommand,
 ): Promise<Result> {
   const store = readStore(state, repoRoot, config);
-  if (!store.ok) {
+  let own: MachineRecord | undefined;
+  let localProfiles: readonly Profile[];
+  if (store.ok) {
+    own = store.value.record;
+    localProfiles = store.value.profiles;
+  } else if (
+    command.replace !== undefined &&
+    isBadRecord(store.error.message)
+  ) {
+    // Contract "The record": `setup --replace` reads past a bad local record
+    // and goes on as if this machine had none. The state folder keeps its
+    // profiles where the repo store's live, so read them while ignoring the
+    // record; a bad profile file still stops.
+    const local = readRepoStore(state, config);
+    if (!local.ok) {
+      return failure(local.error.message, local.error.code);
+    }
+    localProfiles = local.value.profiles;
+  } else {
     return failure(store.error.message, store.error.code);
   }
   const origin = await readOrigin(repoRoot);
@@ -393,10 +425,10 @@ async function executeSetup(
   if (repoStore !== undefined && !repoStore.ok) {
     return failure(repoStore.error.message, repoStore.error.code);
   }
-  const profiles = repoStore?.value.profiles ?? store.value.profiles;
+  const profiles = repoStore?.value.profiles ?? localProfiles;
   const records = new Map<string, MachineRecord>();
-  if (store.value.record !== undefined) {
-    records.set(store.value.record.name, store.value.record);
+  if (own !== undefined) {
+    records.set(own.name, own);
   }
   for (const record of repoStore?.value.records ?? []) {
     records.set(record.name, record);
@@ -410,7 +442,7 @@ async function executeSetup(
       config,
       profiles,
       records: [...records.values()],
-      ...(store.value.record !== undefined ? { own: store.value.record } : {}),
+      ...(own !== undefined ? { own } : {}),
       isPrivate,
       today: localDate(new Date()),
       flags: command,
@@ -423,7 +455,13 @@ async function executeSetup(
   }
 
   const values = parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
-  const answers = await valueAnswers(values, command, terminal.io);
+  const answers = await valueAnswers(
+    values,
+    outcome.profile,
+    outcome.record,
+    command,
+    terminal.io,
+  );
   const machineValues = await replaceValues(
     outcome.record,
     outcome.replaced,

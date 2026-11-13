@@ -238,6 +238,50 @@ describe("runSetup", () => {
     expect(outcome.record.claude).toBe("claude-deepseek");
   });
 
+  test("should ask a question again for a hex or decimal number answer", async () => {
+    const { outcome, output } = await run(input({}, { profile: "work-1" }), [
+      "0x2",
+      "2.0",
+      "3",
+    ]);
+    expect(output).toContain(
+      `${Q2}Pick 1 to 3.\n${Q2}Pick 1 to 3.\n${Q2}`,
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.claude).toBe("claude-deepseek");
+  });
+
+  test("should refuse a machine name equal to the profile flag", async () => {
+    const { outcome, output } = await run(
+      input({ scan: scan({ hostname: "work-1" }) }, { profile: "work-1" }),
+    );
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: machine work-1 can't share its profile's name; use --name <machine>.",
+      code: 2,
+    });
+    expect(output.endsWith("Profiles on this machine:\n  1) personal\n\n")).toBe(
+      true,
+    );
+    expect(output).not.toContain("1/4");
+    expect(output).not.toContain("Machine ");
+  });
+
+  test("should refuse a machine name equal to the profile typed at the first question", async () => {
+    const { outcome, output } = await run(input(), ["wk1-laptop"]);
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: machine wk1-laptop can't share its profile's name; use --name <machine>.",
+      code: 2,
+    });
+    expect(output).toBe(
+      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q1}\n`,
+    );
+    expect(output).not.toContain("2/4");
+  });
+
   test("should pick a listed profile by number and keep its modules", async () => {
     const work = profile("work-1", ["git"]);
     const { outcome, output } = await run(input({ profiles: [work] }), ["2"]);

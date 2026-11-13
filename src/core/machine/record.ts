@@ -294,9 +294,13 @@ export function parseRecord(
   };
 }
 
+/** How the contract's bad-record line starts; `setup --replace` reads past it. */
+export const RECORD_ERROR_PREFIX =
+  "ERROR: machine record (machine.json in the state folder):";
+
 /** The contract's one line for a bad record; `reason` comes from parseRecord. */
 export function recordMessage(reason: string): string {
-  return `ERROR: machine record (machine.json in the state folder): ${reason}.`;
+  return `${RECORD_ERROR_PREFIX} ${reason}.`;
 }
 
 function jsonString(value: string): JsonValue {

@@ -244,10 +244,8 @@ async function ask<T>(
 }
 
 function pick<T>(choices: readonly T[]): (answer: string) => T | undefined {
-  return (answer) => {
-    const index = Number(answer);
-    return Number.isInteger(index) ? choices[index - 1] : undefined;
-  };
+  return (answer) =>
+    DIGITS.test(answer) ? choices[Number(answer) - 1] : undefined;
 }
 
 /** A question answered by its flag, by `--yes` with the suggestion, or by the user. */
@@ -387,6 +385,16 @@ export async function runSetup(
     profileName === match.profile
   ) {
     replacing = match;
+  }
+  const machineName = replacing?.name ?? name;
+  if (machineName === profileName) {
+    if (asked) {
+      io.write("\n");
+    }
+    return stop(
+      `ERROR: machine ${machineName} can't share its profile's name; use --name <machine>.`,
+      2,
+    );
   }
 
   let claude = replacing?.claude;
