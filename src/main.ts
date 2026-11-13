@@ -20,6 +20,10 @@ import {
 } from "./adapters/snapshot.ts";
 import type { Layers } from "./adapters/snapshot.ts";
 import {
+  renderStatusline,
+  STATUSLINE_UNAVAILABLE,
+} from "./adapters/statusline.ts";
+import {
   readRepoStore,
   readStore,
   readText,
@@ -35,6 +39,7 @@ import type {
   RunCommand,
   SetupCommand,
   ShadowCommand,
+  StatuslineCommand,
 } from "./cli/parse.ts";
 import type { Profile } from "./core/config/profile.ts";
 import type { ConfigV2, Os } from "./core/config/types.ts";
@@ -201,7 +206,8 @@ type Resolved =
   | ShadowCommand
   | MachineShowCommand
   | RetireCommand
-  | SetupCommand;
+  | SetupCommand
+  | StatuslineCommand;
 
 type ExecutableCommand =
   | RunCommand
@@ -211,7 +217,21 @@ type ExecutableCommand =
   | SetupCommand;
 
 function isResolvedCommand(value: Resolved): value is ExecutableCommand {
-  return "kind" in value;
+  return "kind" in value && value.kind !== "statusline";
+}
+
+function isStatuslineCommand(value: Resolved): value is StatuslineCommand {
+  return "kind" in value && value.kind === "statusline";
+}
+
+/** `statusline`'s whole body: stdin in, one line out, 0 whatever fails. */
+async function statuslineOutput(): Promise<string> {
+  try {
+    return renderStatusline(await Bun.stdin.text());
+  } catch {
+    // Contract: the command prints one line and exits 0 whatever fails.
+    return STATUSLINE_UNAVAILABLE;
+  }
 }
 
 /** The contract's no-record line, and exit 1. */
@@ -1119,6 +1139,8 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "setup":
       return parsed;
+    case "statusline":
+      return parsed;
     case "machine-retire":
     case "profile-retire":
       return parsed;
@@ -1138,6 +1160,10 @@ export function run(argv: readonly string[]): Resolved {
 /** The program: argv in, its output printed, its exit code out. */
 export async function main(argv: readonly string[]): Promise<number> {
   const resolved = run(argv);
+  if (isStatuslineCommand(resolved)) {
+    process.stdout.write(await statuslineOutput());
+    return 0;
+  }
   const result = isResolvedCommand(resolved)
     ? await execute(resolved)
     : resolved;

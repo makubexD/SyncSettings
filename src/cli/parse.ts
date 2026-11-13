@@ -14,7 +14,8 @@ export const USAGE =
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
   "[--existing backup|keep|stop] [--yes] | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
-  "mksync profile retire <name> [--yes] | mksync --version";
+  "mksync profile retire <name> [--yes] | mksync statusline | " +
+  "mksync --version";
 
 export type CommandName = "export" | "import";
 
@@ -75,6 +76,11 @@ export interface VersionCommand {
   readonly kind: "version";
 }
 
+/** `statusline`: print Claude Code's status line, exit 0. */
+export interface StatuslineCommand {
+  readonly kind: "statusline";
+}
+
 /** No command, or one that isn't a verb: print the usage line, exit 2. */
 export interface UsageCommand {
   readonly kind: "usage";
@@ -94,6 +100,7 @@ export type ParsedCommand =
   | ProfileRetireCommand
   | SetupCommand
   | VersionCommand
+  | StatuslineCommand
   | UsageCommand
   | ParseError;
 
@@ -111,6 +118,8 @@ const PROFILE_COMMAND = "profile";
 const RETIRE_VERB = "retire";
 
 const SETUP_COMMAND = "setup";
+
+const STATUSLINE_COMMAND = "statusline";
 
 const SETUP_YES = "--yes";
 
@@ -372,6 +381,12 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     const extra = argv[1];
     return extra === undefined
       ? { kind: "shadow" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === STATUSLINE_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "statusline" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
   if (command === MACHINE_COMMAND) {
