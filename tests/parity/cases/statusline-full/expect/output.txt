@@ -1,0 +1,1 @@
+[90m09:30[0m [90m|[0m [96mClaude Example[0m [90m|[0m [93mparity-proj[0m [90m|[0m [92mCost: $0.12[0m [90m|[0m [33mContext: [██████░░░░] 80k/200k (60%)[0m [90m|[0m [96mCached: 1.5k[0m [90m|[0m [96mLoad: 0.42[0m [90m|[0m [96mMem: 3.1G/15.5G[0m [90m|[0m [94mexplanatory[0m

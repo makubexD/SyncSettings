@@ -1,0 +1,21 @@
+{
+  "description": "The context part ends with the dim yellow CLEAR mark when the tokens used reach the default 200000 clear limit [Statusline (program only)].",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "entries": []
+  },
+  "env": {
+    "SYNC_NOW": "09:30",
+    "SYNC_LOAD": "0.42",
+    "SYNC_MEM": "3.1G/15.5G",
+    "SYNC_GIT": "none",
+    "CONTEXT_CLEAR_AT": null
+  },
+  "commands": [
+    {
+      "command": "statusline",
+      "stdin": "{\"context_window\":{\"remaining_percentage\":79,\"total_input_tokens\":210000,\"context_window_size\":1000000}}\n"
+    }
+  ]
+}

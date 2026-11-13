@@ -873,6 +873,8 @@ function Run-Case {
             $oldLocal = $env:LOCALAPPDATA
             $oldPath = $env:PATH
             $oldGh = $env:GH
+            $oldVirtualEnv = $env:VIRTUAL_ENV
+            $oldCondaEnv = $env:CONDA_DEFAULT_ENV
             $oldPreference = $ErrorActionPreference
             $raw = ''
             $output = @()
@@ -885,8 +887,11 @@ function Run-Case {
                 $env:HOME = $homeDir
                 $env:LOCALAPPDATA = $localDir
                 # GH overrides the gh binary in Commit-Settings.ps1; a caller's GH
-                # must never reach a case.
+                # must never reach a case. VIRTUAL_ENV and CONDA_DEFAULT_ENV would
+                # otherwise add a statusline section.
                 $env:GH = $null
+                $env:VIRTUAL_ENV = $null
+                $env:CONDA_DEFAULT_ENV = $null
                 if ($ghStub) {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
                     $env:GH = Join-Path $t 'bin\gh.cmd'
@@ -941,6 +946,8 @@ function Run-Case {
                 $env:LOCALAPPDATA = $oldLocal
                 $env:PATH = $oldPath
                 $env:GH = $oldGh
+                $env:VIRTUAL_ENV = $oldVirtualEnv
+                $env:CONDA_DEFAULT_ENV = $oldCondaEnv
                 Pop-Location
             }
 

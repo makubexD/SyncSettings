@@ -1,0 +1,22 @@
+{
+  "description": "A session_id matching ^[A-Za-z0-9_-]+$ and a digits-only window size write the size and a newline to <CTX_WINDOW_DIR>/<session_id> [Statusline (program only)].",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "entries": []
+  },
+  "env": {
+    "SYNC_NOW": "09:30",
+    "SYNC_LOAD": "0.42",
+    "SYNC_MEM": "3.1G/15.5G",
+    "SYNC_GIT": "none",
+    "CONTEXT_CLEAR_AT": null,
+    "CTX_WINDOW_DIR": ".claude/state/ctx-window"
+  },
+  "commands": [
+    {
+      "command": "statusline",
+      "stdin": "{\"session_id\":\"abc-1\",\"context_window\":{\"context_window_size\":200000}}\n"
+    }
+  ]
+}

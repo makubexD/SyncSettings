@@ -512,10 +512,12 @@ run_case() {
         # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
         if [[ $stderr_mode == true || $all_output == true ]]; then
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
+                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
         else
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
+                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         fi

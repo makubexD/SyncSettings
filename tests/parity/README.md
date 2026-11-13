@@ -122,7 +122,9 @@ stub on means `gh` must not be called.
 ## How the runner checks it
 
 1. Copy the engine into a temp repo, write `config` or `configV2` and `values`, copy `repo/`, `home/` and `state/`.
-2. Run each command with the home folder as `HOME` (Linux, macOS) or `USERPROFILE` (Windows).
+2. Run each command with the home folder as `HOME` (Linux, macOS) or `USERPROFILE` (Windows). `GH`,
+   `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `VIRTUAL_ENV` and `CONDA_DEFAULT_ENV` are cleared first, so the caller's
+   shell can't change a case's output (a Python env would otherwise add a statusline section).
 3. Compare:
    - **Exit codes** with `expect/exit`.
    - **Status lines.** Each output line that is a status line becomes `WORD label`: the word without brackets or
