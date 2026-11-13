@@ -51,6 +51,20 @@ const TRAILING_COMMA_ERROR = "trailing comma";
 const TRAILING_GARBAGE_TEXT = '{"a": 1} extra';
 const TRAILING_GARBAGE_ERROR = "trailing garbage";
 
+const OBJECT_TEXT = '{"a": 1}';
+const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
+const BOM_OBJECT_TEXT = `${BYTE_ORDER_MARK}${OBJECT_TEXT}`;
+const BOM_IN_MIDDLE_TEXT = `[1,${BYTE_ORDER_MARK}2]`;
+const UNEXPECTED_CHARACTER_ERROR = "unexpected character";
+
+const MAX_DEPTH = 512;
+const OVER_MAX_DEPTH = MAX_DEPTH + 1;
+const DEEP_INPUT_LEVELS = 100000;
+const TOO_DEEP_ERROR = "nesting too deep";
+const INVALID_JSON_ERROR = { ok: false, error: TOO_DEEP_ERROR } as const;
+
+const UNCLOSED_DEEP_TEXT = "[".repeat(DEEP_INPUT_LEVELS);
+
 const PROTO_KEYS_TEXT = `{
   "__proto__": 1,
   "constructor": 2
@@ -76,6 +90,23 @@ function parseOk(text: string): JsonValue {
     throw new Error(`expected valid JSON, got ${parsed.error}`);
   }
   return parsed.value;
+}
+
+function nestedArrays(depth: number): string {
+  return `${"[".repeat(depth)}${"]".repeat(depth)}`;
+}
+
+/** Alternates `[` and `{"a":` containers, so arrays and objects share the depth. */
+function nestedMixedContainers(depth: number): string {
+  let text = "";
+  for (let level = 0; level < depth; level++) {
+    text += level % 2 === 0 ? "[" : '{"a":';
+  }
+  text += "null";
+  for (let level = depth - 1; level >= 0; level--) {
+    text += level % 2 === 0 ? "]" : "}";
+  }
+  return text;
 }
 
 describe("parseJson and writeJson", () => {
@@ -211,6 +242,73 @@ describe("parseJson and writeJson", () => {
 
     // Assert
     expect(result).toEqual({ ok: false, error: TRAILING_GARBAGE_ERROR });
+  });
+
+  test("a leading byte order mark is skipped", () => {
+    // Arrange
+    const source = BOM_OBJECT_TEXT;
+    const withoutBom = parseOk(OBJECT_TEXT);
+
+    // Act
+    const value = parseOk(source);
+
+    // Assert
+    expect(value).toEqual(withoutBom);
+  });
+
+  test("a byte order mark in the middle is refused", () => {
+    // Arrange
+    const source = BOM_IN_MIDDLE_TEXT;
+
+    // Act
+    const result = parseJson(source);
+
+    // Assert
+    expect(result).toEqual({ ok: false, error: UNEXPECTED_CHARACTER_ERROR });
+  });
+
+  test("512 nested arrays parse", () => {
+    // Arrange
+    const source = nestedArrays(MAX_DEPTH);
+
+    // Act
+    const value = parseOk(source);
+
+    // Assert
+    expect(value.kind).toBe("array");
+  });
+
+  test("513 nested arrays are refused", () => {
+    // Arrange
+    const source = nestedArrays(OVER_MAX_DEPTH);
+
+    // Act
+    const result = parseJson(source);
+
+    // Assert
+    expect(result).toEqual(INVALID_JSON_ERROR);
+  });
+
+  test("513 nested mixed objects and arrays are refused", () => {
+    // Arrange
+    const source = nestedMixedContainers(OVER_MAX_DEPTH);
+
+    // Act
+    const result = parseJson(source);
+
+    // Assert
+    expect(result).toEqual(INVALID_JSON_ERROR);
+  });
+
+  test("a very deep unclosed input is refused without throwing", () => {
+    // Arrange
+    const source = UNCLOSED_DEEP_TEXT;
+
+    // Act
+    const result = parseJson(source);
+
+    // Assert
+    expect(result).toEqual(INVALID_JSON_ERROR);
   });
 
   test("__proto__ and constructor are plain keys", () => {

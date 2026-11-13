@@ -21,6 +21,10 @@ const DUPLICATE_KEY = "duplicate key";
 const COMMENT = "comment";
 const TRAILING_COMMA = "trailing comma";
 const TRAILING_GARBAGE = "trailing garbage";
+const TOO_DEEP = "nesting too deep";
+
+const MAX_DEPTH = 512;
+const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
 
 const INDENT = "  ";
 const FIRST_PRINTABLE = 0x20;
@@ -65,15 +69,19 @@ function error(message: string): Result<never, string> {
 
 /**
  * A strict RFC 8259 parser. Duplicate keys, comments, trailing commas, trailing
- * garbage, raw control characters and invalid escapes are all refused; a
- * leading byte order mark is not JSON and is refused as well.
+ * garbage, raw control characters and invalid escapes are all refused. A byte
+ * order mark at the very start of the text is skipped; one anywhere else is
+ * refused. Nesting deeper than `MAX_DEPTH` is refused rather than overflowing
+ * the stack.
  */
 class Parser {
   private index = 0;
+  private depth = 0;
 
   constructor(private readonly text: string) {}
 
   parse(): Result<JsonValue, string> {
+    this.skipByteOrderMark();
     this.skipWhitespace();
     const value = this.parseValue();
     if (!value.ok) {
@@ -84,6 +92,12 @@ class Parser {
       return error(this.startsComment() ? COMMENT : TRAILING_GARBAGE);
     }
     return value;
+  }
+
+  private skipByteOrderMark(): void {
+    if (this.text.startsWith(BYTE_ORDER_MARK)) {
+      this.index = BYTE_ORDER_MARK.length;
+    }
   }
 
   private skipWhitespace(): void {
@@ -107,9 +121,9 @@ class Parser {
     }
     switch (char) {
       case "{":
-        return this.parseObject();
+        return this.parseNested(() => this.parseObject());
       case "[":
-        return this.parseArray();
+        return this.parseNested(() => this.parseArray());
       case '"': {
         const parsed = this.parseString();
         return parsed.ok
@@ -131,6 +145,18 @@ class Parser {
           ? this.parseNumber()
           : error(UNEXPECTED_CHARACTER);
     }
+  }
+
+  private parseNested(
+    parseContainer: () => Result<JsonValue, string>,
+  ): Result<JsonValue, string> {
+    if (this.depth >= MAX_DEPTH) {
+      return error(TOO_DEEP);
+    }
+    this.depth++;
+    const value = parseContainer();
+    this.depth--;
+    return value;
   }
 
   private parseLiteral(
@@ -396,7 +422,9 @@ class Parser {
 
 /**
  * A JSON text parsed strictly against RFC 8259. Whitespace outside values is
- * allowed; the error is a short note such as `duplicate key`.
+ * allowed, and a byte order mark at the very start of the text is skipped;
+ * nesting deeper than `MAX_DEPTH` levels is refused. The error is a short note
+ * such as `duplicate key`.
  */
 export function parseJson(text: string): Result<JsonValue, string> {
   return new Parser(text).parse();
