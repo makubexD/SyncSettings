@@ -65,6 +65,54 @@ export function readText(path: string): string | undefined {
   }
 }
 
+/** The error codes that mean the file isn't there, not that it can't be read. */
+const MISSING_CODES: readonly string[] = ["ENOENT", "ENOTDIR"];
+
+/** Whether a caught read error is a missing file rather than an unreadable one. */
+function isMissingError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code: unknown = (error as NodeJS.ErrnoException).code;
+  return typeof code === "string" && MISSING_CODES.includes(code);
+}
+
+/**
+ * What reading a record or profile file tells the caller: the text, that the
+ * file is missing, or that it is there but can't be read (contract "The
+ * record").
+ */
+type FileText =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "missing" }
+  | { readonly kind: "unreadable" };
+
+/**
+ * Read a record or profile file for the store. Only a missing file is
+ * "missing"; a file that is there but can't be read (a folder in its place,
+ * no read permission) is "can't be read", never "no record yet".
+ */
+function readFileText(path: string): FileText {
+  try {
+    return { kind: "text", text: readFileSync(path, "utf8") };
+  } catch (error) {
+    return { kind: isMissingError(error) ? "missing" : "unreadable" };
+  }
+}
+
+/** The contract's "can't be read" line for the record file. */
+function unreadableRecordError(): ConfigError {
+  return { message: recordMessage("can't be read"), code: 2 };
+}
+
+/** The contract's "can't be read" line for a profile file. */
+function unreadableProfileError(name: string): ConfigError {
+  const message =
+    `ERROR: profile ${name} (profiles/${name}${PROFILE_EXTENSION} in the ` +
+    `state folder): can't be read.`;
+  return { message, code: 2 };
+}
+
 /**
  * The name in a `{"name": <name>, "home": "repo"}` pointer, or `undefined`
  * when the text is anything else. Exactly the two keys, with `name` a layer
@@ -137,14 +185,17 @@ function readProfileFile(
   config: ConfigV2,
 ): LoadResult<Profile, ConfigError> {
   const path = join(folder, `${name}${PROFILE_EXTENSION}`);
-  const text = readText(path);
-  if (text === undefined) {
+  const read = readFileText(path);
+  if (read.kind === "unreadable") {
+    return { ok: false, error: unreadableProfileError(name) };
+  }
+  if (read.kind === "missing") {
     return {
       ok: false,
       error: { message: `ERROR: profile ${name} not found: ${path}`, code: 2 },
     };
   }
-  return parseProfile(name, text, config);
+  return parseProfile(name, read.text, config);
 }
 
 /** Every profile in a profiles folder, sorted by name, with its parse result. */
@@ -208,8 +259,11 @@ export function readStore(
   repoRoot: string,
   config: ConfigV2,
 ): LoadResult<Store, ConfigError> {
-  const recordText = readText(join(stateFolder, MACHINE_FILE));
-  if (recordText === undefined) {
+  const recordRead = readFileText(join(stateFolder, MACHINE_FILE));
+  if (recordRead.kind === "unreadable") {
+    return { ok: false, error: unreadableRecordError() };
+  }
+  if (recordRead.kind === "missing") {
     const profiles = readProfiles(join(stateFolder, PROFILES_FOLDER), config);
     if (!profiles.ok) {
       return profiles;
@@ -217,9 +271,9 @@ export function readStore(
     return { ok: true, value: { profiles: profiles.value } };
   }
 
-  const repoName = repoHomeName(recordText);
+  const repoName = repoHomeName(recordRead.text);
   if (repoName === undefined) {
-    const record = readRecord(recordText, config);
+    const record = readRecord(recordRead.text, config);
     if (!record.ok) {
       return record;
     }
@@ -233,10 +287,16 @@ export function readStore(
   }
 
   const machineFile = `${MACHINES_FOLDER}/${repoName}${PROFILE_EXTENSION}`;
-  const repoRecordText = readText(
+  const repoRecordRead = readFileText(
     join(repoRoot, MACHINES_FOLDER, `${repoName}${PROFILE_EXTENSION}`),
   );
-  if (repoRecordText === undefined) {
+  if (repoRecordRead.kind === "unreadable") {
+    // shortcut: the contract's record line names machine.json in the state
+    // folder, but a repo-home record's file is machines/<name>.json; both use
+    // the same line until the contract names one.
+    return { ok: false, error: unreadableRecordError() };
+  }
+  if (repoRecordRead.kind === "missing") {
     return {
       ok: false,
       error: {
@@ -248,7 +308,7 @@ export function readStore(
   // shortcut: the contract's record line names machine.json in the state
   // folder, but a repo-home record's file is machines/<name>.json; both use
   // the same line until the contract names one.
-  const record = readRecord(repoRecordText, config);
+  const record = readRecord(repoRecordRead.text, config);
   if (!record.ok) {
     return record;
   }
@@ -271,11 +331,16 @@ export function readRepoStore(
   const records: MachineRecord[] = [];
   const machinesFolder = join(repoRoot, MACHINES_FOLDER);
   for (const name of jsonNames(machinesFolder)) {
-    const text = readText(join(machinesFolder, `${name}${PROFILE_EXTENSION}`));
-    if (text === undefined) {
+    const read = readFileText(
+      join(machinesFolder, `${name}${PROFILE_EXTENSION}`),
+    );
+    if (read.kind === "unreadable") {
+      return { ok: false, error: unreadableRecordError() };
+    }
+    if (read.kind === "missing") {
       continue;
     }
-    const record = readRecord(text, config);
+    const record = readRecord(read.text, config);
     if (!record.ok) {
       return record;
     }

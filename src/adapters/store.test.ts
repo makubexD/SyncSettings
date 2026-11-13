@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -37,6 +38,15 @@ const MISSING_PROFILE_MESSAGE = `ERROR: profile ${PROFILE_NAME} not found: `;
 
 const BAD_RECORD_MESSAGE =
   "ERROR: machine record (machine.json in the state folder): unknown field extra.";
+
+const UNREADABLE_RECORD_MESSAGE =
+  "ERROR: machine record (machine.json in the state folder): can't be read.";
+
+function unreadableProfileMessage(name: string): string {
+  return `ERROR: profile ${name} (profiles/${name}.json in the state folder): can't be read.`;
+}
+
+const NO_PERMISSIONS = 0o000;
 
 const MISSING_MACHINE_MESSAGE = `ERROR: machine ${MACHINE_NAME} not found: machines/${MACHINE_NAME}.json`;
 
@@ -135,6 +145,19 @@ describe("readStore", () => {
     expect(store.profiles).toEqual([]);
   });
 
+  test("should report the record line and code 2 when machine.json is a folder", () => {
+    // Arrange
+    const fixture = storeFixture();
+    mkdirSync(join(fixture.state, "machine.json"));
+
+    // Act
+    const error = expectError(storeOf(fixture));
+
+    // Assert
+    expect(error.message).toBe(UNREADABLE_RECORD_MESSAGE);
+    expect(error.code).toBe(2);
+  });
+
   test("should return every local profile sorted by name when there is no record", () => {
     // Arrange
     const fixture = storeFixture();
@@ -183,6 +206,32 @@ describe("readStore", () => {
       PROFILE_NAME,
     ]);
   });
+
+  test.skipIf(process.getuid?.() === 0)(
+    "should report the profile can't-be-read line and code 2 when the profile file can't be read",
+    () => {
+      // Arrange
+      const fixture = storeFixture();
+      writeFixture(
+        join(fixture.state, "machine.json"),
+        recordText(MACHINE_NAME, PROFILE_NAME),
+      );
+      const profilePath = join(
+        fixture.state,
+        "profiles",
+        `${PROFILE_NAME}.json`,
+      );
+      writeFixture(profilePath, PROFILE_TEXT);
+      chmodSync(profilePath, NO_PERMISSIONS);
+
+      // Act
+      const error = expectError(storeOf(fixture));
+
+      // Assert
+      expect(error.message).toBe(unreadableProfileMessage(PROFILE_NAME));
+      expect(error.code).toBe(2);
+    },
+  );
 
   test("should report the missing profile of a local record with its path and code 2", () => {
     // Arrange
