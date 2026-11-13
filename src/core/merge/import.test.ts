@@ -28,6 +28,9 @@ const EDITED_BLOCK_LINE_TEXT = `${BASE_TEXT}${IMPORT_MARKER}\n@CLAUDE.other.md\n
 const DELETED_BLOCK_LINE_TEXT = `${BASE_TEXT}${IMPORT_MARKER}\n`;
 const EDITED_BASE_AND_BLOCK_TEXT = `${EDITED_BASE_TEXT}${IMPORT_MARKER}\n@CLAUDE.other.md\n`;
 const CRLF_EDITED_BASE_TEXT = `${EDITED_BASE_TEXT.replaceAll("\n", "\r\n")}${IMPORT_MARKER}\r\n@CLAUDE.linux.md\r\n`;
+const QUOTED_MARKER_BASE_TEXT = `# Base\n${IMPORT_MARKER}\n# still base\n`;
+const QUOTED_MARKER_LOCAL_TEXT = `${QUOTED_MARKER_BASE_TEXT}${IMPORT_MARKER}\n@CLAUDE.linux.md\n`;
+const MARKER_BEFORE_BASE_TEXT = `${BASE_TEXT}${IMPORT_MARKER}\n# trailing base\n`;
 
 const NO_LAYER = { ok: false, error: "no layer holds the file" } as const;
 
@@ -299,6 +302,30 @@ describe("splitImport", () => {
 
     // Assert
     expect(split.base).toBeUndefined();
+    expect(split.blockEdited).toBe(false);
+  });
+
+  test("a marker quoted in the base text stays base text", () => {
+    // Arrange
+    const local = bytes(QUOTED_MARKER_LOCAL_TEXT);
+
+    // Act
+    const split = splitImport(local, [BASE_LAYER, LINUX_LAYER], IMPORT_NAME);
+
+    // Assert
+    expect(split.base).toEqual(bytes(QUOTED_MARKER_BASE_TEXT));
+    expect(split.blockEdited).toBe(false);
+  });
+
+  test("a marker followed by a non-@ line stays base text", () => {
+    // Arrange
+    const local = bytes(MARKER_BEFORE_BASE_TEXT);
+
+    // Act
+    const split = splitImport(local, [BASE_LAYER], IMPORT_NAME);
+
+    // Assert
+    expect(split.base).toEqual(bytes(MARKER_BEFORE_BASE_TEXT));
     expect(split.blockEdited).toBe(false);
   });
 

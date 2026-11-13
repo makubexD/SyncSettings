@@ -70,16 +70,33 @@ function blockLines(
       ];
 }
 
-/** Where the first line equal to the marker starts, or -1 when there is none. */
+/** True when every line after `index` is an `@` line or the final newline. */
+function onlyImportLines(lines: readonly string[], index: number): boolean {
+  return lines
+    .slice(index + 1)
+    .every(
+      (line, offset, rest) =>
+        line.startsWith("@") || (line === "" && offset === rest.length - 1),
+    );
+}
+
+/**
+ * Where the last marker line followed only by `@` lines (and the final
+ * newline) starts, or -1 when no marker qualifies. A marker line quoted inside
+ * the base text, or followed by any other line, stays base text.
+ */
 function markerStart(text: string): number {
+  const lines = text.split("\n");
+  let start = -1;
   let offset = 0;
-  for (const line of text.split("\n")) {
-    if (line === IMPORT_MARKER) {
-      return offset;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line === IMPORT_MARKER && onlyImportLines(lines, index)) {
+      start = offset;
     }
     offset += line.length + 1;
   }
-  return -1;
+  return start;
 }
 
 /**
