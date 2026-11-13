@@ -10,10 +10,10 @@ import { strategyFor } from "../merge/strategy.ts";
 import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
-import { valuesFileText } from "../values/file.ts";
 import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
 import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
+import { valuesPrepare } from "./machine-values.ts";
 import {
   basename,
   compileExcludes,
@@ -746,10 +746,7 @@ export function planImport(
   };
   return {
     // Bash saves every value whenever an entry has rules, before any file.
-    prepare:
-      gathered.rules.length > 0
-        ? [{ kind: "writeValues", text: valuesFileText(values.value) }]
-        : [],
+    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values.value),
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,

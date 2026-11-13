@@ -12,11 +12,11 @@ import { splitJson } from "../merge/json.ts";
 import type { JsonLayer } from "../merge/json.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
-import { valuesFileText } from "../values/file.ts";
 import { hydrate, resolveValues } from "../values/hydrate.ts";
 import type { ValueOwner } from "../values/hydrate.ts";
 import { sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
+import { valuesPrepare } from "./machine-values.ts";
 import {
   compileExcludes,
   entrySelected,
@@ -794,10 +794,7 @@ export function planExport(snapshot: Snapshot): RunPlan {
   };
   return {
     // Bash saves every value whenever an entry with rules has a local file.
-    prepare:
-      rules.length > 0
-        ? [{ kind: "writeValues", text: valuesFileText(values.value) }]
-        : [],
+    prepare: valuesPrepare(snapshot, rules.length > 0, values.value),
     steps: state.steps,
     finish: [],
     lines: state.lines,

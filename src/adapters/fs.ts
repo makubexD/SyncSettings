@@ -28,6 +28,7 @@ import type {
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { expandHome } from "./paths.ts";
+import { writeProfile, writeRecord } from "./store.ts";
 
 /** The parts of a path this OS writes: `posix` on Linux and macOS, `win32` on Windows. */
 type PathApi = typeof posix;
@@ -713,6 +714,12 @@ function runAction(
         return ACTION_OK;
       case "writeValues":
         writeValuesFile(action.text, context);
+        return ACTION_OK;
+      case "writeMachineValues":
+        if (action.profile !== undefined) {
+          writeProfile(context.stateFolder, action.profile);
+        }
+        writeRecord(context.stateFolder, action.record);
         return ACTION_OK;
       default: {
         const unhandled: never = action;

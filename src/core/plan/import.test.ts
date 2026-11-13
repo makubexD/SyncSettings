@@ -23,6 +23,7 @@ import type {
   Result,
 } from "../config/types.ts";
 import { parseJson } from "../json/value.ts";
+import type { MachineRecord } from "../machine/record.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planImport } from "./import.ts";
 import { renderRun } from "./run.ts";
@@ -271,6 +272,9 @@ function shownActions(actions: readonly Action[]): readonly ShownAction[] {
   return actions.map((action) => {
     if (action.kind === "writeValues") {
       return { kind: action.kind, path: ".user-values.json", text: action.text };
+    }
+    if (action.kind === "writeMachineValues") {
+      return { kind: action.kind, path: "machine.json" };
     }
     const path = { path: action.path };
     switch (action.kind) {
@@ -841,6 +845,20 @@ const WORK_PROFILE: Profile = {
   retired: false,
 };
 
+const WORK_RECORD: MachineRecord = {
+  name: "wk1-laptop",
+  profile: "work-1",
+  os: "linux",
+  hostname: "wk1-laptop",
+  domain: null,
+  claude: "claude",
+  pullOnly: false,
+  modules: { add: [], remove: [] },
+  values: {},
+  replaced: [],
+  retired: false,
+};
+
 const JSON_BASE_TEXT = '{"a": 1, "list": ["x"], "obj": {"k": "base"}}';
 const JSON_OS_TEXT = '{"list": ["y", "x"], "obj": {"k2": "os"}, "b": 2}';
 const JSON_PROFILE_TEXT = '{"obj": {"k3": "profile"}, "c": 3}';
@@ -1267,5 +1285,107 @@ describe("planImport layers", () => {
         text: "other\n",
       },
     ]);
+  });
+});
+
+describe("planImport values on a machine", () => {
+  function recordSnapshot(
+    record: MachineRecord,
+    profile: Profile,
+    entry: ConfigV2Entry,
+    repo: Readonly<Record<string, string>>,
+  ): Snapshot {
+    return {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo,
+      }),
+      record,
+      profile,
+    };
+  }
+
+  test("should save a new machine value on the record, not the profile or .user-values.json", () => {
+    // Arrange
+    const snapshot = recordSnapshot(
+      WORK_RECORD,
+      WORK_PROFILE,
+      {
+        file: "parity/a.conf",
+        module: "parity",
+        merge: "whole",
+        localPath: "~/.config/parity/a.conf",
+        sanitize: [
+          { placeholder: "<HOME>", prompt: "Home folder", default: "/home/user" },
+        ],
+      },
+      { "dotfiles/common/parity/a.conf": "home = <HOME>\n" },
+    );
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.prepare).toEqual([
+      {
+        kind: "writeMachineValues",
+        record: { ...WORK_RECORD, values: { "<HOME>": "/home/user" } },
+        profile: { ...WORK_PROFILE, values: {} },
+      },
+    ]);
+  });
+
+  test("should save a new profile value on the profile, not the record", () => {
+    // Arrange
+    const snapshot = recordSnapshot(
+      WORK_RECORD,
+      WORK_PROFILE,
+      {
+        file: "parity/a.conf",
+        module: "parity",
+        merge: "whole",
+        localPath: "~/.config/parity/a.conf",
+        sanitize: [
+          { placeholder: "<YOUR_NAME>", prompt: "Full name", default: "Parity User" },
+        ],
+      },
+      { "dotfiles/common/parity/a.conf": "name = <YOUR_NAME>\n" },
+    );
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.prepare).toEqual([
+      {
+        kind: "writeMachineValues",
+        record: { ...WORK_RECORD, values: {} },
+        profile: { ...WORK_PROFILE, values: { "<YOUR_NAME>": "Parity User" } },
+      },
+    ]);
+  });
+
+  test("should save nothing when the record already holds every value", () => {
+    // Arrange
+    const snapshot = recordSnapshot(
+      { ...WORK_RECORD, values: { "<HOME>": "/home/user" } },
+      WORK_PROFILE,
+      {
+        file: "parity/a.conf",
+        module: "parity",
+        merge: "whole",
+        localPath: "~/.config/parity/a.conf",
+        sanitize: [
+          { placeholder: "<HOME>", prompt: "Home folder", default: "/home/user" },
+        ],
+      },
+      { "dotfiles/common/parity/a.conf": "home = <HOME>\n" },
+    );
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.prepare).toEqual([]);
   });
 });

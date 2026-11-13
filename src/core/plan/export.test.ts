@@ -25,6 +25,7 @@ import type {
   Result,
   SanitizeRule,
 } from "../config/types.ts";
+import type { MachineRecord } from "../machine/record.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
 import { planExport } from "./export.ts";
@@ -235,6 +236,9 @@ function shownActions(actions: readonly Action[]): readonly ShownAction[] {
     if (action.kind === "writeValues") {
       return { kind: action.kind, path: ".user-values.json" };
     }
+    if (action.kind === "writeMachineValues") {
+      return { kind: action.kind, path: "machine.json" };
+    }
     const path = { path: action.path };
     switch (action.kind) {
       case "writeRepo":
@@ -257,6 +261,20 @@ function shownActions(actions: readonly Action[]): readonly ShownAction[] {
 
 const LAYER_MODULES: ConfigV2["modules"] = {
   parity: { description: "Parity case files" },
+};
+
+const WORK_RECORD: MachineRecord = {
+  name: "wk1-laptop",
+  profile: "work-1",
+  os: "linux",
+  hostname: "wk1-laptop",
+  domain: null,
+  claude: "claude",
+  pullOnly: false,
+  modules: { add: [], remove: [] },
+  values: {},
+  replaced: [],
+  retired: false,
 };
 
 const JSON_BASE_TEXT = '{"a": 1, "list": ["x"], "obj": {"k": "base"}}';
@@ -774,6 +792,40 @@ describe("planExport values file", () => {
     // Assert
     expect(plan?.prepare).toEqual([
       { kind: "writeValues", text: valuesFileText(snapshot?.values ?? {}) },
+    ]);
+  });
+});
+
+describe("planExport values on a machine", () => {
+  test("should save a new machine value on the record, not .user-values.json", () => {
+    // Arrange
+    const profile = profileOf({});
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [
+          jsonEntry({
+            sanitize: [
+              { placeholder: "<HOME>", prompt: "Home folder", default: "/home/user" },
+            ],
+          }),
+        ],
+        repo: { "dotfiles/common/parity/settings.json": '{"home": "<HOME>"}' },
+        local: { ".config/parity/settings.json": '{"home": "/home/user"}' },
+      }),
+      record: WORK_RECORD,
+      profile,
+    };
+
+    // Act
+    const plan = planExport(snapshot);
+
+    // Assert
+    expect(plan.prepare).toEqual([
+      {
+        kind: "writeMachineValues",
+        record: { ...WORK_RECORD, values: { "<HOME>": "/home/user" } },
+        profile: { ...profile, values: {} },
+      },
     ]);
   });
 });

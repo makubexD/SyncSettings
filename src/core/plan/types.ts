@@ -137,6 +137,17 @@ export interface WriteValuesAction {
   readonly text: string;
 }
 
+/**
+ * Save a record's and profile's values in the state folder (contract "Values
+ * on a machine"). The record and profile carry the values new this run already
+ * merged in; the core does the merge, the adapter only writes.
+ */
+export interface WriteMachineValuesAction {
+  readonly kind: "writeMachineValues";
+  readonly record: MachineRecord;
+  readonly profile?: Profile;
+}
+
 export type Action =
   | WriteRepoAction
   | RemoveRepoAction
@@ -145,7 +156,8 @@ export type Action =
   | MkdirAction
   | ChmodAction
   | WriteStateAction
-  | WriteValuesAction;
+  | WriteValuesAction
+  | WriteMachineValuesAction;
 
 /** What a plan asks the adapter to do and print, and the exit code. */
 export interface Plan {
