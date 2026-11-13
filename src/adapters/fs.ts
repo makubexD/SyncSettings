@@ -13,6 +13,7 @@ import type { Dirent, Stats } from "node:fs";
 import { posix, win32 } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectedEntry } from "../core/layers/select.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
@@ -36,11 +37,6 @@ const REPO_PREFIX = "dotfiles/";
 const MODE_MASK = 0o7777;
 
 const DOTFILES_FOLDER = "dotfiles";
-
-/** Contract "Profile and machine, until phase 6": the state folder's layer folders. */
-export const PROFILES_FOLDER = "profiles";
-
-export const MACHINES_FOLDER = "machines";
 
 /** Everything the snapshot adapter reads besides the disk itself. */
 export interface SnapshotInput {

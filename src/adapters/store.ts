@@ -14,6 +14,7 @@ import type {
   ConfigV2,
   Result as LoadResult,
 } from "../core/config/types.ts";
+import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
 import type { JsonValue } from "../core/json/value.ts";
 import { writeJson } from "../core/json/value.ts";
 import { LAYER_NAME } from "../core/layers/names.ts";
@@ -23,7 +24,6 @@ import {
   recordMessage,
   recordText,
 } from "../core/machine/record.ts";
-import { MACHINES_FOLDER, PROFILES_FOLDER } from "./fs.ts";
 
 /** The state folder's record file; contract "The record". */
 const MACHINE_FILE = "machine.json";

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
 import type { EngineHost } from "./adapters/engine.ts";
-import { PROFILES_FOLDER, runPlan } from "./adapters/fs.ts";
+import { runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
 import { readIdentity, readScan } from "./adapters/scan.ts";
@@ -25,6 +25,7 @@ import {
   writeProfile,
   writeRecord,
 } from "./adapters/store.ts";
+import { readVisibility } from "./adapters/visibility.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   MachineShowCommand,
@@ -35,6 +36,8 @@ import type {
 } from "./cli/parse.ts";
 import type { Profile } from "./core/config/profile.ts";
 import type { ConfigV2, Os } from "./core/config/types.ts";
+import { guard, PROFILES_FOLDER } from "./core/guard.ts";
+import type { GuardDecision } from "./core/guard.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { CheckMode } from "./core/machine/check.ts";
@@ -105,6 +108,46 @@ function failure(message: string, code = 1): Result {
 
 function writeLines(lines: readonly string[]): string {
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+}
+
+/** Run one git command in the repo root, its stdout as text and exit code. */
+async function runGitText(
+  repoRoot: string,
+  args: readonly string[],
+): Promise<{ readonly code: number; readonly stdout: string } | undefined> {
+  try {
+    const child = Bun.spawn(["git", ...args], {
+      cwd: repoRoot,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const stdout = await new Response(child.stdout).text();
+    const code = await child.exited;
+    return { code, stdout };
+  } catch {
+    // A missing git or an unreadable folder is "git cannot tell".
+    return undefined;
+  }
+}
+
+/** The origin remote's URL, or `undefined` when there is none. */
+async function readOrigin(repoRoot: string): Promise<string | undefined> {
+  const output = await runGitText(repoRoot, ["remote", "get-url", "origin"]);
+  if (output === undefined || output.code !== 0) {
+    return undefined;
+  }
+  const origin = output.stdout.trim();
+  return origin === "" ? undefined : origin;
+}
+
+/** The paths the clone tracks, from `git ls-files`, for the public-repo guard. */
+async function readTrackedPaths(repoRoot: string): Promise<readonly string[]> {
+  const output = await runGitText(repoRoot, ["ls-files", "-z"]);
+  if (output === undefined || output.code !== 0) {
+    return [];
+  }
+  return output.stdout.split("\u0000").filter((path) => path !== "");
 }
 
 type Resolved =
@@ -282,6 +325,44 @@ async function replaceValues(
 }
 
 /**
+ * Decision 10: the public-repo guard's decision for an export. A private repo
+ * holds and refuses nothing; while public, the local store names the held files
+ * and `git ls-files` names the refused paths.
+ */
+async function exportGuard(
+  repoRoot: string,
+  state: string,
+  config: ConfigV2,
+): Promise<GuardDecision> {
+  const origin = await readOrigin(repoRoot);
+  const visibility = await readVisibility(origin, process.env);
+  if (visibility === "private") {
+    return { held: [], refused: [] };
+  }
+  const store = readStore(state, repoRoot, config);
+  const localRecords = store.ok ? store.value : { profiles: [] };
+  return guard(visibility, await readTrackedPaths(repoRoot), localRecords);
+}
+
+/** Contract "Public-repo guard (program only)", Refused: two lines per path. */
+function refusedText(paths: readonly string[]): string {
+  return paths
+    .flatMap((path) => [
+      `refused: the repo is public, so ${path} can't be pushed.`,
+      "It is kept on this machine and goes in with the first push after the repo is private.",
+    ])
+    .join("\n");
+}
+
+/** Contract "Public-repo guard (program only)", Held: the line and the paths. */
+function heldText(paths: readonly string[]): string {
+  return writeLines([
+    `held until the repo is private: ${paths.length} file(s)`,
+    ...paths.map((path) => `  ${path}`),
+  ]);
+}
+
+/**
  * Run `mksync setup` end to end: read the store and the scan, run the flow,
  * move `.user-values.json`, write the record and profile, then act on the
  * fourth answer (decision 9).
@@ -298,9 +379,8 @@ async function executeSetup(
   if (!store.ok) {
     return failure(store.error.message, store.error.code);
   }
-  // shortcut: the real visibility reader is step 17; until then the test
-  // variable decides.
-  const isPrivate = process.env.MKSYNC_VISIBILITY === "private";
+  const origin = await readOrigin(repoRoot);
+  const isPrivate = (await readVisibility(origin, process.env)) === "private";
   const repoStore = isPrivate ? readRepoStore(repoRoot, config) : undefined;
   if (repoStore !== undefined && !repoStore.ok) {
     return failure(repoStore.error.message, repoStore.error.code);
@@ -603,6 +683,20 @@ async function execute(command: ExecutableCommand): Promise<Result> {
     return { code: 1, stdout: "", stderr: writeLines(check.lines) };
   }
 
+  // The record checks run first, then the public-repo guard's (contract
+  // "Public-repo guard (program only)").
+  const guardDecision =
+    command.command === "export"
+      ? await exportGuard(repoRoot, state, config.value)
+      : undefined;
+  if (
+    guardDecision !== undefined &&
+    !command.preview &&
+    guardDecision.refused.length > 0
+  ) {
+    return failure(refusedText(guardDecision.refused));
+  }
+
   const answers = await readAnswers(command);
   const snapshot = await buildSnapshot(
     repoRoot,
@@ -633,6 +727,17 @@ async function execute(command: ExecutableCommand): Promise<Result> {
           ),
         )
       : applyPlan(planExport(snapshot), context);
+    if (
+      command.preview &&
+      result.code === 0 &&
+      guardDecision !== undefined &&
+      guardDecision.held.length > 0
+    ) {
+      result = {
+        ...result,
+        stdout: result.stdout + heldText(guardDecision.held),
+      };
+    }
   } else {
     result = command.check
       ? renderStatic(planCheck(snapshot))
