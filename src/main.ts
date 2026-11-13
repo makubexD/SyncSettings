@@ -277,8 +277,8 @@ function localDate(now: Date): string {
 
 /**
  * Decision 4: where a placeholder `.user-values.json` holds outside the table
- * goes. With `--yes` or no terminal it takes the suggestion, the profile;
- * otherwise it is asked once.
+ * goes. Only `--yes` skips the questions — a piped stdin asks them too, taking
+ * the suggestion, the profile, at end of input; otherwise each is asked once.
  */
 async function valueAnswers(
   values: Values,
@@ -286,7 +286,7 @@ async function valueAnswers(
   io: SetupIo,
 ): Promise<Readonly<Record<string, ValuePlace>>> {
   const answers: Record<string, ValuePlace> = {};
-  if (flags.yes === true || process.stdin.isTTY !== true) {
+  if (flags.yes === true) {
     return answers;
   }
   for (const placeholder of Object.keys(values)) {
@@ -302,16 +302,18 @@ async function valueAnswers(
 
 /**
  * Contract "Replace": each machine value is asked again with the old one as
- * the suggestion. An empty answer, end of input or `--yes` keeps the old
- * value; any other answer replaces it. Nothing is asked without `--replace`.
+ * the suggestion whenever the flow took over a record (`replaced`). An empty
+ * answer, end of input or `--yes` keeps the old value; any other answer
+ * replaces it. Nothing is asked when no record was taken over.
  */
 async function replaceValues(
   record: MachineRecord,
+  replaced: boolean,
   command: SetupCommand,
   io: SetupIo,
 ): Promise<Readonly<Record<string, string>>> {
   const values: Record<string, string> = { ...record.values };
-  if (command.replace === undefined || command.yes === true) {
+  if (!replaced || command.yes === true) {
     return values;
   }
   for (const [key, old] of Object.entries(record.values)) {
@@ -418,6 +420,7 @@ async function executeSetup(
   const answers = await valueAnswers(values, command, terminal.io);
   const machineValues = await replaceValues(
     outcome.record,
+    outcome.replaced,
     command,
     terminal.io,
   );
@@ -432,8 +435,15 @@ async function executeSetup(
     values: { ...moved.profile, ...outcome.profile.values },
   };
   try {
-    writeRecord(state, record);
     writeProfile(state, profile);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return failure(
+      `ERROR: cannot write the profile ${profile.name}: ${message}`,
+    );
+  }
+  try {
+    writeRecord(state, record);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return failure(`ERROR: cannot write the machine record: ${message}`);
