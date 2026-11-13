@@ -1,0 +1,10 @@
+{
+  "modules": [
+    "work-base"
+  ],
+  "values": {
+    "<YOUR_EMAIL>": "jane.doe@work1.example.com"
+  },
+  "destinations": {},
+  "retired": false
+}

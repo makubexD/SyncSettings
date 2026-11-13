@@ -1,0 +1,16 @@
+{
+  "name": "wk1-desktop",
+  "profile": "work-1",
+  "os": "linux",
+  "hostname": "wk1-desktop",
+  "domain": null,
+  "claude": "claude-deepseek",
+  "pullOnly": false,
+  "modules": {
+    "add": [],
+    "remove": []
+  },
+  "values": {},
+  "replaced": [],
+  "retired": false
+}

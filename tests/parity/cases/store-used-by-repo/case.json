@@ -1,0 +1,30 @@
+{
+  "description": "profile retire with a pointer record refuses a profile the clone's records still use, naming the first such record by name, exit 1, and writes nothing (Retire, The repo store).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "profile-retire",
+      "options": {
+        "target": "work-1",
+        "yes": true
+      },
+      "stderr": true,
+      "output": "all"
+    }
+  ]
+}

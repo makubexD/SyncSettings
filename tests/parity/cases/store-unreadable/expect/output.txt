@@ -1,0 +1,1 @@
+ERROR: machines/wk1-laptop.json can't be read: not valid JSON.

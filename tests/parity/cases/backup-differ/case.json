@@ -1,0 +1,26 @@
+{
+  "description": "The first backup asks once per value the repo copy and this machine set differently, printing both values and continuing on the question's line; answer 2 keeps this machine's value in the repo copy (Public-repo guard (program only), The first backup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "stdin": "2\n",
+      "output": "all"
+    }
+  ]
+}

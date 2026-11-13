@@ -1,0 +1,11 @@
+  ADDED      machines/wk1-laptop.json
+  MODIFIED   profiles/work-1.json
+
+  --------------------------------------------------
+
+  2 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+

@@ -1,0 +1,12 @@
+  ADDED      machines/wk1-laptop.json
+  ADDED      profiles/work-1.json
+  ADDED      profiles/work-1/parity/settings.json
+
+  --------------------------------------------------
+
+  3 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+

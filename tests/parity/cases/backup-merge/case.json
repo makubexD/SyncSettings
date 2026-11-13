@@ -1,0 +1,31 @@
+{
+  "description": "The first backup merges its profile with the one the repo already holds, joining modules in the repo copy's order then this machine's new ones, and writes it once with MODIFIED (Public-repo guard (program only), The first backup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "yes": true
+      },
+      "output": "all"
+    }
+  ]
+}

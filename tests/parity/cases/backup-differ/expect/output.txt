@@ -1,0 +1,14 @@
+<YOUR_EMAIL> differs on profile work-1:
+  repo:         jane@work1.example.com
+  this machine: jane.doe@work1.example.com
+Keep which? 1) the repo's  2) this machine's [1]   ADDED      machines/wk1-laptop.json
+  MODIFIED   profiles/work-1.json
+
+  --------------------------------------------------
+
+  2 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+
