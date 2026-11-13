@@ -1137,6 +1137,13 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
     always a choice, never a new profile's name; the profile list pads a name with machines to 12 characters and
     shows several as `machines a, b`; a takeover on the same hostname and domain adds no `replaced` entry;
     `--profile` with `--replace` takes the record's profile.
+  - Setup "keep mine": a failed export stops before the import, with the export's exit code, so local files that
+    weren't pushed are never overwritten.
+  - Replace asks each machine value as `<KEY> [<old value>] ` in the record's key order; no shared case has a value
+    yet.
+  - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1. Retiring a machine
+    whose `machine.json` is a repo-home pointer writes the whole record to the state folder; once pointers exist
+    (phase 7) it must write the repo's `machines/<name>.json` instead.
   - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
     which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's
     rules would be a migration.

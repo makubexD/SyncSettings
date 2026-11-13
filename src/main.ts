@@ -4,7 +4,7 @@ import { join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
 import type { EngineHost } from "./adapters/engine.ts";
-import { runPlan } from "./adapters/fs.ts";
+import { PROFILES_FOLDER, runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
 import { readIdentity, readScan } from "./adapters/scan.ts";
@@ -28,6 +28,7 @@ import {
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   MachineShowCommand,
+  RetireCommand,
   RunCommand,
   SetupCommand,
   ShadowCommand,
@@ -38,6 +39,15 @@ import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { CheckMode } from "./core/machine/check.ts";
 import type { MachineRecord } from "./core/machine/record.ts";
+import {
+  isYes,
+  machineRetireQuestion,
+  NOTHING_RETIRED,
+  profileRetireQuestion,
+  retireMachine,
+  retireProfile,
+} from "./core/machine/retire.ts";
+import type { RetireResult } from "./core/machine/retire.ts";
 import { machineScope } from "./core/machine/scope.ts";
 import { renderMachineShow } from "./core/machine/show.ts";
 import type { ValuePlace } from "./core/machine/values.ts";
@@ -98,10 +108,19 @@ function writeLines(lines: readonly string[]): string {
 }
 
 type Resolved =
-  Result | RunCommand | ShadowCommand | MachineShowCommand | SetupCommand;
+  | Result
+  | RunCommand
+  | ShadowCommand
+  | MachineShowCommand
+  | RetireCommand
+  | SetupCommand;
 
 type ExecutableCommand =
-  RunCommand | ShadowCommand | MachineShowCommand | SetupCommand;
+  | RunCommand
+  | ShadowCommand
+  | MachineShowCommand
+  | RetireCommand
+  | SetupCommand;
 
 function isResolvedCommand(value: Resolved): value is ExecutableCommand {
   return "kind" in value;
@@ -239,6 +258,30 @@ async function valueAnswers(
 }
 
 /**
+ * Contract "Replace": each machine value is asked again with the old one as
+ * the suggestion. An empty answer, end of input or `--yes` keeps the old
+ * value; any other answer replaces it. Nothing is asked without `--replace`.
+ */
+async function replaceValues(
+  record: MachineRecord,
+  command: SetupCommand,
+  io: SetupIo,
+): Promise<Readonly<Record<string, string>>> {
+  const values: Record<string, string> = { ...record.values };
+  if (command.replace === undefined || command.yes === true) {
+    return values;
+  }
+  for (const [key, old] of Object.entries(record.values)) {
+    io.write(`${key} [${old}] `);
+    const answer = (await io.readLine())?.trim();
+    if (answer !== undefined && answer !== "") {
+      values[key] = answer;
+    }
+  }
+  return values;
+}
+
+/**
  * Run `mksync setup` end to end: read the store and the scan, run the flow,
  * move `.user-values.json`, write the record and profile, then act on the
  * fourth answer (decision 9).
@@ -293,11 +336,16 @@ async function executeSetup(
 
   const values = parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
   const answers = await valueAnswers(values, command, terminal.io);
+  const machineValues = await replaceValues(
+    outcome.record,
+    command,
+    terminal.io,
+  );
   terminal.close();
   const moved = moveUserValues(values, answers);
   const record: MachineRecord = {
     ...outcome.record,
-    values: { ...moved.machine, ...outcome.record.values },
+    values: { ...moved.machine, ...machineValues },
   };
   const profile: Profile = {
     ...outcome.profile,
@@ -351,6 +399,85 @@ async function executeSetup(
       imported.stdout,
     stderr: `${exported.stderr}${imported.stderr}`,
   };
+}
+
+/**
+ * Finish a retire: a refusal on stderr, exit 1; a value already retired prints
+ * its line; otherwise the question is asked unless `--yes`, and a yes writes
+ * the value. The question and the answer line share one stdout line.
+ */
+async function askRetire<T>(
+  command: RetireCommand,
+  question: string,
+  retired: RetireResult<T>,
+  write: (value: T) => void,
+): Promise<Result> {
+  if (!retired.ok) {
+    return failure(retired.line, retired.code);
+  }
+  if (retired.value === undefined) {
+    return { code: retired.code, stdout: `${retired.line}\n`, stderr: "" };
+  }
+  if (!command.yes) {
+    const terminal = setupTerminal();
+    // The question is written as it is asked, so its line and the answer's
+    // share one stdout line; the result carries only the answer.
+    terminal.io.write(question);
+    const answer = await terminal.io.readLine();
+    terminal.close();
+    if (!isYes(answer)) {
+      return { code: 1, stdout: `${NOTHING_RETIRED}\n`, stderr: "" };
+    }
+  }
+  try {
+    write(retired.value);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const noun = command.kind === "machine-retire" ? "record" : "profile";
+    return failure(`ERROR: cannot write the retired ${noun}: ${message}`);
+  }
+  return { code: 0, stdout: `${retired.line}\n`, stderr: "" };
+}
+
+/**
+ * `machine retire` and `profile retire` (contract "Retire"): run the rule
+ * against the store, then ask and write. A profile's records are the store's
+ * own record when it has one.
+ */
+async function executeRetire(
+  repoRoot: string,
+  config: ConfigV2,
+  state: string,
+  command: RetireCommand,
+): Promise<Result> {
+  const store = readStore(state, repoRoot, config);
+  if (!store.ok) {
+    return failure(store.error.message, store.error.code);
+  }
+  if (command.kind === "machine-retire") {
+    return askRetire(
+      command,
+      machineRetireQuestion(command.target),
+      retireMachine(store.value.record, command.target),
+      (record) => {
+        writeRecord(state, record);
+      },
+    );
+  }
+  const records = store.value.record === undefined ? [] : [store.value.record];
+  return askRetire(
+    command,
+    profileRetireQuestion(command.target),
+    retireProfile(
+      store.value.profiles.find((profile) => profile.name === command.target),
+      command.target,
+      records,
+      join(state, PROFILES_FOLDER, `${command.target}.json`),
+    ),
+    (profile) => {
+      writeProfile(state, profile);
+    },
+  );
 }
 
 /** Run the hidden shadow comparisons against the repo found from here. */
@@ -425,6 +552,9 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   const state = stateFolder(os.value, home, process.env);
   if (command.kind === "setup") {
     return executeSetup(repoRoot, config.value, os.value, home, state, command);
+  }
+  if (command.kind === "machine-retire" || command.kind === "profile-retire") {
+    return executeRetire(repoRoot, config.value, state, command);
   }
   const layers = loadLayers(state, repoRoot, config.value);
   if (!layers.ok) {
@@ -531,7 +661,7 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "machine-retire":
     case "profile-retire":
-      return failure("ERROR: retire is not wired yet", 2);
+      return parsed;
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };
     case "usage":
