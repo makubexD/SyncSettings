@@ -37,7 +37,7 @@ interface DraftLine {
   readonly addedItems?: readonly JsonValue[];
 }
 
-interface MatchedLayer {
+export interface MatchedLayer {
   readonly entry: SelectedEntry;
   readonly layer: Layer;
 }
@@ -295,7 +295,7 @@ function parentDir(path: string, separator: "/" | "\\"): string {
 
 /** The selected entry and layer an export action writes: an exact layer path,
  * or a `dir` entry's folder prefix. */
-function matchExportEntry(
+export function matchExportEntry(
   selected: readonly SelectedEntry[],
   path: string,
 ): MatchedLayer | undefined {
@@ -361,7 +361,7 @@ function wholeLines(
   ];
 }
 
-function exportFileLabel(
+export function exportFileLabel(
   entry: SelectedEntry,
   layer: Layer,
   path: string,

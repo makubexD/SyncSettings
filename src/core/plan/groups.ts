@@ -34,10 +34,18 @@ export const OS_TITLES: Readonly<Record<Os, string>> = {
   macos: "macOS",
 };
 
-/** One group of the block: its title and the lines that belong to it. */
+/** One change line the block prints: the line, its position in the input, and
+ * the display number the block gives it. */
+interface NumberedLine {
+  readonly line: ChangeLine;
+  readonly index: number;
+  readonly number: number;
+}
+
+/** One group of the block: its title and the numbered lines that belong to it. */
 interface BlockGroup {
   readonly title: string;
-  readonly lines: readonly ChangeLine[];
+  readonly lines: readonly NumberedLine[];
 }
 
 /** The column widths every line of the block is padded to. */
@@ -67,10 +75,38 @@ function groupsOf(
       ["This machine only", "machine"],
     );
   }
-  return titles.map(([title, layer]) => ({
-    title,
-    lines: lines.filter((line) => line.layer === layer),
-  }));
+  let number = 0;
+  return titles.map(([title, layer]) => {
+    const numbered: NumberedLine[] = [];
+    lines.forEach((line, index) => {
+      if (line.layer !== layer) {
+        return;
+      }
+      number += 1;
+      numbered.push({ line, index, number });
+    });
+    return { title, lines: numbered };
+  });
+}
+
+/**
+ * The display number `groupBlock` gives each change line it prints, parallel to
+ * `lines`; a line the block leaves out (a profile or machine line without a
+ * record) has 0. The numbering's one home, for the block and the profile-value
+ * rule (contract "Push preview (program only)").
+ */
+export function changeLineNumbers(
+  lines: readonly ChangeLine[],
+  record: { readonly name: string; readonly profile: string } | undefined,
+  os: Os,
+): readonly number[] {
+  const numbers = new Array<number>(lines.length).fill(0);
+  for (const group of groupsOf(lines, record, os)) {
+    for (const item of group.lines) {
+      numbers[item.index] = item.number;
+    }
+  }
+  return numbers;
 }
 
 /** The block's header line (contract "Push preview (program only)"). */
@@ -127,7 +163,7 @@ export function groupedBlock(
   newSettings: readonly NewSettingLine[],
 ): GroupedBlock {
   const groups = groupsOf(lines, record, os);
-  const shown = groups.flatMap((group) => group.lines);
+  const shown = groups.flatMap((group) => group.lines.map((item) => item.line));
   const numbered = [...shown, ...newSettings];
   const widths: BlockWidths = {
     number: String(Math.max(numbered.length, 1)).length,
@@ -137,16 +173,15 @@ export function groupedBlock(
   const indent = " ".repeat(2 + widths.number + 2);
 
   const head: string[] = [headerOf(record, header), ""];
-  let number = 0;
+  let number = shown.length;
   for (const group of groups) {
     head.push(group.title);
     if (group.lines.length === 0) {
       head.push(`${indent}${EMPTY_GROUP}`);
       continue;
     }
-    for (const line of group.lines) {
-      number += 1;
-      head.push(formatLine(line, number, widths));
+    for (const item of group.lines) {
+      head.push(formatLine(item.line, item.number, widths));
     }
   }
 
