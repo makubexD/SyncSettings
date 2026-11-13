@@ -769,15 +769,31 @@ profile and machine ([design, "Layers"](design-layers.md#layers)). The old engin
 (every machine today): no profile or machine layer, and every module is on, as before. The program never reads
 `profiles/` or `machines/` from the repo while it's public. Phase 6 replaces both variables with the machine record.
 
+A layer name can't name another layer: neither variable may be `linux`, `macos`, `windows`, `common` or `base`, and
+`SYNC_MACHINE` may not equal `SYNC_PROFILE`. Side files are named after their layer (`CLAUDE.<name>.md`), so two layers
+with one name would overwrite each other's file, and the next push would send one layer's text into the other.
+
 ```text
 ERROR: SYNC_PROFILE must be lowercase letters, digits and -; this is <value>.
 ERROR: SYNC_MACHINE must be lowercase letters, digits and -; this is <value>.
+ERROR: SYNC_PROFILE can't be <name>: it names another layer.
+ERROR: SYNC_MACHINE can't be <name>: it names another layer.
 ERROR: profile <name> not found: <state>/profiles/<name>.json
 ERROR: profile <name>: <reason>.
 ```
 
-Each stops the run with exit code 2 before any file is touched. `<reason>` is `not valid JSON`, `unknown field <f>`
-or `unknown module <m>`.
+Each stops the run with exit code 2 before any file is touched; the name checks come before the profile file is read.
+`<reason>` is `not valid JSON`, `unknown field <f>`, `<f> has the wrong type`, `unknown module <m>` or
+`destination <key> is not a layer`.
+
+A profile's `destinations` maps a key path (as in the `needs a destination` note below) to a layer slot: `os`,
+`profile` or `machine`. Any other value, `base` included, is `destination <key> is not a layer`.
+
+**Writes to the state folder.** Before a run overwrites or removes a file under `<state>/profiles/` or
+`<state>/machines/`, it copies the old file into the run's dated folder (`backups/<run>/profiles/…`,
+[Backups](#backups)), as import does for local files. These writes are never committed, so the
+[export preview](#export-preview) leaves them out. A path that would resolve outside `<state>` or the repo (`../` in a
+`file`) fails that action with `ERROR`, and the run goes on.
 
 With a profile, an entry runs only when the profile's `modules` lists its module. A module whose `os` leaves this
 system out stays off even when listed. An entry that is off gets no status line, as one for another system.
@@ -801,15 +817,18 @@ file parsed, so whitespace, key order and line endings alone are `UNCHANGED`. Ke
 `localOnlyKeys` keep their local value and are never pushed.
 
 A layer that isn't JSON (comments and trailing commas included) gets `ERROR` with the note
-`not valid JSON: <layer path>`, and the local file is left alone.
+`not valid JSON: <layer path>`, and the local file is left alone. A UTF-8 BOM at the start of any JSON file, layer or
+local, is skipped on read and never written. JSON nested deeper than 512 levels counts as `not valid JSON`.
 
 **`json` entries, export.** The local file is parsed and compared with what import would write now. Each change goes
 to one layer, then that layer is sanitized and written in the layout above with LF:
 
-- a changed or removed key goes to the latest layer that sets it;
+- a changed key goes to the latest layer that sets it;
+- a removed key is removed from every layer that sets it, so the next pull doesn't bring back an earlier layer's value;
 - a removed array item is removed from the layer that added it;
 - a new key or a new array item goes to the layer the profile's `destinations` names for it; an entry with one layer
-  puts it there.
+  puts it there. The destination's file may not exist yet: export creates it (and its folders) with `ADDED` and its
+  label.
 
 Each layer written gets `MODIFIED` and its label; with no change the file gets one `UNCHANGED` line, labeled with the
 latest layer. A new setting with no layer to go to gives `ERROR`, note `new setting <key path>: needs a destination`,
@@ -828,8 +847,10 @@ file, the marker line and one `@<importName>` line per such layer, in layer orde
 Each of those layers is written next to the local file under its `importName` (`{layer}` is the OS, profile or
 machine name), with its own status line. Export stores the text above the marker in the base layer, compared with CRLF
 folded to LF; an edit to the block itself is not stored and prints the note
-`import block is written by mksync, edit not pushed` on the base's status line. Each side file is exported to its
-layer as a whole file. Text is written with CRLF on Windows and LF elsewhere.
+`import block is written by mksync, edit not pushed` on the base's status line. The marker that counts is the last
+marker line followed only by `@` lines (and the final newline); a marker line quoted inside the base text stays base
+text. Each side file is exported to its layer as a whole file, with CRLF folded to LF before it is sanitized and
+compared, on every OS. Text is written with CRLF on Windows and LF elsewhere.
 
 Side files are local files like any other: import compares each one, asks before overwriting it and backs it up as
 `<file>.bak`. On export, a side file that isn't there locally leaves its layer as it is (`UNCHANGED`).

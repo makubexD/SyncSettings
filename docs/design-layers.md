@@ -1081,6 +1081,12 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
     the placeholder tie-break order, `EXTRA` ignoring excludes, `\r` kept in inference, `paths.ts` `~\` on Linux and
     its trailing-separator branch, `elevate !== false`.
   - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag.
+- **Finish review, phase 5.** Fixed in steps 19 to 31. Left:
+  - A removed key leaves every layer that sets it (contract, "Layers"), so a machine can't drop a key the base sets
+    without dropping it for every machine. A later layer that masks a key (a tombstone value) would allow it; it needs
+    a written form in JSON and a rule for arrays.
+  - Value inference on an entry with more than one layer lines the local file up with the latest layer only, so a
+    value that only an earlier layer's text holds isn't inferred.
 
 ### Confirm on Windows
 
