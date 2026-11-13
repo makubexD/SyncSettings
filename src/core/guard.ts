@@ -37,9 +37,15 @@ export interface GuardDecision {
   readonly refused: readonly string[];
 }
 
-/** An action's path is a state path when it names a profile or machine layer. */
+/**
+ * An action's path is a state path when it names a profile or machine layer.
+ * Compared case-insensitively: a case-insensitive filesystem (Windows, macOS)
+ * treats `Profiles/` as `profiles/`, so the guard must too. The path itself is
+ * kept as given, so what is reported keeps its original case.
+ */
 function isStatePath(path: string): boolean {
-  return STATE_FOLDER_ROOTS.some((root) => path.startsWith(root));
+  const folded = path.toLowerCase();
+  return STATE_FOLDER_ROOTS.some((root) => folded.startsWith(root));
 }
 
 function recordPath(name: string): string {
@@ -54,8 +60,9 @@ function profilePath(name: string): string {
  * Contract "Public-repo guard (program only)": while public, `held` names the
  * local files a private push would add, sorted: `profiles/<name>.json` for
  * every local profile and `machines/<name>.json` for the local record.
- * `refused` names the tracked repo paths under those roots, sorted. A private
- * repo holds and refuses nothing.
+ * `refused` names the tracked repo paths under those roots, compared
+ * case-insensitively and reported as given, sorted. A private repo holds and
+ * refuses nothing.
  */
 export function guard(
   visibility: Visibility,

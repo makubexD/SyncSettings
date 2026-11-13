@@ -131,9 +131,15 @@ async function runGitText(
   }
 }
 
-/** The origin remote's URL, or `undefined` when there is none. */
+/** The origin remote's push URL, where a push would go, or `undefined` when
+ * there is none. */
 async function readOrigin(repoRoot: string): Promise<string | undefined> {
-  const output = await runGitText(repoRoot, ["remote", "get-url", "origin"]);
+  const output = await runGitText(repoRoot, [
+    "remote",
+    "get-url",
+    "--push",
+    "origin",
+  ]);
   if (output === undefined || output.code !== 0) {
     return undefined;
   }

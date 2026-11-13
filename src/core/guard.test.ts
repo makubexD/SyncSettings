@@ -16,6 +16,12 @@ const OTHER_PROFILE_PATH = "profiles/personal.json";
 
 const NESTED_PROFILE_PATH = "profiles/work-1/vscode/settings.json";
 
+const UPPERCASE_PROFILE_PATH = "Profiles/work-1.json";
+
+const UPPERCASE_RECORD_PATH = "MACHINES/wk1.json";
+
+const UPPERCASE_ACTION_PATH = "Profiles/work-1/vscode/settings.json";
+
 const RECORD = { name: RECORD_NAME };
 
 const PROFILES = [{ name: PROFILE_NAME }, { name: OTHER_PROFILE_NAME }];
@@ -60,6 +66,31 @@ describe("guard", () => {
       PROFILE_PATH,
       NESTED_PROFILE_PATH,
     ]);
+  });
+
+  test("should refuse tracked state paths in any case and report them as given", () => {
+    // Arrange
+    const trackedPaths = [UPPERCASE_PROFILE_PATH, UPPERCASE_RECORD_PATH];
+
+    // Act
+    const decision = guard("public", trackedPaths, NO_LOCAL_RECORDS);
+
+    // Assert
+    expect(decision.refused).toEqual([
+      UPPERCASE_RECORD_PATH,
+      UPPERCASE_PROFILE_PATH,
+    ]);
+  });
+
+  test("should treat an action path under a state folder as a state path in any case", () => {
+    // Arrange
+    const trackedPaths = [UPPERCASE_ACTION_PATH];
+
+    // Act
+    const decision = guard("public", trackedPaths, NO_LOCAL_RECORDS);
+
+    // Assert
+    expect(decision.refused).toEqual([UPPERCASE_ACTION_PATH]);
   });
 
   test("should hold and refuse nothing when the repo is private", () => {
