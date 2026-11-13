@@ -4,9 +4,15 @@
  * error out; nothing here touches the repo or the machine.
  */
 
+import type { ClaudeMode } from "../core/machine/record.ts";
+import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
+
 export const USAGE =
   "usage: mksync export [--preview] [--force] [--only <path>...] | " +
   "mksync import [--check] [--force] [--only <path>...] | " +
+  "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
+  "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
+  "[--existing backup|keep|stop] [--yes] | " +
   "mksync machine show | mksync --version";
 
 export type CommandName = "export" | "import";
@@ -37,6 +43,11 @@ export interface MachineShowCommand {
   readonly kind: "machine-show";
 }
 
+/** `setup`: the first-run flow's flags, parsed but not validated. */
+export interface SetupCommand extends SetupFlags {
+  readonly kind: "setup";
+}
+
 /** `--version`: print the program's version, exit 0. */
 export interface VersionCommand {
   readonly kind: "version";
@@ -57,6 +68,7 @@ export type ParsedCommand =
   | RunCommand
   | ShadowCommand
   | MachineShowCommand
+  | SetupCommand
   | VersionCommand
   | UsageCommand
   | ParseError;
@@ -69,11 +81,41 @@ const MACHINE_COMMAND = "machine";
 
 const MACHINE_SHOW_VERB = "show";
 
+const SETUP_COMMAND = "setup";
+
+const SETUP_YES = "--yes";
+
 const ONLY_OPTION = "--only";
 
 const ONLY_NEEDS_PATH = "ERROR: --only needs a path.";
 
 const UNKNOWN_OPTION_PREFIX = "Unknown option: ";
+
+/** The setup flags that take a value after them (decision 5). */
+const SETUP_VALUE_FLAGS = [
+  "--name",
+  "--profile",
+  "--replace",
+  "--claude",
+  "--mode",
+  "--existing",
+] as const;
+
+type SetupValueFlag = (typeof SETUP_VALUE_FLAGS)[number];
+
+const SETUP_CLAUDE_CHOICES: readonly ClaudeMode[] = [
+  "none",
+  "claude",
+  "claude-deepseek",
+];
+
+const SETUP_MODE_CHOICES: readonly SetupMode[] = ["push", "pull-only"];
+
+const SETUP_EXISTING_CHOICES: readonly ExistingAction[] = [
+  "backup",
+  "keep",
+  "stop",
+];
 
 /** The options each verb accepts besides `--only`, which takes a value. */
 const FLAGS: Readonly<Record<CommandName, readonly string[]>> = {
@@ -114,6 +156,130 @@ function takeOnlyPaths(
   }
 }
 
+function isSetupValueFlag(value: string): value is SetupValueFlag {
+  return (SETUP_VALUE_FLAGS as readonly string[]).includes(value);
+}
+
+function isChoice<T extends string>(
+  choices: readonly T[],
+  value: string,
+): value is T {
+  return choices.some((choice) => choice === value);
+}
+
+function setupError(message: string): ParseError {
+  return error(`ERROR: ${message}`);
+}
+
+/** A setup flag given twice. */
+function repeatedFlag(flag: string): ParseError {
+  return setupError(`${flag} is repeated.`);
+}
+
+function flagNeedsValue(flag: string): ParseError {
+  return setupError(`${flag} needs a value.`);
+}
+
+function notAChoice(flag: string, choices: readonly string[]): ParseError {
+  return setupError(`${flag} must be one of ${choices.join(", ")}.`);
+}
+
+/**
+ * Parse the flags after `setup` (decision 5). The flow validates names, not
+ * this parser; here a flag only has to take its value and be given once.
+ */
+function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
+  let name: string | undefined;
+  let profile: string | undefined;
+  let replace: string | undefined;
+  let claude: ClaudeMode | undefined;
+  let mode: SetupMode | undefined;
+  let existing: ExistingAction | undefined;
+  let yes = false;
+
+  let index = 1;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === SETUP_YES) {
+      if (yes) {
+        return repeatedFlag(arg);
+      }
+      yes = true;
+      index++;
+      continue;
+    }
+    if (!isSetupValueFlag(arg)) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    const value = argv[index + 1];
+    if (value === undefined || isOption(value)) {
+      return flagNeedsValue(arg);
+    }
+    switch (arg) {
+      case "--name":
+        if (name !== undefined) {
+          return repeatedFlag(arg);
+        }
+        name = value;
+        break;
+      case "--profile":
+        if (profile !== undefined) {
+          return repeatedFlag(arg);
+        }
+        profile = value;
+        break;
+      case "--replace":
+        if (replace !== undefined) {
+          return repeatedFlag(arg);
+        }
+        replace = value;
+        break;
+      case "--claude":
+        if (claude !== undefined) {
+          return repeatedFlag(arg);
+        }
+        if (!isChoice(SETUP_CLAUDE_CHOICES, value)) {
+          return notAChoice(arg, SETUP_CLAUDE_CHOICES);
+        }
+        claude = value;
+        break;
+      case "--mode":
+        if (mode !== undefined) {
+          return repeatedFlag(arg);
+        }
+        if (!isChoice(SETUP_MODE_CHOICES, value)) {
+          return notAChoice(arg, SETUP_MODE_CHOICES);
+        }
+        mode = value;
+        break;
+      case "--existing":
+        if (existing !== undefined) {
+          return repeatedFlag(arg);
+        }
+        if (!isChoice(SETUP_EXISTING_CHOICES, value)) {
+          return notAChoice(arg, SETUP_EXISTING_CHOICES);
+        }
+        existing = value;
+        break;
+    }
+    index += 2;
+  }
+
+  return {
+    kind: "setup",
+    ...(name === undefined ? {} : { name }),
+    ...(profile === undefined ? {} : { profile }),
+    ...(replace === undefined ? {} : { replace }),
+    ...(claude === undefined ? {} : { claude }),
+    ...(mode === undefined ? {} : { mode }),
+    ...(existing === undefined ? {} : { existing }),
+    ...(yes ? { yes: true } : {}),
+  };
+}
+
 /**
  * Parse argv into the program's command, the usage line, the version or an
  * option error. An argument that starts with `-` and isn't a valid flag for
@@ -146,6 +312,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     return extra === undefined
       ? { kind: "machine-show" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === SETUP_COMMAND) {
+    return parseSetup(argv);
   }
   if (isOption(command) || !isCommandName(command)) {
     return isOption(command)

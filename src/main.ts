@@ -294,6 +294,8 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "machine-show":
       return parsed;
+    case "setup":
+      return failure("ERROR: setup is not wired yet", 2);
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };
     case "usage":
