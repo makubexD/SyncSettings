@@ -1,7 +1,21 @@
 import type { Profile } from "../config/profile.ts";
 import type { ConfigV2, Os } from "../config/types.ts";
+import type { LayerName } from "../layers/select.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import type { Values } from "../values/sanitize.ts";
+
+/**
+ * One line of the push preview or the import check: the layer the change is
+ * written to, the kind, the module and file labels, and what changed. The
+ * adapter numbers and pads the lines (contract "Push preview (program only)").
+ */
+export interface ChangeLine {
+  readonly layer: LayerName;
+  readonly kind: "M" | "+" | "-";
+  readonly module: string;
+  readonly file: string;
+  readonly what: string;
+}
 
 /**
  * A file under `dotfiles/`, keyed by its repo path in forward slashes, with the
