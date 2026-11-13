@@ -1,7 +1,7 @@
 import { foldCrlf, same } from "../compare.ts";
 import type { ConfigV2, ConfigV2Entry, Os, SanitizeRule } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
-import type { Layer, SelectedEntry } from "../layers/select.ts";
+import type { Layer, LayerName, SelectedEntry } from "../layers/select.ts";
 import { splitImport } from "../merge/import.ts";
 import { splitJson } from "../merge/json.ts";
 import type { JsonLayer } from "../merge/json.ts";
@@ -227,10 +227,27 @@ function writeRepoFile(
   recordStep(state, repoPath, line, true);
 }
 
+/** Contract "Layers (program only)": the profile's answers for new settings,
+ * key path to layer slot. The profile parser checked every slot name. */
+function destinationsOf(snapshot: Snapshot): ReadonlyMap<string, LayerName> {
+  const destinations = snapshot.profile?.destinations;
+  if (destinations === undefined) {
+    return new Map();
+  }
+  return new Map(
+    Object.entries(destinations).map(([path, layer]) => [
+      path,
+      layer as LayerName,
+    ]),
+  );
+}
+
 /**
  * Contract "Layers (program only)", json export: split the local file into its
- * layers, sanitize each changed layer and write it. A new setting with no
- * destination is an `ERROR` for the file and nothing of it is written.
+ * layers, sanitize each changed layer and write it. A slot whose file doesn't
+ * exist yet holds no bytes, so a destination naming it creates the file. A new
+ * setting with no destination is an `ERROR` for the file and nothing of it is
+ * written; an entry with exactly one layer puts it there.
  */
 function planJsonFile(
   state: State,
@@ -240,14 +257,36 @@ function planJsonFile(
 ): void {
   const entry = selected.entry;
   const repoPath = primaryRepoPath(selected);
-  const layers: JsonLayer[] = hydrated.map((item) => ({
-    name: item.layer.name,
-    repoPath: item.layer.repoPath,
-    bytes: item.bytes,
+  const existing = new Map(
+    hydrated.map((item) => [item.layer.repoPath, item.bytes]),
+  );
+  const layers: JsonLayer[] = selected.slots.map((slot) => ({
+    name: slot.name,
+    repoPath: slot.repoPath,
+    bytes: existing.get(slot.repoPath),
   }));
-  const split = splitJson(local.bytes, layers, {
+  const destinations = destinationsOf(state.snapshot);
+  const options = {
+    destinations,
     localOnlyKeys: entry.localOnlyKeys ?? [],
-  });
+  };
+  let split = splitJson(local.bytes, layers, options);
+  const single = selected.layers.length === 1 ? selected.layers[0] : undefined;
+  if (split.ok && single !== undefined && split.value.newSettings.length > 0) {
+    // A single-layer entry has nowhere else to go; a setting a destination does
+    // answer for keeps its destination, and a missing one stays an error.
+    const fallback = new Map(destinations);
+    let answered = false;
+    for (const setting of split.value.newSettings) {
+      if (!fallback.has(setting.path)) {
+        fallback.set(setting.path, single.name);
+        answered = true;
+      }
+    }
+    if (answered) {
+      split = splitJson(local.bytes, layers, { ...options, destinations: fallback });
+    }
+  }
   if (!split.ok) {
     const line = pushStatus(state, "ERROR", repoPath, split.error);
     recordStep(state, repoPath, line, false);

@@ -39,6 +39,10 @@ export interface SelectScope {
 
 export interface SelectedEntry {
   readonly entry: ConfigV2Entry;
+  /** Every layer this run has for the entry, in layer order, whether or not
+   * the layer holds a file. An export may create a missing file. */
+  readonly slots: readonly Layer[];
+  /** Only the layers whose file exists, in layer order. */
   readonly layers: readonly Layer[];
   readonly source: Layer | undefined;
   readonly writeRoot: string;
@@ -121,36 +125,36 @@ function effectiveOs(config: ConfigV2, entry: ConfigV2Entry): readonly Os[] {
   return ALL_OS;
 }
 
-// A layer exists when the file is there, or, for a directory entry, when any
-// snapshot path sits under its folder.
-function layerOf(
-  layerRoot: LayerRoot,
+/** The layer slot for `entry` under `layerRoot`; a slot exists whether or not
+ * the repo holds its file. */
+function layerAt(layerRoot: LayerRoot, entry: ConfigV2Entry): Layer {
+  return {
+    name: layerRoot.name,
+    label: layerRoot.label,
+    root: layerRoot.root,
+    repoPath: `${layerRoot.root}${entry.file}`,
+  };
+}
+
+// A slot has a layer when the file is there, or, for a directory entry, when
+// any snapshot path sits under its folder.
+function slotHasLayer(
+  layer: Layer,
   entry: ConfigV2Entry,
   files: ReadonlySet<string>,
-): Layer | undefined {
-  const repoPath = `${layerRoot.root}${entry.file}`;
-  if (files.has(repoPath)) {
-    return {
-      name: layerRoot.name,
-      label: layerRoot.label,
-      root: layerRoot.root,
-      repoPath,
-    };
+): boolean {
+  if (files.has(layer.repoPath)) {
+    return true;
   }
   if (entry.merge === "dir") {
-    const prefix = `${repoPath}/`;
+    const prefix = `${layer.repoPath}/`;
     for (const path of files) {
       if (path.startsWith(prefix)) {
-        return {
-          name: layerRoot.name,
-          label: layerRoot.label,
-          root: layerRoot.root,
-          repoPath,
-        };
+        return true;
       }
     }
   }
-  return undefined;
+  return false;
 }
 
 // Decision 3: the base root for no os or more than one, else that OS's root.
@@ -176,15 +180,18 @@ export function selectEntries(
     if (!osList.includes(scope.os)) {
       continue;
     }
+    const slots: Layer[] = [];
     const layers: Layer[] = [];
     for (const root of roots) {
-      const layer = layerOf(root, entry, files);
-      if (layer !== undefined) {
+      const layer = layerAt(root, entry);
+      slots.push(layer);
+      if (slotHasLayer(layer, entry, files)) {
         layers.push(layer);
       }
     }
     selected.push({
       entry,
+      slots,
       layers,
       source: layers[layers.length - 1],
       writeRoot: writeRootFor(osList),

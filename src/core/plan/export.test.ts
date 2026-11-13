@@ -16,6 +16,7 @@ import { readSnapshot } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { parseV2 } from "../config/v2.ts";
 import { convertV1 } from "../config/convert.ts";
+import type { Profile } from "../config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
@@ -305,6 +306,30 @@ const JSON_MERGED_TEXT = `{
 }
 `;
 
+const JSON_NEW_SETTING_TEXT = `{
+  "a": 1,
+  "list": [
+    "x",
+    "y"
+  ],
+  "obj": {
+    "k": "base",
+    "k2": "os"
+  },
+  "b": 2,
+  "q": 1
+}
+`;
+
+const PROFILE_SETTINGS_FOLDER = "profiles/work-1/parity";
+
+const PROFILE_SETTINGS_PATH = `${PROFILE_SETTINGS_FOLDER}/settings.json`;
+
+const PROFILE_SETTINGS_TEXT = `{
+  "q": 1
+}
+`;
+
 const LOCAL_JSON = "/home/user/.config/parity/settings.json";
 
 interface LayerSnapshotOptions {
@@ -312,6 +337,7 @@ interface LayerSnapshotOptions {
   readonly repo: Readonly<Record<string, string>>;
   readonly local?: Readonly<Record<string, string>>;
   readonly values?: Readonly<Record<string, string>>;
+  readonly profile?: Profile;
 }
 
 function bytesOf(text: string): Uint8Array {
@@ -353,6 +379,19 @@ function layeredSnapshot(os: Os, options: LayerSnapshotOptions): Snapshot {
     values: options.values ?? {},
     env: {},
     only: [],
+    ...(options.profile !== undefined ? { profile: options.profile } : {}),
+  };
+}
+
+function profileOf(
+  destinations: Readonly<Record<string, string>>,
+): Profile {
+  return {
+    name: "work-1",
+    modules: ["parity"],
+    values: {},
+    destinations,
+    retired: false,
   };
 }
 
@@ -1034,6 +1073,67 @@ describe("planExport layers", () => {
       "UNCHANGED dotfiles/linux/parity/settings.json",
     ]);
     expect(shownActions(result.actions)).toEqual([]);
+    expect(result.code).toBe(0);
+  });
+
+  test("should create the profile layer file a destination names", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": JSON_NEW_SETTING_TEXT },
+      profile: profileOf({ q: "profile" }),
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `ADDED ${PROFILE_SETTINGS_PATH}`,
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: PROFILE_SETTINGS_FOLDER },
+      {
+        kind: "writeRepo",
+        path: PROFILE_SETTINGS_PATH,
+        text: PROFILE_SETTINGS_TEXT,
+      },
+      { kind: "chmod", path: PROFILE_SETTINGS_PATH, mode: MODE },
+    ]);
+    expect(result.code).toBe(0);
+  });
+
+  test("should refuse a destination naming absent machine layer", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": JSON_NEW_SETTING_TEXT },
+      profile: profileOf({ q: "machine" }),
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ERROR dotfiles/linux/parity/settings.json",
+    ]);
+    expect(shownActions(result.actions)).toEqual([]);
+    expect(result.lines).toContain(
+      formatLine(
+        "ERROR",
+        "dotfiles/linux/parity/settings.json",
+        "new setting q: needs a destination",
+      ),
+    );
     expect(result.code).toBe(0);
   });
 });
