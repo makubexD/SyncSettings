@@ -132,12 +132,12 @@ function Validate-Case {
         }
         foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing')) {
             if ($optNames -ccontains $key -and $cmd.command -cne 'setup') {
-                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, machine-retire or profile-retire'
+                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, machine-retire or profile-retire'
             }
         }
-        if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and
+        if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
             $cmd.command -cne 'machine-retire' -and $cmd.command -cne 'profile-retire') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, machine-retire or profile-retire'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, machine-retire or profile-retire'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -205,8 +205,18 @@ function Validate-Case {
             foreach ($p in $envProp.Value.PSObject.Properties) {
                 if ($p.Name -cne 'SYNC_PROFILE' -and $p.Name -cne 'SYNC_MACHINE' -and
                     $p.Name -cne 'SYNC_HOSTNAME' -and $p.Name -cne 'SYNC_DOMAIN' -and
-                    $p.Name -cne 'SYNC_TOOLS' -and $p.Name -cne 'MKSYNC_VISIBILITY') {
-                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS and MKSYNC_VISIBILITY in env'
+                    $p.Name -cne 'SYNC_TOOLS' -and $p.Name -cne 'MKSYNC_VISIBILITY' -and
+                    $p.Name -cne 'SYNC_NOW' -and $p.Name -cne 'SYNC_LOAD' -and
+                    $p.Name -cne 'SYNC_MEM' -and $p.Name -cne 'SYNC_GIT' -and
+                    $p.Name -cne 'CONTEXT_CLEAR_AT' -and $p.Name -cne 'CTX_WINDOW_DIR') {
+                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT and CTX_WINDOW_DIR in env'
+                }
+            }
+            $ctxProp = $envProp.Value.PSObject.Properties['CTX_WINDOW_DIR']
+            if ($null -ne $ctxProp -and $null -ne $ctxProp.Value) {
+                $ctx = [string]$ctxProp.Value
+                if ($ctx -cmatch '^(/|[A-Za-z]:|\\)' -or (@($ctx -split '[/\\]') -contains '..')) {
+                    Die 'CTX_WINDOW_DIR must be a relative path under home'
                 }
             }
         }
@@ -365,9 +375,13 @@ function Get-StatusLines {
 # Every line of a command's whole stdout, in order: ANSI color codes removed,
 # a trailing carriage return dropped, a final line without a newline kept. An
 # empty stdout adds no line (see the README's "How the runner checks it").
+# -KeepAnsi keeps the color codes, for statusline.
 function Get-WholeOutput {
-    param([string]$Raw)
-    $text = $Raw -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
+    param([string]$Raw, [switch]$KeepAnsi)
+    $text = $Raw
+    if (-not $KeepAnsi) {
+        $text = $text -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
+    }
     $text = $text -replace "`r`n", "`n"
     $result = @()
     if ($text.Length -eq 0) {
@@ -717,7 +731,12 @@ function Run-Case {
                     $envValues.Add('')
                 } else {
                     $envSet.Add($true)
-                    $envValues.Add([string]$p.Value)
+                    # CTX_WINDOW_DIR is relative to the case's temp home.
+                    if ($p.Name -ceq 'CTX_WINDOW_DIR') {
+                        $envValues.Add((Join-Path $homeDir ([string]$p.Value)))
+                    } else {
+                        $envValues.Add([string]$p.Value)
+                    }
                 }
             }
         }
@@ -746,6 +765,7 @@ function Run-Case {
                     'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
                     'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
                     'setup'   { $extraArgs += 'setup' }
+                    'statusline' { $extraArgs += 'statusline' }
                     'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
                     'machine-retire' {
                         $extraArgs += 'machine'
@@ -834,7 +854,9 @@ function Run-Case {
                 $stderrMode = $true
             }
             $allOutput = ($cmd -ceq 'setup' -or $cmd -ceq 'machine-show' -or
-                $cmd -ceq 'machine-retire' -or $cmd -ceq 'profile-retire')
+                $cmd -ceq 'machine-retire' -or $cmd -ceq 'profile-retire' -or
+                $cmd -ceq 'statusline')
+            $keepAnsi = ($cmd -ceq 'statusline')
             if ($null -ne $cmdObj.PSObject.Properties['output']) {
                 $allOutput = $true
             }
@@ -934,7 +956,7 @@ function Run-Case {
                     $rawText += ([string]$item) + "`n"
                 }
                 if ($allOutput) {
-                    foreach ($line in (Get-WholeOutput $rawText)) {
+                    foreach ($line in (Get-WholeOutput -Raw $rawText -KeepAnsi:$keepAnsi)) {
                         $statusOut.Add($line)
                     }
                 } else {
@@ -950,7 +972,7 @@ function Run-Case {
                     $statusOut.Add($line.TrimEnd("`r"))
                 }
             } elseif ($allOutput) {
-                foreach ($line in (Get-WholeOutput $raw)) {
+                foreach ($line in (Get-WholeOutput -Raw $raw -KeepAnsi:$keepAnsi)) {
                     $statusOut.Add($line)
                 }
             } else {
@@ -1133,12 +1155,13 @@ foreach ($caseDir in $caseDirs) {
         }
     }
 
-    # setup, machine show and the retire commands are the program's alone: the
-    # old engines don't know them, so the case is skipped, not failed.
+    # setup, machine show, the retire commands and statusline are the program's
+    # alone: the old engines don't know them, so the case is skipped, not failed.
     if ([string]::IsNullOrEmpty($EnginePath)) {
         $programOnly = @($case.commands | Where-Object {
-            $_.command -ceq 'setup' -or $_.command -ceq 'machine-show' -or
-            $_.command -ceq 'machine-retire' -or $_.command -ceq 'profile-retire'
+            $_.command -ceq 'setup' -or $_.command -ceq 'statusline' -or
+            $_.command -ceq 'machine-show' -or $_.command -ceq 'machine-retire' -or
+            $_.command -ceq 'profile-retire'
         })[0]
         if ($null -ne $programOnly) {
             Write-Output "SKIP ${caseName}: $($programOnly.command) is program only"

@@ -22,7 +22,7 @@ the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the com
 `./mksync export …` with the same options, and it is stripped before the repo is compared. With a program:
 
 - a case with a `diff` or `commit` command prints `SKIP <case>: <command> comes in phase 8` and is not a failure;
-- a case with a `setup`, `machine-show`, `machine-retire` or `profile-retire` command prints
+- a case with a `setup`, `machine-show`, `machine-retire`, `profile-retire` or `statusline` command prints
   `SKIP <case>: <command> is program only` against an engine other than the program, and counts as skipped;
 - a `configV2` case prints `SKIP <case>: v2 only` against an engine other than the program and counts as skipped, not
   passed or failed; the summary shows the skipped count only when it is non-zero
@@ -74,7 +74,7 @@ cases/<name>/
 | `os` | Where it runs: a list of `linux`, `macos`, `windows`. Omit for all three |
 | `config` / `configV2` | Exactly one of the two, never both nor neither. `config` is the whole `sync-config.json`, written into the repo before the run; `configV2` is written as `sync-config.v2.json` with no `sync-config.json`, and only the program can read it |
 | `values` | Optional. Written as `.user-values.json` in the repo; omit to have none |
-| `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. A `configV2` case may set only `SYNC_PROFILE`, `SYNC_MACHINE`, `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS` and `MKSYNC_VISIBILITY`; any other key is a runner error |
+| `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. A `configV2` case may set only `SYNC_PROFILE`, `SYNC_MACHINE`, `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`, `MKSYNC_VISIBILITY`, `SYNC_NOW`, `SYNC_LOAD`, `SYNC_MEM`, `SYNC_GIT`, `CONTEXT_CLEAR_AT` and `CTX_WINDOW_DIR`; any other key is a runner error. `CTX_WINDOW_DIR` is a path relative to the case's temp home (`.claude/state/ctx-window` reaches the command as `<home>/.claude/state/ctx-window`); an absolute path or one with a `..` segment is a runner error |
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": …, "stderr": true }`, the last two optional |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
 | `stubs` | Optional. `["gh"]` puts a `gh` stub first on `PATH`; see `expect/gh.log` below |
@@ -87,19 +87,22 @@ record (`machine.json`) and profiles (`profiles/*.json`) go in with mode 600, as
 bash runner wants 600 for them in `expect/state/`, since git can't store that mode.
 
 `command` is one of `export`, `import`, `check` (`import --check`, `-Check`), `preview` (`export --preview`,
-`-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, plus the program-only `setup`, `machine-show`
-(`machine show`), `machine-retire` (`machine retire <target>`) and `profile-retire` (`profile retire <target>`).
+`-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, plus the program-only `setup`, `statusline`,
+`machine-show` (`machine show`), `machine-retire` (`machine retire <target>`) and `profile-retire`
+(`profile retire <target>`).
 `options` uses neutral names that the runner spells for each engine: `force: true` is `--force` or `-Force`,
 `only: [paths]` is `--only` or `-Only`. For the program, `name`, `profile`, `replace`, `claude`, `mode` and `existing`
-are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes` on `setup`,
+are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes` on `setup`, `export`,
 `machine-retire` and `profile-retire`; and `target`, a string, is the name argument of `machine-retire` and
 `profile-retire`, required there and refused elsewhere. Every command runs with no terminal, as CI does, and with stdin
 empty unless the command has `stdin`: a string sent as its stdin, such as `"n\n"` for a prompt answer. Its stderr is
 merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status lines in
 `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below) except for
-`setup`, `machine-show`, `machine-retire` and `profile-retire`, and any command with `"output": "all"`: those keep
-their whole stdout instead, so the `machine show` fields, the scan block and the `ERROR:`, `held` and `refused:` lines
-reach `output.txt`. `output` may only be `"all"`; anything else is a runner error.
+`setup`, `statusline`, `machine-show`, `machine-retire` and `profile-retire`, and any command with `"output": "all"`:
+those keep their whole stdout instead, so the `machine show` fields, the scan block and the `ERROR:`, `held` and
+`refused:` lines reach `output.txt`. `statusline` keeps its ANSI color codes in `output.txt`, as the contract writes
+them; every other whole-stdout command has them removed. `output` may only be `"all"`; anything else is a runner
+error.
 
 ### Per-OS expectations
 
@@ -127,8 +130,8 @@ stub on means `gh` must not be called.
      `[WORD      ] label` layout read the same. With `stderr: true` on the command, its stderr lines are kept whole
      (color dropped too) and come after its stdout status lines. A whole-stdout command (above) keeps every line of
      its stdout instead, in order, with color codes and a trailing `\r` removed and a final line without a newline
-     kept; an empty stdout adds no line, and its stderr is left out unless `stderr: true`. The result must equal
-     `expect/output.txt`, line for line.
+     kept; `statusline` keeps its color codes. An empty stdout adds no line, and a whole-stdout command's stderr is
+     left out unless `stderr: true`. The result must equal `expect/output.txt`, line for line.
    - **Trees**, byte for byte, file list and content. The runner leaves out what an engine keeps for itself:
      `.user-values.json`, the state folder (`~/.local/state/sync-settings`, `%LOCALAPPDATA%\SyncSettings`), and `.git`
      (the bare `origin` lives outside the repo). File modes are compared only where the file system keeps them.

@@ -102,9 +102,10 @@ validate_case() {
           and (if ($o | has("mode")) then $cmd == "setup" else true end)
           and (if ($o | has("existing")) then $cmd == "setup" else true end)
           and (if ($o | has("yes")) then
-                  $cmd == "setup" or $cmd == "machine-retire" or $cmd == "profile-retire"
+                  $cmd == "setup" or $cmd == "export"
+                  or $cmd == "machine-retire" or $cmd == "profile-retire"
                else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, machine-retire or profile-retire'
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, machine-retire or profile-retire'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -130,8 +131,18 @@ validate_case() {
     if jq -e 'has("configV2")' "$json" > /dev/null 2>&1; then
         jq -e '(.env // {}) | all(keys[];
                 . == "SYNC_PROFILE" or . == "SYNC_MACHINE" or . == "SYNC_HOSTNAME" or . == "SYNC_DOMAIN"
-                or . == "SYNC_TOOLS" or . == "MKSYNC_VISIBILITY")' "$json" > /dev/null 2>&1 \
-            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS and MKSYNC_VISIBILITY in env'
+                or . == "SYNC_TOOLS" or . == "MKSYNC_VISIBILITY" or . == "SYNC_NOW" or . == "SYNC_LOAD"
+                or . == "SYNC_MEM" or . == "SYNC_GIT" or . == "CONTEXT_CLEAR_AT" or . == "CTX_WINDOW_DIR")' \
+            "$json" > /dev/null 2>&1 \
+            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT and CTX_WINDOW_DIR in env'
+        jq -e '(.env // {}) as $e
+            | if ($e | has("CTX_WINDOW_DIR")) and $e.CTX_WINDOW_DIR != null then
+                  if ($e.CTX_WINDOW_DIR | type) == "string" then
+                      (($e.CTX_WINDOW_DIR | test("^(/|[A-Za-z]:|\\\\)")) | not)
+                      and (($e.CTX_WINDOW_DIR | test("(^|[/\\\\])\\.\\.([/\\\\]|$)")) | not)
+                  else false end
+              else true end' "$json" > /dev/null 2>&1 \
+            || die 'CTX_WINDOW_DIR must be a relative path under home'
     fi
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
@@ -209,12 +220,16 @@ status_lines() {
 # Every line of a command's whole stdout, in order: ANSI color codes removed,
 # a trailing carriage return dropped, a final line without a newline kept. An
 # empty stdout adds no line (see the README's "How the runner checks it").
+# A second argument `keep-ansi` keeps the color codes, for statusline.
 whole_output() {
-    sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
-        | sed "s/${CR}\$//" \
-        | while IFS= read -r line || [[ -n $line ]]; do
-            printf '%s\n' "$line"
-        done
+    local keep_ansi=${2:-false}
+    if [[ $keep_ansi == true ]]; then
+        sed "s/${CR}\$//" "$1"
+    else
+        sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" | sed "s/${CR}\$//"
+    fi | while IFS= read -r line || [[ -n $line ]]; do
+        printf '%s\n' "$line"
+    done
 }
 
 # Compare two line files, one line per command or per status line. $1 is the
@@ -341,7 +356,7 @@ write_gh_stub() {
 run_case() {
     local dir=$1
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
-    local stderr_mode all_output target
+    local stderr_mode all_output keep_ansi target value
     local want_exit want_output want_home want_repo want_values want_state want_gh calls
     local file rel got want_mode got_mode
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
@@ -410,7 +425,12 @@ run_case() {
         if [[ $(jq -r --arg key "$key" '.env[$key] == null' "$dir/case.json") == true ]]; then
             case_env_unset+=(-u "$key")
         else
-            case_env_set+=("$key=$(jq -r --arg key "$key" '.env[$key]' "$dir/case.json")")
+            value=$(jq -r --arg key "$key" '.env[$key]' "$dir/case.json")
+            # CTX_WINDOW_DIR is relative to the case's temp home.
+            if [[ $key == CTX_WINDOW_DIR ]]; then
+                value=$t/home/$value
+            fi
+            case_env_set+=("$key=$value")
         fi
     done < <(jq -r '.env // {} | keys[]' "$dir/case.json")
 
@@ -426,6 +446,7 @@ run_case() {
                 check) args=(./mksync import --check) ;;
                 preview) args=(./mksync export --preview) ;;
                 setup) args=(./mksync setup) ;;
+                statusline) args=(./mksync statusline) ;;
                 machine-show) args=(./mksync machine show) ;;
                 machine-retire)
                     target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
@@ -482,8 +503,10 @@ run_case() {
         # both streams are merged as before.
         stderr_mode=$(jq -r ".commands[$i].stderr // false" "$dir/case.json")
         all_output=$(jq -r ".commands[$i] | has(\"output\")" "$dir/case.json")
+        keep_ansi=false
         case $cmd in
             setup|machine-show|machine-retire|profile-retire) all_output=true ;;
+            statusline) all_output=true; keep_ansi=true ;;
         esac
         rc=0
         # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
@@ -498,7 +521,7 @@ run_case() {
         fi
         printf '%s\n' "$rc" >> "$t/actual-exit"
         if [[ $all_output == true ]]; then
-            whole_output "$t/raw" >> "$t/actual-output"
+            whole_output "$t/raw" "$keep_ansi" >> "$t/actual-output"
         else
             status_lines "$t/raw" >> "$t/actual-output"
         fi
@@ -639,11 +662,12 @@ for dir in "$CASES"/*/; do
         fi
     fi
 
-    # setup, machine show and the retire commands are the program's alone: the
-    # old engines don't know them, so the case is skipped, not failed.
+    # setup, machine show, the retire commands and statusline are the program's
+    # alone: the old engines don't know them, so the case is skipped, not failed.
     if [[ -z $engine_path ]]; then
         program_only=$(jq -r '[.commands[].command
-            | select(. == "setup" or . == "machine-show" or . == "machine-retire" or . == "profile-retire")]
+            | select(. == "setup" or . == "statusline" or . == "machine-show"
+                or . == "machine-retire" or . == "profile-retire")]
             | first // empty' "$dir/case.json" 2> /dev/null) || true
         if [[ -n $program_only ]]; then
             printf 'SKIP %s: %s is program only\n' "$case_name" "$program_only"
