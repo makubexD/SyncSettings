@@ -70,19 +70,23 @@ function blockLines(
       ];
 }
 
-/** True when every line after `index` is an `@` line or the final newline. */
+/** True when every line after `index` is an `@` line or blank: an editor's
+ * trailing blank lines don't turn the block into base text. */
 function onlyImportLines(lines: readonly string[], index: number): boolean {
   return lines
     .slice(index + 1)
-    .every(
-      (line, offset, rest) =>
-        line.startsWith("@") || (line === "" && offset === rest.length - 1),
-    );
+    .every((line) => line.startsWith("@") || line === "");
+}
+
+/** A block without its trailing newlines, so blank lines after it and a
+ * missing final newline don't count as an edit. */
+function trimBlock(block: string): string {
+  return block.replace(/\n+$/, "");
 }
 
 /**
- * Where the last marker line followed only by `@` lines (and the final
- * newline) starts, or -1 when no marker qualifies. A marker line quoted inside
+ * Where the last marker line followed only by `@` lines and blank lines
+ * starts, or -1 when no marker qualifies. A marker line quoted inside
  * the base text, or followed by any other line, stays base text.
  */
 function markerStart(text: string): number {
@@ -169,5 +173,5 @@ export function splitImport(
     .join("");
   const actualBlock = start === -1 ? "" : text.slice(start);
 
-  return { base, blockEdited: actualBlock !== expectedBlock };
+  return { base, blockEdited: trimBlock(actualBlock) !== trimBlock(expectedBlock) };
 }

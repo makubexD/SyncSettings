@@ -329,6 +329,30 @@ describe("splitImport", () => {
     expect(split.blockEdited).toBe(false);
   });
 
+  test("blank lines after the block are no change", () => {
+    // Arrange
+    const local = bytes(`${BLOCK_LOCAL_TEXT}\n\n`);
+
+    // Act
+    const split = splitImport(local, [BASE_LAYER, LINUX_LAYER], IMPORT_NAME);
+
+    // Assert
+    expect(split.base).toBeUndefined();
+    expect(split.blockEdited).toBe(false);
+  });
+
+  test("a block without its final newline is no change", () => {
+    // Arrange
+    const local = bytes(BLOCK_LOCAL_TEXT.replace(/\n$/, ""));
+
+    // Act
+    const split = splitImport(local, [BASE_LAYER, LINUX_LAYER], IMPORT_NAME);
+
+    // Assert
+    expect(split.base).toBeUndefined();
+    expect(split.blockEdited).toBe(false);
+  });
+
   test("case 7 and an edited block at once gives both", () => {
     // Arrange
     const local = bytes(EDITED_BASE_AND_BLOCK_TEXT);

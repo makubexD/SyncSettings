@@ -848,8 +848,8 @@ Each of those layers is written next to the local file under its `importName` (`
 machine name), with its own status line. Export stores the text above the marker in the base layer, compared with CRLF
 folded to LF; an edit to the block itself is not stored and prints the note
 `import block is written by mksync, edit not pushed` on the base's status line. The marker that counts is the last
-marker line followed only by `@` lines (and the final newline); a marker line quoted inside the base text stays base
-text. Each side file is exported to its layer as a whole file, with CRLF folded to LF before it is sanitized and
+marker line followed only by `@` lines and blank lines; a marker line quoted inside the base text stays base text.
+Blank lines after the block and a missing final newline aren't an edit to it. Each side file is exported to its layer as a whole file, with CRLF folded to LF before it is sanitized and
 compared, on every OS. Text is written with CRLF on Windows and LF elsewhere.
 
 Side files are local files like any other: import compares each one, asks before overwriting it and backs it up as

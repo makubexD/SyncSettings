@@ -832,11 +832,11 @@ src/
   layer paths back under the state folder.
 - After the finish review (steps 19 to 31): `SelectedEntry` carries `slots`, every layer the run has for an entry
   whether its file exists or not, beside `layers` (those whose file exists); export splits over the slots so a
-  destination can create a layer file, and a single-layer entry with no destination splits a second time with that
-  layer as the answer. `pick.ts` has `isJsonEntry`, the one rule for JSON escaping. Import compares a `json` entry
+  destination can create a layer file; `splitJson` sends a new setting with no usable destination to the one slot
+  whose file exists, and looks array items up as `<path>[]`. `pick.ts` has `isJsonEntry`, the one rule for JSON escaping. Import compares a `json` entry
   parsed (`jsonEqual`). `loadLayers` refuses a layer name that names another layer, and `profile.ts` a destination
   that isn't a slot. `adapters/fs.ts` resolves a repo or state path under the top folder it names (`dotfiles/`,
-  `profiles/`, `machines/`) and copies a state file into the run's dated folder before replacing it; the preview
+  `profiles/<name>/`, `machines/<name>/`), keeps a dated copy inside its run folder, and copies a state file into the run's dated folder before replacing it; the preview
   leaves `profiles/` and `machines/` out. The parser skips a leading BOM and stops at 512 levels; `splitImport` takes
   the last marker followed only by `@` lines.
 
@@ -1096,10 +1096,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
     a written form in JSON and a rule for arrays.
   - Value inference on an entry with more than one layer lines the local file up with the latest layer only, so a
     value that only an earlier layer's text holds isn't inferred.
-  - A line other than `@…` added under the import block by hand turns the block into base text (contract, "Layers"),
-    so the next push stores the marker and its `@` lines in the base. A note on that status line would catch it.
+  - A line other than `@…` or a blank one added under the import block by hand turns the block into base text
+    (contract, "Layers"), so the next push stores the marker and its `@` lines in the base. A note on that status line
+    would catch it.
   - `core/plan/preview.ts` names `profiles/` and `machines/` again, as `adapters/fs.ts` does; one core constant would
-    hold both. `splitJson` could take the single-layer fallback as an option instead of the second split in export.
+    hold both.
   - `parsedJson` in `core/plan/import.ts` repeats the private `parseBytes` of `core/merge/json.ts`.
 
 ### Confirm on Windows
