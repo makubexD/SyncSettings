@@ -221,10 +221,23 @@ function dropTrailingZero(value: string): string {
   return value.replace(/\.0$/, "");
 }
 
+/**
+ * Decimal digits probed past the rounding place to tell an exact tie from a
+ * near tie. `toFixed` shows at most 100, and a tie's expansion ends at once.
+ */
+const TIE_PROBE_DIGITS = 60;
+
 /** `printf '%.Nf'`: C rounds half to even, which `toFixed` does not. */
 function formatFixed(value: number, digits: number): string {
+  if (!isExactTie(value, digits)) return value.toFixed(digits);
   const scale = 10 ** digits;
   return (roundHalfEven(value * scale) / scale).toFixed(digits);
+}
+
+/** Whether `value` is exactly halfway between two `digits`-place decimals. */
+function isExactTie(value: number, digits: number): boolean {
+  const fraction = Math.abs(value).toFixed(digits + TIE_PROBE_DIGITS).split(".")[1] ?? "";
+  return fraction[digits] === "5" && /^0*$/.test(fraction.slice(digits + 1));
 }
 
 /** `printf '%.0f'`: C's round-half-to-even, unlike JavaScript's `Math.round`. */
