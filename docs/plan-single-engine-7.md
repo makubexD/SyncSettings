@@ -552,7 +552,9 @@ Files: `src/adapters/snapshot.ts`, `src/adapters/fs.ts`, `src/main.ts`.
 layer-folder roots it implies) through `Layers` into `SnapshotInput` and `RunContext`. Then: `writeMachineValues`
 (`fs.ts`) writes through `writeStoreRecord`/`writeStoreProfile(location, …)`; `storeItemDestinations` (`main.ts`)
 backs up and writes the profile at the location; layer trees are read from and written to the location's root. A
-local store behaves as before. Unit cases: a pointer run's record, profile and layer writes land in the clone; a
+local store behaves as before. With a pointer, export lists the profile it writes in the repo (`MODIFIED profiles/<profile>.json`)
+and counts it, as the first backup does; import's write to the repo record prints no line (decided by the user
+2026-11-14). The contract ("The answer is stored", "values on a machine") says so in this step. Unit cases: a pointer run's record, profile and layer writes land in the clone; a
 local store's land in the state.
 
 Test: `bun test src/adapters && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync pointer- &&
@@ -577,7 +579,7 @@ every item of the path. Cases:
 - `newsetting-same-path-preview`: as `newsetting-same-path` with `--preview`. Expected: one `goes to:` line after
   line 3.
 
-Update `newsetting-stored`, `newsetting-answer` and `json-new-setting-destination` (their stored key, their
+Update `newsetting-stored`, `newsetting-answer`, `json-new-setting-destination` and `pointer-export-destination` (their stored key, their
 `expect/` only where the key's form shows) and note it in the step's commit.
 
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync newsetting-` (new cases fail until step 36).
