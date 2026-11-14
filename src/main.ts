@@ -807,6 +807,7 @@ async function askSettings(
   snapshot: Snapshot,
   settings: readonly NewSettingLine[],
   question: NewSettingQuestion,
+  io: SetupIo,
 ): Promise<readonly NewSettingChoice[]> {
   const tentative = planExport(
     snapshot,
@@ -819,15 +820,10 @@ async function askSettings(
     "push",
     settings,
   );
-  const terminal = setupTerminal();
-  try {
-    for (const line of grouped.head) {
-      terminal.io.write(`${line}\n`);
-    }
-    return await askNewSettings(terminal.io, grouped, question);
-  } finally {
-    terminal.close();
+  for (const line of grouped.head) {
+    io.write(`${line}\n`);
   }
+  return await askNewSettings(io, grouped, question);
 }
 
 /**
@@ -980,33 +976,27 @@ const MACHINE_SIDE = "machine";
  * answer prints `Pick 1 to 2.` and asks again.
  */
 async function askBackupQuestions(
+  io: SetupIo,
   questions: readonly BackupQuestion[],
 ): Promise<ReadonlyMap<string, BackupSide>> {
   const answers = new Map<string, BackupSide>();
-  const terminal = setupTerminal();
-  try {
-    for (const question of questions) {
-      terminal.io.write(
-        `${question.key} differs on profile ${question.profile}:\n`,
-      );
-      terminal.io.write(`  repo:         ${question.repo}\n`);
-      terminal.io.write(`  this machine: ${question.machine}\n`);
-      for (;;) {
-        terminal.io.write(KEEP_WHICH);
-        const answer = (await terminal.io.readLine())?.trim() ?? "";
-        if (answer === "" || answer === "1") {
-          answers.set(`${question.kind}:${question.key}`, REPO_SIDE);
-          break;
-        }
-        if (answer === "2") {
-          answers.set(`${question.kind}:${question.key}`, MACHINE_SIDE);
-          break;
-        }
-        terminal.io.write(BACKUP_PICK_ONE);
+  for (const question of questions) {
+    io.write(`${question.key} differs on profile ${question.profile}:\n`);
+    io.write(`  repo:         ${question.repo}\n`);
+    io.write(`  this machine: ${question.machine}\n`);
+    for (;;) {
+      io.write(KEEP_WHICH);
+      const answer = (await io.readLine())?.trim() ?? "";
+      if (answer === "" || answer === "1") {
+        answers.set(`${question.kind}:${question.key}`, REPO_SIDE);
+        break;
       }
+      if (answer === "2") {
+        answers.set(`${question.kind}:${question.key}`, MACHINE_SIDE);
+        break;
+      }
+      io.write(BACKUP_PICK_ONE);
     }
-  } finally {
-    terminal.close();
   }
   return answers;
 }
@@ -1014,11 +1004,12 @@ async function askBackupQuestions(
 /** Plan the first backup, ask what differs unless `--yes`, and plan its writes. */
 async function prepareFirstBackup(
   run: FirstBackupRun,
+  io: SetupIo,
 ): Promise<FirstBackupPrepared> {
   const plan = planFirstBackup(run.local, run.repo);
   const answers = run.yes
     ? new Map<string, BackupSide>()
-    : await askBackupQuestions(plan.questions);
+    : await askBackupQuestions(io, plan.questions);
   const writes = firstBackupWrites(run.local, run.repo, answers);
   return { files: firstBackupFiles(run.repoRoot, writes), writes };
 }
@@ -1091,86 +1082,100 @@ async function executeExport(
   context: RunContext,
   backup?: FirstBackupRun,
 ): Promise<Result> {
-  const planned = planExport(snapshot);
-  const settings = planned.newSettings ?? [];
-  const question = newSettingChoices(snapshot.record, snapshot.os);
-  if (question === undefined || settings.length === 0) {
-    // A refused export writes nothing, so its questions are not asked.
-    const refused = exportRefusal(
-      planned,
-      snapshot,
-      withoutNewSettings(changeLines(planned, snapshot), settings),
-    );
-    const prepared =
-      refused !== undefined || backup === undefined
-        ? undefined
-        : await prepareFirstBackup(backup);
-    const result = runExport(
-      prepared === undefined
-        ? planned
-        : withFirstBackup(planned, prepared.files),
-      snapshot,
-      context,
-    ).result;
-    return finishFirstBackup(backup, prepared, result);
-  }
+  // One terminal for every question this export asks, so answers read for the
+  // new settings stay available to the first backup's questions.
+  const terminal = setupTerminal();
+  try {
+    const planned = planExport(snapshot);
+    const settings = planned.newSettings ?? [];
+    const question = newSettingChoices(snapshot.record, snapshot.os);
+    if (question === undefined || settings.length === 0) {
+      // A refused export writes nothing, so its questions are not asked.
+      const refused = exportRefusal(
+        planned,
+        snapshot,
+        withoutNewSettings(changeLines(planned, snapshot), settings),
+      );
+      const prepared =
+        refused !== undefined || backup === undefined
+          ? undefined
+          : await prepareFirstBackup(backup, terminal.io);
+      const result = runExport(
+        prepared === undefined
+          ? planned
+          : withFirstBackup(planned, prepared.files),
+        snapshot,
+        context,
+      ).result;
+      return finishFirstBackup(backup, prepared, result);
+    }
 
-  if (command.yes) {
-    const choices = settings.map(() => question.suggestion);
+    if (command.yes) {
+      const choices = settings.map(() => question.suggestion);
+      const plan = planExport(snapshot, answersOf(settings, choices));
+      const refused = exportRefusal(
+        plan,
+        snapshot,
+        withoutNewSettings(changeLines(plan, snapshot), settings),
+      );
+      const prepared =
+        refused !== undefined || backup === undefined
+          ? undefined
+          : await prepareFirstBackup(backup, terminal.io);
+      const result = storeItemDestinations(
+        snapshot,
+        context,
+        settings,
+        choices,
+        runExport(
+          prepared === undefined
+            ? plan
+            : withFirstBackup(plan, prepared.files),
+          snapshot,
+          context,
+          settings,
+        ),
+      );
+      return finishFirstBackup(backup, prepared, result);
+    }
+
+    const choices = await askSettings(
+      snapshot,
+      settings,
+      question,
+      terminal.io,
+    );
     const plan = planExport(snapshot, answersOf(settings, choices));
+    // The head and the questions are already on the terminal, so only the blank
+    // line that ends the last question and the refused lines follow.
     const refused = exportRefusal(
       plan,
       snapshot,
       withoutNewSettings(changeLines(plan, snapshot), settings),
     );
+    if (refused !== undefined) {
+      return { code: 1, stdout: writeLines(["", ...refused]), stderr: "" };
+    }
     const prepared =
-      refused !== undefined || backup === undefined
+      backup === undefined
         ? undefined
-        : await prepareFirstBackup(backup);
+        : await prepareFirstBackup(backup, terminal.io);
     const result = storeItemDestinations(
       snapshot,
       context,
       settings,
       choices,
-      runExport(
+      applyPlanAndBackup(
         prepared === undefined
           ? plan
           : withFirstBackup(plan, prepared.files),
-        snapshot,
         context,
-        settings,
       ),
     );
     return finishFirstBackup(backup, prepared, result);
+  } finally {
+    terminal.close();
   }
-
-  const choices = await askSettings(snapshot, settings, question);
-  const plan = planExport(snapshot, answersOf(settings, choices));
-  // The head and the questions are already on the terminal, so only the blank
-  // line that ends the last question and the refused lines follow.
-  const refused = exportRefusal(
-    plan,
-    snapshot,
-    withoutNewSettings(changeLines(plan, snapshot), settings),
-  );
-  if (refused !== undefined) {
-    return { code: 1, stdout: writeLines(["", ...refused]), stderr: "" };
-  }
-  const prepared =
-    backup === undefined ? undefined : await prepareFirstBackup(backup);
-  const result = storeItemDestinations(
-    snapshot,
-    context,
-    settings,
-    choices,
-    applyPlanAndBackup(
-      prepared === undefined
-        ? plan
-        : withFirstBackup(plan, prepared.files),
-      context,
-    ),
-  );
-  return finishFirstBackup(backup, prepared, result);
 }
 
 /** Run the command against the repo found from the working folder. */

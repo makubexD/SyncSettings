@@ -1,0 +1,34 @@
+{
+  "description": "export with a new array item and a differing profile value reads 4 then 2 from stdin: the item goes to this machine, its path is stored as machine, and the repo keeps this machine's value, exit 0 (New settings (program only), Asking and The answer is stored; The first backup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "stdin": "4\n2\n",
+      "output": "all"
+    }
+  ]
+}
