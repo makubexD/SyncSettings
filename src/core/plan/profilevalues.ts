@@ -1,8 +1,9 @@
 import type { Os } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
+import { formsFor } from "../values/sanitize.ts";
 import { exportFileLabel, matchExportEntry } from "./changes.ts";
 import { OS_TITLES, changeLineNumbers } from "./groups.ts";
-import { scopeFor } from "./pick.ts";
+import { isJsonEntry, scopeFor } from "./pick.ts";
 import type { ChangeLine, RunPlan, Snapshot } from "./types.ts";
 
 /** One profile value found in a text bound for a shared layer: the change the
@@ -16,8 +17,45 @@ export interface ProfileValueHit {
   readonly layer: "base" | "os";
 }
 
+/** The selection the search needs; injectable so a failed one can be tested. */
+type EntrySelector = typeof selectEntries;
+
+const JSON_UNICODE_ESCAPE = /\\u([0-9A-Fa-f]{4})/g;
+
+const JSON_SLASH_ESCAPE = "\\/";
+
 function textOf(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
+}
+
+/**
+ * JSON text with its `\uXXXX` and `\/` escapes read back to characters, so a
+ * value written that way is still found (contract "Profile values (program
+ * only)").
+ */
+function decodedJsonText(text: string): string {
+  return text
+    .replace(JSON_UNICODE_ESCAPE, (_match: string, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    )
+    .replaceAll(JSON_SLASH_ESCAPE, "/");
+}
+
+/**
+ * Whether a value appears in any layer text in one of the forms the file can
+ * hold it in, ignoring case. `texts` is the raw text and, for a JSON entry, its
+ * decoded form.
+ */
+function holdsValue(
+  texts: readonly string[],
+  value: string,
+  json: boolean,
+): boolean {
+  const forms = formsFor(value, json).map((form) => form.toLowerCase());
+  return texts.some((text) => {
+    const folded = text.toLowerCase();
+    return forms.some((form) => folded.includes(form));
+  });
 }
 
 /**
@@ -77,18 +115,23 @@ export function profileValueHits(
   plan: RunPlan,
   snapshot: Snapshot,
   lines: readonly ChangeLine[],
+  select: EntrySelector = selectEntries,
 ): readonly ProfileValueHit[] {
   const profile = snapshot.profile;
   if (profile === undefined) {
     return [];
   }
-  const selected = selectEntries(
+  const selected = select(
     snapshot.config,
     scopeFor(snapshot),
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
-    return [];
+    // The export plan selects the same entries and stops first, so this can't
+    // happen: refuse loudly rather than report no hits.
+    throw new Error(
+      `profile values: entries can't be selected: ${selected.error.message}`,
+    );
   }
   const numbers = changeLineNumbers(lines, snapshot.record, snapshot.os);
   const hits: ProfileValueHit[] = [];
@@ -106,14 +149,17 @@ export function profileValueHits(
       if (layer !== "base" && layer !== "os") {
         continue;
       }
-      const file = exportFileLabel(match.entry, match.layer, action.path);
-      if (file === undefined) {
-        continue;
-      }
-      const text = textOf(action.bytes).toLowerCase();
-      const module = match.entry.entry.module;
+      // An import entry with no `importName` has no label to print; the write
+      // still refuses, recorded under its repo path.
+      const file =
+        exportFileLabel(match.entry, match.layer, action.path) ?? action.path;
+      const entry = match.entry.entry;
+      const module = entry.module;
+      const json = isJsonEntry(entry);
+      const text = textOf(action.bytes);
+      const texts = json ? [text, decodedJsonText(text)] : [text];
       for (const [placeholder, value] of Object.entries(profile.values)) {
-        if (value === "" || !text.includes(value.toLowerCase())) {
+        if (value === "" || !holdsValue(texts, value, json)) {
           continue;
         }
         // A write the block numbers no line for still refuses: dropping the hit
