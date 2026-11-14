@@ -28,6 +28,7 @@ import type {
 import { readSnapshot, runPlan } from "./fs.ts";
 import type { RunContext } from "./fs.ts";
 import { expandHome, homeFolder, stateFolder } from "./paths.ts";
+import type { StoreLocation } from "./store.ts";
 
 const FILE_MODE = 0o644;
 
@@ -114,13 +115,41 @@ function snapshotOf(
   });
 }
 
+/** The local store's paths, as `readStore` reports them. */
+function stateStore(state: string): StoreLocation {
+  return {
+    recordFile: join(state, "machine.json"),
+    profilesFolder: join(state, "profiles"),
+    privateFiles: true,
+  };
+}
+
+/** The clone's paths, as `readStore` reports them with a pointer record. */
+function repoStore(repo: string): StoreLocation {
+  return {
+    recordFile: join(repo, "machines", "wk1-laptop.json"),
+    profilesFolder: join(repo, "profiles"),
+    privateFiles: false,
+  };
+}
+
 function runContext(home: string, repo: string): RunContext {
+  const state = stateFolder("linux", home, {});
   return {
     repoRoot: repo,
     os: "linux",
-    stateFolder: stateFolder("linux", home, {}),
+    stateFolder: state,
+    location: stateStore(state),
     now: () => RUN_TIME,
     pid: RUN_PID,
+  };
+}
+
+/** A run whose record store is the clone, as a pointer makes it. */
+function repoRunContext(home: string, repo: string): RunContext {
+  return {
+    ...runContext(home, repo),
+    location: repoStore(repo),
   };
 }
 
@@ -137,6 +166,32 @@ function stepOf(
 
 function planOf(steps: readonly FileStep[], finish: readonly Action[] = []): RunPlan {
   return { steps, finish, lines: [], summary: { kind: "none" }, code: 0 };
+}
+
+function machineRecord(): MachineRecord {
+  return {
+    name: "wk1-laptop",
+    profile: "work-1",
+    os: "linux",
+    hostname: "wk1-laptop",
+    domain: null,
+    claude: "claude",
+    pullOnly: false,
+    modules: { add: [], remove: [] },
+    values: { "<HOME>": "/home/user" },
+    replaced: [],
+    retired: false,
+  };
+}
+
+function workProfile(): Profile {
+  return {
+    name: "work-1",
+    modules: ["shell"],
+    values: { "<YOUR_NAME>": "Parity User" },
+    destinations: {},
+    retired: false,
+  };
 }
 
 function localFileEntry(localPath: string, file = "git/config"): ConfigV2Entry {
@@ -385,6 +440,90 @@ describe("runPlan", () => {
       ),
     ).toBe("{\"a\":3}\n");
     expect(existsSync(join(repo, "profiles", "work-1", "x.json"))).toBe(false);
+  });
+
+  test("should resolve machine and profile layer writes under the clone with a pointer", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "mkdir", path: "machines/wk1-laptop/parity" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "machines/wk1-laptop/parity/settings.json",
+          bytes: bytesOf("{\"machine\":1}\n"),
+        }),
+        actionOf({ kind: "mkdir", path: "profiles/work-1/parity" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/parity/settings.json",
+          bytes: bytesOf("{\"profile\":1}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, repoRunContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(
+      readFileSync(
+        join(repo, "machines", "wk1-laptop", "parity", "settings.json"),
+        "utf8",
+      ),
+    ).toBe("{\"machine\":1}\n");
+    expect(
+      readFileSync(
+        join(repo, "profiles", "work-1", "parity", "settings.json"),
+        "utf8",
+      ),
+    ).toBe("{\"profile\":1}\n");
+    const state = stateFolder("linux", home, {});
+    expect(existsSync(join(state, "machines"))).toBe(false);
+    expect(existsSync(join(state, "profiles"))).toBe(false);
+  });
+
+  test("should resolve machine and profile layer writes under the state folder with a local store", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const state = stateFolder("linux", home, {});
+    const plan = planOf([
+      stepOf([
+        actionOf({ kind: "mkdir", path: "machines/wk1-laptop/parity" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "machines/wk1-laptop/parity/settings.json",
+          bytes: bytesOf("{\"machine\":1}\n"),
+        }),
+        actionOf({ kind: "mkdir", path: "profiles/work-1/parity" }),
+        actionOf({
+          kind: "writeRepo",
+          path: "profiles/work-1/parity/settings.json",
+          bytes: bytesOf("{\"profile\":1}\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(
+      readFileSync(
+        join(state, "machines", "wk1-laptop", "parity", "settings.json"),
+        "utf8",
+      ),
+    ).toBe("{\"machine\":1}\n");
+    expect(
+      readFileSync(
+        join(state, "profiles", "work-1", "parity", "settings.json"),
+        "utf8",
+      ),
+    ).toBe("{\"profile\":1}\n");
+    expect(existsSync(join(repo, "machines"))).toBe(false);
+    expect(existsSync(join(repo, "profiles"))).toBe(false);
   });
 
   test("should keep the old state file in the run folder before overwriting it", () => {
@@ -1074,5 +1213,65 @@ describe("runPlan machine values", () => {
     );
     expect(statSync(machinePath).mode & 0o777).toBe(PRIVATE_MODE);
     expect(statSync(profilePath).mode & 0o777).toBe(PRIVATE_MODE);
+  });
+
+  test("should write the record and profile under the clone with a pointer", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const plan: RunPlan = {
+      ...planOf([]),
+      prepare: [
+        {
+          kind: "writeMachineValues",
+          record: machineRecord(),
+          profile: workProfile(),
+        },
+      ],
+    };
+
+    // Act
+    const outcome = runPlan(plan, repoRunContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(
+      readFileSync(join(repo, "machines", "wk1-laptop.json"), "utf8"),
+    ).toContain('"<HOME>": "/home/user"');
+    expect(
+      readFileSync(join(repo, "profiles", "work-1.json"), "utf8"),
+    ).toContain('"<YOUR_NAME>": "Parity User"');
+    const state = stateFolder("linux", home, {});
+    expect(existsSync(join(state, "machine.json"))).toBe(false);
+    expect(existsSync(join(state, "profiles", "work-1.json"))).toBe(false);
+  });
+
+  test("should write the record and profile under the state folder with a local store", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const plan: RunPlan = {
+      ...planOf([]),
+      prepare: [
+        {
+          kind: "writeMachineValues",
+          record: machineRecord(),
+          profile: workProfile(),
+        },
+      ],
+    };
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    const state = stateFolder("linux", home, {});
+    expect(readFileSync(join(state, "machine.json"), "utf8")).toContain(
+      '"<HOME>": "/home/user"',
+    );
+    expect(
+      readFileSync(join(state, "profiles", "work-1.json"), "utf8"),
+    ).toContain('"<YOUR_NAME>": "Parity User"');
+    expect(existsSync(join(repo, "machines"))).toBe(false);
+    expect(existsSync(join(repo, "profiles"))).toBe(false);
   });
 });

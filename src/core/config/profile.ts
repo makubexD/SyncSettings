@@ -19,9 +19,14 @@ const FIELDS: readonly string[] = [
 
 const NOT_VALID_JSON = "not valid JSON";
 
-/** The layer slots a new setting can go to. `base` and every other value is
- * refused: a destination only answers where a new setting goes. */
-const DESTINATION_LAYERS: readonly string[] = ["os", "profile", "machine"];
+/** The layer slots a new setting can go to: the four layers, `base` included
+ * for an answer of "all machines". Every other value is refused. */
+const DESTINATION_LAYERS: readonly string[] = [
+  "base",
+  "os",
+  "profile",
+  "machine",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,8 +66,8 @@ function stringRecord(
   return Object.fromEntries(entries);
 }
 
-/** Every destination must name one of the three writable slots; the reason
- * names the key, since `destinations has the wrong type` would hide which. */
+/** Every destination must name one of the four layer slots; the reason names
+ * the key, since `destinations has the wrong type` would hide which. */
 function destinationRecord(
   value: unknown,
 ): Result<Readonly<Record<string, string>>, string> {
@@ -84,7 +89,7 @@ function destinationRecord(
  * isn't an object (`not valid JSON`), a top-level key other than the four
  * (`unknown field <f>`), a known field of the wrong type (`<f> has the wrong
  * type`), a module name config v2 doesn't know (`unknown module <m>`), and a
- * destination that isn't `os`, `profile` or `machine`
+ * destination that isn't `base`, `os`, `profile` or `machine`
  * (`destination <key> is not a layer`).
  * Missing fields default to no modules, no values, no destinations and not
  * retired.

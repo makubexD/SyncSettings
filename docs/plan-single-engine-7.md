@@ -1,0 +1,676 @@
+# One engine, phase 7: push, pull and Claude
+
+Roadmap: `docs/plan-single-engine.md`, phase 7. Design: `docs/design-layers.md` ("Push and pull", "New settings",
+"Profile values", "Public-repo guard", "Statusline and hooks on Windows", "Catalog", and the Open items marked phase
+7). Goal: the program's push side shows its changes grouped by who receives them, asks where a new setting goes and
+remembers it, refuses a profile's value bound for a wider layer, and writes the first backup once the repo is private;
+pull's check lists the same groups; `mksync statusline` replaces `statusline.sh`; the Claude layout for every OS is
+built and proved, ready for cut-over; and work machine #1 answers the design's "Confirm on Windows" list.
+
+## Shared rules
+
+- Branch `engine/push-pull`, one commit per step, one PR at the end.
+- **Old engines frozen.** No change to `export.sh`, `import.sh`, `commit.sh`, `scripts/linux/`, `scripts/windows/`,
+  `sync-config.json`. The runners (`tests/parity/run.sh`, `run.ps1`) may change; no existing case's `expect/` changes.
+- **Contract first** (CLAUDE.md rule 2): step 3 writes this phase's rules into the contract; steps 5 to 9 add the
+  shared cases before the code that makes them pass.
+- **Public repo.** Fixtures use `example.com`, `/home/user`, `C:\Users\user`, profiles `work-1` and `personal`,
+  machines `wk1-laptop` and `home-linux`. The Windows survey's answers are redacted (`work-tool-1`) and shown to the
+  user before they're committed. `leak-scan` stays green.
+- **Layout** from the design's "Code layout": `src/core/` stays pure (the boundary grep prints nothing). Change lines,
+  groups and the profile-value rule in `src/core/plan/`; the statusline's formatting in `src/core/statusline/`, its
+  reads (git, load, memory, clock, files) in `src/adapters/statusline.ts`; prompts in `src/cli/`. Tests sit next to
+  their file.
+- **No new dependencies.** Prompts use `node:readline` as `setup` does.
+- **Messages are the contract's.** Every line steps 10 to 26 print is copied from `docs/sync-contract.md` as step 3
+  writes it. A worker spec names the section to copy from.
+- Each worker step: about 3 files, one concern, tests in the same step. Test commands run that step's tests only.
+
+## Out of this phase
+
+- `mksync push` and `pull` in the front door, the PR per profile, and "Move a change?": phase 8. Until then the push
+  side is `dist/mksync export` and the pull check is `dist/mksync import --check`; the preview numbers its lines now,
+  so the format doesn't change when moving arrives.
+- Skipping a group on pull: stays in the design's Open.
+- A new file in a `dir` entry: not asked in this phase; it goes to the entry's latest layer as today (Open).
+- The Claude layout going live (the split `settings.json`, the Windows entries, `statusLine` pointing at
+  `mksync statusline`): phase 9, by the layout tool, which moved to phase 8 with the survey. The v1/v2 check refuses a v2 entry that covers an OS its
+  v1 twin doesn't (`src/core/config/check.ts`), and v1 is frozen.
+- PowerShell twins of the Linux hooks: listed from the survey (phase 8), built only on a real need.
+
+## Decisions to confirm in review
+
+Proposals; the review of this plan confirms or changes them before `/next`. Step 3 writes them into the contract and
+the design.
+
+1. **The Windows survey doesn't block.** Step 1 writes the prompt and sends it to the user; the plan carries on.
+   The answer wasn't in when the Linux steps ended (2026-11-14), so the survey step and the Claude layout tool
+   moved to the start of phase 8 (`docs/plan-single-engine.md`), and phase 7 closed without them.
+2. **Where the new push side runs until phase 8.** `export --preview` prints the grouped block after its status lines
+   and before the `--stat` summary; `export` prints the same block, asks the new-setting questions, applies the
+   profile-value rule, then writes. Nothing else of today's preview changes.
+3. **Groups and lines.** A change belongs to the group of the layer it's written to: base `All machines`, OS
+   `Linux machines` / `Windows machines` / `macOS machines`, profile `Profile <p>`, machine `This machine only`.
+   Header `Changes on <machine> (profile <p>):`; with no record `Changes on this machine:` and only the first two
+   groups. Every group prints, an empty one as `     (none)`. A line is `<n>  <M|+|->  <module>  <file>  <what>`,
+   numbered from 1 across the groups, columns padded to the widest value in the block. `<what>`: for `json`,
+   `<key path>: <old> -> <new>` (M) or `<key path>: <value>` (+, -), an array item as `<path>[]: <item>`, values as
+   compact JSON cut to 60 characters with `...`; for `whole`, `import` side files and base text,
+   `<n> line(s) changed`; for `dir`, the file name inside the folder. Values are the sanitized text. Order: entry order
+   of the config, then the order the split reports. Header and blank lines as in the design's example.
+4. **The new-setting question.** Only `export` with a record asks; `export --preview` lists each new setting under
+   `New settings` with its suggestion and `(asked by mksync export)`. The question is the design's, under the
+   setting's numbered line: `Where does it go? 1) all machines  2) <Os> machines  3) profile <p>  4) this machine
+[<s>]`. The suggestion is the profile's
+   stored destination when there is one (then nothing is asked and the line shows where it went), else `profile <p>`,
+   or `all machines` when the profile is `personal`. Answers are read as `setup` reads them: a piped line or the
+   terminal, empty or end of input takes the suggestion, anything else prints `Pick 1 to 4.` and asks again; `--yes`
+   takes the suggestion. A new array item's answer is also stored in the profile's `destinations` (backup first, as
+   any state write); a new key's isn't. `destinations` accepts `base` from now on. With no record, today's
+   `needs a destination` `ERROR` stays.
+5. **The profile-value rule.** Before writing, each layer text bound for base or an OS layer is searched, after
+   sanitize, for each non-empty value of the record's profile, ignoring case. A hit prints the design's two `refused:`
+   lines (change number, module, file, placeholder, group), and the run stops with exit 1 before any write. The
+   preview prints the same lines and exits 1. Machine values aren't searched (the design names the profile's).
+6. **Pull groups.** `import --check` prints the grouped block after its status lines, header
+   `Changes from the repo:`, same groups and line format, with `+` for a key the local file lacks and `-` for one the
+   import would remove. `import` itself prints its status lines as today.
+7. **`mksync statusline`.** Reads Claude Code's JSON payload on stdin and prints one line, always exit 0 (a failed
+   section is left out, as in the bash script). Same sections, order, colors and text as `statusline.sh`, including
+   the context-window write (`CTX_WINDOW_DIR`), `CONTEXT_CLEAR_AT` and the worker-mode flag. Load and memory are
+   left out on Windows. Test overrides, as `SYNC_HOSTNAME` is: `SYNC_NOW` (`HH:MM`), `SYNC_LOAD`, `SYNC_MEM`
+   (`<used>/<total>` in MiB) and `SYNC_GIT` (`none` skips git). Until cut-over the real `settings.json` keeps
+   `statusline.sh`; a dev tool compares the two on recorded payloads.
+8. **The Claude layout is built now and goes live at cut-over.** `tools/claude-layout.ts` writes, into a given repo
+   folder: the base `dotfiles/common/claude/settings.json`, the Linux overlay (`hooks`, and any top-level key whose
+   value holds `<HOME>` or a `.sh` path), the Windows overlay from the survey, `statusLine` in the base as
+   `mksync statusline`, and the v2 entries widened to Windows (`settings.json`, `CLAUDE.md`, `RTK.md`, the docs page).
+   Its test merges the new Linux layers and gets today's `settings.json` back, `statusLine` aside. Phase 9 runs it and
+   drops the check.
+9. **The first backup.** When the guard reads private, `export` copies the local profile, its layer folder, the
+   record and its machine layer into `profiles/` and `machines/`. A profile the repo already holds is merged with
+   `mergeProfileCopies`; each differing value prints `<P> differs on profile <p>:`, then `  repo:         <value>` and
+   `  this machine: <value>`, and asks `Keep which? 1) the repo's  2) this machine's [1]` (the `cli` review: the
+   question can't be answered without the two values; they are the user's own, on their own screen, and `--yes`
+   prints none of them because it asks nothing and keeps the repo's). After every write succeeds, `<state>/machine.json` becomes the `{"name", "home": "repo"}` pointer.
+   The preview shows a group `First backup: profiles and machines` listing the paths. Phase 8's push commits them.
+10. **The repo store.** With a pointer record, `machine retire` and `profile retire` read and write `machines/` and
+    `profiles/` in the repo, "used by" included. An unreadable repo file prints `ERROR: <repo path> can't be read:
+<reason>.`, exit 2.
+11. **Command names**, reviewed by the `cli` skill in step 2: `mksync statusline` (no flags) and `mksync export --yes`.
+    The review's verdict:
+    - `statusline` kept as a top-level command. It's the program Claude Code calls, the name was fixed in phase 3, and
+      a `claude` noun group would hold one verb (the skill's depth rule). It takes no options or arguments: any
+      argument is `Unknown option: <arg>`, exit 1, as elsewhere. The line is its stdout payload; it prints nothing on
+      stderr, so "exit 0 after an error" can't happen. It writes ANSI colors with stdout a pipe and ignores
+      `NO_COLOR`, as `statusline.sh` does: Claude Code renders them. The skill's color rule says otherwise; that goes in
+      the design's Open as a known exception, not a migration.
+    - `export --yes` kept: the same flag, with the same meaning ("take the suggestions without asking"), as `setup` and
+      the retire commands. `--preview` with `--yes` stops with `ERROR: --preview and --yes can't be used together.`,
+      exit 1, as `--preview` with `--only` does (the skill: clashing options fail naming both; the exit code stays the
+      contract's 1, see Open "Exit code for usage errors").
+    - Prompts stay on stdout and piped answers stay accepted, as `setup` does today (Open, "Left by the phase 6
+      audits": the `wizard` skill's rules would be a migration of every prompt at once).
+    - The new-setting question carries the design's `Where does it go?`, under the numbered setting line, so the
+      choice numbers (1 to 4) aren't read as change numbers. `Pick 1 to 4.` matches `setup`.
+    - The first-backup question shows both values (decision 9), since it can't be answered blind.
+
+## Step 1: The Windows survey prompt `[inline: user-facing prompt for work machine #1]`
+
+Files: `docs/windows-survey.md` (new).
+
+One prompt the user pastes into Claude Code on work machine #1. It reports names and structure, never values: the
+`~/.claude` tree (names, depth 3), the `settings.json` keys (two levels, values replaced by their JSON type), the
+`statusLine` command with the user name and any employer name replaced, the shell Claude Code uses for hooks and the
+statusline, whether Git Bash, `jq` and `CLAUDE_CODE_GIT_BASH_PATH` exist, whether `$HOME/.claude` and `~/.claude`
+resolve under Git Bash and PowerShell, and whether the probe program from `probe/single-engine/` starts. The answer
+comes back as one fenced block with fixed headings. Push-notify the user with the file path; don't wait.
+
+Test: `npx prettier --check docs/windows-survey.md`.
+
+## Step 2: Review the new command names `[inline: cli skill review of contract names]`
+
+Files: `docs/plan-single-engine-7.md`, `docs/design-layers.md`.
+
+Run the `cli` skill in design mode over decision 11 and the prompts of decisions 4 and 9. Write its verdict into
+decision 11 (a plan edit) and the design's Open (settled, or a migration note).
+
+Test: `npx prettier --check docs/plan-single-engine-7.md`.
+
+## Step 3: This phase's rules in the contract `[inline: contract decisions]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`.
+
+- Contract, program sections: "Push preview (program only)" (decisions 2, 3), "New settings (program only)"
+  (decision 4, `destinations` accepting `base`), "Profile values (program only)" (decision 5), the pull block in
+  "Import check" (decision 6), "Statusline (program only)" (decision 7, every section with its exact text and
+  colors, the overrides), the first backup and the repo store in "Public-repo guard" and "Retire" (decisions 9,
+  10), and the usage line with `statusline` and `export --yes`.
+- Design: decisions 1 to 11 as rules with an example where there's none; the Open items they settle taken out
+  ("Two copies of one profile", retire against the repo store, the pointer write, the repo `can't be read` line).
+
+Test: `grep -c 'Push preview' docs/sync-contract.md` is at least 1; `grep -c 'mksync statusline' docs/sync-contract.md`
+is at least 2; `npx prettier --check docs/plan-single-engine-7.md`.
+
+## Step 4: Runner for the new commands `[worker]`
+
+Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
+
+- `command` may be `statusline`; with an engine other than the program it prints `SKIP <case>: statusline is program
+only`. Its stdin is the case's `stdin` file; its whole stdout is kept (as `setup`).
+- `options` adds `yes: true` for `export`.
+- `env` in a `configV2` case may also set `SYNC_NOW`, `SYNC_LOAD`, `SYNC_MEM`, `SYNC_GIT`, `CONTEXT_CLEAR_AT`, and
+  `CTX_WINDOW_DIR` (a path under the case's temp home).
+- `export` and `import --check` keep their whole stdout when the case sets `"output": "all"` (already allowed for
+  other commands; check it holds for these two).
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync` passes as before (94 passed); a scratch case with
+`statusline` against bash prints the skip line (in the scratchpad, not committed).
+
+## Step 5: Shared cases for the grouped preview `[worker]`
+
+Files: `tests/parity/cases/push-*/` (new).
+
+Each `configV2`, `"output": "all"`, `expect/` from step 3's "Push preview":
+
+| Case                   | Input                                                                           | Expected                                                     |
+| ---------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `push-groups`          | record `wk1-laptop`/`work-1`; changes in a base, a Windows, a profile json file | the header and four groups, lines 1 to 3, `(none)` for one   |
+| `push-groups-norecord` | no record, a base and a Linux change                                            | `Changes on this machine:`, two groups only                  |
+| `push-json-lines`      | json key changed, key added, key removed, array item added                      | the four `<what>` forms, long value cut with `...`           |
+| `push-text-lines`      | `whole` file with 3 lines changed, an `import` side file changed                | `3 line(s) changed` and the side file's line                 |
+| `push-sanitized`       | changed value that sanitize turns into `<YOUR_EMAIL>`                           | the line shows `<YOUR_EMAIL>`, never the value               |
+| `push-export-prints`   | `push-groups` input, `export --yes`                                             | the same block, then the export's status lines, exit 0       |
+| `push-preview-yes`     | `export --preview --yes`                                                        | `ERROR: --preview and --yes can't be used together.`, exit 1 |
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync push-` shows 7 failures for the reasons above.
+
+## Step 6: Shared cases for new settings `[worker]`
+
+Files: `tests/parity/cases/newsetting-*/` (new).
+
+| Case                      | Input                                                                  | Expected                                                            |
+| ------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `newsetting-preview`      | record `work-1`, a new array item in a two-layer json entry, `preview` | `New settings` line with `[3]` and `(asked by mksync export)`       |
+| `newsetting-yes-work`     | same, `export --yes`                                                   | item in the profile layer; `destinations` holds the path: `profile` |
+| `newsetting-yes-personal` | profile `personal`, `export --yes`                                     | item in the base; `destinations`: `base`                            |
+| `newsetting-answer`       | stdin `4\n`                                                            | item in the machine layer; `destinations`: `machine`                |
+| `newsetting-bad-answer`   | stdin `9\n2\n`                                                         | `Pick 1 to 4.` once, item in the Linux layer                        |
+| `newsetting-stored`       | profile already has the destination, `export` with no stdin            | no question, item where stored, line under its group                |
+| `newsetting-key`          | a new key (not an array item), `export --yes`                          | key in the profile layer, `destinations` unchanged                  |
+| `newsetting-norecord`     | no record                                                              | today's `needs a destination` `ERROR`, file unchanged               |
+| `newsetting-base-dest`    | profile file with `destinations` value `base`, `import --check`        | no profile error (it was `is not a layer`)                          |
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync newsetting-` shows 8 failures (`newsetting-norecord`
+passes today).
+
+## Step 7: Shared cases for profile values and pull groups `[worker]`
+
+Files: `tests/parity/cases/profilevalue-*/`, `tests/parity/cases/pull-groups*/` (new).
+
+| Case                      | Input                                                                            | Expected                                         |
+| ------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `profilevalue-refused`    | profile value `jane@work1.example.com`; base json file gets it, no sanitize rule | the two `refused:` lines, exit 1, repo unchanged |
+| `profilevalue-case`       | same value in upper case                                                         | refused                                          |
+| `profilevalue-profile-ok` | same change bound for the profile layer                                          | written, exit 0                                  |
+| `profilevalue-sanitized`  | base entry has the `<YOUR_EMAIL>` rule                                           | written as the placeholder, exit 0               |
+| `profilevalue-preview`    | `profilevalue-refused` input, `preview`                                          | the `refused:` lines, exit 1                     |
+| `pull-groups`             | repo base and profile layers differ from local, `import --check`                 | `Changes from the repo:` and the groups          |
+| `pull-groups-none`        | nothing differs                                                                  | the block with every group `(none)`              |
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync 'profilevalue-|pull-groups'` shows 5 failures
+(`profile-ok` and `sanitized` pass today).
+
+## Step 8: Shared cases for the statusline `[worker]`
+
+Files: `tests/parity/cases/statusline-*/` (new).
+
+Each sets `SYNC_NOW=09:30`, `SYNC_LOAD`, `SYNC_MEM`, `SYNC_GIT=none` unless the row says otherwise; `expect/` from
+step 3's "Statusline", ANSI codes kept in the expected text as the contract writes them.
+
+| Case                     | Input                                                           | Expected                                   |
+| ------------------------ | --------------------------------------------------------------- | ------------------------------------------ |
+| `statusline-full`        | payload with model, cwd, cost, context 40%, cache tokens, style | every section in order                     |
+| `statusline-empty`       | `{}`                                                            | time, load and memory only                 |
+| `statusline-bad-json`    | `not json`                                                      | time, load and memory only, exit 0         |
+| `statusline-clear`       | `total_input_tokens` 210000, `CONTEXT_CLEAR_AT` unset           | the `CLEAR` mark                           |
+| `statusline-ctx-write`   | `session_id` `abc-1`, `context_window_size` 200000              | file `CTX_WINDOW_DIR/abc-1` holds `200000` |
+| `statusline-bad-session` | `session_id` `../x`                                             | no file written                            |
+| `statusline-worker`      | `~/.claude/state/worker-mode` exists in the temp home           | the worker-mode section                    |
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync statusline-` shows 7 failures (unknown command). No shared case
+for the git sections: the age (`%cr`) of the runner's fresh commit isn't fixed, so step 16 covers them in unit tests.
+
+## Step 9: Shared cases for the first backup and the repo store `[worker]`
+
+Files: `tests/parity/cases/backup-*/`, `tests/parity/cases/store-*/` (new).
+
+| Case                 | Input                                                              | Expected                                                                |
+| -------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `backup-preview`     | `MKSYNC_VISIBILITY=private`, local record and profile, `preview`   | `First backup: profiles and machines` with both paths                   |
+| `backup-export`      | same, `export --yes`                                               | `profiles/work-1.json`, `machines/wk1-laptop.json` in the repo; pointer |
+| `backup-merge`       | repo already holds `profiles/work-1.json` with one other module    | modules joined, written once                                            |
+| `backup-differ`      | repo copy has another `<YOUR_EMAIL>`, stdin `2\n`                  | the question once; this machine's value kept                            |
+| `backup-public`      | same as `backup-export`, public                                    | the held line, nothing written to the repo, no pointer                  |
+| `store-retire-repo`  | pointer record, repo holds both, `machine retire wk1-laptop --yes` | `retired: true` in `machines/wk1-laptop.json`, state unchanged          |
+| `store-used-by-repo` | pointer, `profile retire work-1 --yes`, repo record uses it        | the `used by` refusal, exit 1                                           |
+| `store-unreadable`   | pointer, repo `machines/wk1-laptop.json` not JSON, `machine-show`  | the contract's `can't be read` line, exit 2                             |
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync 'backup-|store-'` shows 7 failures (`backup-public`
+passes today).
+
+## Step 10: Change lines `[worker]`
+
+Files: `src/core/plan/changes.ts` (new), `src/core/plan/changes.test.ts`, `src/core/plan/types.ts`.
+
+`changeLines(plan)`: one `ChangeLine` (`layer`, `kind` M/+/-, `module`, `file`, `what`) per change the export plan
+holds, in decision 3's order and `<what>` forms, from the split's changes and the whole-file line counts.
+`importChangeLines(plan)` does the same for an import plan (decision 6). Unit cases: each `<what>` form, the 60
+character cut, array items, sanitized values, order across entries.
+
+Test: `bun test src/core/plan/changes.test.ts && bun run lint`.
+
+## Step 11: The grouped block `[worker]`
+
+Files: `src/core/plan/groups.ts` (new), `src/core/plan/groups.test.ts`, `src/main.ts`.
+
+`groupBlock(lines, record)`: the header, the groups, numbering, padding and `(none)` from decision 3, as text lines.
+`main.ts` prints it in `export --preview` (after the status lines), in `export` (before the writes) and in
+`import --check` (decision 6), and accepts `export --yes`. Unit cases: with and without a record, an empty group, the
+padding.
+
+Test: `bun test src/core/plan && bun run build && tests/parity/run.sh --engine dist/mksync 'push-|pull-groups'`
+(`push-export-prints` may wait for step 13).
+
+## Step 12: Destinations and the suggestion `[worker]`
+
+Files: `src/core/config/profile.ts`, `src/core/plan/newsettings.ts` (new), `src/core/plan/newsettings.test.ts`.
+
+`destinations` accepts `base`. `newSettingChoices(record, profile, os)` returns the four choices and
+the suggestion of decision 4 (with no record there is no question: `undefined`, and today's `ERROR` stays); `storeDestination(profile, path, layer)` returns the profile with the array-item
+destination added. Unit cases: work and `personal` suggestions, a stored destination, a new key not stored, `base`
+parsed.
+
+Test: `bun test src/core/config src/core/plan/newsettings.test.ts && bun run lint`.
+
+## Step 13: The new-setting question `[worker]`
+
+Files: `src/cli/ask.ts` (new, or the existing prompt helper `setup` uses if it fits), `src/main.ts`,
+`src/core/plan/export.ts`.
+
+Export with a record asks each unresolved new setting (decision 4) before it plans the writes, then plans with the
+answers as destinations; the preview only lists them. The changed profile is written to state with its backup.
+Reuse `setup`'s answer reading (`Pick 1 to <n>.`, end of input takes the suggestion, `--yes`).
+
+Test: `bun test src && bun run build && tests/parity/run.sh --engine dist/mksync 'newsetting-|push-'`.
+
+## Step 14: The profile-value rule `[worker]`
+
+Files: `src/core/plan/profilevalues.ts` (new), `src/core/plan/profilevalues.test.ts`, `src/main.ts`.
+
+`profileValueHits(plan, profile, lines)`: for each write bound for base or an OS layer, the profile values found in
+its sanitized text, ignoring case, with the change number and placeholder (decision 5). `main.ts` prints the
+`refused:` lines and exits 1 before any write, in `export` and `export --preview`. Unit cases: a hit, upper case, a
+profile-layer write, an empty value, a sanitized value.
+
+Test: `bun test src/core/plan/profilevalues.test.ts && bun run build && tests/parity/run.sh --engine dist/mksync
+profilevalue-`.
+
+## Step 15: Statusline payload and text sections `[worker]`
+
+Files: `src/core/statusline/format.ts` (new), `src/core/statusline/format.test.ts`.
+
+Port `dotfiles/linux/claude/statusline.sh`'s payload read and the sections that need only the payload: model, venv,
+project type (given the file names found), directory, cost and context (progress bar, `fmt_tokens`, colors by
+threshold, `CLEAR`), cache, output style. Input: the parsed payload plus a `facts` object (time, load, memory, git,
+worker mode) that the adapter fills; output: the line. Same escapes and text as the script. Unit cases: each section
+present and missing, each color threshold, `fmt_tokens` at 999, 1000, 1500, 1000000.
+
+Test: `bun test src/core/statusline && bun run lint`.
+
+## Step 16: Statusline facts and the command `[worker]`
+
+Files: `src/adapters/statusline.ts` (new), `src/adapters/statusline.test.ts`, `src/main.ts`.
+
+The facts of step 15: clock, `/proc/loadavg` and `/proc/meminfo` (none on Windows), git branch, dirty mark,
+ahead/behind, last commit age and changes as the script runs them, the worker-mode flag, the files that set the
+project type; the overrides of decision 7. The context-window write with the script's checks. `mksync statusline`
+reads stdin, prints the line, exits 0 whatever fails. Unit cases with temp folders: overrides, bad session id, git
+missing, and git in a temp repo (branch, `*`, `(+<ins>,-<del>)`, `<n>?`, the age from an injected clock).
+
+Test: `bun test src/adapters/statusline.test.ts && bun run build && tests/parity/run.sh --engine dist/mksync
+statusline-`.
+
+## Step 17: Statusline parity tool `[worker]`
+
+Files: `tools/statusline-parity.sh` (new), `tools/statusline-payloads/` (new, three recorded payloads with example
+values).
+
+Runs `statusline.sh` and `dist/mksync statusline` on each payload in a temp home with the same `CTX_WINDOW_DIR`,
+blanks the time, load and memory sections in both, and diffs. Exits 0 when equal.
+
+Test: `bun run build && tools/statusline-parity.sh`.
+
+## Step 18: The first backup, planned `[worker]`
+
+Files: `src/core/machine/backup.ts` (new), `src/core/machine/backup.test.ts`.
+
+`planFirstBackup(local, repo)`: the files to write under `profiles/` and `machines/` (profile, its layer folder, the
+record, its machine layer), a repo profile merged with `mergeProfileCopies`, and the differing values as questions
+(decision 9). Unit cases: nothing in the repo, a profile in the repo, a differing value answered each way.
+
+Test: `bun test src/core/machine/backup.test.ts && bun run lint`.
+
+## Step 19: The first backup, written `[worker]`
+
+Files: `src/main.ts`, `src/adapters/store.ts`, `src/core/plan/preview.ts`.
+
+With the guard private: the preview group lists the paths; `export` asks the questions, writes the files, then the
+pointer. A failed write leaves the record local and stops with the contract's line.
+
+Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync 'backup-|guard-'`.
+
+## Step 20: Retire against the repo store `[worker]`
+
+Files: `src/core/machine/retire.ts`, `src/adapters/store.ts`, `src/adapters/store.test.ts`.
+
+Decision 10: with a pointer, retire reads and writes the repo's `machines/` and `profiles/`, and "used by" looks there;
+an unreadable repo file gives the contract's line, exit 2.
+
+Test: `bun test src/adapters src/core/machine && bun run build && tests/parity/run.sh --engine dist/mksync
+'store-|retire-'`.
+
+## Step 21: Audits `[inline: review of user-facing work]`
+
+Run `cli-auditor` on `export`'s question, `--yes` and `statusline`, `wizard-auditor` on the new-setting and backup
+questions, and `ts-security-auditor` on the profile-value rule, the first backup and the context-window write. Fixes
+become steps 25 to 31, before the Windows steps 32 and 33 (the docs step stays last), with shared cases first where they change output; what's
+left goes in the design's Open.
+
+Test: `tests/all.sh`.
+
+## Step 22: Merge strategies through one interface `[worker]`
+
+Files: `src/core/merge/strategy.ts`, `src/core/merge/types.ts`, `src/core/plan/export.ts`.
+
+Closes the Open item "`strategyFor` covers only `whole`": the merge context carries the local file and the
+destinations, the result carries new settings and side files, and export calls `strategyFor(entry.merge)` for
+`whole`, `json` and `import` instead of switching on the type. No output changes.
+
+Test: `bun test src && bun run build && tests/parity/run.sh --engine dist/mksync`.
+
+## Step 23: Import plan through the same interface `[worker]`
+
+Files: `src/core/plan/import.ts`, `src/core/plan/check.ts`.
+
+The import and check plans call `strategyFor` as step 22's export does; `parsedJson` uses `core/merge/json.ts`'s parser
+(Open, "Finish review, phase 5"). No output changes.
+
+Test: `bun test src && bun run build && tests/parity/run.sh --engine dist/mksync`.
+
+## Step 24: One constant for the state paths `[worker]`
+
+Files: `src/core/guard.ts`, `src/core/plan/preview.ts`, `src/adapters/fs.ts`.
+
+`profiles/` and `machines/` named once in `src/core/guard.ts` and imported by the preview and the adapter (Open,
+"Finish review, phase 5"). No output changes.
+
+Test: `bun test src && bun run lint`.
+
+## Step 25: One terminal for export's questions `[worker]`
+
+Files: `src/main.ts`, `tests/parity/cases/backup-piped-answers/` (new), `tests/parity/cases/backup-empty-stdin/` (new).
+
+Audits WIZ-1, WIZ-2 (CLI-2): `askSettings` and `askBackupQuestions` each open their own `setupTerminal()`, so the
+second loses the lines the first buffered, and hangs when stdin already ended. Cases first, from the contract
+("The first backup", answers read as `setup` reads them): `backup-piped-answers` (one new array item, a profile value
+that differs, private, stdin `4\n2\n`: the item goes to this machine, `profiles/work-1.json` keeps this machine's
+value) and `backup-empty-stdin` (same setup, empty stdin: suggestions and the repo's value, exit 0, no hang). Then
+open one terminal per export run and pass its `io` to both question sets; `askBackupQuestions` takes the `io`.
+
+Test: `bun test src && bun run build && tests/parity/run.sh --engine dist/mksync backup-`.
+
+## Step 26: The first backup copies state after the export `[worker]`
+
+Files: `src/main.ts`, `src/adapters/store.ts`, `tests/parity/cases/backup-after-export/` (new).
+
+Audit CLI-1: the backup's files are planned from the state read before the export wrote, so a layer file or a
+destination the same export adds stays local after the pointer. Case first: a new array item answered `4` (this
+machine) with a private repo and no record pointer yet: the repo gets `machines/wk1-laptop/parity/settings.json`
+and the profile's `destinations`. Then keep the questions where they are, and re-read the local side (record,
+profile, both layer folders) after the export's writes, just before `writeFirstBackup`; the status lines come from
+that read.
+
+Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync backup-`.
+
+## Step 27: The block before the first-backup question `[worker]`
+
+Files: `src/main.ts`, `tests/parity/cases/backup-differ/expect/output.txt`.
+
+Audits CLI-3, WIZ-3: with no new setting, the backup question prints before the `Changes on …` block. Decision 2:
+the block first, then the new-setting questions, then the backup questions, then the writes, in every path. Update
+`backup-differ`'s expected output to that order (the block, then the question), then print the block before asking.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync backup- && tests/parity/run.sh --engine dist/mksync
+newsetting-`.
+
+## Step 28: The profile-value rule sees escaped forms `[worker]`
+
+Files: `src/core/plan/profilevalues.ts`, `src/core/values/sanitize.ts`, `src/core/plan/profilevalues.test.ts`.
+
+Audit H1, M1: the refusal searches only the raw value, so `C:\Users\jdoe` stored as `C:\\Users\\jdoe` in a JSON
+layer, or a value with `"`, passes; an `import` entry without `importName` is skipped. Export `formsFor` from
+`sanitize.ts` and search every form with the entry's `json` flag, plus the `\uXXXX` and `\/` decodings for JSON
+text; an entry whose label can't be built still records a hit under its repo path, and a failed `selectEntries` is a
+refusal, not "no hits". Unit cases: raw, JSON-escaped backslash, escaped quote, `\u0040` in an email, import entry
+without `importName`. Then a shared case `profile-value-escaped` (a backslash value in a JSON setting bound for
+the base layer: refused).
+
+Test: `bun test src/core/plan src/core/values && bun run build && tests/parity/run.sh --engine dist/mksync
+profile-value-`.
+
+## Step 29: Visibility from every push URL `[worker]`
+
+Files: `src/main.ts` (`readOrigin`), `src/adapters/visibility.ts`, `src/adapters/visibility.test.ts`.
+
+Audit M2: `git remote get-url --push origin` prints only the first push URL, so a private origin with a public mirror
+reads private. Read `--push --all`; the repo is private only when every URL reads private, and unknown when any is
+unknown. Unit cases: one private URL, private plus public, private plus unknown.
+
+Test: `bun test src/adapters/visibility.test.ts && bun run lint && tests/parity/run.sh --engine dist/mksync guard-`.
+
+## Step 30: The first backup refuses symlinks and cleans up `[worker]`
+
+Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`.
+
+Audits L1, L2: `writeFirstBackup` follows a symlink in the clone (`machines` or `profiles/<p>/…`) and leaves the files
+it wrote when a later write fails. Before writing, `lstat` each path component under the repo root and stop with the
+contract's `ERROR: first backup stopped at <repo path>: <reason>.` (reason `a symlink`) on a symlink; on any failure,
+remove the files this backup added (restore the ones it modified from their earlier text) before returning. Unit
+cases: symlinked `machines`, symlinked layer file, a failed second write leaves the first file as it was.
+
+Test: `bun test src/adapters/store.test.ts && bun run lint`.
+
+## Step 31: A pointer reads only its own record `[worker]`
+
+Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`, `src/main.ts`.
+
+Step 20 made `readStore` read every record in the repo's `machines/` whenever the record is a pointer, so another
+machine's broken record stops this machine's import and export ("one failing file doesn't stop the rest"). Read
+only `machines/<name>.json` and its profile for the run; read the others only for `profile retire`'s "used by".
+The unreadable-file reason is the read error's message, not a repeated `can't be read`. Unit cases: a broken other
+record with a pointer (import's store reads fine; `profile retire` reports it), an unreadable repo file's line.
+
+Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync store- &&
+tests/parity/run.sh --engine dist/mksync retire-`.
+
+## Step 32: Docs `[inline: docs step]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/plan-single-engine.md`, `README.md` if it lists the
+program's commands, `tests/parity/README.md`.
+
+Contract: "The program" table and usage line, the new sections checked against what was built, the count of shared
+cases. Design: an "As built in phase 7" note per section; Open updated (settled items out, the audits' leftovers in,
+the phase 9 steps the layout tool needs). The audits' leftovers for Open: machine and other profiles' values not
+searched (M3), repo file modes and a non-atomic pointer write (L3), symlinked or binary layer files (L4), retire
+writing the repo while public (L5), statusline git honouring `core.fsmonitor` and having no timeout (L6, CLI-7), the
+context-window folder (L7), refusals known before asking (CLI-4), a hand-typed `statusline` waiting for input
+(CLI-5), status lines printed before a failed backup write, export's answer reading (WIZ-4), `--keep`/`--to` flags
+(WIZ-5), a note when `--yes` keeps the repo's value (WIZ-6), the destination question's words (WIZ-7, WIZ-8, WIZ-9).
+Fix the `SYNC_MEM` sentence (`<used>/<total>`, MiB or `G`; CLI-6). Roadmap: phase 9 lists running `tools/claude-layout.ts --cutover`, switching
+`statusLine`, and retiring `statusline.sh`.
+
+Test: `npx prettier --check docs/plan-single-engine-7.md docs/design-layers.md && tests/parity/run.sh --engine
+dist/mksync` (`docs/sync-contract.md` isn't Prettier-formatted; never run `prettier --write` on it).
+
+## Step 33: Shared cases for runs with a pointer `[worker]`
+
+Files: `tests/parity/cases/pointer-import-values/` (new), `tests/parity/cases/pointer-export-layer/` (new),
+`tests/parity/cases/pointer-export-destination/` (new).
+
+Review finding (the finish's review, P1): with a pointer `machine.json`, import and export still write the record,
+the profile and the layer files to the state folder. The contract ("The first backup"): from then on "every state
+write in this contract goes to the repo's copy". Cases from the contract, starting from `backup-after-export/expect`'s
+state (pointer `machine.json`, record and profile in the clone):
+
+- `pointer-import-values`: `import --force` with a value the record lacks (as `values-record-save` does). Expected:
+  `machines/wk1-laptop.json` in the repo gains the value; the state's `machine.json` is byte-for-byte the pointer.
+- `pointer-export-layer`: `export --yes` with a changed key that lives in the machine layer. Expected: the repo's
+  `machines/wk1-laptop/parity/settings.json` holds the change (`MODIFIED` names it); no layer file under the state.
+- `pointer-export-destination`: `export --yes` with a new array item. Expected: the item goes to the suggested layer
+  and `profiles/work-1.json` in the repo stores its destination; the state's `profiles/` gains nothing.
+
+The cases fail against today's program; record that each fails on the state-folder write, not on setup.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync pointer-` (expected to fail until step 34).
+
+## Step 34: Writes follow the store location `[worker]`
+
+Files: `src/adapters/snapshot.ts`, `src/adapters/fs.ts`, `src/main.ts`.
+
+`loadLayers` drops `Store.location`, so `RunContext` only knows `stateFolder`. Carry the `StoreLocation` (and the
+layer-folder roots it implies) through `Layers` into `SnapshotInput` and `RunContext`. Then: `writeMachineValues`
+(`fs.ts`) writes through `writeStoreRecord`/`writeStoreProfile(location, …)`; `storeItemDestinations` (`main.ts`)
+backs up and writes the profile at the location; layer trees are read from and written to the location's root. A
+local store behaves as before. With a pointer, export lists the profile it writes in the repo (`MODIFIED profiles/<profile>.json`)
+and counts it, as the first backup does; import's write to the repo record prints no line (decided by the user
+2026-11-14). The contract ("The answer is stored", "values on a machine") says so in this step. Unit cases: a pointer run's record, profile and layer writes land in the clone; a
+local store's land in the state.
+
+Test: `bun test src/adapters && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync pointer- &&
+tests/parity/run.sh --engine dist/mksync backup- && tests/parity/run.sh --engine dist/mksync values-`.
+
+## Step 35: Shared cases for one answer per path `[worker]`
+
+Files: `tests/parity/cases/newsetting-same-path/` (new), `tests/parity/cases/newsetting-two-files/` (new),
+`tests/parity/cases/newsetting-same-path-preview/` (new).
+
+Review finding P2, decided by the user 2026-11-14: one answer per path, and `destinations` keyed by module, file and
+path (`design-layers.md` "New settings", the `module file: path` form). A path's new items are adjacent in "New
+settings" (numbered in order) and the question is printed once, after the path's last line; the answer applies to
+every item of the path. Cases:
+
+- `newsetting-same-path`: two new items under `delta[]`, stdin `4\n`. Expected: lines 2 and 3, one question after
+  line 3; both items in `machines/wk1-laptop/parity/settings.json`; `profiles/work-1.json` stores
+  `"parity settings.json: delta[]": "machine"`.
+- `newsetting-two-files`: two json entries (`parity/settings.json`, `parity/other.json`) each with a new `delta[]`
+  item, stdin `4\n1\n`. Expected: two questions; the first file's item to the machine layer, the second's to the base;
+  two keys stored, one per file.
+- `newsetting-same-path-preview`: as `newsetting-same-path` with `--preview`. Expected: one `goes to:` line after
+  line 3.
+
+Update `newsetting-stored`, `newsetting-answer`, `json-new-setting-destination` and `pointer-export-destination` (their stored key, their
+`expect/` only where the key's form shows) and note it in the step's commit.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync newsetting-` (new cases fail until step 36).
+
+## Step 36: One answer per path, keyed by module and file `[worker]`
+
+Files: `src/core/plan/newsettings.ts`, `src/core/plan/export.ts`, `src/main.ts`.
+
+`answersOf` keeps the last answer per bare key path; `mergedDestinations` and `storeDestination` key by the bare
+path. Make the destination key `<module> <file>: <path>` everywhere it's read or written; group new settings by that
+key so `askNewSettings` asks once per group after its last line and the answer covers the group; the preview prints
+one `goes to:` line per group. Move `answersOf` and `suggestionAnswers` into `newsettings.ts`. Unit cases: two items
+of one path get one answer; the same path in two files gets two answers and two stored keys; a stored key for file A
+doesn't route file B.
+
+Test: `bun test src/core/plan && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync
+newsetting- && tests/parity/run.sh --engine dist/mksync json-`.
+
+## Step 37: Pull's check prints sanitized values `[worker]`
+
+Files: `src/core/plan/changes.ts`, `src/core/plan/changes.test.ts`, `tests/parity/cases/check-hydrated-value/` (new).
+
+Review finding P3: the import check diffs the local file against the hydrated bytes, so the block prints real
+values (`email: "old@corp.example" -> "jane@corp.example"`). The block contract: values are the sanitized text. Case
+first: `check-hydrated-value` (local `{"email":"old@example.com"}`, repo `<YOUR_EMAIL>`, value `new@example.com`;
+expected line `email: "<YOUR_EMAIL>" -> "<YOUR_EMAIL>"`, and neither address anywhere in the output). Then keep
+finding changes on the hydrated bytes (a changed value is still a change) but print each side's text sanitized with
+the entry's rules. Unit case: no hydrated value appears in the block.
+
+Test: `bun test src/core/plan/changes.test.ts && bun run build && tests/parity/run.sh --engine dist/mksync check-`.
+
+## Step 38: The first backup stops at a symlink or non-UTF-8 file `[worker]`
+
+Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`.
+
+Review findings: `readLayerFolder` skips a symlinked layer file silently (Dirent of a link is neither file nor
+folder), then the pointer drops it; files are read as `utf8`, turning bad bytes into U+FFFD. Stop with
+`ERROR: first backup stopped at <state path>: a symlink.` for a link, and `…: not UTF-8 text.` for a file whose bytes
+don't round-trip. `firstBackupStopped` and the `readBackupSides` catch use `unreadableReason(error)`, never the raw
+error text. Add the missing test: `machine.json` can't be written, so the repo files this backup wrote are removed or
+restored and `machine.json` is unchanged.
+
+Test: `bun test src/adapters/store.test.ts && bun run lint`.
+
+## Step 39: Statusline rounding as printf's `[worker]`
+
+Files: `src/core/statusline/format.ts`, `src/core/statusline/format.test.ts`.
+
+Review finding: `formatFixed` scales before rounding half to even, so near-ties become fake ties (1050 tokens prints
+`1k`, the script `1.1k`; ~1% of counts). Use `x.toFixed(n)` and apply half-to-even only when `x.toFixed(n + 60)` shows
+an exact tie. Cost (`%.2f`) follows the same double rule. Unit cases: 1050 → `1.1k`, 1150 → `1.1k`, 1850 → `1.9k`,
+the existing exact ties unchanged, a cost of `0.125` → `0.12`.
+
+Test: `bun test src/core/statusline && bun run lint`.
+
+## Step 40: Visibility treats a git failure as unknown `[worker]`
+
+Files: `src/adapters/visibility.ts`, `src/adapters/visibility.test.ts`.
+
+Review finding: `readOrigin` returns no URLs for any non-zero exit, so a git failure (exit 128, e.g. `safe.directory`)
+with `MKSYNC_VISIBILITY=private` reads private even for a public GitHub origin. Exit 2 (no origin) keeps today's
+behaviour; any other non-zero exit is `unknown`. Rename the adapter's `Visibility` type `RemoteVisibility`. Unit
+cases: exit 2, exit 128 with the variable set, exit 0.
+
+Test: `bun test src/adapters/visibility.test.ts && bun run lint`.
+
+## Step 41: Tests the mutations showed missing `[worker]`
+
+Files: `src/core/plan/export.test.ts`, `src/core/plan/changes.test.ts`, `src/core/plan/groups.ts`.
+
+Review findings: mutants survive in `strategy.ts:26,57` (`hydrated ?? bytes`), `changes.ts:281`
+(`Math.max(added, removed)`), `changes.ts:612` (a dropped item's layer). Cases: repo layer `paths:["<HOMEDIR>/bin"]`,
+local `["/home/user/bin"]` reports no new setting; a whole file with more lines removed than added counts the
+removed; a dropped array item on import lands under the entry's latest layer. `withoutNewSettings` (`groups.ts`)
+matches only `+` lines and removes at most one line per setting, with a unit case. Each new test must fail against
+its mutant.
+
+Test: `bun test src/core/plan && bun run lint`.
+
+## Step 42: Docs for the fixes `[inline: docs step]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/plan-single-engine.md`.
+
+Contract: one question per path, the `module file: path` key, pointer runs writing the repo's copy, pull's check
+sanitized, the backup's symlink and UTF-8 stops, a git failure reading `unknown`, the statusline's double rounding
+rule (cost included), the count of shared cases. Design: fix "New settings" (line 673's bare key), Open gains the
+review's leftovers: `setup` then export losing piped answers (main.ts 553/586), a failed file skipping the stored
+destinations, `main.ts` extractions (export flow to its own module, git calls to `adapters/git.ts`), `LayerFile.bytes`
+meaning raw or hydrated, the profile-value match on escaped or cut `what`, `.`-joined flat vs nested keys, statusline
+cases missing (Windows, virtual env, `Unknown option`). Roadmap: phase 7's bullets that moved (Windows survey,
+Windows `~/.claude`) point to phases 8 and 9.
+
+Test: `npx prettier --check docs/plan-single-engine-7.md docs/design-layers.md && tests/parity/run.sh --engine
+dist/mksync`.

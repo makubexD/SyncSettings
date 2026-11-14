@@ -1,0 +1,23 @@
+{
+  "session_id": "example-session-3",
+  "model": {
+    "display_name": "Claude Example"
+  },
+  "workspace": {
+    "project_dir": "/tmp/example-project",
+    "current_dir": "/tmp/example-project"
+  },
+  "context_window": {
+    "total_input_tokens": 141000,
+    "context_window_size": 200000,
+    "used_percentage": 70.5,
+    "remaining_percentage": 29.5,
+    "current_usage": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    }
+  },
+  "output_style": {
+    "name": "default"
+  }
+}

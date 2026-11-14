@@ -1,11 +1,10 @@
 import { same } from "../compare.ts";
 import type { SanitizeRule } from "../config/types.ts";
-import { jsonEqual, parseJson } from "../json/value.ts";
-import type { JsonValue } from "../json/value.ts";
+import { jsonEqual } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
 import { mergeImport } from "../merge/import.ts";
-import { mergeJson } from "../merge/json.ts";
+import { parseJsonBytes } from "../merge/json.ts";
 import { strategyFor } from "../merge/strategy.ts";
 import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
@@ -292,44 +291,27 @@ function mergedBytes(
   | { readonly ok: true; readonly bytes: Uint8Array }
   | { readonly ok: false; readonly note: string } {
   const entry = selected.entry;
-  if (entry.merge === "json") {
-    const local = state.snapshot.localFiles.get(localPath);
-    const merged = mergeJson(layers, eol, {
-      bytes:
-        local !== undefined && local.kind === "file" ? local.bytes : undefined,
-      localOnlyKeys: entry.localOnlyKeys ?? [],
-    });
-    return merged.ok
-      ? { ok: true, bytes: merged.value }
-      : { ok: false, note: merged.error };
-  }
-  const strategy = strategyFor("whole");
+  const strategy = strategyFor(entry.merge);
   if (strategy === undefined) {
-    throw new Error("merge type whole has no strategy");
+    throw new Error(`merge type ${entry.merge} has no strategy`);
   }
-  const merged = strategy.merge(layers, { eol });
+  const local = state.snapshot.localFiles.get(localPath);
+  const merged = strategy.merge(layers, {
+    eol,
+    ...(local !== undefined && local.kind === "file"
+      ? { local: local.bytes }
+      : {}),
+    localOnlyKeys: entry.localOnlyKeys ?? [],
+  });
   return merged.ok
     ? { ok: true, bytes: merged.value }
     : { ok: false, note: merged.error };
 }
 
-/** The JSON value a file holds, or undefined when it isn't valid UTF-8 JSON. */
-function parsedJson(bytes: Uint8Array): JsonValue | undefined {
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    // Invalid UTF-8 is not JSON, as in the merge.
-    return undefined;
-  }
-  const parsed = parseJson(text);
-  return parsed.ok ? parsed.value : undefined;
-}
-
 /** Whether two files hold the same JSON value, whatever their layout. */
 function sameJson(left: Uint8Array, right: Uint8Array): boolean {
-  const leftValue = parsedJson(left);
-  const rightValue = parsedJson(right);
+  const leftValue = parseJsonBytes(left);
+  const rightValue = parseJsonBytes(right);
   return (
     leftValue !== undefined &&
     rightValue !== undefined &&
@@ -360,6 +342,7 @@ function planImportFile(
   const hydrated = new Map(
     layers.map((layer) => [layer.repoPath, layer.bytes]),
   );
+  // MergeStrategy.merge returns only local bytes; the plan needs side files.
   const merged = mergeImport(
     selected.layers.map((layer) => ({
       label: layer.label,

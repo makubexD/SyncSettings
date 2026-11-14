@@ -42,6 +42,16 @@ const MISSING_VALUE_LABEL = "dotfiles/common/parity/a.conf";
 
 const NEEDS_VALUES_NOTE = "needs values: run mksync setup";
 
+const CHECK_CASE = "check-one-change";
+
+const CHECK_REPO_FILE = "dotfiles/common/parity/app.conf";
+
+const CHECK_LOCAL_FILE = `${HOME}/.config/parity/app.conf`;
+
+const PULL_HEADER = "Changes from the repo:";
+
+const MATCHES_REPO = "  This machine matches the repo.";
+
 interface CaseOptions {
   readonly only?: readonly string[];
 }
@@ -238,6 +248,47 @@ describe("planCheck", () => {
     expect(result.lines).toContain(
       "  If you changed them on this machine, run mksync push first.",
     );
+  });
+
+  test("should print the grouped block when the import would change a file", () => {
+    // Act
+    const result = runCase(CHECK_CASE, planCheck);
+
+    // Assert
+    expect(result.code).toBe(3);
+    expect(result.lines).toContain(PULL_HEADER);
+    expect(result.lines).toContain("All machines");
+    expect(result.lines).toContain("Linux machines");
+    expect(result.lines.indexOf(PULL_HEADER)).toBeLessThan(
+      result.lines.indexOf(
+        "  1 file(s) would change. mksync pull overwrites them (each keeps a .bak).",
+      ),
+    );
+  });
+
+  test("should print no grouped block when the import would change nothing", () => {
+    // Arrange
+    const snapshot = snapshotFor(CHECK_CASE);
+    expect(snapshot).toBeDefined();
+    if (snapshot === undefined) {
+      return;
+    }
+    const repoBytes = snapshot.repoFiles.get(CHECK_REPO_FILE);
+    expect(repoBytes).toBeDefined();
+    if (repoBytes === undefined) {
+      return;
+    }
+
+    // Act
+    const result = planCheck(
+      withLocalBytes(snapshot, CHECK_LOCAL_FILE, repoBytes),
+    );
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(MATCHES_REPO);
+    expect(result.lines).not.toContain(PULL_HEADER);
+    expect(result.lines).not.toContain("All machines");
   });
 
   test("should flag a missing value when no record names a profile or machine", () => {

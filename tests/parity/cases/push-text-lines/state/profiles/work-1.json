@@ -1,0 +1,6 @@
+{
+  "modules": ["shell", "claude"],
+  "values": {},
+  "destinations": {},
+  "retired": false
+}

@@ -8,13 +8,14 @@ import type { ClaudeMode } from "../core/machine/record.ts";
 import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
-  "usage: mksync export [--preview] [--only <path>...] | " +
+  "usage: mksync export [--preview] [--yes] [--only <path>...] | " +
   "mksync import [--check] [--force] [--only <path>...] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
   "[--existing backup|keep|stop] [--yes] | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
-  "mksync profile retire <name> [--yes] | mksync --version";
+  "mksync profile retire <name> [--yes] | mksync statusline | " +
+  "mksync --version";
 
 export type CommandName = "export" | "import";
 
@@ -28,6 +29,8 @@ export interface RunCommand {
   readonly preview: boolean;
   /** `import --check`: what an import would change. */
   readonly check: boolean;
+  /** `export --yes`: take the suggestions without asking. */
+  readonly yes: boolean;
   readonly only: readonly string[];
 }
 
@@ -73,6 +76,11 @@ export interface VersionCommand {
   readonly kind: "version";
 }
 
+/** `statusline`: print Claude Code's status line, exit 0. */
+export interface StatuslineCommand {
+  readonly kind: "statusline";
+}
+
 /** No command, or one that isn't a verb: print the usage line, exit 2. */
 export interface UsageCommand {
   readonly kind: "usage";
@@ -92,6 +100,7 @@ export type ParsedCommand =
   | ProfileRetireCommand
   | SetupCommand
   | VersionCommand
+  | StatuslineCommand
   | UsageCommand
   | ParseError;
 
@@ -110,11 +119,16 @@ const RETIRE_VERB = "retire";
 
 const SETUP_COMMAND = "setup";
 
+const STATUSLINE_COMMAND = "statusline";
+
 const SETUP_YES = "--yes";
 
 const ONLY_OPTION = "--only";
 
 const ONLY_NEEDS_PATH = "ERROR: --only needs a path.";
+
+const PREVIEW_YES_CLASH =
+  "ERROR: --preview and --yes can't be used together.";
 
 const UNKNOWN_OPTION_PREFIX = "Unknown option: ";
 
@@ -146,7 +160,7 @@ const SETUP_EXISTING_CHOICES: readonly ExistingAction[] = [
 
 /** The options each verb accepts besides `--only`, which takes a value. */
 const FLAGS: Readonly<Record<CommandName, readonly string[]>> = {
-  export: ["--preview"],
+  export: ["--preview", SETUP_YES],
   import: ["--check", "--force"],
 };
 
@@ -369,6 +383,12 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
       ? { kind: "shadow" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
+  if (command === STATUSLINE_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "statusline" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
   if (command === MACHINE_COMMAND) {
     const verb = argv[1];
     if (verb === undefined) {
@@ -409,6 +429,7 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   let force = false;
   let preview = false;
   let check = false;
+  let yes = false;
 
   let index = 1;
   while (index < argv.length) {
@@ -438,11 +459,21 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
       case "--check":
         check = true;
         break;
+      case SETUP_YES:
+        if (yes) {
+          return repeatedFlag(arg);
+        }
+        yes = true;
+        break;
       default:
         return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
     }
     index++;
   }
 
-  return { kind: "run", command, force, preview, check, only };
+  if (yes && preview) {
+    return error(PREVIEW_YES_CLASH);
+  }
+
+  return { kind: "run", command, force, preview, check, yes, only };
 }

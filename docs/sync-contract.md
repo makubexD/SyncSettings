@@ -537,6 +537,14 @@ folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
   couldn't be checked never reads as a match.
 - `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing. The PowerShell spellings
   are `-Check`, `-ResetValues` and `-Force`.
+- Program only: when something would change, the [grouped block](#push-preview-program-only) follows the status lines
+  and comes before the summary line, with the header `Changes from the repo:`. A line takes the group of the layer its
+  new content comes from: a json key the latest layer that sets it, a whole file the latest layer that holds it, an
+  `import` side file its own layer. `+` is a key or file the local copy lacks (a new file is `new file, <n> line(s)`),
+  `M` one that differs, `-` a key the import would drop, listed under the entry's latest layer. A json change prints
+  both sides sanitized, as the [push preview](#push-preview-program-only) does: the repo side the placeholder its layer
+  holds, the local side the placeholder the value it replaces stands in for. Nothing to change: no block. Pull asks
+  once for all groups; skipping a group isn't offered.
 - Windows only: a target folder that's missing stays `SKIPPED` with `WARNING: target folder not found: <dir>` and is not
   a change, because an import skips it too. `-Check` with `-User` naming another profile stops before the elevation
   code with `ERROR: -Check works on your own profile only.` and exit 1.
@@ -741,6 +749,7 @@ It takes the old entry points' verbs and flags unchanged:
 | `mksync import --check [--only <path>…]` | `import.sh --check` ([Import check](#import-check)) |
 | `mksync --version` | prints `mksync <version>`, exit 0 |
 | `mksync setup …`, `mksync machine show`, `mksync machine retire <name>`, `mksync profile retire <name>` | new in phase 6 ([Machines](#machines-program-only)) |
+| `mksync export --yes`, `mksync statusline` | new in phase 7 ([New settings](#new-settings-program-only), [Statusline](#statusline-program-only)) |
 
 `mksync shadow` is hidden from the usage line until cut-over decides its name ([design, "Open"](design-layers.md#open)).
 In the clone, it runs the program's import check, export preview and export plan without writing, and the old
@@ -755,7 +764,7 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
   line on stderr and exits 2:
 
   ```text
-  usage: mksync export [--preview] [--only <path>...] | mksync import [--check] [--force] [--only <path>...] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync --version
+  usage: mksync export [--preview] [--yes] [--only <path>...] | mksync import [--check] [--force] [--only <path>...] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
@@ -789,8 +798,9 @@ Each stops the run with exit code 2 before any file is touched, as the record's 
 `not valid JSON`, `unknown field <f>`, `<f> has the wrong type`, `unknown module <m>` or
 `destination <key> is not a layer`.
 
-A profile's `destinations` maps a key path (as in the `needs a destination` note below) to a layer slot: `os`,
-`profile` or `machine`. Any other value, `base` included, is `destination <key> is not a layer`.
+A profile's `destinations` maps a key path (as in the `needs a destination` note below) to a layer slot: `base`,
+`os`, `profile` or `machine`. Any other value is `destination <key> is not a layer`. (`base` is accepted since phase 7,
+for an answer of "all machines", [New settings](#new-settings-program-only).)
 
 **Writes to the state folder.** Before a run overwrites or removes a file under `<state>/profiles/` or
 `<state>/machines/`, it copies the old file into the run's dated folder (`backups/<run>/profiles/…`,
@@ -933,7 +943,9 @@ and its `os` includes this system. The order is the profile's, then `add`'s.
 With a record, on `import`, `export` and `setup` alike, a placeholder's value comes from the record's `values`, then
 the profile's `values`; `.user-values.json` is neither read nor written. Inference and the prompt
 ([Sanitize and hydrate](#sanitize-and-hydrate)) follow as before, and a value inferred or asked during the run is saved
-where it belongs, in the state folder, the way `setup` writes the record and the profile (profile first):
+where it belongs, in the state folder — or, with a pointer record, in the clone's `machines/<name>.json` and
+`profiles/<name>.json`, a write that prints no status line — the way `setup` writes the record and the profile
+(profile first):
 
 | Placeholder | Kept on |
 |---|---|
@@ -1116,12 +1128,23 @@ retired is refused, naming the first such record by name:
 `ERROR: profile <name> is used by machine <machine>; retire or move that machine first.`, exit 1. A retired profile
 isn't listed by `setup`; a retired machine isn't offered for `--replace` and can't push.
 
+**The repo store.** When `machine.json` is the pointer `{"name": <name>, "home": "repo"}` (written by the
+[first backup](#public-repo-guard-program-only)), both commands read and write `machines/<name>.json` and
+`profiles/<name>.json` in the repo; the state folder is left as it is. A run reads only its own record,
+`machines/<name>.json`, so another machine's broken record doesn't stop it; only `profile retire`'s "used by" reads
+every record under `machines/`. A repo record or profile that can't be read stops any command with
+`ERROR: <repo path> can't be read: <reason>.` and exit 2, before anything is written; `<reason>` is the record's or
+profile's own (`not valid JSON`, …), or for a file that can't be opened `a folder in its place` or
+`no read permission`.
+
 ### Public-repo guard (program only)
 
 Until the repo is private, profiles, records and values never reach it.
 
-**Visibility.** The guard judges where a push goes: `origin`'s push URL (`git remote get-url --push origin`). For an
-origin on `github.com`: `gh repo view github.com/<owner>/<repo> --json visibility` when `gh` is signed in, otherwise
+**Visibility.** The guard judges where a push goes: every push URL of `origin` (`git remote get-url --push --all
+origin`), each judged as below. Any public URL makes the repo public; it is private only when every URL reads
+private. With no push URL, `MKSYNC_VISIBILITY` answers, as for any other origin; a git failure other than a missing
+origin reads the visibility as unknown, whatever the variable says. For an origin on `github.com`: `gh repo view github.com/<owner>/<repo> --json visibility` when `gh` is signed in, otherwise
 `GET https://api.github.com/repos/<owner>/<repo>`; each gets 5 seconds. A `gh` that fails or runs past its 5 seconds
 can't tell, and the API is asked; any API failure (no network, no answer in time, an unknown value) counts as public. An owner must start with a letter or digit; a `github.com` origin that doesn't parse is public. An SSH origin
 (`ssh://[user@]host[:port]/path` or `[user@]host:path`) on another host name is resolved with `ssh -G <host>`: an alias
@@ -1153,6 +1176,198 @@ The record checks run first, then this one. While public, a clone whose tracked 
 fails or git can't start) stops `export` the same way, exit 1:
 `ERROR: can't list the clone's files, so the public-repo guard can't check them.` A private repo needs no listing.
 A folder with no `.git` isn't a clone and tracks nothing, so nothing is refused.
+
+**The first backup.** When the guard reads private and the record isn't the pointer yet, `export --preview` ends with
+the files a first backup would add, sorted, in place of the held line:
+
+```text
+First backup: profiles and machines
+  machines/wk1-laptop.json
+  profiles/work-1.json
+```
+
+The list holds the record, its profile, and every file in their layer folders (`<state>/machines/<name>/` as
+`machines/<name>/…`, `<state>/profiles/<profile>/` as `profiles/<profile>/…`). `export` writes them into the repo,
+after the entries, each with an `ADDED` or `MODIFIED` status line and its repo path as the label. When the repo already
+holds `profiles/<profile>.json`, the two copies are merged: modules joined in the repo copy's order then this
+machine's new ones, `destinations` joined, `retired` if either says so. The files are read after the export's own
+writes, so a layer file or destination the same export adds is in the backup; a path the export already printed a
+status line for isn't printed again. A value or destination the two copies set differently is asked, once per key, in
+key order, after the [push preview](#push-preview-program-only) block and the
+[new-setting](#new-settings-program-only) questions, and before any write:
+
+```text
+<YOUR_EMAIL> differs on profile work-1:
+  repo:         jane@work1.example.com
+  this machine: jane.doe@work1.example.com
+Keep which? 1) the repo's  2) this machine's [1]
+```
+
+The question is printed with one space after it and no newline; answers are read as [`setup`](#mksync-setup) reads
+them (`Pick 1 to 2.`), from the same input as the new-setting questions, and `--yes` keeps the repo's without asking.
+A destination is shown by its layer slot. When
+every file is written, `<state>/machine.json` becomes `{"name": <name>, "home": "repo"}`; from then on the record, the
+profile and both layer folders are read from the repo, and every state write in this contract goes to the repo's
+copy. A write that fails prints `ERROR: first backup stopped at <repo path>: <reason>.`, puts back the files this
+backup already wrote (removes the ones it added, restores the earlier text of the ones it changed), leaves
+`machine.json` as it was, and the export exits 1. A path that runs through a symlink in the clone (`machines/` itself,
+or a layer file) stops it before any write with `<reason>` `a symlink`. A symlink in the state's layer folders
+(`<state>/machines/<name>/`, `<state>/profiles/<profile>/`), or a file there whose bytes aren't UTF-8 text, stops it
+before any write too, with the state path in place of the repo path, `<reason>` `a symlink` or `not UTF-8 text`, and
+exit 2, as any state file that can't be read. A write of the export itself that fails ends the export with exit 1 and
+no backup. A record already in the pointer form has no first backup.
+
+### Push preview (program only)
+
+The push side shows its changes grouped by who receives them, widest first. `export --preview` prints the block after
+its status lines and before the `--stat` summary; `export` prints it before it writes. It prints only when at least
+one change or new setting is found, so a run with nothing to send looks as before.
+
+```text
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  vscode  settings.json     editor.fontSize: 14 -> 15
+Windows machines
+  2  M  git     .gitconfig.local  1 line(s) changed
+Profile work-1
+  3  +  claude  settings.json     permissions.allow[]: "Bash(work-tool-1 status)"
+This machine only
+     (none)
+```
+
+- **Header.** `Changes on <machine> (profile <profile>):` from the record, then a blank line. With no record:
+  `Changes on this machine:` and only the first two groups (there's no profile or machine layer).
+- **Groups,** in this order, each always printed: `All machines` (base), `<OS> machines` for this machine's OS
+  (`Linux machines`, `Windows machines`, `macOS machines`), `Profile <profile>`, `This machine only`. An empty group is
+  one line `(none)`, indented to the kind column. A change belongs to the group of the layer it's written to
+  ([Layers](#layers-program-only)).
+- **Lines:** two spaces, the number, two spaces, the kind (`M` changed, `+` added, `-` removed), two spaces, the module,
+  two spaces, the file, two spaces, what changed. The number is right-aligned to the widest number in the block; module
+  and file are padded to the widest in the block. Numbers run from 1 in display order across all groups, then on
+  through [New settings](#new-settings-program-only).
+- **The file** is the entry's `file` without its first folder (`claude/settings.json` → `settings.json`,
+  `claude/docs/token-routing-map.html` → `docs/token-routing-map.html`); an `import` side file is its resolved
+  `importName` (`CLAUDE.work-1.md`); a file inside a `dir` entry is `<file>/<name inside>`.
+- **What changed.** For a `json` entry, one line per key path or array item: `<key path>: <old> -> <new>` (`M`),
+  `<key path>: <value>` (`+`, `-`), an array item as `<path>[]: <item>`. Values are compact JSON (`"text"`, `14`,
+  `{"a":1}`); one longer than 60 characters shows its first 57 and `...`. For a whole file, base text or side file:
+  `<n> line(s) changed`, `<n>` the larger of the lines added and removed by a line diff; a file new to its layer is
+  `+` with `new file, <n> line(s)`. A `dir` entry's file is a whole file.
+- **Order.** Groups as above; inside a group, the config's entry order, then key path in code-unit order, `-` before
+  `+` for one path.
+- **Values are the sanitized text,** as the layer will hold it: `<YOUR_EMAIL>`, never the value.
+
+Moving a change to another group ("Move a change?") comes with `mksync push` in phase 8; the numbers are already its
+handles.
+
+### New settings (program only)
+
+A new key or a new array item in a `json` entry has no layer yet ([Layers](#layers-program-only)). With a record,
+the push side lists it after the groups and asks where it goes:
+
+```text
+New settings
+  4  +  vscode  settings.json     chat.agent.enabled: true
+     Where does it go? 1) all machines  2) Windows machines  3) profile work-1  4) this machine [3]
+```
+
+- Choice 1 is the base, 2 this machine's OS layer, 3 the profile, 4 the machine. The suggestion in brackets is
+  `3` (the profile), or `1` when the profile is named `personal`.
+- A key or array item whose path has a destination in the profile's `destinations` isn't new: it goes there without
+  asking and is listed in that layer's group.
+- **Asking.** `export` asks each new setting in number order. A path's new items are listed together on consecutive
+  lines, and `export` asks once, after the path's last line; the answer covers all of them. The question is printed
+  with one space after it and no newline; answers are read as [`setup`](#mksync-setup) reads them: an empty answer or
+  end of input takes the suggestion, an answer that isn't `1` to `4` prints `Pick 1 to 4.` and asks again. `--yes`
+  takes every suggestion without asking; the block still prints, with no question line.
+- **The answer is stored.** The setting is written to the chosen layer (a missing layer file is created, `ADDED`). For
+  an array item, the destination key `<module> <file>: <path>` also goes into the profile's `destinations` with the
+  layer slot (`base`, `os`, `profile`, `machine`), so the next item there isn't asked; the file is the entry's `file`
+  as the block shows it, after its module folder, so the same path in another file is a different key
+  (`parity settings.json: delta[]`). The profile is written with its backup, as every state write. With a pointer
+  record that profile is the clone's `profiles/<profile>.json`, and the export lists that write
+  (`MODIFIED profiles/<profile>.json`) and counts it, as the first backup does; an import's write to the clone's
+  record prints no line. A new key's answer isn't stored: the key now has a layer.
+- **The preview** never asks: in place of each question, after the path's last line, it prints
+  `     goes to: <choice> (asked by mksync export)`, `<choice>` the suggestion's words (`profile work-1`). Its status
+  lines show the writes `export --yes` would make, the suggestion's layer included (`ADDED profiles/work-1/<file>`
+  when that layer file is new).
+- `--preview` with `--yes` stops with `ERROR: --preview and --yes can't be used together.`, exit 1, before anything
+  runs.
+- With no record nothing is asked: the [`needs a destination`](#layers-program-only) `ERROR` stays. A new file in a
+  `dir` entry isn't asked either; it goes to the entry's latest layer.
+
+### Profile values (program only)
+
+A profile's values don't leave the profile. Before the push side writes anything, each layer text bound for the base
+or an OS layer is searched, after sanitize, for every non-empty value of the record's profile, ignoring case. A hit
+stops the run with exit 1 before any write, two lines per hit, ordered by change number then placeholder:
+
+```text
+refused: change 1 (vscode settings.json) holds a value of profile work-1 (<YOUR_EMAIL>) and would reach all machines.
+Move it to "profile work-1", or put <YOUR_EMAIL> in the file instead.
+```
+
+`would reach` names the group in lower case (`all machines`, `linux machines`). The message names the placeholder,
+never the value. `export --preview` prints the same lines after the block and exits 1. Each value is searched in the
+forms sanitize replaces: as it is, with its backslashes doubled, and for a `json` entry as a JSON string body (`\\`,
+`\"`); a `json` entry's text is also searched with its `\uXXXX` and `\/` escapes read back. An `import` entry with no
+`importName` is still searched, its hit named by its repo path. The machine's values aren't searched. This is not a
+guarantee: a value written another way, or another profile's value, is the [leak scan's](#export-preview) job.
+
+### Statusline (program only)
+
+`mksync statusline` replaces `~/.claude/statusline.sh`: Claude Code runs it with its JSON payload on stdin, and it
+prints one line on stdout and exits 0, whatever fails. It takes no options or arguments (any is `Unknown option:
+<arg>`, exit 1) and prints nothing on stderr. Until cut-over the synced `settings.json` still calls the script.
+
+**Payload fields** (missing, `null` or a payload that isn't JSON: empty): `model.display_name`, `workspace.project_dir`,
+the directory (`cwd`, else `workspace.current_dir`, else `workspace.project_dir`), `cost.total_cost_usd`,
+`context_window.remaining_percentage`, `context_window.used_percentage`, `context_window.total_input_tokens`,
+`context_window.context_window_size`, `context_window.current_usage.cache_creation_input_tokens` and
+`cache_read_input_tokens` (0 when missing), `output_style.name`, `session_id`.
+
+**Context-window file.** When `session_id` matches `^[A-Za-z0-9_-]+$` and the window size is digits only, the size and a
+newline are written to `<CTX_WINDOW_DIR>/<session_id>` (default `~/.claude/state/ctx-window/`, folders created). A
+failed write is ignored.
+
+**Sections,** in this order, joined by ` ESC[90m|ESC[0m ` (a gray bar); each is wrapped in its color and `ESC[0m`, and
+left out when empty or when what it reads fails. Colors: gray `ESC[90m`, cyan `ESC[96m`, green `ESC[92m`, yellow
+`ESC[93m`, dim yellow `ESC[33m`, red `ESC[91m`, magenta `ESC[95m`, blue `ESC[94m`.
+
+| Section | Text | Color |
+|---|---|---|
+| Time | local `HH:MM` | gray |
+| Model | the display name | cyan |
+| Virtual env | `.venv` when the project folder has a `.venv` folder and a `pyproject.toml`; else the last part of `VIRTUAL_ENV`; else `conda:<CONDA_DEFAULT_ENV>` | green |
+| Project type | the first of `pyproject.toml` `Python`, `package.json` `Node.js`, `Cargo.toml` `Rust`, `go.mod` `Go`, a `*.csproj` or `*.sln` `.NET`, in the project folder | blue |
+| Directory | the directory's last part (a trailing `/` dropped) | yellow |
+| Git branch | in the directory (or the working folder when there's none): the branch, `*` when `git status --porcelain` lists anything, ` ↑<n>` and ` ↓<n>` against the upstream when not 0, then a space and the last commit's age from `%cr` shortened (`3 hours ago` → `3h`; `y`, `mo`, `w`, `d`, `h`, `m`, `s`) | magenta |
+| Git changes | `(+<ins>,-<del>)` summed over staged and unstaged `--numstat` (binary files skipped) when either is not 0, then `<n>?` for untracked files, space-separated | yellow |
+| Cost and context | `Cost: $<cost to 2 places>` (green under 0.5, dim yellow to 2, red above), then ` ESC[90m|ESC[0m ` when both, then the context part | per part |
+| Cached | `Cached: <tokens>`, cache creation plus cache read, when above 0 | cyan |
+| Load | `Load: <1-minute load average>` from `/proc/loadavg` | cyan |
+| Memory | `Mem: <used>G/<total>G`, one decimal, from `/proc/meminfo` (`MemTotal` minus `MemAvailable`, in GiB) | cyan |
+| Output style | the style name, unless it's `default` | blue |
+| Worker mode | `WORKER` when `~/.claude/state/worker-mode` exists | green |
+
+- **Context part.** The percent left is `remaining_percentage` rounded, else 100 minus `used_percentage`, rounded.
+  Color: green above 60, dim yellow from 30, red below. Text: `Context: <bar> <used>/<size> (<pct>%)` when both token
+  counts are there and the size isn't 0, else `Context: <bar> <pct>%`. The bar is `[` plus one `█` per full 10 percent
+  left (0 to 10) and `░` for the rest, plus `]`. The part ends with a space, dim yellow `CLEAR` and `ESC[0m`
+  (so the part ends with two resets) when the tokens used reach the clear limit: `CONTEXT_CLEAR_AT` (default 200000), or 70% of the window size
+  when that's smaller.
+- **Token counts:** `1.5k`, `2M`: one decimal over 1000 (`k`) and 1000000 (`M`), a trailing `.0` dropped; below 1000
+  the number rounded.
+- **Rounding** is C's `printf` on a double, the cost's 2 places included: the value as stored rounds to the nearest,
+  and only an exact tie goes to the even digit. `1050` tokens is `1.1k` (1.05 is stored a little above), `1250` is
+  `1.2k`, a cost of `0.125` is `0.12`.
+- **No section at all:** `Statusline data unavailable`.
+- **Windows:** Load and Memory are left out.
+- **Test overrides,** as `SYNC_HOSTNAME` is for the scan: `SYNC_NOW` is the time text, `SYNC_LOAD` the load text,
+  `SYNC_MEM` the memory as `<used>/<total>`, each in MiB, or in GiB with a `G` (`1280/2048`, `1.2G/2G`), shown as
+  the Memory section shows `/proc/meminfo`, and `SYNC_GIT=none` leaves out both git sections.
 
 ## macOS
 

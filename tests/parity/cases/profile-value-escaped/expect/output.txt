@@ -1,0 +1,13 @@
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  parity  settings.json  path: "C:\\Users\\user" -> "C:\\Users\\jdoe"
+Linux machines
+     (none)
+Profile work-1
+     (none)
+This machine only
+     (none)
+
+refused: change 1 (parity settings.json) holds a value of profile work-1 (<WORK_PATH>) and would reach all machines.
+Move it to "profile work-1", or put <WORK_PATH> in the file instead.

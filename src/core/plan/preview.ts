@@ -1,8 +1,24 @@
 import { STATE_FOLDER_ROOTS } from "../guard.ts";
+import { changeLines } from "./changes.ts";
 import { planExport } from "./export.ts";
+import { groupBlock, withoutNewSettings } from "./groups.ts";
+import {
+  newSettingChoices,
+  settingGroups,
+  suggestionAnswers,
+} from "./newsettings.ts";
+import type { NewSettingQuestion } from "./newsettings.ts";
+import { profileValueHits, refusedLines } from "./profilevalues.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
-import type { Action, Plan, RepoFiles, RunPlan, Snapshot } from "./types.ts";
+import type {
+  Action,
+  NewSettingLine,
+  Plan,
+  RepoFiles,
+  RunPlan,
+  Snapshot,
+} from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
 
@@ -13,6 +29,14 @@ const NO_COMMIT_ERROR = "ERROR: --preview needs a git repo with a commit.";
 const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
 const NOTHING_WRITTEN = "  Nothing was written. Run mksync push to send it.";
+
+/** Contract "The first backup": the group the preview ends with once the guard
+ * reads private and the record isn't the pointer yet. */
+const FIRST_BACKUP_HEADER = "First backup: profiles and machines";
+
+function firstBackupLines(paths: readonly string[]): readonly string[] {
+  return [FIRST_BACKUP_HEADER, ...paths.map((path) => `  ${path}`)];
+}
 
 /**
  * A profile's or machine's layer files live in the state folder, under the
@@ -107,24 +131,35 @@ function differsFromHead(
 }
 
 /**
+ * The status lines before the summary's first blank line, or all of them when
+ * it has none.
+ */
+function statusBody(rendered: readonly string[]): readonly string[] {
+  const summaryStart = rendered.indexOf("");
+  return summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
+}
+
+/**
  * The export's summary is replaced by the preview's, mirroring the nested
  * export a preview runs: it says how many files would change, or that the repo
  * is up to date, and the preview then says whether anything would be sent.
+ * `block` is the grouped block, printed after the body; the caller passes no
+ * lines when there is nothing to group.
  */
 function previewSummary(
   plan: RunPlan,
   rendered: readonly string[],
   repo: RepoFiles,
   head: RepoFiles,
+  block: readonly string[],
 ): readonly string[] {
-  const summaryStart = rendered.indexOf("");
-  const body = summaryStart === -1 ? rendered : rendered.slice(0, summaryStart);
+  const body = statusBody(rendered);
   const actions = plan.steps.flatMap((step) =>
     step.actions.map((entry) => entry.action),
   );
   const written = writtenCount(actions);
   const differs = differsFromHead(repo, actions, head);
-  const lines: string[] = [...body, "", DASHES, ""];
+  const lines: string[] = [...body, "", ...block, DASHES, ""];
   lines.push(
     written > 0
       ? `  ${written} file(s) would change.`
@@ -140,18 +175,43 @@ function previewSummary(
 }
 
 /**
+ * The block's `goes to:` notes, one per destination key: a group's note sits
+ * after its last line, the place the question takes in `export`. The array is
+ * sparse on purpose, so the lines before a group's last have no note.
+ */
+function goesToNotes(
+  settings: readonly NewSettingLine[],
+  question: NewSettingQuestion,
+): readonly string[] {
+  const notes: string[] = [];
+  for (const group of settingGroups(settings)) {
+    const last = group[group.length - 1];
+    if (last !== undefined) {
+      notes[last] =
+        `goes to: ${question.suggestion.words} (asked by mksync export)`;
+    }
+  }
+  return notes;
+}
+
+/**
  * The export preview: what a commit would send, from a snapshot and its `HEAD`
  * bytes. `workingTree` is the tree the export is compared against `HEAD`, when
  * the caller has more than the snapshot's repo files holds: it includes
  * `sync-config.json`, which belongs in the comparison but never in the export
- * plan. Without it the snapshot's own repo files are compared. It never
- * returns a write action.
+ * plan. Without it the snapshot's own repo files are compared. `firstBackup`
+ * is the paths a first backup would add, already sorted; the preview ends with
+ * their group. It never returns a write action.
  *
  * shortcut: the leak scan and the `--stat`/diff text belong to the adapter that
  * prints the plan, so the plan carries the status lines and the messages
  * around them; the adapter prints the diff when these lines leave it out.
  */
-export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
+export function planPreview(
+  snapshot: Snapshot,
+  workingTree?: RepoFiles,
+  firstBackup: readonly string[] = [],
+): Plan {
   if (snapshot.only.length > 0) {
     return { actions: [], lines: [ONLY_ERROR], code: 1 };
   }
@@ -161,18 +221,67 @@ export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
   }
 
   const exported = planExport(snapshot);
-  const rendered = renderRun(exported, NO_FAILURES);
+  const settings = exported.newSettings ?? [];
+  // The preview never asks: it plans the export again with every new setting
+  // answered by the suggestion, so its status lines and summary show the
+  // writes `export --yes` would make (contract "New settings", The preview).
+  const question =
+    settings.length > 0
+      ? newSettingChoices(snapshot.record, snapshot.os)
+      : undefined;
+  const plan =
+    question === undefined
+      ? exported
+      : planExport(snapshot, suggestionAnswers(settings, question));
+  const rendered = renderRun(plan, NO_FAILURES);
   if (rendered.code !== 0) {
     return { actions: [], lines: rendered.lines, code: rendered.code };
   }
+  const changes = changeLines(plan, snapshot);
+  const lines =
+    question === undefined ? changes : withoutNewSettings(changes, settings);
+  const block =
+    question === undefined
+      ? lines.length === 0
+        ? []
+        : groupBlock(lines, snapshot.record, snapshot.os, "push")
+      : groupBlock(
+          lines,
+          snapshot.record,
+          snapshot.os,
+          "push",
+          settings,
+          goesToNotes(settings, question),
+        );
+  // Contract "Profile values (program only)": a hit stops the preview with the
+  // refused lines after the block, instead of the summary and exit 0.
+  const hits = profileValueHits(plan, snapshot, lines);
+  const profileName = snapshot.record?.profile ?? snapshot.profile?.name;
+  if (hits.length > 0 && profileName !== undefined) {
+    return {
+      actions: [],
+      lines: [
+        ...statusBody(rendered.lines),
+        "",
+        ...block,
+        ...refusedLines(hits, profileName, snapshot.os),
+      ],
+      code: 1,
+    };
+  }
+  const previewed = previewSummary(
+    plan,
+    rendered.lines,
+    workingTree ?? snapshot.repoFiles,
+    head,
+    block,
+  );
   return {
     actions: [],
-    lines: previewSummary(
-      exported,
-      rendered.lines,
-      workingTree ?? snapshot.repoFiles,
-      head,
-    ),
+    lines:
+      firstBackup.length === 0
+        ? previewed
+        : [...previewed, ...firstBackupLines(firstBackup)],
     code: 0,
   };
 }

@@ -1,0 +1,21 @@
+{
+  "description": "A payload that isn't JSON prints only the time, load and memory sections and exits 0 [Statusline (program only)].",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "entries": []
+  },
+  "env": {
+    "SYNC_NOW": "09:30",
+    "SYNC_LOAD": "0.42",
+    "SYNC_MEM": "3.1G/15.5G",
+    "SYNC_GIT": "none",
+    "CONTEXT_CLEAR_AT": null
+  },
+  "commands": [
+    {
+      "command": "statusline",
+      "stdin": "not json\n"
+    }
+  ]
+}

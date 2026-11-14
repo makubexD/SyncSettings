@@ -1,0 +1,31 @@
+{
+  "hook_event_name": "Status",
+  "session_id": "example-session-1",
+  "version": "0.0.0",
+  "model": {
+    "id": "example-model",
+    "display_name": "Opus 5.5"
+  },
+  "workspace": {
+    "project_dir": "/tmp/example-project",
+    "current_dir": "/tmp/example-project/src"
+  },
+  "cwd": "/tmp/example-project/src",
+  "cost": {
+    "total_cost_usd": 0.42,
+    "total_duration_ms": 123456
+  },
+  "context_window": {
+    "total_input_tokens": 55000,
+    "context_window_size": 200000,
+    "used_percentage": 27.5,
+    "remaining_percentage": 72.5,
+    "current_usage": {
+      "cache_creation_input_tokens": 15000,
+      "cache_read_input_tokens": 40000
+    }
+  },
+  "output_style": {
+    "name": "Explanatory"
+  }
+}

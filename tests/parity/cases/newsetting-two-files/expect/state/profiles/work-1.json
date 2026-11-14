@@ -1,0 +1,11 @@
+{
+  "modules": [
+    "parity"
+  ],
+  "values": {},
+  "destinations": {
+    "parity settings.json: delta[]": "machine",
+    "parity other.json: delta[]": "base"
+  },
+  "retired": false
+}

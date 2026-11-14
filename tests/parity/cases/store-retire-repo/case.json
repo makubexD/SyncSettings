@@ -1,0 +1,29 @@
+{
+  "description": "machine retire with a pointer record sets retired on the clone's machines/wk1-laptop.json and leaves the state folder as it is (Retire, The repo store).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "machine-retire",
+      "options": {
+        "target": "wk1-laptop",
+        "yes": true
+      },
+      "output": "all"
+    }
+  ]
+}

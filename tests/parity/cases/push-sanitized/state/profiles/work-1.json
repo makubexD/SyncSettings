@@ -1,0 +1,8 @@
+{
+  "modules": ["parity"],
+  "values": {
+    "<YOUR_EMAIL>": "you@example.com"
+  },
+  "destinations": {},
+  "retired": false
+}

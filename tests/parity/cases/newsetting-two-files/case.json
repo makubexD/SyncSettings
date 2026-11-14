@@ -1,0 +1,41 @@
+{
+  "description": "export asks once per path in each file, reads 4 and 1, sends the first file's new array item to this machine's layer and the second file's to the base, and stores two destinations keyed by module, file and path, exit 0 (New settings (program only), Asking and The answer is stored).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      },
+      {
+        "file": "parity/other.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/other.json",
+        "description": "Parity JSON settings, other file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "stdin": "4\n1\n",
+      "output": "all"
+    }
+  ]
+}

@@ -1,7 +1,36 @@
 import type { Profile } from "../config/profile.ts";
 import type { ConfigV2, Os } from "../config/types.ts";
+import type { LayerName } from "../layers/select.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import type { Values } from "../values/sanitize.ts";
+
+/**
+ * One line of the push preview or the import check: the layer the change is
+ * written to, the kind, the module and file labels, and what changed. The
+ * adapter numbers and pads the lines (contract "Push preview (program only)").
+ */
+export interface ChangeLine {
+  readonly layer: LayerName;
+  readonly kind: "M" | "+" | "-";
+  readonly module: string;
+  readonly file: string;
+  readonly what: string;
+}
+
+/**
+ * One new setting the plan can't route: a json key or an array item with no
+ * destination (contract "New settings (program only)"). The adapter asks where
+ * it goes; the core only names it. `file` is the entry's file without its first
+ * folder, as a change line's is; `what` is `<path>: <value>`, the value
+ * compact, sanitized and cut as a change line's.
+ */
+export interface NewSettingLine {
+  readonly module: string;
+  readonly file: string;
+  readonly path: string;
+  readonly kind: "key" | "item";
+  readonly what: string;
+}
 
 /**
  * A file under `dotfiles/`, keyed by its repo path in forward slashes, with the
@@ -220,6 +249,11 @@ export interface RunPlan {
   readonly code: number;
   /** The placeholder whose missing value stopped the plan. */
   readonly missing?: string;
+  /**
+   * The new settings the plan couldn't route, in config entry order then the
+   * split's order. Absent when the plan lists none.
+   */
+  readonly newSettings?: readonly NewSettingLine[];
 }
 
 /**

@@ -19,6 +19,7 @@ import type { Values } from "../core/values/sanitize.ts";
 import { readSnapshot } from "./fs.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
 import { readStore, readText } from "./store.ts";
+import type { StoreLocation } from "./store.ts";
 
 export const V1_CONFIG = "sync-config.json";
 
@@ -89,6 +90,8 @@ export interface Layers {
   readonly profile?: Profile;
   readonly machine?: string;
   readonly record?: MachineRecord;
+  /** The store the layers were read from: writes and layer reads go there. */
+  readonly location: StoreLocation;
 }
 
 /**
@@ -106,10 +109,11 @@ export function loadLayers(
   if (!store.ok) {
     return store;
   }
-  const { profile, record } = store.value;
+  const { profile, record, location } = store.value;
   return {
     ok: true,
     value: {
+      location,
       ...(profile !== undefined ? { profile } : {}),
       ...(record !== undefined ? { machine: record.name, record } : {}),
     },
@@ -149,7 +153,6 @@ export async function buildSnapshot(
   command: RunCommand,
   cwd: string,
   env: Readonly<Record<string, string | undefined>>,
-  stateFolder: string,
   layers: Layers,
 ): Promise<Snapshot> {
   const values =
@@ -161,7 +164,7 @@ export async function buildSnapshot(
     config,
     os,
     home,
-    stateFolder,
+    location: layers.location,
     cwd,
     values,
     env,

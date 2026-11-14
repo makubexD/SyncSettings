@@ -1,0 +1,25 @@
+{
+  "description": "export --preview while the guard reads private and the record isn't the pointer ends with the files a first backup would add, sorted, in place of the held line (Public-repo guard (program only), The first backup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "preview",
+      "output": "all"
+    }
+  ]
+}

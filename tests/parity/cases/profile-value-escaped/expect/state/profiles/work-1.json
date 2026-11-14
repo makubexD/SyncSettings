@@ -1,0 +1,8 @@
+{
+  "modules": ["parity"],
+  "values": {
+    "<WORK_PATH>": "C:\\Users\\jdoe"
+  },
+  "destinations": {},
+  "retired": false
+}

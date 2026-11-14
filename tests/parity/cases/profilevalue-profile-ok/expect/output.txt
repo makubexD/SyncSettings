@@ -1,0 +1,21 @@
+Changes on wk1-laptop (profile work-1):
+
+All machines
+     (none)
+Linux machines
+     (none)
+Profile work-1
+  1  M  parity  settings.json  email: "old@example.com" -> "jane@work1.example.com"
+This machine only
+     (none)
+
+  MODIFIED   profiles/work-1/parity/settings.json
+
+  --------------------------------------------------
+
+  1 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+

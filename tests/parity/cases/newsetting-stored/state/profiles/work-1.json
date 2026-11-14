@@ -1,0 +1,8 @@
+{
+  "modules": ["parity"],
+  "values": {},
+  "destinations": {
+    "parity settings.json: delta[]": "os"
+  },
+  "retired": false
+}

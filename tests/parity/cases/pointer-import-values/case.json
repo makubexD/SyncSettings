@@ -1,0 +1,49 @@
+{
+  "description": "Import --force with a pointer record takes <HOME> from the entry's rule, writes the local file, and saves the value on the clone's machines/wk1-laptop.json, leaving the state's machine.json the pointer (Machines (program only), values on a machine; The first backup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      },
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<HOME>",
+            "prompt": "Home folder",
+            "default": "/home/user"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

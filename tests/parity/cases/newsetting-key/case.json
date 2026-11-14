@@ -1,0 +1,36 @@
+{
+  "description": "export --yes sends a new key to the suggested profile layer and does not store it in destinations, since the key now has a layer; the missing layer file is ADDED, exit 0 (New settings (program only), The answer is stored).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "yes": true
+      },
+      "output": "all"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "description": "statusline prints every section in the contract's order, with ANSI colors, exit 0 [Statusline (program only)].",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "entries": []
+  },
+  "env": {
+    "SYNC_NOW": "09:30",
+    "SYNC_LOAD": "0.42",
+    "SYNC_MEM": "3.1G/15.5G",
+    "SYNC_GIT": "none",
+    "CONTEXT_CLEAR_AT": null
+  },
+  "commands": [
+    {
+      "command": "statusline",
+      "stdin": "{\"model\":{\"display_name\":\"Claude Example\"},\"cwd\":\"/nonexistent/parity-proj\",\"cost\":{\"total_cost_usd\":0.12},\"context_window\":{\"remaining_percentage\":60,\"used_percentage\":40,\"total_input_tokens\":80000,\"context_window_size\":200000,\"current_usage\":{\"cache_creation_input_tokens\":1000,\"cache_read_input_tokens\":500}},\"output_style\":{\"name\":\"explanatory\"}}\n"
+    }
+  ]
+}

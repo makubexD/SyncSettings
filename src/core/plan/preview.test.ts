@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Profile } from "../config/profile.ts";
 import type { ConfigV2 } from "../config/types.ts";
+import type { MachineRecord } from "../machine/record.ts";
 import { planPreview } from "./preview.ts";
 import type { LocalEntry, RepoFiles, Snapshot } from "./types.ts";
 
@@ -30,9 +31,28 @@ const PROFILE: Profile = {
   retired: false,
 };
 
+const VALUE_PLACEHOLDER = "<YOUR_EMAIL>";
+
+const PROFILE_VALUE = "jane@work1.example.com";
+
+const PROFILE_WITH_VALUE: Profile = {
+  ...PROFILE,
+  values: { [VALUE_PLACEHOLDER]: PROFILE_VALUE },
+};
+
+const REFUSED_LINE = `refused: change 1 (test conf) holds a value of profile ${PROFILE_NAME} (${VALUE_PLACEHOLDER}) and would reach all machines.`;
+
+const REFUSED_ADVICE = `Move it to "profile ${PROFILE_NAME}", or put ${VALUE_PLACEHOLDER} in the file instead.`;
+
 const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
 const NO_CHANGES = "  Repo is up to date. No changes detected.";
+
+const PUSH_HEADER = "Changes on this machine:";
+
+const CHANGED_LINE = "  1  M  test  conf  1 line(s) changed";
+
+const CHANGES_SUMMARY = "  1 file(s) would change.";
 
 const CONFIG: ConfigV2 = {
   schemaVersion: 2,
@@ -46,6 +66,62 @@ const CONFIG: ConfigV2 = {
     },
   ],
 };
+
+const JSON_BASE_PATH = "dotfiles/common/parity/settings.json";
+
+const JSON_OS_PATH = "dotfiles/linux/parity/settings.json";
+
+const JSON_LOCAL_PATH = "/home/user/.config/parity/settings.json";
+
+const JSON_CONFIG: ConfigV2 = {
+  schemaVersion: 2,
+  modules: { parity: { description: "Parity case files" } },
+  entries: [
+    {
+      file: "parity/settings.json",
+      module: "parity",
+      merge: "json",
+      localPath: "~/.config/parity/settings.json",
+    },
+  ],
+};
+
+const JSON_BASE_TEXT = '{"baseKey": 1, "delta": ["x"]}';
+
+const JSON_OS_TEXT = '{"osKey": "linux"}';
+
+const JSON_LOCAL_TEXT =
+  '{"baseKey": 2, "osKey": "linux", "delta": ["x", "new item"]}';
+
+const PARITY_PROFILE: Profile = {
+  name: PROFILE_NAME,
+  modules: ["parity"],
+  values: {},
+  destinations: {},
+  retired: false,
+};
+
+const RECORD: MachineRecord = {
+  name: "wk1-laptop",
+  profile: PROFILE_NAME,
+  os: "linux",
+  hostname: "wk1-laptop",
+  domain: null,
+  claude: "claude",
+  pullOnly: false,
+  modules: { add: [], remove: [] },
+  values: {},
+  replaced: [],
+  retired: false,
+};
+
+const NEW_SETTINGS_TITLE = "New settings";
+
+const NEW_SETTING_LINE = '  2  +  parity  settings.json  delta[]: "new item"';
+
+const GOES_TO_LINE = "     goes to: profile work-1 (asked by mksync export)";
+
+const PROFILE_SETTINGS_ADDED = "profiles/work-1/parity/settings.json";
 
 function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -76,6 +152,40 @@ function snapshot(
     only: [],
     ...(profile !== undefined ? { profile } : {}),
     headFiles,
+  };
+}
+
+/** A snapshot whose json entry holds a new array item, with a machine record
+ * when one is given. */
+function jsonPreview(record?: MachineRecord): Snapshot {
+  const base = bytes(JSON_BASE_TEXT);
+  const os = bytes(JSON_OS_TEXT);
+  const local: LocalEntry = {
+    kind: "file",
+    path: JSON_LOCAL_PATH,
+    bytes: bytes(JSON_LOCAL_TEXT),
+    mode: 0o644,
+  };
+  return {
+    config: JSON_CONFIG,
+    os: "linux",
+    home: HOME,
+    cwd: HOME,
+    repoFiles: new Map([
+      [JSON_BASE_PATH, base],
+      [JSON_OS_PATH, os],
+    ]),
+    localFiles: new Map([[JSON_LOCAL_PATH, local]]),
+    localDirs: new Set(["/home/user/.config/parity"]),
+    values: {},
+    env: {},
+    only: [],
+    profile: PARITY_PROFILE,
+    headFiles: new Map([
+      [JSON_BASE_PATH, base],
+      [JSON_OS_PATH, os],
+    ]),
+    ...(record !== undefined ? { record } : {}),
   };
 }
 
@@ -175,6 +285,107 @@ describe("planPreview", () => {
     expect(result.code).toBe(0);
     expect(result.lines).toContain(NO_CHANGES);
     expect(result.lines).toContain(MATCHES_HEAD);
+  });
+
+  test("should print the grouped block when the export would change a file", () => {
+    // Arrange
+    const repoFile = bytes("old\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview = snapshot(repoFiles, headFiles, bytes("new\n"));
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(PUSH_HEADER);
+    expect(result.lines).toContain("All machines");
+    expect(result.lines).toContain(CHANGED_LINE);
+    expect(result.lines).toContain("Linux machines");
+    expect(result.lines).toContain("     (none)");
+    expect(result.lines.indexOf(PUSH_HEADER)).toBeLessThan(
+      result.lines.indexOf(CHANGES_SUMMARY),
+    );
+  });
+
+  test("should refuse when a base write holds a profile value", () => {
+    // Arrange
+    const base = bytes('{"email": "old@example.com"}');
+    const repoFiles = new Map([[REPO_FILE, base]]);
+    const headFiles = new Map([[REPO_FILE, base]]);
+    const preview = snapshot(
+      repoFiles,
+      headFiles,
+      bytes(`{"email": "${PROFILE_VALUE}"}`),
+      PROFILE_WITH_VALUE,
+    );
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.lines).toContain(PUSH_HEADER);
+    expect(result.lines.slice(-2)).toEqual([REFUSED_LINE, REFUSED_ADVICE]);
+  });
+
+  test("should print no refused lines when no shared-layer write holds a profile value", () => {
+    // Arrange
+    const repoFile = bytes("old\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview = snapshot(
+      repoFiles,
+      headFiles,
+      bytes("new\n"),
+      PROFILE_WITH_VALUE,
+    );
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines.some((line) => line.startsWith("refused:"))).toBe(
+      false,
+    );
+    expect(result.lines).toContain(CHANGES_SUMMARY);
+  });
+
+  test("should print no grouped block when the export would change nothing", () => {
+    // Arrange
+    const repoFile = bytes("same\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview = snapshot(repoFiles, headFiles, repoFile);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(NO_CHANGES);
+    expect(result.lines).not.toContain(PUSH_HEADER);
+    expect(result.lines).not.toContain("All machines");
+  });
+
+  test("should list a new setting with its goes-to line and the suggestion's layer in the status lines", () => {
+    // Arrange
+    const preview = jsonPreview(RECORD);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.lines).toContain(NEW_SETTINGS_TITLE);
+    expect(result.lines).toContain(NEW_SETTING_LINE);
+    expect(result.lines).toContain(GOES_TO_LINE);
+    expect(result.lines).toContain(
+      `  ADDED      ${PROFILE_SETTINGS_ADDED}`,
+    );
+    expect(result.lines.some((line) => line.includes("ERROR"))).toBe(false);
   });
 
   test.each([

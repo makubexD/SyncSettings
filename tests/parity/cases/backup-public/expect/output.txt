@@ -1,0 +1,18 @@
+
+  --------------------------------------------------
+
+  Repo is up to date. No changes detected.
+
+  Nothing would be sent: the repo matches HEAD.
+  Nothing was written. Run mksync push to send it.
+
+held until the repo is private: 2 file(s)
+  machines/wk1-laptop.json
+  profiles/work-1.json
+
+  --------------------------------------------------
+
+  Repo is up to date. No changes detected.
+
+  --------------------------------------------------
+

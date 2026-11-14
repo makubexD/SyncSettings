@@ -9,7 +9,7 @@
  */
 
 /** Whether the repo can receive profiles, machine records and values. */
-export type Visibility = "public" | "private";
+export type RemoteVisibility = "public" | "private" | "unknown";
 
 /** What one command run returned: its exit code and raw stdout text. */
 export interface CommandOutput {
@@ -84,6 +84,9 @@ const OK = 200;
 
 /** A command that could not start has no exit code; report it as -1. */
 const FAILED_TO_START = -1;
+
+/** git's exit code for a remote that doesn't exist. */
+const NO_SUCH_REMOTE = 2;
 
 /** The variable that decides visibility for origins other than `github.com`. */
 const VISIBILITY_VARIABLE = "MKSYNC_VISIBILITY";
@@ -278,7 +281,7 @@ async function readFromGh(
   repo: GitHubRepo,
   run: VisibilityDeps["run"],
   timeoutMs: number,
-): Promise<Visibility | undefined> {
+): Promise<RemoteVisibility | undefined> {
   let output: CommandOutput;
   try {
     const signal = AbortSignal.timeout(timeoutMs);
@@ -322,7 +325,7 @@ async function readFromApi(
   repo: GitHubRepo,
   fetchReply: VisibilityDeps["fetch"],
   timeoutMs: number,
-): Promise<Visibility> {
+): Promise<RemoteVisibility> {
   try {
     const signal = AbortSignal.timeout(timeoutMs);
     const reply = await fetchReply(
@@ -343,7 +346,7 @@ async function readFromApi(
 async function askGitHub(
   repo: GitHubRepo,
   deps: VisibilityDeps,
-): Promise<Visibility> {
+): Promise<RemoteVisibility> {
   const timeoutMs = deps.timeoutMs ?? API_TIMEOUT_MS;
   const fromGh = await readFromGh(repo, deps.run, timeoutMs);
   if (fromGh !== undefined) {
@@ -355,8 +358,18 @@ async function askGitHub(
 /** Follow `MKSYNC_VISIBILITY`, defaulting to public. */
 function readVariable(
   env: Readonly<Record<string, string | undefined>>,
-): Visibility {
+): RemoteVisibility {
   return env[VISIBILITY_VARIABLE] === "private" ? "private" : "public";
+}
+
+/**
+ * The visibility with no push URL to read: only the variable can answer, and
+ * an unset one leaves the guard unable to tell.
+ */
+function readVariableOrUnknown(
+  env: Readonly<Record<string, string | undefined>>,
+): RemoteVisibility {
+  return env[VISIBILITY_VARIABLE] === "private" ? "private" : "unknown";
 }
 
 /**
@@ -368,7 +381,7 @@ async function readSshOrigin(
   ssh: SshOrigin,
   env: Readonly<Record<string, string | undefined>>,
   deps: VisibilityDeps,
-): Promise<Visibility> {
+): Promise<RemoteVisibility> {
   if (ssh.host.length === 0 || ssh.host.startsWith("-")) {
     return "public";
   }
@@ -387,29 +400,84 @@ async function readSshOrigin(
 }
 
 /**
- * Whether the repo is public or private. A `github.com` origin, directly or
+ * The visibility one push URL names. A `github.com` origin, directly or
  * through an SSH host alias, ignores `MKSYNC_VISIBILITY` and fails closed;
- * every other origin, including no origin at all, reads the variable and
- * defaults to public. An SSH host that is unsafe or cannot be resolved is
- * public, and no other origin ever runs `ssh`.
+ * every other origin reads the variable and defaults to public. An SSH host
+ * that is unsafe or cannot be resolved is public, and no other origin ever
+ * runs `ssh`. An entry that names no URL at all leaves the guard unable to
+ * tell.
  */
-export async function readVisibility(
-  origin: string | undefined,
+async function readOneVisibility(
+  origin: string,
   env: Readonly<Record<string, string | undefined>>,
-  deps: VisibilityDeps = DEFAULT_DEPS,
-): Promise<Visibility> {
-  const repo = origin === undefined ? undefined : parseGitHubOrigin(origin);
+  deps: VisibilityDeps,
+): Promise<RemoteVisibility> {
+  if (origin.trim() === "") {
+    return "unknown";
+  }
+  const repo = parseGitHubOrigin(origin);
   if (repo !== undefined) {
     return await askGitHub(repo, deps);
   }
-  const ssh = origin === undefined ? undefined : parseSshOrigin(origin);
+  const ssh = parseSshOrigin(origin);
   if (ssh !== undefined) {
     return await readSshOrigin(ssh, env, deps);
   }
   // A github.com origin in a form the parser doesn't know (a trailing slash,
   // a user name, other case) must not reach the variable: it fails closed.
-  if (origin !== undefined && GITHUB_HOST.test(origin)) {
+  if (GITHUB_HOST.test(origin)) {
     return "public";
   }
   return readVariable(env);
+}
+
+/**
+ * Every push URL a `git remote get-url --push --all origin` run names, one per
+ * trimmed, non-empty stdout line. An exit 2 means the remote doesn't exist, so
+ * no URL answers; `undefined` (git didn't start) or any other failure leaves
+ * the guard unable to tell.
+ */
+export function originUrls(
+  output: CommandOutput | undefined,
+): readonly string[] | undefined {
+  if (output === undefined) {
+    return undefined;
+  }
+  if (output.code !== 0) {
+    return output.code === NO_SUCH_REMOTE ? [] : undefined;
+  }
+  return output.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}
+
+/**
+ * Whether the repo is public or private, from every push URL `origin` names
+ * (`git remote get-url --push --all origin`). Any public URL makes the repo
+ * public; a non-empty list is private only when every URL reads private; a
+ * URL that can't tell, or no URL at all, is unknown. With no URL only
+ * `MKSYNC_VISIBILITY` can answer, keeping its override as it was; a read git
+ * cannot make (`undefined`) is unknown whatever the variable says.
+ */
+export async function readVisibility(
+  origins: readonly string[] | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+  deps: VisibilityDeps = DEFAULT_DEPS,
+): Promise<RemoteVisibility> {
+  if (origins === undefined) {
+    return "unknown";
+  }
+  if (origins.length === 0) {
+    return readVariableOrUnknown(env);
+  }
+  const readings = await Promise.all(
+    origins.map(async (origin) => await readOneVisibility(origin, env, deps)),
+  );
+  if (readings.includes("public")) {
+    return "public";
+  }
+  return readings.every((reading) => reading === "private")
+    ? "private"
+    : "unknown";
 }

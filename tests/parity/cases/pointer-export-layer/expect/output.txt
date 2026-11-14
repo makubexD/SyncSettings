@@ -1,0 +1,21 @@
+Changes on wk1-laptop (profile work-1):
+
+All machines
+     (none)
+Linux machines
+     (none)
+Profile work-1
+     (none)
+This machine only
+  1  M  parity  settings.json  machineKey: 1 -> 2
+
+  MODIFIED   machines/wk1-laptop/parity/settings.json
+
+  --------------------------------------------------
+
+  1 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+

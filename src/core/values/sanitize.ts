@@ -82,7 +82,9 @@ export function placeholderToken(index: number): Uint8Array {
 export function jsonStringBody(value: string): string {
   const encoded = JSON.stringify(value) as string | undefined;
   if (encoded === undefined) {
-    throw new TypeError("JSON.stringify returned undefined for a string value.");
+    throw new TypeError(
+      "JSON.stringify returned undefined for a string value.",
+    );
   }
   return encoded.slice(1, -1);
 }
@@ -124,7 +126,12 @@ export function placeholdersByLength(
   return unique;
 }
 
-function formsFor(value: string, json: boolean): readonly string[] {
+/**
+ * The forms `value` takes in a file, in the order sanitize replaces them: its
+ * JSON string body when `json`, its backslashes doubled, then the value
+ * itself.
+ */
+export function formsFor(value: string, json: boolean): readonly string[] {
   const forms: string[] = [];
   if (json) {
     forms.push(jsonStringBody(value));
@@ -158,7 +165,11 @@ export function sanitize(
     }
   }
   for (const [index, placeholder] of placeholders.entries()) {
-    result = replaceAllBytes(result, placeholderToken(index), encodeUtf8(placeholder));
+    result = replaceAllBytes(
+      result,
+      placeholderToken(index),
+      encodeUtf8(placeholder),
+    );
   }
   return result;
 }

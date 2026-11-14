@@ -1,0 +1,15 @@
+  MODIFIED   dotfiles/common/parity/settings.json
+  MODIFIED   dotfiles/linux/parity/settings.json
+
+Changes on this machine:
+
+All machines
+  1  M  parity  settings.json  baseKey: 1 -> 2
+Linux machines
+  2  M  parity  settings.json  osKey: "base" -> "changed"
+
+  --------------------------------------------------
+
+  2 file(s) would change.
+  Nothing was written. Run mksync push to send it.
+

@@ -1,8 +1,10 @@
 import {
   chmodSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import type { Dirent } from "node:fs";
@@ -18,6 +20,12 @@ import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
 import type { JsonValue } from "../core/json/value.ts";
 import { writeJson } from "../core/json/value.ts";
 import { LAYER_NAME } from "../core/layers/names.ts";
+import type {
+  FirstBackupWrites,
+  LayerFile,
+  LocalBackup,
+  RepoBackup,
+} from "../core/machine/backup.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import {
   parseRecord,
@@ -39,11 +47,37 @@ const PROFILE_EXTENSION = ".json";
  * readable by the current user only. */
 const PRIVATE_MODE = 0o600;
 
+/** Where a store keeps its record and profiles, and where a write goes. */
+export interface StoreLocation {
+  /** The record file: `<state>/machine.json`, or the repo's
+   * `machines/<name>.json` while the local record is a pointer. */
+  readonly recordFile: string;
+  /** The folder holding this store's profiles. */
+  readonly profilesFolder: string;
+  /** True for the state folder, whose files only the user may read; repo
+   * files keep the mode the clone gives them. */
+  readonly privateFiles: boolean;
+}
+
 /** What a run reads from the record store: contract "Where records are kept". */
 export interface Store {
   readonly record?: MachineRecord;
   readonly profile?: Profile;
   readonly profiles: readonly Profile[];
+  /** The records "used by" a profile checks: this machine's record; every
+   * record in the repo's `machines/` while the local record is a pointer and
+   * the read asks for it with `StoreOptions.usedBy`. */
+  readonly records: readonly MachineRecord[];
+  /** Where a write of a retired record or profile goes. */
+  readonly location: StoreLocation;
+}
+
+/** What a store read asks for beyond the run's own record. */
+export interface StoreOptions {
+  /** Read every record under the repo's `machines/`, as `profile retire`'s
+   * "used by" check needs. Every other run reads only this machine's record,
+   * so another machine's broken record doesn't stop it. */
+  readonly usedBy?: boolean;
 }
 
 /** What a repo-home store holds: records other machines could take over, and
@@ -51,6 +85,15 @@ export interface Store {
 export interface RepoStore {
   readonly records: readonly MachineRecord[];
   readonly profiles: readonly Profile[];
+}
+
+/** The local store's paths, under the state folder. */
+function stateLocation(stateFolder: string): StoreLocation {
+  return {
+    recordFile: join(stateFolder, MACHINE_FILE),
+    profilesFolder: join(stateFolder, PROFILES_FOLDER),
+    privateFiles: true,
+  };
 }
 
 /**
@@ -67,6 +110,18 @@ export function readText(path: string): string | undefined {
 
 /** The error codes that mean the file isn't there, not that it can't be read. */
 const MISSING_CODES: readonly string[] = ["ENOENT", "ENOTDIR"];
+
+/** The codes `unreadableReason` names for a first backup's two refusals: a
+ * layer file that is a link, and one whose bytes aren't UTF-8 text. */
+const SYMLINK_CODE = "ESYMLINK";
+const NOT_TEXT_CODE = "ENOTUTF8";
+
+/** The fs code behind a caught error, if it carries one. */
+function errorCode(error: unknown): string | undefined {
+  const code: unknown =
+    error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+  return typeof code === "string" ? code : undefined;
+}
 
 /** Whether a caught read error is a missing file rather than an unreadable one. */
 function isMissingError(error: unknown): boolean {
@@ -85,7 +140,26 @@ function isMissingError(error: unknown): boolean {
 type FileText =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "missing" }
-  | { readonly kind: "unreadable" };
+  | { readonly kind: "unreadable"; readonly reason: string };
+
+/** Why a file that is there can't be read, in the contract's words; never the
+ * raw error text, which names the absolute path. */
+function unreadableReason(error: unknown): string {
+  const code = errorCode(error);
+  switch (code) {
+    case "EISDIR":
+      return "a folder in its place";
+    case "EACCES":
+    case "EPERM":
+      return "no read permission";
+    case SYMLINK_CODE:
+      return "a symlink";
+    case NOT_TEXT_CODE:
+      return "not UTF-8 text";
+    default:
+      return code ?? "unknown error";
+  }
+}
 
 /**
  * Read a record or profile file for the store. Only a missing file is
@@ -96,7 +170,9 @@ function readFileText(path: string): FileText {
   try {
     return { kind: "text", text: readFileSync(path, "utf8") };
   } catch (error) {
-    return { kind: isMissingError(error) ? "missing" : "unreadable" };
+    return isMissingError(error)
+      ? { kind: "missing" }
+      : { kind: "unreadable", reason: unreadableReason(error) };
   }
 }
 
@@ -112,6 +188,96 @@ function unreadableProfileError(name: string): ConfigError {
     `state folder): can't be read.`;
   return { message, code: 2 };
 }
+
+/** `profiles/<name>.json`, a profile's path in the repo. */
+function repoProfilePath(name: string): string {
+  return `${PROFILES_FOLDER}/${name}${PROFILE_EXTENSION}`;
+}
+
+/** The contract's line for a repo record or profile that can't be read,
+ * "Retire" and "The repo store". */
+function unreadableRepoError(
+  relativePath: string,
+  reason: string,
+): ConfigError {
+  return {
+    message: `ERROR: ${relativePath} can't be read: ${reason}.`,
+    code: 2,
+  };
+}
+
+/**
+ * How a profile read reports its errors: the state folder's lines, or the
+ * repo's `<repo path> can't be read: <reason>.` line.
+ */
+interface ProfileErrorLines {
+  readonly unreadable: (name: string, reason: string) => ConfigError;
+  readonly missing: (name: string, path: string) => ConfigError;
+  readonly parse: (name: string, error: ConfigError) => ConfigError;
+}
+
+/** The state folder's profile errors, from contract "The record". */
+const STATE_PROFILE_ERRORS: ProfileErrorLines = {
+  unreadable: unreadableProfileError,
+  missing: (name, path) => ({
+    message: `ERROR: profile ${name} not found: ${path}`,
+    code: 2,
+  }),
+  parse: (_name, error) => error,
+};
+
+/**
+ * The reason in an `ERROR: profile <name>: <reason>.` line.
+ * shortcut: `parseProfile` reports only that whole line, so the repo's
+ * `<repo path> can't be read: <reason>.` line has to take the reason back out
+ * of it rather than have its own.
+ */
+function profileReason(name: string, error: ConfigError): string {
+  const prefix = `ERROR: profile ${name}: `;
+  const body = error.message.startsWith(prefix)
+    ? error.message.slice(prefix.length)
+    : error.message;
+  return body.endsWith(".") ? body.slice(0, -1) : body;
+}
+
+/** The repo's profile errors, from contract "Retire", "The repo store". */
+const REPO_PROFILE_ERRORS: ProfileErrorLines = {
+  unreadable: (name, reason) =>
+    unreadableRepoError(repoProfilePath(name), reason),
+  missing: (name) => ({
+    message: `ERROR: profile ${name} not found: ${repoProfilePath(name)}`,
+    code: 2,
+  }),
+  parse: (name, error) =>
+    unreadableRepoError(repoProfilePath(name), profileReason(name, error)),
+};
+
+/** How a repo store read reports the files it can't read. */
+interface RepoErrorLines {
+  readonly record: (relativePath: string, reason: string) => ConfigError;
+  readonly unreadableRecord: (
+    relativePath: string,
+    reason: string,
+  ) => ConfigError;
+  readonly profiles: ProfileErrorLines;
+}
+
+/** The state folder's lines, kept for `setup --replace` reading it as a store. */
+const STATE_REPO_ERROR_LINES: RepoErrorLines = {
+  record: (_relativePath, reason) => ({
+    message: recordMessage(reason),
+    code: 2,
+  }),
+  unreadableRecord: () => unreadableRecordError(),
+  profiles: STATE_PROFILE_ERRORS,
+};
+
+/** The repo's lines, from contract "Retire", "The repo store". */
+const REPO_STORE_ERROR_LINES: RepoErrorLines = {
+  record: unreadableRepoError,
+  unreadableRecord: unreadableRepoError,
+  profiles: REPO_PROFILE_ERRORS,
+};
 
 /**
  * The name in a `{"name": <name>, "home": "repo"}` pointer, or `undefined`
@@ -183,29 +349,32 @@ function readProfileFile(
   folder: string,
   name: string,
   config: ConfigV2,
+  lines: ProfileErrorLines = STATE_PROFILE_ERRORS,
 ): LoadResult<Profile, ConfigError> {
   const path = join(folder, `${name}${PROFILE_EXTENSION}`);
   const read = readFileText(path);
   if (read.kind === "unreadable") {
-    return { ok: false, error: unreadableProfileError(name) };
+    return { ok: false, error: lines.unreadable(name, read.reason) };
   }
   if (read.kind === "missing") {
-    return {
-      ok: false,
-      error: { message: `ERROR: profile ${name} not found: ${path}`, code: 2 },
-    };
+    return { ok: false, error: lines.missing(name, path) };
   }
-  return parseProfile(name, read.text, config);
+  const parsed = parseProfile(name, read.text, config);
+  if (!parsed.ok) {
+    return { ok: false, error: lines.parse(name, parsed.error) };
+  }
+  return parsed;
 }
 
 /** Every profile in a profiles folder, sorted by name, with its parse result. */
 function readProfiles(
   folder: string,
   config: ConfigV2,
+  lines: ProfileErrorLines = STATE_PROFILE_ERRORS,
 ): LoadResult<readonly Profile[], ConfigError> {
   const profiles: Profile[] = [];
   for (const name of jsonNames(folder)) {
-    const parsed = readProfileFile(folder, name, config);
+    const parsed = readProfileFile(folder, name, config, lines);
     if (!parsed.ok) {
       return parsed;
     }
@@ -218,6 +387,8 @@ function readProfiles(
 interface StoreFiles {
   readonly record: MachineRecord;
   readonly profilesFolder: string;
+  readonly records: readonly MachineRecord[];
+  readonly location: StoreLocation;
 }
 
 function storeValue(
@@ -242,6 +413,8 @@ function storeValue(
       record: files.record,
       profile: profile.value,
       profiles: profiles.value,
+      records: files.records,
+      location: files.location,
     },
   };
 }
@@ -249,15 +422,18 @@ function storeValue(
 /**
  * Contract "Where records are kept": the record, its profile and every profile
  * in the same store, read from local state, or from the repo's `machines/` and
- * `profiles/` when the record is a `{"name", "home": "repo"}` pointer. No
- * record file means no record and only local profiles: a machine reads before
- * `setup` writes one. A bad record, a missing profile and a pointer whose
- * machine file isn't in the clone stop with exit code 2.
+ * `profiles/` when the record is a `{"name", "home": "repo"}` pointer. A
+ * pointer reads only `machines/<name>.json` and its own profile for the run;
+ * only `profile retire`'s "used by" check asks for every record. No record file
+ * means no record and only local profiles: a machine reads before `setup`
+ * writes one. A bad record, a missing profile and a pointer whose machine file
+ * isn't in the clone stop with exit code 2.
  */
 export function readStore(
   stateFolder: string,
   repoRoot: string,
   config: ConfigV2,
+  options: StoreOptions = {},
 ): LoadResult<Store, ConfigError> {
   const recordRead = readFileText(join(stateFolder, MACHINE_FILE));
   if (recordRead.kind === "unreadable") {
@@ -268,7 +444,14 @@ export function readStore(
     if (!profiles.ok) {
       return profiles;
     }
-    return { ok: true, value: { profiles: profiles.value } };
+    return {
+      ok: true,
+      value: {
+        profiles: profiles.value,
+        records: [],
+        location: stateLocation(stateFolder),
+      },
+    };
   }
 
   const repoName = repoHomeName(recordRead.text);
@@ -281,22 +464,20 @@ export function readStore(
       {
         record: record.value,
         profilesFolder: join(stateFolder, PROFILES_FOLDER),
+        records: [record.value],
+        location: stateLocation(stateFolder),
       },
       config,
     );
   }
 
-  const machineFile = `${MACHINES_FOLDER}/${repoName}${PROFILE_EXTENSION}`;
-  const repoRecordRead = readFileText(
-    join(repoRoot, MACHINES_FOLDER, `${repoName}${PROFILE_EXTENSION}`),
-  );
-  if (repoRecordRead.kind === "unreadable") {
-    // shortcut: the contract's record line names machine.json in the state
-    // folder, but a repo-home record's file is machines/<name>.json; both use
-    // the same line until the contract names one.
-    return { ok: false, error: unreadableRecordError() };
+  const own = readRepoRecord(repoRoot, repoName, config);
+  if (!own.ok) {
+    return own;
   }
-  if (repoRecordRead.kind === "missing") {
+  const record = own.value;
+  if (record === undefined) {
+    const machineFile = `${MACHINES_FOLDER}/${repoName}${PROFILE_EXTENSION}`;
     return {
       ok: false,
       error: {
@@ -305,52 +486,141 @@ export function readStore(
       },
     };
   }
-  // shortcut: the contract's record line names machine.json in the state
-  // folder, but a repo-home record's file is machines/<name>.json; both use
-  // the same line until the contract names one.
-  const record = readRecord(repoRecordRead.text, config);
-  if (!record.ok) {
-    return record;
+  let records: readonly MachineRecord[] = [record];
+  if (options.usedBy === true) {
+    const all = readRepoRecords(repoRoot, config);
+    if (!all.ok) {
+      return all;
+    }
+    records = all.value;
   }
-  return storeValue(
-    { record: record.value, profilesFolder: join(repoRoot, PROFILES_FOLDER) },
+  const profiles = readProfiles(
+    join(repoRoot, PROFILES_FOLDER),
     config,
+    REPO_PROFILE_ERRORS,
   );
+  if (!profiles.ok) {
+    return profiles;
+  }
+  const profile = profiles.value.find((item) => item.name === record.profile);
+  if (profile === undefined) {
+    return {
+      ok: false,
+      error: {
+        message:
+          `ERROR: profile ${record.profile} not found: ` +
+          repoProfilePath(record.profile),
+        code: 2,
+      },
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      record,
+      profile,
+      profiles: profiles.value,
+      records,
+      location: {
+        recordFile: join(
+          repoRoot,
+          MACHINES_FOLDER,
+          `${repoName}${PROFILE_EXTENSION}`,
+        ),
+        profilesFolder: join(repoRoot, PROFILES_FOLDER),
+        privateFiles: false,
+      },
+    },
+  };
+}
+
+/** One record from the repo's `machines/`, or `undefined` when the clone
+ * doesn't hold it. */
+function readRepoRecord(
+  repoRoot: string,
+  name: string,
+  config: ConfigV2,
+  lines: RepoErrorLines = REPO_STORE_ERROR_LINES,
+): LoadResult<MachineRecord | undefined, ConfigError> {
+  const relativePath = `${MACHINES_FOLDER}/${name}${PROFILE_EXTENSION}`;
+  const read = readFileText(
+    join(repoRoot, MACHINES_FOLDER, `${name}${PROFILE_EXTENSION}`),
+  );
+  if (read.kind === "unreadable") {
+    return {
+      ok: false,
+      error: lines.unreadableRecord(relativePath, read.reason),
+    };
+  }
+  if (read.kind === "missing") {
+    return { ok: true, value: undefined };
+  }
+  const record = parseRecord(read.text, config);
+  if (!record.ok) {
+    return {
+      ok: false,
+      error: lines.record(relativePath, record.error),
+    };
+  }
+  return { ok: true, value: record.value };
+}
+
+/** Every record under `machines/`, sorted by name, with the given error lines. */
+function readRepoRecords(
+  repoRoot: string,
+  config: ConfigV2,
+  lines: RepoErrorLines = REPO_STORE_ERROR_LINES,
+): LoadResult<readonly MachineRecord[], ConfigError> {
+  const records: MachineRecord[] = [];
+  for (const name of jsonNames(join(repoRoot, MACHINES_FOLDER))) {
+    const record = readRepoRecord(repoRoot, name, config, lines);
+    if (!record.ok) {
+      return record;
+    }
+    if (record.value !== undefined) {
+      records.push(record.value);
+    }
+  }
+  return { ok: true, value: records };
+}
+
+/** Every record under `machines/` and every profile under `profiles/`, sorted
+ * by name, with the given error lines. */
+function readRepoEntries(
+  repoRoot: string,
+  config: ConfigV2,
+  lines: RepoErrorLines,
+): LoadResult<RepoStore, ConfigError> {
+  const records = readRepoRecords(repoRoot, config, lines);
+  if (!records.ok) {
+    return records;
+  }
+  const profiles = readProfiles(
+    join(repoRoot, PROFILES_FOLDER),
+    config,
+    lines.profiles,
+  );
+  if (!profiles.ok) {
+    return profiles;
+  }
+  return {
+    ok: true,
+    value: { records: records.value, profiles: profiles.value },
+  };
 }
 
 /**
  * Contract "Where records are kept": the repo store, every machine record in
  * the clone's `machines/` and every profile in its `profiles/`, sorted by
- * name. `setup` reads it when the repo is private; a bad record stops with
- * exit code 2.
+ * name. `setup` reads it when the repo is private. Errors keep the lines the
+ * state folder uses, since `setup --replace` also reads a state folder this
+ * way; a pointer record's reads use the repo's own lines.
  */
 export function readRepoStore(
   repoRoot: string,
   config: ConfigV2,
 ): LoadResult<RepoStore, ConfigError> {
-  const records: MachineRecord[] = [];
-  const machinesFolder = join(repoRoot, MACHINES_FOLDER);
-  for (const name of jsonNames(machinesFolder)) {
-    const read = readFileText(
-      join(machinesFolder, `${name}${PROFILE_EXTENSION}`),
-    );
-    if (read.kind === "unreadable") {
-      return { ok: false, error: unreadableRecordError() };
-    }
-    if (read.kind === "missing") {
-      continue;
-    }
-    const record = readRecord(read.text, config);
-    if (!record.ok) {
-      return record;
-    }
-    records.push(record.value);
-  }
-  const profiles = readProfiles(join(repoRoot, PROFILES_FOLDER), config);
-  if (!profiles.ok) {
-    return profiles;
-  }
-  return { ok: true, value: { records, profiles: profiles.value } };
+  return readRepoEntries(repoRoot, config, STATE_REPO_ERROR_LINES);
 }
 
 function jsonString(value: string): JsonValue {
@@ -395,15 +665,408 @@ function writePrivateFile(path: string, text: string): void {
   chmodSync(path, PRIVATE_MODE);
 }
 
+/** Write a store's file: private in the state folder, unchanged in the repo. */
+function writeStoreFile(
+  location: StoreLocation,
+  path: string,
+  text: string,
+): void {
+  if (location.privateFiles) {
+    writePrivateFile(path, text);
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text);
+}
+
+/** Write a record to the store's record file. */
+export function writeStoreRecord(
+  location: StoreLocation,
+  record: MachineRecord,
+): void {
+  writeStoreFile(location, location.recordFile, recordText(record));
+}
+
+/** Write a profile to the store's profiles folder. */
+export function writeStoreProfile(
+  location: StoreLocation,
+  profile: Profile,
+): void {
+  writeStoreFile(
+    location,
+    join(location.profilesFolder, `${profile.name}${PROFILE_EXTENSION}`),
+    profileText(profile),
+  );
+}
+
 /** Write this machine's record to `<state>/machine.json`. */
 export function writeRecord(stateFolder: string, record: MachineRecord): void {
-  writePrivateFile(join(stateFolder, MACHINE_FILE), recordText(record));
+  writeStoreRecord(stateLocation(stateFolder), record);
 }
 
 /** Write a profile to `<state>/profiles/<name>.json`. */
 export function writeProfile(stateFolder: string, profile: Profile): void {
-  writePrivateFile(
-    join(stateFolder, PROFILES_FOLDER, `${profile.name}${PROFILE_EXTENSION}`),
-    profileText(profile),
+  writeStoreProfile(stateLocation(stateFolder), profile);
+}
+
+/** The first backup's two sides, as their stores hold them. */
+export interface BackupSides {
+  readonly local: LocalBackup;
+  readonly repo: RepoBackup;
+}
+
+/** One file the first backup writes, with the status line it prints. */
+export interface FirstBackupFile {
+  readonly path: string;
+  readonly text: string;
+  readonly status: "ADDED" | "MODIFIED";
+}
+
+/** The contract's line when a first backup write fails. */
+const FIRST_BACKUP_STOPPED = "ERROR: first backup stopped at";
+
+/**
+ * A first backup that stops: `code` names the reason in the contract's words
+ * through `unreadableReason`, and `path` is the state path a layer read
+ * stopped at, when the stop came from one.
+ */
+class FirstBackupStop extends Error {
+  readonly code: string | undefined;
+  readonly path: string | undefined;
+
+  constructor(code: string | undefined, path?: string) {
+    super(code ?? "first backup stopped");
+    this.code = code;
+    this.path = path;
+  }
+}
+
+function byRelativePath(
+  a: { readonly path: string },
+  b: { readonly path: string },
+): number {
+  if (a.path < b.path) {
+    return -1;
+  }
+  return a.path > b.path ? 1 : 0;
+}
+
+/** A layer file's text, or a first backup stop when its bytes aren't UTF-8
+ * text: decoding them as UTF-8 would turn them into U+FFFD. */
+function readLayerText(path: string): string {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(path);
+  } catch (error) {
+    throw new FirstBackupStop(errorCode(error), path);
+  }
+  const text = bytes.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(bytes)) {
+    throw new FirstBackupStop(NOT_TEXT_CODE, path);
+  }
+  return text;
+}
+
+/**
+ * Every regular file under a layer folder, sorted, its path relative to the
+ * folder and "/"-separated. A missing folder holds no files; any other read
+ * error, a symlink and a file whose bytes aren't UTF-8 text stop the backup
+ * with the state path that stopped it.
+ */
+function readLayerFolder(folder: string): readonly LayerFile[] {
+  const files: LayerFile[] = [];
+  const walk = (current: string, prefix: string): void => {
+    let entries: readonly Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch (error) {
+      if (isMissingError(error)) {
+        return;
+      }
+      throw new FirstBackupStop(errorCode(error), current);
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name);
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isSymbolicLink()) {
+        throw new FirstBackupStop(SYMLINK_CODE, path);
+      }
+      if (entry.isDirectory()) {
+        walk(path, relative);
+      } else if (entry.isFile()) {
+        files.push({ path: relative, text: readLayerText(path) });
+      }
+    }
+  };
+  walk(folder, "");
+  return files.sort(byRelativePath);
+}
+
+/** The repo's copy of a profile, or `undefined` when the clone doesn't hold it. */
+function readRepoProfile(
+  repoRoot: string,
+  name: string,
+  config: ConfigV2,
+): LoadResult<Profile | undefined, ConfigError> {
+  const path = join(repoRoot, PROFILES_FOLDER, `${name}${PROFILE_EXTENSION}`);
+  const read = readFileText(path);
+  if (read.kind === "unreadable") {
+    return {
+      ok: false,
+      error: {
+        message:
+          `ERROR: profile ${name} (${PROFILES_FOLDER}/${name}` +
+          `${PROFILE_EXTENSION} in the repo): can't be read.`,
+        code: 2,
+      },
+    };
+  }
+  if (read.kind === "missing") {
+    return { ok: true, value: undefined };
+  }
+  return parseProfile(name, read.text, config);
+}
+
+/**
+ * Contract "The first backup": what this machine holds for its record's profile
+ * and what the repo already holds for that profile. `undefined` when there is
+ * no first backup: no record, or a record already in the pointer form.
+ */
+export function readBackupSides(
+  stateFolder: string,
+  repoRoot: string,
+  config: ConfigV2,
+): LoadResult<BackupSides | undefined, ConfigError> {
+  const recordRead = readFileText(join(stateFolder, MACHINE_FILE));
+  if (recordRead.kind === "unreadable") {
+    return { ok: false, error: unreadableRecordError() };
+  }
+  if (recordRead.kind === "missing") {
+    return { ok: true, value: undefined };
+  }
+  if (repoHomeName(recordRead.text) !== undefined) {
+    return { ok: true, value: undefined };
+  }
+  const record = readRecord(recordRead.text, config);
+  if (!record.ok) {
+    return record;
+  }
+  const profile = readProfileFile(
+    join(stateFolder, PROFILES_FOLDER),
+    record.value.profile,
+    config,
   );
+  if (!profile.ok) {
+    return profile;
+  }
+  let profileLayer: readonly LayerFile[];
+  let machineLayer: readonly LayerFile[];
+  try {
+    profileLayer = readLayerFolder(
+      join(stateFolder, PROFILES_FOLDER, record.value.profile),
+    );
+    machineLayer = readLayerFolder(
+      join(stateFolder, MACHINES_FOLDER, record.value.name),
+    );
+  } catch (error) {
+    const path =
+      error instanceof FirstBackupStop && error.path !== undefined
+        ? error.path
+        : stateFolder;
+    return {
+      ok: false,
+      error: { message: firstBackupStopped(path, error), code: 2 },
+    };
+  }
+  const repoProfile = readRepoProfile(repoRoot, record.value.profile, config);
+  if (!repoProfile.ok) {
+    return repoProfile;
+  }
+  return {
+    ok: true,
+    value: {
+      local: {
+        profile: profile.value,
+        profileLayer,
+        record: record.value,
+        machineLayer,
+      },
+      repo:
+        repoProfile.value === undefined ? {} : { profile: repoProfile.value },
+    },
+  };
+}
+
+/**
+ * Contract "The first backup": the files to write, compared by content with
+ * the repo. A file the repo already holds identical bytes for is left out, so
+ * it prints no status line and isn't counted.
+ */
+export function firstBackupFiles(
+  repoRoot: string,
+  writes: FirstBackupWrites,
+): readonly FirstBackupFile[] {
+  const files: { readonly path: string; readonly text: string }[] = [
+    {
+      path: `${PROFILES_FOLDER}/${writes.profile.name}${PROFILE_EXTENSION}`,
+      text: profileText(writes.profile),
+    },
+    {
+      path: `${MACHINES_FOLDER}/${writes.record.name}${PROFILE_EXTENSION}`,
+      text: recordText(writes.record),
+    },
+    ...writes.files,
+  ].sort(byRelativePath);
+  const changed: FirstBackupFile[] = [];
+  for (const file of files) {
+    const current = readText(join(repoRoot, ...file.path.split("/")));
+    if (current === file.text) {
+      continue;
+    }
+    changed.push({
+      ...file,
+      status: current === undefined ? "ADDED" : "MODIFIED",
+    });
+  }
+  return changed;
+}
+
+/** The contract's failure line for one first backup write, in the contract's
+ * words for the reason; never the raw error text, which names the absolute
+ * path. */
+function firstBackupStopped(path: string, error: unknown): string {
+  return `${FIRST_BACKUP_STOPPED} ${path}: ${unreadableReason(error)}.`;
+}
+
+/** The pointer a record becomes once its files live in the repo. */
+function pointerText(name: string): string {
+  const entries = new Map<string, JsonValue>([
+    ["name", jsonString(name)],
+    ["home", jsonString(REPO_HOME)],
+  ]);
+  return writeJson({ kind: "object", entries }, "\n");
+}
+
+/**
+ * Whether a first backup target runs through a symlink anywhere from the repo
+ * root down to the file itself. Missing components are fine: the write creates
+ * them below the clone.
+ */
+function runsThroughSymlink(repoRoot: string, relativePath: string): boolean {
+  const parts = relativePath.split("/");
+  for (let index = 1; index <= parts.length; index += 1) {
+    const component = join(repoRoot, ...parts.slice(0, index));
+    try {
+      if (lstatSync(component).isSymbolicLink()) {
+        return true;
+      }
+    } catch (error) {
+      if (isMissingError(error)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+  return false;
+}
+
+/** A file this first backup wrote, with the bytes it held before it. */
+interface WrittenBackupFile {
+  readonly path: string;
+  readonly earlier: Buffer | undefined;
+}
+
+/** The bytes a first backup target held before the write, if it existed. */
+function readEarlierBytes(path: string): Buffer | undefined {
+  try {
+    return readFileSync(path);
+  } catch (error) {
+    if (isMissingError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/** Undo a failed first backup in reverse, so the repo is as it was. */
+function undoFirstBackup(written: readonly WrittenBackupFile[]): void {
+  for (let index = written.length - 1; index >= 0; index -= 1) {
+    const file = written[index];
+    if (file === undefined) {
+      continue;
+    }
+    try {
+      if (file.earlier === undefined) {
+        unlinkSync(file.path);
+      } else {
+        writeFileSync(file.path, file.earlier);
+      }
+    } catch {
+      // Best effort: the write error is the line the contract reports, so a
+      // failed undo must not replace it.
+    }
+  }
+}
+
+/**
+ * Contract "The first backup": write the files into the repo, then make
+ * `<state>/machine.json` the pointer. A failed write stops before the pointer
+ * and undoes the files already written, so the record stays local and the next
+ * export tries again.
+ */
+export function writeFirstBackup(
+  stateFolder: string,
+  repoRoot: string,
+  name: string,
+  files: readonly FirstBackupFile[],
+): LoadResult<undefined, ConfigError> {
+  for (const file of files) {
+    let symlink: boolean;
+    try {
+      symlink = runsThroughSymlink(repoRoot, file.path);
+    } catch (error) {
+      return {
+        ok: false,
+        error: { message: firstBackupStopped(file.path, error), code: 1 },
+      };
+    }
+    if (symlink) {
+      return {
+        ok: false,
+        error: {
+          message: firstBackupStopped(
+            file.path,
+            new FirstBackupStop(SYMLINK_CODE),
+          ),
+          code: 1,
+        },
+      };
+    }
+  }
+  const written: WrittenBackupFile[] = [];
+  for (const file of files) {
+    const target = join(repoRoot, ...file.path.split("/"));
+    try {
+      const earlier = readEarlierBytes(target);
+      mkdirSync(dirname(target), { recursive: true });
+      written.push({ path: target, earlier });
+      writeFileSync(target, file.text);
+    } catch (error) {
+      undoFirstBackup(written);
+      return {
+        ok: false,
+        error: { message: firstBackupStopped(file.path, error), code: 1 },
+      };
+    }
+  }
+  try {
+    writePrivateFile(join(stateFolder, MACHINE_FILE), pointerText(name));
+  } catch (error) {
+    undoFirstBackup(written);
+    return {
+      ok: false,
+      error: { message: firstBackupStopped(MACHINE_FILE, error), code: 1 },
+    };
+  }
+  return { ok: true, value: undefined };
 }

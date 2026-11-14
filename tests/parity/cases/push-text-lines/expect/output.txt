@@ -1,0 +1,23 @@
+  MODIFIED   dotfiles/common/shell/bashrc
+  UNCHANGED  dotfiles/common/claude/CLAUDE.md
+  MODIFIED   profiles/work-1/claude/CLAUDE.md
+
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  shell   bashrc            3 line(s) changed
+Linux machines
+     (none)
+Profile work-1
+  2  M  claude  CLAUDE.work-1.md  1 line(s) changed
+This machine only
+     (none)
+
+  --------------------------------------------------
+
+  1 file(s) would change.
+  Nothing was written. Run mksync push to send it.
+
+held until the repo is private: 2 file(s)
+  machines/wk1-laptop.json
+  profiles/work-1.json

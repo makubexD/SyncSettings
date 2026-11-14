@@ -1,0 +1,26 @@
+{
+  "description": "machine show with a pointer record stops on a clone record that isn't valid JSON with the contract's repo can't be read line, exit 2 (Retire, The repo store).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "machine-show",
+      "stderr": true,
+      "output": "all"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "modules": ["parity"],
+  "values": {},
+  "destinations": {
+    "bravo": "base",
+    "parity settings.json: delta[]": "base"
+  },
+  "retired": false
+}

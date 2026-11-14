@@ -1,0 +1,1 @@
+ERROR: profile work-1 is used by machine wk1-desktop; retire or move that machine first.

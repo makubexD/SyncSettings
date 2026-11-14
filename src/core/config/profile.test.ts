@@ -120,7 +120,7 @@ describe("parseProfile", () => {
     );
   });
 
-  test.each(["os", "profile", "machine"])(
+  test.each(["base", "os", "profile", "machine"])(
     "accepts destination %s",
     (slot) => {
       // Act
@@ -140,9 +140,9 @@ describe("parseProfile", () => {
     },
   );
 
-  test.each(["base", "repo"])("refuses destination %s", (slot) => {
+  test("refuses a destination that isn't a layer", () => {
     expectFailureText(
-      JSON.stringify({ destinations: { "settings.json: a": slot } }),
+      JSON.stringify({ destinations: { "settings.json: a": "repo" } }),
       `ERROR: profile ${NAME}: destination settings.json: a is not a layer.`,
     );
   });

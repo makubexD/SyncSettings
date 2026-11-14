@@ -1,5 +1,7 @@
 import { selectEntries } from "../layers/select.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
+import { importChangeLines } from "./changes.ts";
+import { groupBlock } from "./groups.ts";
 import { planImport } from "./import.ts";
 import { scopeFor } from "./pick.ts";
 import { renderRun } from "./run.ts";
@@ -205,6 +207,11 @@ export function planCheck(snapshot: Snapshot): Plan {
     labelsNeedingValues(snapshot, imported.unresolved),
   );
   const summary = summaryLines(body);
+  const changes = importChangeLines(imported.plan, snapshot);
+  const block =
+    changes.length === 0
+      ? []
+      : groupBlock(changes, snapshot.record, snapshot.os, "pull");
   return {
     actions: [],
     lines: [
@@ -213,6 +220,7 @@ export function planCheck(snapshot: Snapshot): Plan {
       "",
       ...body.lines,
       "",
+      ...block,
       DASHES,
       ...summary.lines,
     ],

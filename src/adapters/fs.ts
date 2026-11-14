@@ -13,7 +13,11 @@ import type { Dirent, Stats } from "node:fs";
 import { posix, win32 } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
-import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
+import {
+  MACHINES_FOLDER,
+  PROFILES_FOLDER,
+  STATE_FOLDER_ROOTS,
+} from "../core/guard.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectedEntry } from "../core/layers/select.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
@@ -28,7 +32,8 @@ import type {
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { expandHome } from "./paths.ts";
-import { writeProfile, writeRecord } from "./store.ts";
+import { writeStoreProfile, writeStoreRecord } from "./store.ts";
+import type { StoreLocation } from "./store.ts";
 
 /** The parts of a path this OS writes: `posix` on Linux and macOS, `win32` on Windows. */
 type PathApi = typeof posix;
@@ -44,8 +49,8 @@ export interface SnapshotInput {
   readonly repoRoot: string;
   readonly config: ConfigV2;
   readonly os: Os;
-  /** The sync point's folder, where a profile's or machine's layer files live. */
-  readonly stateFolder?: string;
+  /** The store the run's record, profile and layer files live in. */
+  readonly location?: StoreLocation;
   readonly profile?: Profile;
   readonly machine?: string;
   readonly record?: MachineRecord;
@@ -63,6 +68,8 @@ export interface RunContext {
   readonly os: Os;
   /** The sync point's folder; dated backups sit under its `backups/`. */
   readonly stateFolder: string;
+  /** The store the run's record, profile and layer files live in. */
+  readonly location: StoreLocation;
   /** The current time, so tests fix the dated backup's name. */
   readonly now: () => Date;
   readonly pid: number;
@@ -70,6 +77,15 @@ export interface RunContext {
 
 function pathFor(os: Os): PathApi {
   return os === "windows" ? win32 : posix;
+}
+
+/**
+ * The base folder a store's layer folders sit under: the parent of its
+ * profiles folder. That is the state folder for a local store and the clone
+ * for a pointer (contract "Where records are kept").
+ */
+function storeRoot(location: StoreLocation, os: Os): string {
+  return pathFor(os).dirname(location.profilesFolder);
 }
 
 /** stat that treats an absent or unreadable path as absent, following symlinks. */
@@ -154,8 +170,8 @@ function readRepoTree(
 /**
  * Contract "Profile and machine, until phase 6": a profile's or machine
  * layer's files join the snapshot under its layer path, so entry selection
- * sees them. Only the state folder is read, never the repo's `profiles/` or
- * `machines/` folders.
+ * sees them. Only the store's layer folders are read: the state folder's, or
+ * the clone's with a pointer.
  */
 function readStateTree(
   dir: string,
@@ -270,11 +286,11 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
   const p = pathFor(input.os);
   const repoTree = p.join(input.repoRoot, DOTFILES_FOLDER);
   readRepoTree(repoTree, input.repoRoot, input.os, repoFiles);
-  if (input.stateFolder !== undefined) {
+  if (input.location !== undefined) {
     if (input.profile !== undefined) {
       const folder = `${PROFILES_FOLDER}/${input.profile.name}`;
       readStateTree(
-        p.join(input.stateFolder, PROFILES_FOLDER, input.profile.name),
+        p.join(input.location.profilesFolder, input.profile.name),
         `${folder}/`,
         input.os,
         repoFiles,
@@ -283,7 +299,11 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
     if (input.machine !== undefined) {
       const folder = `${MACHINES_FOLDER}/${input.machine}`;
       readStateTree(
-        p.join(input.stateFolder, MACHINES_FOLDER, input.machine),
+        p.join(
+          storeRoot(input.location, input.os),
+          MACHINES_FOLDER,
+          input.machine,
+        ),
         `${folder}/`,
         input.os,
         repoFiles,
@@ -386,10 +406,7 @@ function isRepoPath(path: string): boolean {
 
 /** An action's path is a state path when it names a profile or machine layer. */
 function isStatePath(path: string): boolean {
-  return (
-    path.startsWith(`${PROFILES_FOLDER}/`) ||
-    path.startsWith(`${MACHINES_FOLDER}/`)
-  );
+  return STATE_FOLDER_ROOTS.some((root) => path.startsWith(root));
 }
 
 /** A repo path stays under `dotfiles/`: its first segment. */
@@ -445,9 +462,10 @@ function containedPath(
 
 /**
  * Where an action writes: a repo path under the repo's `dotfiles/`, a profile
- * or machine layer path under that layer's folder in the state folder, and
- * anything else as an absolute local path. A repo or state path that resolves
- * outside its folder throws, failing the action.
+ * or machine layer path under that layer's folder in the run's store (the
+ * state folder, or the clone with a pointer), and anything else as an
+ * absolute local path. A repo or state path that resolves outside its folder
+ * throws, failing the action.
  */
 function absolutePath(path: string, context: RunContext): string {
   if (isRepoPath(path)) {
@@ -461,7 +479,7 @@ function absolutePath(path: string, context: RunContext): string {
   if (isStatePath(path)) {
     return containedPath(
       path,
-      context.stateFolder,
+      storeRoot(context.location, context.os),
       STATE_CONTAINMENT_DEPTH,
       context,
     );
@@ -617,6 +635,41 @@ function datedBackupOfStateFile(
   return datedBackup(path, repoPath, context, dated);
 }
 
+/** What one dated state backup did: the run folder it used and the warning a
+ * failed copy printed, which only warns (contract "Backups"). */
+export interface StateBackup {
+  readonly folder: string;
+  readonly warning?: string;
+}
+
+/**
+ * Contract "Writes to the state folder": copy a state file into a run's dated
+ * backup folder. `runFolder` names a folder the plan already made, so both
+ * copies share it; without one, the folder is named and `backups/` pruned as a
+ * run's would be. A failed copy only warns.
+ */
+export function backupStateFile(
+  source: string,
+  repoPath: string,
+  context: RunContext,
+  runFolder?: string,
+): StateBackup {
+  const created = runFolder === undefined;
+  const folder =
+    runFolder ??
+    pathFor(context.os).join(
+      context.stateFolder,
+      BACKUPS_FOLDER,
+      runFolderName(context.now(), context.pid),
+    );
+  const dated: DatedBackups = { folder, made: false };
+  const warning = datedBackup(source, repoPath, context, dated);
+  if (created && dated.made) {
+    pruneBackups(context);
+  }
+  return warning === undefined ? { folder } : { folder, warning };
+}
+
 /** Apply `cp -p`'s mode from the repo file a created local file copies (not on Windows). */
 function copyModeFrom(
   path: string,
@@ -717,9 +770,9 @@ function runAction(
         return ACTION_OK;
       case "writeMachineValues":
         if (action.profile !== undefined) {
-          writeProfile(context.stateFolder, action.profile);
+          writeStoreProfile(context.location, action.profile);
         }
-        writeRecord(context.stateFolder, action.record);
+        writeStoreRecord(context.location, action.record);
         return ACTION_OK;
       default: {
         const unhandled: never = action;

@@ -1,0 +1,34 @@
+{
+  "description": "export answers a bad choice with Pick 1 to 4. and asks again; the second answer 2 sends the new array item to the Linux layer and stores it as os, exit 0 (New settings (program only), Asking).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "stdin": "9\n2\n",
+      "output": "all"
+    }
+  ]
+}
