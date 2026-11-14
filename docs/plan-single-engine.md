@@ -174,6 +174,14 @@ cases. Merging two copies of a profile is built but wired in phase 7; what's lef
 
 ### Phase 7: push, pull and Claude
 
+**Done 2026-11-14** ([plan-single-engine-7.md](plan-single-engine-7.md)). Push shows its changes grouped by who
+receives them, asks where a new setting goes (once per path, stored as `<module> <file>: <path>`) and refuses a
+profile's value in a shared layer; pull's check prints the same groups, sanitized. The first backup moves the record
+and profile into a private clone and leaves a pointer; from then on every state write goes to the clone.
+`mksync statusline` replaces `statusline.sh`. The program passes the 140 shared cases. The Windows survey and the
+Claude layout tool moved to phase 8; what's left is in the design's "Open" ("Left by the phase 7 audits", "Left by
+the phase 7 finish review").
+
 - **It starts with the only Windows sitting before cut-over.** On work machine #1 the user runs one prompt that
   reports names and structure, never values:
   - the `~/.claude` layout and the `settings.json` keys;
