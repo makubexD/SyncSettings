@@ -40,6 +40,50 @@ function decodeText(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
 
+/** A command that could not start has no exit code; report it as -1, as
+ * `visibility.ts` does. */
+const FAILED_TO_START = -1;
+
+/**
+ * What one git command returned: its exit code, stdout and stderr as text,
+ * and whether it exited 0. A git failure is this value, never an exception;
+ * `code` is -1 when git could not start at all.
+ */
+export interface GitResult {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly ok: boolean;
+}
+
+/**
+ * Run git in the repo root with an argument array and no shell, reporting its
+ * stdout and stderr as text. Never throws: a missing git or an unreadable
+ * folder is `code: -1`. stdin is closed, so no command waits for a prompt.
+ */
+export async function runGitResult(
+  repoRoot: string,
+  args: readonly string[],
+): Promise<GitResult> {
+  try {
+    const child = Bun.spawn(["git", ...args], {
+      cwd: repoRoot,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { code, stdout, stderr, ok: code === 0 };
+  } catch {
+    // A missing git or an unreadable folder is "git cannot tell".
+    return { code: FAILED_TO_START, stdout: "", stderr: "", ok: false };
+  }
+}
+
 /**
  * The repo's `HEAD` SHA, for `Snapshot.head`. An empty repo and a folder that
  * is not a git repo both give `undefined`, never an exception.
@@ -79,6 +123,24 @@ export async function readPorcelain(
     return undefined;
   }
   return decodeText(output.stdout);
+}
+
+/**
+ * Raw `git status --porcelain` for `pathspecs`, or for the whole tree when
+ * none are given, for the core's `outsidePaths` and the changed-file list.
+ * `commit.sh` runs it twice: once for `dotfiles sync-config.json` and, for the
+ * outside check, once as `-- . :!dotfiles …`. `ok` is false when git cannot
+ * tell (no repo, or git missing).
+ */
+export async function statusPorcelain(
+  repoRoot: string,
+  pathspecs: readonly string[] = [],
+): Promise<GitResult> {
+  return await runGitResult(repoRoot, [
+    "status",
+    "--porcelain",
+    ...(pathspecs.length === 0 ? [] : ["--", ...pathspecs]),
+  ]);
 }
 
 /** The tree the diff's `base` and `theirs` read: every dotfile. */
@@ -292,20 +354,10 @@ export async function runGitText(
   repoRoot: string,
   args: readonly string[],
 ): Promise<{ readonly code: number; readonly stdout: string } | undefined> {
-  try {
-    const child = Bun.spawn(["git", ...args], {
-      cwd: repoRoot,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const stdout = await new Response(child.stdout).text();
-    const code = await child.exited;
-    return { code, stdout };
-  } catch {
-    // A missing git or an unreadable folder is "git cannot tell".
-    return undefined;
-  }
+  const result = await runGitResult(repoRoot, args);
+  return result.code === FAILED_TO_START
+    ? undefined
+    : { code: result.code, stdout: result.stdout };
 }
 
 /** Every push URL of the origin remote, where a push would go; empty when
@@ -344,4 +396,249 @@ export async function readTrackedPaths(
     return undefined;
   }
   return output.stdout.split("\u0000").filter((path) => path !== "");
+}
+
+/** The non-empty records of a NUL-separated (`-z`) output, in git's order. */
+function splitNulRecords(output: string): readonly string[] {
+  return output.split("\u0000").filter((record) => record !== "");
+}
+
+/** A git run that returns repo paths. */
+export interface GitPathsResult extends GitResult {
+  readonly paths: readonly string[];
+}
+
+/**
+ * The sync files `commit.sh` checks for cached values: the paths under
+ * `paths` that differ from `HEAD` plus the untracked, non-ignored ones
+ * (`git diff --name-only -z HEAD` and `git ls-files --others
+ * --exclude-standard -z`), one list without repeats in git's order. A deleted
+ * path appears too; `commit.sh` skips a path that no longer exists, so the
+ * caller checks that as it reads them. `paths` is empty when either command
+ * fails.
+ */
+export async function changedSyncPaths(
+  repoRoot: string,
+  paths: readonly string[],
+): Promise<GitPathsResult> {
+  const diff = await runGitResult(repoRoot, [
+    "diff",
+    "--name-only",
+    "-z",
+    "HEAD",
+    "--",
+    ...paths,
+  ]);
+  if (!diff.ok) {
+    return { ...diff, paths: [] };
+  }
+  const untracked = await runGitResult(repoRoot, [
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "-z",
+    "--",
+    ...paths,
+  ]);
+  if (!untracked.ok) {
+    return { ...untracked, paths: [] };
+  }
+  return {
+    code: 0,
+    stdout: diff.stdout + untracked.stdout,
+    stderr: diff.stderr + untracked.stderr,
+    ok: true,
+    paths: [
+      ...new Set([
+        ...splitNulRecords(diff.stdout),
+        ...splitNulRecords(untracked.stdout),
+      ]),
+    ],
+  };
+}
+
+/** The range `commit.sh` and the guard read: commits after upstream master. */
+const UNPUSHED_RANGE = "origin/master..HEAD";
+
+/** A git run returning the paths of each unpushed commit. */
+export interface GitHistoryResult extends GitResult {
+  readonly commits: readonly (readonly string[])[];
+}
+
+/**
+ * The paths each commit in `range` adds or changes, from
+ * `git log --name-only`, one list per commit in git's order (newest first),
+ * for the core's `historyRefusals`. A NUL format marker starts each commit, so
+ * no path or commit message can be read as a separator. `commits` is empty
+ * when git cannot tell.
+ */
+export async function readUnpushedHistory(
+  repoRoot: string,
+  range: string = UNPUSHED_RANGE,
+): Promise<GitHistoryResult> {
+  const result = await runGitResult(repoRoot, [
+    "log",
+    "--name-only",
+    "--diff-filter=ACMR",
+    "--format=%x00",
+    range,
+  ]);
+  if (!result.ok) {
+    return { ...result, commits: [] };
+  }
+  const commits: string[][] = [];
+  for (const chunk of result.stdout.split("\u0000").slice(1)) {
+    commits.push(chunk.split("\n").filter((path) => path !== ""));
+  }
+  return { ...result, commits };
+}
+
+/** A git run returning counts; both are 0 when git cannot tell. */
+export interface GitCountsResult extends GitResult {
+  readonly ahead: number;
+  readonly behind: number;
+}
+
+/**
+ * How many commits local `HEAD` is ahead of and behind `upstream`,
+ * `commit.sh`'s `git rev-list --left-right --count HEAD...origin/master`.
+ * `ok` is false when git cannot tell or prints something unreadable, and the
+ * counts are then 0.
+ */
+export async function readAheadBehind(
+  repoRoot: string,
+  upstream: string = "origin/master",
+): Promise<GitCountsResult> {
+  const result = await runGitResult(repoRoot, [
+    "rev-list",
+    "--left-right",
+    "--count",
+    `HEAD...${upstream}`,
+  ]);
+  if (!result.ok) {
+    return { ...result, ahead: 0, behind: 0 };
+  }
+  const [aheadText, behindText] = result.stdout.trim().split(/\s+/);
+  const ahead = Number(aheadText);
+  const behind = Number(behindText);
+  if (!Number.isInteger(ahead) || !Number.isInteger(behind)) {
+    return { ...result, ok: false, ahead: 0, behind: 0 };
+  }
+  return { ...result, ahead, behind };
+}
+
+/** The git config key `commit.sh` reads the machine alias from. */
+const MACHINE_ALIAS_KEY = "syncsettings.machine";
+
+/** A git run returning the machine alias, when one is set. */
+export interface GitAliasResult extends GitResult {
+  readonly alias: string | undefined;
+}
+
+/**
+ * The machine alias `commit.sh` reads from `git config syncsettings.machine`.
+ * `alias` is `undefined` when the key is unset, empty or git cannot tell; the
+ * value is returned as stored, so the caller validates it against the alias
+ * rule before it names a branch.
+ */
+export async function readMachineAlias(
+  repoRoot: string,
+): Promise<GitAliasResult> {
+  const result = await runGitResult(repoRoot, [
+    "config",
+    "--get",
+    MACHINE_ALIAS_KEY,
+  ]);
+  if (!result.ok) {
+    return { ...result, alias: undefined };
+  }
+  const alias = result.stdout.trim();
+  return { ...result, alias: alias === "" ? undefined : alias };
+}
+
+/**
+ * Create and switch to `branch`, `commit.sh`'s `git switch -c`. `ok` is false
+ * when git cannot tell or the branch already exists.
+ */
+export async function switchToNewBranch(
+  repoRoot: string,
+  branch: string,
+): Promise<GitResult> {
+  return await runGitResult(repoRoot, ["switch", "-c", branch]);
+}
+
+/**
+ * Stage `paths` only, `commit.sh`'s `git add -- <paths>`. `ok` is false when
+ * git cannot tell or a path does not exist.
+ */
+export async function stagePaths(
+  repoRoot: string,
+  paths: readonly string[],
+): Promise<GitResult> {
+  return await runGitResult(repoRoot, ["add", "--", ...paths]);
+}
+
+/**
+ * Commit what is staged with `message`, `commit.sh`'s
+ * `git commit -m <message>`. `ok` is false when git cannot tell or there is
+ * nothing to commit.
+ */
+export async function commitStaged(
+  repoRoot: string,
+  message: string,
+): Promise<GitResult> {
+  return await runGitResult(repoRoot, ["commit", "-m", message]);
+}
+
+/**
+ * Push `branch` to `remote` and set its upstream, `commit.sh`'s
+ * `git push -u origin <branch>`. `ok` is false when git cannot tell or the
+ * push is refused.
+ */
+export async function pushBranch(
+  repoRoot: string,
+  branch: string,
+  remote: string = "origin",
+): Promise<GitResult> {
+  return await runGitResult(repoRoot, ["push", "-u", remote, branch]);
+}
+
+/**
+ * Switch back to `master`, `commit.sh`'s `git switch master`. `ok` is false
+ * when git cannot tell or the switch would lose changes.
+ */
+export async function switchToMaster(repoRoot: string): Promise<GitResult> {
+  return await runGitResult(repoRoot, ["switch", "master"]);
+}
+
+/**
+ * Delete the local `branch`, even when it is unmerged (`git branch -D`), for
+ * the cleanup after a failure before the PR. `ok` is false when git cannot
+ * tell or the branch is checked out.
+ */
+export async function deleteBranch(
+  repoRoot: string,
+  branch: string,
+): Promise<GitResult> {
+  return await runGitResult(repoRoot, ["branch", "-D", branch]);
+}
+
+/** A git run returning a commit SHA, when one could be read. */
+export interface GitShaResult extends GitResult {
+  readonly sha: string | undefined;
+}
+
+/**
+ * The sync point `commit.sh` records: `git rev-parse HEAD^`, the branch's
+ * parent, accepted only as the full lowercase SHA the state file holds.
+ * `sha` is `undefined` when git cannot tell, there is no parent, or the output
+ * is no SHA.
+ */
+export async function readParentSha(repoRoot: string): Promise<GitShaResult> {
+  const result = await runGitResult(repoRoot, ["rev-parse", "HEAD^"]);
+  if (!result.ok) {
+    return { ...result, sha: undefined };
+  }
+  const sha = result.stdout.trim();
+  return { ...result, sha: SYNC_POINT_PATTERN.test(sha) ? sha : undefined };
 }
