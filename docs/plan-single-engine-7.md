@@ -34,9 +34,9 @@ built and proved, ready for cut-over; and work machine #1 answers the design's "
 - Skipping a group on pull: stays in the design's Open.
 - A new file in a `dir` entry: not asked in this phase; it goes to the entry's latest layer as today (Open).
 - The Claude layout going live (the split `settings.json`, the Windows entries, `statusLine` pointing at
-  `mksync statusline`): phase 9, by the tool step 26 builds. The v1/v2 check refuses a v2 entry that covers an OS its
+  `mksync statusline`): phase 9, by the tool step 33 builds. The v1/v2 check refuses a v2 entry that covers an OS its
   v1 twin doesn't (`src/core/config/check.ts`), and v1 is frozen.
-- PowerShell twins of the Linux hooks: listed from the survey (step 25), built only on a real need.
+- PowerShell twins of the Linux hooks: listed from the survey (step 32), built only on a real need.
 
 ## Decisions to confirm in review
 
@@ -44,7 +44,7 @@ Proposals; the review of this plan confirms or changes them before `/next`. Step
 the design.
 
 1. **The Windows survey doesn't block.** Step 1 writes the prompt and sends it to the user; the plan carries on.
-   Step 25 needs the redacted answer: if it isn't in by then, `/next` stops there and asks for it.
+   Step 32 needs the redacted answer: if it isn't in by then, `/next` stops there and asks for it.
 2. **Where the new push side runs until phase 8.** `export --preview` prints the grouped block after its status lines
    and before the `--stat` summary; `export` prints the same block, asks the new-setting questions, applies the
    profile-value rule, then writes. Nothing else of today's preview changes.
@@ -383,7 +383,7 @@ Test: `bun test src/adapters src/core/machine && bun run build && tests/parity/r
 
 Run `cli-auditor` on `export`'s question, `--yes` and `statusline`, `wizard-auditor` on the new-setting and backup
 questions, and `ts-security-auditor` on the profile-value rule, the first backup and the context-window write. Fixes
-become steps after step 26 (the docs step moves to the end), with shared cases first where they change output; what's
+become steps 25 to 31, before the Windows steps 32 and 33 (the docs step stays last), with shared cases first where they change output; what's
 left goes in the design's Open.
 
 Test: `tests/all.sh`.
@@ -416,30 +416,7 @@ Files: `src/core/guard.ts`, `src/core/plan/preview.ts`, `src/adapters/fs.ts`.
 
 Test: `bun test src && bun run lint`.
 
-## Step 25: The Windows answers in the design `[inline: needs the user's survey report from work machine #1]`
-
-Files: `docs/design-layers.md`, `docs/plan-single-engine-7.md`.
-
-Needs the answer to step 1's prompt. If it isn't in the conversation or `docs/windows-survey.md`, push-notify and stop
-here. Redact it (`work-tool-1`), show the redacted text to the user, then settle "Confirm on Windows": shell, Git Bash
-and `jq`, `$HOME` in commands, the current layout, the unsigned program, which hooks the work machines need. Write the
-Windows overlay's keys into step 26's spec (a plan edit) and the `~` versus `<HOME>` Open item.
-
-Test: `npx prettier --check docs/design-layers.md docs/plan-single-engine-7.md`.
-
-## Step 26: The Claude layout tool `[worker]`
-
-Files: `tools/claude-layout.ts` (new), `tools/claude-layout.test.ts` (new).
-
-Decision 8: `bun tools/claude-layout.ts <repo folder>` writes the base and Linux `settings.json` layers, the Windows
-overlay with the keys step 25 lists, and the v2 entries widened to Windows, and drops the v1 entries' Claude rows
-only when given `--cutover`. The test runs it on a temp copy of the repo and merges the Linux layers with
-`mergeJson`: the result equals `dotfiles/linux/claude/settings.json` except `statusLine`, which is
-`{"type": "command", "command": "mksync statusline"}`. Not run on the real repo in this phase.
-
-Test: `bun test tools/claude-layout.test.ts && bun run lint`.
-
-## Step 27: One terminal for export's questions `[worker]`
+## Step 25: One terminal for export's questions `[worker]`
 
 Files: `src/main.ts`, `tests/parity/cases/backup-piped-answers/` (new), `tests/parity/cases/backup-empty-stdin/` (new).
 
@@ -452,7 +429,7 @@ open one terminal per export run and pass its `io` to both question sets; `askBa
 
 Test: `bun test src && bun run build && tests/parity/run.sh --engine dist/mksync backup-`.
 
-## Step 28: The first backup copies state after the export `[worker]`
+## Step 26: The first backup copies state after the export `[worker]`
 
 Files: `src/main.ts`, `src/adapters/store.ts`, `tests/parity/cases/backup-after-export/` (new).
 
@@ -465,7 +442,7 @@ that read.
 
 Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync backup-`.
 
-## Step 29: The block before the first-backup question `[worker]`
+## Step 27: The block before the first-backup question `[worker]`
 
 Files: `src/main.ts`, `tests/parity/cases/backup-differ/expect/output.txt`.
 
@@ -476,7 +453,7 @@ the block first, then the new-setting questions, then the backup questions, then
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync backup- && tests/parity/run.sh --engine dist/mksync
 newsetting-`.
 
-## Step 30: The profile-value rule sees escaped forms `[worker]`
+## Step 28: The profile-value rule sees escaped forms `[worker]`
 
 Files: `src/core/plan/profilevalues.ts`, `src/core/values/sanitize.ts`, `src/core/plan/profilevalues.test.ts`.
 
@@ -491,7 +468,7 @@ the base layer: refused).
 Test: `bun test src/core/plan src/core/values && bun run build && tests/parity/run.sh --engine dist/mksync
 profile-value-`.
 
-## Step 31: Visibility from every push URL `[worker]`
+## Step 29: Visibility from every push URL `[worker]`
 
 Files: `src/main.ts` (`readOrigin`), `src/adapters/visibility.ts`, `src/adapters/visibility.test.ts`.
 
@@ -501,7 +478,7 @@ unknown. Unit cases: one private URL, private plus public, private plus unknown.
 
 Test: `bun test src/adapters/visibility.test.ts && bun run lint && tests/parity/run.sh --engine dist/mksync guard-`.
 
-## Step 32: The first backup refuses symlinks and cleans up `[worker]`
+## Step 30: The first backup refuses symlinks and cleans up `[worker]`
 
 Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`.
 
@@ -513,7 +490,7 @@ cases: symlinked `machines`, symlinked layer file, a failed second write leaves 
 
 Test: `bun test src/adapters/store.test.ts && bun run lint`.
 
-## Step 33: A pointer reads only its own record `[worker]`
+## Step 31: A pointer reads only its own record `[worker]`
 
 Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`, `src/main.ts`.
 
@@ -525,6 +502,29 @@ record with a pointer (import's store reads fine; `profile retire` reports it), 
 
 Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync store- &&
 tests/parity/run.sh --engine dist/mksync retire-`.
+
+## Step 32: The Windows answers in the design `[inline: needs the user's survey report from work machine #1]`
+
+Files: `docs/design-layers.md`, `docs/plan-single-engine-7.md`.
+
+Needs the answer to step 1's prompt. If it isn't in the conversation or `docs/windows-survey.md`, push-notify and stop
+here. Redact it (`work-tool-1`), show the redacted text to the user, then settle "Confirm on Windows": shell, Git Bash
+and `jq`, `$HOME` in commands, the current layout, the unsigned program, which hooks the work machines need. Write the
+Windows overlay's keys into step 33's spec (a plan edit) and the `~` versus `<HOME>` Open item.
+
+Test: `npx prettier --check docs/design-layers.md docs/plan-single-engine-7.md`.
+
+## Step 33: The Claude layout tool `[worker]`
+
+Files: `tools/claude-layout.ts` (new), `tools/claude-layout.test.ts` (new).
+
+Decision 8: `bun tools/claude-layout.ts <repo folder>` writes the base and Linux `settings.json` layers, the Windows
+overlay with the keys step 32 lists, and the v2 entries widened to Windows, and drops the v1 entries' Claude rows
+only when given `--cutover`. The test runs it on a temp copy of the repo and merges the Linux layers with
+`mergeJson`: the result equals `dotfiles/linux/claude/settings.json` except `statusLine`, which is
+`{"type": "command", "command": "mksync statusline"}`. Not run on the real repo in this phase.
+
+Test: `bun test tools/claude-layout.test.ts && bun run lint`.
 
 ## Step 34: Docs `[inline: docs step]`
 
