@@ -830,18 +830,18 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 
 - Exit codes, status words, labels, notes and `ERROR:` lines are this contract's, as the bash engine prints them,
   except for the mksync program column of [Known differences](#known-differences).
-- An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints the usage
-  line on stderr and exits 2. Phase 8 adds its commands one step at a time (`docs/plan-single-engine-8.md`); at the
-  end of the phase the line is:
-
-  ```text
-  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
-  ```
-
-  Until then it is the phase 7 line, plus each command as its step lands:
+- An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints this usage
+  line on stderr and exits 2:
 
   ```text
   usage: mksync export [--preview] [--yes] [--only <path>...] | mksync import [--check] [--force] [--only <path>...] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
+  ```
+
+  Phase 8 adds its commands to it one step at a time (`docs/plan-single-engine-8.md`); at the end of the phase it
+  reads:
+
+  ```text
+  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
