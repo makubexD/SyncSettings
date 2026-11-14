@@ -8,10 +8,9 @@ import type {
 import { parseJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
-import type { Layer, LayerName, SelectedEntry } from "../layers/select.ts";
-import { splitImport } from "../merge/import.ts";
-import { splitJson } from "../merge/json.ts";
-import type { JsonLayer } from "../merge/json.ts";
+import type { LayerName, SelectedEntry } from "../layers/select.ts";
+import { strategyFor } from "../merge/strategy.ts";
+import type { LayerFile, SplitContext } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import { hydrate, resolveValues } from "../values/hydrate.ts";
@@ -68,16 +67,6 @@ const REMOVE_REPO_FAILURE = "cannot remove from repo";
 const CREATE_PARENT_FOLDER_FAILURE = "cannot create parent folder";
 
 const SANITIZED_NOTE = "sanitized";
-
-const IMPORT_NAME_NOTE = "needs {layer} in importName";
-
-const IMPORT_BLOCK_NOTE = "import block is written by mksync, edit not pushed";
-
-/** One layer's bytes with its values put back, ready for a split. */
-interface HydratedLayer {
-  readonly layer: Layer;
-  readonly bytes: Uint8Array;
-}
 
 interface State {
   readonly snapshot: Snapshot;
@@ -163,26 +152,28 @@ function parentDir(path: string, separator: "/" | "\\"): string {
 
 /**
  * Each selected layer's bytes with the run's values put back, in layer order. A
- * layer the snapshot holds no file for is left out. A missing value is
+ * layer the snapshot holds no file for is left out. The raw bytes stay beside
+ * the hydrated ones: a whole split compares those, as the contract says, while
+ * `json` and `import` work from the run's values. A missing value is
  * unreachable after `resolveValues`; it still gives the file its own `ERROR`.
  */
 function hydratedLayers(
   state: State,
   selected: SelectedEntry,
   label: string,
-): readonly HydratedLayer[] | undefined {
+): readonly LayerFile[] | undefined {
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
   const owner = valueOwner(state.snapshot);
-  const layers: HydratedLayer[] = [];
+  const layers: LayerFile[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
     if (bytes === undefined) {
       continue;
     }
     if (rules.length === 0) {
-      layers.push({ layer, bytes });
+      layers.push({ repoPath: layer.repoPath, bytes, label: layer.label });
       continue;
     }
     const hydrated = hydrate(bytes, rules, state.values, {
@@ -194,7 +185,12 @@ function hydratedLayers(
       recordStep(state, label, line, false);
       return undefined;
     }
-    layers.push({ layer, bytes: hydrated.value });
+    layers.push({
+      repoPath: layer.repoPath,
+      bytes,
+      hydrated: hydrated.value,
+      label: layer.label,
+    });
   }
   return layers;
 }
@@ -311,165 +307,6 @@ function newSettingWhat(
   return `${path}: ${valueText(parsed.value)}`;
 }
 
-/**
- * Contract "Layers (program only)", json export: split the local file into its
- * layers, sanitize each changed layer and write it. A slot whose file doesn't
- * exist yet holds no bytes, so a destination naming it creates the file. A new
- * setting with no destination is an `ERROR` for the file and nothing of it is
- * written; an entry with exactly one present layer puts it there.
- */
-function planJsonFile(
-  state: State,
-  selected: SelectedEntry,
-  local: LocalFile,
-  hydrated: readonly HydratedLayer[],
-): void {
-  const entry = selected.entry;
-  const repoPath = primaryRepoPath(selected);
-  const existing = new Map(
-    hydrated.map((item) => [item.layer.repoPath, item.bytes]),
-  );
-  const layers: JsonLayer[] = selected.slots.map((slot) => ({
-    name: slot.name,
-    repoPath: slot.repoPath,
-    bytes: existing.get(slot.repoPath),
-  }));
-  const options = {
-    destinations: state.destinations,
-    localOnlyKeys: entry.localOnlyKeys ?? [],
-  };
-  const split = splitJson(local.bytes, layers, options);
-  if (!split.ok) {
-    const line = pushStatus(state, "ERROR", repoPath, split.error);
-    recordStep(state, repoPath, line, false);
-    return;
-  }
-
-  if (split.value.newSettings.length > 0) {
-    const rules = entry.sanitize ?? [];
-    for (const setting of split.value.newSettings) {
-      const line = pushStatus(
-        state,
-        "ERROR",
-        repoPath,
-        `new setting ${setting.path}: needs a destination`,
-      );
-      recordStep(state, repoPath, line, false);
-      state.newSettings.push({
-        module: entry.module,
-        file: fileLabel(entry.file),
-        path: setting.path,
-        kind: setting.path.endsWith("[]") ? "item" : "key",
-        what: newSettingWhat(
-          setting.path,
-          setting.value,
-          state,
-          rules,
-          isJsonEntry(entry),
-        ),
-      });
-    }
-    return;
-  }
-
-  if (split.value.changes.length === 0) {
-    pushStatus(state, "UNCHANGED", repoPath);
-    return;
-  }
-
-  const rules = entry.sanitize ?? [];
-  const sanitized = rules.length > 0;
-  for (const change of split.value.changes) {
-    const bytes = sanitized
-      ? sanitize(change.bytes, rules, state.values, {
-          json: isJsonEntry(entry),
-        })
-      : change.bytes;
-    state.pending = [];
-    writeRepoFile(state, change.repoPath, local, bytes, sanitized);
-  }
-}
-
-/**
- * Contract "Layers (program only)", import export: the text above the marker
- * goes to the base layer, a block edit prints its note, and each later layer's
- * side file is exported as a whole file.
- */
-function planImportFile(
-  state: State,
-  selected: SelectedEntry,
-  local: LocalFile,
-  hydrated: readonly HydratedLayer[],
-  label: string,
-): void {
-  const entry = selected.entry;
-  const importName = entry.importName;
-  if (importName === undefined) {
-    const line = pushStatus(state, "ERROR", label, IMPORT_NAME_NOTE);
-    recordStep(state, label, line, false);
-    return;
-  }
-
-  const baseRepoPath = hydrated[0]?.layer.repoPath ?? label;
-  const split = splitImport(
-    local.bytes,
-    hydrated.map((item) => ({
-      label: item.layer.label,
-      repoPath: item.layer.repoPath,
-      bytes: item.bytes,
-    })),
-    importName,
-  );
-  const rules = entry.sanitize ?? [];
-  const sanitized = rules.length > 0;
-  const note = split.blockEdited ? IMPORT_BLOCK_NOTE : undefined;
-
-  if (split.base === undefined) {
-    pushStatus(state, "UNCHANGED", baseRepoPath, note);
-  } else {
-    const bytes = sanitized
-      ? sanitize(split.base, rules, state.values, {
-          json: isJsonEntry(entry),
-        })
-      : split.base;
-    state.pending = [];
-    writeRepoFile(state, baseRepoPath, local, bytes, sanitized, note);
-  }
-
-  const separator = separatorFor(state.snapshot.os);
-  const folder = parentDir(local.path, separator);
-  for (const item of hydrated.slice(1)) {
-    const repoPath = item.layer.repoPath;
-    const sidePath = joinPath(
-      folder,
-      importName.replaceAll("{layer}", item.layer.label),
-      separator,
-    );
-    const side = state.snapshot.localFiles.get(sidePath);
-    if (side === undefined || side.kind !== "file") {
-      // The snapshot reads an entry's own local path, not the layer files beside
-      // it, so a side file it doesn't list has nothing to push: the layer file
-      // stays as it is.
-      pushStatus(state, "UNCHANGED", repoPath);
-      continue;
-    }
-    if (state.isExcluded(sidePath)) {
-      pushStatus(state, "SKIPPED", repoPath, EXCLUDE_NOTE);
-      continue;
-    }
-    // Pull writes a side file with this OS's line endings; the layer file in
-    // the repo holds LF, so fold as `splitImport` does for the base.
-    const folded = foldCrlf(side.bytes);
-    const bytes = sanitized
-      ? sanitize(folded, rules, state.values, {
-          json: isJsonEntry(entry),
-        })
-      : folded;
-    state.pending = [];
-    writeRepoFile(state, repoPath, side, bytes, sanitized);
-  }
-}
-
 function planFile(state: State, selected: SelectedEntry): void {
   const entry = selected.entry;
   const repoPath = primaryRepoPath(selected);
@@ -500,91 +337,113 @@ function planFile(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  if (entry.merge === "json" || entry.merge === "import") {
-    const layers = hydratedLayers(state, selected, repoPath);
-    if (layers === undefined) {
-      return;
-    }
-    if (entry.merge === "json") {
-      planJsonFile(state, selected, local, layers);
-    } else {
-      planImportFile(state, selected, local, layers, repoPath);
-    }
+  const strategy = strategyFor(entry.merge);
+  if (strategy === undefined) {
+    return;
+  }
+
+  const layers = hydratedLayers(state, selected, repoPath);
+  if (layers === undefined) {
     return;
   }
 
   const rules = entry.sanitize ?? [];
-  const repo = state.snapshot.repoFiles.get(repoPath);
+  const sanitized = rules.length > 0;
+  const sanitizeBytes = (bytes: Uint8Array): Uint8Array =>
+    sanitized
+      ? sanitize(bytes, rules, state.values, { json: isJsonEntry(entry) })
+      : bytes;
+  const compareWithRepo = compareOptions(
+    state.snapshot,
+    repoPath,
+    sanitized,
+  );
+  const context: SplitContext = {
+    writeRepoPath: repoPath,
+    destinations: state.destinations,
+    localOnlyKeys: entry.localOnlyKeys ?? [],
+    slots: selected.slots,
+    sanitize: sanitizeBytes,
+    compare: (layer, compared) => same(layer, compared, compareWithRepo),
+    ...(entry.importName !== undefined ? { importName: entry.importName } : {}),
+  };
+  const split = strategy.split(local.bytes, layers, context);
+  if (!split.ok) {
+    const line = pushStatus(state, "ERROR", repoPath, split.error);
+    recordStep(state, repoPath, line, false);
+    return;
+  }
+  const result = split.value;
 
-  if (rules.length > 0) {
-    const sanitized = sanitize(local.bytes, rules, state.values, {
-      json: isJsonEntry(entry),
-    });
-    if (repo !== undefined) {
-      if (
-        same(repo, sanitized, compareOptions(state.snapshot, repoPath, true))
-      ) {
-        pushStatus(state, "UNCHANGED", repoPath);
-      } else {
-        state.pending.push({
-          action: { kind: "writeRepo", path: repoPath, bytes: sanitized },
-          failure: WRITE_SANITIZED_FAILURE,
-        });
-        const line = pushStatus(state, "MODIFIED", repoPath, "sanitized");
-        state.changed++;
-        recordStep(state, repoPath, line, true);
-      }
-    } else {
-      mkdirParent(state, repoPath);
-      state.pending.push({
-        action: { kind: "writeRepo", path: repoPath, bytes: sanitized },
-        failure: WRITE_SANITIZED_FAILURE,
+  if (result.newSettings.length > 0) {
+    for (const setting of result.newSettings) {
+      const line = pushStatus(
+        state,
+        "ERROR",
+        repoPath,
+        `new setting ${setting.path}: needs a destination`,
+      );
+      recordStep(state, repoPath, line, false);
+      state.newSettings.push({
+        module: entry.module,
+        file: fileLabel(entry.file),
+        path: setting.path,
+        kind: setting.path.endsWith("[]") ? "item" : "key",
+        what: newSettingWhat(
+          setting.path,
+          setting.value,
+          state,
+          rules,
+          isJsonEntry(entry),
+        ),
       });
-      state.pending.push({
-        action: { kind: "chmod", path: repoPath, mode: local.mode },
-        failure: COPY_MODE_FAILURE,
-      });
-      const line = pushStatus(state, "ADDED", repoPath, "sanitized");
-      state.changed++;
-      recordStep(state, repoPath, line, true);
     }
     return;
   }
 
-  if (repo === undefined) {
-    mkdirParent(state, repoPath);
-    state.pending.push({
-      action: { kind: "writeRepo", path: repoPath, bytes: local.bytes },
-      failure: COPY_TO_REPO_FAILURE,
-    });
-    state.pending.push({
-      action: { kind: "chmod", path: repoPath, mode: local.mode },
-      failure: COPY_MODE_FAILURE,
-    });
-    const line = pushStatus(state, "ADDED", repoPath);
-    state.changed++;
-    recordStep(state, repoPath, line, true);
-    return;
+  if (result.changes.length === 0) {
+    pushStatus(state, "UNCHANGED", result.label, result.note);
+  } else {
+    for (const change of result.changes) {
+      state.pending = [];
+      writeRepoFile(
+        state,
+        change.repoPath,
+        local,
+        sanitizeBytes(change.bytes),
+        sanitized,
+        result.note,
+      );
+    }
   }
 
-  if (
-    same(repo, local.bytes, compareOptions(state.snapshot, repoPath, false))
-  ) {
-    pushStatus(state, "UNCHANGED", repoPath);
-    return;
+  const separator = separatorFor(state.snapshot.os);
+  const folder = parentDir(local.path, separator);
+  for (const side of result.sideFiles) {
+    const sidePath = joinPath(folder, side.name, separator);
+    const sideLocal = state.snapshot.localFiles.get(sidePath);
+    if (sideLocal === undefined || sideLocal.kind !== "file") {
+      // The snapshot reads an entry's own local path, not the layer files beside
+      // it, so a side file it doesn't list has nothing to push: the layer file
+      // stays as it is.
+      pushStatus(state, "UNCHANGED", side.repoPath);
+      continue;
+    }
+    if (state.isExcluded(sidePath)) {
+      pushStatus(state, "SKIPPED", side.repoPath, EXCLUDE_NOTE);
+      continue;
+    }
+    // Pull writes a side file with this OS's line endings; the layer file in
+    // the repo holds LF, so fold as `splitImport` does for the base.
+    state.pending = [];
+    writeRepoFile(
+      state,
+      side.repoPath,
+      sideLocal,
+      sanitizeBytes(foldCrlf(sideLocal.bytes)),
+      sanitized,
+    );
   }
-
-  state.pending.push({
-    action: { kind: "writeRepo", path: repoPath, bytes: local.bytes },
-    failure: COPY_TO_REPO_FAILURE,
-  });
-  state.pending.push({
-    action: { kind: "chmod", path: repoPath, mode: local.mode },
-    failure: COPY_MODE_FAILURE,
-  });
-  const line = pushStatus(state, "MODIFIED", repoPath);
-  state.changed++;
-  recordStep(state, repoPath, line, true);
 }
 
 function planDir(state: State, selected: SelectedEntry): void {

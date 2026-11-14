@@ -2,9 +2,10 @@ import type { Result } from "../config/types.ts";
 import { jsonEqual, parseJson, writeJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
 import type { LayerName } from "../layers/select.ts";
-import type { LayerChange, LayerFile } from "./types.ts";
+import type { LayerChange, LayerFile, NewSetting } from "./types.ts";
 
 export type { LayerName };
+export type { NewSetting };
 
 const NO_LAYERS = "mergeJsonValues needs at least one layer";
 
@@ -174,15 +175,6 @@ export interface JsonLayer {
   readonly name: LayerName;
   readonly repoPath: string;
   readonly bytes: Uint8Array | undefined;
-}
-
-/**
- * A key or array item the local file holds and no layer holds yet. `path` joins
- * object keys with "." and an array item as "[]", per the contract's wording.
- */
-export interface NewSetting {
-  readonly path: string;
-  readonly value: JsonValue;
 }
 
 /** One change per layer whose content differs, in layer order, plus the new

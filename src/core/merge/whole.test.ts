@@ -63,7 +63,12 @@ describe("WHOLE split", () => {
     // Assert
     expect(result).toEqual({
       ok: true,
-      value: [{ repoPath: OS.repoPath, bytes: local }],
+      value: {
+        changes: [{ repoPath: OS.repoPath, bytes: local }],
+        newSettings: [],
+        sideFiles: [],
+        label: OS.repoPath,
+      },
     });
   });
 
@@ -77,7 +82,12 @@ describe("WHOLE split", () => {
     // Assert
     expect(result).toEqual({
       ok: true,
-      value: [{ repoPath: WRITE_PATH, bytes: local }],
+      value: {
+        changes: [{ repoPath: WRITE_PATH, bytes: local }],
+        newSettings: [],
+        sideFiles: [],
+        label: WRITE_PATH,
+      },
     });
   });
 
@@ -86,7 +96,15 @@ describe("WHOLE split", () => {
     const result = WHOLE.split(BASE.bytes, [BASE], SPLIT);
 
     // Assert
-    expect(result).toEqual({ ok: true, value: [] });
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        changes: [],
+        newSettings: [],
+        sideFiles: [],
+        label: BASE.repoPath,
+      },
+    });
   });
 });
 
@@ -95,8 +113,16 @@ describe("strategyFor", () => {
     expect(strategyFor("whole")).toBe(WHOLE);
   });
 
-  test("json, import, dconf and dir have no strategy yet", () => {
-    const pending: readonly MergeType[] = ["json", "import", "dconf", "dir"];
+  test("json and import have a strategy", () => {
+    const handled: readonly MergeType[] = ["json", "import"];
+
+    for (const merge of handled) {
+      expect(strategyFor(merge)).toBeDefined();
+    }
+  });
+
+  test("dconf and dir have no strategy yet", () => {
+    const pending: readonly MergeType[] = ["dconf", "dir"];
 
     for (const merge of pending) {
       expect(strategyFor(merge)).toBeUndefined();
