@@ -33,6 +33,7 @@ import {
 } from "./adapters/store.ts";
 import type { BackupSides } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
+import { diffExport } from "./app/diff.ts";
 import {
   CANNOT_LIST_TRACKED,
   executeExport,
@@ -638,6 +639,20 @@ async function execute(command: ExecutableCommand): Promise<Result> {
       stdout: writeLines(lines),
       stderr: writeLines(warnings.lines),
     };
+  }
+
+  if (command.diff === true) {
+    const snapshot = await buildSnapshot(
+      repoRoot,
+      config.value,
+      os.value,
+      home,
+      command,
+      process.cwd(),
+      process.env,
+      layers.value,
+    );
+    return diffExport(repoRoot, state, snapshot);
   }
 
   const check =

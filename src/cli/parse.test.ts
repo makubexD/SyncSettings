@@ -436,7 +436,9 @@ describe("parseArgs", () => {
 
   test("should name export --yes in the usage line", () => {
     expect(
-      USAGE_TEXT.includes("mksync export [--preview] [--yes] [--only <path>...]"),
+      USAGE_TEXT.includes(
+        "mksync export [--preview] [--diff] [--yes] [--only <path>...]",
+      ),
     ).toBe(true);
   });
 });

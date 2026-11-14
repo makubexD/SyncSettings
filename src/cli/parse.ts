@@ -8,7 +8,7 @@ import type { ClaudeMode } from "../core/machine/record.ts";
 import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
-  "usage: mksync export [--preview] [--yes] [--only <path>...] | " +
+  "usage: mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
   "mksync import [--check] [--force] [--only <path>...] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
@@ -31,6 +31,8 @@ export interface RunCommand {
   readonly check: boolean;
   /** `export --yes`: take the suggestions without asking. */
   readonly yes: boolean;
+  /** `export --diff`: label what changed on each side, writing nothing. */
+  readonly diff?: boolean;
   readonly only: readonly string[];
 }
 
@@ -130,6 +132,8 @@ const ONLY_NEEDS_PATH = "ERROR: --only needs a path.";
 const PREVIEW_YES_CLASH =
   "ERROR: --preview and --yes can't be used together.";
 
+const DIFF_CLASH = "ERROR: --diff cannot be combined with --preview or --yes.";
+
 const UNKNOWN_OPTION_PREFIX = "Unknown option: ";
 
 /** The setup flags that take a value after them (decision 5). */
@@ -160,7 +164,7 @@ const SETUP_EXISTING_CHOICES: readonly ExistingAction[] = [
 
 /** The options each verb accepts besides `--only`, which takes a value. */
 const FLAGS: Readonly<Record<CommandName, readonly string[]>> = {
-  export: ["--preview", SETUP_YES],
+  export: ["--preview", "--diff", SETUP_YES],
   import: ["--check", "--force"],
 };
 
@@ -430,6 +434,7 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   let preview = false;
   let check = false;
   let yes = false;
+  let diff = false;
 
   let index = 1;
   while (index < argv.length) {
@@ -456,6 +461,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
       case "--preview":
         preview = true;
         break;
+      case "--diff":
+        diff = true;
+        break;
       case "--check":
         check = true;
         break;
@@ -474,6 +482,18 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   if (yes && preview) {
     return error(PREVIEW_YES_CLASH);
   }
+  if (diff && (preview || yes)) {
+    return error(DIFF_CLASH);
+  }
 
-  return { kind: "run", command, force, preview, check, yes, only };
+  return {
+    kind: "run",
+    command,
+    force,
+    preview,
+    check,
+    yes,
+    ...(diff ? { diff: true } : {}),
+    only,
+  };
 }

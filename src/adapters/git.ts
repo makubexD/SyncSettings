@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RepoFiles } from "../core/plan/types.ts";
 import { originUrls } from "./visibility.ts";
@@ -81,8 +81,17 @@ export async function readPorcelain(
   return decodeText(output.stdout);
 }
 
+/** The tree the diff's `base` and `theirs` read: every dotfile. */
+const DOTFILES_FOLDER = "dotfiles";
+
 /** The repo paths `readHeadTree` covers: every dotfile and the config. */
-const HEAD_TREE_PATHS = ["dotfiles", "sync-config.json"] as const;
+const HEAD_TREE_PATHS = [DOTFILES_FOLDER, "sync-config.json"] as const;
+
+/** The sync point file under the state folder (contract "Sync point"). */
+const SYNC_POINT_FILE = "last-sync";
+
+/** A sync point is a full lowercase SHA, as the contract's state file holds it. */
+const SYNC_POINT_PATTERN = /^[0-9a-f]{40}$/;
 
 /** The newline that closes each `cat-file --batch` header and object. */
 const LF = 0x0a;
@@ -149,22 +158,23 @@ function parseBatchOutput(
 }
 
 /**
- * Every blob under `dotfiles/` and `sync-config.json` at `HEAD`, for
- * `Snapshot.headFiles`. One `ls-tree` names the blobs and one
+ * Every blob under `paths` at `ref`. One `ls-tree` names the blobs and one
  * `cat-file --batch` reads them all, so no process runs per file. Kept byte
- * for byte; `undefined` when git cannot tell (no repo or no commit).
+ * for byte; `undefined` when git cannot tell (no repo or no such ref).
  */
-export async function readHeadTree(
+async function readTreePaths(
   repoRoot: string,
+  ref: string,
+  paths: readonly string[],
 ): Promise<RepoFiles | undefined> {
   const listing = await runGit(repoRoot, [
     "ls-tree",
     "-r",
     "-z",
     "--full-tree",
-    "HEAD",
+    ref,
     "--",
-    ...HEAD_TREE_PATHS,
+    ...paths,
   ]);
   if (listing === undefined || listing.code !== 0) {
     return undefined;
@@ -181,6 +191,82 @@ export async function readHeadTree(
     return undefined;
   }
   return parseBatchOutput(batch.stdout, entries);
+}
+
+/**
+ * Every blob under `dotfiles/` at `ref`, for the diff's `base` and `theirs`
+ * trees. `undefined` when git cannot tell (no repo or no such ref).
+ */
+export async function readTreeAt(
+  repoRoot: string,
+  ref: string,
+): Promise<RepoFiles | undefined> {
+  return readTreePaths(repoRoot, ref, [DOTFILES_FOLDER]);
+}
+
+/**
+ * Every blob under `dotfiles/` and `sync-config.json` at `HEAD`, for
+ * `Snapshot.headFiles`. Kept byte for byte; `undefined` when git cannot tell
+ * (no repo or no commit).
+ */
+export async function readHeadTree(
+  repoRoot: string,
+): Promise<RepoFiles | undefined> {
+  return readTreePaths(repoRoot, "HEAD", HEAD_TREE_PATHS);
+}
+
+/**
+ * The engine's sync point for the diff: the first line of the state folder's
+ * `last-sync`, accepted only when it is a full lowercase SHA that names a
+ * commit here. Any other file or missing file means no sync point.
+ */
+export async function readSyncPoint(
+  repoRoot: string,
+  stateFolder: string,
+): Promise<string | undefined> {
+  let text: string;
+  try {
+    text = readFileSync(join(stateFolder, SYNC_POINT_FILE), "utf8");
+  } catch {
+    // No state file or one that cannot be read is no recorded sync point.
+    return undefined;
+  }
+  const sha = text.split(/\r?\n/, 1)[0] ?? "";
+  if (!SYNC_POINT_PATTERN.test(sha)) {
+    return undefined;
+  }
+  return (await commitExists(repoRoot, sha)) ? sha : undefined;
+}
+
+/** One commit's short SHA and commit date, `%h` and `%cs`. */
+export interface CommitStamp {
+  readonly short: string;
+  readonly date: string;
+}
+
+/**
+ * A ref's short SHA and commit date, for the diff's header. `undefined` when
+ * git cannot tell (no repo or no such ref).
+ */
+export async function readCommitStamp(
+  repoRoot: string,
+  ref: string,
+): Promise<CommitStamp | undefined> {
+  const output = await runGitText(repoRoot, [
+    "log",
+    "-1",
+    "--format=%h%x00%cs",
+    "--end-of-options",
+    ref,
+  ]);
+  if (output === undefined || output.code !== 0) {
+    return undefined;
+  }
+  const [short, date] = output.stdout.trim().split("\u0000");
+  if (short === undefined || short === "" || date === undefined || date === "") {
+    return undefined;
+  }
+  return { short, date };
 }
 
 /**
