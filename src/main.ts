@@ -177,20 +177,23 @@ async function runGitText(
   }
 }
 
-/** The origin remote's push URL, where a push would go, or `undefined` when
+/** Every push URL of the origin remote, where a push would go; empty when
  * there is none. */
-async function readOrigin(repoRoot: string): Promise<string | undefined> {
+async function readOrigin(repoRoot: string): Promise<readonly string[]> {
   const output = await runGitText(repoRoot, [
     "remote",
     "get-url",
     "--push",
+    "--all",
     "origin",
   ]);
   if (output === undefined || output.code !== 0) {
-    return undefined;
+    return [];
   }
-  const origin = output.stdout.trim();
-  return origin === "" ? undefined : origin;
+  return output.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
 }
 
 /** A clone's git folder, or the file a worktree has in its place. */
@@ -449,8 +452,8 @@ async function exportGuard(
   state: string,
   config: ConfigV2,
 ): Promise<ExportGuard | undefined> {
-  const origin = await readOrigin(repoRoot);
-  const visibility = await readVisibility(origin, process.env);
+  const origins = await readOrigin(repoRoot);
+  const visibility = await readVisibility(origins, process.env);
   if (visibility === "private") {
     return { decision: { held: [], refused: [] }, visibility };
   }
@@ -460,7 +463,12 @@ async function exportGuard(
   }
   const store = readStore(state, repoRoot, config);
   const localRecords = store.ok ? store.value : { profiles: [] };
-  return { decision: guard(visibility, tracked, localRecords), visibility };
+  // An unknown visibility fails closed: only a private repo may receive state.
+  const guardVisibility = visibility === "unknown" ? "public" : visibility;
+  return {
+    decision: guard(guardVisibility, tracked, localRecords),
+    visibility: guardVisibility,
+  };
 }
 
 /** Contract "Public-repo guard (program only)": while public, a clone whose
@@ -526,8 +534,8 @@ async function executeSetup(
   } else {
     return failure(store.error.message, store.error.code);
   }
-  const origin = await readOrigin(repoRoot);
-  const isPrivate = (await readVisibility(origin, process.env)) === "private";
+  const origins = await readOrigin(repoRoot);
+  const isPrivate = (await readVisibility(origins, process.env)) === "private";
   const repoStore = isPrivate ? readRepoStore(repoRoot, config) : undefined;
   if (repoStore !== undefined && !repoStore.ok) {
     return failure(repoStore.error.message, repoStore.error.code);

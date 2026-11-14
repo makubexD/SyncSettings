@@ -39,9 +39,15 @@ const UNPARSED_GITHUB_ORIGINS: readonly string[] = [
   "https://github.com/-o/r",
 ];
 
+/** A local origin, which follows `MKSYNC_VISIBILITY` as the fixtures do. */
+const LOCAL_ORIGIN = "/tmp/fixtures/bare.git";
+
+/** An entry that names no URL at all, which the reader treats as unknown. */
+const NO_URL = "";
+
 /** Origins that name no repo on `github.com`, including look-alikes. */
 const OTHER_ORIGINS: readonly string[] = [
-  "/tmp/fixtures/bare.git",
+  LOCAL_ORIGIN,
   "https://gitlab.com/someone/repo",
   `https://github.com.evil.example/${SLUG}`,
 ];
@@ -174,6 +180,55 @@ const API_ANSWERS: ReadonlyArray<
 ];
 
 describe("readVisibility", () => {
+  test("should read one private URL as private", async () => {
+    // Arrange
+    const fakes = deps({ run: async () => commandOutput(1, "") });
+
+    // Act
+    const visibility = await readVisibility(
+      [LOCAL_ORIGIN],
+      { MKSYNC_VISIBILITY: "private" },
+      fakes,
+    );
+
+    // Assert
+    expect(visibility).toBe("private");
+  });
+
+  test("should read a private URL plus a public URL as public", async () => {
+    // Arrange
+    const fakes = deps({ run: async () => ghAnswer("PUBLIC") });
+
+    // Act
+    const visibility = await readVisibility(
+      [GITHUB_HTTPS, LOCAL_ORIGIN],
+      { MKSYNC_VISIBILITY: "private" },
+      fakes,
+    );
+
+    // Assert
+    expect(visibility).toBe("public");
+  });
+
+  test("should read a private URL plus an unknown URL as unknown", async () => {
+    // Arrange
+    const fakes = deps({ run: async () => ghAnswer("PRIVATE") });
+
+    // Act
+    const visibility = await readVisibility([GITHUB_HTTPS, NO_URL], {}, fakes);
+
+    // Assert
+    expect(visibility).toBe("unknown");
+  });
+
+  test("should read no URL as unknown", async () => {
+    // Act
+    const visibility = await readVisibility([], {}, deps());
+
+    // Assert
+    expect(visibility).toBe("unknown");
+  });
+
   test.each(GITHUB_ORIGINS)("should ask gh about %s", async (origin) => {
     // Arrange
     const calls: string[][] = [];
@@ -186,7 +241,7 @@ describe("readVisibility", () => {
 
     // Act
     const visibility = await readVisibility(
-      origin,
+      [origin],
       { MKSYNC_VISIBILITY: "private" },
       fakes,
     );
@@ -207,7 +262,7 @@ describe("readVisibility", () => {
       const fakes = deps({ run: async () => ghAnswer(answer) });
 
       // Act
-      const visibility = await readVisibility(GITHUB_HTTPS, {}, fakes);
+      const visibility = await readVisibility([GITHUB_HTTPS], {}, fakes);
 
       // Assert
       expect(visibility).toBe(expected);
@@ -220,7 +275,7 @@ describe("readVisibility", () => {
 
     // Act
     const visibility = await readVisibility(
-      GITHUB_HTTPS,
+      [GITHUB_HTTPS],
       { MKSYNC_VISIBILITY: "private" },
       fakes,
     );
@@ -243,7 +298,7 @@ describe("readVisibility", () => {
       });
 
       // Act
-      const visibility = await readVisibility(GITHUB_HTTPS, {}, fakes);
+      const visibility = await readVisibility([GITHUB_HTTPS], {}, fakes);
 
       // Assert
       expect(visibility).toBe("private");
@@ -283,7 +338,7 @@ describe("readVisibility", () => {
     });
 
     // Act
-    const visibility = await readVisibility(GITHUB_HTTPS, {}, fakes);
+    const visibility = await readVisibility([GITHUB_HTTPS], {}, fakes);
 
     // Assert
     expect(visibility).toBe("private");
@@ -307,7 +362,7 @@ describe("readVisibility", () => {
       });
 
       // Act
-      const visibility = await readVisibility(GITHUB_HTTPS, {}, fakes);
+      const visibility = await readVisibility([GITHUB_HTTPS], {}, fakes);
 
       // Assert
       expect(visibility).toBe(expected);
@@ -319,7 +374,7 @@ describe("readVisibility", () => {
     "should default to public for %s without the variable",
     async (origin) => {
       // Act
-      const visibility = await readVisibility(origin, {}, deps());
+      const visibility = await readVisibility([origin], {}, deps());
 
       // Assert
       expect(visibility).toBe("public");
@@ -331,7 +386,7 @@ describe("readVisibility", () => {
     async (origin) => {
       // Act
       const visibility = await readVisibility(
-        origin,
+        [origin],
         { MKSYNC_VISIBILITY: "private" },
         deps(),
       );
@@ -344,7 +399,7 @@ describe("readVisibility", () => {
   test("should default to public when the variable says something else", async () => {
     // Act
     const visibility = await readVisibility(
-      "/tmp/fixtures/bare.git",
+      [LOCAL_ORIGIN],
       { MKSYNC_VISIBILITY: "public" },
       deps(),
     );
@@ -358,7 +413,7 @@ describe("readVisibility", () => {
     async (origin) => {
       // Act
       const visibility = await readVisibility(
-        origin,
+        [origin],
         { MKSYNC_VISIBILITY: "private" },
         deps(),
       );
@@ -368,18 +423,18 @@ describe("readVisibility", () => {
     },
   );
 
-  test("should read no origin as public", async () => {
+  test("should read no URL with no variable as unknown", async () => {
     // Act
-    const visibility = await readVisibility(undefined, {}, deps());
+    const visibility = await readVisibility([], {}, deps());
 
     // Assert
-    expect(visibility).toBe("public");
+    expect(visibility).toBe("unknown");
   });
 
-  test("should read a private variable with no origin as private", async () => {
+  test("should read a private variable with no URL as private", async () => {
     // Act
     const visibility = await readVisibility(
-      undefined,
+      [],
       { MKSYNC_VISIBILITY: "private" },
       deps(),
     );
@@ -398,7 +453,7 @@ describe("readVisibility", () => {
 
       // Act
       const visibility = await readVisibility(
-        ALIAS_ORIGIN,
+        [ALIAS_ORIGIN],
         {},
         deps({ run: stub.run }),
       );
@@ -417,7 +472,7 @@ describe("readVisibility", () => {
 
       // Act
       const visibility = await readVisibility(
-        ALIAS_ORIGIN,
+        [ALIAS_ORIGIN],
         { MKSYNC_VISIBILITY: "private" },
         deps({ run: stub.run }),
       );
@@ -436,7 +491,7 @@ describe("readVisibility", () => {
 
       // Act
       const visibility = await readVisibility(
-        ALIAS_SSH_URL,
+        [ALIAS_SSH_URL],
         {},
         deps({ run: stub.run }),
       );
@@ -452,7 +507,7 @@ describe("readVisibility", () => {
 
       // Act
       const visibility = await readVisibility(
-        ALIAS_ORIGIN,
+        [ALIAS_ORIGIN],
         { MKSYNC_VISIBILITY: "private" },
         deps({ run: stub.run }),
       );
@@ -468,7 +523,7 @@ describe("readVisibility", () => {
 
       // Act
       const visibility = await readVisibility(
-        "git@gitlab-alias:o/r.git",
+        ["git@gitlab-alias:o/r.git"],
         { MKSYNC_VISIBILITY: "private" },
         deps({ run: stub.run }),
       );
@@ -484,7 +539,7 @@ describe("readVisibility", () => {
 
       // Act
       const visibility = await readVisibility(
-        "-oProxyCommand=x:o/r",
+        ["-oProxyCommand=x:o/r"],
         { MKSYNC_VISIBILITY: "private" },
         deps({ run: stub.run }),
       );
@@ -500,7 +555,7 @@ describe("readVisibility", () => {
 
       // Act
       const visibility = await readVisibility(
-        "/srv/git/repo.git",
+        ["/srv/git/repo.git"],
         { MKSYNC_VISIBILITY: "private" },
         deps({ run: stub.run }),
       );
