@@ -4,7 +4,7 @@
   ],
   "values": {},
   "destinations": {
-    "delta[]": "base"
+    "parity settings.json: delta[]": "base"
   },
   "retired": false
 }

@@ -6,7 +6,7 @@
     "<YOUR_EMAIL>": "jane.doe@work1.example.com"
   },
   "destinations": {
-    "delta[]": "machine"
+    "parity settings.json: delta[]": "machine"
   },
   "retired": false
 }

@@ -4,7 +4,7 @@
   ],
   "values": {},
   "destinations": {
-    "delta[]": "machine"
+    "parity settings.json: delta[]": "machine"
   },
   "retired": false
 }
