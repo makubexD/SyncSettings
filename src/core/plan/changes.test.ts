@@ -519,6 +519,78 @@ describe("importChangeLines", () => {
     expect(JSON.stringify(lines)).not.toContain("old@example.com");
   });
 
+  test("prints a long string's email past the cut as its placeholder", () => {
+    const sanitizedEntry: ConfigV2Entry = {
+      file: "parity/settings.json",
+      module: "parity",
+      merge: "json",
+      localPath: "~/.config/parity/settings.json",
+      description: "Parity JSON settings with a sanitized value",
+      sanitize: [
+        { placeholder: "<YOUR_EMAIL>", prompt: "Email for git commits" },
+      ],
+    };
+    const valuePrefix = "a".repeat(49);
+    const oldEmail = "old.doe@example.com";
+    const newEmail = "jane.doe@example.com";
+    const snapshot = snapshotOf({
+      config: configOf([sanitizedEntry]),
+      repo: { [BASE_JSON]: `{"note":"${valuePrefix}<YOUR_EMAIL>"}` },
+      local: { [LOCAL_JSON]: `{"note":"${valuePrefix}${oldEmail}"}` },
+      values: { "<YOUR_EMAIL>": newEmail },
+    });
+    const plan = planOf([
+      writeLocal(LOCAL_JSON, `{"note":"${valuePrefix}${newEmail}"}`),
+    ]);
+
+    const lines = importChangeLines(plan, snapshot);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.what).toContain("<YOUR_");
+    expect(lines[0]?.what).toContain("...");
+    expect(lines[0]?.what).not.toContain("jane.");
+    expect(lines[0]?.what).not.toContain("old.");
+    expect(JSON.stringify(lines)).not.toContain(newEmail);
+    expect(JSON.stringify(lines)).not.toContain(oldEmail);
+  });
+
+  test("prints an object's email past the cut as its placeholder", () => {
+    const sanitizedEntry: ConfigV2Entry = {
+      file: "parity/settings.json",
+      module: "parity",
+      merge: "json",
+      localPath: "~/.config/parity/settings.json",
+      description: "Parity JSON settings with a sanitized value",
+      sanitize: [
+        { placeholder: "<YOUR_EMAIL>", prompt: "Email for git commits" },
+      ],
+    };
+    const name = "a long display name for the team";
+    const newEmail = "jane.doe@example.com";
+    const snapshot = snapshotOf({
+      config: configOf([sanitizedEntry]),
+      repo: {
+        [BASE_JSON]: `{"profile":{"name":"${name}","email":"<YOUR_EMAIL>"}}`,
+      },
+      local: { [LOCAL_JSON]: '{"profile":"none"}' },
+      values: { "<YOUR_EMAIL>": newEmail },
+    });
+    const plan = planOf([
+      writeLocal(
+        LOCAL_JSON,
+        `{"profile":{"name":"${name}","email":"${newEmail}"}}`,
+      ),
+    ]);
+
+    const lines = importChangeLines(plan, snapshot);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.what).toContain("<YOUR");
+    expect(lines[0]?.what).toContain("...");
+    expect(lines[0]?.what).not.toContain("jane.");
+    expect(JSON.stringify(lines)).not.toContain(newEmail);
+  });
+
   test("gives a changed key the latest layer that sets it", () => {
     const snapshot = snapshotOf({
       config: configOf([JSON_ENTRY]),

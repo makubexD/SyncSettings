@@ -1322,6 +1322,13 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     side prints its real value (terminal only, never written).
   - A git that can't run, or a folder that isn't a repo, now reads the visibility as unknown, so `MKSYNC_VISIBILITY`
     no longer answers there (only a missing origin lets it).
+  - With a pointer, layer writes into the clone check containment by path only: a symlink committed under
+    `machines/<name>/` or `profiles/<p>/` is written through (the first backup refuses one; later runs don't).
+    `dotfiles/` has the same gap.
+  - `setup` on a machine whose record is a pointer writes the record and profile to the state folder, replacing the
+    pointer; the contract doesn't say whether that's meant to start a new first backup.
+  - A destination key is `<module> <file>: <path>`, so a module name with a space could collide with another
+    module's file; module names don't hold spaces today.
 
 ### Confirm on Windows
 

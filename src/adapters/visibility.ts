@@ -85,6 +85,9 @@ const OK = 200;
 /** A command that could not start has no exit code; report it as -1. */
 const FAILED_TO_START = -1;
 
+/** git's exit code for a remote that doesn't exist. */
+const NO_SUCH_REMOTE = 2;
+
 /** The variable that decides visibility for origins other than `github.com`. */
 const VISIBILITY_VARIABLE = "MKSYNC_VISIBILITY";
 
@@ -426,6 +429,27 @@ async function readOneVisibility(
     return "public";
   }
   return readVariable(env);
+}
+
+/**
+ * Every push URL a `git remote get-url --push --all origin` run names, one per
+ * trimmed, non-empty stdout line. An exit 2 means the remote doesn't exist, so
+ * no URL answers; `undefined` (git didn't start) or any other failure leaves
+ * the guard unable to tell.
+ */
+export function originUrls(
+  output: CommandOutput | undefined,
+): readonly string[] | undefined {
+  if (output === undefined) {
+    return undefined;
+  }
+  if (output.code !== 0) {
+    return output.code === NO_SUCH_REMOTE ? [] : undefined;
+  }
+  return output.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
 }
 
 /**

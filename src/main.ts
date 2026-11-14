@@ -36,7 +36,7 @@ import {
   writeStoreRecord,
 } from "./adapters/store.ts";
 import type { BackupSides, FirstBackupFile } from "./adapters/store.ts";
-import { readVisibility } from "./adapters/visibility.ts";
+import { originUrls, readVisibility } from "./adapters/visibility.ts";
 import { askNewSettings } from "./cli/ask.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
@@ -180,9 +180,6 @@ async function runGitText(
   }
 }
 
-/** git's exit code for a remote that doesn't exist. */
-const NO_SUCH_REMOTE = 2;
-
 /** Every push URL of the origin remote, where a push would go; empty when
  * there is none, and `undefined` when git fails for any other reason, so the
  * guard reads the visibility as unknown. */
@@ -196,16 +193,7 @@ async function readOrigin(
     "--all",
     "origin",
   ]);
-  if (output === undefined) {
-    return undefined;
-  }
-  if (output.code !== 0) {
-    return output.code === NO_SUCH_REMOTE ? [] : undefined;
-  }
-  return output.stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "");
+  return originUrls(output);
 }
 
 /** A clone's git folder, or the file a worktree has in its place. */

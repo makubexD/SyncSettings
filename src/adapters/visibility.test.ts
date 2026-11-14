@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readVisibility, runCommand } from "./visibility.ts";
+import { originUrls, readVisibility, runCommand } from "./visibility.ts";
 import type {
   ApiReply,
   CommandOutput,
@@ -576,6 +576,67 @@ describe("readVisibility", () => {
       expect(visibility).toBe("private");
       expect(stub.calls).toEqual([]);
     });
+  });
+});
+
+describe("originUrls", () => {
+  test("should read an exit 2 as no origin, so the variable answers", async () => {
+    // Arrange
+    const output = commandOutput(2, "");
+
+    // Act
+    const origins = originUrls(output);
+    const visibility = await readVisibility(
+      origins,
+      { MKSYNC_VISIBILITY: "private" },
+      deps(),
+    );
+
+    // Assert
+    expect(origins).toEqual([]);
+    expect(visibility).toBe("private");
+  });
+
+  test("should read an exit 128 as unknown, whatever the variable says", async () => {
+    // Arrange
+    const output = commandOutput(128, "");
+
+    // Act
+    const origins = originUrls(output);
+    const visibility = await readVisibility(
+      origins,
+      { MKSYNC_VISIBILITY: "private" },
+      deps(),
+    );
+
+    // Assert
+    expect(origins).toBeUndefined();
+    expect(visibility).toBe("unknown");
+  });
+
+  test("should read two URL lines and drop the blank line", () => {
+    // Arrange
+    const output = commandOutput(
+      0,
+      `  ${GITHUB_HTTPS}.git  \n\nssh://git@github.com/${SLUG}.git\n`,
+    );
+
+    // Act
+    const origins = originUrls(output);
+
+    // Assert
+    expect(origins).toEqual([
+      `${GITHUB_HTTPS}.git`,
+      `ssh://git@github.com/${SLUG}.git`,
+    ]);
+  });
+
+  test("should read no output as unknown", () => {
+    // Act
+    const origins = originUrls(undefined);
+
+    // Assert
+    expect(origins).toBeUndefined();
   });
 });
 
