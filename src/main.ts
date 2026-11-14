@@ -24,12 +24,16 @@ import {
   STATUSLINE_UNAVAILABLE,
 } from "./adapters/statusline.ts";
 import {
+  firstBackupFiles,
+  readBackupSides,
   readRepoStore,
   readStore,
   readText,
+  writeFirstBackup,
   writeProfile,
   writeRecord,
 } from "./adapters/store.ts";
+import type { BackupSides, FirstBackupFile } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
 import { askNewSettings } from "./cli/ask.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
@@ -44,9 +48,17 @@ import type {
 import type { Profile } from "./core/config/profile.ts";
 import type { ConfigV2, Os } from "./core/config/types.ts";
 import { guard, PROFILES_FOLDER } from "./core/guard.ts";
-import type { GuardDecision } from "./core/guard.ts";
+import type { GuardDecision, Visibility } from "./core/guard.ts";
 import { pickOs } from "./core/layers/select.ts";
 import type { LayerName } from "./core/layers/select.ts";
+import { firstBackupWrites, planFirstBackup } from "./core/machine/backup.ts";
+import type {
+  BackupQuestion,
+  BackupSide,
+  FirstBackupWrites,
+  LocalBackup,
+  RepoBackup,
+} from "./core/machine/backup.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { CheckMode } from "./core/machine/check.ts";
 import { RECORD_ERROR_PREFIX } from "./core/machine/record.ts";
@@ -92,6 +104,7 @@ import type {
   Snapshot,
 } from "./core/plan/types.ts";
 import { compareShadow, programShadow, renderShadow } from "./core/shadow.ts";
+import { formatLine } from "./core/status.ts";
 import { parseValuesFile } from "./core/values/file.ts";
 import type { Values } from "./core/values/sanitize.ts";
 import type { SetupFlags, SetupIo } from "./wizard/setup.ts";
@@ -419,6 +432,12 @@ async function replaceValues(
   return values;
 }
 
+/** The guard's decision and the visibility it read. */
+interface ExportGuard {
+  readonly decision: GuardDecision;
+  readonly visibility: Visibility;
+}
+
 /**
  * Decision 10: the public-repo guard's decision for an export. A private repo
  * holds and refuses nothing and needs no listing; while public, the local store
@@ -430,11 +449,11 @@ async function exportGuard(
   repoRoot: string,
   state: string,
   config: ConfigV2,
-): Promise<GuardDecision | undefined> {
+): Promise<ExportGuard | undefined> {
   const origin = await readOrigin(repoRoot);
   const visibility = await readVisibility(origin, process.env);
   if (visibility === "private") {
-    return { held: [], refused: [] };
+    return { decision: { held: [], refused: [] }, visibility };
   }
   const tracked = await readTrackedPaths(repoRoot);
   if (tracked === undefined) {
@@ -442,7 +461,7 @@ async function exportGuard(
   }
   const store = readStore(state, repoRoot, config);
   const localRecords = store.ok ? store.value : { profiles: [] };
-  return guard(visibility, tracked, localRecords);
+  return { decision: guard(visibility, tracked, localRecords), visibility };
 }
 
 /** Contract "Public-repo guard (program only)": while public, a clone whose
@@ -927,6 +946,137 @@ function runExport(
   };
 }
 
+/** What a first backup needs at export time: both sides and whether to ask. */
+interface FirstBackupRun {
+  readonly stateFolder: string;
+  readonly repoRoot: string;
+  readonly local: LocalBackup;
+  readonly repo: RepoBackup;
+  readonly yes: boolean;
+}
+
+/** The first backup's writes and the files whose status lines it prints. */
+interface FirstBackupPrepared {
+  readonly files: readonly FirstBackupFile[];
+  readonly writes: FirstBackupWrites;
+}
+
+/** Contract "The first backup": the question with both sides shown, one space
+ * after it and no newline. */
+const KEEP_WHICH = "Keep which? 1) the repo's  2) this machine's [1] ";
+
+const BACKUP_PICK_ONE = "Pick 1 to 2.\n";
+
+const REPO_SIDE = "repo";
+
+const MACHINE_SIDE = "machine";
+
+/**
+ * Contract "The first backup": ask each differing value or destination in key
+ * order, showing the repo's side first. Answers are read as `setup` reads them:
+ * an empty answer or end of input keeps the first choice (the repo's), a bad
+ * answer prints `Pick 1 to 2.` and asks again.
+ */
+async function askBackupQuestions(
+  questions: readonly BackupQuestion[],
+): Promise<ReadonlyMap<string, BackupSide>> {
+  const answers = new Map<string, BackupSide>();
+  const terminal = setupTerminal();
+  try {
+    for (const question of questions) {
+      terminal.io.write(
+        `${question.key} differs on profile ${question.profile}:\n`,
+      );
+      terminal.io.write(`  repo:         ${question.repo}\n`);
+      terminal.io.write(`  this machine: ${question.machine}\n`);
+      for (;;) {
+        terminal.io.write(KEEP_WHICH);
+        const answer = (await terminal.io.readLine())?.trim() ?? "";
+        if (answer === "" || answer === "1") {
+          answers.set(`${question.kind}:${question.key}`, REPO_SIDE);
+          break;
+        }
+        if (answer === "2") {
+          answers.set(`${question.kind}:${question.key}`, MACHINE_SIDE);
+          break;
+        }
+        terminal.io.write(BACKUP_PICK_ONE);
+      }
+    }
+  } finally {
+    terminal.close();
+  }
+  return answers;
+}
+
+/** Plan the first backup, ask what differs unless `--yes`, and plan its writes. */
+async function prepareFirstBackup(
+  run: FirstBackupRun,
+): Promise<FirstBackupPrepared> {
+  const plan = planFirstBackup(run.local, run.repo);
+  const answers = run.yes
+    ? new Map<string, BackupSide>()
+    : await askBackupQuestions(plan.questions);
+  const writes = firstBackupWrites(run.local, run.repo, answers);
+  return { files: firstBackupFiles(run.repoRoot, writes), writes };
+}
+
+/**
+ * Contract "The first backup": the backup's status lines come after the
+ * entries and count towards the export's total, so they are planned into the
+ * run. The backup's own actions are empty: the files are written after the
+ * export, by `finishFirstBackup`.
+ */
+function withFirstBackup(
+  plan: RunPlan,
+  files: readonly FirstBackupFile[],
+): RunPlan {
+  if (files.length === 0) {
+    return plan;
+  }
+  const lines = [...plan.lines];
+  const steps = [...plan.steps];
+  for (const file of files) {
+    lines.push(formatLine(file.status, file.path));
+    steps.push({
+      label: file.path,
+      line: lines.length - 1,
+      counted: true,
+      actions: [],
+    });
+  }
+  return { ...plan, lines, steps };
+}
+
+/**
+ * Write the first backup into the repo, then make the record the pointer. A
+ * failed write leaves `machine.json` as it was and exits 1 with the contract's
+ * line. A refused or failed export writes nothing.
+ */
+function finishFirstBackup(
+  run: FirstBackupRun | undefined,
+  prepared: FirstBackupPrepared | undefined,
+  result: Result,
+): Result {
+  if (run === undefined || prepared === undefined || result.code !== 0) {
+    return result;
+  }
+  const written = writeFirstBackup(
+    run.stateFolder,
+    run.repoRoot,
+    run.local.record.name,
+    prepared.files,
+  );
+  if (written.ok) {
+    return result;
+  }
+  return {
+    ...result,
+    code: 1,
+    stderr: `${result.stderr}${written.error.message}\n`,
+  };
+}
+
 /**
  * The push side with a record: ask where each new setting goes, plan with the
  * answers, run, then store an array item's answer in the profile (contract
@@ -937,24 +1087,59 @@ async function executeExport(
   snapshot: Snapshot,
   command: RunCommand,
   context: RunContext,
+  backup?: FirstBackupRun,
 ): Promise<Result> {
   const planned = planExport(snapshot);
   const settings = planned.newSettings ?? [];
   const question = newSettingChoices(snapshot.record, snapshot.os);
   if (question === undefined || settings.length === 0) {
-    return runExport(planned, snapshot, context).result;
+    // A refused export writes nothing, so its questions are not asked.
+    const refused = exportRefusal(
+      planned,
+      snapshot,
+      withoutNewSettings(changeLines(planned, snapshot), settings),
+    );
+    const prepared =
+      refused !== undefined || backup === undefined
+        ? undefined
+        : await prepareFirstBackup(backup);
+    const result = runExport(
+      prepared === undefined
+        ? planned
+        : withFirstBackup(planned, prepared.files),
+      snapshot,
+      context,
+    ).result;
+    return finishFirstBackup(backup, prepared, result);
   }
 
   if (command.yes) {
     const choices = settings.map(() => question.suggestion);
     const plan = planExport(snapshot, answersOf(settings, choices));
-    return storeItemDestinations(
+    const refused = exportRefusal(
+      plan,
+      snapshot,
+      withoutNewSettings(changeLines(plan, snapshot), settings),
+    );
+    const prepared =
+      refused !== undefined || backup === undefined
+        ? undefined
+        : await prepareFirstBackup(backup);
+    const result = storeItemDestinations(
       snapshot,
       context,
       settings,
       choices,
-      runExport(plan, snapshot, context, settings),
+      runExport(
+        prepared === undefined
+          ? plan
+          : withFirstBackup(plan, prepared.files),
+        snapshot,
+        context,
+        settings,
+      ),
     );
+    return finishFirstBackup(backup, prepared, result);
   }
 
   const choices = await askSettings(snapshot, settings, question);
@@ -969,13 +1154,21 @@ async function executeExport(
   if (refused !== undefined) {
     return { code: 1, stdout: writeLines(["", ...refused]), stderr: "" };
   }
-  return storeItemDestinations(
+  const prepared =
+    backup === undefined ? undefined : await prepareFirstBackup(backup);
+  const result = storeItemDestinations(
     snapshot,
     context,
     settings,
     choices,
-    applyPlanAndBackup(plan, context),
+    applyPlanAndBackup(
+      prepared === undefined
+        ? plan
+        : withFirstBackup(plan, prepared.files),
+      context,
+    ),
   );
+  return finishFirstBackup(backup, prepared, result);
 }
 
 /** Run the command against the repo found from the working folder. */
@@ -1058,19 +1251,32 @@ async function execute(command: ExecutableCommand): Promise<Result> {
 
   // The record checks run first, then the public-repo guard's (contract
   // "Public-repo guard (program only)").
-  let guardDecision: GuardDecision | undefined;
+  let exportGuardResult: ExportGuard | undefined;
   if (command.command === "export") {
-    guardDecision = await exportGuard(repoRoot, state, config.value);
-    if (guardDecision === undefined) {
+    exportGuardResult = await exportGuard(repoRoot, state, config.value);
+    if (exportGuardResult === undefined) {
       return failure(CANNOT_LIST_TRACKED);
     }
   }
   if (
-    guardDecision !== undefined &&
+    exportGuardResult !== undefined &&
     !command.preview &&
-    guardDecision.refused.length > 0
+    exportGuardResult.decision.refused.length > 0
   ) {
-    return failure(refusedText(guardDecision.refused));
+    return failure(refusedText(exportGuardResult.decision.refused));
+  }
+  // Contract "The first backup": a private repo and a record not yet the
+  // pointer read both sides before the run.
+  let backupSides: BackupSides | undefined;
+  if (
+    command.command === "export" &&
+    exportGuardResult?.visibility === "private"
+  ) {
+    const sides = readBackupSides(state, repoRoot, config.value);
+    if (!sides.ok) {
+      return failure(sides.error.message, sides.error.code);
+    }
+    backupSides = sides.value;
   }
 
   const answers = await readAnswers(command);
@@ -1096,21 +1302,39 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   let result: Result;
   if (command.command === "export") {
     if (command.preview) {
+      const firstBackup =
+        backupSides === undefined
+          ? undefined
+          : planFirstBackup(backupSides.local, backupSides.repo).paths;
       result = renderStatic(
-        planPreview(snapshot, previewWorkingTree(repoRoot, snapshot.repoFiles)),
+        planPreview(
+          snapshot,
+          previewWorkingTree(repoRoot, snapshot.repoFiles),
+          firstBackup,
+        ),
       );
     } else {
-      result = await executeExport(snapshot, command, context);
+      const firstBackup: FirstBackupRun | undefined =
+        backupSides === undefined
+          ? undefined
+          : {
+              stateFolder: state,
+              repoRoot,
+              local: backupSides.local,
+              repo: backupSides.repo,
+              yes: command.yes,
+            };
+      result = await executeExport(snapshot, command, context, firstBackup);
     }
     if (
       command.preview &&
       result.code === 0 &&
-      guardDecision !== undefined &&
-      guardDecision.held.length > 0
+      exportGuardResult !== undefined &&
+      exportGuardResult.decision.held.length > 0
     ) {
       result = {
         ...result,
-        stdout: result.stdout + heldText(guardDecision.held),
+        stdout: result.stdout + heldText(exportGuardResult.decision.held),
       };
     }
   } else {

@@ -18,6 +18,12 @@ import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
 import type { JsonValue } from "../core/json/value.ts";
 import { writeJson } from "../core/json/value.ts";
 import { LAYER_NAME } from "../core/layers/names.ts";
+import type {
+  FirstBackupWrites,
+  LayerFile,
+  LocalBackup,
+  RepoBackup,
+} from "../core/machine/backup.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import {
   parseRecord,
@@ -406,4 +412,233 @@ export function writeProfile(stateFolder: string, profile: Profile): void {
     join(stateFolder, PROFILES_FOLDER, `${profile.name}${PROFILE_EXTENSION}`),
     profileText(profile),
   );
+}
+
+/** The first backup's two sides, as their stores hold them. */
+export interface BackupSides {
+  readonly local: LocalBackup;
+  readonly repo: RepoBackup;
+}
+
+/** One file the first backup writes, with the status line it prints. */
+export interface FirstBackupFile {
+  readonly path: string;
+  readonly text: string;
+  readonly status: "ADDED" | "MODIFIED";
+}
+
+/** The contract's line when a first backup write fails. */
+const FIRST_BACKUP_STOPPED = "ERROR: first backup stopped at";
+
+function byRelativePath(
+  a: { readonly path: string },
+  b: { readonly path: string },
+): number {
+  if (a.path < b.path) {
+    return -1;
+  }
+  return a.path > b.path ? 1 : 0;
+}
+
+/** Every regular file under a layer folder, sorted, its path relative to the
+ * folder and "/"-separated. A missing folder holds no files; any other read
+ * error is the caller's to report. */
+function readLayerFolder(folder: string): readonly LayerFile[] {
+  const files: LayerFile[] = [];
+  const walk = (current: string, prefix: string): void => {
+    let entries: readonly Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch (error) {
+      if (isMissingError(error)) {
+        return;
+      }
+      throw error;
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name);
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(path, relative);
+      } else if (entry.isFile()) {
+        files.push({ path: relative, text: readFileSync(path, "utf8") });
+      }
+    }
+  };
+  walk(folder, "");
+  return files.sort(byRelativePath);
+}
+
+/** The repo's copy of a profile, or `undefined` when the clone doesn't hold it. */
+function readRepoProfile(
+  repoRoot: string,
+  name: string,
+  config: ConfigV2,
+): LoadResult<Profile | undefined, ConfigError> {
+  const path = join(repoRoot, PROFILES_FOLDER, `${name}${PROFILE_EXTENSION}`);
+  const read = readFileText(path);
+  if (read.kind === "unreadable") {
+    return {
+      ok: false,
+      error: {
+        message:
+          `ERROR: profile ${name} (${PROFILES_FOLDER}/${name}` +
+          `${PROFILE_EXTENSION} in the repo): can't be read.`,
+        code: 2,
+      },
+    };
+  }
+  if (read.kind === "missing") {
+    return { ok: true, value: undefined };
+  }
+  return parseProfile(name, read.text, config);
+}
+
+/**
+ * Contract "The first backup": what this machine holds for its record's profile
+ * and what the repo already holds for that profile. `undefined` when there is
+ * no first backup: no record, or a record already in the pointer form.
+ */
+export function readBackupSides(
+  stateFolder: string,
+  repoRoot: string,
+  config: ConfigV2,
+): LoadResult<BackupSides | undefined, ConfigError> {
+  const recordRead = readFileText(join(stateFolder, MACHINE_FILE));
+  if (recordRead.kind === "unreadable") {
+    return { ok: false, error: unreadableRecordError() };
+  }
+  if (recordRead.kind === "missing") {
+    return { ok: true, value: undefined };
+  }
+  if (repoHomeName(recordRead.text) !== undefined) {
+    return { ok: true, value: undefined };
+  }
+  const record = readRecord(recordRead.text, config);
+  if (!record.ok) {
+    return record;
+  }
+  const profile = readProfileFile(
+    join(stateFolder, PROFILES_FOLDER),
+    record.value.profile,
+    config,
+  );
+  if (!profile.ok) {
+    return profile;
+  }
+  let profileLayer: readonly LayerFile[];
+  let machineLayer: readonly LayerFile[];
+  try {
+    profileLayer = readLayerFolder(
+      join(stateFolder, PROFILES_FOLDER, record.value.profile),
+    );
+    machineLayer = readLayerFolder(
+      join(stateFolder, MACHINES_FOLDER, record.value.name),
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: { message: `ERROR: ${reason}`, code: 2 } };
+  }
+  const repoProfile = readRepoProfile(repoRoot, record.value.profile, config);
+  if (!repoProfile.ok) {
+    return repoProfile;
+  }
+  return {
+    ok: true,
+    value: {
+      local: {
+        profile: profile.value,
+        profileLayer,
+        record: record.value,
+        machineLayer,
+      },
+      repo:
+        repoProfile.value === undefined
+          ? {}
+          : { profile: repoProfile.value },
+    },
+  };
+}
+
+/**
+ * Contract "The first backup": the files to write, compared by content with
+ * the repo. A file the repo already holds identical bytes for is left out, so
+ * it prints no status line and isn't counted.
+ */
+export function firstBackupFiles(
+  repoRoot: string,
+  writes: FirstBackupWrites,
+): readonly FirstBackupFile[] {
+  const files: { readonly path: string; readonly text: string }[] = [
+    {
+      path: `${PROFILES_FOLDER}/${writes.profile.name}${PROFILE_EXTENSION}`,
+      text: profileText(writes.profile),
+    },
+    {
+      path: `${MACHINES_FOLDER}/${writes.record.name}${PROFILE_EXTENSION}`,
+      text: recordText(writes.record),
+    },
+    ...writes.files,
+  ].sort(byRelativePath);
+  const changed: FirstBackupFile[] = [];
+  for (const file of files) {
+    const current = readText(join(repoRoot, ...file.path.split("/")));
+    if (current === file.text) {
+      continue;
+    }
+    changed.push({
+      ...file,
+      status: current === undefined ? "ADDED" : "MODIFIED",
+    });
+  }
+  return changed;
+}
+
+/** The contract's failure line for one first backup write. */
+function firstBackupStopped(path: string, error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return `${FIRST_BACKUP_STOPPED} ${path}: ${reason}.`;
+}
+
+/** The pointer a record becomes once its files live in the repo. */
+function pointerText(name: string): string {
+  const entries = new Map<string, JsonValue>([
+    ["name", jsonString(name)],
+    ["home", jsonString(REPO_HOME)],
+  ]);
+  return writeJson({ kind: "object", entries }, "\n");
+}
+
+/**
+ * Contract "The first backup": write the files into the repo, then make
+ * `<state>/machine.json` the pointer. A failed write stops before the pointer,
+ * so the record stays local and the next export tries again.
+ */
+export function writeFirstBackup(
+  stateFolder: string,
+  repoRoot: string,
+  name: string,
+  files: readonly FirstBackupFile[],
+): LoadResult<undefined, ConfigError> {
+  for (const file of files) {
+    try {
+      const target = join(repoRoot, ...file.path.split("/"));
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, file.text);
+    } catch (error) {
+      return {
+        ok: false,
+        error: { message: firstBackupStopped(file.path, error), code: 1 },
+      };
+    }
+  }
+  try {
+    writePrivateFile(join(stateFolder, MACHINE_FILE), pointerText(name));
+  } catch (error) {
+    return {
+      ok: false,
+      error: { message: firstBackupStopped(MACHINE_FILE, error), code: 1 },
+    };
+  }
+  return { ok: true, value: undefined };
 }

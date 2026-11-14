@@ -18,6 +18,14 @@ const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
 const NOTHING_WRITTEN = "  Nothing was written. Run mksync push to send it.";
 
+/** Contract "The first backup": the group the preview ends with once the guard
+ * reads private and the record isn't the pointer yet. */
+const FIRST_BACKUP_HEADER = "First backup: profiles and machines";
+
+function firstBackupLines(paths: readonly string[]): readonly string[] {
+  return [FIRST_BACKUP_HEADER, ...paths.map((path) => `  ${path}`)];
+}
+
 /**
  * A profile's or machine's layer files live in the state folder, under the
  * guard's repo path roots. An export writes them, but they are never committed,
@@ -159,14 +167,19 @@ function previewSummary(
  * bytes. `workingTree` is the tree the export is compared against `HEAD`, when
  * the caller has more than the snapshot's repo files holds: it includes
  * `sync-config.json`, which belongs in the comparison but never in the export
- * plan. Without it the snapshot's own repo files are compared. It never
- * returns a write action.
+ * plan. Without it the snapshot's own repo files are compared. `firstBackup`
+ * is the paths a first backup would add, already sorted; the preview ends with
+ * their group. It never returns a write action.
  *
  * shortcut: the leak scan and the `--stat`/diff text belong to the adapter that
  * prints the plan, so the plan carries the status lines and the messages
  * around them; the adapter prints the diff when these lines leave it out.
  */
-export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
+export function planPreview(
+  snapshot: Snapshot,
+  workingTree?: RepoFiles,
+  firstBackup: readonly string[] = [],
+): Plan {
   if (snapshot.only.length > 0) {
     return { actions: [], lines: [ONLY_ERROR], code: 1 };
   }
@@ -235,15 +248,19 @@ export function planPreview(snapshot: Snapshot, workingTree?: RepoFiles): Plan {
       code: 1,
     };
   }
+  const previewed = previewSummary(
+    plan,
+    rendered.lines,
+    workingTree ?? snapshot.repoFiles,
+    head,
+    block,
+  );
   return {
     actions: [],
-    lines: previewSummary(
-      plan,
-      rendered.lines,
-      workingTree ?? snapshot.repoFiles,
-      head,
-      block,
-    ),
+    lines:
+      firstBackup.length === 0
+        ? previewed
+        : [...previewed, ...firstBackupLines(firstBackup)],
     code: 0,
   };
 }

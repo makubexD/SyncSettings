@@ -3,6 +3,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -15,11 +16,15 @@ import type {
   ConfigV2,
   Result as LoadResult,
 } from "../core/config/types.ts";
+import type { FirstBackupWrites } from "../core/machine/backup.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import type { Store } from "./store.ts";
 import {
+  firstBackupFiles,
+  readBackupSides,
   readRepoStore,
   readStore,
+  writeFirstBackup,
   writeProfile,
   writeRecord,
 } from "./store.ts";
@@ -124,7 +129,7 @@ function expectOk<T>(result: LoadResult<T, ConfigError>): T {
   return result.value;
 }
 
-function expectError(result: LoadResult<Store, ConfigError>): ConfigError {
+function expectError<T>(result: LoadResult<T, ConfigError>): ConfigError {
   if (result.ok) {
     throw new Error("expected an error");
   }
@@ -416,5 +421,224 @@ describe("readRepoStore", () => {
       PROFILE_NAME,
     ]);
     expect(repo.profiles[0]?.modules).toEqual(["base"]);
+  });
+});
+
+const LAYER_TEXT = '{"profileKey":true}\n';
+
+const PROFILE_LAYER_FILE = "parity/settings.json";
+
+const MACHINE_LAYER_FILE = "base/platform.json";
+
+describe("readBackupSides", () => {
+  test("should read both layer folders relative and the repo's profile", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+    writeFixture(
+      join(fixture.state, "profiles", PROFILE_NAME, PROFILE_LAYER_FILE),
+      LAYER_TEXT,
+    );
+    writeFixture(
+      join(fixture.state, "machines", MACHINE_NAME, MACHINE_LAYER_FILE),
+      LAYER_TEXT,
+    );
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+
+    // Act
+    const sides = expectOk(
+      readBackupSides(fixture.state, fixture.repo, baseConfig()),
+    );
+
+    // Assert
+    expect(sides?.local.profileLayer).toEqual([
+      { path: PROFILE_LAYER_FILE, text: LAYER_TEXT },
+    ]);
+    expect(sides?.local.machineLayer).toEqual([
+      { path: MACHINE_LAYER_FILE, text: LAYER_TEXT },
+    ]);
+    expect(sides?.repo.profile?.modules).toEqual(["base"]);
+  });
+
+  test("should return no sides when the record is already the pointer", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      JSON.stringify({ name: MACHINE_NAME, home: "repo" }),
+    );
+
+    // Act
+    const sides = expectOk(
+      readBackupSides(fixture.state, fixture.repo, baseConfig()),
+    );
+
+    // Assert
+    expect(sides).toBeUndefined();
+  });
+
+  test("should return no sides when there is no record", () => {
+    // Arrange
+    const fixture = storeFixture();
+
+    // Act
+    const sides = expectOk(
+      readBackupSides(fixture.state, fixture.repo, baseConfig()),
+    );
+
+    // Assert
+    expect(sides).toBeUndefined();
+  });
+});
+
+function backupWrites(): FirstBackupWrites {
+  return {
+    profile: profileOf(),
+    record: recordOf(),
+    files: [
+      {
+        path: `profiles/${PROFILE_NAME}/${PROFILE_LAYER_FILE}`,
+        text: LAYER_TEXT,
+      },
+    ],
+  };
+}
+
+describe("firstBackupFiles", () => {
+  test("should mark every file ADDED when the repo holds none", () => {
+    // Arrange
+    const fixture = storeFixture();
+
+    // Act
+    const files = firstBackupFiles(fixture.repo, backupWrites());
+
+    // Assert
+    expect(files.map((file) => file.path)).toEqual([
+      `machines/${MACHINE_NAME}.json`,
+      `profiles/${PROFILE_NAME}.json`,
+      `profiles/${PROFILE_NAME}/${PROFILE_LAYER_FILE}`,
+    ]);
+    expect(files.map((file) => file.status)).toEqual([
+      "ADDED",
+      "ADDED",
+      "ADDED",
+    ]);
+  });
+
+  test("should leave out a file the repo already holds identical bytes for", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const first = firstBackupFiles(fixture.repo, backupWrites());
+    const profile = first.find(
+      (file) => file.path === `profiles/${PROFILE_NAME}.json`,
+    );
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      profile?.text ?? "",
+    );
+
+    // Act
+    const files = firstBackupFiles(fixture.repo, backupWrites());
+
+    // Assert
+    expect(files.map((file) => file.path)).toEqual([
+      `machines/${MACHINE_NAME}.json`,
+      `profiles/${PROFILE_NAME}/${PROFILE_LAYER_FILE}`,
+    ]);
+  });
+
+  test("should mark a differing repo file MODIFIED", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      EMPTY_PROFILE_TEXT,
+    );
+
+    // Act
+    const files = firstBackupFiles(fixture.repo, backupWrites());
+
+    // Assert
+    const profile = files.find(
+      (file) => file.path === `profiles/${PROFILE_NAME}.json`,
+    );
+    expect(profile?.status).toBe("MODIFIED");
+  });
+});
+
+describe("writeFirstBackup", () => {
+  test("should write the files and then make machine.json the pointer", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    const files = firstBackupFiles(fixture.repo, backupWrites());
+
+    // Act
+    const written = writeFirstBackup(
+      fixture.state,
+      fixture.repo,
+      MACHINE_NAME,
+      files,
+    );
+
+    // Assert
+    expect(written.ok).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(fixture.state, "machine.json"), "utf8")),
+    ).toEqual({ name: MACHINE_NAME, home: "repo" });
+    expect(
+      readFileSync(
+        join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+        "utf8",
+      ),
+    ).toBe(
+      files.find(
+        (file) => file.path === `profiles/${PROFILE_NAME}.json`,
+      )?.text ?? "",
+    );
+    expect(
+      statSync(join(fixture.state, "machine.json")).mode & 0o777,
+    ).toBe(PRIVATE_MODE);
+  });
+
+  test("should leave machine.json as it was when a write fails", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const original = recordText(MACHINE_NAME, PROFILE_NAME);
+    writeFixture(join(fixture.state, "machine.json"), original);
+    // A folder where the profile's file goes makes the write fail.
+    mkdirSync(join(fixture.repo, "profiles", `${PROFILE_NAME}.json`), {
+      recursive: true,
+    });
+    const files = firstBackupFiles(fixture.repo, backupWrites());
+
+    // Act
+    const failed = expectError(
+      writeFirstBackup(fixture.state, fixture.repo, MACHINE_NAME, files),
+    );
+
+    // Assert
+    expect(failed.code).toBe(1);
+    expect(
+      failed.message.startsWith(
+        `ERROR: first backup stopped at profiles/${PROFILE_NAME}.json:`,
+      ),
+    ).toBe(true);
+    expect(readFileSync(join(fixture.state, "machine.json"), "utf8")).toBe(
+      original,
+    );
   });
 });
