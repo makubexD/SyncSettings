@@ -734,6 +734,72 @@ describe("readBackupSides", () => {
     // Assert
     expect(sides).toBeUndefined();
   });
+
+  test("should stop with the symlink line when a state layer file is a symlink", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+    const target = join(tempFolder(), "settings.json");
+    writeFixture(target, LAYER_TEXT);
+    const link = join(
+      fixture.state,
+      "profiles",
+      PROFILE_NAME,
+      PROFILE_LAYER_FILE,
+    );
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(target, link);
+
+    // Act
+    const error = expectError(
+      readBackupSides(fixture.state, fixture.repo, baseConfig()),
+    );
+
+    // Assert
+    expect(error.code).toBe(2);
+    expect(error.message).toBe(
+      `ERROR: first backup stopped at ${link}: a symlink.`,
+    );
+  });
+
+  test("should stop with the not-UTF-8 line when a state layer file isn't UTF-8 text", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+    const notText = join(
+      fixture.state,
+      "machines",
+      MACHINE_NAME,
+      MACHINE_LAYER_FILE,
+    );
+    mkdirSync(dirname(notText), { recursive: true });
+    writeFileSync(notText, Buffer.from([0xff, 0xfe, 0x00]));
+
+    // Act
+    const error = expectError(
+      readBackupSides(fixture.state, fixture.repo, baseConfig()),
+    );
+
+    // Assert
+    expect(error.code).toBe(2);
+    expect(error.message).toBe(
+      `ERROR: first backup stopped at ${notText}: not UTF-8 text.`,
+    );
+  });
 });
 
 function backupWrites(): FirstBackupWrites {
@@ -970,6 +1036,41 @@ describe("writeFirstBackup", () => {
       failed.message.startsWith("ERROR: first backup stopped at machines/"),
     ).toBe(true);
     expect(existsSync(profilePath)).toBe(false);
+  });
+
+  test("should undo the repo files and leave machine.json as it was when the pointer can't be written", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const profilePath = join(fixture.repo, "profiles", `${PROFILE_NAME}.json`);
+    writeFixture(profilePath, EMPTY_PROFILE_TEXT);
+    // A folder where machine.json goes makes the pointer write fail.
+    mkdirSync(join(fixture.state, "machine.json"));
+    const files = [
+      backupFile(relativeProfilePath(), PROFILE_TEXT, "MODIFIED"),
+      backupFile(
+        relativeMachinePath(),
+        recordText(MACHINE_NAME, PROFILE_NAME),
+        "ADDED",
+      ),
+    ];
+
+    // Act
+    const failed = expectError(
+      writeFirstBackup(fixture.state, fixture.repo, MACHINE_NAME, files),
+    );
+
+    // Assert
+    expect(failed.code).toBe(1);
+    expect(failed.message).toBe(
+      "ERROR: first backup stopped at machine.json: a folder in its place.",
+    );
+    expect(readFileSync(profilePath, "utf8")).toBe(EMPTY_PROFILE_TEXT);
+    expect(
+      existsSync(join(fixture.repo, "machines", `${MACHINE_NAME}.json`)),
+    ).toBe(false);
+    expect(statSync(join(fixture.state, "machine.json")).isDirectory()).toBe(
+      true,
+    );
   });
 
   test("should restore a file the backup modified when a later write fails", () => {

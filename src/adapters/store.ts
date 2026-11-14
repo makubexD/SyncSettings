@@ -111,6 +111,18 @@ export function readText(path: string): string | undefined {
 /** The error codes that mean the file isn't there, not that it can't be read. */
 const MISSING_CODES: readonly string[] = ["ENOENT", "ENOTDIR"];
 
+/** The codes `unreadableReason` names for a first backup's two refusals: a
+ * layer file that is a link, and one whose bytes aren't UTF-8 text. */
+const SYMLINK_CODE = "ESYMLINK";
+const NOT_TEXT_CODE = "ENOTUTF8";
+
+/** The fs code behind a caught error, if it carries one. */
+function errorCode(error: unknown): string | undefined {
+  const code: unknown =
+    error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+  return typeof code === "string" ? code : undefined;
+}
+
 /** Whether a caught read error is a missing file rather than an unreadable one. */
 function isMissingError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -133,16 +145,19 @@ type FileText =
 /** Why a file that is there can't be read, in the contract's words; never the
  * raw error text, which names the absolute path. */
 function unreadableReason(error: unknown): string {
-  const code: unknown =
-    error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+  const code = errorCode(error);
   switch (code) {
     case "EISDIR":
       return "a folder in its place";
     case "EACCES":
     case "EPERM":
       return "no read permission";
+    case SYMLINK_CODE:
+      return "a symlink";
+    case NOT_TEXT_CODE:
+      return "not UTF-8 text";
     default:
-      return typeof code === "string" ? code : "unknown error";
+      return code ?? "unknown error";
   }
 }
 
@@ -710,8 +725,21 @@ export interface FirstBackupFile {
 /** The contract's line when a first backup write fails. */
 const FIRST_BACKUP_STOPPED = "ERROR: first backup stopped at";
 
-/** Why the first backup refuses a target that runs through a symlink. */
-const SYMLINK_REASON = "a symlink";
+/**
+ * A first backup that stops: `code` names the reason in the contract's words
+ * through `unreadableReason`, and `path` is the state path a layer read
+ * stopped at, when the stop came from one.
+ */
+class FirstBackupStop extends Error {
+  readonly code: string | undefined;
+  readonly path: string | undefined;
+
+  constructor(code: string | undefined, path?: string) {
+    super(code ?? "first backup stopped");
+    this.code = code;
+    this.path = path;
+  }
+}
 
 function byRelativePath(
   a: { readonly path: string },
@@ -723,9 +751,28 @@ function byRelativePath(
   return a.path > b.path ? 1 : 0;
 }
 
-/** Every regular file under a layer folder, sorted, its path relative to the
+/** A layer file's text, or a first backup stop when its bytes aren't UTF-8
+ * text: decoding them as UTF-8 would turn them into U+FFFD. */
+function readLayerText(path: string): string {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(path);
+  } catch (error) {
+    throw new FirstBackupStop(errorCode(error), path);
+  }
+  const text = bytes.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(bytes)) {
+    throw new FirstBackupStop(NOT_TEXT_CODE, path);
+  }
+  return text;
+}
+
+/**
+ * Every regular file under a layer folder, sorted, its path relative to the
  * folder and "/"-separated. A missing folder holds no files; any other read
- * error is the caller's to report. */
+ * error, a symlink and a file whose bytes aren't UTF-8 text stop the backup
+ * with the state path that stopped it.
+ */
 function readLayerFolder(folder: string): readonly LayerFile[] {
   const files: LayerFile[] = [];
   const walk = (current: string, prefix: string): void => {
@@ -736,15 +783,18 @@ function readLayerFolder(folder: string): readonly LayerFile[] {
       if (isMissingError(error)) {
         return;
       }
-      throw error;
+      throw new FirstBackupStop(errorCode(error), current);
     }
     for (const entry of entries) {
       const path = join(current, entry.name);
       const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isSymbolicLink()) {
+        throw new FirstBackupStop(SYMLINK_CODE, path);
+      }
       if (entry.isDirectory()) {
         walk(path, relative);
       } else if (entry.isFile()) {
-        files.push({ path: relative, text: readFileSync(path, "utf8") });
+        files.push({ path: relative, text: readLayerText(path) });
       }
     }
   };
@@ -819,8 +869,14 @@ export function readBackupSides(
       join(stateFolder, MACHINES_FOLDER, record.value.name),
     );
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return { ok: false, error: { message: `ERROR: ${reason}`, code: 2 } };
+    const path =
+      error instanceof FirstBackupStop && error.path !== undefined
+        ? error.path
+        : stateFolder;
+    return {
+      ok: false,
+      error: { message: firstBackupStopped(path, error), code: 2 },
+    };
   }
   const repoProfile = readRepoProfile(repoRoot, record.value.profile, config);
   if (!repoProfile.ok) {
@@ -875,10 +931,11 @@ export function firstBackupFiles(
   return changed;
 }
 
-/** The contract's failure line for one first backup write. */
+/** The contract's failure line for one first backup write, in the contract's
+ * words for the reason; never the raw error text, which names the absolute
+ * path. */
 function firstBackupStopped(path: string, error: unknown): string {
-  const reason = error instanceof Error ? error.message : String(error);
-  return `${FIRST_BACKUP_STOPPED} ${path}: ${reason}.`;
+  return `${FIRST_BACKUP_STOPPED} ${path}: ${unreadableReason(error)}.`;
 }
 
 /** The pointer a record becomes once its files live in the repo. */
@@ -977,7 +1034,10 @@ export function writeFirstBackup(
       return {
         ok: false,
         error: {
-          message: firstBackupStopped(file.path, new Error(SYMLINK_REASON)),
+          message: firstBackupStopped(
+            file.path,
+            new FirstBackupStop(SYMLINK_CODE),
+          ),
           code: 1,
         },
       };

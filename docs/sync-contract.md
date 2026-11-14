@@ -1210,8 +1210,11 @@ profile and both layer folders are read from the repo, and every state write in 
 copy. A write that fails prints `ERROR: first backup stopped at <repo path>: <reason>.`, puts back the files this
 backup already wrote (removes the ones it added, restores the earlier text of the ones it changed), leaves
 `machine.json` as it was, and the export exits 1. A path that runs through a symlink in the clone (`machines/` itself,
-or a layer file) stops it before any write with `<reason>` `a symlink`. A write of the export itself that fails ends
-the export with exit 1 and no backup. A record already in the pointer form has no first backup.
+or a layer file) stops it before any write with `<reason>` `a symlink`. A symlink in the state's layer folders
+(`<state>/machines/<name>/`, `<state>/profiles/<profile>/`), or a file there whose bytes aren't UTF-8 text, stops it
+before any write too, with the state path in place of the repo path, `<reason>` `a symlink` or `not UTF-8 text`, and
+exit 2, as any state file that can't be read. A write of the export itself that fails ends the export with exit 1 and
+no backup. A record already in the pointer form has no first backup.
 
 ### Push preview (program only)
 
