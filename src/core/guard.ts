@@ -81,3 +81,34 @@ export function guard(
   const refused = repoPaths.filter(isStatePath).sort();
   return { held, refused };
 }
+
+/**
+ * Contract "Checks before pushing", Unpushed history: while the repo is
+ * public, the paths under the state folder roots that the commits in
+ * `origin/master..HEAD` add or change. `commits` lists, per commit, the paths
+ * it adds or changes (`git log --name-only`); a path stays refused however
+ * many commits later remove it, because pushing the branch would publish it.
+ * Compared case-insensitively, reported as given, one per path, sorted: the
+ * same form as `GuardDecision.refused`. A private repo refuses none.
+ */
+export function historyRefusals(
+  visibility: Visibility,
+  commits: readonly (readonly string[])[],
+): readonly string[] {
+  if (visibility === "private") {
+    return [];
+  }
+  const refused = new Map<string, string>();
+  for (const paths of commits) {
+    for (const path of paths) {
+      if (!isStatePath(path)) {
+        continue;
+      }
+      const folded = path.toLowerCase();
+      if (!refused.has(folded)) {
+        refused.set(folded, path);
+      }
+    }
+  }
+  return [...refused.values()].sort();
+}

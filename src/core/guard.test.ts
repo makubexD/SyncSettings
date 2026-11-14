@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { guard } from "./guard.ts";
+import { guard, historyRefusals } from "./guard.ts";
 import type { LocalRecords } from "./guard.ts";
 
 const RECORD_NAME = "wk1-laptop";
@@ -124,5 +124,91 @@ describe("guard", () => {
 
     // Assert
     expect(decision.held).toEqual([OTHER_PROFILE_PATH, PROFILE_PATH]);
+  });
+});
+
+describe("historyRefusals", () => {
+  test("should refuse the state paths the unpushed commits add or change", () => {
+    // Arrange
+    const commits = [
+      ["dotfiles/common/git/.gitconfig", PROFILE_PATH],
+      [RECORD_PATH],
+    ];
+
+    // Act
+    const refused = historyRefusals("public", commits);
+
+    // Assert
+    expect(refused).toEqual([RECORD_PATH, PROFILE_PATH]);
+  });
+
+  test("should refuse a state path a later commit removes", () => {
+    // Arrange: the second commit removes PROFILE_PATH, so it lists no path.
+    const commits = [[PROFILE_PATH], []];
+
+    // Act
+    const refused = historyRefusals("public", commits);
+
+    // Assert
+    expect(refused).toEqual([PROFILE_PATH]);
+  });
+
+  test("should list a path once however many commits touch it", () => {
+    // Arrange
+    const commits = [
+      [PROFILE_PATH],
+      [PROFILE_PATH, PROFILE_PATH],
+    ];
+
+    // Act
+    const refused = historyRefusals("public", commits);
+
+    // Assert
+    expect(refused).toEqual([PROFILE_PATH]);
+  });
+
+  test("should report a path as given and fold case when de-duplicating", () => {
+    // Arrange
+    const commits = [[UPPERCASE_PROFILE_PATH], [PROFILE_PATH]];
+
+    // Act
+    const refused = historyRefusals("public", commits);
+
+    // Assert
+    expect(refused).toEqual([UPPERCASE_PROFILE_PATH]);
+  });
+
+  test("should ignore paths outside the state folder roots", () => {
+    // Arrange
+    const commits = [
+      ["dotfiles/common/git/.gitconfig", "sync-config.json", "README.md"],
+    ];
+
+    // Act
+    const refused = historyRefusals("public", commits);
+
+    // Assert
+    expect(refused).toEqual([]);
+  });
+
+  test("should refuse nothing when there are no commits", () => {
+    // Arrange
+
+    // Act
+    const refused = historyRefusals("public", []);
+
+    // Assert
+    expect(refused).toEqual([]);
+  });
+
+  test("should refuse nothing when the repo is private", () => {
+    // Arrange
+    const commits = [[PROFILE_PATH], [RECORD_PATH]];
+
+    // Act
+    const refused = historyRefusals("private", commits);
+
+    // Assert
+    expect(refused).toEqual([]);
   });
 });
