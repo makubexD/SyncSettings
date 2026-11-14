@@ -829,6 +829,7 @@ function Run-Case {
                     'import'  { $extraArgs += 'import' }
                     'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
                     'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
+                    'diff'    { $extraArgs += 'export'; $extraArgs += '--diff' }
                     'setup'   { $extraArgs += 'setup' }
                     'statusline' { $extraArgs += 'statusline' }
                     'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
@@ -1217,10 +1218,10 @@ foreach ($caseDir in $caseDirs) {
         continue
     }
 
-    # The program takes neither diff nor commit until phase 8: skip the case
-    # without counting it as a failure.
+    # The program takes no commit until phase 8: skip the case without counting
+    # it as a failure.
     if (-not [string]::IsNullOrEmpty($EnginePath)) {
-        $phase8 = @($case.commands | Where-Object { $_.command -ceq 'diff' -or $_.command -ceq 'commit' })[0]
+        $phase8 = @($case.commands | Where-Object { $_.command -ceq 'commit' })[0]
         if ($null -ne $phase8) {
             Write-Output "SKIP ${caseName}: $($phase8.command) comes in phase 8"
             continue

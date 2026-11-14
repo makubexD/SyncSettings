@@ -480,6 +480,7 @@ run_case() {
                 import) args=(./mksync import) ;;
                 check) args=(./mksync import --check) ;;
                 preview) args=(./mksync export --preview) ;;
+                diff) args=(./mksync export --diff) ;;
                 setup) args=(./mksync setup) ;;
                 statusline) args=(./mksync statusline) ;;
                 machine-show) args=(./mksync machine show) ;;
@@ -688,10 +689,10 @@ for dir in "$CASES"/*/; do
         continue
     fi
 
-    # The program takes neither diff nor commit until phase 8: skip the case
-    # without counting it as a failure.
+    # The program takes no commit until phase 8: skip the case without counting
+    # it as a failure.
     if [[ -n $engine_path ]]; then
-        phase8=$(jq -r '[.commands[].command | select(. == "diff" or . == "commit")]
+        phase8=$(jq -r '[.commands[].command | select(. == "commit")]
             | first // empty' "$dir/case.json" 2> /dev/null) || true
         if [[ -n $phase8 ]]; then
             printf 'SKIP %s: %s comes in phase 8\n' "$case_name" "$phase8"
