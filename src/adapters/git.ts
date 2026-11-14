@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { RepoFiles } from "../core/plan/types.ts";
+import { originUrls } from "./visibility.ts";
 
 /** What one `git` run returned: its exit code and raw stdout bytes. */
 interface GitOutput {
@@ -196,4 +199,63 @@ export async function commitExists(
     `${sha}^{commit}`,
   ]);
   return output !== undefined && output.code === 0;
+}
+
+/** Run one git command in the repo root, its stdout as text and exit code. */
+export async function runGitText(
+  repoRoot: string,
+  args: readonly string[],
+): Promise<{ readonly code: number; readonly stdout: string } | undefined> {
+  try {
+    const child = Bun.spawn(["git", ...args], {
+      cwd: repoRoot,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const stdout = await new Response(child.stdout).text();
+    const code = await child.exited;
+    return { code, stdout };
+  } catch {
+    // A missing git or an unreadable folder is "git cannot tell".
+    return undefined;
+  }
+}
+
+/** Every push URL of the origin remote, where a push would go; empty when
+ * there is none, and `undefined` when git fails for any other reason, so the
+ * guard reads the visibility as unknown. */
+export async function readOrigin(
+  repoRoot: string,
+): Promise<readonly string[] | undefined> {
+  const output = await runGitText(repoRoot, [
+    "remote",
+    "get-url",
+    "--push",
+    "--all",
+    "origin",
+  ]);
+  return originUrls(output);
+}
+
+/** A clone's git folder, or the file a worktree has in its place. */
+const GIT_DIR = ".git";
+
+/**
+ * The paths the clone tracks, from `git ls-files`, for the public-repo guard.
+ * A folder with no `.git` isn't a clone and tracks nothing. In a clone,
+ * `undefined` when git can't list them (it fails or can't start), so the
+ * guard fails closed rather than seeing an empty clone.
+ */
+export async function readTrackedPaths(
+  repoRoot: string,
+): Promise<readonly string[] | undefined> {
+  if (!existsSync(join(repoRoot, GIT_DIR))) {
+    return [];
+  }
+  const output = await runGitText(repoRoot, ["ls-files", "-z"]);
+  if (output === undefined || output.code !== 0) {
+    return undefined;
+  }
+  return output.stdout.split("\u0000").filter((path) => path !== "");
 }
