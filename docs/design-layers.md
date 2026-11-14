@@ -670,8 +670,10 @@ The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are
   line 1 under "All machines": pushing it changes personal Linux too, which is why it's shown first.
 - **The suggestion is by profile name.** `personal` suggests "all machines", any other profile "profile <p>". A stored
   destination for an array path answers before any suggestion. Example: personal Linux answers `4` once for a new
-  `permissions.allow[]` item; the profile's `destinations` now holds `"permissions.allow[]": "machine"` (the key path,
-  as the contract's `needs a destination` note writes it), and later grants go to the machine layer with no question.
+  `permissions.allow[]` item; the profile's `destinations` now holds
+  `"claude settings.json: permissions.allow[]": "machine"` (module, file and key path, so the same path in another
+  file is asked on its own), and later grants go to the machine layer with no question. A path's new items are listed
+  together and asked once.
 - **"All machines" is a stored answer too.** `destinations` accepts `base`, so personal's default sticks.
 - **No record, no question.** The question needs a profile to store the answer, so a machine before `setup` keeps
   the `needs a destination` error.
@@ -1304,6 +1306,22 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - The first backup's undo (step 30) leaves the folders it created, and a failed undo is silent: the write's error
     is the line the contract gives.
   - An export layer file the first backup also copies prints one status line, from the export (step 26).
+- **Left by the phase 7 finish review (steps 33 to 42).**
+  - `setup` followed by its export in one run loses piped answers: the export's questions read from a new reader
+    (`main.ts` around the setup-then-export call).
+  - A file whose write fails still has its answered destinations stored in the profile.
+  - `main.ts` holds the export flow and the git calls; they belong in their own module and `adapters/git.ts`.
+  - `LayerFile.bytes` means raw bytes in some readers and hydrated bytes in others; the name should say which.
+  - The profile-value rule matches on a change line's `what`, which is escaped and cut at 60 characters, so a value
+    past the cut or holding an escaped character isn't found.
+  - Change paths join keys with `.`, so a flat key holding a dot (`"a.b"`) and nested keys (`a` → `b`) print alike.
+  - Statusline cases missing: Windows, a Python virtual env, `Unknown option` from an older Claude Code.
+  - Destinations stored before step 36 use the bare key path (`"delta[]"`); they no longer match, so the item is asked
+    once more. No migration rewrites them.
+  - The import check sanitizes the local side with the values inferred from it; when inference finds nothing, that
+    side prints its real value (terminal only, never written).
+  - A git that can't run, or a folder that isn't a repo, now reads the visibility as unknown, so `MKSYNC_VISIBILITY`
+    no longer answers there (only a missing origin lets it).
 
 ### Confirm on Windows
 

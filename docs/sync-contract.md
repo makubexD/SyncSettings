@@ -1360,6 +1360,9 @@ left out when empty or when what it reads fails. Colors: gray `ESC[90m`, cyan `E
   when that's smaller.
 - **Token counts:** `1.5k`, `2M`: one decimal over 1000 (`k`) and 1000000 (`M`), a trailing `.0` dropped; below 1000
   the number rounded.
+- **Rounding** is C's `printf` on a double, the cost's 2 places included: the value as stored rounds to the nearest,
+  and only an exact tie goes to the even digit. `1050` tokens is `1.1k` (1.05 is stored a little above), `1250` is
+  `1.2k`, a cost of `0.125` is `0.12`.
 - **No section at all:** `Statusline data unavailable`.
 - **Windows:** Load and Memory are left out.
 - **Test overrides,** as `SYNC_HOSTNAME` is for the scan: `SYNC_NOW` is the time text, `SYNC_LOAD` the load text,

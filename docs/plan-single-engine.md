@@ -183,11 +183,11 @@ cases. Merging two copies of a profile is built but wired in phase 7; what's lef
   - whether the probe program starts.
 
   The result is redacted, and it settles the design's "Confirm on Windows" list. Everything else in phases 3-8 runs
-  on Linux (and the local VM).
+  on Linux (and the local VM). Moved to phase 8: the survey hadn't run when phase 7 closed.
 
 - The preview grouped by who receives each change, the new-setting question, and the profile-value rule.
 - The Claude layers: `settings.json` merged from base and modules, `CLAUDE.md` imports, and the statusline written
-  once. The Windows `~/.claude` comes into the sync.
+  once. The Windows `~/.claude` comes into the sync: moved to phase 8 (the layout tool) and phase 9 (the cut-over).
 
 ### Phase 8: the rest
 
