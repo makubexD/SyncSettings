@@ -1,7 +1,11 @@
+import type { SanitizeRule } from "../config/types.ts";
 import { jsonEqual, parseJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { Layer, LayerName, SelectedEntry } from "../layers/select.ts";
+import { inferValues, resolveValues } from "../values/hydrate.ts";
+import { encodeUtf8, sanitize } from "../values/sanitize.ts";
+import type { Values } from "../values/sanitize.ts";
 import { joinPath, resolvedLocal, scopeFor, separatorFor } from "./pick.ts";
 import type {
   Action,
@@ -128,6 +132,26 @@ export function valueText(value: JsonValue): string {
     : text;
 }
 
+/** A change value's printed text; an import prints each side sanitized. */
+type ValueFormat = (value: JsonValue) => string;
+
+/**
+ * `value`'s printed text with the entry's rules put back in, so the block shows
+ * the placeholder the layer holds, never a real value (contract "Push preview
+ * (program only)", "Values are the sanitized text").
+ */
+function sanitizedValueText(
+  value: JsonValue,
+  rules: readonly SanitizeRule[],
+  values: Values,
+): string {
+  const text = valueText(value);
+  if (rules.length === 0) {
+    return text;
+  }
+  return textOf(sanitize(encodeUtf8(text), rules, values, { json: true }));
+}
+
 function emptyObject(): JsonValue {
   return { kind: "object", entries: new Map() };
 }
@@ -150,6 +174,8 @@ function diffValues(
   path: string,
   keyPath: readonly string[],
   lines: DraftLine[],
+  formatOld: ValueFormat = valueText,
+  formatNew: ValueFormat = valueText,
 ): void {
   if (oldValue.kind === "object" && newValue.kind === "object") {
     const keys = new Set([
@@ -166,7 +192,7 @@ function diffValues(
           path: printed,
           keyPath: childPath,
           kind: "+",
-          what: valueText(after),
+          what: formatNew(after),
           ...(after.kind === "array" ? { addedItems: after.items } : {}),
         });
       } else if (before !== undefined && after === undefined) {
@@ -174,10 +200,18 @@ function diffValues(
           path: printed,
           keyPath: childPath,
           kind: "-",
-          what: valueText(before),
+          what: formatOld(before),
         });
       } else if (before !== undefined && after !== undefined) {
-        diffValues(before, after, printed, childPath, lines);
+        diffValues(
+          before,
+          after,
+          printed,
+          childPath,
+          lines,
+          formatOld,
+          formatNew,
+        );
       }
     }
     return;
@@ -194,7 +228,7 @@ function diffValues(
           path: printed,
           keyPath,
           kind: "-",
-          what: valueText(item),
+          what: formatOld(item),
         });
       } else {
         matched[at] = true;
@@ -207,7 +241,7 @@ function diffValues(
           path: printed,
           keyPath,
           kind: "+",
-          what: valueText(item),
+          what: formatNew(item),
         });
       }
     }
@@ -218,7 +252,7 @@ function diffValues(
       path,
       keyPath,
       kind: "M",
-      what: `${valueText(oldValue)} -> ${valueText(newValue)}`,
+      what: `${formatOld(oldValue)} -> ${formatNew(newValue)}`,
     });
   }
 }
@@ -227,9 +261,11 @@ function diffValues(
 function jsonDrafts(
   oldValue: JsonValue,
   newValue: JsonValue,
+  formatOld: ValueFormat = valueText,
+  formatNew: ValueFormat = valueText,
 ): readonly DraftLine[] {
   const drafts: DraftLine[] = [];
-  diffValues(oldValue, newValue, "", [], drafts);
+  diffValues(oldValue, newValue, "", [], drafts, formatOld, formatNew);
   return [...drafts].sort(compareDrafts);
 }
 
@@ -640,8 +676,31 @@ function importActionLines(
       return [];
     }
     const values = layerValues(match.entry, snapshot.repoFiles);
+    // Changes are found on the hydrated bytes, but each side prints sanitized:
+    // the local side with the values inferred from it against the repo's
+    // placeholders, the repo side with the values the import resolves.
+    const rules = config.sanitize ?? [];
+    const source = match.entry.source;
+    const sourceBytes =
+      source === undefined ? undefined : snapshot.repoFiles.get(source.repoPath);
+    const inferred: Values =
+      rules.length === 0 || oldBytes === undefined || sourceBytes === undefined
+        ? {}
+        : inferValues(oldBytes, sourceBytes, rules);
+    const resolved =
+      rules.length === 0
+        ? undefined
+        : resolveValues(rules, snapshot.values, inferred, snapshot.env);
+    const newValues: Values =
+      resolved !== undefined && resolved.ok
+        ? resolved.value
+        : { ...inferred, ...snapshot.values };
+    const formatOld = (value: JsonValue): string =>
+      sanitizedValueText(value, rules, inferred);
+    const formatNew = (value: JsonValue): string =>
+      sanitizedValueText(value, rules, newValues);
     const lines: ChangeLine[] = [];
-    for (const draft of jsonDrafts(oldValue, newValue)) {
+    for (const draft of jsonDrafts(oldValue, newValue, formatOld, formatNew)) {
       const layer = draftLayer(draft, match.entry, values);
       if (layer === undefined) {
         continue;

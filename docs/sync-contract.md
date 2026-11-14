@@ -541,8 +541,10 @@ folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
   and comes before the summary line, with the header `Changes from the repo:`. A line takes the group of the layer its
   new content comes from: a json key the latest layer that sets it, a whole file the latest layer that holds it, an
   `import` side file its own layer. `+` is a key or file the local copy lacks (a new file is `new file, <n> line(s)`),
-  `M` one that differs, `-` a key the import would drop, listed under the entry's latest layer. Nothing to change: no
-  block. Pull asks once for all groups; skipping a group isn't offered.
+  `M` one that differs, `-` a key the import would drop, listed under the entry's latest layer. A json change prints
+  both sides sanitized, as the [push preview](#push-preview-program-only) does: the repo side the placeholder its layer
+  holds, the local side the placeholder the value it replaces stands in for. Nothing to change: no block. Pull asks
+  once for all groups; skipping a group isn't offered.
 - Windows only: a target folder that's missing stays `SKIPPED` with `WARNING: target folder not found: <dir>` and is not
   a change, because an import skips it too. `-Check` with `-User` naming another profile stops before the elevation
   code with `ERROR: -Check works on your own profile only.` and exit 1.

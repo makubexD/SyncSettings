@@ -68,6 +68,7 @@ interface Fixture {
   readonly repo?: Readonly<Record<string, string>>;
   readonly local?: Readonly<Record<string, string>>;
   readonly profile?: Profile;
+  readonly values?: Readonly<Record<string, string>>;
 }
 
 function bytes(text: string): Uint8Array {
@@ -108,7 +109,7 @@ function snapshotOf(fixture: Fixture): Snapshot {
     repoFiles,
     localFiles,
     localDirs: new Set(),
-    values: {},
+    values: fixture.values ?? {},
     env: {},
     only: [],
     ...(fixture.profile !== undefined ? { profile: fixture.profile } : {}),
@@ -464,6 +465,42 @@ describe("changeLines", () => {
 });
 
 describe("importChangeLines", () => {
+  test("prints a changed sanitized key as its placeholder on both sides", () => {
+    const sanitizedEntry: ConfigV2Entry = {
+      file: "parity/settings.json",
+      module: "parity",
+      merge: "json",
+      localPath: "~/.config/parity/settings.json",
+      description: "Parity JSON settings with a sanitized value",
+      sanitize: [
+        { placeholder: "<YOUR_EMAIL>", prompt: "Email for git commits" },
+      ],
+    };
+    const snapshot = snapshotOf({
+      config: configOf([sanitizedEntry]),
+      repo: { [BASE_JSON]: '{"email":"<YOUR_EMAIL>"}' },
+      local: { [LOCAL_JSON]: '{"email":"old@example.com"}' },
+      values: { "<YOUR_EMAIL>": "new@example.com" },
+    });
+    const plan = planOf([
+      writeLocal(LOCAL_JSON, '{"email":"new@example.com"}'),
+    ]);
+
+    const lines = importChangeLines(plan, snapshot);
+
+    expect(lines).toEqual([
+      {
+        layer: "base",
+        kind: "M",
+        module: "parity",
+        file: "settings.json",
+        what: 'email: "<YOUR_EMAIL>" -> "<YOUR_EMAIL>"',
+      },
+    ]);
+    expect(JSON.stringify(lines)).not.toContain("new@example.com");
+    expect(JSON.stringify(lines)).not.toContain("old@example.com");
+  });
+
   test("gives a changed key the latest layer that sets it", () => {
     const snapshot = snapshotOf({
       config: configOf([JSON_ENTRY]),
