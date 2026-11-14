@@ -522,3 +522,153 @@ Fix the `SYNC_MEM` sentence (`<used>/<total>`, MiB or `G`; CLI-6). Roadmap: phas
 
 Test: `npx prettier --check docs/plan-single-engine-7.md docs/design-layers.md && tests/parity/run.sh --engine
 dist/mksync` (`docs/sync-contract.md` isn't Prettier-formatted; never run `prettier --write` on it).
+
+## Step 33: Shared cases for runs with a pointer `[worker]`
+
+Files: `tests/parity/cases/pointer-import-values/` (new), `tests/parity/cases/pointer-export-layer/` (new),
+`tests/parity/cases/pointer-export-destination/` (new).
+
+Review finding (the finish's review, P1): with a pointer `machine.json`, import and export still write the record,
+the profile and the layer files to the state folder. The contract ("The first backup"): from then on "every state
+write in this contract goes to the repo's copy". Cases from the contract, starting from `backup-after-export/expect`'s
+state (pointer `machine.json`, record and profile in the clone):
+
+- `pointer-import-values`: `import --force` with a value the record lacks (as `values-record-save` does). Expected:
+  `machines/wk1-laptop.json` in the repo gains the value; the state's `machine.json` is byte-for-byte the pointer.
+- `pointer-export-layer`: `export --yes` with a changed key that lives in the machine layer. Expected: the repo's
+  `machines/wk1-laptop/parity/settings.json` holds the change (`MODIFIED` names it); no layer file under the state.
+- `pointer-export-destination`: `export --yes` with a new array item. Expected: the item goes to the suggested layer
+  and `profiles/work-1.json` in the repo stores its destination; the state's `profiles/` gains nothing.
+
+The cases fail against today's program; record that each fails on the state-folder write, not on setup.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync pointer-` (expected to fail until step 34).
+
+## Step 34: Writes follow the store location `[worker]`
+
+Files: `src/adapters/snapshot.ts`, `src/adapters/fs.ts`, `src/main.ts`.
+
+`loadLayers` drops `Store.location`, so `RunContext` only knows `stateFolder`. Carry the `StoreLocation` (and the
+layer-folder roots it implies) through `Layers` into `SnapshotInput` and `RunContext`. Then: `writeMachineValues`
+(`fs.ts`) writes through `writeStoreRecord`/`writeStoreProfile(location, …)`; `storeItemDestinations` (`main.ts`)
+backs up and writes the profile at the location; layer trees are read from and written to the location's root. A
+local store behaves as before. Unit cases: a pointer run's record, profile and layer writes land in the clone; a
+local store's land in the state.
+
+Test: `bun test src/adapters && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync pointer- &&
+tests/parity/run.sh --engine dist/mksync backup- && tests/parity/run.sh --engine dist/mksync values-`.
+
+## Step 35: Shared cases for one answer per path `[worker]`
+
+Files: `tests/parity/cases/newsetting-same-path/` (new), `tests/parity/cases/newsetting-two-files/` (new),
+`tests/parity/cases/newsetting-same-path-preview/` (new).
+
+Review finding P2, decided by the user 2026-11-14: one answer per path, and `destinations` keyed by module, file and
+path (`design-layers.md` "New settings", the `module file: path` form). A path's new items are adjacent in "New
+settings" (numbered in order) and the question is printed once, after the path's last line; the answer applies to
+every item of the path. Cases:
+
+- `newsetting-same-path`: two new items under `delta[]`, stdin `4\n`. Expected: lines 2 and 3, one question after
+  line 3; both items in `machines/wk1-laptop/parity/settings.json`; `profiles/work-1.json` stores
+  `"parity settings.json: delta[]": "machine"`.
+- `newsetting-two-files`: two json entries (`parity/settings.json`, `parity/other.json`) each with a new `delta[]`
+  item, stdin `4\n1\n`. Expected: two questions; the first file's item to the machine layer, the second's to the base;
+  two keys stored, one per file.
+- `newsetting-same-path-preview`: as `newsetting-same-path` with `--preview`. Expected: one `goes to:` line after
+  line 3.
+
+Update `newsetting-stored`, `newsetting-answer` and `json-new-setting-destination` (their stored key, their
+`expect/` only where the key's form shows) and note it in the step's commit.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync newsetting-` (new cases fail until step 36).
+
+## Step 36: One answer per path, keyed by module and file `[worker]`
+
+Files: `src/core/plan/newsettings.ts`, `src/core/plan/export.ts`, `src/main.ts`.
+
+`answersOf` keeps the last answer per bare key path; `mergedDestinations` and `storeDestination` key by the bare
+path. Make the destination key `<module> <file>: <path>` everywhere it's read or written; group new settings by that
+key so `askNewSettings` asks once per group after its last line and the answer covers the group; the preview prints
+one `goes to:` line per group. Move `answersOf` and `suggestionAnswers` into `newsettings.ts`. Unit cases: two items
+of one path get one answer; the same path in two files gets two answers and two stored keys; a stored key for file A
+doesn't route file B.
+
+Test: `bun test src/core/plan && bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync
+newsetting- && tests/parity/run.sh --engine dist/mksync json-`.
+
+## Step 37: Pull's check prints sanitized values `[worker]`
+
+Files: `src/core/plan/changes.ts`, `src/core/plan/changes.test.ts`, `tests/parity/cases/check-hydrated-value/` (new).
+
+Review finding P3: the import check diffs the local file against the hydrated bytes, so the block prints real
+values (`email: "old@corp.example" -> "jane@corp.example"`). The block contract: values are the sanitized text. Case
+first: `check-hydrated-value` (local `{"email":"old@example.com"}`, repo `<YOUR_EMAIL>`, value `new@example.com`;
+expected line `email: "<YOUR_EMAIL>" -> "<YOUR_EMAIL>"`, and neither address anywhere in the output). Then keep
+finding changes on the hydrated bytes (a changed value is still a change) but print each side's text sanitized with
+the entry's rules. Unit case: no hydrated value appears in the block.
+
+Test: `bun test src/core/plan/changes.test.ts && bun run build && tests/parity/run.sh --engine dist/mksync check-`.
+
+## Step 38: The first backup stops at a symlink or non-UTF-8 file `[worker]`
+
+Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`.
+
+Review findings: `readLayerFolder` skips a symlinked layer file silently (Dirent of a link is neither file nor
+folder), then the pointer drops it; files are read as `utf8`, turning bad bytes into U+FFFD. Stop with
+`ERROR: first backup stopped at <state path>: a symlink.` for a link, and `…: not UTF-8 text.` for a file whose bytes
+don't round-trip. `firstBackupStopped` and the `readBackupSides` catch use `unreadableReason(error)`, never the raw
+error text. Add the missing test: `machine.json` can't be written, so the repo files this backup wrote are removed or
+restored and `machine.json` is unchanged.
+
+Test: `bun test src/adapters/store.test.ts && bun run lint`.
+
+## Step 39: Statusline rounding as printf's `[worker]`
+
+Files: `src/core/statusline/format.ts`, `src/core/statusline/format.test.ts`.
+
+Review finding: `formatFixed` scales before rounding half to even, so near-ties become fake ties (1050 tokens prints
+`1k`, the script `1.1k`; ~1% of counts). Use `x.toFixed(n)` and apply half-to-even only when `x.toFixed(n + 60)` shows
+an exact tie. Cost (`%.2f`) follows the same double rule. Unit cases: 1050 → `1.1k`, 1150 → `1.1k`, 1850 → `1.9k`,
+the existing exact ties unchanged, a cost of `0.125` → `0.12`.
+
+Test: `bun test src/core/statusline && bun run lint`.
+
+## Step 40: Visibility treats a git failure as unknown `[worker]`
+
+Files: `src/adapters/visibility.ts`, `src/adapters/visibility.test.ts`.
+
+Review finding: `readOrigin` returns no URLs for any non-zero exit, so a git failure (exit 128, e.g. `safe.directory`)
+with `MKSYNC_VISIBILITY=private` reads private even for a public GitHub origin. Exit 2 (no origin) keeps today's
+behaviour; any other non-zero exit is `unknown`. Rename the adapter's `Visibility` type `RemoteVisibility`. Unit
+cases: exit 2, exit 128 with the variable set, exit 0.
+
+Test: `bun test src/adapters/visibility.test.ts && bun run lint`.
+
+## Step 41: Tests the mutations showed missing `[worker]`
+
+Files: `src/core/plan/export.test.ts`, `src/core/plan/changes.test.ts`, `src/core/plan/groups.ts`.
+
+Review findings: mutants survive in `strategy.ts:26,57` (`hydrated ?? bytes`), `changes.ts:281`
+(`Math.max(added, removed)`), `changes.ts:612` (a dropped item's layer). Cases: repo layer `paths:["<HOMEDIR>/bin"]`,
+local `["/home/user/bin"]` reports no new setting; a whole file with more lines removed than added counts the
+removed; a dropped array item on import lands under the entry's latest layer. `withoutNewSettings` (`groups.ts`)
+matches only `+` lines and removes at most one line per setting, with a unit case. Each new test must fail against
+its mutant.
+
+Test: `bun test src/core/plan && bun run lint`.
+
+## Step 42: Docs for the fixes `[inline: docs step]`
+
+Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/plan-single-engine.md`.
+
+Contract: one question per path, the `module file: path` key, pointer runs writing the repo's copy, pull's check
+sanitized, the backup's symlink and UTF-8 stops, a git failure reading `unknown`, the statusline's double rounding
+rule (cost included), the count of shared cases. Design: fix "New settings" (line 673's bare key), Open gains the
+review's leftovers: `setup` then export losing piped answers (main.ts 553/586), a failed file skipping the stored
+destinations, `main.ts` extractions (export flow to its own module, git calls to `adapters/git.ts`), `LayerFile.bytes`
+meaning raw or hydrated, the profile-value match on escaped or cut `what`, `.`-joined flat vs nested keys, statusline
+cases missing (Windows, virtual env, `Unknown option`). Roadmap: phase 7's bullets that moved (Windows survey,
+Windows `~/.claude`) point to phases 8 and 9.
+
+Test: `npx prettier --check docs/plan-single-engine-7.md docs/design-layers.md && tests/parity/run.sh --engine
+dist/mksync`.
