@@ -126,7 +126,11 @@ export function compactJson(value: JsonValue): string {
 
 /** A change's value, compact and cut to the contract's 60 characters. */
 export function valueText(value: JsonValue): string {
-  const text = compactJson(value);
+  return cutValueText(compactJson(value));
+}
+
+/** A value's text cut at the block's limit, with the ellipsis. */
+function cutValueText(text: string): string {
   return text.length > VALUE_LIMIT
     ? `${text.slice(0, KEPT_VALUE_LENGTH)}${ELLIPSIS}`
     : text;
@@ -145,11 +149,15 @@ function sanitizedValueText(
   rules: readonly SanitizeRule[],
   values: Values,
 ): string {
-  const text = valueText(value);
   if (rules.length === 0) {
-    return text;
+    return valueText(value);
   }
-  return textOf(sanitize(encodeUtf8(text), rules, values, { json: true }));
+  // Sanitize the whole text before the cut: a real value the cut splits would
+  // no longer match its rule, and its first part would print as is.
+  const whole = compactJson(value);
+  return cutValueText(
+    textOf(sanitize(encodeUtf8(whole), rules, values, { json: true })),
+  );
 }
 
 function emptyObject(): JsonValue {
