@@ -45,11 +45,28 @@ const PROFILE_EXTENSION = ".json";
  * readable by the current user only. */
 const PRIVATE_MODE = 0o600;
 
+/** Where a store keeps its record and profiles, and where a write goes. */
+export interface StoreLocation {
+  /** The record file: `<state>/machine.json`, or the repo's
+   * `machines/<name>.json` while the local record is a pointer. */
+  readonly recordFile: string;
+  /** The folder holding this store's profiles. */
+  readonly profilesFolder: string;
+  /** True for the state folder, whose files only the user may read; repo
+   * files keep the mode the clone gives them. */
+  readonly privateFiles: boolean;
+}
+
 /** What a run reads from the record store: contract "Where records are kept". */
 export interface Store {
   readonly record?: MachineRecord;
   readonly profile?: Profile;
   readonly profiles: readonly Profile[];
+  /** The records "used by" a profile checks: this machine's record, or every
+   * record in the repo's `machines/` while the local record is a pointer. */
+  readonly records: readonly MachineRecord[];
+  /** Where a write of a retired record or profile goes. */
+  readonly location: StoreLocation;
 }
 
 /** What a repo-home store holds: records other machines could take over, and
@@ -57,6 +74,15 @@ export interface Store {
 export interface RepoStore {
   readonly records: readonly MachineRecord[];
   readonly profiles: readonly Profile[];
+}
+
+/** The local store's paths, under the state folder. */
+function stateLocation(stateFolder: string): StoreLocation {
+  return {
+    recordFile: join(stateFolder, MACHINE_FILE),
+    profilesFolder: join(stateFolder, PROFILES_FOLDER),
+    privateFiles: true,
+  };
 }
 
 /**
@@ -118,6 +144,84 @@ function unreadableProfileError(name: string): ConfigError {
     `state folder): can't be read.`;
   return { message, code: 2 };
 }
+
+/** `profiles/<name>.json`, a profile's path in the repo. */
+function repoProfilePath(name: string): string {
+  return `${PROFILES_FOLDER}/${name}${PROFILE_EXTENSION}`;
+}
+
+/** The contract's line for a repo record or profile that can't be read,
+ * "Retire" and "The repo store". */
+function unreadableRepoError(relativePath: string, reason: string): ConfigError {
+  return { message: `ERROR: ${relativePath} can't be read: ${reason}.`, code: 2 };
+}
+
+/**
+ * How a profile read reports its errors: the state folder's lines, or the
+ * repo's `<repo path> can't be read: <reason>.` line.
+ */
+interface ProfileErrorLines {
+  readonly unreadable: (name: string) => ConfigError;
+  readonly missing: (name: string, path: string) => ConfigError;
+  readonly parse: (name: string, error: ConfigError) => ConfigError;
+}
+
+/** The state folder's profile errors, from contract "The record". */
+const STATE_PROFILE_ERRORS: ProfileErrorLines = {
+  unreadable: unreadableProfileError,
+  missing: (name, path) => ({
+    message: `ERROR: profile ${name} not found: ${path}`,
+    code: 2,
+  }),
+  parse: (_name, error) => error,
+};
+
+/**
+ * The reason in an `ERROR: profile <name>: <reason>.` line.
+ * shortcut: `parseProfile` reports only that whole line, so the repo's
+ * `<repo path> can't be read: <reason>.` line has to take the reason back out
+ * of it rather than have its own.
+ */
+function profileReason(name: string, error: ConfigError): string {
+  const prefix = `ERROR: profile ${name}: `;
+  const body = error.message.startsWith(prefix)
+    ? error.message.slice(prefix.length)
+    : error.message;
+  return body.endsWith(".") ? body.slice(0, -1) : body;
+}
+
+/** The repo's profile errors, from contract "Retire", "The repo store". */
+const REPO_PROFILE_ERRORS: ProfileErrorLines = {
+  unreadable: (name) =>
+    unreadableRepoError(repoProfilePath(name), "can't be read"),
+  missing: (name) => ({
+    message: `ERROR: profile ${name} not found: ${repoProfilePath(name)}`,
+    code: 2,
+  }),
+  parse: (name, error) =>
+    unreadableRepoError(repoProfilePath(name), profileReason(name, error)),
+};
+
+/** How a repo store read reports the files it can't read. */
+interface RepoErrorLines {
+  readonly record: (relativePath: string, reason: string) => ConfigError;
+  readonly profiles: ProfileErrorLines;
+}
+
+/** The state folder's lines, kept for `setup --replace` reading it as a store. */
+const STATE_REPO_ERROR_LINES: RepoErrorLines = {
+  record: (_relativePath, reason) => ({
+    message: recordMessage(reason),
+    code: 2,
+  }),
+  profiles: STATE_PROFILE_ERRORS,
+};
+
+/** The repo's lines, from contract "Retire", "The repo store". */
+const REPO_STORE_ERROR_LINES: RepoErrorLines = {
+  record: unreadableRepoError,
+  profiles: REPO_PROFILE_ERRORS,
+};
 
 /**
  * The name in a `{"name": <name>, "home": "repo"}` pointer, or `undefined`
@@ -189,29 +293,32 @@ function readProfileFile(
   folder: string,
   name: string,
   config: ConfigV2,
+  lines: ProfileErrorLines = STATE_PROFILE_ERRORS,
 ): LoadResult<Profile, ConfigError> {
   const path = join(folder, `${name}${PROFILE_EXTENSION}`);
   const read = readFileText(path);
   if (read.kind === "unreadable") {
-    return { ok: false, error: unreadableProfileError(name) };
+    return { ok: false, error: lines.unreadable(name) };
   }
   if (read.kind === "missing") {
-    return {
-      ok: false,
-      error: { message: `ERROR: profile ${name} not found: ${path}`, code: 2 },
-    };
+    return { ok: false, error: lines.missing(name, path) };
   }
-  return parseProfile(name, read.text, config);
+  const parsed = parseProfile(name, read.text, config);
+  if (!parsed.ok) {
+    return { ok: false, error: lines.parse(name, parsed.error) };
+  }
+  return parsed;
 }
 
 /** Every profile in a profiles folder, sorted by name, with its parse result. */
 function readProfiles(
   folder: string,
   config: ConfigV2,
+  lines: ProfileErrorLines = STATE_PROFILE_ERRORS,
 ): LoadResult<readonly Profile[], ConfigError> {
   const profiles: Profile[] = [];
   for (const name of jsonNames(folder)) {
-    const parsed = readProfileFile(folder, name, config);
+    const parsed = readProfileFile(folder, name, config, lines);
     if (!parsed.ok) {
       return parsed;
     }
@@ -224,6 +331,8 @@ function readProfiles(
 interface StoreFiles {
   readonly record: MachineRecord;
   readonly profilesFolder: string;
+  readonly records: readonly MachineRecord[];
+  readonly location: StoreLocation;
 }
 
 function storeValue(
@@ -248,6 +357,8 @@ function storeValue(
       record: files.record,
       profile: profile.value,
       profiles: profiles.value,
+      records: files.records,
+      location: files.location,
     },
   };
 }
@@ -274,7 +385,14 @@ export function readStore(
     if (!profiles.ok) {
       return profiles;
     }
-    return { ok: true, value: { profiles: profiles.value } };
+    return {
+      ok: true,
+      value: {
+        profiles: profiles.value,
+        records: [],
+        location: stateLocation(stateFolder),
+      },
+    };
   }
 
   const repoName = repoHomeName(recordRead.text);
@@ -287,22 +405,20 @@ export function readStore(
       {
         record: record.value,
         profilesFolder: join(stateFolder, PROFILES_FOLDER),
+        records: [record.value],
+        location: stateLocation(stateFolder),
       },
       config,
     );
   }
 
-  const machineFile = `${MACHINES_FOLDER}/${repoName}${PROFILE_EXTENSION}`;
-  const repoRecordRead = readFileText(
-    join(repoRoot, MACHINES_FOLDER, `${repoName}${PROFILE_EXTENSION}`),
-  );
-  if (repoRecordRead.kind === "unreadable") {
-    // shortcut: the contract's record line names machine.json in the state
-    // folder, but a repo-home record's file is machines/<name>.json; both use
-    // the same line until the contract names one.
-    return { ok: false, error: unreadableRecordError() };
+  const repo = readRepoEntries(repoRoot, config, REPO_STORE_ERROR_LINES);
+  if (!repo.ok) {
+    return repo;
   }
-  if (repoRecordRead.kind === "missing") {
+  const record = repo.value.records.find((item) => item.name === repoName);
+  if (record === undefined) {
+    const machineFile = `${MACHINES_FOLDER}/${repoName}${PROFILE_EXTENSION}`;
     return {
       ok: false,
       error: {
@@ -311,52 +427,95 @@ export function readStore(
       },
     };
   }
-  // shortcut: the contract's record line names machine.json in the state
-  // folder, but a repo-home record's file is machines/<name>.json; both use
-  // the same line until the contract names one.
-  const record = readRecord(repoRecordRead.text, config);
-  if (!record.ok) {
-    return record;
-  }
-  return storeValue(
-    { record: record.value, profilesFolder: join(repoRoot, PROFILES_FOLDER) },
-    config,
+  const profile = repo.value.profiles.find(
+    (item) => item.name === record.profile,
   );
+  if (profile === undefined) {
+    return {
+      ok: false,
+      error: {
+        message:
+          `ERROR: profile ${record.profile} not found: ` +
+          repoProfilePath(record.profile),
+        code: 2,
+      },
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      record,
+      profile,
+      profiles: repo.value.profiles,
+      records: repo.value.records,
+      location: {
+        recordFile: join(
+          repoRoot,
+          MACHINES_FOLDER,
+          `${repoName}${PROFILE_EXTENSION}`,
+        ),
+        profilesFolder: join(repoRoot, PROFILES_FOLDER),
+        privateFiles: false,
+      },
+    },
+  };
+}
+
+/** Every record under `machines/` and every profile under `profiles/`, sorted
+ * by name, with the given error lines. */
+function readRepoEntries(
+  repoRoot: string,
+  config: ConfigV2,
+  lines: RepoErrorLines,
+): LoadResult<RepoStore, ConfigError> {
+  const records: MachineRecord[] = [];
+  const machinesFolder = join(repoRoot, MACHINES_FOLDER);
+  for (const name of jsonNames(machinesFolder)) {
+    const relativePath = `${MACHINES_FOLDER}/${name}${PROFILE_EXTENSION}`;
+    const read = readFileText(
+      join(machinesFolder, `${name}${PROFILE_EXTENSION}`),
+    );
+    if (read.kind === "unreadable") {
+      return {
+        ok: false,
+        error: lines.record(relativePath, "can't be read"),
+      };
+    }
+    if (read.kind === "missing") {
+      continue;
+    }
+    const record = parseRecord(read.text, config);
+    if (!record.ok) {
+      return {
+        ok: false,
+        error: lines.record(relativePath, record.error),
+      };
+    }
+    records.push(record.value);
+  }
+  const profiles = readProfiles(
+    join(repoRoot, PROFILES_FOLDER),
+    config,
+    lines.profiles,
+  );
+  if (!profiles.ok) {
+    return profiles;
+  }
+  return { ok: true, value: { records, profiles: profiles.value } };
 }
 
 /**
  * Contract "Where records are kept": the repo store, every machine record in
  * the clone's `machines/` and every profile in its `profiles/`, sorted by
- * name. `setup` reads it when the repo is private; a bad record stops with
- * exit code 2.
+ * name. `setup` reads it when the repo is private. Errors keep the lines the
+ * state folder uses, since `setup --replace` also reads a state folder this
+ * way; a pointer record's reads use the repo's own lines.
  */
 export function readRepoStore(
   repoRoot: string,
   config: ConfigV2,
 ): LoadResult<RepoStore, ConfigError> {
-  const records: MachineRecord[] = [];
-  const machinesFolder = join(repoRoot, MACHINES_FOLDER);
-  for (const name of jsonNames(machinesFolder)) {
-    const read = readFileText(
-      join(machinesFolder, `${name}${PROFILE_EXTENSION}`),
-    );
-    if (read.kind === "unreadable") {
-      return { ok: false, error: unreadableRecordError() };
-    }
-    if (read.kind === "missing") {
-      continue;
-    }
-    const record = readRecord(read.text, config);
-    if (!record.ok) {
-      return record;
-    }
-    records.push(record.value);
-  }
-  const profiles = readProfiles(join(repoRoot, PROFILES_FOLDER), config);
-  if (!profiles.ok) {
-    return profiles;
-  }
-  return { ok: true, value: { records, profiles: profiles.value } };
+  return readRepoEntries(repoRoot, config, STATE_REPO_ERROR_LINES);
 }
 
 function jsonString(value: string): JsonValue {
@@ -401,17 +560,48 @@ function writePrivateFile(path: string, text: string): void {
   chmodSync(path, PRIVATE_MODE);
 }
 
+/** Write a store's file: private in the state folder, unchanged in the repo. */
+function writeStoreFile(
+  location: StoreLocation,
+  path: string,
+  text: string,
+): void {
+  if (location.privateFiles) {
+    writePrivateFile(path, text);
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text);
+}
+
+/** Write a record to the store's record file. */
+export function writeStoreRecord(
+  location: StoreLocation,
+  record: MachineRecord,
+): void {
+  writeStoreFile(location, location.recordFile, recordText(record));
+}
+
+/** Write a profile to the store's profiles folder. */
+export function writeStoreProfile(
+  location: StoreLocation,
+  profile: Profile,
+): void {
+  writeStoreFile(
+    location,
+    join(location.profilesFolder, `${profile.name}${PROFILE_EXTENSION}`),
+    profileText(profile),
+  );
+}
+
 /** Write this machine's record to `<state>/machine.json`. */
 export function writeRecord(stateFolder: string, record: MachineRecord): void {
-  writePrivateFile(join(stateFolder, MACHINE_FILE), recordText(record));
+  writeStoreRecord(stateLocation(stateFolder), record);
 }
 
 /** Write a profile to `<state>/profiles/<name>.json`. */
 export function writeProfile(stateFolder: string, profile: Profile): void {
-  writePrivateFile(
-    join(stateFolder, PROFILES_FOLDER, `${profile.name}${PROFILE_EXTENSION}`),
-    profileText(profile),
-  );
+  writeStoreProfile(stateLocation(stateFolder), profile);
 }
 
 /** The first backup's two sides, as their stores hold them. */

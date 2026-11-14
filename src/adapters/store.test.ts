@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -27,9 +28,13 @@ import {
   writeFirstBackup,
   writeProfile,
   writeRecord,
+  writeStoreProfile,
+  writeStoreRecord,
 } from "./store.ts";
 
 const MACHINE_NAME = "wk1-laptop";
+
+const OTHER_MACHINE_NAME = "wk1-desktop";
 
 const PROFILE_NAME = "work-1";
 
@@ -316,6 +321,60 @@ describe("readStore", () => {
     expect(store.profiles[0]?.modules).toEqual(["base"]);
   });
 
+  test("should report the repo can't-be-read line and code 2 when a pointer's repo record is not JSON", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      JSON.stringify({ name: MACHINE_NAME, home: "repo" }),
+    );
+    writeFixture(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+      "not json",
+    );
+
+    // Act
+    const error = expectError(storeOf(fixture));
+
+    // Assert
+    expect(error.message).toBe(
+      `ERROR: machines/${MACHINE_NAME}.json can't be read: not valid JSON.`,
+    );
+    expect(error.code).toBe(2);
+  });
+
+  test("should return every repo record for used-by and the repo record file when the record is a pointer", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      JSON.stringify({ name: MACHINE_NAME, home: "repo" }),
+    );
+    for (const name of [OTHER_MACHINE_NAME, MACHINE_NAME]) {
+      writeFixture(
+        join(fixture.repo, "machines", `${name}.json`),
+        recordText(name, PROFILE_NAME),
+      );
+    }
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+
+    // Act
+    const store = expectOk(storeOf(fixture));
+
+    // Assert
+    expect(store.records.map((record) => record.name)).toEqual([
+      OTHER_MACHINE_NAME,
+      MACHINE_NAME,
+    ]);
+    expect(store.location.recordFile).toBe(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+    );
+    expect(store.location.profilesFolder).toBe(join(fixture.repo, "profiles"));
+  });
+
   test("should report a missing repo machine file for a repo-home pointer with code 2", () => {
     // Arrange
     const fixture = storeFixture();
@@ -396,6 +455,74 @@ describe("writeRecord and writeProfile", () => {
     // Assert
     expect(recordMode & 0o777).toBe(PRIVATE_MODE);
     expect(profileMode & 0o777).toBe(PRIVATE_MODE);
+  });
+});
+
+describe("writeStoreRecord and writeStoreProfile", () => {
+  const POINTER_TEXT = JSON.stringify({ name: MACHINE_NAME, home: "repo" });
+
+  function pointerFixture(): StoreFixture {
+    const fixture = storeFixture();
+    writeFixture(join(fixture.state, "machine.json"), POINTER_TEXT);
+    writeFixture(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+    return fixture;
+  }
+
+  test("should write a retired pointer record to the repo and leave the state pointer as it is", () => {
+    // Arrange
+    const fixture = pointerFixture();
+    const store = expectOk(storeOf(fixture));
+    const record = store.record;
+    if (record === undefined) {
+      throw new Error("expected a record");
+    }
+
+    // Act
+    writeStoreRecord(store.location, { ...record, retired: true });
+
+    // Assert
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ retired: true });
+    expect(readFileSync(join(fixture.state, "machine.json"), "utf8")).toBe(
+      POINTER_TEXT,
+    );
+  });
+
+  test("should write a retired pointer profile to the repo and leave the state folder as it is", () => {
+    // Arrange
+    const fixture = pointerFixture();
+    const store = expectOk(storeOf(fixture));
+    const profile = store.profile;
+    if (profile === undefined) {
+      throw new Error("expected a profile");
+    }
+
+    // Act
+    writeStoreProfile(store.location, { ...profile, retired: true });
+
+    // Assert
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ retired: true });
+    expect(existsSync(join(fixture.state, "profiles"))).toBe(false);
   });
 });
 

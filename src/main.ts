@@ -32,6 +32,8 @@ import {
   writeFirstBackup,
   writeProfile,
   writeRecord,
+  writeStoreProfile,
+  writeStoreRecord,
 } from "./adapters/store.ts";
 import type { BackupSides, FirstBackupFile } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
@@ -704,11 +706,11 @@ async function executeRetire(
       machineRetireQuestion(command.target),
       retireMachine(store.value.record, command.target),
       (record) => {
-        writeRecord(state, record);
+        writeStoreRecord(store.value.location, record);
       },
     );
   }
-  const records = store.value.record === undefined ? [] : [store.value.record];
+  const records = store.value.records;
   return askRetire(
     command,
     profileRetireQuestion(command.target),
@@ -719,7 +721,7 @@ async function executeRetire(
       join(state, PROFILES_FOLDER, `${command.target}.json`),
     ),
     (profile) => {
-      writeProfile(state, profile);
+      writeStoreProfile(store.value.location, profile);
     },
   );
 }
