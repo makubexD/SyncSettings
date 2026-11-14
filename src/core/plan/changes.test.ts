@@ -373,6 +373,24 @@ describe("changeLines", () => {
     ]);
   });
 
+  test("counts the removed lines when more were removed than added", () => {
+    const snapshot = snapshotOf({
+      config: configOf([BASHRC_ENTRY]),
+      repo: { [BASE_BASHRC]: "one\ntwo\nthree\n" },
+    });
+    const plan = planOf([writeRepo(BASE_BASHRC, "one\n")]);
+
+    expect(changeLines(plan, snapshot)).toEqual([
+      {
+        layer: "base",
+        kind: "M",
+        module: "shell",
+        file: "bashrc",
+        what: "2 line(s) changed",
+      },
+    ]);
+  });
+
   test("describes a file new to its layer as a new file", () => {
     const snapshot = snapshotOf({ config: configOf([BASHRC_ENTRY]) });
     const plan = planOf([writeRepo(BASE_BASHRC, "one\ntwo\n")]);
@@ -531,6 +549,33 @@ describe("importChangeLines", () => {
         module: "parity",
         file: "settings.json",
         what: 'profileKey: "old" -> "new"',
+      },
+    ]);
+  });
+
+  test("gives a dropped array item the entry's latest layer", () => {
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: {
+        [BASE_JSON]: '{"allow":["keep","old"]}',
+        [PROFILE_JSON]: '{"other":1}',
+      },
+      local: {
+        [LOCAL_JSON]: '{"allow":["keep","old","extra"],"other":1}',
+      },
+      profile: PROFILE,
+    });
+    const plan = planOf([
+      writeLocal(LOCAL_JSON, '{"allow":["keep","old"],"other":1}'),
+    ]);
+
+    expect(importChangeLines(plan, snapshot)).toEqual([
+      {
+        layer: "profile",
+        kind: "-",
+        module: "parity",
+        file: "settings.json",
+        what: 'allow[]: "extra"',
       },
     ]);
   });

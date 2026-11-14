@@ -267,6 +267,18 @@ describe("withoutNewSettings", () => {
     expect(withoutNewSettings([other], [NEW_ITEM])).toEqual([other]);
   });
 
+  test("keeps a line that is not an addition", () => {
+    const removed: ChangeLine = { ...answered, kind: "-" };
+
+    expect(withoutNewSettings([removed], [NEW_ITEM])).toEqual([removed]);
+  });
+
+  test("drops only one line for one answered setting", () => {
+    expect(withoutNewSettings([answered, answered], [NEW_ITEM])).toEqual([
+      answered,
+    ]);
+  });
+
   test.each([
     ["module", { module: "vscode" }],
     ["file", { file: "other.json" }],

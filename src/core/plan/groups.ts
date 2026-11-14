@@ -237,18 +237,29 @@ export function groupBlock(
 }
 
 /** The change lines with the answered new settings dropped: a setting listed
- * under `New settings` isn't repeated in its layer's group. */
+ * under `New settings` isn't repeated in its layer's group. Only an added line
+ * can be that setting, and each setting drops at most one line. */
 export function withoutNewSettings(
   lines: readonly ChangeLine[],
   settings: readonly NewSettingLine[],
 ): readonly ChangeLine[] {
-  return lines.filter(
-    (line) =>
-      !settings.some(
-        (setting) =>
-          setting.module === line.module &&
-          setting.file === line.file &&
-          setting.what === line.what,
-      ),
-  );
+  const unclaimed = [...settings];
+  const kept: ChangeLine[] = [];
+  for (const line of lines) {
+    const index =
+      line.kind === "+"
+        ? unclaimed.findIndex(
+            (setting) =>
+              setting.module === line.module &&
+              setting.file === line.file &&
+              setting.what === line.what,
+          )
+        : -1;
+    if (index === -1) {
+      kept.push(line);
+      continue;
+    }
+    unclaimed.splice(index, 1);
+  }
+  return kept;
 }

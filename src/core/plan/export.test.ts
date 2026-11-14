@@ -1176,6 +1176,62 @@ describe("planExport layers", () => {
     ]);
   });
 
+  test("should report no new setting for an item the hydrated layer holds", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        jsonEntry({
+          sanitize: [{ placeholder: "<HOMEDIR>", prompt: "Home folder" }],
+        }),
+      ],
+      repo: {
+        "dotfiles/common/parity/settings.json": '{"paths":["<HOMEDIR>/bin"]}',
+        "dotfiles/linux/parity/settings.json": '{"osKey": 1}',
+      },
+      local: {
+        ".config/parity/settings.json": '{"paths":["/home/user/bin"],"osKey": 1}',
+      },
+      values: { "<HOMEDIR>": "/home/user" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/linux/parity/settings.json",
+    ]);
+    expect(result.newSettings).toBeUndefined();
+    expect(shownActions(result.actions)).toEqual([]);
+  });
+
+  test("should compare an import base through the hydrated bytes, not the raw layer", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        importEntry({
+          sanitize: [{ placeholder: "<NOTE>", prompt: "Note" }],
+        }),
+      ],
+      repo: {
+        "dotfiles/common/claude/CLAUDE.md": "note <NOTE>\n",
+      },
+      local: {
+        ".config/parity/CLAUDE.md": "note first\r\nsecond\n",
+      },
+      values: { "<NOTE>": "first\r\nsecond" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/claude/CLAUDE.md",
+    ]);
+    expect(shownActions(result.actions)).toEqual([]);
+  });
+
   test("should leave an unchanged layered json file alone", () => {
     // Arrange
     const snapshot = layeredSnapshot("linux", {
