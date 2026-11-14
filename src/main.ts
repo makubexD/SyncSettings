@@ -52,7 +52,6 @@ import type { ConfigV2, Os } from "./core/config/types.ts";
 import { guard, PROFILES_FOLDER } from "./core/guard.ts";
 import type { GuardDecision, Visibility } from "./core/guard.ts";
 import { pickOs } from "./core/layers/select.ts";
-import type { LayerName } from "./core/layers/select.ts";
 import { firstBackupWrites, planFirstBackup } from "./core/machine/backup.ts";
 import type {
   BackupQuestion,
@@ -88,8 +87,12 @@ import {
 } from "./core/plan/groups.ts";
 import { planImport } from "./core/plan/import.ts";
 import {
+  answersOf,
   newSettingChoices,
+  settingGroups,
+  settingKey,
   storeDestination,
+  suggestionAnswers,
 } from "./core/plan/newsettings.ts";
 import type {
   NewSettingChoice,
@@ -777,37 +780,13 @@ async function executeShadow(
   }
 }
 
-/** The answers a list of choices gives, key path to layer slot. */
-function answersOf(
-  settings: readonly NewSettingLine[],
-  choices: readonly NewSettingChoice[],
-): ReadonlyMap<string, LayerName> {
-  const answers = new Map<string, LayerName>();
-  settings.forEach((setting, index) => {
-    const choice = choices[index];
-    if (choice !== undefined) {
-      answers.set(setting.path, choice.layer);
-    }
-  });
-  return answers;
-}
-
-/** Every new setting taking the suggestion, which is what `--yes` answers. */
-function suggestionAnswers(
-  settings: readonly NewSettingLine[],
-  question: NewSettingQuestion,
-): ReadonlyMap<string, LayerName> {
-  return answersOf(
-    settings,
-    settings.map(() => question.suggestion),
-  );
-}
-
 /**
  * Contract "New settings (program only)", Asking: print the block up to the
- * settings and ask each one through the terminal `setup` uses. The head is
- * computed with the suggestion as a provisional answer, since the answered
- * plan isn't known until the questions are through.
+ * settings and ask each path's question through the terminal `setup` uses.
+ * Settings that share a destination key are listed together, and the question
+ * comes after the last of them; its answer is the answer for all of them. The
+ * head is computed with the suggestion as a provisional answer, since the
+ * answered plan isn't known until the questions are through.
  */
 async function askSettings(
   snapshot: Snapshot,
@@ -826,7 +805,32 @@ async function askSettings(
   for (const line of grouped.head) {
     io.write(`${line}\n`);
   }
-  return await askNewSettings(io, grouped, question);
+  const lastOfGroup = new Map<number, readonly number[]>();
+  for (const group of settingGroups(settings)) {
+    const last = group[group.length - 1];
+    if (last !== undefined) {
+      lastOfGroup.set(last, group);
+    }
+  }
+  const choices = new Array<NewSettingChoice>(settings.length);
+  for (const [index, line] of grouped.settings.entries()) {
+    const group = lastOfGroup.get(index);
+    if (group === undefined) {
+      io.write(`${line}\n`);
+      continue;
+    }
+    const [choice] = await askNewSettings(
+      io,
+      { settings: [line], indent: grouped.indent },
+      question,
+    );
+    // The question follows the group's last line, and one answer covers the
+    // whole group. A terminal with no input falls back to the suggestion.
+    for (const member of group) {
+      choices[member] = choice ?? question.suggestion;
+    }
+  }
+  return Array.from(choices, (choice) => choice ?? question.suggestion);
 }
 
 /** Storing the item answers: the export's result, and the repo profile it
@@ -861,7 +865,12 @@ function storeItemDestinations(
   settings.forEach((setting, index) => {
     const choice = choices[index];
     if (setting.kind === "item" && choice !== undefined) {
-      updated = storeDestination(updated, setting.path, choice.layer, "item");
+      updated = storeDestination(
+        updated,
+        settingKey(setting),
+        choice.layer,
+        "item",
+      );
     }
   });
   if (updated === profile) {

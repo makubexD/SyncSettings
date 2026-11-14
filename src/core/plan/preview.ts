@@ -2,11 +2,23 @@ import { STATE_FOLDER_ROOTS } from "../guard.ts";
 import { changeLines } from "./changes.ts";
 import { planExport } from "./export.ts";
 import { groupBlock, withoutNewSettings } from "./groups.ts";
-import { newSettingChoices } from "./newsettings.ts";
+import {
+  newSettingChoices,
+  settingGroups,
+  suggestionAnswers,
+} from "./newsettings.ts";
+import type { NewSettingQuestion } from "./newsettings.ts";
 import { profileValueHits, refusedLines } from "./profilevalues.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
-import type { Action, Plan, RepoFiles, RunPlan, Snapshot } from "./types.ts";
+import type {
+  Action,
+  NewSettingLine,
+  Plan,
+  RepoFiles,
+  RunPlan,
+  Snapshot,
+} from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
 
@@ -163,6 +175,26 @@ function previewSummary(
 }
 
 /**
+ * The block's `goes to:` notes, one per destination key: a group's note sits
+ * after its last line, the place the question takes in `export`. The array is
+ * sparse on purpose, so the lines before a group's last have no note.
+ */
+function goesToNotes(
+  settings: readonly NewSettingLine[],
+  question: NewSettingQuestion,
+): readonly string[] {
+  const notes: string[] = [];
+  for (const group of settingGroups(settings)) {
+    const last = group[group.length - 1];
+    if (last !== undefined) {
+      notes[last] =
+        `goes to: ${question.suggestion.words} (asked by mksync export)`;
+    }
+  }
+  return notes;
+}
+
+/**
  * The export preview: what a commit would send, from a snapshot and its `HEAD`
  * bytes. `workingTree` is the tree the export is compared against `HEAD`, when
  * the caller has more than the snapshot's repo files holds: it includes
@@ -200,15 +232,7 @@ export function planPreview(
   const plan =
     question === undefined
       ? exported
-      : planExport(
-          snapshot,
-          new Map(
-            settings.map((setting) => [
-              setting.path,
-              question.suggestion.layer,
-            ]),
-          ),
-        );
+      : planExport(snapshot, suggestionAnswers(settings, question));
   const rendered = renderRun(plan, NO_FAILURES);
   if (rendered.code !== 0) {
     return { actions: [], lines: rendered.lines, code: rendered.code };
@@ -227,10 +251,7 @@ export function planPreview(
           snapshot.os,
           "push",
           settings,
-          settings.map(
-            () =>
-              `goes to: ${question.suggestion.words} (asked by mksync export)`,
-          ),
+          goesToNotes(settings, question),
         );
   // Contract "Profile values (program only)": a hit stops the preview with the
   // refused lines after the block, instead of the summary and exit 0.

@@ -18,6 +18,7 @@ import { encodeUtf8, sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import { compactJson, fileLabel, valueText } from "./changes.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
+import { entryDestinations } from "./newsettings.ts";
 import {
   compileExcludes,
   entrySelected,
@@ -73,8 +74,8 @@ interface State {
   readonly values: Values;
   readonly only: readonly string[];
   readonly isExcluded: (path: string) => boolean;
-  /** The profile's stored destinations and this run's answers, key path to
-   * layer slot. */
+  /** The profile's stored destinations and this run's answers, destination key
+   * (`<module> <file>: <path>`) to layer slot. */
   readonly destinations: ReadonlyMap<string, LayerName>;
   readonly steps: FileStep[];
   readonly lines: string[];
@@ -250,7 +251,7 @@ function writeRepoFile(
 }
 
 /** Contract "Layers (program only)": the profile's answers for new settings,
- * key path to layer slot. The profile parser checked every slot name. */
+ * destination key to layer slot. The profile parser checked every slot name. */
 function destinationsOf(snapshot: Snapshot): ReadonlyMap<string, LayerName> {
   const destinations = snapshot.profile?.destinations;
   if (destinations === undefined) {
@@ -265,7 +266,8 @@ function destinationsOf(snapshot: Snapshot): ReadonlyMap<string, LayerName> {
 }
 
 /** The stored destinations with this run's answers on top: an answer names the
- * layer the user just picked, so it wins over a stored slot. */
+ * layer the user just picked, so it wins over a stored slot. Both are keyed by
+ * destination key (`<module> <file>: <path>`). */
 function mergedDestinations(
   snapshot: Snapshot,
   answers: ReadonlyMap<string, LayerName> | undefined,
@@ -349,6 +351,7 @@ function planFile(state: State, selected: SelectedEntry): void {
 
   const rules = entry.sanitize ?? [];
   const sanitized = rules.length > 0;
+  const file = fileLabel(entry.file);
   const sanitizeBytes = (bytes: Uint8Array): Uint8Array =>
     sanitized
       ? sanitize(bytes, rules, state.values, { json: isJsonEntry(entry) })
@@ -360,7 +363,9 @@ function planFile(state: State, selected: SelectedEntry): void {
   );
   const context: SplitContext = {
     writeRepoPath: repoPath,
-    destinations: state.destinations,
+    // The split looks a key path up in this one file, so the entry's own
+    // destinations take the module and file off the stored key.
+    destinations: entryDestinations(state.destinations, entry.module, file),
     localOnlyKeys: entry.localOnlyKeys ?? [],
     slots: selected.slots,
     sanitize: sanitizeBytes,
@@ -386,7 +391,7 @@ function planFile(state: State, selected: SelectedEntry): void {
       recordStep(state, repoPath, line, false);
       state.newSettings.push({
         module: entry.module,
-        file: fileLabel(entry.file),
+        file,
         path: setting.path,
         kind: setting.path.endsWith("[]") ? "item" : "key",
         what: newSettingWhat(
@@ -617,9 +622,9 @@ function orphanReport(state: State): void {
 /**
  * The export plan: every status line, action and the exit code the contract
  * gives export, from a snapshot and nothing else. `answers` are this run's
- * choices for new settings, key path to layer slot; they join the profile's
- * stored destinations, so an answered setting is written instead of listed in
- * `newSettings`.
+ * choices for new settings, destination key to layer slot; they join the
+ * profile's stored destinations, so an answered setting is written instead of
+ * listed in `newSettings`.
  */
 export function planExport(
   snapshot: Snapshot,

@@ -1207,7 +1207,7 @@ describe("planExport layers", () => {
         "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
       },
       local: { ".config/parity/settings.json": JSON_NEW_SETTING_TEXT },
-      profile: profileOf({ q: "profile" }),
+      profile: profileOf({ "parity settings.json: q": "profile" }),
     });
 
     // Act
@@ -1238,7 +1238,7 @@ describe("planExport layers", () => {
         "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
       },
       local: { ".config/parity/settings.json": JSON_NEW_SETTING_TEXT },
-      profile: profileOf({ q: "machine" }),
+      profile: profileOf({ "parity settings.json: q": "machine" }),
     });
 
     // Act
@@ -1341,7 +1341,9 @@ describe("planExport new settings", () => {
       local: { ".config/parity/settings.json": NEW_SETTING_ITEM_LOCAL_TEXT },
       profile: profileOf({}),
     });
-    const answers = new Map<string, LayerName>([["delta[]", "profile"]]);
+    const answers = new Map<string, LayerName>([
+      ["parity settings.json: delta[]", "profile"],
+    ]);
 
     // Act
     const result = observe(snapshot, answers);
@@ -1372,7 +1374,7 @@ describe("planExport new settings", () => {
         "dotfiles/linux/parity/settings.json": NEW_SETTING_OS_TEXT,
       },
       local: { ".config/parity/settings.json": NEW_SETTING_ITEM_LOCAL_TEXT },
-      profile: profileOf({ "delta[]": "os" }),
+      profile: profileOf({ "parity settings.json: delta[]": "os" }),
     });
 
     // Act
@@ -1384,5 +1386,47 @@ describe("planExport new settings", () => {
     ]);
     expect(result.lines.some((line) => line.includes("ERROR"))).toBe(false);
     expect(result.newSettings).toBeUndefined();
+  });
+
+  test("should not route another file's path from a stored destination", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        jsonEntry(),
+        jsonEntry({
+          file: "parity/other.json",
+          localPath: "~/.config/parity/other.json",
+        }),
+      ],
+      repo: {
+        "dotfiles/common/parity/settings.json": NEW_SETTING_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": NEW_SETTING_OS_TEXT,
+        "dotfiles/common/parity/other.json": NEW_SETTING_BASE_TEXT,
+        "dotfiles/linux/parity/other.json": NEW_SETTING_OS_TEXT,
+      },
+      local: {
+        ".config/parity/settings.json": NEW_SETTING_ITEM_LOCAL_TEXT,
+        ".config/parity/other.json": NEW_SETTING_ITEM_LOCAL_TEXT,
+      },
+      profile: profileOf({ "parity settings.json: delta[]": "os" }),
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/linux/parity/settings.json",
+      "ERROR dotfiles/linux/parity/other.json",
+    ]);
+    expect(result.newSettings).toEqual([
+      {
+        module: "parity",
+        file: "other.json",
+        path: "delta[]",
+        kind: "item",
+        what: 'delta[]: "new item"',
+      },
+    ]);
   });
 });
