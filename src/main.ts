@@ -889,10 +889,38 @@ function exportRefusal(
 }
 
 /**
+ * Print the export's grouped block, unless it holds nothing. Returns whether it
+ * printed, so the run that follows can leave it out when the block came first,
+ * ahead of the first-backup questions (contract decision 2).
+ */
+function printBlock(
+  io: SetupIo,
+  lines: readonly ChangeLine[],
+  snapshot: Snapshot,
+  settings: readonly NewSettingLine[] = [],
+): boolean {
+  if (lines.length === 0 && settings.length === 0) {
+    return false;
+  }
+  for (const line of groupBlock(
+    lines,
+    snapshot.record,
+    snapshot.os,
+    "push",
+    settings,
+  )) {
+    io.write(`${line}\n`);
+  }
+  return true;
+}
+
+/**
  * Run an export plan and print its grouped block before its status lines. The
  * answered new settings are listed under `New settings` and never repeated in
  * their layer's group. A profile value bound for a shared layer stops the run
- * before anything is written, with the refused lines after the block.
+ * before anything is written, with the refused lines after the block. With
+ * `blockPrinted`, the caller already printed the block, ahead of the
+ * first-backup questions.
  */
 function runExport(
   plan: RunPlan,
@@ -902,6 +930,7 @@ function runExport(
   choices: readonly NewSettingChoice[] = [],
   backup?: FirstBackupRun,
   answers?: ReadonlyMap<string, BackupSide>,
+  blockPrinted = false,
 ): ExportRun {
   const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
   const refused = exportRefusal(plan, snapshot, lines);
@@ -929,7 +958,7 @@ function runExport(
     backup,
     answers,
   );
-  if (lines.length === 0 && settings.length === 0) {
+  if (blockPrinted || (lines.length === 0 && settings.length === 0)) {
     return applied;
   }
   return {
@@ -1161,15 +1190,18 @@ async function executeExport(
     const question = newSettingChoices(snapshot.record, snapshot.os);
     if (question === undefined || settings.length === 0) {
       // A refused export writes nothing, so its questions are not asked.
-      const refused = exportRefusal(
-        planned,
-        snapshot,
-        withoutNewSettings(changeLines(planned, snapshot), settings),
+      const lines = withoutNewSettings(
+        changeLines(planned, snapshot),
+        settings,
       );
-      const answers =
-        refused !== undefined || backup === undefined
-          ? undefined
-          : await askFirstBackup(backup, terminal.io);
+      const refused = exportRefusal(planned, snapshot, lines);
+      let blockPrinted = false;
+      let answers: ReadonlyMap<string, BackupSide> | undefined;
+      if (refused === undefined && backup !== undefined) {
+        // The block comes before the first-backup questions (decision 2).
+        blockPrinted = printBlock(terminal.io, lines, snapshot);
+        answers = await askFirstBackup(backup, terminal.io);
+      }
       const applied = runExport(
         planned,
         snapshot,
@@ -1178,6 +1210,7 @@ async function executeExport(
         [],
         backup,
         answers,
+        blockPrinted,
       );
       return finishFirstBackup(backup, applied.prepared, applied.result);
     }
@@ -1185,15 +1218,15 @@ async function executeExport(
     if (command.yes) {
       const choices = settings.map(() => question.suggestion);
       const plan = planExport(snapshot, answersOf(settings, choices));
-      const refused = exportRefusal(
-        plan,
-        snapshot,
-        withoutNewSettings(changeLines(plan, snapshot), settings),
-      );
-      const answers =
-        refused !== undefined || backup === undefined
-          ? undefined
-          : await askFirstBackup(backup, terminal.io);
+      const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
+      const refused = exportRefusal(plan, snapshot, lines);
+      let blockPrinted = false;
+      let answers: ReadonlyMap<string, BackupSide> | undefined;
+      if (refused === undefined && backup !== undefined) {
+        // The block comes before the first-backup questions (decision 2).
+        blockPrinted = printBlock(terminal.io, lines, snapshot, settings);
+        answers = await askFirstBackup(backup, terminal.io);
+      }
       const applied = runExport(
         plan,
         snapshot,
@@ -1202,6 +1235,7 @@ async function executeExport(
         choices,
         backup,
         answers,
+        blockPrinted,
       );
       return finishFirstBackup(backup, applied.prepared, applied.result);
     }
