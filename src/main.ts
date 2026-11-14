@@ -180,9 +180,15 @@ async function runGitText(
   }
 }
 
+/** git's exit code for a remote that doesn't exist. */
+const NO_SUCH_REMOTE = 2;
+
 /** Every push URL of the origin remote, where a push would go; empty when
- * there is none. */
-async function readOrigin(repoRoot: string): Promise<readonly string[]> {
+ * there is none, and `undefined` when git fails for any other reason, so the
+ * guard reads the visibility as unknown. */
+async function readOrigin(
+  repoRoot: string,
+): Promise<readonly string[] | undefined> {
   const output = await runGitText(repoRoot, [
     "remote",
     "get-url",
@@ -190,8 +196,11 @@ async function readOrigin(repoRoot: string): Promise<readonly string[]> {
     "--all",
     "origin",
   ]);
-  if (output === undefined || output.code !== 0) {
-    return [];
+  if (output === undefined) {
+    return undefined;
+  }
+  if (output.code !== 0) {
+    return output.code === NO_SUCH_REMOTE ? [] : undefined;
   }
   return output.stdout
     .split("\n")

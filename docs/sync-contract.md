@@ -1143,7 +1143,8 @@ Until the repo is private, profiles, records and values never reach it.
 
 **Visibility.** The guard judges where a push goes: every push URL of `origin` (`git remote get-url --push --all
 origin`), each judged as below. Any public URL makes the repo public; it is private only when every URL reads
-private. With no push URL, `MKSYNC_VISIBILITY` answers, as for any other origin. For an origin on `github.com`: `gh repo view github.com/<owner>/<repo> --json visibility` when `gh` is signed in, otherwise
+private. With no push URL, `MKSYNC_VISIBILITY` answers, as for any other origin; a git failure other than a missing
+origin reads the visibility as unknown, whatever the variable says. For an origin on `github.com`: `gh repo view github.com/<owner>/<repo> --json visibility` when `gh` is signed in, otherwise
 `GET https://api.github.com/repos/<owner>/<repo>`; each gets 5 seconds. A `gh` that fails or runs past its 5 seconds
 can't tell, and the API is asked; any API failure (no network, no answer in time, an unknown value) counts as public. An owner must start with a letter or digit; a `github.com` origin that doesn't parse is public. An SSH origin
 (`ssh://[user@]host[:port]/path` or `[user@]host:path`) on another host name is resolved with `ssh -G <host>`: an alias

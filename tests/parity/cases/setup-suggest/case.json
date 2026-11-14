@@ -28,6 +28,7 @@
       }
     ]
   },
+  "git": "committed",
   "env": {
     "SYNC_HOSTNAME": "wk1-laptop",
     "SYNC_DOMAIN": "",
@@ -37,7 +38,7 @@
   "commands": [
     {
       "command": "setup",
-      "stdin": "\n\n\n\n"
+      "stdin": "\n3\n"
     }
   ]
 }

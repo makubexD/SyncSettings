@@ -3,7 +3,7 @@ import { readVisibility, runCommand } from "./visibility.ts";
 import type {
   ApiReply,
   CommandOutput,
-  Visibility,
+  RemoteVisibility,
   VisibilityDeps,
 } from "./visibility.ts";
 
@@ -148,7 +148,7 @@ const GH_FAILURES: ReadonlyArray<readonly [string, VisibilityDeps["run"]]> = [
 
 /** Every GitHub API answer, and the visibility it must produce. */
 const API_ANSWERS: ReadonlyArray<
-  readonly [string, VisibilityDeps["fetch"], Visibility]
+  readonly [string, VisibilityDeps["fetch"], RemoteVisibility]
 > = [
   ["a private repo", async () => apiReply(200, { private: true }), "private"],
   ["a public repo", async () => apiReply(200, { private: false }), "public"],
@@ -441,6 +441,18 @@ describe("readVisibility", () => {
 
     // Assert
     expect(visibility).toBe("private");
+  });
+
+  test("should read a failed origin read as unknown whatever the variable says", async () => {
+    // Act
+    const visibility = await readVisibility(
+      undefined,
+      { MKSYNC_VISIBILITY: "private" },
+      deps(),
+    );
+
+    // Assert
+    expect(visibility).toBe("unknown");
   });
 
   describe("SSH host aliases", () => {
