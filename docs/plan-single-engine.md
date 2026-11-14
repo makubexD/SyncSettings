@@ -196,8 +196,9 @@ cases. Merging two copies of a profile is built but wired in phase 7; what's lef
   design's "Confirm on Windows" list and the Windows overlay's keys; then `tools/claude-layout.ts` writes the base,
   Linux and Windows `settings.json` layers and the v2 entries widened to Windows (`--cutover` drops the v1 Claude
   rows), tested on a temp copy against `dotfiles/linux/claude/settings.json` with `statusLine` as
-  `mksync statusline`. The specs were phase 7's steps 32 and 33 (commit before `docs: plan single-engine 7, Windows
-steps to phase 8`). Steps that don't need the answer go first; the plan stops at the survey step if it isn't in.
+  `mksync statusline`. The specs were phase 7's steps 32 and 33, removed from `docs/plan-single-engine-7.md` by the
+  commit "docs: plan single-engine 7, Windows steps to phase 8". Steps that don't need the answer go first; the plan
+  stops at the survey step if it isn't in.
 - Diff and the sync point, commit and the PR per profile, dconf and package drift, linked-folder suggestions, the
   `mksync` front door.
 - The cases of the old engines that have no shared twin, ported (the phase 3 list).
@@ -205,6 +206,8 @@ steps to phase 8`). Steps that don't need the answer go first; the plan stops at
 ### Phase 9: cut-over
 
 - A release workflow builds the programs with checksums and `gh attestation`.
+- The Claude layout goes live: `bun tools/claude-layout.ts <repo> --cutover` drops the v1 Claude rows, the synced
+  `statusLine` runs `mksync statusline`, and `statusline.sh` is retired.
 - `install.sh` and `install.ps1` download the program. The tool updates itself with `mksync update`, checking the
   config's `schemaVersion`.
 - The `.linked/` trees are converted. Tag `two-engines-final`, then delete the bash and PowerShell engines and their

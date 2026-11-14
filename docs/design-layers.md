@@ -957,6 +957,28 @@ src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node
   record. `main.ts` stops a public export when `git ls-files` fails, and `adapters/visibility.ts` aborts `gh` after
   the API's 5-second limit.
 
+**As built in phase 7.** The push side's preview and questions, the first backup, and the statusline:
+
+- `core/plan/changes.ts` turns a plan's writes into change lines (key paths for `json`, line counts for whole files,
+  side files by their `importName`); `core/plan/groups.ts` numbers and groups them by layer and prints the block;
+  `core/plan/newsettings.ts` lists the new settings and their choices. `main.ts` asks them (`askSettings`) and the
+  first backup's questions (`askFirstBackup`) through one `setupTerminal()` per export, block first, then writes.
+- `core/plan/profilevalues.ts` (`profileValueHits`) searches each base or OS write in the forms `formsFor`
+  (`core/values/sanitize.ts`) gives, plus a `json` text's decoded escapes; a failed entry selection throws, since
+  the export plan stops on it first.
+- `core/merge/strategy.ts` (`strategyFor`) gives one `MergeStrategy` per merge type (`whole.ts`, `json.ts`,
+  `import.ts`); the export and import plans merge and split through it, except the import plan's side files, which
+  `mergeImport` still returns. `dir` and `dconf` have no strategy yet (phase 8).
+- `core/machine/backup.ts` plans the first backup from the local and repo sides (`planFirstBackup`,
+  `firstBackupWrites`); `main.ts` reads both sides again after the export's writes, so the backup carries what that
+  export added. `adapters/store.ts` (`writeFirstBackup`) refuses a symlinked path, undoes its own writes on a failure,
+  then writes the pointer. With a pointer, `readStore` reads only this machine's repo record; `profile retire` asks for
+  every record with `usedBy`.
+- `core/guard.ts` names `profiles/` and `machines/` once (`STATE_FOLDER_ROOTS`), for the preview, the adapter and the
+  backup. `adapters/visibility.ts` judges every push URL of `origin`.
+- `core/statusline/format.ts` builds the line from facts that `adapters/statusline.ts` reads (payload, git, `/proc`,
+  the context-window file, the `SYNC_*` overrides).
+
 ## Release and update
 
 - **From phase 4:** CI builds the four programs on every pull request and every push to `master`, from one Linux job
@@ -1219,9 +1241,6 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - A line other than `@…` or a blank one added under the import block by hand turns the block into base text
     (contract, "Layers"), so the next push stores the marker and its `@` lines in the base. A note on that status line
     would catch it.
-  - `core/plan/preview.ts` names `profiles/` and `machines/` again, as `adapters/fs.ts` does; one core constant would
-    hold both.
-  - `parsedJson` in `core/plan/import.ts` repeats the private `parseBytes` of `core/merge/json.ts`.
 - **Machines, phase 6.** Chosen in the build where the contract is silent; confirm or change in the contract:
   - A module limited to several systems is off as `<m> off, linux or macos only` (`core/machine/scope.ts`).
   - A record whose `name` equals its `profile` is refused as `name can't be <value>` (`core/machine/record.ts`).
@@ -1262,6 +1281,22 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     layer's group. If its value holds a profile value, the refusal still stops the run, but its `change <n>` names
     the first change line of that file, or `0` when the file has none, not the setting's own number. No shared case
     covers it; the fix is to number hits on new settings with the setting's line.
+- **Left by the phase 7 audits.** Each is a behavior the contract doesn't fix yet, or a known gap:
+  - Profile values: the machine's values and other profiles' values aren't searched (M3).
+  - Repo files written with default modes, and the pointer write in `machine.json` isn't atomic (L3).
+  - A layer file that is a symlink or binary isn't checked by the merge (L4).
+  - `machine retire` and `profile retire` write the repo copy even while the repo is public (L5).
+  - The statusline's git calls honour `core.fsmonitor` and have no timeout (L6, CLI-7); the context-window folder
+    is created under `~/.claude/state/` with default modes (L7).
+  - A refusal that is known before the questions (profile value, guard) is still printed after them (CLI-4).
+  - `mksync statusline` typed by hand waits for stdin (CLI-5).
+  - The export's status lines print before a failed first-backup write's `ERROR` line.
+  - Export answers are read as `setup` reads them, so a piped answer has no echo (WIZ-4); no `--keep` or `--to`
+    flags answer the questions without a terminal (WIZ-5); `--yes` keeping the repo's value prints no note (WIZ-6);
+    the destination question's words (`Where does it go?`, the choice names) aren't reviewed with a user (WIZ-7 to
+    WIZ-9).
+  - The Windows survey and the Claude layout tool (`tools/claude-layout.ts`) moved to phase 8; phase 9 then runs the
+    tool with `--cutover`, points `statusLine` at `mksync statusline` and retires `statusline.sh`.
 - **Left by phase 7 steps 26 to 31.**
   - With a pointer, a run reads only its own repo record (step 31) but still every repo profile, as a local store
     reads every local profile, so another profile's broken file still stops import and export. `Store.profiles` feeds
