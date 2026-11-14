@@ -55,6 +55,7 @@ cases/<name>/
   home/            the home folder before the run (optional; empty when missing)
   repo/            repo files before the run, besides sync-config.json (optional)
   state/           the engine's state folder before the run (optional)
+  origin/          repo files committed on top of master in a second clone, so origin is ahead (optional)
   expect/
     exit           one exit code per command, one per line
     output.txt     the status lines of every command, in order
@@ -77,7 +78,9 @@ cases/<name>/
 | `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. A `configV2` case may set only `SYNC_PROFILE`, `SYNC_MACHINE`, `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`, `MKSYNC_VISIBILITY`, `SYNC_NOW`, `SYNC_LOAD`, `SYNC_MEM`, `SYNC_GIT`, `CONTEXT_CLEAR_AT` and `CTX_WINDOW_DIR`; any other key is a runner error. `CTX_WINDOW_DIR` is a path relative to the case's temp home (`.claude/state/ctx-window` reaches the command as `<home>/.claude/state/ctx-window`); an absolute path or one with a `..` segment is a runner error |
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": …, "stderr": true }`, the last two optional |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
+| `syncPoint` | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error |
 | `stubs` | Optional. `["gh"]` puts a `gh` stub first on `PATH`; see `expect/gh.log` below |
+| `origin/` (folder) | Optional. A tree of repo-relative files committed on top of `master` in a second clone and pushed to the bare origin, then `git fetch origin` in the repo: `origin/master` is one commit ahead, while the repo's `master` and working tree stay unchanged. Needs `"git": "remote"`; without it, a runner error |
 | `differences` | Required when the case has an `expect.<os>/` folder, and only then: the names of the rows it records |
 
 `home/`, `repo/` and `state/` are copied into the case's temp folders before the first command. `state/` goes into

@@ -235,6 +235,22 @@ function Validate-Case {
         }
     }
 
+    $syncPointProp = $case.PSObject.Properties['syncPoint']
+    if ($null -ne $syncPointProp -and $syncPointProp.Value -isnot [bool]) {
+        Die 'syncPoint must be a boolean'
+    }
+    $hasSyncPoint = $null -ne $syncPointProp
+    $hasOrigin = Test-Path -LiteralPath (Join-Path $Dir 'origin') -PathType Container
+    if ($hasSyncPoint -or $hasOrigin) {
+        $remotes = ($null -ne $gitProp -and $gitProp.Value -is [string] -and $gitProp.Value -ceq 'remote')
+        if (-not $remotes) {
+            if ($hasSyncPoint) {
+                Die 'syncPoint needs git remote'
+            }
+            Die 'origin/ needs git remote'
+        }
+    }
+
     $configValue = $null
     if ($null -ne $configProp) {
         $configValue = $configProp.Value
@@ -606,6 +622,28 @@ function Invoke-Git {
     }
 }
 
+# The full SHA at HEAD of $RepoDir, with the user's own configuration kept out.
+function Get-GitHead {
+    param([string]$RepoDir)
+    $oldGlobal = $env:GIT_CONFIG_GLOBAL
+    $oldNoSystem = $env:GIT_CONFIG_NOSYSTEM
+    $oldPreference = $ErrorActionPreference
+    try {
+        $env:GIT_CONFIG_GLOBAL = 'NUL'
+        $env:GIT_CONFIG_NOSYSTEM = '1'
+        $ErrorActionPreference = 'Continue'
+        $head = @(& git -C $RepoDir rev-parse HEAD 2> $null)
+        if ($LASTEXITCODE -ne 0) {
+            Die 'git rev-parse HEAD failed'
+        }
+    } finally {
+        $ErrorActionPreference = $oldPreference
+        $env:GIT_CONFIG_GLOBAL = $oldGlobal
+        $env:GIT_CONFIG_NOSYSTEM = $oldNoSystem
+    }
+    return [string]$head[0]
+}
+
 # Put the case's temp repo under git: everything committed on master, and for
 # `remote` also a bare origin at <temp>\origin.git that master tracks.
 function Setup-Git {
@@ -692,11 +730,6 @@ function Run-Case {
         if (Test-Path -LiteralPath (Join-Path $Dir 'home') -PathType Container) {
             Copy-Tree (Join-Path $Dir 'home') $homeDir
         }
-        # A seeded state/ goes into the folder the engine treats as its own
-        # state, before the first command, exactly like the engine's own files.
-        if (Test-Path -LiteralPath (Join-Path $Dir 'state') -PathType Container) {
-            Copy-Tree (Join-Path $Dir 'state') (Join-Path $localDir 'SyncSettings')
-        }
 
         # Git: everything committed on master, and for `remote` also a bare
         # origin the repo was pushed to.
@@ -707,6 +740,38 @@ function Run-Case {
         }
         if ($gitMode -ceq 'committed' -or $gitMode -ceq 'remote') {
             Setup-Git -RepoDir $repoDir -TempDir $t -Mode $gitMode
+        }
+
+        # A sync point is the commit the last sync left on master, as the engine
+        # records it. It goes in before the case's state/ copy, so a case can
+        # override it there.
+        $syncPointProp = $Case.PSObject.Properties['syncPoint']
+        if ($null -ne $syncPointProp -and $syncPointProp.Value -eq $true) {
+            $stateRoot = Join-Path $localDir 'SyncSettings'
+            New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
+            $headSha = Get-GitHead -RepoDir $repoDir
+            [IO.File]::WriteAllText((Join-Path $stateRoot 'last-sync'), ($headSha + "`n"),
+                [System.Text.UTF8Encoding]::new($false))
+        }
+
+        # An origin/ tree is one commit on top of master, made in a second clone
+        # and pushed to the bare origin: origin/master is ahead, the repo's
+        # master and working tree are not.
+        if (Test-Path -LiteralPath (Join-Path $Dir 'origin') -PathType Container) {
+            $cloneDir = Join-Path $t 'origin-clone'
+            Invoke-Git -What 'git clone of origin' -GitArgs @('clone', '-q', (Join-Path $t 'origin.git'), $cloneDir)
+            Copy-Tree (Join-Path $Dir 'origin') $cloneDir
+            Invoke-Git -What 'git add in the origin clone' -GitArgs @('-C', $cloneDir, 'add', '-A')
+            Invoke-Git -What 'git commit in the origin clone' -GitArgs @('-c', 'user.name=parity', '-c', 'user.email=parity@example.com', '-C', $cloneDir, 'commit', '-q', '-m', 'origin')
+            Invoke-Git -What 'git push to origin' -GitArgs @('-C', $cloneDir, 'push', '-q', 'origin', 'master')
+            Remove-Item -LiteralPath $cloneDir -Recurse -Force
+            Invoke-Git -What 'git fetch origin' -GitArgs @('-C', $repoDir, 'fetch', '-q', 'origin')
+        }
+
+        # A seeded state/ goes into the folder the engine treats as its own
+        # state, before the first command, exactly like the engine's own files.
+        if (Test-Path -LiteralPath (Join-Path $Dir 'state') -PathType Container) {
+            Copy-Tree (Join-Path $Dir 'state') (Join-Path $localDir 'SyncSettings')
         }
 
         # gh stub: first on PATH for every command, logging each call's args.

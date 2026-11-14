@@ -150,6 +150,14 @@ validate_case() {
             (.stubs | type) == "array" and all(.stubs[]; . == "gh")
           else true end' "$json" > /dev/null 2>&1 \
         || die 'stubs may only hold gh'
+    jq -e 'if has("syncPoint") then (.syncPoint | type) == "boolean" else true end' "$json" > /dev/null 2>&1 \
+        || die 'syncPoint must be a boolean'
+    if jq -e 'has("syncPoint")' "$json" > /dev/null 2>&1; then
+        jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'syncPoint needs git remote'
+    fi
+    if [[ -d $dir/origin ]]; then
+        jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'origin/ needs git remote'
+    fi
     if jq -e 'has("config") and has("configV2")' "$json" > /dev/null 2>&1; then
         die 'case.json has both config and configV2'
     fi
@@ -358,7 +366,7 @@ run_case() {
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
     local stderr_mode all_output keep_ansi target value
     local want_exit want_output want_home want_repo want_values want_state want_gh calls
-    local file rel got want_mode got_mode
+    local file rel got want_mode got_mode head_sha clone
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
     t=$(mktemp -d)
@@ -394,6 +402,40 @@ run_case() {
     if [[ -d $dir/home ]]; then
         cp -a "$dir/home/." "$t/home/" || die 'copying the case home/ failed'
     fi
+
+    git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
+    case $git_mode in
+        none) ;;
+        committed|remote) setup_git "$t/repo" "$t" "$git_mode" ;;
+        *) die 'git must be none, committed or remote' ;;
+    esac
+
+    # A sync point is the commit the last sync left on master, as the engine
+    # records it. It goes in before the case's state/ copy, so a case can
+    # override it there.
+    if [[ $(jq -r '.syncPoint // false' "$dir/case.json") == true ]]; then
+        head_sha=$(git_env -C "$t/repo" rev-parse HEAD) || die 'reading HEAD failed'
+        mkdir -p "$t/home/.local/state/sync-settings" \
+            || die 'creating the engine state folder failed'
+        printf '%s\n' "$head_sha" > "$t/home/.local/state/sync-settings/last-sync" \
+            || die 'writing the sync point failed'
+    fi
+
+    # An origin/ tree is one commit on top of master, made in a second clone and
+    # pushed to the bare origin: origin/master is ahead, the repo's master and
+    # working tree are not.
+    if [[ -d $dir/origin ]]; then
+        clone=$t/origin-clone
+        git_env clone -q "$t/origin.git" "$clone" || die 'cloning origin failed'
+        cp -a "$dir/origin/." "$clone/" || die 'copying the case origin/ failed'
+        git_env -C "$clone" add -A || die 'git add in the origin clone failed'
+        git_env -c user.name=parity -c user.email=parity@example.com -C "$clone" \
+            commit -q -m origin || die 'git commit in the origin clone failed'
+        git_env -C "$clone" push -q origin master || die 'git push to origin failed'
+        rm -rf "$clone" || die 'removing the origin clone failed'
+        git_env -C "$t/repo" fetch -q origin || die 'git fetch origin failed'
+    fi
+
     # A seeded state/ goes into the folder the engine treats as its own state,
     # before the first command, exactly like the engine's own files.
     if [[ -d $dir/state ]]; then
@@ -405,13 +447,6 @@ run_case() {
             -type f -exec chmod 600 {} + \
             || die 'setting the state record modes failed'
     fi
-
-    git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
-    case $git_mode in
-        none) ;;
-        committed|remote) setup_git "$t/repo" "$t" "$git_mode" ;;
-        *) die 'git must be none, committed or remote' ;;
-    esac
 
     if jq -e '(.stubs // []) | any(. == "gh")' "$dir/case.json" > /dev/null 2>&1; then
         gh_stub=true
