@@ -439,14 +439,107 @@ only when given `--cutover`. The test runs it on a temp copy of the repo and mer
 
 Test: `bun test tools/claude-layout.test.ts && bun run lint`.
 
-## Step 27: Docs `[inline: docs step]`
+## Step 27: One terminal for export's questions `[worker]`
+
+Files: `src/main.ts`, `tests/parity/cases/backup-piped-answers/` (new), `tests/parity/cases/backup-empty-stdin/` (new).
+
+Audits WIZ-1, WIZ-2 (CLI-2): `askSettings` and `askBackupQuestions` each open their own `setupTerminal()`, so the
+second loses the lines the first buffered, and hangs when stdin already ended. Cases first, from the contract
+("The first backup", answers read as `setup` reads them): `backup-piped-answers` (one new array item, a profile value
+that differs, private, stdin `4\n2\n`: the item goes to this machine, `profiles/work-1.json` keeps this machine's
+value) and `backup-empty-stdin` (same setup, empty stdin: suggestions and the repo's value, exit 0, no hang). Then
+open one terminal per export run and pass its `io` to both question sets; `askBackupQuestions` takes the `io`.
+
+Test: `bun test src && bun run build && tests/parity/run.sh --engine dist/mksync backup-`.
+
+## Step 28: The first backup copies state after the export `[worker]`
+
+Files: `src/main.ts`, `src/adapters/store.ts`, `tests/parity/cases/backup-after-export/` (new).
+
+Audit CLI-1: the backup's files are planned from the state read before the export wrote, so a layer file or a
+destination the same export adds stays local after the pointer. Case first: a new array item answered `4` (this
+machine) with a private repo and no record pointer yet: the repo gets `machines/wk1-laptop/parity/settings.json`
+and the profile's `destinations`. Then keep the questions where they are, and re-read the local side (record,
+profile, both layer folders) after the export's writes, just before `writeFirstBackup`; the status lines come from
+that read.
+
+Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync backup-`.
+
+## Step 29: The block before the first-backup question `[worker]`
+
+Files: `src/main.ts`, `tests/parity/cases/backup-differ/expect/output.txt`.
+
+Audits CLI-3, WIZ-3: with no new setting, the backup question prints before the `Changes on …` block. Decision 2:
+the block first, then the new-setting questions, then the backup questions, then the writes, in every path. Update
+`backup-differ`'s expected output to that order (the block, then the question), then print the block before asking.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync backup- && tests/parity/run.sh --engine dist/mksync
+newsetting-`.
+
+## Step 30: The profile-value rule sees escaped forms `[worker]`
+
+Files: `src/core/plan/profilevalues.ts`, `src/core/values/sanitize.ts`, `src/core/plan/profilevalues.test.ts`.
+
+Audit H1, M1: the refusal searches only the raw value, so `C:\Users\jdoe` stored as `C:\\Users\\jdoe` in a JSON
+layer, or a value with `"`, passes; an `import` entry without `importName` is skipped. Export `formsFor` from
+`sanitize.ts` and search every form with the entry's `json` flag, plus the `\uXXXX` and `\/` decodings for JSON
+text; an entry whose label can't be built still records a hit under its repo path, and a failed `selectEntries` is a
+refusal, not "no hits". Unit cases: raw, JSON-escaped backslash, escaped quote, `\u0040` in an email, import entry
+without `importName`. Then a shared case `profile-value-escaped` (a backslash value in a JSON setting bound for
+the base layer: refused).
+
+Test: `bun test src/core/plan src/core/values && bun run build && tests/parity/run.sh --engine dist/mksync
+profile-value-`.
+
+## Step 31: Visibility from every push URL `[worker]`
+
+Files: `src/main.ts` (`readOrigin`), `src/adapters/visibility.ts`, `src/adapters/visibility.test.ts`.
+
+Audit M2: `git remote get-url --push origin` prints only the first push URL, so a private origin with a public mirror
+reads private. Read `--push --all`; the repo is private only when every URL reads private, and unknown when any is
+unknown. Unit cases: one private URL, private plus public, private plus unknown.
+
+Test: `bun test src/adapters/visibility.test.ts && bun run lint && tests/parity/run.sh --engine dist/mksync guard-`.
+
+## Step 32: The first backup refuses symlinks and cleans up `[worker]`
+
+Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`.
+
+Audits L1, L2: `writeFirstBackup` follows a symlink in the clone (`machines` or `profiles/<p>/…`) and leaves the files
+it wrote when a later write fails. Before writing, `lstat` each path component under the repo root and stop with the
+contract's `ERROR: first backup stopped at <repo path>: <reason>.` (reason `a symlink`) on a symlink; on any failure,
+remove the files this backup added (restore the ones it modified from their earlier text) before returning. Unit
+cases: symlinked `machines`, symlinked layer file, a failed second write leaves the first file as it was.
+
+Test: `bun test src/adapters/store.test.ts && bun run lint`.
+
+## Step 33: A pointer reads only its own record `[worker]`
+
+Files: `src/adapters/store.ts`, `src/adapters/store.test.ts`, `src/main.ts`.
+
+Step 20 made `readStore` read every record in the repo's `machines/` whenever the record is a pointer, so another
+machine's broken record stops this machine's import and export ("one failing file doesn't stop the rest"). Read
+only `machines/<name>.json` and its profile for the run; read the others only for `profile retire`'s "used by".
+The unreadable-file reason is the read error's message, not a repeated `can't be read`. Unit cases: a broken other
+record with a pointer (import's store reads fine; `profile retire` reports it), an unreadable repo file's line.
+
+Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync store- &&
+tests/parity/run.sh --engine dist/mksync retire-`.
+
+## Step 34: Docs `[inline: docs step]`
 
 Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/plan-single-engine.md`, `README.md` if it lists the
 program's commands, `tests/parity/README.md`.
 
 Contract: "The program" table and usage line, the new sections checked against what was built, the count of shared
 cases. Design: an "As built in phase 7" note per section; Open updated (settled items out, the audits' leftovers in,
-the phase 9 steps the layout tool needs). Roadmap: phase 9 lists running `tools/claude-layout.ts --cutover`, switching
+the phase 9 steps the layout tool needs). The audits' leftovers for Open: machine and other profiles' values not
+searched (M3), repo file modes and a non-atomic pointer write (L3), symlinked or binary layer files (L4), retire
+writing the repo while public (L5), statusline git honouring `core.fsmonitor` and having no timeout (L6, CLI-7), the
+context-window folder (L7), refusals known before asking (CLI-4), a hand-typed `statusline` waiting for input
+(CLI-5), status lines printed before a failed backup write, export's answer reading (WIZ-4), `--keep`/`--to` flags
+(WIZ-5), a note when `--yes` keeps the repo's value (WIZ-6), the destination question's words (WIZ-7, WIZ-8, WIZ-9).
+Fix the `SYNC_MEM` sentence (`<used>/<total>`, MiB or `G`; CLI-6). Roadmap: phase 9 lists running `tools/claude-layout.ts --cutover`, switching
 `statusLine`, and retiring `statusline.sh`.
 
 Test: `npx prettier --check docs/plan-single-engine-7.md docs/design-layers.md && tests/parity/run.sh --engine
