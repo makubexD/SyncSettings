@@ -1262,6 +1262,13 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     layer's group. If its value holds a profile value, the refusal still stops the run, but its `change <n>` names
     the first change line of that file, or `0` when the file has none, not the setting's own number. No shared case
     covers it; the fix is to number hits on new settings with the setting's line.
+- **Left by phase 7 steps 26 to 31.**
+  - With a pointer, a run reads only its own repo record (step 31) but still every repo profile, as a local store
+    reads every local profile, so another profile's broken file still stops import and export. `Store.profiles` feeds
+    the setup and retire lists; reading only the run's profile needs a separate read for those.
+  - The first backup's undo (step 30) leaves the folders it created, and a failed undo is silent: the write's error
+    is the line the contract gives.
+  - An export layer file the first backup also copies prints one status line, from the export (step 26).
 
 ### Confirm on Windows
 
