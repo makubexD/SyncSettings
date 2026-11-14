@@ -32,7 +32,8 @@ import type {
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { expandHome } from "./paths.ts";
-import { writeProfile, writeRecord } from "./store.ts";
+import { writeStoreProfile, writeStoreRecord } from "./store.ts";
+import type { StoreLocation } from "./store.ts";
 
 /** The parts of a path this OS writes: `posix` on Linux and macOS, `win32` on Windows. */
 type PathApi = typeof posix;
@@ -48,8 +49,8 @@ export interface SnapshotInput {
   readonly repoRoot: string;
   readonly config: ConfigV2;
   readonly os: Os;
-  /** The sync point's folder, where a profile's or machine's layer files live. */
-  readonly stateFolder?: string;
+  /** The store the run's record, profile and layer files live in. */
+  readonly location?: StoreLocation;
   readonly profile?: Profile;
   readonly machine?: string;
   readonly record?: MachineRecord;
@@ -67,6 +68,8 @@ export interface RunContext {
   readonly os: Os;
   /** The sync point's folder; dated backups sit under its `backups/`. */
   readonly stateFolder: string;
+  /** The store the run's record, profile and layer files live in. */
+  readonly location: StoreLocation;
   /** The current time, so tests fix the dated backup's name. */
   readonly now: () => Date;
   readonly pid: number;
@@ -74,6 +77,15 @@ export interface RunContext {
 
 function pathFor(os: Os): PathApi {
   return os === "windows" ? win32 : posix;
+}
+
+/**
+ * The base folder a store's layer folders sit under: the parent of its
+ * profiles folder. That is the state folder for a local store and the clone
+ * for a pointer (contract "Where records are kept").
+ */
+function storeRoot(location: StoreLocation, os: Os): string {
+  return pathFor(os).dirname(location.profilesFolder);
 }
 
 /** stat that treats an absent or unreadable path as absent, following symlinks. */
@@ -158,8 +170,8 @@ function readRepoTree(
 /**
  * Contract "Profile and machine, until phase 6": a profile's or machine
  * layer's files join the snapshot under its layer path, so entry selection
- * sees them. Only the state folder is read, never the repo's `profiles/` or
- * `machines/` folders.
+ * sees them. Only the store's layer folders are read: the state folder's, or
+ * the clone's with a pointer.
  */
 function readStateTree(
   dir: string,
@@ -274,11 +286,11 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
   const p = pathFor(input.os);
   const repoTree = p.join(input.repoRoot, DOTFILES_FOLDER);
   readRepoTree(repoTree, input.repoRoot, input.os, repoFiles);
-  if (input.stateFolder !== undefined) {
+  if (input.location !== undefined) {
     if (input.profile !== undefined) {
       const folder = `${PROFILES_FOLDER}/${input.profile.name}`;
       readStateTree(
-        p.join(input.stateFolder, PROFILES_FOLDER, input.profile.name),
+        p.join(input.location.profilesFolder, input.profile.name),
         `${folder}/`,
         input.os,
         repoFiles,
@@ -287,7 +299,11 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
     if (input.machine !== undefined) {
       const folder = `${MACHINES_FOLDER}/${input.machine}`;
       readStateTree(
-        p.join(input.stateFolder, MACHINES_FOLDER, input.machine),
+        p.join(
+          storeRoot(input.location, input.os),
+          MACHINES_FOLDER,
+          input.machine,
+        ),
         `${folder}/`,
         input.os,
         repoFiles,
@@ -446,9 +462,10 @@ function containedPath(
 
 /**
  * Where an action writes: a repo path under the repo's `dotfiles/`, a profile
- * or machine layer path under that layer's folder in the state folder, and
- * anything else as an absolute local path. A repo or state path that resolves
- * outside its folder throws, failing the action.
+ * or machine layer path under that layer's folder in the run's store (the
+ * state folder, or the clone with a pointer), and anything else as an
+ * absolute local path. A repo or state path that resolves outside its folder
+ * throws, failing the action.
  */
 function absolutePath(path: string, context: RunContext): string {
   if (isRepoPath(path)) {
@@ -462,7 +479,7 @@ function absolutePath(path: string, context: RunContext): string {
   if (isStatePath(path)) {
     return containedPath(
       path,
-      context.stateFolder,
+      storeRoot(context.location, context.os),
       STATE_CONTAINMENT_DEPTH,
       context,
     );
@@ -753,9 +770,9 @@ function runAction(
         return ACTION_OK;
       case "writeMachineValues":
         if (action.profile !== undefined) {
-          writeProfile(context.stateFolder, action.profile);
+          writeStoreProfile(context.location, action.profile);
         }
-        writeRecord(context.stateFolder, action.record);
+        writeStoreRecord(context.location, action.record);
         return ACTION_OK;
       default: {
         const unhandled: never = action;

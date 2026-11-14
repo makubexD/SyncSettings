@@ -751,7 +751,6 @@ async function executeShadow(
       SHADOW_SNAPSHOT_COMMAND,
       process.cwd(),
       process.env,
-      state,
       layers,
     );
     const program = programShadow(snapshot);
@@ -830,11 +829,21 @@ async function askSettings(
   return await askNewSettings(io, grouped, question);
 }
 
+/** Storing the item answers: the export's result, and the repo profile it
+ * wrote when the store is the clone (a pointer), which the export lists and
+ * counts as the first backup does. */
+interface StoredDestinations {
+  readonly result: Result;
+  readonly profilePath?: string;
+}
+
 /**
  * Contract "New settings (program only)", The answer is stored: an array
  * item's answer also goes into the profile's `destinations`, with its dated
- * backup before the write. A new key's answer isn't stored, since the key now
- * has a layer. The write prints no status line.
+ * backup before the write, at the run's store (contract "Where records are
+ * kept"). A new key's answer isn't stored, since the key now has a layer. The
+ * write prints no status line, except into the clone: then the export lists
+ * the profile it wrote, as the first backup does.
  */
 function storeItemDestinations(
   snapshot: Snapshot,
@@ -842,11 +851,11 @@ function storeItemDestinations(
   settings: readonly NewSettingLine[],
   choices: readonly NewSettingChoice[],
   applied: AppliedPlan,
-): Result {
+): StoredDestinations {
   const profile = snapshot.profile;
   const result = applied.result;
   if (profile === undefined || result.code !== 0) {
-    return result;
+    return { result };
   }
   let updated = profile;
   settings.forEach((setting, index) => {
@@ -856,27 +865,34 @@ function storeItemDestinations(
     }
   });
   if (updated === profile) {
-    return result;
+    return { result };
   }
+  const profilePath = `${PROFILES_FOLDER}/${profile.name}.json`;
   const backup = backupStateFile(
-    join(context.stateFolder, PROFILES_FOLDER, `${profile.name}.json`),
-    `${PROFILES_FOLDER}/${profile.name}.json`,
+    join(context.location.profilesFolder, `${profile.name}.json`),
+    profilePath,
     context,
     applied.backups,
   );
   try {
-    writeProfile(context.stateFolder, updated);
+    writeStoreProfile(context.location, updated);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
-      ...result,
-      code: 1,
-      stderr: `${result.stderr}ERROR: cannot write the profile ${profile.name}: ${message}\n`,
+      result: {
+        ...result,
+        code: 1,
+        stderr: `${result.stderr}ERROR: cannot write the profile ${profile.name}: ${message}\n`,
+      },
     };
   }
-  return backup.warning === undefined
-    ? result
-    : { ...result, stderr: `${result.stderr}${backup.warning}\n` };
+  const stored =
+    backup.warning === undefined
+      ? result
+      : { ...result, stderr: `${result.stderr}${backup.warning}\n` };
+  return context.location.privateFiles
+    ? { result: stored }
+    : { result: stored, profilePath };
 }
 
 /**
@@ -1060,17 +1076,24 @@ async function askFirstBackup(
     : await askBackupQuestions(io, plan.questions);
 }
 
+/** A file the export wrote (or will write) that gets a status line and a count. */
+interface WrittenFile {
+  readonly path: string;
+  readonly status: "ADDED" | "MODIFIED";
+}
+
 /**
  * Contract "The first backup": the backup's status lines come after the
  * entries and count towards the export's total, so they are planned into the
  * run. The backup's own actions are empty: the files are written after the
- * export, by `finishFirstBackup`. A layer file the export wrote to the state
- * folder already has its status line from that write; the backup copies it to
- * the repo without printing its path twice.
+ * export, by `finishFirstBackup`. A layer file the export wrote to the store
+ * already has its status line from that write; the backup copies it to the
+ * repo without printing its path twice. The profile a pointer export writes
+ * into the clone joins them the same way (contract "The answer is stored").
  */
-function withFirstBackup(
+function withWrittenFiles(
   plan: RunPlan,
-  files: readonly FirstBackupFile[],
+  files: readonly WrittenFile[],
 ): RunPlan {
   if (files.length === 0) {
     return plan;
@@ -1146,8 +1169,8 @@ function applyExportPlan(
     backups: outcome.backups,
   });
   let prepared: FirstBackupPrepared | undefined;
-  let code = stored.code;
-  let stderr = stored.stderr;
+  let code = stored.result.code;
+  let stderr = stored.result.stderr;
   if (backup !== undefined && answers !== undefined && code === 0) {
     const sides = readBackupSides(
       backup.stateFolder,
@@ -1169,8 +1192,13 @@ function applyExportPlan(
       };
     }
   }
-  const planned =
-    prepared === undefined ? plan : withFirstBackup(plan, prepared.files);
+  const written: WrittenFile[] = [
+    ...(stored.profilePath === undefined
+      ? []
+      : [{ path: stored.profilePath, status: "MODIFIED" as const }]),
+    ...(prepared?.files ?? []),
+  ];
+  const planned = withWrittenFiles(plan, written);
   const rendered = renderRun(planned, outcome);
   return {
     result: { code, stdout: writeLines(rendered.lines), stderr },
@@ -1403,13 +1431,13 @@ async function execute(command: ExecutableCommand): Promise<Result> {
     command,
     process.cwd(),
     process.env,
-    state,
     layers.value,
   );
   const context: RunContext = {
     repoRoot,
     os: os.value,
     stateFolder: state,
+    location: layers.value.location,
     now: () => new Date(),
     pid: process.pid,
   };

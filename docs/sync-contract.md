@@ -941,7 +941,9 @@ and its `os` includes this system. The order is the profile's, then `add`'s.
 With a record, on `import`, `export` and `setup` alike, a placeholder's value comes from the record's `values`, then
 the profile's `values`; `.user-values.json` is neither read nor written. Inference and the prompt
 ([Sanitize and hydrate](#sanitize-and-hydrate)) follow as before, and a value inferred or asked during the run is saved
-where it belongs, in the state folder, the way `setup` writes the record and the profile (profile first):
+where it belongs, in the state folder — or, with a pointer record, in the clone's `machines/<name>.json` and
+`profiles/<name>.json`, a write that prints no status line — the way `setup` writes the record and the profile
+(profile first):
 
 | Placeholder | Kept on |
 |---|---|
@@ -1274,8 +1276,10 @@ New settings
   without asking; the block still prints, with no question line.
 - **The answer is stored.** The setting is written to the chosen layer (a missing layer file is created, `ADDED`). For
   an array item, the path also goes into the profile's `destinations` with the layer slot (`base`, `os`, `profile`,
-  `machine`), so the next item there isn't asked; the profile is written with its backup, as every state write. A new
-  key's answer isn't stored: the key now has a layer.
+  `machine`), so the next item there isn't asked; the profile is written with its backup, as every state write. With a
+  pointer record that profile is the clone's `profiles/<profile>.json`, and the export lists that write
+  (`MODIFIED profiles/<profile>.json`) and counts it, as the first backup does; an import's write to the clone's
+  record prints no line. A new key's answer isn't stored: the key now has a layer.
 - **The preview** never asks: in place of the question it prints `     goes to: <choice> (asked by mksync export)`,
   `<choice>` the suggestion's words (`profile work-1`). Its status lines show the writes `export --yes` would make,
   the suggestion's layer included (`ADDED profiles/work-1/<file>` when that layer file is new).

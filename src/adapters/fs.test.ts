@@ -28,6 +28,7 @@ import type {
 import { readSnapshot, runPlan } from "./fs.ts";
 import type { RunContext } from "./fs.ts";
 import { expandHome, homeFolder, stateFolder } from "./paths.ts";
+import type { StoreLocation } from "./store.ts";
 
 const FILE_MODE = 0o644;
 
@@ -114,13 +115,41 @@ function snapshotOf(
   });
 }
 
+/** The local store's paths, as `readStore` reports them. */
+function stateStore(state: string): StoreLocation {
+  return {
+    recordFile: join(state, "machine.json"),
+    profilesFolder: join(state, "profiles"),
+    privateFiles: true,
+  };
+}
+
+/** The clone's paths, as `readStore` reports them with a pointer record. */
+function repoStore(repo: string): StoreLocation {
+  return {
+    recordFile: join(repo, "machines", "wk1-laptop.json"),
+    profilesFolder: join(repo, "profiles"),
+    privateFiles: false,
+  };
+}
+
 function runContext(home: string, repo: string): RunContext {
+  const state = stateFolder("linux", home, {});
   return {
     repoRoot: repo,
     os: "linux",
-    stateFolder: stateFolder("linux", home, {}),
+    stateFolder: state,
+    location: stateStore(state),
     now: () => RUN_TIME,
     pid: RUN_PID,
+  };
+}
+
+/** A run whose record store is the clone, as a pointer makes it. */
+function repoRunContext(home: string, repo: string): RunContext {
+  return {
+    ...runContext(home, repo),
+    location: repoStore(repo),
   };
 }
 

@@ -12,6 +12,7 @@ import type { ConfigV2 } from "../core/config/types.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import type { RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { readSnapshot } from "./fs.ts";
+import type { StoreLocation } from "./store.ts";
 import {
   findRepoRoot,
   loadConfig,
@@ -38,6 +39,9 @@ const MACHINE_NAME = "wk1-laptop";
 const BAD_PROFILE_NAME = "Work 1";
 
 const PROFILE_TEXT = '{"modules":["base"]}\n';
+
+/** The record a first backup leaves in local state once its files are in the clone. */
+const POINTER_TEXT = `{"name":"${MACHINE_NAME}","home":"repo"}\n`;
 
 const PROFILE_LAYER_FILE = `profiles/${PROFILE_NAME}/parity/settings.json`;
 
@@ -237,11 +241,30 @@ function snapshotOf(fixture: StateFixture, layers: Layers): Snapshot {
     values: {},
     env: {},
     only: [],
-    stateFolder: fixture.state,
+    location: layers.location,
     ...(layers.profile !== undefined ? { profile: layers.profile } : {}),
     ...(layers.machine !== undefined ? { machine: layers.machine } : {}),
     ...(layers.record !== undefined ? { record: layers.record } : {}),
   });
+}
+
+/** The local store's paths, as `readStore` reports them. */
+function stateLocation(fixture: StateFixture): StoreLocation {
+  return {
+    recordFile: join(fixture.state, "machine.json"),
+    profilesFolder: join(fixture.state, "profiles"),
+    privateFiles: true,
+  };
+}
+
+/** The clone's paths, for a record rewritten as the `{"name", "home": "repo"}`
+ * pointer. */
+function repoLocation(fixture: StateFixture): StoreLocation {
+  return {
+    recordFile: join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+    profilesFolder: join(fixture.repo, "profiles"),
+    privateFiles: false,
+  };
 }
 
 describe("loadLayers", () => {
@@ -253,7 +276,10 @@ describe("loadLayers", () => {
     const layers = loadLayers(fixture.state, fixture.repo, baseConfig());
 
     // Assert
-    expect(layers).toEqual({ ok: true, value: {} });
+    expect(layers).toEqual({
+      ok: true,
+      value: { location: stateLocation(fixture) },
+    });
   });
 
   test("should give the record's profile, its machine name and the record", () => {
@@ -275,6 +301,7 @@ describe("loadLayers", () => {
     expect(layers).toEqual({
       ok: true,
       value: {
+        location: stateLocation(fixture),
         profile: {
           name: PROFILE_NAME,
           modules: ["base"],
@@ -388,5 +415,34 @@ describe("readSnapshot with layers", () => {
 
     // Assert
     expect(snapshot.record?.name).toBe(MACHINE_NAME);
+  });
+
+  test("should read a pointer's layer files from the clone", () => {
+    // Arrange
+    const fixture = stateFixture();
+    writeFixture(join(fixture.state, "machine.json"), POINTER_TEXT);
+    writeFixture(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+    writeFixture(join(fixture.repo, PROFILE_LAYER_FILE), LAYER_BYTES);
+    writeFixture(join(fixture.repo, MACHINE_LAYER_FILE), LAYER_BYTES);
+    const layers = layersOf(fixture);
+
+    // Act
+    const snapshot = snapshotOf(fixture, layers);
+
+    // Assert
+    expect(layers.location).toEqual(repoLocation(fixture));
+    expect(textOfBytes(snapshot.repoFiles.get(PROFILE_LAYER_FILE))).toBe(
+      LAYER_BYTES,
+    );
+    expect(textOfBytes(snapshot.repoFiles.get(MACHINE_LAYER_FILE))).toBe(
+      LAYER_BYTES,
+    );
   });
 });
