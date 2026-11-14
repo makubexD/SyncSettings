@@ -67,6 +67,7 @@ a rule with an example, the merge-and-split rules, the catalog, config v2, the r
 Decisions made 2026-11-10, to be written into the design:
 
 **Machines and profiles**
+
 - **Profiles are separate from the OS.** A machine picks its profile on its first run, and nothing ties Linux to
   `personal` or Windows to `work`.
 - **A profile per job, plus `personal`,** built from modules. The rules every job shares are a `work-base` module that
@@ -76,6 +77,7 @@ Decisions made 2026-11-10, to be written into the design:
   - a path such as `<HOME>` or `<GH_CLI_PATH>` belongs to the machine.
 
   Today's `.user-values.json` moves into those two places.
+
 - **The repo becomes the backup, once it's private.** Job profiles, machine records and values (never passwords or
   tokens) are committed then. Until the user says development is done and the repo goes private, the engine keeps them
   in the machine's local state and refuses to commit them. The first push after the switch commits them.
@@ -83,6 +85,7 @@ Decisions made 2026-11-10, to be written into the design:
   suggested.
 
 **First run**
+
 - It scans the machine: tools, existing config files, hostname, Windows domain and git email. It shows what it found
   and lists the profiles.
 - It suggests "this replaces `<machine>`" only when the hostname matches a record exactly. There's no scoring.
@@ -95,6 +98,7 @@ Decisions made 2026-11-10, to be written into the design:
 - **Replacing a broken machine:** the new one takes over the old one's record.
 
 **Push and pull**
+
 - **Every push shows a preview** grouped by who receives each change: all machines, machines on this OS, this
   profile, or this machine only. A setting that exists on one OS never reaches another.
 - **A new setting with no rule:** the preview asks where it goes, suggesting "this profile" on work and "all machines"
@@ -104,6 +108,7 @@ Decisions made 2026-11-10, to be written into the design:
 - `--yes` skips the question, not the preview or the rules.
 
 **Cuts and fallbacks**
+
 - **Linked folders:** the scan finds folders that the shell files point to and asks; a yes becomes a `dir` entry.
   Today's `.linked/` trees are converted into `dir` entries at cut-over.
 - **`-User`:** dropped at cut-over. A small elevation wrapper (`RunAs`, `sudo`) is designed in the "Open" list and
@@ -114,12 +119,14 @@ Decisions made 2026-11-10, to be written into the design:
   after checking how Claude Code runs commands on Windows.
 
 **Testing**
+
 - Everything Linux can do is done on Linux. One local command runs:
   - the unit tests, with Windows paths and line endings simulated;
   - the shared cases;
   - the Windows cases in a local VM (KVM and podman).
 
   macOS runs in CI only.
+
 - A case the VM can't run goes on the real-Windows checklist the user runs before cut-over.
 
 ### Phase 4: core engine and test bench
@@ -177,12 +184,20 @@ cases. Merging two copies of a profile is built but wired in phase 7; what's lef
 
   The result is redacted, and it settles the design's "Confirm on Windows" list. Everything else in phases 3-8 runs
   on Linux (and the local VM).
+
 - The preview grouped by who receives each change, the new-setting question, and the profile-value rule.
 - The Claude layers: `settings.json` merged from base and modules, `CLAUDE.md` imports, and the statusline written
   once. The Windows `~/.claude` comes into the sync.
 
 ### Phase 8: the rest
 
+- **First, carried from phase 7: the Windows survey and the Claude layout tool.** Phase 7 closed (2026-11-14) before
+  the survey ran on work machine #1 (`docs/windows-survey.md`). When the redacted answer is in, it settles the
+  design's "Confirm on Windows" list and the Windows overlay's keys; then `tools/claude-layout.ts` writes the base,
+  Linux and Windows `settings.json` layers and the v2 entries widened to Windows (`--cutover` drops the v1 Claude
+  rows), tested on a temp copy against `dotfiles/linux/claude/settings.json` with `statusLine` as
+  `mksync statusline`. The specs were phase 7's steps 32 and 33 (commit before `docs: plan single-engine 7, Windows
+steps to phase 8`). Steps that don't need the answer go first; the plan stops at the survey step if it isn't in.
 - Diff and the sync point, commit and the PR per profile, dconf and package drift, linked-folder suggestions, the
   `mksync` front door.
 - The cases of the old engines that have no shared twin, ported (the phase 3 list).
@@ -200,6 +215,7 @@ cases. Merging two copies of a profile is built but wired in phase 7; what's lef
 ### Phase 10: private repo and review
 
 Starts when the user says development is done; it can come before or after phase 9.
+
 - Make the repo private and rewrite `docs/decision-private-repo.md` to say what may be committed now. Lift the guard,
   so profiles, records and values are committed on the next push.
 - CI minutes rule: Linux on every PR; macOS and Windows when engine or installer files change, on `master`, or on

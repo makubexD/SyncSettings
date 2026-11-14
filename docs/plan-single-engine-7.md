@@ -34,9 +34,9 @@ built and proved, ready for cut-over; and work machine #1 answers the design's "
 - Skipping a group on pull: stays in the design's Open.
 - A new file in a `dir` entry: not asked in this phase; it goes to the entry's latest layer as today (Open).
 - The Claude layout going live (the split `settings.json`, the Windows entries, `statusLine` pointing at
-  `mksync statusline`): phase 9, by the tool step 33 builds. The v1/v2 check refuses a v2 entry that covers an OS its
+  `mksync statusline`): phase 9, by the layout tool, which moved to phase 8 with the survey. The v1/v2 check refuses a v2 entry that covers an OS its
   v1 twin doesn't (`src/core/config/check.ts`), and v1 is frozen.
-- PowerShell twins of the Linux hooks: listed from the survey (step 32), built only on a real need.
+- PowerShell twins of the Linux hooks: listed from the survey (phase 8), built only on a real need.
 
 ## Decisions to confirm in review
 
@@ -44,7 +44,8 @@ Proposals; the review of this plan confirms or changes them before `/next`. Step
 the design.
 
 1. **The Windows survey doesn't block.** Step 1 writes the prompt and sends it to the user; the plan carries on.
-   Step 32 needs the redacted answer: if it isn't in by then, `/next` stops there and asks for it.
+   The answer wasn't in when the Linux steps ended (2026-11-14), so the survey step and the Claude layout tool
+   moved to the start of phase 8 (`docs/plan-single-engine.md`), and phase 7 closed without them.
 2. **Where the new push side runs until phase 8.** `export --preview` prints the grouped block after its status lines
    and before the `--stat` summary; `export` prints the same block, asks the new-setting questions, applies the
    profile-value rule, then writes. Nothing else of today's preview changes.
@@ -503,30 +504,7 @@ record with a pointer (import's store reads fine; `profile retire` reports it), 
 Test: `bun test src/adapters && bun run build && tests/parity/run.sh --engine dist/mksync store- &&
 tests/parity/run.sh --engine dist/mksync retire-`.
 
-## Step 32: The Windows answers in the design `[inline: needs the user's survey report from work machine #1]`
-
-Files: `docs/design-layers.md`, `docs/plan-single-engine-7.md`.
-
-Needs the answer to step 1's prompt. If it isn't in the conversation or `docs/windows-survey.md`, push-notify and stop
-here. Redact it (`work-tool-1`), show the redacted text to the user, then settle "Confirm on Windows": shell, Git Bash
-and `jq`, `$HOME` in commands, the current layout, the unsigned program, which hooks the work machines need. Write the
-Windows overlay's keys into step 33's spec (a plan edit) and the `~` versus `<HOME>` Open item.
-
-Test: `npx prettier --check docs/design-layers.md docs/plan-single-engine-7.md`.
-
-## Step 33: The Claude layout tool `[worker]`
-
-Files: `tools/claude-layout.ts` (new), `tools/claude-layout.test.ts` (new).
-
-Decision 8: `bun tools/claude-layout.ts <repo folder>` writes the base and Linux `settings.json` layers, the Windows
-overlay with the keys step 32 lists, and the v2 entries widened to Windows, and drops the v1 entries' Claude rows
-only when given `--cutover`. The test runs it on a temp copy of the repo and merges the Linux layers with
-`mergeJson`: the result equals `dotfiles/linux/claude/settings.json` except `statusLine`, which is
-`{"type": "command", "command": "mksync statusline"}`. Not run on the real repo in this phase.
-
-Test: `bun test tools/claude-layout.test.ts && bun run lint`.
-
-## Step 34: Docs `[inline: docs step]`
+## Step 32: Docs `[inline: docs step]`
 
 Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/plan-single-engine.md`, `README.md` if it lists the
 program's commands, `tests/parity/README.md`.
