@@ -392,6 +392,9 @@ run_case() {
     mkdir -p "$t/repo" "$t/home" "$t/empty"
     if [[ -n $engine_path ]]; then
         cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+        # The program runs the leak scan from the repo, as commit.sh does.
+        mkdir -p "$t/repo/scripts"
+        cp -a "$REPO/scripts/ci" "$t/repo/scripts/" || die 'copying scripts/ci failed'
     else
         mkdir -p "$t/repo/scripts"
         cp -a "$REPO/export.sh" "$REPO/import.sh" "$REPO/commit.sh" "$REPO/sync" "$t/repo/" \

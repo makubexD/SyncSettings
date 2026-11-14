@@ -31,6 +31,8 @@ const MACHINE_SHOW = { kind: "machine-show" } as const;
 
 const SETUP = { kind: "setup" } as const;
 
+const COMMIT = { kind: "commit", partial: false } as const;
+
 function unknownOption(arg: string): { kind: "error"; message: string } {
   return { kind: "error", message: `Unknown option: ${arg}` };
 }
@@ -410,6 +412,48 @@ describe("parseArgs", () => {
     expect(parseArgs(["setup", "work-1"])).toEqual(unknownOption("work-1"));
   });
 
+  test("should parse commit with no options", () => {
+    expect(parseArgs(["commit"])).toEqual(COMMIT);
+  });
+
+  test("should parse commit -m and --partial", () => {
+    expect(parseArgs(["commit", "-m", "sync: work", "--partial"])).toEqual({
+      ...COMMIT,
+      message: "sync: work",
+      partial: true,
+    });
+  });
+
+  test("should keep an -m message that starts with a dash", () => {
+    expect(parseArgs(["commit", "-m", "--partial"])).toEqual({
+      ...COMMIT,
+      message: "--partial",
+    });
+  });
+
+  test("should keep the last commit -m message", () => {
+    expect(parseArgs(["commit", "-m", "one", "-m", "two"])).toEqual({
+      ...COMMIT,
+      message: "two",
+    });
+  });
+
+  test("should refuse commit -m with no value", () => {
+    expect(parseArgs(["commit", "-m"])).toEqual(
+      usageError("ERROR: -m needs a value."),
+    );
+  });
+
+  test("should refuse an unknown option after commit", () => {
+    expect(parseArgs(["commit", "--bogus"])).toEqual(
+      unknownOption("--bogus"),
+    );
+  });
+
+  test("should refuse a stray argument after commit", () => {
+    expect(parseArgs(["commit", "work-1"])).toEqual(unknownOption("work-1"));
+  });
+
   test("should keep shadow out of the usage line", () => {
     expect(USAGE_TEXT.includes("shadow")).toBe(false);
   });
@@ -432,6 +476,12 @@ describe("parseArgs", () => {
 
   test("should name setup in the usage line", () => {
     expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
+  });
+
+  test("should name commit in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes("mksync commit [-m <msg>] [--partial]"),
+    ).toBe(true);
   });
 
   test("should name export --yes in the usage line", () => {

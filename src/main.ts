@@ -33,6 +33,7 @@ import {
 } from "./adapters/store.ts";
 import type { BackupSides } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
+import { executeCommit } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
 import {
   CANNOT_LIST_TRACKED,
@@ -49,6 +50,7 @@ import type {
 } from "./app/export.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
+  CommitCommand,
   MachineShowCommand,
   RetireCommand,
   RunCommand,
@@ -130,6 +132,7 @@ type Resolved =
   | ShadowCommand
   | MachineShowCommand
   | RetireCommand
+  | CommitCommand
   | SetupCommand
   | StatuslineCommand;
 
@@ -138,6 +141,7 @@ type ExecutableCommand =
   | ShadowCommand
   | MachineShowCommand
   | RetireCommand
+  | CommitCommand
   | SetupCommand;
 
 function isResolvedCommand(value: Resolved): value is ExecutableCommand {
@@ -610,6 +614,22 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   if (!layers.ok) {
     return failure(layers.error.message, layers.error.code);
   }
+  if (command.kind === "commit") {
+    return executeCommit({
+      repoRoot,
+      config: config.value,
+      state,
+      os: os.value,
+      location: layers.value.location,
+      command,
+      ...(layers.value.profile !== undefined
+        ? { profile: layers.value.profile }
+        : {}),
+      ...(layers.value.record !== undefined
+        ? { record: layers.value.record }
+        : {}),
+    });
+  }
   if (command.kind === "shadow") {
     return executeShadow(
       repoRoot,
@@ -779,6 +799,8 @@ export function run(argv: readonly string[]): Resolved {
     case "shadow":
       return parsed;
     case "machine-show":
+      return parsed;
+    case "commit":
       return parsed;
     case "setup":
       return parsed;

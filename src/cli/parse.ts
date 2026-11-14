@@ -10,6 +10,7 @@ import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 export const USAGE =
   "usage: mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
   "mksync import [--check] [--force] [--only <path>...] | " +
+  "mksync commit [-m <msg>] [--partial] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
   "[--existing backup|keep|stop] [--yes] | " +
@@ -68,6 +69,16 @@ export interface ProfileRetireCommand {
 /** Either retire command. */
 export type RetireCommand = MachineRetireCommand | ProfileRetireCommand;
 
+/**
+ * `commit`: open a PR for the sync paths. `-m` replaces the message built from
+ * the changed files; `--partial` records no sync point.
+ */
+export interface CommitCommand {
+  readonly kind: "commit";
+  readonly message?: string;
+  readonly partial: boolean;
+}
+
 /** `setup`: the first-run flow's flags, parsed but not validated. */
 export interface SetupCommand extends SetupFlags {
   readonly kind: "setup";
@@ -100,6 +111,7 @@ export type ParsedCommand =
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
+  | CommitCommand
   | SetupCommand
   | VersionCommand
   | StatuslineCommand
@@ -120,6 +132,12 @@ const PROFILE_COMMAND = "profile";
 const RETIRE_VERB = "retire";
 
 const SETUP_COMMAND = "setup";
+
+const COMMIT_COMMAND = "commit";
+
+const MESSAGE_OPTION = "-m";
+
+const PARTIAL_OPTION = "--partial";
 
 const STATUSLINE_COMMAND = "statusline";
 
@@ -368,6 +386,46 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
 }
 
 /**
+ * Parse `commit [-m <msg>] [--partial]` as `commit.sh` does: `-m` takes the
+ * next argument as its message even when it starts with `-`, a later `-m`
+ * replaces an earlier one, and `--partial` may repeat. Any other argument,
+ * positional ones included, is `Unknown option: <arg>`.
+ */
+function parseCommit(argv: readonly string[]): CommitCommand | ParseError {
+  let message: string | undefined;
+  let partial = false;
+
+  let index = 1;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === MESSAGE_OPTION) {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        return setupError(`${MESSAGE_OPTION} needs a value.`);
+      }
+      message = value;
+      index += 2;
+      continue;
+    }
+    if (arg === PARTIAL_OPTION) {
+      partial = true;
+      index++;
+      continue;
+    }
+    return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+  }
+
+  return {
+    kind: "commit",
+    ...(message === undefined ? {} : { message }),
+    partial,
+  };
+}
+
+/**
  * Parse argv into the program's command, the usage line, the version or an
  * option error. An argument that starts with `-` and isn't a valid flag for
  * the verb is `Unknown option: <arg>`, as the entry points print it; a stray
@@ -421,6 +479,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   }
   if (command === SETUP_COMMAND) {
     return parseSetup(argv);
+  }
+  if (command === COMMIT_COMMAND) {
+    return parseCommit(argv);
   }
   if (isOption(command) || !isCommandName(command)) {
     return isOption(command)
