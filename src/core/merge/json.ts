@@ -81,7 +81,8 @@ function decodeUtf8(bytes: Uint8Array): string | undefined {
   }
 }
 
-function parseBytes(bytes: Uint8Array): JsonValue | undefined {
+/** The JSON value a file holds, or undefined when it isn't valid UTF-8 JSON. */
+export function parseJsonBytes(bytes: Uint8Array): JsonValue | undefined {
   const text = decodeUtf8(bytes);
   if (text === undefined) {
     return undefined;
@@ -91,7 +92,7 @@ function parseBytes(bytes: Uint8Array): JsonValue | undefined {
 }
 
 function parseLayer(layer: LayerFile): Result<JsonValue, string> {
-  const parsed = parseBytes(layer.bytes);
+  const parsed = parseJsonBytes(layer.bytes);
   return parsed === undefined
     ? { ok: false, error: `not valid JSON: ${layer.repoPath}` }
     : { ok: true, value: parsed };
@@ -116,7 +117,7 @@ function applyLocalOnlyKeys(
     return merged;
   }
   const localValue =
-    local.bytes === undefined ? undefined : parseBytes(local.bytes);
+    local.bytes === undefined ? undefined : parseJsonBytes(local.bytes);
   const localEntries =
     localValue !== undefined && localValue.kind === "object"
       ? localValue.entries
@@ -517,7 +518,7 @@ export function splitJson(
     readonly localOnlyKeys?: readonly string[];
   },
 ): Result<JsonSplit, string> {
-  const localValue = parseBytes(local);
+  const localValue = parseJsonBytes(local);
   if (localValue === undefined) {
     return { ok: false, error: INVALID_JSON };
   }
@@ -526,7 +527,7 @@ export function splitJson(
   const values: JsonValue[] = [];
   for (const layer of layers) {
     const parsed =
-      layer.bytes === undefined ? undefined : parseBytes(layer.bytes);
+      layer.bytes === undefined ? undefined : parseJsonBytes(layer.bytes);
     if (layer.bytes !== undefined && parsed === undefined) {
       return { ok: false, error: `not valid JSON: ${layer.repoPath}` };
     }
