@@ -364,7 +364,9 @@ describe("readStore", () => {
     );
 
     // Act
-    const store = expectOk(storeOf(fixture));
+    const store = expectOk(
+      readStore(fixture.state, fixture.repo, baseConfig(), { usedBy: true }),
+    );
 
     // Assert
     expect(store.records.map((record) => record.name)).toEqual([
@@ -375,6 +377,110 @@ describe("readStore", () => {
       join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
     );
     expect(store.location.profilesFolder).toBe(join(fixture.repo, "profiles"));
+  });
+
+  test("should read only this machine's record and profile when another repo record isn't JSON", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      JSON.stringify({ name: MACHINE_NAME, home: "repo" }),
+    );
+    writeFixture(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.repo, "machines", `${OTHER_MACHINE_NAME}.json`),
+      "not json",
+    );
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+
+    // Act
+    const store = expectOk(storeOf(fixture));
+
+    // Assert
+    expect(store.record?.name).toBe(MACHINE_NAME);
+    expect(store.profile?.name).toBe(PROFILE_NAME);
+    expect(store.profile?.modules).toEqual(["base"]);
+    expect(store.records.map((record) => record.name)).toEqual([MACHINE_NAME]);
+  });
+
+  test("should report another repo record's read reason for profile retire's used-by read", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      JSON.stringify({ name: MACHINE_NAME, home: "repo" }),
+    );
+    writeFixture(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+      recordText(MACHINE_NAME, PROFILE_NAME),
+    );
+    writeFixture(
+      join(fixture.repo, "machines", `${OTHER_MACHINE_NAME}.json`),
+      "not json",
+    );
+    writeFixture(
+      join(fixture.repo, "profiles", `${PROFILE_NAME}.json`),
+      PROFILE_TEXT,
+    );
+
+    // Act
+    const error = expectError(
+      readStore(fixture.state, fixture.repo, baseConfig(), { usedBy: true }),
+    );
+
+    // Assert
+    expect(error.message).toBe(
+      `ERROR: machines/${OTHER_MACHINE_NAME}.json can't be read: not valid JSON.`,
+    );
+    expect(error.code).toBe(2);
+  });
+
+  test("should name this machine's repo record read reason once when it isn't JSON", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      JSON.stringify({ name: MACHINE_NAME, home: "repo" }),
+    );
+    writeFixture(
+      join(fixture.repo, "machines", `${MACHINE_NAME}.json`),
+      "not json",
+    );
+
+    // Act
+    const error = expectError(storeOf(fixture));
+
+    // Assert
+    expect(error.message).toBe(
+      `ERROR: machines/${MACHINE_NAME}.json can't be read: not valid JSON.`,
+    );
+    expect(error.code).toBe(2);
+  });
+
+  test("should give the read error as the reason when this machine's repo record is a folder", () => {
+    // Arrange
+    const fixture = storeFixture();
+    writeFixture(
+      join(fixture.state, "machine.json"),
+      JSON.stringify({ name: MACHINE_NAME, home: "repo" }),
+    );
+    mkdirSync(join(fixture.repo, "machines", `${MACHINE_NAME}.json`), {
+      recursive: true,
+    });
+
+    // Act
+    const error = expectError(storeOf(fixture));
+
+    // Assert
+    expect(error.message).toBe(
+      `ERROR: machines/${MACHINE_NAME}.json can't be read: a folder in its place.`,
+    );
   });
 
   test("should report a missing repo machine file for a repo-home pointer with code 2", () => {

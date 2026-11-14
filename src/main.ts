@@ -693,7 +693,7 @@ async function askRetire<T>(
 /**
  * `machine retire` and `profile retire` (contract "Retire"): run the rule
  * against the store, then ask and write. A profile's records are the store's
- * own record when it has one.
+ * own record when it has one, or every repo record for a pointer.
  */
 async function executeRetire(
   repoRoot: string,
@@ -701,7 +701,9 @@ async function executeRetire(
   state: string,
   command: RetireCommand,
 ): Promise<Result> {
-  const store = readStore(state, repoRoot, config);
+  const store = readStore(state, repoRoot, config, {
+    usedBy: command.kind === "profile-retire",
+  });
   if (!store.ok) {
     return failure(store.error.message, store.error.code);
   }

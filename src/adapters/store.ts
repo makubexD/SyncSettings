@@ -64,11 +64,20 @@ export interface Store {
   readonly record?: MachineRecord;
   readonly profile?: Profile;
   readonly profiles: readonly Profile[];
-  /** The records "used by" a profile checks: this machine's record, or every
-   * record in the repo's `machines/` while the local record is a pointer. */
+  /** The records "used by" a profile checks: this machine's record; every
+   * record in the repo's `machines/` while the local record is a pointer and
+   * the read asks for it with `StoreOptions.usedBy`. */
   readonly records: readonly MachineRecord[];
   /** Where a write of a retired record or profile goes. */
   readonly location: StoreLocation;
+}
+
+/** What a store read asks for beyond the run's own record. */
+export interface StoreOptions {
+  /** Read every record under the repo's `machines/`, as `profile retire`'s
+   * "used by" check needs. Every other run reads only this machine's record,
+   * so another machine's broken record doesn't stop it. */
+  readonly usedBy?: boolean;
 }
 
 /** What a repo-home store holds: records other machines could take over, and
@@ -119,7 +128,23 @@ function isMissingError(error: unknown): boolean {
 type FileText =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "missing" }
-  | { readonly kind: "unreadable" };
+  | { readonly kind: "unreadable"; readonly reason: string };
+
+/** Why a file that is there can't be read, in the contract's words; never the
+ * raw error text, which names the absolute path. */
+function unreadableReason(error: unknown): string {
+  const code: unknown =
+    error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+  switch (code) {
+    case "EISDIR":
+      return "a folder in its place";
+    case "EACCES":
+    case "EPERM":
+      return "no read permission";
+    default:
+      return typeof code === "string" ? code : "unknown error";
+  }
+}
 
 /**
  * Read a record or profile file for the store. Only a missing file is
@@ -130,7 +155,9 @@ function readFileText(path: string): FileText {
   try {
     return { kind: "text", text: readFileSync(path, "utf8") };
   } catch (error) {
-    return { kind: isMissingError(error) ? "missing" : "unreadable" };
+    return isMissingError(error)
+      ? { kind: "missing" }
+      : { kind: "unreadable", reason: unreadableReason(error) };
   }
 }
 
@@ -169,7 +196,7 @@ function unreadableRepoError(
  * repo's `<repo path> can't be read: <reason>.` line.
  */
 interface ProfileErrorLines {
-  readonly unreadable: (name: string) => ConfigError;
+  readonly unreadable: (name: string, reason: string) => ConfigError;
   readonly missing: (name: string, path: string) => ConfigError;
   readonly parse: (name: string, error: ConfigError) => ConfigError;
 }
@@ -200,8 +227,8 @@ function profileReason(name: string, error: ConfigError): string {
 
 /** The repo's profile errors, from contract "Retire", "The repo store". */
 const REPO_PROFILE_ERRORS: ProfileErrorLines = {
-  unreadable: (name) =>
-    unreadableRepoError(repoProfilePath(name), "can't be read"),
+  unreadable: (name, reason) =>
+    unreadableRepoError(repoProfilePath(name), reason),
   missing: (name) => ({
     message: `ERROR: profile ${name} not found: ${repoProfilePath(name)}`,
     code: 2,
@@ -213,6 +240,10 @@ const REPO_PROFILE_ERRORS: ProfileErrorLines = {
 /** How a repo store read reports the files it can't read. */
 interface RepoErrorLines {
   readonly record: (relativePath: string, reason: string) => ConfigError;
+  readonly unreadableRecord: (
+    relativePath: string,
+    reason: string,
+  ) => ConfigError;
   readonly profiles: ProfileErrorLines;
 }
 
@@ -222,12 +253,14 @@ const STATE_REPO_ERROR_LINES: RepoErrorLines = {
     message: recordMessage(reason),
     code: 2,
   }),
+  unreadableRecord: () => unreadableRecordError(),
   profiles: STATE_PROFILE_ERRORS,
 };
 
 /** The repo's lines, from contract "Retire", "The repo store". */
 const REPO_STORE_ERROR_LINES: RepoErrorLines = {
   record: unreadableRepoError,
+  unreadableRecord: unreadableRepoError,
   profiles: REPO_PROFILE_ERRORS,
 };
 
@@ -306,7 +339,7 @@ function readProfileFile(
   const path = join(folder, `${name}${PROFILE_EXTENSION}`);
   const read = readFileText(path);
   if (read.kind === "unreadable") {
-    return { ok: false, error: lines.unreadable(name) };
+    return { ok: false, error: lines.unreadable(name, read.reason) };
   }
   if (read.kind === "missing") {
     return { ok: false, error: lines.missing(name, path) };
@@ -374,15 +407,18 @@ function storeValue(
 /**
  * Contract "Where records are kept": the record, its profile and every profile
  * in the same store, read from local state, or from the repo's `machines/` and
- * `profiles/` when the record is a `{"name", "home": "repo"}` pointer. No
- * record file means no record and only local profiles: a machine reads before
- * `setup` writes one. A bad record, a missing profile and a pointer whose
- * machine file isn't in the clone stop with exit code 2.
+ * `profiles/` when the record is a `{"name", "home": "repo"}` pointer. A
+ * pointer reads only `machines/<name>.json` and its own profile for the run;
+ * only `profile retire`'s "used by" check asks for every record. No record file
+ * means no record and only local profiles: a machine reads before `setup`
+ * writes one. A bad record, a missing profile and a pointer whose machine file
+ * isn't in the clone stop with exit code 2.
  */
 export function readStore(
   stateFolder: string,
   repoRoot: string,
   config: ConfigV2,
+  options: StoreOptions = {},
 ): LoadResult<Store, ConfigError> {
   const recordRead = readFileText(join(stateFolder, MACHINE_FILE));
   if (recordRead.kind === "unreadable") {
@@ -420,11 +456,11 @@ export function readStore(
     );
   }
 
-  const repo = readRepoEntries(repoRoot, config, REPO_STORE_ERROR_LINES);
-  if (!repo.ok) {
-    return repo;
+  const own = readRepoRecord(repoRoot, repoName, config);
+  if (!own.ok) {
+    return own;
   }
-  const record = repo.value.records.find((item) => item.name === repoName);
+  const record = own.value;
   if (record === undefined) {
     const machineFile = `${MACHINES_FOLDER}/${repoName}${PROFILE_EXTENSION}`;
     return {
@@ -435,9 +471,23 @@ export function readStore(
       },
     };
   }
-  const profile = repo.value.profiles.find(
-    (item) => item.name === record.profile,
+  let records: readonly MachineRecord[] = [record];
+  if (options.usedBy === true) {
+    const all = readRepoRecords(repoRoot, config);
+    if (!all.ok) {
+      return all;
+    }
+    records = all.value;
+  }
+  const profiles = readProfiles(
+    join(repoRoot, PROFILES_FOLDER),
+    config,
+    REPO_PROFILE_ERRORS,
   );
+  if (!profiles.ok) {
+    return profiles;
+  }
+  const profile = profiles.value.find((item) => item.name === record.profile);
   if (profile === undefined) {
     return {
       ok: false,
@@ -454,8 +504,8 @@ export function readStore(
     value: {
       record,
       profile,
-      profiles: repo.value.profiles,
-      records: repo.value.records,
+      profiles: profiles.value,
+      records,
       location: {
         recordFile: join(
           repoRoot,
@@ -469,6 +519,56 @@ export function readStore(
   };
 }
 
+/** One record from the repo's `machines/`, or `undefined` when the clone
+ * doesn't hold it. */
+function readRepoRecord(
+  repoRoot: string,
+  name: string,
+  config: ConfigV2,
+  lines: RepoErrorLines = REPO_STORE_ERROR_LINES,
+): LoadResult<MachineRecord | undefined, ConfigError> {
+  const relativePath = `${MACHINES_FOLDER}/${name}${PROFILE_EXTENSION}`;
+  const read = readFileText(
+    join(repoRoot, MACHINES_FOLDER, `${name}${PROFILE_EXTENSION}`),
+  );
+  if (read.kind === "unreadable") {
+    return {
+      ok: false,
+      error: lines.unreadableRecord(relativePath, read.reason),
+    };
+  }
+  if (read.kind === "missing") {
+    return { ok: true, value: undefined };
+  }
+  const record = parseRecord(read.text, config);
+  if (!record.ok) {
+    return {
+      ok: false,
+      error: lines.record(relativePath, record.error),
+    };
+  }
+  return { ok: true, value: record.value };
+}
+
+/** Every record under `machines/`, sorted by name, with the given error lines. */
+function readRepoRecords(
+  repoRoot: string,
+  config: ConfigV2,
+  lines: RepoErrorLines = REPO_STORE_ERROR_LINES,
+): LoadResult<readonly MachineRecord[], ConfigError> {
+  const records: MachineRecord[] = [];
+  for (const name of jsonNames(join(repoRoot, MACHINES_FOLDER))) {
+    const record = readRepoRecord(repoRoot, name, config, lines);
+    if (!record.ok) {
+      return record;
+    }
+    if (record.value !== undefined) {
+      records.push(record.value);
+    }
+  }
+  return { ok: true, value: records };
+}
+
 /** Every record under `machines/` and every profile under `profiles/`, sorted
  * by name, with the given error lines. */
 function readRepoEntries(
@@ -476,30 +576,9 @@ function readRepoEntries(
   config: ConfigV2,
   lines: RepoErrorLines,
 ): LoadResult<RepoStore, ConfigError> {
-  const records: MachineRecord[] = [];
-  const machinesFolder = join(repoRoot, MACHINES_FOLDER);
-  for (const name of jsonNames(machinesFolder)) {
-    const relativePath = `${MACHINES_FOLDER}/${name}${PROFILE_EXTENSION}`;
-    const read = readFileText(
-      join(machinesFolder, `${name}${PROFILE_EXTENSION}`),
-    );
-    if (read.kind === "unreadable") {
-      return {
-        ok: false,
-        error: lines.record(relativePath, "can't be read"),
-      };
-    }
-    if (read.kind === "missing") {
-      continue;
-    }
-    const record = parseRecord(read.text, config);
-    if (!record.ok) {
-      return {
-        ok: false,
-        error: lines.record(relativePath, record.error),
-      };
-    }
-    records.push(record.value);
+  const records = readRepoRecords(repoRoot, config, lines);
+  if (!records.ok) {
+    return records;
   }
   const profiles = readProfiles(
     join(repoRoot, PROFILES_FOLDER),
@@ -509,7 +588,10 @@ function readRepoEntries(
   if (!profiles.ok) {
     return profiles;
   }
-  return { ok: true, value: { records, profiles: profiles.value } };
+  return {
+    ok: true,
+    value: { records: records.value, profiles: profiles.value },
+  };
 }
 
 /**
