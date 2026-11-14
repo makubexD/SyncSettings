@@ -1,11 +1,8 @@
 import type { Profile } from "../config/profile.ts";
+import { MACHINES_FOLDER, PROFILES_FOLDER } from "../guard.ts";
 import { mergeProfileCopies } from "./copies.ts";
 import type { CopyQuestion } from "./copies.ts";
 import type { MachineRecord } from "./record.ts";
-
-const PROFILES_FOLDER = "profiles";
-
-const MACHINES_FOLDER = "machines";
 
 const JSON_EXTENSION = ".json";
 

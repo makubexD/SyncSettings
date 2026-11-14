@@ -13,7 +13,11 @@ import type { Dirent, Stats } from "node:fs";
 import { posix, win32 } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
-import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
+import {
+  MACHINES_FOLDER,
+  PROFILES_FOLDER,
+  STATE_FOLDER_ROOTS,
+} from "../core/guard.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectedEntry } from "../core/layers/select.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
@@ -386,10 +390,7 @@ function isRepoPath(path: string): boolean {
 
 /** An action's path is a state path when it names a profile or machine layer. */
 function isStatePath(path: string): boolean {
-  return (
-    path.startsWith(`${PROFILES_FOLDER}/`) ||
-    path.startsWith(`${MACHINES_FOLDER}/`)
-  );
+  return STATE_FOLDER_ROOTS.some((root) => path.startsWith(root));
 }
 
 /** A repo path stays under `dotfiles/`: its first segment. */
