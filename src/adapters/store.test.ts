@@ -4,9 +4,11 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +21,7 @@ import type {
 } from "../core/config/types.ts";
 import type { FirstBackupWrites } from "../core/machine/backup.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
-import type { Store } from "./store.ts";
+import type { FirstBackupFile, Store } from "./store.ts";
 import {
   firstBackupFiles,
   readBackupSides,
@@ -641,6 +643,22 @@ function backupWrites(): FirstBackupWrites {
   };
 }
 
+function relativeProfilePath(): string {
+  return `profiles/${PROFILE_NAME}.json`;
+}
+
+function relativeMachinePath(): string {
+  return `machines/${MACHINE_NAME}.json`;
+}
+
+function backupFile(
+  path: string,
+  text: string,
+  status: FirstBackupFile["status"],
+): FirstBackupFile {
+  return { path, text, status };
+}
+
 describe("firstBackupFiles", () => {
   test("should mark every file ADDED when the repo holds none", () => {
     // Arrange
@@ -732,13 +750,12 @@ describe("writeFirstBackup", () => {
         "utf8",
       ),
     ).toBe(
-      files.find(
-        (file) => file.path === `profiles/${PROFILE_NAME}.json`,
-      )?.text ?? "",
+      files.find((file) => file.path === `profiles/${PROFILE_NAME}.json`)
+        ?.text ?? "",
     );
-    expect(
-      statSync(join(fixture.state, "machine.json")).mode & 0o777,
-    ).toBe(PRIVATE_MODE);
+    expect(statSync(join(fixture.state, "machine.json")).mode & 0o777).toBe(
+      PRIVATE_MODE,
+    );
   });
 
   test("should leave machine.json as it was when a write fails", () => {
@@ -767,5 +784,114 @@ describe("writeFirstBackup", () => {
     expect(readFileSync(join(fixture.state, "machine.json"), "utf8")).toBe(
       original,
     );
+  });
+
+  test("should refuse a machines folder that is a symlink and write nothing through it", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const elsewhere = tempFolder();
+    symlinkSync(elsewhere, join(fixture.repo, "machines"));
+    const files = firstBackupFiles(fixture.repo, backupWrites());
+
+    // Act
+    const failed = expectError(
+      writeFirstBackup(fixture.state, fixture.repo, MACHINE_NAME, files),
+    );
+
+    // Assert
+    expect(failed.code).toBe(1);
+    expect(failed.message).toBe(
+      `ERROR: first backup stopped at machines/${MACHINE_NAME}.json: a symlink.`,
+    );
+    expect(readdirSync(elsewhere)).toEqual([]);
+    expect(existsSync(join(fixture.state, "machine.json"))).toBe(false);
+  });
+
+  test("should refuse a layer file that is a symlink and leave its target unchanged", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const target = join(tempFolder(), "settings.json");
+    writeFixture(target, EMPTY_PROFILE_TEXT);
+    const link = join(
+      fixture.repo,
+      "profiles",
+      PROFILE_NAME,
+      PROFILE_LAYER_FILE,
+    );
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(target, link);
+    const files = firstBackupFiles(fixture.repo, backupWrites());
+
+    // Act
+    const failed = expectError(
+      writeFirstBackup(fixture.state, fixture.repo, MACHINE_NAME, files),
+    );
+
+    // Assert
+    expect(failed.code).toBe(1);
+    expect(failed.message).toBe(
+      `ERROR: first backup stopped at profiles/${PROFILE_NAME}/${PROFILE_LAYER_FILE}: a symlink.`,
+    );
+    expect(readFileSync(target, "utf8")).toBe(EMPTY_PROFILE_TEXT);
+    expect(
+      existsSync(join(fixture.repo, "machines", `${MACHINE_NAME}.json`)),
+    ).toBe(false);
+  });
+
+  test("should remove a file the backup added when a later write fails", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const profilePath = join(fixture.repo, "profiles", `${PROFILE_NAME}.json`);
+    // A regular file where the machines folder goes makes the second write fail.
+    writeFixture(join(fixture.repo, "machines"), "not a folder");
+    const files = [
+      backupFile(relativeProfilePath(), PROFILE_TEXT, "ADDED"),
+      backupFile(
+        relativeMachinePath(),
+        recordText(MACHINE_NAME, PROFILE_NAME),
+        "ADDED",
+      ),
+    ];
+
+    // Act
+    const failed = expectError(
+      writeFirstBackup(fixture.state, fixture.repo, MACHINE_NAME, files),
+    );
+
+    // Assert
+    expect(failed.code).toBe(1);
+    expect(
+      failed.message.startsWith("ERROR: first backup stopped at machines/"),
+    ).toBe(true);
+    expect(existsSync(profilePath)).toBe(false);
+  });
+
+  test("should restore a file the backup modified when a later write fails", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const profilePath = join(fixture.repo, "profiles", `${PROFILE_NAME}.json`);
+    writeFixture(profilePath, EMPTY_PROFILE_TEXT);
+    // A regular file where the machines folder goes makes the second write fail.
+    writeFixture(join(fixture.repo, "machines"), "not a folder");
+    const files = [
+      backupFile(relativeProfilePath(), PROFILE_TEXT, "MODIFIED"),
+      backupFile(
+        relativeMachinePath(),
+        recordText(MACHINE_NAME, PROFILE_NAME),
+        "ADDED",
+      ),
+    ];
+
+    // Act
+    const failed = expectError(
+      writeFirstBackup(fixture.state, fixture.repo, MACHINE_NAME, files),
+    );
+
+    // Assert
+    expect(failed.code).toBe(1);
+    expect(
+      failed.message.startsWith("ERROR: first backup stopped at machines/"),
+    ).toBe(true);
+    expect(readFileSync(profilePath, "utf8")).toBe(EMPTY_PROFILE_TEXT);
   });
 });

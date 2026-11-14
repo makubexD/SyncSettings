@@ -1,8 +1,10 @@
 import {
   chmodSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import type { Dirent } from "node:fs";
@@ -152,8 +154,14 @@ function repoProfilePath(name: string): string {
 
 /** The contract's line for a repo record or profile that can't be read,
  * "Retire" and "The repo store". */
-function unreadableRepoError(relativePath: string, reason: string): ConfigError {
-  return { message: `ERROR: ${relativePath} can't be read: ${reason}.`, code: 2 };
+function unreadableRepoError(
+  relativePath: string,
+  reason: string,
+): ConfigError {
+  return {
+    message: `ERROR: ${relativePath} can't be read: ${reason}.`,
+    code: 2,
+  };
 }
 
 /**
@@ -620,6 +628,9 @@ export interface FirstBackupFile {
 /** The contract's line when a first backup write fails. */
 const FIRST_BACKUP_STOPPED = "ERROR: first backup stopped at";
 
+/** Why the first backup refuses a target that runs through a symlink. */
+const SYMLINK_REASON = "a symlink";
+
 function byRelativePath(
   a: { readonly path: string },
   b: { readonly path: string },
@@ -743,9 +754,7 @@ export function readBackupSides(
         machineLayer,
       },
       repo:
-        repoProfile.value === undefined
-          ? {}
-          : { profile: repoProfile.value },
+        repoProfile.value === undefined ? {} : { profile: repoProfile.value },
     },
   };
 }
@@ -800,9 +809,71 @@ function pointerText(name: string): string {
 }
 
 /**
+ * Whether a first backup target runs through a symlink anywhere from the repo
+ * root down to the file itself. Missing components are fine: the write creates
+ * them below the clone.
+ */
+function runsThroughSymlink(repoRoot: string, relativePath: string): boolean {
+  const parts = relativePath.split("/");
+  for (let index = 1; index <= parts.length; index += 1) {
+    const component = join(repoRoot, ...parts.slice(0, index));
+    try {
+      if (lstatSync(component).isSymbolicLink()) {
+        return true;
+      }
+    } catch (error) {
+      if (isMissingError(error)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+  return false;
+}
+
+/** A file this first backup wrote, with the bytes it held before it. */
+interface WrittenBackupFile {
+  readonly path: string;
+  readonly earlier: Buffer | undefined;
+}
+
+/** The bytes a first backup target held before the write, if it existed. */
+function readEarlierBytes(path: string): Buffer | undefined {
+  try {
+    return readFileSync(path);
+  } catch (error) {
+    if (isMissingError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/** Undo a failed first backup in reverse, so the repo is as it was. */
+function undoFirstBackup(written: readonly WrittenBackupFile[]): void {
+  for (let index = written.length - 1; index >= 0; index -= 1) {
+    const file = written[index];
+    if (file === undefined) {
+      continue;
+    }
+    try {
+      if (file.earlier === undefined) {
+        unlinkSync(file.path);
+      } else {
+        writeFileSync(file.path, file.earlier);
+      }
+    } catch {
+      // Best effort: the write error is the line the contract reports, so a
+      // failed undo must not replace it.
+    }
+  }
+}
+
+/**
  * Contract "The first backup": write the files into the repo, then make
- * `<state>/machine.json` the pointer. A failed write stops before the pointer,
- * so the record stays local and the next export tries again.
+ * `<state>/machine.json` the pointer. A failed write stops before the pointer
+ * and undoes the files already written, so the record stays local and the next
+ * export tries again.
  */
 export function writeFirstBackup(
   stateFolder: string,
@@ -811,11 +882,35 @@ export function writeFirstBackup(
   files: readonly FirstBackupFile[],
 ): LoadResult<undefined, ConfigError> {
   for (const file of files) {
+    let symlink: boolean;
     try {
-      const target = join(repoRoot, ...file.path.split("/"));
+      symlink = runsThroughSymlink(repoRoot, file.path);
+    } catch (error) {
+      return {
+        ok: false,
+        error: { message: firstBackupStopped(file.path, error), code: 1 },
+      };
+    }
+    if (symlink) {
+      return {
+        ok: false,
+        error: {
+          message: firstBackupStopped(file.path, new Error(SYMLINK_REASON)),
+          code: 1,
+        },
+      };
+    }
+  }
+  const written: WrittenBackupFile[] = [];
+  for (const file of files) {
+    const target = join(repoRoot, ...file.path.split("/"));
+    try {
+      const earlier = readEarlierBytes(target);
       mkdirSync(dirname(target), { recursive: true });
+      written.push({ path: target, earlier });
       writeFileSync(target, file.text);
     } catch (error) {
+      undoFirstBackup(written);
       return {
         ok: false,
         error: { message: firstBackupStopped(file.path, error), code: 1 },
@@ -825,6 +920,7 @@ export function writeFirstBackup(
   try {
     writePrivateFile(join(stateFolder, MACHINE_FILE), pointerText(name));
   } catch (error) {
+    undoFirstBackup(written);
     return {
       ok: false,
       error: { message: firstBackupStopped(MACHINE_FILE, error), code: 1 },
