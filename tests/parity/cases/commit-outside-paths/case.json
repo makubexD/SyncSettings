@@ -1,0 +1,40 @@
+{
+  "description": "Import writes a file outside dotfiles/ and sync-config.json, so commit refuses it, exit 1, and never calls gh (Checks before pushing).",
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "env": {
+    "HOME": ".",
+    "USERPROFILE": ".",
+    "XDG_STATE_HOME": "../state",
+    "LOCALAPPDATA": "../state"
+  },
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    },
+    {
+      "command": "commit",
+      "output": "all",
+      "stderr": true
+    }
+  ]
+}

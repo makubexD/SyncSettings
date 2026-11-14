@@ -92,6 +92,12 @@ validate_case() {
     jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("yes")) then ($o.yes | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.yes must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("partial")) then ($o.partial | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.partial must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("message")) then ($o.message | type) == "string" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.message must be a string'
     jq -e 'all(.commands[];
         .command as $cmd
         | (.options // {}) as $o
@@ -104,8 +110,10 @@ validate_case() {
           and (if ($o | has("yes")) then
                   $cmd == "setup" or $cmd == "export" or $cmd == "preview"
                   or $cmd == "machine-retire" or $cmd == "profile-retire"
-               else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
+               else true end)
+          and (if ($o | has("partial")) then $cmd == "commit" else true end)
+          and (if ($o | has("message")) then $cmd == "commit" else true end))' "$json" > /dev/null 2>&1 \
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -366,7 +374,7 @@ run_case() {
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
     local stderr_mode all_output keep_ansi target value
     local want_exit want_output want_home want_repo want_values want_state want_gh calls
-    local file rel got want_mode got_mode head_sha clone
+    local file rel got want_mode got_mode start_head state_want clone
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
     t=$(mktemp -d)
@@ -404,9 +412,15 @@ run_case() {
     fi
 
     git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
+    start_head=''
     case $git_mode in
         none) ;;
-        committed|remote) setup_git "$t/repo" "$t" "$git_mode" ;;
+        committed|remote)
+            setup_git "$t/repo" "$t" "$git_mode"
+            # The commit the case starts from: a sync point and an expected
+            # state file's <START_HEAD> both name it.
+            start_head=$(git_env -C "$t/repo" rev-parse HEAD) || die 'reading HEAD failed'
+            ;;
         *) die 'git must be none, committed or remote' ;;
     esac
 
@@ -414,10 +428,9 @@ run_case() {
     # records it. It goes in before the case's state/ copy, so a case can
     # override it there.
     if [[ $(jq -r '.syncPoint // false' "$dir/case.json") == true ]]; then
-        head_sha=$(git_env -C "$t/repo" rev-parse HEAD) || die 'reading HEAD failed'
         mkdir -p "$t/home/.local/state/sync-settings" \
             || die 'creating the engine state folder failed'
-        printf '%s\n' "$head_sha" > "$t/home/.local/state/sync-settings/last-sync" \
+        printf '%s\n' "$start_head" > "$t/home/.local/state/sync-settings/last-sync" \
             || die 'writing the sync point failed'
     fi
 
@@ -481,6 +494,7 @@ run_case() {
                 check) args=(./mksync import --check) ;;
                 preview) args=(./mksync export --preview) ;;
                 diff) args=(./mksync export --diff) ;;
+                commit) args=(./mksync commit) ;;
                 setup) args=(./mksync setup) ;;
                 statusline) args=(./mksync statusline) ;;
                 machine-show) args=(./mksync machine show) ;;
@@ -507,7 +521,7 @@ run_case() {
         fi
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|yes|target) ;;
+                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -524,6 +538,12 @@ run_case() {
         done
         if [[ $(jq -r ".commands[$i].options.yes // false" "$dir/case.json") == true ]]; then
             args+=(--yes)
+        fi
+        if [[ $(jq -r ".commands[$i].options.partial // false" "$dir/case.json") == true ]]; then
+            args+=(--partial)
+        fi
+        if [[ $(jq -r ".commands[$i].options | has(\"message\")" "$dir/case.json") == true ]]; then
+            args+=(-m "$(jq -r ".commands[$i].options.message" "$dir/case.json")")
         fi
 
         stdin_file=/dev/null
@@ -624,7 +644,16 @@ run_case() {
             rel=${file#"$want_state"/}
             got=$t/state/$rel
             [[ -f $got ]] || die "state $rel: missing"
-            cmp -s "$file" "$got" || die "state $rel: differs"
+            # <START_HEAD> stands for the commit the case started from, which
+            # changes per run; substitute it before comparing.
+            state_want=$file
+            if grep -qF '<START_HEAD>' "$file"; then
+                [[ -n $start_head ]] || die "state $rel: <START_HEAD> needs a git repo"
+                state_want=$t/state-want
+                sed "s/<START_HEAD>/$start_head/g" "$file" > "$state_want" \
+                    || die "state $rel: substituting <START_HEAD> failed"
+            fi
+            cmp -s "$state_want" "$got" || die "state $rel: differs"
             want_mode=$(file_mode "$file") || die "state $rel: cannot read the wanted file"
             # The record and profiles hold values, so the program writes them
             # for the current user only; git can't store mode 600.
@@ -687,17 +716,6 @@ for dir in "$CASES"/*/; do
         printf 'FAIL %s: %s\n' "$case_name" "${reason:-invalid case.json}"
         failed_cases=$((failed_cases + 1))
         continue
-    fi
-
-    # The program takes no commit until phase 8: skip the case without counting
-    # it as a failure.
-    if [[ -n $engine_path ]]; then
-        phase8=$(jq -r '[.commands[].command | select(. == "commit")]
-            | first // empty' "$dir/case.json" 2> /dev/null) || true
-        if [[ -n $phase8 ]]; then
-            printf 'SKIP %s: %s comes in phase 8\n' "$case_name" "$phase8"
-            continue
-        fi
     fi
 
     # setup, machine show, the retire commands and statusline are the program's

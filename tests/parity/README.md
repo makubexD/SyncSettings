@@ -21,7 +21,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engin
 the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the commands are spelled
 `./mksync export …` with the same options, and it is stripped before the repo is compared. With a program:
 
-- a case with a `diff` or `commit` command prints `SKIP <case>: <command> comes in phase 8` and is not a failure;
 - a case with a `setup`, `machine-show`, `machine-retire`, `profile-retire` or `statusline` command prints
   `SKIP <case>: <command> is program only` against an engine other than the program, and counts as skipped;
 - a `configV2` case prints `SKIP <case>: v2 only` against an engine other than the program and counts as skipped, not
@@ -97,7 +96,8 @@ bash runner wants 600 for them in `expect/state/`, since git can't store that mo
 `only: [paths]` is `--only` or `-Only`. For the program, `name`, `profile`, `replace`, `claude`, `mode` and `existing`
 are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes` on `setup`, `export`,
 `preview`, `machine-retire` and `profile-retire`; and `target`, a string, is the name argument of `machine-retire` and
-`profile-retire`, required there and refused elsewhere. Every command runs with no terminal, as CI does, and with stdin
+`profile-retire`, required there and refused elsewhere. On `commit` only, `partial: true` adds `--partial`
+(`-Partial` on the PowerShell engine) and `message`, a string, adds `-m <msg>` (`-Message <msg>`). Every command runs with no terminal, as CI does, and with stdin
 empty unless the command has `stdin`: a string sent as its stdin, such as `"n\n"` for a prompt answer. Its stderr is
 merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status lines in
 `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below) except for
@@ -144,7 +144,9 @@ stub on means `gh` must not be called.
      order ignored.
    - **State**, when `expect/state/` exists: each file in it must be in the state folder with the same bytes; other
      state files, such as the sync point, whose SHA changes per run, are ignored. A run's dated backup folder
-     `backups/<run>/` is read as `backups/RUN/`, and there must be exactly one, so the time and pid don't matter.
+     `backups/<run>/` is read as `backups/RUN/`, and there must be exactly one, so the time and pid don't matter. An
+     expected state file may hold `<START_HEAD>`: the runner replaces it with the repo's `HEAD`, recorded right after
+     setup (the commit the case starts from), before comparing; without a git repo it is a case error.
    - **gh calls**, when the case stubs `gh` (above).
 
 Each file is taken from `expect.<os>/` when it's there for the OS the runner is on, else from `expect/`.

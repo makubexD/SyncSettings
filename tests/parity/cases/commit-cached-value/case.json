@@ -1,0 +1,34 @@
+{
+  "description": "A cached value in .user-values.json appears in a changed synced file, so commit stops with the contract's error, exit 1, and never calls gh (Checks before pushing).",
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "values": {
+    "<YOUR_EMAIL>": "parity@example.com"
+  },
+  "commands": [
+    {
+      "command": "export"
+    },
+    {
+      "command": "commit",
+      "output": "all",
+      "stderr": true
+    }
+  ]
+}

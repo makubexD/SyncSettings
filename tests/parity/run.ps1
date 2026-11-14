@@ -124,6 +124,14 @@ function Validate-Case {
             if ($null -ne $yesProp -and $yesProp.Value -isnot [bool]) {
                 Die 'options.yes must be a boolean'
             }
+            $partialProp = $opts.PSObject.Properties['partial']
+            if ($null -ne $partialProp -and $partialProp.Value -isnot [bool]) {
+                Die 'options.partial must be a boolean'
+            }
+            $messageProp = $opts.PSObject.Properties['message']
+            if ($null -ne $messageProp -and $messageProp.Value -isnot [string]) {
+                Die 'options.message must be a string'
+            }
         }
 
         $optNames = @()
@@ -137,7 +145,12 @@ function Validate-Case {
         }
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
             $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and $cmd.command -cne 'profile-retire') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit'
+        }
+        foreach ($key in @('partial', 'message')) {
+            if ($optNames -ccontains $key -and $cmd.command -cne 'commit') {
+                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit'
+            }
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -738,8 +751,12 @@ function Run-Case {
         if ($null -ne $gitProp) {
             $gitMode = [string]$gitProp.Value
         }
+        $startHead = ''
         if ($gitMode -ceq 'committed' -or $gitMode -ceq 'remote') {
             Setup-Git -RepoDir $repoDir -TempDir $t -Mode $gitMode
+            # The commit the case starts from: a sync point and an expected
+            # state file's <START_HEAD> both name it.
+            $startHead = Get-GitHead -RepoDir $repoDir
         }
 
         # A sync point is the commit the last sync left on master, as the engine
@@ -749,8 +766,7 @@ function Run-Case {
         if ($null -ne $syncPointProp -and $syncPointProp.Value -eq $true) {
             $stateRoot = Join-Path $localDir 'SyncSettings'
             New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
-            $headSha = Get-GitHead -RepoDir $repoDir
-            [IO.File]::WriteAllText((Join-Path $stateRoot 'last-sync'), ($headSha + "`n"),
+            [IO.File]::WriteAllText((Join-Path $stateRoot 'last-sync'), ($startHead + "`n"),
                 [System.Text.UTF8Encoding]::new($false))
         }
 
@@ -830,6 +846,7 @@ function Run-Case {
                     'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
                     'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
                     'diff'    { $extraArgs += 'export'; $extraArgs += '--diff' }
+                    'commit'  { $extraArgs += 'commit' }
                     'setup'   { $extraArgs += 'setup' }
                     'statusline' { $extraArgs += 'statusline' }
                     'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
@@ -864,7 +881,7 @@ function Run-Case {
                     if ($key -cne 'force' -and $key -cne 'only' -and $key -cne 'name' -and
                         $key -cne 'profile' -and $key -cne 'replace' -and $key -cne 'claude' -and
                         $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'yes' -and
-                        $key -cne 'target') {
+                        $key -cne 'target' -and $key -cne 'partial' -and $key -cne 'message') {
                         Die "unknown option '$key' in command $($i + 1)"
                     }
                 }
@@ -901,6 +918,23 @@ function Run-Case {
                 $yesProp = $opts.PSObject.Properties['yes']
                 if ($null -ne $yesProp -and $yesProp.Value -eq $true) {
                     $extraArgs += '--yes'
+                }
+                $partialProp = $opts.PSObject.Properties['partial']
+                if ($null -ne $partialProp -and $partialProp.Value -eq $true) {
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $extraArgs += '-Partial'
+                    } else {
+                        $extraArgs += '--partial'
+                    }
+                }
+                $messageProp = $opts.PSObject.Properties['message']
+                if ($null -ne $messageProp) {
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $extraArgs += '-Message'
+                    } else {
+                        $extraArgs += '-m'
+                    }
+                    $extraArgs += [string]$messageProp.Value
                 }
             }
 
@@ -1135,7 +1169,19 @@ function Run-Case {
                 if (-not (Test-Path -LiteralPath $gotFile -PathType Leaf)) {
                     Die "state ${rel}: missing"
                 }
-                $wantHash = (Get-FileHash -LiteralPath $wantFile -Algorithm SHA256).Hash
+                # <START_HEAD> stands for the commit the case started from,
+                # which changes per run; substitute it before comparing.
+                $wantHashFile = $wantFile
+                $wantText = [IO.File]::ReadAllText($wantFile)
+                if ($wantText.Contains('<START_HEAD>')) {
+                    if ([string]::IsNullOrEmpty($startHead)) {
+                        Die "state ${rel}: <START_HEAD> needs a git repo"
+                    }
+                    $wantText = $wantText.Replace('<START_HEAD>', $startHead)
+                    $wantHashFile = Join-Path $t ([Guid]::NewGuid().ToString('N'))
+                    [IO.File]::WriteAllText($wantHashFile, $wantText, [System.Text.UTF8Encoding]::new($false))
+                }
+                $wantHash = (Get-FileHash -LiteralPath $wantHashFile -Algorithm SHA256).Hash
                 $gotHash = (Get-FileHash -LiteralPath $gotFile -Algorithm SHA256).Hash
                 if ($wantHash -cne $gotHash) {
                     Die "state ${rel}: differs"
@@ -1216,16 +1262,6 @@ foreach ($caseDir in $caseDirs) {
         Write-Output "FAIL ${caseName}: $reason"
         $failed++
         continue
-    }
-
-    # The program takes no commit until phase 8: skip the case without counting
-    # it as a failure.
-    if (-not [string]::IsNullOrEmpty($EnginePath)) {
-        $phase8 = @($case.commands | Where-Object { $_.command -ceq 'commit' })[0]
-        if ($null -ne $phase8) {
-            Write-Output "SKIP ${caseName}: $($phase8.command) comes in phase 8"
-            continue
-        }
     }
 
     # setup, machine show, the retire commands and statusline are the program's

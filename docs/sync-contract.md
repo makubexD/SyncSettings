@@ -408,6 +408,25 @@ entries and never runs them.
 Commit runs these after the check for changes outside the sync paths, and before it creates a branch or a commit. A
 failure exits 1 and leaves no branch, no commit and no PR.
 
+Commit first prints its banner, then runs the checks:
+
+```text
+
+  +==========================================+
+  |        SyncSettings -- COMMIT           |
+  +==========================================+
+
+```
+
+**Changes outside the sync paths.** Any `git status --porcelain` line for a path outside `dotfiles/`,
+`sync-config.json` and `packages/` stops the commit, listing each line under a heading:
+
+```text
+  Changes outside sync paths:
+    ?? .config/
+ERROR: commit or stash changes outside dotfiles/ first.
+```
+
 **Leak scan.** `scripts/ci/leak-scan.sh` runs on the sync paths. Skipping it is not an option: a scan that cannot run stops
 the commit the same way a hit does.
 
