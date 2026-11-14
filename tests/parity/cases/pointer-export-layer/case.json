@@ -1,0 +1,36 @@
+{
+  "description": "Export --yes with a pointer record sends a changed key to the machine layer the clone holds, MODIFIED naming machines/wk1-laptop/parity/settings.json and leaving the state folder as it is (Layers (program only), json entries export; The first backup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "yes": true
+      },
+      "output": "all"
+    }
+  ]
+}
