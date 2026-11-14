@@ -356,6 +356,24 @@ PowerShell only. A folder detected in an entry's file is stored under `<repoPath
 - Each file inside follows the same compare, prompt and `.bak` rules as a plain entry on import, and `excludePatterns`
   apply to it.
 
+**Program.** The program doesn't copy linked folders; it offers each one as a `dir` entry. A file entry with
+`detectLinkedPaths` (v1) or `"linked": true` (v2) is read for folder paths the way `Find-LinkedPaths` reads them.
+Each folder that exists, isn't synced by any entry and hasn't been answered is asked once, by `mksync setup` after its
+four questions:
+
+```text
+.bashrc uses ~/work-tool-1-scripts (12 files, 40 KB). Sync it as a folder? 1) this profile  2) this machine  3) no [1]
+```
+
+- The suggestion is `1` for a folder in the home with fewer than 1000 files and under 10 MB, else `3`. `--yes` takes
+  it. An answer other than `1` to `3` prints `Pick 1 to 3.` and asks again.
+- `1` adds a `dir` entry to the profile's `entries` list, `repoPath` `profiles/<p>/linked/<folder name>/`; `2` adds
+  it to the machine record's `entries`, `repoPath` `machines/<m>/linked/<folder name>/`. Both are state files, so the
+  [public-repo guard](#public-repo-guard-program-only) holds them while the repo is public.
+- `3` stores `"linked: <localPath>": "no"` in the profile's `destinations`, and the folder isn't asked again.
+- `mksync status` asks nothing; it prints `Linked folder not synced: <path> (mksync setup asks)` for each folder not
+  answered yet.
+
 ## dconf entries (`type: dconf`)
 
 Bash only. An entry with `"type": "dconf"` syncs one dconf folder with one `.ini` file. The Windows engine validates these
@@ -381,6 +399,9 @@ entries and never runs them.
   the leak scan.
 - **Leak scan.** An extension UUID has the shape of an address, so the `enabled-extensions` and `disabled-extensions` lines
   of an `.ini` under `dotfiles/linux/gnome/dconf/` are exempt from the email rule. Every other line, file and suffix isn't.
+- **Program.** The program follows every rule above on Linux, through `dconf` and `getent passwd` on `PATH`. On
+  Windows and macOS a dconf entry stays `SKIPPED`, as the PowerShell engine never runs one. The shared cases run
+  against stubs of both commands, so no case touches a real session bus.
 
 ## Checks before pushing
 
@@ -413,6 +434,20 @@ ERROR: a cached value for <PLACEHOLDER> is in <file>; nothing was committed.
 ```
 
 A search that cannot finish stops the commit too, with `ERROR: could not search for cached values; nothing was committed.`
+
+**Program.** `mksync commit` runs the same checks, in this order: changes outside the sync paths, the
+[public-repo guard](#public-repo-guard-program-only), the leak scan, the cached values. Its differences:
+
+- **Unpushed history.** Besides the tracked paths, the guard reads every commit in `origin/master..HEAD`
+  (`git log --name-only`). While the repo is public, a commit that adds or changes a path under `profiles/` or
+  `machines/` is refused with the guard's `refused` line for that path, even when a later commit removed it from the
+  index, because pushing the branch would publish it.
+- **The leak scan stays bash.** The program runs `bash scripts/ci/leak-scan.sh` as `commit.sh` does. With no `bash`
+  on `PATH` (a Windows machine without Git Bash) the scan can't run, and the commit stops with that line.
+- **Cached values with a record.** The values searched are the record's and its profile's, where `.user-values.json`
+  holds them without one.
+- **The PR.** Branch `sync/<os>-<machine>-<stamp>` as `commit.sh` names it, the machine from the record when there is
+  one; the PR body adds `Profile: <p>` when there is a record.
 
 ## Orphan report
 
@@ -462,6 +497,10 @@ counted, and neither are its `SKIPPED` lines, so the "file(s) skipped" note keep
 For `apt-source` and `apt-key`, `<file>` is `apt-sources`, and a listed source or key that can't be read counts as not
 installed. A failing tool never stops the rest of the report. A missing font or extension folder means nothing is present, so
 it isn't `SKIPPED`.
+
+**Program.** The program reports drift where bash does, after the orphan report of an export and a preview, with the
+same lines, and never in an import, a check or a diff. `mksync doctor` adds one line on Linux when the report has any
+`DRIFT`: `WARN drift: <n> package(s) differ; run mksync preview`.
 
 **Leak scan.** An extension UUID has the shape of an address, so a whole well-formed line of
 `packages/linux/gnome-extensions.txt` is exempt from the email rule. An address anywhere else in that file still fails, and so
@@ -636,6 +675,11 @@ second log printed after it), `mine` copies `scripts/` in place of `export.sh`, 
 comparison instead of `LC_ALL=C sort`. The status lines use the `[OUT      ] path` layout in
 [Known differences](#known-differences).
 
+**Program.** `mksync export --diff` builds no temp folder: it reads `base` and `theirs` from git objects, and `mine`
+is `base` with the export's writes applied in memory, the export planned with `base` as the repo side. The labels,
+lines, text and exit codes are the ones above. A failed export plan prints its lines and `ERROR: the export for the
+diff failed; see above.`, exit 1. `--diff` with `--preview` or `--yes` is an error, exit 1.
+
 ## Front door
 
 On Linux, `mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named
@@ -687,6 +731,23 @@ Status lines and the next command, in this order of precedence:
 | Exported changes not sent | `mksync push` |
 | The machine differs from the repo | `mksync pull to take the repo's version, or mksync push to send this machine's.` |
 | Otherwise | `nothing to do.` |
+
+**Program.** `mksync status`, `doctor`, `pull`, `push` and `diff` are the program's own commands, with the rules,
+lines and exit codes above, except:
+
+- **`status`** never suggests `mksync push` on a pull-only machine, and adds the
+  [linked folder](#linked-folders-detectlinkedpaths) lines.
+- **`doctor`** checks what the program needs: `git`, `gh` and its sign-in, the origin remote, the machine record,
+  unset values, and `bash` (a `WARN`, since only the leak scan needs it). No `jq`, `cmp`, bash version or launcher
+  line. On Linux it adds the `drift` line of [Package drift](#package-drift).
+- **`pull`** doesn't re-run itself after the fast-forward: the program is the same before and after, so it reads the
+  config again and goes on. Its check prints the grouped block of the [import check](#import-check).
+- **`push`** on a pull-only machine prints `this machine is pull-only (see mksync machine show)` and exits 1. Otherwise
+  it runs the export with its grouped block and questions ([Push preview](#push-preview-program-only)), then
+  [Move a change](#move-a-change-program-only), the profile-value rule and the guard, then `Open a PR with these
+changes? [Y/n]` and `mksync commit`.
+- **`diff`** runs `mksync export --diff` after the fetch.
+- `mksync check` and `mksync preview` are `mksync import --check` and `mksync export --preview`.
 
 `install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`:
 
@@ -750,6 +811,15 @@ It takes the old entry points' verbs and flags unchanged:
 | `mksync --version` | prints `mksync <version>`, exit 0 |
 | `mksync setup …`, `mksync machine show`, `mksync machine retire <name>`, `mksync profile retire <name>` | new in phase 6 ([Machines](#machines-program-only)) |
 | `mksync export --yes`, `mksync statusline` | new in phase 7 ([New settings](#new-settings-program-only), [Statusline](#statusline-program-only)) |
+| `mksync export --diff [--only <path>…]` | `export.sh --diff` ([Diff](#diff)) |
+| `mksync import --reset-values [--only <path>…]` | `import.sh --reset-values` ([Sanitize and hydrate](#sanitize-and-hydrate)) |
+| `mksync commit [-m <msg>] [--partial]` | `commit.sh` ([Checks before pushing](#checks-before-pushing), [Sync point](#sync-point)) |
+| `mksync status`, `mksync doctor`, `mksync pull [--yes] [--force] [<path>…]`, `mksync push [--yes] [-m <msg>] [<path>…]`, `mksync diff [<path>…]` | the [front door](#front-door)'s commands of the same name, with the program notes there |
+| `mksync check [<path>…]`, `mksync preview` | `mksync import --check [--only <path>…]` and `mksync export --preview` |
+
+`export`, `import` and `commit` keep the old entry points' verbs so the shared cases drive the program and the old
+engines alike. Whether they stay public after cut-over, next to `push` and `pull`, is open
+([design, "Open"](design-layers.md#open)).
 
 `mksync shadow` is hidden from the usage line until cut-over decides its name ([design, "Open"](design-layers.md#open)).
 In the clone, it runs the program's import check, export preview and export plan without writing, and the old
@@ -760,8 +830,15 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 
 - Exit codes, status words, labels, notes and `ERROR:` lines are this contract's, as the bash engine prints them,
   except for the mksync program column of [Known differences](#known-differences).
-- An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints this usage
-  line on stderr and exits 2:
+- An unknown option prints `Unknown option: <arg>` on stderr and exits 1. Run with no command, it prints the usage
+  line on stderr and exits 2. Phase 8 adds its commands one step at a time (`docs/plan-single-engine-8.md`); at the
+  end of the phase the line is:
+
+  ```text
+  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
+  ```
+
+  Until then it is the phase 7 line, plus each command as its step lands:
 
   ```text
   usage: mksync export [--preview] [--yes] [--only <path>...] | mksync import [--check] [--force] [--only <path>...] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
@@ -769,7 +846,8 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.
-- Not in the program yet: `export --diff`, `import --reset-values`, `commit`, dconf, package drift and the front door's own commands.
+- Not in the program yet: `export --diff`, `import --reset-values`, `commit`, dconf, package drift and the front door's
+  own commands. Phase 8 adds all of them; the rules they follow are the sections above, with the program notes there.
 
 ### Layers (program only)
 
@@ -1297,6 +1375,27 @@ New settings
   runs.
 - With no record nothing is asked: the [`needs a destination`](#layers-program-only) `ERROR` stays. A new file in a
   `dir` entry isn't asked either; it goes to the entry's latest layer.
+
+### Move a change (program only)
+
+`mksync push`, with a record and without `--yes`, asks after the block and the new-setting questions:
+
+```text
+Move a change? Type its number, or press Enter to go on:
+```
+
+- A number from the block asks `Move it to? 1) all machines  2) <Os> machines  3) profile <p>  4) this machine
+[<current>]`, where `<current>` is the number of the group the change is in. Any other answer to either question
+  prints `Pick 1 to <n>.` and asks again; an empty answer or end of input to the first one goes on.
+- A `json` key moved to a narrower group is written into that group's layer and left as it was in the old one: the
+  narrower layer now overrides it for the machines it covers. Moved to a wider group, it is written into the new
+  layer and removed from the old one. A whole file, or an `import` side file, moves as a whole.
+- On this machine, the merged result of every file is the same after a move as before it; only who else receives the
+  change differs.
+- The block prints again after each move, with the change under its new group and its number kept.
+- The [profile-value rule](#profile-values-program-only) and the [guard](#public-repo-guard-program-only) run after the
+  last move, so moving a change to `profile <p>` lets a refused value through.
+- `--yes` and a machine without a record never ask; nothing moves.
 
 ### Profile values (program only)
 

@@ -696,6 +696,40 @@ The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are
 - **The Windows survey runs once, early.** One prompt on work machine #1 (`docs/windows-survey.md`) answers "Confirm
   on Windows" with names and shapes only.
 
+## Decided in phase 8
+
+The plan's decisions (`docs/plan-single-engine-8.md`), as rules. Exact lines are in the contract ("The program",
+"Diff", "Checks before pushing", "dconf entries", "Package drift", "Front door", "Move a change", "Linked folders").
+
+- **Old verbs and new commands side by side.** The program keeps `export` and `import`, gains `export --diff`,
+  `import --reset-values` and `commit`, and takes the front door's `status`, `doctor`, `pull`, `push`, `diff`,
+  `check` and `preview` as its own. Example: the shared case `commit-opens-pr` runs `mksync export` then
+  `mksync commit` against the program, and `export.sh` then `commit.sh` against bash.
+- **Diff without a temp folder.** `base` and `theirs` come from git objects; `mine` is `base` with the export's writes
+  applied in memory. Example: on personal Linux, `.bashrc` edited since the last sync reads `OUT` without any copy of
+  the clone being made.
+- **Commit is the program's,** with one new check: the guard reads the unpushed commits too. Example: a profile file
+  committed by hand and then `git rm --cached` is still refused while the repo is public, since pushing the branch
+  would publish the first commit (settles "Left by the phase 6 audits", the first item).
+- **The leak scan stays bash.** The program runs `scripts/ci/leak-scan.sh`. Example: a work machine without Git Bash
+  can't push until it has one; the survey says whether that happens.
+- **dconf through stubs.** The shared cases stub `dconf` and `getent`, so the dconf rules run against bash and the
+  program without a session bus. Example: `dconf-keys-filter` dumps a fixture `.ini` and expects the filtered repo
+  file.
+- **Drift stays in export and preview,** as the contract says; `docs/design-test-moves.md`'s "moves into `mksync
+doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Linux, `mksync doctor` says
+  `WARN drift: 3 package(s) differ; run mksync preview`, and the preview lists them.
+- **Pull doesn't re-run itself.** The program reads the config again after the fast-forward. Example: a pull that
+  brings a new entry applies it in the same run.
+- **Move a change.** A key moved narrower is an override; moved wider, it leaves the old layer. This machine's merged
+  files never change by a move. Example: on work #1, `editor.fontSize` 14 → 15 in the base moved to "profile work-1"
+  leaves the base at 14 for personal Linux and writes 15 into the profile's layer.
+- **Linked folders become `dir` entries** in a profile's or record's `entries`, asked once by `setup`. Example: on
+  work #1, `.bashrc` sources `~/work-tool-1-scripts`; setup suggests "this profile", and the folder syncs as
+  `profiles/work-1/linked/work-tool-1-scripts/`.
+- **The port has its own plan.** The old cases without a shared twin (`docs/design-test-moves.md`) are ported by
+  `docs/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
+
 ## Linked folders
 
 Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
@@ -1171,10 +1205,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
 - **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
   drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
-  or become hidden, is the `cli` skill's review before phase 8.
+  or become hidden, is the `cli` skill's review before phase 8. Phase 8 keeps them and adds `commit` beside them
+  ("Decided in phase 8"); the review moves to phase 9, before cut-over.
 - **ESLint.** Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
   flat config; adding it (and which rule set) is decided when the code is big enough to need it, at the latest in
-  phase 8.
+  phase 8. Phase 8's plan leaves it to the user: it needs a new dependency (`ts-add-package`).
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
@@ -1258,7 +1293,7 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1.
 - **Left by the phase 6 audits.** Each is a behavior the contract doesn't fix yet:
   - The guard checks tracked paths, not unpushed history: a state file committed and then `git rm --cached` still
-    goes out with the next push. Phase 8 owns the push.
+    goes out with the next push. Phase 8 owns the push: settled by its step 9, which reads `origin/master..HEAD`.
   - A piped `setup --replace` prints the old machine values as suggestions on stdout.
   - A `__proto__` placeholder in `.user-values.json` is dropped without a message.
   - Profile names read from file names, and retire names, aren't checked against the layer-name rule.

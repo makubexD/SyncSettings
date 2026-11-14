@@ -209,7 +209,10 @@ the phase 7 finish review").
   stops at the survey step if it isn't in.
 - Diff and the sync point, commit and the PR per profile, dconf and package drift, linked-folder suggestions, the
   `mksync` front door.
-- The cases of the old engines that have no shared twin, ported (the phase 3 list).
+- The cases of the old engines that have no shared twin, ported (the phase 3 list). Their own plan,
+  `docs/plan-single-engine-8-port.md`, written when `docs/plan-single-engine-8.md` finishes: about 370 shared cases
+  and 150 unit and adapter tests would more than double the phase. Phase 8 ports only the dconf and drift groups, with
+  their rules.
 
 ### Phase 9: cut-over
 
