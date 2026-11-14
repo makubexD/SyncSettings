@@ -285,10 +285,7 @@ interface AppliedPlan {
 
 /** Apply a plan's steps and render what the run printed, keeping the run's
  * dated backup folder. */
-function applyPlanAndBackup(
-  plan: RunPlan,
-  context: RunContext,
-): AppliedPlan {
+function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
   const outcome = runPlan(plan, context);
   const rendered = renderRun(plan, outcome);
   return {
@@ -809,10 +806,7 @@ async function askSettings(
   question: NewSettingQuestion,
   io: SetupIo,
 ): Promise<readonly NewSettingChoice[]> {
-  const tentative = planExport(
-    snapshot,
-    suggestionAnswers(settings, question),
-  );
+  const tentative = planExport(snapshot, suggestionAnswers(settings, question));
   const grouped = groupedBlock(
     withoutNewSettings(changeLines(tentative, snapshot), settings),
     snapshot.record,
@@ -905,7 +899,10 @@ function runExport(
   snapshot: Snapshot,
   context: RunContext,
   settings: readonly NewSettingLine[] = [],
-): AppliedPlan {
+  choices: readonly NewSettingChoice[] = [],
+  backup?: FirstBackupRun,
+  answers?: ReadonlyMap<string, BackupSide>,
+): ExportRun {
   const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
   const refused = exportRefusal(plan, snapshot, lines);
   if (refused !== undefined) {
@@ -919,10 +916,19 @@ function runExport(
         stdout: writeLines(block) + writeLines(refused),
         stderr: "",
       },
+      prepared: undefined,
       backups: undefined,
     };
   }
-  const applied = applyPlanAndBackup(plan, context);
+  const applied = applyExportPlan(
+    plan,
+    snapshot,
+    context,
+    settings,
+    choices,
+    backup,
+    answers,
+  );
   if (lines.length === 0 && settings.length === 0) {
     return applied;
   }
@@ -932,13 +938,7 @@ function runExport(
       ...applied.result,
       stdout:
         writeLines(
-          groupBlock(
-            lines,
-            snapshot.record,
-            snapshot.os,
-            "push",
-            settings,
-          ),
+          groupBlock(lines, snapshot.record, snapshot.os, "push", settings),
         ) + applied.result.stdout,
     },
   };
@@ -948,6 +948,7 @@ function runExport(
 interface FirstBackupRun {
   readonly stateFolder: string;
   readonly repoRoot: string;
+  readonly config: ConfigV2;
   readonly local: LocalBackup;
   readonly repo: RepoBackup;
   readonly yes: boolean;
@@ -957,6 +958,13 @@ interface FirstBackupRun {
 interface FirstBackupPrepared {
   readonly files: readonly FirstBackupFile[];
   readonly writes: FirstBackupWrites;
+}
+
+/** An export run and the first backup it planned after its own writes. */
+interface ExportRun {
+  readonly result: Result;
+  readonly prepared: FirstBackupPrepared | undefined;
+  readonly backups: string | undefined;
 }
 
 /** Contract "The first backup": the question with both sides shown, one space
@@ -1001,24 +1009,25 @@ async function askBackupQuestions(
   return answers;
 }
 
-/** Plan the first backup, ask what differs unless `--yes`, and plan its writes. */
-async function prepareFirstBackup(
+/** Ask the first backup's questions from the sides read before the export.
+ * The backup's files are planned later, from what the export writes. */
+async function askFirstBackup(
   run: FirstBackupRun,
   io: SetupIo,
-): Promise<FirstBackupPrepared> {
+): Promise<ReadonlyMap<string, BackupSide>> {
   const plan = planFirstBackup(run.local, run.repo);
-  const answers = run.yes
+  return run.yes
     ? new Map<string, BackupSide>()
     : await askBackupQuestions(io, plan.questions);
-  const writes = firstBackupWrites(run.local, run.repo, answers);
-  return { files: firstBackupFiles(run.repoRoot, writes), writes };
 }
 
 /**
  * Contract "The first backup": the backup's status lines come after the
  * entries and count towards the export's total, so they are planned into the
  * run. The backup's own actions are empty: the files are written after the
- * export, by `finishFirstBackup`.
+ * export, by `finishFirstBackup`. A layer file the export wrote to the state
+ * folder already has its status line from that write; the backup copies it to
+ * the repo without printing its path twice.
  */
 function withFirstBackup(
   plan: RunPlan,
@@ -1029,7 +1038,11 @@ function withFirstBackup(
   }
   const lines = [...plan.lines];
   const steps = [...plan.steps];
+  const labelled = new Set(steps.map((step) => step.label));
   for (const file of files) {
+    if (labelled.has(file.path)) {
+      continue;
+    }
     lines.push(formatLine(file.status, file.path));
     steps.push({
       label: file.path,
@@ -1071,6 +1084,63 @@ function finishFirstBackup(
 }
 
 /**
+ * Contract "The first backup": run the export's steps, store the item answers
+ * in the profile, then read both sides again. The export has just written the
+ * layer files and destinations the backup must carry, so its files are
+ * planned from that read, and its status lines and count come from them.
+ * Nothing is written for the backup here; `finishFirstBackup` writes it.
+ */
+function applyExportPlan(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  context: RunContext,
+  settings: readonly NewSettingLine[],
+  choices: readonly NewSettingChoice[],
+  backup: FirstBackupRun | undefined,
+  answers: ReadonlyMap<string, BackupSide> | undefined,
+): ExportRun {
+  const outcome = runPlan(plan, context);
+  // A failed write fails the export: nothing more is stored or backed up.
+  const runCode = renderRun(plan, outcome).code;
+  const stored = storeItemDestinations(snapshot, context, settings, choices, {
+    result: { code: runCode, stdout: "", stderr: "" },
+    backups: outcome.backups,
+  });
+  let prepared: FirstBackupPrepared | undefined;
+  let code = stored.code;
+  let stderr = stored.stderr;
+  if (backup !== undefined && answers !== undefined && code === 0) {
+    const sides = readBackupSides(
+      backup.stateFolder,
+      backup.repoRoot,
+      backup.config,
+    );
+    if (!sides.ok) {
+      code = sides.error.code;
+      stderr = `${stderr}${sides.error.message}\n`;
+    } else if (sides.value !== undefined) {
+      const writes = firstBackupWrites(
+        sides.value.local,
+        sides.value.repo,
+        answers,
+      );
+      prepared = {
+        files: firstBackupFiles(backup.repoRoot, writes),
+        writes,
+      };
+    }
+  }
+  const planned =
+    prepared === undefined ? plan : withFirstBackup(plan, prepared.files);
+  const rendered = renderRun(planned, outcome);
+  return {
+    result: { code, stdout: writeLines(rendered.lines), stderr },
+    prepared,
+    backups: outcome.backups,
+  };
+}
+
+/**
  * The push side with a record: ask where each new setting goes, plan with the
  * answers, run, then store an array item's answer in the profile (contract
  * "New settings (program only)"). Without a record, or with no new setting,
@@ -1096,18 +1166,20 @@ async function executeExport(
         snapshot,
         withoutNewSettings(changeLines(planned, snapshot), settings),
       );
-      const prepared =
+      const answers =
         refused !== undefined || backup === undefined
           ? undefined
-          : await prepareFirstBackup(backup, terminal.io);
-      const result = runExport(
-        prepared === undefined
-          ? planned
-          : withFirstBackup(planned, prepared.files),
+          : await askFirstBackup(backup, terminal.io);
+      const applied = runExport(
+        planned,
         snapshot,
         context,
-      ).result;
-      return finishFirstBackup(backup, prepared, result);
+        [],
+        [],
+        backup,
+        answers,
+      );
+      return finishFirstBackup(backup, applied.prepared, applied.result);
     }
 
     if (command.yes) {
@@ -1118,25 +1190,20 @@ async function executeExport(
         snapshot,
         withoutNewSettings(changeLines(plan, snapshot), settings),
       );
-      const prepared =
+      const answers =
         refused !== undefined || backup === undefined
           ? undefined
-          : await prepareFirstBackup(backup, terminal.io);
-      const result = storeItemDestinations(
+          : await askFirstBackup(backup, terminal.io);
+      const applied = runExport(
+        plan,
         snapshot,
         context,
         settings,
         choices,
-        runExport(
-          prepared === undefined
-            ? plan
-            : withFirstBackup(plan, prepared.files),
-          snapshot,
-          context,
-          settings,
-        ),
+        backup,
+        answers,
       );
-      return finishFirstBackup(backup, prepared, result);
+      return finishFirstBackup(backup, applied.prepared, applied.result);
     }
 
     const choices = await askSettings(
@@ -1156,23 +1223,20 @@ async function executeExport(
     if (refused !== undefined) {
       return { code: 1, stdout: writeLines(["", ...refused]), stderr: "" };
     }
-    const prepared =
+    const answers =
       backup === undefined
         ? undefined
-        : await prepareFirstBackup(backup, terminal.io);
-    const result = storeItemDestinations(
+        : await askFirstBackup(backup, terminal.io);
+    const applied = applyExportPlan(
+      plan,
       snapshot,
       context,
       settings,
       choices,
-      applyPlanAndBackup(
-        prepared === undefined
-          ? plan
-          : withFirstBackup(plan, prepared.files),
-        context,
-      ),
+      backup,
+      answers,
     );
-    return finishFirstBackup(backup, prepared, result);
+    return finishFirstBackup(backup, applied.prepared, applied.result);
   } finally {
     terminal.close();
   }
@@ -1327,6 +1391,7 @@ async function execute(command: ExecutableCommand): Promise<Result> {
           : {
               stateFolder: state,
               repoRoot,
+              config: config.value,
               local: backupSides.local,
               repo: backupSides.repo,
               yes: command.yes,

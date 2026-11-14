@@ -5,6 +5,8 @@
   "values": {
     "<YOUR_EMAIL>": "jane@work1.example.com"
   },
-  "destinations": {},
+  "destinations": {
+    "delta[]": "profile"
+  },
   "retired": false
 }

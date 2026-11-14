@@ -17,10 +17,11 @@ New settings
 Keep which? 1) the repo's  2) this machine's [1]   MODIFIED   dotfiles/common/parity/settings.json
   ADDED      profiles/work-1/parity/settings.json
   ADDED      machines/wk1-laptop.json
+  MODIFIED   profiles/work-1.json
 
   --------------------------------------------------
 
-  3 file(s) copied to the repo.
+  4 file(s) copied to the repo.
 
   Review the changes, then run  mksync push
 
