@@ -857,7 +857,7 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
   line on stderr and exits 2:
 
   ```text
-  usage: mksync status | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
+  usage: mksync status | mksync doctor | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 
   Phase 8 adds its commands to it one step at a time (`docs/plan-single-engine-8.md`); at the end of the phase it

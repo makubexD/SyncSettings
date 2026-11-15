@@ -35,6 +35,7 @@ import type { BackupSides } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
 import { executeCommit } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
+import { executeDoctor } from "./app/doctor.ts";
 import { executeStatus } from "./app/status.ts";
 import {
   CANNOT_LIST_TRACKED,
@@ -53,6 +54,7 @@ import type {
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   CommitCommand,
+  DoctorCommand,
   MachineShowCommand,
   RetireCommand,
   RunCommand,
@@ -135,6 +137,7 @@ type Resolved =
   | RunCommand
   | ShadowCommand
   | StatusCommand
+  | DoctorCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -145,6 +148,7 @@ type ExecutableCommand =
   | RunCommand
   | ShadowCommand
   | StatusCommand
+  | DoctorCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -662,6 +666,15 @@ async function execute(command: ExecutableCommand): Promise<Result> {
       layers: layers.value,
     });
   }
+  if (command.kind === "doctor") {
+    return executeDoctor({
+      repoRoot,
+      config: config.value,
+      os: os.value,
+      home,
+      layers: layers.value,
+    });
+  }
   if (command.kind === "machine-show") {
     const record = layers.value.record;
     if (record === undefined) {
@@ -848,6 +861,8 @@ export function run(argv: readonly string[]): Resolved {
     case "shadow":
       return parsed;
     case "status":
+      return parsed;
+    case "doctor":
       return parsed;
     case "machine-show":
       return parsed;

@@ -33,6 +33,8 @@ const MACHINE_SHOW = { kind: "machine-show" } as const;
 
 const STATUS = { kind: "status" } as const;
 
+const DOCTOR = { kind: "doctor" } as const;
+
 const SETUP = { kind: "setup" } as const;
 
 const COMMIT = { kind: "commit", partial: false } as const;
@@ -224,6 +226,20 @@ describe("parseArgs", () => {
 
   test("should refuse a stray argument after status", () => {
     expect(parseArgs(["status", "extra"])).toEqual(unknownOption("extra"));
+  });
+
+  test("should parse doctor", () => {
+    expect(parseArgs(["doctor"])).toEqual(DOCTOR);
+  });
+
+  test("should refuse an option after doctor", () => {
+    expect(parseArgs(["doctor", "--force"])).toEqual(
+      unknownOption("--force"),
+    );
+  });
+
+  test("should refuse a stray argument after doctor", () => {
+    expect(parseArgs(["doctor", "extra"])).toEqual(unknownOption("extra"));
   });
 
   test("should parse machine show", () => {
@@ -497,6 +513,12 @@ describe("parseArgs", () => {
 
   test("should name status in the usage line", () => {
     expect(USAGE_TEXT.startsWith("usage: mksync status |")).toBe(true);
+  });
+
+  test("should name doctor in the usage line", () => {
+    expect(
+      USAGE_TEXT.startsWith("usage: mksync status | mksync doctor |"),
+    ).toBe(true);
   });
 
   test("should name machine show in the usage line", () => {
