@@ -1,0 +1,24 @@
+{
+  "description": "A dconf path of / alone is refused, so nobody dumps the whole database by accident (Path safety; dconf entries).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/",
+        "description": "Parity case dconf entry with the root path"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true
+    }
+  ]
+}

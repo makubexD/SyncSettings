@@ -1,0 +1,24 @@
+{
+  "description": "A dconf path with a space in a segment stops both engines with exit 1 before touching anything (Path safety; dconf entries).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/org/gno me/",
+        "description": "Parity case dconf entry with a space in the path"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "description": "A dconf path without a leading slash stops both engines with exit 1 before touching anything (Path safety; dconf entries).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "org/gnome/",
+        "description": "Parity case dconf entry with a relative path"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true
+    }
+  ]
+}
