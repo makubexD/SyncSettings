@@ -1,0 +1,19 @@
+{
+  "description": "Pull --force skips the diff and overwrites the file this machine changed, keeping a .bak, exit 0 (Front door, pull guard, --force).",
+  "os": ["linux", "windows"],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "pull", "options": { "yes": true, "force": true } }],
+  "syncPoint": true
+}

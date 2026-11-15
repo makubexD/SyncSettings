@@ -1,0 +1,2 @@
+UPDATE dotfiles/common/parity/a.conf
+OUT dotfiles/common/parity/a.conf

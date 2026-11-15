@@ -258,3 +258,8 @@ other inputs:
 | `status-differs-out` | — | a sync point and only this machine changed the file: the diff splits it, `Next: mksync push` |
 | `status-nothing` | `sync_status_clean`, Pester `status clean` | everything matches: `Next: nothing to do.` |
 | `status-unsent` | `sync_status_unsent`, Pester `status unsent` | one uncommitted repo file: the `Unsent` line, `1 changed file(s) not sent yet` |
+| `pull-clean` | `sync_pull_applies`, `sync_pull_in_only`; Pester `pull applies` | the `Pulled 1 commit(s).` note and `HEAD` equal to origin's |
+| `pull-guard-out` | `sync_pull_blocks_out`, Pester `pull-blocks-out` | the `ERROR:` and `--force` hint text; the old case has an `IN` file next to the `OUT` one |
+| `pull-force` | `sync_pull_force`, Pester `pull-force` | an origin change fast-forwarded in the same pull |
+| `pull-unsent-refused` | `sync_pull_dirty`, Pester `pull dirty` | the `ERROR:` text and the clone's `HEAD` unmoved |
+| `pull-no-sync-point-yes` | `front_pull_first_yes`, Pester `front-pull-first-yes` | the `ERROR:` and hint text, no sync point written; the old case fast-forwards origin first |

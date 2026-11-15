@@ -1,0 +1,18 @@
+{
+  "description": "Pull refuses before anything when the repo has an exported change not sent yet, leaving both trees as they were, exit 1 (Front door, pull row).",
+  "os": ["linux", "windows"],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "pull", "options": { "yes": true } }]
+}

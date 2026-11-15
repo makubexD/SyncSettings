@@ -1,0 +1,18 @@
+{
+  "description": "Pull --yes with no sync point refuses to overwrite the files that differ, exit 1 and writes nothing (Front door, pull guard without a sync point).",
+  "os": ["linux", "windows"],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "pull", "options": { "yes": true } }]
+}
