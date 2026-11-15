@@ -121,7 +121,7 @@ describe("dconfLoad", () => {
     );
 
     // Act
-    const result = await dconfLoad(DCONF_PATH, DUMP_TEXT, stubEnv(bin));
+    const result = dconfLoad(DCONF_PATH, DUMP_TEXT, stubEnv(bin));
 
     // Assert
     expect(result).toEqual({ kind: "ok" });
@@ -137,7 +137,7 @@ describe("dconfLoad", () => {
     writeStub(bin, "dconf", LOAD_FAILURE_SCRIPT);
 
     // Act
-    const result = await dconfLoad(DCONF_PATH, DUMP_TEXT, stubEnv(bin));
+    const result = dconfLoad(DCONF_PATH, DUMP_TEXT, stubEnv(bin));
 
     // Assert
     expect(result).toEqual({ kind: "failed" });

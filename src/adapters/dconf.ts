@@ -104,21 +104,27 @@ export async function dconfDump(
 /**
  * `dconf load <path>` with `text` on stdin, merging the named keys into the
  * folder. No `dconf` on `PATH` is `missing` (`dconf not installed`); a non-zero
- * exit or a spawn error is `failed` (`dconf load failed`).
+ * exit or a spawn error is `failed` (`dconf load failed`). Synchronous, because
+ * the plan executor that runs it is.
  */
-export async function dconfLoad(
+export function dconfLoad(
   path: string,
   text: string,
   env: Readonly<Record<string, string | undefined>>,
-): Promise<LoadResult> {
-  const result = await runTool("dconf", [LOAD_COMMAND, path], env, text);
-  switch (result.kind) {
-    case "ok":
-      return { kind: "ok" };
-    case "missing":
-      return { kind: "missing" };
-    case "failed":
-      return { kind: "failed" };
+): LoadResult {
+  try {
+    const result = Bun.spawnSync({
+      cmd: ["dconf", LOAD_COMMAND, path],
+      env: { ...env },
+      stdin: new TextEncoder().encode(text),
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    return result.exitCode === 0 ? { kind: "ok" } : { kind: "failed" };
+  } catch (error) {
+    return spawnErrorCode(error) === NOT_FOUND
+      ? { kind: "missing" }
+      : { kind: "failed" };
   }
 }
 

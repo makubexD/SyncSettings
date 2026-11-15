@@ -31,6 +31,7 @@ import type {
   Snapshot,
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
+import { dconfLoad } from "./dconf.ts";
 import { expandHome } from "./paths.ts";
 import { writeStoreProfile, writeStoreRecord } from "./store.ts";
 import type { StoreLocation } from "./store.ts";
@@ -762,9 +763,24 @@ function runAction(
           chmodSync(absolutePath(action.path, context), action.mode);
         }
         return ACTION_OK;
-      case "writeState":
+      case "writeState": {
         writeStateFile(action.path, action.text, context.os);
-        return ACTION_OK;
+        if (action.repoPath === undefined) {
+          return ACTION_OK;
+        }
+        const warning = datedBackup(
+          action.path,
+          action.repoPath,
+          context,
+          dated,
+        );
+        return { ok: true, warning };
+      }
+      case "dconfLoad":
+        // Any failure, a missing dconf too, is the contract's `dconf load failed`.
+        return dconfLoad(action.path, action.text, process.env).kind === "ok"
+          ? ACTION_OK
+          : { ok: false, warning: undefined };
       case "writeValues":
         writeValuesFile(action.text, context);
         return ACTION_OK;

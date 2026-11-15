@@ -18,7 +18,7 @@ import { scopeFor } from "../core/plan/pick.ts";
 import type { DconfDumpResult, RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
-import { dconfDump } from "./dconf.ts";
+import { dconfDump, loginHome } from "./dconf.ts";
 import { readSnapshot } from "./fs.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
 import { readStore, readText } from "./store.ts";
@@ -217,8 +217,15 @@ export async function buildSnapshot(
     ...(layers.record !== undefined ? { record: layers.record } : {}),
   });
   const dconfDumps = await dconfDumpsFor(snapshot);
-  const built =
-    dconfDumps === undefined ? snapshot : { ...snapshot, dconfDumps };
+  let built = snapshot;
+  if (dconfDumps !== undefined) {
+    const login = await loginHome(snapshot.env.USER ?? "", snapshot.env);
+    built = {
+      ...snapshot,
+      dconfDumps,
+      ...(login !== undefined ? { loginHome: login } : {}),
+    };
+  }
   if (command.command === "export" && !command.preview) {
     return built;
   }

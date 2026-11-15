@@ -95,6 +95,12 @@ export interface Snapshot {
    */
   readonly dconfDumps?: ReadonlyMap<string, DconfDumpResult>;
   /**
+   * The home `getent passwd` gives the user, read on Linux when a dconf entry
+   * is selected. Import loads only when `home` matches it (contract "dconf
+   * entries", login-home guard); absent when `getent` could not tell.
+   */
+  readonly loginHome?: string;
+  /**
    * Local folders that exist, keyed by absolute path. Without it an empty
    * directory entry and a missing one would look alike.
    */
@@ -175,6 +181,20 @@ export interface WriteStateAction {
   readonly kind: "writeState";
   readonly path: string;
   readonly text: string;
+  /**
+   * A dconf backup's repo path: after the write, copy the file into the run's
+   * dated folder under this path (contract "Backups").
+   */
+  readonly repoPath?: string;
+}
+
+/** Load a dconf dump into its folder (import, contract "dconf entries"). */
+export interface DconfLoadAction {
+  readonly kind: "dconfLoad";
+  /** The entry's `path`, such as `/org/gnome/shell/`. */
+  readonly path: string;
+  /** The text `dconf load` receives on stdin: the repo file's bytes. */
+  readonly text: string;
 }
 
 /**
@@ -205,6 +225,7 @@ export type Action =
   | MkdirAction
   | ChmodAction
   | WriteStateAction
+  | DconfLoadAction
   | WriteValuesAction
   | WriteMachineValuesAction;
 
