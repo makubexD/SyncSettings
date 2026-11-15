@@ -1,0 +1,1 @@
+ERROR: --check cannot be combined with --reset-values.

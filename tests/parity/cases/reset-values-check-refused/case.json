@@ -1,0 +1,25 @@
+{
+  "description": "The import check refuses --reset-values before touching anything: the contract's ERROR line, exit 1, no file changed (Import check).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<YOUR_NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "check",
+      "options": { "resetValues": true },
+      "stderr": true
+    }
+  ]
+}

@@ -106,6 +106,7 @@ const SHADOW_SNAPSHOT_COMMAND: RunCommand = {
   force: false,
   preview: true,
   check: false,
+  resetValues: false,
   yes: false,
   only: [],
 };
@@ -171,7 +172,11 @@ const NO_RECORD = "ERROR: no machine record here; run mksync setup.";
  * takes. End of input counts as yes, so no answers means every file applies.
  */
 async function readAnswers(command: RunCommand): Promise<readonly string[]> {
-  if (command.command !== "import" || command.force || command.check) {
+  if (
+    command.command !== "import" ||
+    command.check ||
+    (command.force && !command.resetValues)
+  ) {
     return [];
   }
   // shortcut: a terminal user does not see the Overwrite prompt yet. The whole
@@ -424,6 +429,7 @@ async function executeSetup(
     force: true,
     preview: false,
     check: false,
+    resetValues: false,
     yes: false,
     only: [],
   };
@@ -436,6 +442,7 @@ async function executeSetup(
     force: false,
     preview: false,
     check: false,
+    resetValues: false,
     yes: false,
     only: [],
   };

@@ -9,6 +9,7 @@ const EXPORT = {
   force: false,
   preview: false,
   check: false,
+  resetValues: false,
   yes: false,
   only: [],
 } as const;
@@ -19,6 +20,7 @@ const IMPORT = {
   force: false,
   preview: false,
   check: false,
+  resetValues: false,
   yes: false,
   only: [],
 } as const;
@@ -118,6 +120,25 @@ describe("parseArgs", () => {
       ...IMPORT,
       force: true,
     });
+  });
+
+  test("should parse import --reset-values", () => {
+    expect(parseArgs(["import", "--reset-values"])).toEqual({
+      ...IMPORT,
+      resetValues: true,
+    });
+  });
+
+  test("should refuse import --check --reset-values", () => {
+    expect(parseArgs(["import", "--check", "--reset-values"])).toEqual(
+      usageError("ERROR: --check cannot be combined with --reset-values."),
+    );
+  });
+
+  test("should refuse import --reset-values --check", () => {
+    expect(parseArgs(["import", "--reset-values", "--check"])).toEqual(
+      usageError("ERROR: --check cannot be combined with --reset-values."),
+    );
   });
 
   test("should collect one path per repeated --only", () => {
@@ -488,6 +509,14 @@ describe("parseArgs", () => {
     expect(
       USAGE_TEXT.includes(
         "mksync export [--preview] [--diff] [--yes] [--only <path>...]",
+      ),
+    ).toBe(true);
+  });
+
+  test("should name import --reset-values in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes(
+        "mksync import [--check] [--force] [--reset-values] [--only <path>...]",
       ),
     ).toBe(true);
   });

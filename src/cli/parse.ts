@@ -9,7 +9,7 @@ import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
   "usage: mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
-  "mksync import [--check] [--force] [--only <path>...] | " +
+  "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
   "mksync commit [-m <msg>] [--partial] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
@@ -30,6 +30,8 @@ export interface RunCommand {
   readonly preview: boolean;
   /** `import --check`: what an import would change. */
   readonly check: boolean;
+  /** `import --reset-values`: prompt again for every placeholder. */
+  readonly resetValues: boolean;
   /** `export --yes`: take the suggestions without asking. */
   readonly yes: boolean;
   /** `export --diff`: label what changed on each side, writing nothing. */
@@ -152,6 +154,9 @@ const PREVIEW_YES_CLASH =
 
 const DIFF_CLASH = "ERROR: --diff cannot be combined with --preview or --yes.";
 
+const CHECK_RESET_VALUES_CLASH =
+  "ERROR: --check cannot be combined with --reset-values.";
+
 const UNKNOWN_OPTION_PREFIX = "Unknown option: ";
 
 /** The setup flags that take a value after them (decision 5). */
@@ -183,7 +188,7 @@ const SETUP_EXISTING_CHOICES: readonly ExistingAction[] = [
 /** The options each verb accepts besides `--only`, which takes a value. */
 const FLAGS: Readonly<Record<CommandName, readonly string[]>> = {
   export: ["--preview", "--diff", SETUP_YES],
-  import: ["--check", "--force"],
+  import: ["--check", "--force", "--reset-values"],
 };
 
 function isCommandName(value: string): value is CommandName {
@@ -494,6 +499,7 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   let force = false;
   let preview = false;
   let check = false;
+  let resetValues = false;
   let yes = false;
   let diff = false;
 
@@ -528,6 +534,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
       case "--check":
         check = true;
         break;
+      case "--reset-values":
+        resetValues = true;
+        break;
       case SETUP_YES:
         if (yes) {
           return repeatedFlag(arg);
@@ -546,6 +555,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   if (diff && (preview || yes)) {
     return error(DIFF_CLASH);
   }
+  if (check && resetValues) {
+    return error(CHECK_RESET_VALUES_CLASH);
+  }
 
   return {
     kind: "run",
@@ -553,6 +565,7 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     force,
     preview,
     check,
+    resetValues,
     yes,
     ...(diff ? { diff: true } : {}),
     only,

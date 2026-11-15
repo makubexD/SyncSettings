@@ -98,6 +98,9 @@ validate_case() {
     jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("message")) then ($o.message | type) == "string" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.message must be a string'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("resetValues")) then ($o.resetValues | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.resetValues must be a boolean'
     jq -e 'all(.commands[];
         .command as $cmd
         | (.options // {}) as $o
@@ -112,8 +115,9 @@ validate_case() {
                   or $cmd == "machine-retire" or $cmd == "profile-retire"
                else true end)
           and (if ($o | has("partial")) then $cmd == "commit" else true end)
-          and (if ($o | has("message")) then $cmd == "commit" else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit'
+          and (if ($o | has("message")) then $cmd == "commit" else true end)
+          and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -524,7 +528,7 @@ run_case() {
         fi
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message) ;;
+                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message|resetValues) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -547,6 +551,9 @@ run_case() {
         fi
         if [[ $(jq -r ".commands[$i].options | has(\"message\")" "$dir/case.json") == true ]]; then
             args+=(-m "$(jq -r ".commands[$i].options.message" "$dir/case.json")")
+        fi
+        if [[ $(jq -r ".commands[$i].options.resetValues // false" "$dir/case.json") == true ]]; then
+            args+=(--reset-values)
         fi
 
         stdin_file=/dev/null
