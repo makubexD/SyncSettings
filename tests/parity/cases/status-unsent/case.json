@@ -1,0 +1,18 @@
+{
+  "description": "Status of a machine with one unsent repo file suggests pushing, exit 0 (Front door).",
+  "os": ["linux", "windows"],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "status" }]
+}

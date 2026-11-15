@@ -285,6 +285,13 @@ function Validate-Case {
             Die 'origin/ needs git remote'
         }
     }
+    $hasUnsent = Test-Path -LiteralPath (Join-Path $Dir 'unsent') -PathType Container
+    if ($hasUnsent) {
+        $committed = ($null -ne $gitProp -and $gitProp.Value -is [string] -and ($gitProp.Value -ceq 'committed' -or $gitProp.Value -ceq 'remote'))
+        if (-not $committed) {
+            Die 'unsent/ needs git committed or remote'
+        }
+    }
 
     $configValue = $null
     if ($null -ne $configProp) {
@@ -807,6 +814,12 @@ function Run-Case {
             Invoke-Git -What 'git push to origin' -GitArgs @('-C', $cloneDir, 'push', '-q', 'origin', 'master')
             Remove-Item -LiteralPath $cloneDir -Recurse -Force
             Invoke-Git -What 'git fetch origin' -GitArgs @('-C', $repoDir, 'fetch', '-q', 'origin')
+        }
+
+        # An unsent/ tree goes over the repo's working tree after the commit and
+        # stays uncommitted, so `git status --porcelain` shows it.
+        if (Test-Path -LiteralPath (Join-Path $Dir 'unsent') -PathType Container) {
+            Copy-Tree (Join-Path $Dir 'unsent') $repoDir
         }
 
         # A seeded state/ goes into the folder the engine treats as its own

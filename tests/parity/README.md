@@ -56,6 +56,7 @@ cases/<name>/
   repo/            repo files before the run, besides sync-config.json (optional)
   state/           the engine's state folder before the run (optional)
   origin/          repo files committed on top of master in a second clone, so origin is ahead (optional)
+  unsent/          repo-relative files copied over the working tree after the commit, left uncommitted (optional)
   dconf/           the dumps the dconf stub answers, one .ini per path (optional)
   expect/
     exit           one exit code per command, one per line
@@ -83,6 +84,7 @@ cases/<name>/
 | `syncPoint` | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error |
 | `stubs` | Optional. Any of `gh`, `dconf` and `getent`, as a list: each names a stub put first on `PATH`; see [The stubs](#the-stubs) below |
 | `origin/` (folder) | Optional. A tree of repo-relative files committed on top of `master` in a second clone and pushed to the bare origin, then `git fetch origin` in the repo: `origin/master` is one commit ahead, while the repo's `master` and working tree stay unchanged. Needs `"git": "remote"`; without it, a runner error |
+| `unsent/` (folder) | Optional. A tree of repo-relative files copied over the repo's working tree after the initial commit, the push and `origin/`, and left uncommitted, so `git status --porcelain` shows them. They are compared like any other repo file, so `expect/repo/` must hold them. Needs `"git": "committed"` or `"remote"`; without one, a runner error |
 | `differences` | Required when the case has an `expect.<os>/` folder, and only then: the names of the rows it records |
 
 `home/`, `repo/` and `state/` are copied into the case's temp folders before the first command. `state/` goes into
@@ -179,8 +181,8 @@ A case fits when the behavior shows in exit code, status lines and files. A git 
 `getent` (`stubs`) and a prompt answer (`stdin`) are covered. The package managers have no stub yet, so those cases stay
 in `tests/linux/engine.sh`, as does a dconf case that needs a real session bus rather than the stub. Text the runner
 drops (notes, `ERROR:` messages, summaries) and a check of one function from the inside stay in that engine's own
-suite. A write failure, a symlink in `home/` and an uncommitted repo change can't be set up yet; the program's unit
-tests cover those ([design, "Open"](../../docs/design-layers.md#open)).
+suite. A write failure and a symlink in `home/` can't be set up yet; the program's unit tests cover those
+([design, "Open"](../../docs/design-layers.md#open)).
 
 ## Reading a failure
 
@@ -254,3 +256,4 @@ other inputs:
 | `status-origin-ahead` | `sync_status_behind`, Pester `status behind` | origin ahead: `Next: mksync pull` |
 | `status-differs` | `sync_status_differs`, `sync_status_no_record`, Pester `status differs`, `status-no-record` | a differing file with no sync point: the plain differ `Next` line, both trees unchanged |
 | `status-nothing` | `sync_status_clean`, Pester `status clean` | everything matches: `Next: nothing to do.` |
+| `status-unsent` | `sync_status_unsent`, Pester `status unsent` | one uncommitted repo file: the `Unsent` line, `1 changed file(s) not sent yet` |

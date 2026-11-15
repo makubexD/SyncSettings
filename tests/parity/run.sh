@@ -182,6 +182,10 @@ validate_case() {
     if [[ -d $dir/origin ]]; then
         jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'origin/ needs git remote'
     fi
+    if [[ -d $dir/unsent ]]; then
+        jq -e '.git == "committed" or .git == "remote"' "$json" > /dev/null 2>&1 \
+            || die 'unsent/ needs git committed or remote'
+    fi
     if jq -e 'has("config") and has("configV2")' "$json" > /dev/null 2>&1; then
         die 'case.json has both config and configV2'
     fi
@@ -522,6 +526,12 @@ run_case() {
         git_env -C "$clone" push -q origin master || die 'git push to origin failed'
         rm -rf "$clone" || die 'removing the origin clone failed'
         git_env -C "$t/repo" fetch -q origin || die 'git fetch origin failed'
+    fi
+
+    # An unsent/ tree goes over the repo's working tree after the commit and
+    # stays uncommitted, so `git status --porcelain` shows it.
+    if [[ -d $dir/unsent ]]; then
+        cp -a "$dir/unsent/." "$t/repo/" || die 'copying the case unsent/ failed'
     fi
 
     # A seeded state/ goes into the folder the engine treats as its own state,
