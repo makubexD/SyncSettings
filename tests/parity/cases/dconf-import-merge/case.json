@@ -1,0 +1,19 @@
+{
+  "description": "Import loads the repo file over the folder and keeps the machine's extra key: the entry is UPDATED with the old dump backed up (dconf entries, Import merges; Backups).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "import", "options": { "force": true } }]
+}
