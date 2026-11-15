@@ -55,6 +55,7 @@ cases/<name>/
   repo/            repo files before the run, besides sync-config.json (optional)
   state/           the engine's state folder before the run (optional)
   origin/          repo files committed on top of master in a second clone, so origin is ahead (optional)
+  dconf/           the dumps the dconf stub answers, one .ini per path (optional)
   expect/
     exit           one exit code per command, one per line
     output.txt     the status lines of every command, in order
@@ -63,6 +64,7 @@ cases/<name>/
     values.json    optional: .user-values.json after the last command
     state/         optional: files the engine's state folder must hold
     gh.log         optional: the gh calls, when the case stubs gh
+    dconf.log      optional: the dconf loads, when the case stubs dconf
   expect.<os>/     optional: only what differs from expect/ on linux, macos or windows
 ```
 
@@ -78,7 +80,7 @@ cases/<name>/
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": …, "stderr": true }`, the last two optional |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
 | `syncPoint` | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error |
-| `stubs` | Optional. `["gh"]` puts a `gh` stub first on `PATH`; see `expect/gh.log` below |
+| `stubs` | Optional. Any of `gh`, `dconf` and `getent`, as a list: each names a stub put first on `PATH`; see [The stubs](#the-stubs) below |
 | `origin/` (folder) | Optional. A tree of repo-relative files committed on top of `master` in a second clone and pushed to the bare origin, then `git fetch origin` in the repo: `origin/master` is one commit ahead, while the repo's `master` and working tree stay unchanged. Needs `"git": "remote"`; without it, a runner error |
 | `differences` | Required when the case has an `expect.<os>/` folder, and only then: the names of the rows it records |
 
@@ -110,17 +112,28 @@ error.
 ### Per-OS expectations
 
 `expect.<os>/` (`linux`, `macos`, `windows`) holds only what differs on that OS. Each entry replaces its twin in
-`expect/`: `exit` and `output.txt` as files, `home/` and `repo/` as whole trees, `values.json`, `state/` and `gh.log`
-the same way. Use it only for a row of the contract's
+`expect/`: `exit` and `output.txt` as files, `home/` and `repo/` as whole trees, `values.json`, `state/`, `gh.log` and
+`dconf.log` the same way. Use it only for a row of the contract's
 [Known differences](../../docs/sync-contract.md#known-differences), named in `differences`. The one other allowed
 name is `"Entry selection"`, for a case where each OS picks its own entries by design.
 
-### The `gh` stub
+### The stubs
 
 With `"stubs": ["gh"]`, every `gh` call appends its arguments, joined by spaces, as one line to a log outside both
 trees; the stub prints nothing and exits 0. Each logged line is cut to its first two words (`pr create`), so branch
 names and titles don't matter, and the result must equal `expect/gh.log` line for line. No `expect/gh.log` with the
 stub on means `gh` must not be called.
+
+With `"stubs": ["dconf"]`, a `dconf` first on `PATH` stands in for the session's dconf. `dconf dump <path>` prints the
+case's `dconf/<name>.ini`, where `<name>` is the path without its leading and trailing `/` and with the remaining `/`
+turned to `-` (`/org/gnome/desktop/` is `dconf/org-gnome-desktop.ini`); a missing file prints nothing. Either way it
+exits 0.
+`dconf load <path>` appends the line `load <path>` and then its stdin verbatim to a log outside both trees; there is no
+cut, so the result must equal `expect/dconf.log` byte for byte. No `expect/dconf.log` with the stub on means dconf must
+not be loaded. Any other `dconf` call prints a message on stderr and exits 1.
+
+With `"stubs": ["getent"]`, `getent passwd <user>` answers with the case's temp home in the home field
+(`<user>:x:1000:1000::<home>:/bin/bash`) and exits 0; any other call exits 2, as getent does for an unknown key.
 
 ## How the runner checks it
 
@@ -148,16 +161,18 @@ stub on means `gh` must not be called.
      expected state file may hold `<START_HEAD>`: the runner replaces it with the repo's `HEAD`, recorded right after
      setup (the commit the case starts from), before comparing; without a git repo it is a case error.
    - **gh calls**, when the case stubs `gh` (above).
+   - **dconf loads**, when the case stubs `dconf` (above).
 
 Each file is taken from `expect.<os>/` when it's there for the OS the runner is on, else from `expect/`.
 
 ## What fits
 
-A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh` (`stubs`) and a
-prompt answer (`stdin`) are covered. `dconf` and the package managers have no stub yet, so those cases stay in
-`tests/linux/engine.sh`. Text the runner drops (notes, `ERROR:` messages, summaries) and a check of one function from
-the inside stay in that engine's own suite. A write failure, a symlink in `home/` and an uncommitted repo change can't be set up
-yet; the program's unit tests cover those ([design, "Open"](../../docs/design-layers.md#open)).
+A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh`, `dconf` and
+`getent` (`stubs`) and a prompt answer (`stdin`) are covered. The package managers have no stub yet, so those cases stay
+in `tests/linux/engine.sh`, as does a dconf case that needs a real session bus rather than the stub. Text the runner
+drops (notes, `ERROR:` messages, summaries) and a check of one function from the inside stay in that engine's own
+suite. A write failure, a symlink in `home/` and an uncommitted repo change can't be set up yet; the program's unit
+tests cover those ([design, "Open"](../../docs/design-layers.md#open)).
 
 ## Reading a failure
 
@@ -183,6 +198,8 @@ The part after the case name says which check failed:
 | `values.json:`, `state …:` | `expect/values.json` or `expect/state/` |
 | `gh line N:` | gh call N, cut to its first two words |
 | `gh: want no call` | the case has no `expect/gh.log`, so gh must not be called, and it was |
+| `dconf line N:` | line N of the dconf log |
+| `dconf.log:`, `dconf: want a load`, `dconf: want no load` | the dconf log against `expect/dconf.log` |
 | anything else | the case itself is malformed: `case.json`, `differences`, an `expect.<os>/` name |
 
 Only the first difference prints. Fix it and run the case again with its name as the filter.

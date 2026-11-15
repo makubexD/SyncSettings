@@ -159,9 +159,10 @@ validate_case() {
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
-            (.stubs | type) == "array" and all(.stubs[]; . == "gh")
+            (.stubs | type) == "array"
+            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent")
           else true end' "$json" > /dev/null 2>&1 \
-        || die 'stubs may only hold gh'
+        || die 'stubs may only hold gh, dconf or getent'
     jq -e 'if has("syncPoint") then (.syncPoint | type) == "boolean" else true end' "$json" > /dev/null 2>&1 \
         || die 'syncPoint must be a boolean'
     if jq -e 'has("syncPoint")' "$json" > /dev/null 2>&1; then
@@ -368,6 +369,60 @@ write_gh_stub() {
     chmod +x "$temp/bin/gh" || die 'making the gh stub executable failed'
 }
 
+# Write the dconf stub into $temp/bin. `dump <path>` prints the case's
+# dconf/<name>.ini, where <name> is the path without its leading and trailing
+# slashes and with the rest turned to dashes; a missing file prints nothing.
+# `load <path>` appends `load <path>` and then its stdin verbatim to
+# $temp/dconf.log. Anything else prints a message on stderr and exits 1.
+write_dconf_stub() {
+    local temp=$1 dir=$2
+    mkdir -p "$temp/bin" || die 'creating the dconf stub folder failed'
+    printf '%s\n' \
+        '#!/bin/sh' \
+        "case_dir='$dir'" \
+        "log='$temp/dconf.log'" \
+        'case ${1:-} in' \
+        '    dump)' \
+        '        [ "$#" -eq 2 ] || { echo "dconf stub: dump needs a path" >&2; exit 1; }' \
+        '        name=${2#/}' \
+        '        name=${name%/}' \
+        "        name=\$(printf '%s' \"\$name\" | tr '/' '-')" \
+        '        if [ -f "$case_dir/dconf/$name.ini" ]; then cat "$case_dir/dconf/$name.ini"; fi' \
+        '        exit 0' \
+        '        ;;' \
+        '    load)' \
+        '        [ "$#" -eq 2 ] || { echo "dconf stub: load needs a path" >&2; exit 1; }' \
+        '        printf "load %s\n" "$2" >> "$log"' \
+        '        cat >> "$log"' \
+        '        exit 0' \
+        '        ;;' \
+        '    *)' \
+        '        printf "dconf stub: unsupported: %s\n" "$*" >&2' \
+        '        exit 1' \
+        '        ;;' \
+        'esac' > "$temp/bin/dconf" || die 'writing the dconf stub failed'
+    chmod +x "$temp/bin/dconf" || die 'making the dconf stub executable failed'
+}
+
+# Write the getent stub into $temp/bin: `getent passwd <user>` answers with the
+# case's temp home in the home field and exits 0; anything else is getent's
+# "key not found", exit 2.
+write_getent_stub() {
+    local temp=$1 home=$2
+    mkdir -p "$temp/bin" || die 'creating the getent stub folder failed'
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'case ${1:-} in' \
+        '    passwd)' \
+        '        [ "$#" -eq 2 ] || exit 2' \
+        "        printf '%s:x:1000:1000::%s:/bin/bash\\n' \"\$2\" '$home'" \
+        '        exit 0' \
+        '        ;;' \
+        '    *) exit 2 ;;' \
+        'esac' > "$temp/bin/getent" || die 'writing the getent stub failed'
+    chmod +x "$temp/bin/getent" || die 'making the getent stub executable failed'
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, prints the first difference and
@@ -376,8 +431,9 @@ write_gh_stub() {
 run_case() {
     local dir=$1
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
+    local stubs dconf_stub=false
     local stderr_mode all_output keep_ansi target value
-    local want_exit want_output want_home want_repo want_values want_state want_gh calls
+    local want_exit want_output want_home want_repo want_values want_state want_gh want_dconf calls first_load
     local file rel got want_mode got_mode start_head state_want clone
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
@@ -468,10 +524,21 @@ run_case() {
             || die 'setting the state record modes failed'
     fi
 
-    if jq -e '(.stubs // []) | any(. == "gh")' "$dir/case.json" > /dev/null 2>&1; then
+    stubs=$(jq -r '(.stubs // []) | join(" ")' "$dir/case.json") || die 'reading stubs failed'
+    if [[ -n $stubs ]]; then
+        path_env=(PATH="$t/bin:$PATH")
+    fi
+    if [[ " $stubs " == *' gh '* ]]; then
         gh_stub=true
         write_gh_stub "$t"
-        path_env=(PATH="$t/bin:$PATH" GH="$t/bin/gh")
+        path_env+=(GH="$t/bin/gh")
+    fi
+    if [[ " $stubs " == *' dconf '* ]]; then
+        dconf_stub=true
+        write_dconf_stub "$t" "$dir"
+    fi
+    if [[ " $stubs " == *' getent '* ]]; then
+        write_getent_stub "$t" "$t/home"
     fi
 
     # Optional case env: a string sets the variable, null unsets it. Applied by
@@ -615,6 +682,23 @@ run_case() {
         else
             calls=$(head -n 1 "$t/gh-cut")
             [[ -z $calls ]] || die "gh: want no call, got \"$calls\""
+        fi
+    fi
+
+    # Every dconf load is logged verbatim as `load <path>` and the loaded text,
+    # with no cut, and the log must match expect/dconf.log byte for byte. No
+    # expected file means dconf must not be loaded, as for gh above.
+    if $dconf_stub; then
+        want_dconf=$(expected_path "$dir" dconf.log)
+        if [[ -f $want_dconf ]]; then
+            [[ -f $t/dconf.log ]] || die 'dconf: want a load, got nothing'
+            if ! cmp -s "$want_dconf" "$t/dconf.log"; then
+                first_line_diff dconf "$want_dconf" "$t/dconf.log" \
+                    || die 'dconf.log: differs from expect'
+            fi
+        else
+            first_load=$(head -n 1 "$t/dconf.log" 2> /dev/null) || true
+            [[ -z $first_load ]] || die "dconf: want no load, got \"$first_load\""
         fi
     fi
 

@@ -239,11 +239,14 @@ function Validate-Case {
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
         if ($stubs -isnot [System.Array]) {
-            Die 'stubs may only hold gh'
+            Die 'stubs may only hold gh; dconf and getent are Linux only'
         }
         foreach ($s in $stubs) {
+            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent')) {
+                Die "the $s stub is Linux only: run this case with tests/parity/run.sh"
+            }
             if (-not ($s -is [string] -and $s -ceq 'gh')) {
-                Die 'stubs may only hold gh'
+                Die 'stubs may only hold gh; dconf and getent are Linux only'
             }
         }
     }
