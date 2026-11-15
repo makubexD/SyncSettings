@@ -1,0 +1,1 @@
+ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs "platform": "linux" and a dconf path like /org/gnome/shell/.

@@ -1,0 +1,26 @@
+{
+  "description": "Each dconf entry's overwrite prompt reads its own answer from stdin: the first no skips, the second yes updates (Import; dconf entries; Overwrite prompt).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      },
+      {
+        "repoPath": "dotfiles/linux/dconf/other.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/other/",
+        "description": "Parity case second dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "import", "stdin": "n\ny\n" }]
+}

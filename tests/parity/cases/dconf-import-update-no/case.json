@@ -1,0 +1,19 @@
+{
+  "description": "Answering no to the overwrite prompt skips the dconf entry, changes nothing and makes no backup: SKIPPED user skipped (Import; dconf entries; Backups).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "import", "stdin": "n\n" }]
+}

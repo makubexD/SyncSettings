@@ -1,0 +1,20 @@
+{
+  "description": "An XDG_CONFIG_HOME other than ~/.config skips the dconf entry and loads nothing: SKIPPED XDG_CONFIG_HOME is not ~/.config (Import; dconf entries).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "env": { "XDG_CONFIG_HOME": "/home/user/other-config" },
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "import", "options": { "force": true } }]
+}

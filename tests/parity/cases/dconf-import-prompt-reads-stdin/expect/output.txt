@@ -1,0 +1,2 @@
+SKIPPED dotfiles/linux/dconf/app.ini
+UPDATED dotfiles/linux/dconf/other.ini
