@@ -43,7 +43,7 @@ function missingValue(
   };
 }
 
-function hasValue(value: string | undefined): boolean {
+function hasValue(value: string | undefined): value is string {
   return value !== undefined && value.length > 0;
 }
 
@@ -201,6 +201,91 @@ export function resolveValues(
   }
 
   return { ok: true, value: Object.fromEntries(resolved) };
+}
+
+/** What `askValues` prompts with before the first question. */
+const ASK_HEADER =
+  "\n  Enter values to fill the placeholders in the config files:\n\n";
+
+export interface AskedValues {
+  readonly values: Values;
+  readonly text: string;
+  readonly consumed: number;
+}
+
+/** A prompt answer as bash `read -r` leaves it: a trailing `\r` dropped. */
+function stripAnswerCarriageReturn(answer: string): string {
+  return answer.endsWith("\r") ? answer.slice(0, -1) : answer;
+}
+
+/**
+ * The interactive path of the bash engine's `request_values` with reset on and
+ * direction import: every rule's placeholder is asked for in order, with any
+ * cached value only as the default. `answers` stands in for the user's input;
+ * an exhausted list answers with "". A missing answer falls back to the first
+ * non-empty of the cached value, the rule's `default` and the environment
+ * variable `defaultEnv` names, and stops with the `resolveValues` error when
+ * that is empty too. The returned text is what the prompts would print.
+ */
+export function askValues(
+  rules: readonly SanitizeRule[],
+  cached: Values,
+  env: Readonly<Record<string, string | undefined>>,
+  answers: readonly string[],
+  owner?: ValueOwner,
+): Result<AskedValues, ConfigError> {
+  const values = new Map<string, string>(Object.entries(cached));
+  const seen = new Set<string>();
+  let text = "";
+  let prompted = false;
+  let consumed = 0;
+
+  for (const rule of rules) {
+    const placeholder = rule.placeholder;
+    if (placeholder.length === 0 || seen.has(placeholder)) {
+      continue;
+    }
+    seen.add(placeholder);
+
+    if (!prompted) {
+      text += ASK_HEADER;
+      prompted = true;
+    }
+
+    const fromEnv =
+      rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
+    const fallback = hasValue(cached[placeholder])
+      ? cached[placeholder]
+      : hasValue(rule.default)
+        ? rule.default
+        : hasValue(fromEnv)
+          ? fromEnv
+          : "";
+    const prompt = rule.prompt ?? "";
+    text +=
+      fallback.length > 0
+        ? `  ${prompt} [${fallback}]: `
+        : `  ${prompt}: `;
+
+    const raw = consumed < answers.length ? answers[consumed] : undefined;
+    if (raw !== undefined) {
+      consumed++;
+    }
+    const answer = stripAnswerCarriageReturn(raw ?? "");
+    const chosen = answer.length > 0 ? answer : fallback;
+    if (chosen.length === 0) {
+      return missingValue(placeholder, owner);
+    }
+    values.set(placeholder, chosen);
+  }
+
+  if (prompted) {
+    text += "\n";
+  }
+  return {
+    ok: true,
+    value: { values: Object.fromEntries(values), text, consumed },
+  };
 }
 
 function firstMissingInContent(

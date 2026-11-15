@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { SanitizeRule } from "../config/types.ts";
-import { hydrate, inferValues, resolveValues } from "./hydrate.ts";
+import {
+  askValues,
+  hydrate,
+  inferValues,
+  resolveValues,
+} from "./hydrate.ts";
 import { parseValuesFile, valuesFileText } from "./file.ts";
 import { encodeUtf8, sanitize } from "./sanitize.ts";
 import type { Values } from "./sanitize.ts";
@@ -479,6 +484,156 @@ describe("resolveValues", () => {
       ok: true,
       value: { "<YOUR_NAME>": "Parity User" },
     });
+  });
+});
+
+describe("askValues", () => {
+  const ASK_HEADER =
+    "\n  Enter values to fill the placeholders in the config files:\n\n";
+
+  test("should replace a cached value with the answer", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+
+    // Act
+    const actual = askValues(rules, { "<HOME>": "/old" }, {}, ["/new"]);
+
+    // Assert
+    expect(actual).toEqual({
+      ok: true,
+      value: {
+        values: { "<HOME>": "/new" },
+        text: `${ASK_HEADER}  Home directory [/old]: \n`,
+        consumed: 1,
+      },
+    });
+  });
+
+  test("should take the cached default when the answer is empty", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+
+    // Act
+    const actual = askValues(rules, { "<HOME>": "/old" }, {}, [""]);
+
+    // Assert
+    expect(actual).toEqual({
+      ok: true,
+      value: {
+        values: { "<HOME>": "/old" },
+        text: `${ASK_HEADER}  Home directory [/old]: \n`,
+        consumed: 1,
+      },
+    });
+  });
+
+  test("should take the rule default when the answers run out", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      {
+        placeholder: "<HOME>",
+        prompt: "Home directory",
+        default: "/home/user",
+      },
+    ];
+
+    // Act
+    const actual = askValues(rules, {}, {}, []);
+
+    // Assert
+    expect(actual).toEqual({
+      ok: true,
+      value: {
+        values: { "<HOME>": "/home/user" },
+        text: `${ASK_HEADER}  Home directory [/home/user]: \n`,
+        consumed: 0,
+      },
+    });
+  });
+
+  test("should stop with the missing-value error when no default and no answer exist", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+
+    // Act
+    const actual = askValues(rules, {}, {}, []);
+
+    // Assert
+    expect(actual).toEqual({
+      ok: false,
+      error: {
+        message: "missing value for <HOME>: add it to .user-values.json",
+        code: 1,
+        placeholder: "<HOME>",
+      },
+    });
+  });
+
+  test("should ask a duplicate placeholder only once", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+      { placeholder: "<HOME>", prompt: "Home again" },
+      { placeholder: "<B>", prompt: "B" },
+    ];
+
+    // Act
+    const actual = askValues(rules, {}, {}, ["/one", "two"]);
+
+    // Assert
+    expect(actual).toEqual({
+      ok: true,
+      value: {
+        values: { "<HOME>": "/one", "<B>": "two" },
+        text: `${ASK_HEADER}  Home directory:   B: \n`,
+        consumed: 2,
+      },
+    });
+  });
+
+  test("should print the exact prompt text with and without a default", () => {
+    // Arrange
+    const withDefault: readonly SanitizeRule[] = [
+      {
+        placeholder: "<HOME>",
+        prompt: "Home directory",
+        default: "/home/user",
+      },
+    ];
+    const withoutDefault: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+
+    // Act
+    const prompted = askValues(withDefault, {}, {}, ["/x"]);
+    const bare = askValues(withoutDefault, {}, {}, ["/x"]);
+
+    // Assert
+    expect(prompted.ok && prompted.value.text).toBe(
+      `${ASK_HEADER}  Home directory [/home/user]: \n`,
+    );
+    expect(bare.ok && bare.value.text).toBe(
+      `${ASK_HEADER}  Home directory: \n`,
+    );
+  });
+
+  test("should count only the answers it takes", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<HOME>", prompt: "Home directory" },
+    ];
+
+    // Act
+    const actual = askValues(rules, {}, {}, ["/one", "two"]);
+
+    // Assert
+    expect(actual.ok && actual.value.consumed).toBe(1);
   });
 });
 
