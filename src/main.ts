@@ -37,6 +37,7 @@ import { executeCommit } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
 import {
   CANNOT_LIST_TRACKED,
+  ensureUpToDate,
   executeExport,
   exportGuard,
   setupTerminal,
@@ -675,6 +676,27 @@ async function execute(command: ExecutableCommand): Promise<Result> {
     return diffExport(repoRoot, state, snapshot);
   }
 
+  // Contract "Up-to-date check": export and import start by checking the
+  // repo, not check, preview or diff. The lines print before everything else
+  // this run writes.
+  const upToDate =
+    (command.command === "export" && command.preview) ||
+    (command.command === "import" && command.check)
+      ? undefined
+      : await ensureUpToDate(repoRoot);
+  if (upToDate !== undefined && upToDate.stop) {
+    return {
+      code: upToDate.code,
+      stdout: upToDate.stdout,
+      stderr: upToDate.stderr,
+    };
+  }
+  const upToDatePrefix = upToDate?.stdout ?? "";
+  const finish = (result: Result): Result =>
+    upToDatePrefix === ""
+      ? result
+      : { ...result, stdout: upToDatePrefix + result.stdout };
+
   const check =
     layers.value.record === undefined
       ? undefined
@@ -684,7 +706,7 @@ async function execute(command: ExecutableCommand): Promise<Result> {
           checkMode(command),
         );
   if (check !== undefined && check.stop) {
-    return { code: 1, stdout: "", stderr: writeLines(check.lines) };
+    return finish({ code: 1, stdout: "", stderr: writeLines(check.lines) });
   }
 
   // The record checks run first, then the public-repo guard's (contract
@@ -693,7 +715,7 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   if (command.command === "export") {
     exportGuardResult = await exportGuard(repoRoot, state, config.value);
     if (exportGuardResult === undefined) {
-      return failure(CANNOT_LIST_TRACKED);
+      return finish(failure(CANNOT_LIST_TRACKED));
     }
   }
   if (
@@ -701,7 +723,7 @@ async function execute(command: ExecutableCommand): Promise<Result> {
     !command.preview &&
     exportGuardResult.decision.refused.length > 0
   ) {
-    return failure(refusedText(exportGuardResult.decision.refused));
+    return finish(failure(refusedText(exportGuardResult.decision.refused)));
   }
   // Contract "The first backup": a private repo and a record not yet the
   // pointer read both sides before the run.
@@ -712,7 +734,7 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   ) {
     const sides = readBackupSides(state, repoRoot, config.value);
     if (!sides.ok) {
-      return failure(sides.error.message, sides.error.code);
+      return finish(failure(sides.error.message, sides.error.code));
     }
     backupSides = sides.value;
   }
@@ -782,9 +804,12 @@ async function execute(command: ExecutableCommand): Promise<Result> {
       : applyPlan(planImport(snapshot, answers), context);
   }
   if (check === undefined || check.lines.length === 0) {
-    return result;
+    return finish(result);
   }
-  return { ...result, stderr: writeLines(check.lines) + result.stderr };
+  return finish({
+    ...result,
+    stderr: writeLines(check.lines) + result.stderr,
+  });
 }
 
 /**

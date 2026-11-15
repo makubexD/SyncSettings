@@ -3,7 +3,12 @@ import type { Interface } from "node:readline";
 import { join } from "node:path";
 import { backupStateFile, runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
-import { readOrigin, readTrackedPaths } from "../adapters/git.ts";
+import {
+  pullFastForward,
+  readOrigin,
+  readTrackedPaths,
+  readUpstreamFacts,
+} from "../adapters/git.ts";
 import {
   firstBackupFiles,
   readBackupSides,
@@ -47,6 +52,11 @@ import type {
 } from "../core/plan/newsettings.ts";
 import { profileValueHits, refusedLines } from "../core/plan/profilevalues.ts";
 import { renderRun } from "../core/plan/run.ts";
+import {
+  PULL_FAILED,
+  pulledLine,
+  upToDateAction,
+} from "../core/plan/uptodate.ts";
 import type {
   ChangeLine,
   NewSettingLine,
@@ -174,6 +184,68 @@ export async function exportGuard(
  * tracked files can't be listed stops export: the guard fails closed. */
 export const CANNOT_LIST_TRACKED =
   "ERROR: can't list the clone's files, so the public-repo guard can't check them.";
+
+/** What the up-to-date check printed before the run, and whether the run
+ * stops: yes pulled (exit 0), or the pull failed (exit 1). */
+export interface UpToDateRun {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: number;
+  readonly stop: boolean;
+}
+
+/**
+ * Contract "Up-to-date check": export and import start by checking whether
+ * the repo is behind `origin/master`. The question goes out at once, so it
+ * shows before its answer is read; an empty answer or end of input pulls, as
+ * the bash engine's `read` does. Any other answer goes on without pulling.
+ */
+export async function ensureUpToDate(repoRoot: string): Promise<UpToDateRun> {
+  const terminal =
+    process.stdin.isTTY === true && process.stdout.isTTY === true;
+  const facts = await readUpstreamFacts(repoRoot);
+  const action = upToDateAction({ ...facts, terminal });
+  switch (action.kind) {
+    case "none":
+      return { stdout: "", stderr: "", code: 0, stop: false };
+    case "note":
+    case "warning":
+      return { stdout: `${action.line}\n`, stderr: "", code: 0, stop: false };
+    case "ask": {
+      const terminalIo = setupTerminal();
+      let answer: string | undefined;
+      try {
+        terminalIo.io.write(action.prompt);
+        answer = await terminalIo.io.readLine();
+      } finally {
+        terminalIo.close();
+      }
+      const given = answer?.trim() ?? "";
+      if (given !== "" && !/^[Yy]/.test(given)) {
+        return { stdout: "", stderr: "", code: 0, stop: false };
+      }
+      const pulled = await pullFastForward(repoRoot);
+      if (!pulled.ok) {
+        return {
+          stdout: "",
+          stderr: `${PULL_FAILED}\n`,
+          code: 1,
+          stop: true,
+        };
+      }
+      return {
+        stdout: `${pulledLine(action.behind)}\n`,
+        stderr: "",
+        code: 0,
+        stop: true,
+      };
+    }
+    default: {
+      const unhandled: never = action;
+      throw new Error(`unhandled up-to-date action: ${String(unhandled)}`);
+    }
+  }
+}
 
 /**
  * Contract "New settings (program only)", Asking: print the block up to the

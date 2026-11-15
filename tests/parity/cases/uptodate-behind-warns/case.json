@@ -1,0 +1,23 @@
+{
+  "description": "Export with origin/master one commit ahead and no terminal goes on, exit 0 (Up-to-date check). The line itself is not a status line; uptodate.test.ts pins its text.",
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}

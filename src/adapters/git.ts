@@ -60,10 +60,12 @@ export interface GitResult {
  * Run git in the repo root with an argument array and no shell, reporting its
  * stdout and stderr as text. Never throws: a missing git or an unreadable
  * folder is `code: -1`. stdin is closed, so no command waits for a prompt.
+ * `env` overrides single variables on top of the caller's environment.
  */
 export async function runGitResult(
   repoRoot: string,
   args: readonly string[],
+  env?: Readonly<Record<string, string>>,
 ): Promise<GitResult> {
   try {
     const child = Bun.spawn(["git", ...args], {
@@ -71,6 +73,7 @@ export async function runGitResult(
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
+      ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
     });
     const [stdout, stderr, code] = await Promise.all([
       new Response(child.stdout).text(),
@@ -525,6 +528,104 @@ export async function readAheadBehind(
     return { ...result, ok: false, ahead: 0, behind: 0 };
   }
   return { ...result, ahead, behind };
+}
+
+/** The environment the up-to-date check's git runs share with `sync.sh`: a
+ * terminal prompt would hang a fetch or pull, so git must fail instead. */
+const GIT_NO_PROMPT: Readonly<Record<string, string>> = {
+  GIT_TERMINAL_PROMPT: "0",
+};
+
+/** What the up-to-date check reads from git, before its rules apply. */
+export interface UpstreamFacts {
+  readonly isRepo: boolean;
+  readonly hasOrigin: boolean;
+  readonly branch: string | undefined;
+  readonly fetchOk: boolean;
+  readonly behind: number;
+}
+
+/**
+ * The facts behind the up-to-date check, gathered as `sync.sh`'s
+ * `check_upstream` gathers them: a work tree, an `origin` remote and the
+ * `master` branch first; then `git fetch -q origin master` and the count of
+ * commits local `HEAD` lacks. A failed count reads as 0, so the check stays
+ * silent, as the script does.
+ */
+export async function readUpstreamFacts(
+  repoRoot: string,
+): Promise<UpstreamFacts> {
+  const repo = await runGitResult(
+    repoRoot,
+    ["rev-parse", "--is-inside-work-tree"],
+    GIT_NO_PROMPT,
+  );
+  if (!repo.ok) {
+    return {
+      isRepo: false,
+      hasOrigin: false,
+      branch: undefined,
+      fetchOk: false,
+      behind: 0,
+    };
+  }
+  const origin = await runGitResult(
+    repoRoot,
+    ["remote", "get-url", "origin"],
+    GIT_NO_PROMPT,
+  );
+  if (!origin.ok) {
+    return {
+      isRepo: true,
+      hasOrigin: false,
+      branch: undefined,
+      fetchOk: false,
+      behind: 0,
+    };
+  }
+  const symbolic = await runGitResult(
+    repoRoot,
+    ["symbolic-ref", "--short", "-q", "HEAD"],
+    GIT_NO_PROMPT,
+  );
+  const branch = symbolic.ok ? symbolic.stdout.trim() : undefined;
+  if (branch !== "master") {
+    return {
+      isRepo: true,
+      hasOrigin: true,
+      branch,
+      fetchOk: false,
+      behind: 0,
+    };
+  }
+  const fetched = await runGitResult(
+    repoRoot,
+    ["fetch", "-q", "origin", "master"],
+    GIT_NO_PROMPT,
+  );
+  if (!fetched.ok) {
+    return {
+      isRepo: true,
+      hasOrigin: true,
+      branch,
+      fetchOk: false,
+      behind: 0,
+    };
+  }
+  const counts = await readAheadBehind(repoRoot);
+  return {
+    isRepo: true,
+    hasOrigin: true,
+    branch,
+    fetchOk: true,
+    behind: counts.behind,
+  };
+}
+
+/** `git pull --ff-only -q`, the up-to-date check's one write: the fast-forward
+ * it offers when the answer is yes. */
+export function pullFastForward(repoRoot: string): Promise<GitResult> {
+  return runGitResult(repoRoot, ["pull", "--ff-only", "-q"], GIT_NO_PROMPT);
 }
 
 /** The git config key `commit.sh` reads the machine alias from. */
