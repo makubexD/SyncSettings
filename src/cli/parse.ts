@@ -8,7 +8,8 @@ import type { ClaudeMode } from "../core/machine/record.ts";
 import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
-  "usage: mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
+  "usage: mksync status | " +
+  "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
   "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
   "mksync commit [-m <msg>] [--partial] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
@@ -45,6 +46,11 @@ export interface RunCommand {
  */
 export interface ShadowCommand {
   readonly kind: "shadow";
+}
+
+/** `status`: print where this machine stands, exit 0. */
+export interface StatusCommand {
+  readonly kind: "status";
 }
 
 /** `machine show`: print the machine record, exit 0. */
@@ -110,6 +116,7 @@ export interface ParseError {
 export type ParsedCommand =
   | RunCommand
   | ShadowCommand
+  | StatusCommand
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
@@ -140,6 +147,8 @@ const COMMIT_COMMAND = "commit";
 const MESSAGE_OPTION = "-m";
 
 const PARTIAL_OPTION = "--partial";
+
+const STATUS_COMMAND = "status";
 
 const STATUSLINE_COMMAND = "statusline";
 
@@ -454,6 +463,12 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     const extra = argv[1];
     return extra === undefined
       ? { kind: "statusline" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === STATUS_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "status" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
   if (command === MACHINE_COMMAND) {

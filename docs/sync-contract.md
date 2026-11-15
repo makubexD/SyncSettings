@@ -757,8 +757,9 @@ Status lines and the next command, in this order of precedence:
 **Program.** `mksync status`, `doctor`, `pull`, `push` and `diff` are the program's own commands, with the rules,
 lines and exit codes above, except:
 
-- **`status`** never suggests `mksync push` on a pull-only machine, and adds the
-  [linked folder](#linked-folders-detectlinkedpaths) lines.
+- **`status`** never suggests `mksync push` on a pull-only machine: it skips the unsent row, and a machine that differs
+  gets `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
+  `OUT` or `BOTH` file. It adds the [linked folder](#linked-folders-detectlinkedpaths) lines after the machine line.
 - **`doctor`** checks what the program needs: `git`, `gh` and its sign-in, the origin remote, the machine record,
   unset values, and `bash` (a `WARN`, since only the leak scan needs it). No `jq`, `cmp`, bash version or launcher
   line. On Linux it adds the `drift` line of [Package drift](#package-drift).
@@ -856,7 +857,7 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
   line on stderr and exits 2:
 
   ```text
-  usage: mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
+  usage: mksync status | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 
   Phase 8 adds its commands to it one step at a time (`docs/plan-single-engine-8.md`); at the end of the phase it

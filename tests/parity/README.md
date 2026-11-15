@@ -255,5 +255,6 @@ other inputs:
 | `status-no-origin` | — | a clone without an origin: `Next: run mksync doctor.` (the old cases use a plain folder) |
 | `status-origin-ahead` | `sync_status_behind`, Pester `status behind` | origin ahead: `Next: mksync pull` |
 | `status-differs` | `sync_status_differs`, `sync_status_no_record`, Pester `status differs`, `status-no-record` | a differing file with no sync point: the plain differ `Next` line, both trees unchanged |
+| `status-differs-out` | — | a sync point and only this machine changed the file: the diff splits it, `Next: mksync push` |
 | `status-nothing` | `sync_status_clean`, Pester `status clean` | everything matches: `Next: nothing to do.` |
 | `status-unsent` | `sync_status_unsent`, Pester `status unsent` | one uncommitted repo file: the `Unsent` line, `1 changed file(s) not sent yet` |

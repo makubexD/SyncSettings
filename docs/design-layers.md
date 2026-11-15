@@ -1131,6 +1131,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 
 ### Design
 
+- **Pull-only status (decided in phase 8 step 20, to confirm).** The contract only said status "never suggests
+  `mksync push`" on a pull-only machine. The program skips the unsent rule there, and a differing machine's next line
+  is `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
+  `OUT` or `BOTH` file. Unsent files on a pull-only machine still block `mksync pull`; whether status should say so
+  is open.
 - **A profile without a value.** `personal` has no `<YOUR_WORK_MARKETPLACE>`. Today import stops rather than write a
   placeholder. Options: the profile marks the value "none" and the engine drops that array item; or the item moves out
   of the base into each work profile's JSON layer, which "Merge and split" adds by item. The second needs no new rule

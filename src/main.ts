@@ -35,6 +35,7 @@ import type { BackupSides } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
 import { executeCommit } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
+import { executeStatus } from "./app/status.ts";
 import {
   CANNOT_LIST_TRACKED,
   ensureUpToDate,
@@ -57,6 +58,7 @@ import type {
   RunCommand,
   SetupCommand,
   ShadowCommand,
+  StatusCommand,
   StatuslineCommand,
 } from "./cli/parse.ts";
 import type { Profile } from "./core/config/profile.ts";
@@ -132,6 +134,7 @@ type Resolved =
   | Result
   | RunCommand
   | ShadowCommand
+  | StatusCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -141,6 +144,7 @@ type Resolved =
 type ExecutableCommand =
   | RunCommand
   | ShadowCommand
+  | StatusCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -648,6 +652,16 @@ async function execute(command: ExecutableCommand): Promise<Result> {
       layers.value,
     );
   }
+  if (command.kind === "status") {
+    return executeStatus({
+      repoRoot,
+      config: config.value,
+      os: os.value,
+      home,
+      state,
+      layers: layers.value,
+    });
+  }
   if (command.kind === "machine-show") {
     const record = layers.value.record;
     if (record === undefined) {
@@ -832,6 +846,8 @@ export function run(argv: readonly string[]): Resolved {
     case "run":
       return parsed;
     case "shadow":
+      return parsed;
+    case "status":
       return parsed;
     case "machine-show":
       return parsed;

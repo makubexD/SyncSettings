@@ -31,6 +31,8 @@ const VERSION = { kind: "version" } as const;
 
 const MACHINE_SHOW = { kind: "machine-show" } as const;
 
+const STATUS = { kind: "status" } as const;
+
 const SETUP = { kind: "setup" } as const;
 
 const COMMIT = { kind: "commit", partial: false } as const;
@@ -208,6 +210,20 @@ describe("parseArgs", () => {
       kind: "error",
       message: "ERROR: --only needs a path.",
     });
+  });
+
+  test("should parse status", () => {
+    expect(parseArgs(["status"])).toEqual(STATUS);
+  });
+
+  test("should refuse an option after status", () => {
+    expect(parseArgs(["status", "--force"])).toEqual(
+      unknownOption("--force"),
+    );
+  });
+
+  test("should refuse a stray argument after status", () => {
+    expect(parseArgs(["status", "extra"])).toEqual(unknownOption("extra"));
   });
 
   test("should parse machine show", () => {
@@ -477,6 +493,10 @@ describe("parseArgs", () => {
 
   test("should keep shadow out of the usage line", () => {
     expect(USAGE_TEXT.includes("shadow")).toBe(false);
+  });
+
+  test("should name status in the usage line", () => {
+    expect(USAGE_TEXT.startsWith("usage: mksync status |")).toBe(true);
   });
 
   test("should name machine show in the usage line", () => {
