@@ -121,8 +121,8 @@ describe("strategyFor", () => {
     }
   });
 
-  test("dconf and dir have no strategy yet", () => {
-    const pending: readonly MergeType[] = ["dconf", "dir"];
+  test("dir has no strategy yet", () => {
+    const pending: readonly MergeType[] = ["dir"];
 
     for (const merge of pending) {
       expect(strategyFor(merge)).toBeUndefined();

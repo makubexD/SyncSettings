@@ -1,4 +1,5 @@
 import type { MergeType } from "../config/types.ts";
+import { DCONF } from "./dconf.ts";
 import { mergeImport, splitImport } from "./import.ts";
 import type { ImportLayer } from "./import.ts";
 import { mergeJson, splitJson } from "./json.ts";
@@ -120,8 +121,8 @@ const IMPORT_MERGE: MergeStrategy = {
 };
 
 /**
- * The strategy for a merge type. `dir` and `dconf` stay with the plans
- * (phase 8), so they have no strategy yet.
+ * The strategy for a merge type. `dir` stays with the plans (phase 8), so it
+ * has no strategy yet.
  */
 export function strategyFor(merge: MergeType): MergeStrategy | undefined {
   switch (merge) {
@@ -132,6 +133,7 @@ export function strategyFor(merge: MergeType): MergeStrategy | undefined {
     case "import":
       return IMPORT_MERGE;
     case "dconf":
+      return DCONF;
     case "dir":
       return undefined;
     default: {
