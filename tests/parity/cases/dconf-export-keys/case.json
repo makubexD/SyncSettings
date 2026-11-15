@@ -1,0 +1,20 @@
+{
+  "description": "The keys allowlist keeps only the named keys and drops a section left empty: dconf entries, keys.",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "keys": ["keep", "sub/*"],
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

@@ -1,0 +1,20 @@
+{
+  "description": "Keys are matched against the name relative to the entry's path, so sub/* drops every key of the root section: dconf entries, keys.",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "keys": ["sub/*"],
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}
