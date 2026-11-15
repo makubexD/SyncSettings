@@ -59,6 +59,16 @@ export interface LocalSymlink {
 export type LocalEntry = LocalFile | LocalSymlink;
 
 /**
+ * What `dconf dump` returned for an entry's path: the dump text, no `dconf` on
+ * `PATH`, or a failed dump. The adapter's own result type is structurally the
+ * same; the core defines it here so it never imports an adapter.
+ */
+export type DconfDumpResult =
+  | { readonly kind: "ok"; readonly text: string }
+  | { readonly kind: "missing" }
+  | { readonly kind: "failed" };
+
+/**
  * Everything a plan may read, gathered by the adapters before the pure core
  * runs. Local paths are absolute in the OS's own form; repo paths always use
  * forward slashes.
@@ -79,6 +89,11 @@ export interface Snapshot {
   readonly repoFiles: RepoFiles;
   /** Local files and symlinks, keyed by absolute path. */
   readonly localFiles: ReadonlyMap<string, LocalEntry>;
+  /**
+   * `dconf dump` for each selected dconf entry's folder, keyed by the entry's
+   * `path`. Linux only: on Windows and macOS a dconf entry stays `SKIPPED`.
+   */
+  readonly dconfDumps?: ReadonlyMap<string, DconfDumpResult>;
   /**
    * Local folders that exist, keyed by absolute path. Without it an empty
    * directory entry and a missing one would look alike.

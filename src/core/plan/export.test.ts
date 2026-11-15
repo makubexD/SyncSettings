@@ -34,6 +34,7 @@ import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type {
   Action,
+  DconfDumpResult,
   LocalEntry,
   NewSettingLine,
   Snapshot,
@@ -392,6 +393,7 @@ interface LayerSnapshotOptions {
   readonly local?: Readonly<Record<string, string>>;
   readonly values?: Readonly<Record<string, string>>;
   readonly profile?: Profile;
+  readonly dconfDumps?: ReadonlyMap<string, DconfDumpResult>;
 }
 
 function bytesOf(text: string): Uint8Array {
@@ -434,6 +436,9 @@ function layeredSnapshot(os: Os, options: LayerSnapshotOptions): Snapshot {
     env: {},
     only: [],
     ...(options.profile !== undefined ? { profile: options.profile } : {}),
+    ...(options.dconfDumps !== undefined
+      ? { dconfDumps: options.dconfDumps }
+      : {}),
   };
 }
 
@@ -1484,5 +1489,219 @@ describe("planExport new settings", () => {
         what: 'delta[]: "new item"',
       },
     ]);
+  });
+});
+
+const DCONF_PATH = "/org/gnome/parity/";
+
+const DCONF_REPO_PATH = "dotfiles/linux/parity/dconf.ini";
+
+/** An entry on every OS writes to the base root. */
+const DCONF_COMMON_REPO_PATH = "dotfiles/common/parity/dconf.ini";
+
+const DCONF_DUMP_TEXT = "[/]\nfont-name=Cantarell 11\ncolor-scheme=default\n";
+
+const DCONF_FILTERED_TEXT = "[/]\nfont-name=Cantarell 11\n";
+
+const DCONF_KEYS: readonly string[] = ["font-name"];
+
+/** A dconf entry on Linux, or on every OS when `everyOs` is set. */
+function dconfEntry(
+  everyOs = false,
+  extra: Partial<ConfigV2Entry> = {},
+): ConfigV2Entry {
+  return {
+    file: "parity/dconf.ini",
+    module: "parity",
+    merge: "dconf",
+    dconfPath: DCONF_PATH,
+    ...(everyOs ? {} : { os: ["linux"] }),
+    ...extra,
+  };
+}
+
+interface DconfSnapshotOptions {
+  readonly everyOs?: boolean;
+  readonly keys?: readonly string[];
+  readonly repo?: string;
+  readonly dump?: DconfDumpResult;
+}
+
+/** A Linux snapshot with one dconf entry and, when given, its dump result. */
+function dconfSnapshot(options: DconfSnapshotOptions): Snapshot {
+  const extra =
+    options.keys === undefined ? {} : { keys: options.keys };
+  return layeredSnapshot("linux", {
+    entries: [dconfEntry(options.everyOs === true, extra)],
+    repo:
+      options.repo === undefined
+        ? {}
+        : { [DCONF_REPO_PATH]: options.repo },
+    ...(options.dump === undefined
+      ? {}
+      : { dconfDumps: new Map([[DCONF_PATH, options.dump]]) }),
+  });
+}
+
+describe("planExport dconf", () => {
+  test("should skip a dconf entry when dconf is not installed", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ dump: { kind: "missing" } });
+
+    // Act
+    const plan = planExport(snapshot);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_REPO_PATH, "dconf not installed"),
+    );
+    expect(plan.steps).toEqual([]);
+    expect(plan.summary).toEqual({
+      kind: "export",
+      onlyMatchedNothing: false,
+      skipped: 1,
+    });
+  });
+
+  test("should report an error when the dconf dump fails", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ dump: { kind: "failed" } });
+
+    // Act
+    const plan = planExport(snapshot);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("ERROR", DCONF_REPO_PATH, "dconf dump failed"),
+    );
+    expect(plan.steps).toEqual([]);
+    expect(plan.summary).toEqual({
+      kind: "export",
+      onlyMatchedNothing: false,
+      skipped: 0,
+    });
+  });
+
+  test("should skip an empty filtered dump with the dconf path", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({
+      keys: ["missing-key"],
+      dump: { kind: "ok", text: DCONF_DUMP_TEXT },
+    });
+
+    // Act
+    const plan = planExport(snapshot);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_REPO_PATH, `no settings under ${DCONF_PATH}`),
+    );
+    expect(plan.steps).toEqual([]);
+    expect(plan.summary).toEqual({
+      kind: "export",
+      onlyMatchedNothing: false,
+      skipped: 1,
+    });
+  });
+
+  test("should add the filtered dump when the repo has no file", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({
+      keys: DCONF_KEYS,
+      dump: { kind: "ok", text: DCONF_DUMP_TEXT },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([`ADDED ${DCONF_REPO_PATH}`]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: "dotfiles/linux/parity" },
+      {
+        kind: "writeRepo",
+        path: DCONF_REPO_PATH,
+        text: DCONF_FILTERED_TEXT,
+      },
+    ]);
+  });
+
+  test("should modify the repo file when the filtered dump differs", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({
+      keys: DCONF_KEYS,
+      repo: "[/]\nfont-name=Old 10\n",
+      dump: { kind: "ok", text: DCONF_DUMP_TEXT },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([`MODIFIED ${DCONF_REPO_PATH}`]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: DCONF_REPO_PATH,
+        text: DCONF_FILTERED_TEXT,
+      },
+    ]);
+  });
+
+  test("should leave an unchanged dconf repo file alone", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({
+      keys: DCONF_KEYS,
+      repo: DCONF_FILTERED_TEXT,
+      dump: { kind: "ok", text: DCONF_DUMP_TEXT },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `UNCHANGED ${DCONF_REPO_PATH}`,
+    ]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should keep a dconf entry skipped on Windows", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("windows", {
+      entries: [dconfEntry(true)],
+      repo: {},
+    });
+
+    // Act
+    const plan = planExport(snapshot);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_COMMON_REPO_PATH, "not supported yet"),
+    );
+    expect(plan.summary).toEqual({
+      kind: "export",
+      onlyMatchedNothing: false,
+      skipped: 1,
+    });
+  });
+
+  test("should keep a dconf entry skipped on Linux with no dump", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({});
+
+    // Act
+    const plan = planExport(snapshot);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_REPO_PATH, "not supported yet"),
+    );
+    expect(plan.summary).toEqual({
+      kind: "export",
+      onlyMatchedNothing: false,
+      skipped: 1,
+    });
   });
 });

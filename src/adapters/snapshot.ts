@@ -11,11 +11,14 @@ import type {
 } from "../core/config/types.ts";
 import { parseV1 } from "../core/config/v1.ts";
 import { parseV2 } from "../core/config/v2.ts";
+import { selectEntries } from "../core/layers/select.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import { machineValues } from "../core/machine/scope.ts";
-import type { RepoFiles, Snapshot } from "../core/plan/types.ts";
+import { scopeFor } from "../core/plan/pick.ts";
+import type { DconfDumpResult, RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
+import { dconfDump } from "./dconf.ts";
 import { readSnapshot } from "./fs.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
 import { readStore, readText } from "./store.ts";
@@ -139,11 +142,50 @@ export function previewWorkingTree(
 }
 
 /**
+ * Contract "dconf entries": on Linux, `dconf dump` each selected dconf entry's
+ * folder once per distinct path. Windows and macOS never run dconf, so they
+ * get no dumps and a dconf entry stays `SKIPPED`, as the PowerShell engine's
+ * does.
+ */
+async function dconfDumpsFor(
+  snapshot: Snapshot,
+): Promise<ReadonlyMap<string, DconfDumpResult> | undefined> {
+  if (snapshot.os !== "linux") {
+    return undefined;
+  }
+  const selected = selectEntries(
+    snapshot.config,
+    scopeFor(snapshot),
+    new Set(snapshot.repoFiles.keys()),
+  );
+  if (!selected.ok) {
+    return undefined;
+  }
+  const paths = new Set<string>();
+  for (const chosen of selected.value) {
+    const path = chosen.entry.dconfPath;
+    if (chosen.entry.merge === "dconf" && path !== undefined) {
+      paths.add(path);
+    }
+  }
+  if (paths.size === 0) {
+    return undefined;
+  }
+  const dumps = await Promise.all(
+    [...paths].map(
+      async (path) => [path, await dconfDump(path, snapshot.env)] as const,
+    ),
+  );
+  return new Map(dumps);
+}
+
+/**
  * Build the snapshot the plan reads: the disk through `readSnapshot` (with the
- * profile, machine and record layers the record store holds), plus `HEAD` and
- * the porcelain status for the import's sync point, and `HEAD`'s bytes for an
- * export preview. Decision 4: with a record the values come from the profile
- * and the record, and `.user-values.json` is not read.
+ * profile, machine and record layers the record store holds), the dconf dumps
+ * an export compares, plus `HEAD` and the porcelain status for the import's
+ * sync point, and `HEAD`'s bytes for an export preview. Decision 4: with a
+ * record the values come from the profile and the record, and
+ * `.user-values.json` is not read.
  */
 export async function buildSnapshot(
   repoRoot: string,
@@ -174,8 +216,11 @@ export async function buildSnapshot(
     ...(layers.machine !== undefined ? { machine: layers.machine } : {}),
     ...(layers.record !== undefined ? { record: layers.record } : {}),
   });
+  const dconfDumps = await dconfDumpsFor(snapshot);
+  const built =
+    dconfDumps === undefined ? snapshot : { ...snapshot, dconfDumps };
   if (command.command === "export" && !command.preview) {
-    return snapshot;
+    return built;
   }
 
   const [head, porcelain] = await Promise.all([
@@ -195,5 +240,5 @@ export async function buildSnapshot(
       git.headFiles = headFiles;
     }
   }
-  return { ...snapshot, ...git };
+  return { ...built, ...git };
 }
