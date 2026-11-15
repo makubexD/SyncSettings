@@ -4,7 +4,12 @@ import { appendShadowLog, engineShadow } from "./adapters/engine.ts";
 import type { EngineHost } from "./adapters/engine.ts";
 import { runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
-import { readOrigin } from "./adapters/git.ts";
+import {
+  pullFastForward,
+  readOrigin,
+  readSyncPoint,
+  runGitResult,
+} from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
 import { readIdentity, readScan } from "./adapters/scan.ts";
 import {
@@ -36,7 +41,9 @@ import { readVisibility } from "./adapters/visibility.ts";
 import { executeCommit } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
 import { executeDoctor } from "./app/doctor.ts";
-import { executeStatus } from "./app/status.ts";
+import { executePull } from "./app/pull.ts";
+import type { FetchResult } from "./app/pull.ts";
+import { executeStatus, unsentCount } from "./app/status.ts";
 import {
   CANNOT_LIST_TRACKED,
   ensureUpToDate,
@@ -56,6 +63,7 @@ import type {
   CommitCommand,
   DoctorCommand,
   MachineShowCommand,
+  PullCommand,
   RetireCommand,
   RunCommand,
   SetupCommand,
@@ -132,12 +140,115 @@ function failure(message: string, code = 1): Result {
   return { code, stdout: "", stderr: `${message}\n` };
 }
 
+/** Git calls that could ask for credentials get the front door's `front_git`. */
+const GIT_ENV: Readonly<Record<string, string>> = {
+  GIT_TERMINAL_PROMPT: "0",
+};
+
+/** A pull child's `import`: the check (`--check`) or the forced apply. */
+function pullImportCommand(
+  check: boolean,
+  force: boolean,
+  only: readonly string[],
+): RunCommand {
+  return {
+    kind: "run",
+    command: "import",
+    force,
+    preview: false,
+    check,
+    resetValues: false,
+    yes: false,
+    only,
+  };
+}
+
+/** A pull child's `export --diff`, narrowed to the pull's paths. */
+function pullDiffCommand(only: readonly string[]): RunCommand {
+  return {
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: false,
+    check: false,
+    resetValues: false,
+    yes: false,
+    diff: true,
+    only,
+  };
+}
+
+/** Contract "Front door": pull needs the clone on `master` with an origin. */
+async function cloneReady(repoRoot: string): Promise<boolean> {
+  const inside = await runGitResult(repoRoot, [
+    "rev-parse",
+    "--is-inside-work-tree",
+  ]);
+  if (!inside.ok) {
+    return false;
+  }
+  const remote = await runGitResult(repoRoot, ["remote", "get-url", "origin"]);
+  if (!remote.ok) {
+    return false;
+  }
+  const branch = await runGitResult(repoRoot, [
+    "rev-parse",
+    "--abbrev-ref",
+    "HEAD",
+  ]);
+  return branch.ok && branch.stdout.trim() === "master";
+}
+
+/** `git fetch -q origin master`, then `front_pull`'s fast-forward. */
+async function fetchAndFastForward(repoRoot: string): Promise<FetchResult> {
+  const fetched = await runGitResult(
+    repoRoot,
+    ["fetch", "-q", "origin", "master"],
+    GIT_ENV,
+  );
+  if (!fetched.ok) {
+    return { ok: false, message: "ERROR: could not reach origin." };
+  }
+  const pulled = await pullFastForward(repoRoot);
+  if (!pulled.ok) {
+    return { ok: false, message: "ERROR: pull failed; resolve it and rerun." };
+  }
+  return { ok: true };
+}
+
+/** Bash's `read` trims; an empty answer or end of input takes the default. */
+function pullAnswer(
+  answer: string | undefined,
+  defaultYes: boolean,
+): boolean {
+  const given = answer?.trim() ?? "";
+  if (given === "") {
+    return defaultYes;
+  }
+  return /^[Yy]/.test(given);
+}
+
+/** A pull question: the prompt goes out before its answer is read. */
+async function askPullQuestion(
+  question: string,
+  defaultYes: boolean,
+): Promise<boolean> {
+  const terminal = setupTerminal();
+  try {
+    terminal.io.write(question);
+    return pullAnswer(await terminal.io.readLine(), defaultYes);
+  } finally {
+    terminal.close();
+  }
+}
+
 type Resolved =
   | Result
   | RunCommand
   | ShadowCommand
   | StatusCommand
   | DoctorCommand
+  | PullCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -149,6 +260,7 @@ type ExecutableCommand =
   | ShadowCommand
   | StatusCommand
   | DoctorCommand
+  | PullCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -620,6 +732,30 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   }
 
   const state = stateFolder(os.value, home, process.env);
+  if (command.kind === "pull") {
+    // Decision 7: each child reads the config again, so a fast-forward's new
+    // config and code are the ones this pull goes on with.
+    return executePull(
+      { yes: command.yes, force: command.force, paths: command.paths },
+      {
+        runCheck: (only) =>
+          execute(pullImportCommand(true, false, only)),
+        runDiff: (only) => execute(pullDiffCommand(only)),
+        runImport: (only) =>
+          execute(pullImportCommand(false, true, only)),
+        unsent: async () => (await unsentCount(repoRoot)) ?? 0,
+        fetchAndFastForward: () => fetchAndFastForward(repoRoot),
+        hasSyncPoint: async () =>
+          (await readSyncPoint(repoRoot, state)) !== undefined,
+        ask: askPullQuestion,
+        print: (shown) => {
+          process.stdout.write(shown.stdout);
+          process.stderr.write(shown.stderr);
+        },
+        cloneReady: () => cloneReady(repoRoot),
+      },
+    );
+  }
   if (command.kind === "setup") {
     return executeSetup(repoRoot, config.value, os.value, home, state, command);
   }
@@ -863,6 +999,8 @@ export function run(argv: readonly string[]): Resolved {
     case "status":
       return parsed;
     case "doctor":
+      return parsed;
+    case "pull":
       return parsed;
     case "machine-show":
       return parsed;

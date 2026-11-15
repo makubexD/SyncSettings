@@ -174,7 +174,9 @@ async function originFromRepo(
 }
 
 /** Changed files under the sync paths; `null` when the folder isn't a clone. */
-async function unsentCount(repoRoot: string): Promise<number | null> {
+export async function unsentCount(
+  repoRoot: string,
+): Promise<number | null> {
   const status = await runGitResult(
     repoRoot,
     [

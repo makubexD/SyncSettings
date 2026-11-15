@@ -35,6 +35,8 @@ const STATUS = { kind: "status" } as const;
 
 const DOCTOR = { kind: "doctor" } as const;
 
+const PULL = { kind: "pull", yes: false, force: false, paths: [] } as const;
+
 const SETUP = { kind: "setup" } as const;
 
 const COMMIT = { kind: "commit", partial: false } as const;
@@ -240,6 +242,47 @@ describe("parseArgs", () => {
 
   test("should refuse a stray argument after doctor", () => {
     expect(parseArgs(["doctor", "extra"])).toEqual(unknownOption("extra"));
+  });
+
+  test("should parse pull", () => {
+    expect(parseArgs(["pull"])).toEqual(PULL);
+  });
+
+  test("should parse pull --yes", () => {
+    expect(parseArgs(["pull", "--yes"])).toEqual({ ...PULL, yes: true });
+  });
+
+  test("should parse pull --force", () => {
+    expect(parseArgs(["pull", "--force"])).toEqual({ ...PULL, force: true });
+  });
+
+  test("should parse pull with one path", () => {
+    expect(parseArgs(["pull", "dotfiles/common/parity/a.conf"])).toEqual({
+      ...PULL,
+      paths: ["dotfiles/common/parity/a.conf"],
+    });
+  });
+
+  test("should parse pull with several paths and both flags", () => {
+    expect(
+      parseArgs([
+        "pull",
+        "--yes",
+        "a.conf",
+        "--force",
+        "b.conf",
+      ]),
+    ).toEqual({ ...PULL, yes: true, force: true, paths: ["a.conf", "b.conf"] });
+  });
+
+  test("should refuse an unknown option after pull", () => {
+    expect(parseArgs(["pull", "--bogus"])).toEqual(
+      unknownOption("--bogus"),
+    );
+  });
+
+  test("should refuse a short option after pull", () => {
+    expect(parseArgs(["pull", "-x"])).toEqual(unknownOption("-x"));
   });
 
   test("should parse machine show", () => {
@@ -518,6 +561,12 @@ describe("parseArgs", () => {
   test("should name doctor in the usage line", () => {
     expect(
       USAGE_TEXT.startsWith("usage: mksync status | mksync doctor |"),
+    ).toBe(true);
+  });
+
+  test("should name pull in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes("mksync pull [--yes] [--force] [<path>...]"),
     ).toBe(true);
   });
 

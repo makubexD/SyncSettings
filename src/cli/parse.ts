@@ -9,6 +9,7 @@ import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
   "usage: mksync status | mksync doctor | " +
+  "mksync pull [--yes] [--force] [<path>...] | " +
   "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
   "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
   "mksync commit [-m <msg>] [--partial] | " +
@@ -56,6 +57,14 @@ export interface StatusCommand {
 /** `doctor`: print one check line per requirement, exit 1 with a MISSING. */
 export interface DoctorCommand {
   readonly kind: "doctor";
+}
+
+/** `pull [--yes] [--force] [path...]`: the flags and the picked paths. */
+export interface PullCommand {
+  readonly kind: "pull";
+  readonly yes: boolean;
+  readonly force: boolean;
+  readonly paths: readonly string[];
 }
 
 /** `machine show`: print the machine record, exit 0. */
@@ -123,6 +132,7 @@ export type ParsedCommand =
   | ShadowCommand
   | StatusCommand
   | DoctorCommand
+  | PullCommand
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
@@ -157,6 +167,12 @@ const PARTIAL_OPTION = "--partial";
 const STATUS_COMMAND = "status";
 
 const DOCTOR_COMMAND = "doctor";
+
+const PULL_COMMAND = "pull";
+
+const PULL_YES = "--yes";
+
+const PULL_FORCE = "--force";
 
 const STATUSLINE_COMMAND = "statusline";
 
@@ -309,6 +325,37 @@ function parseRetire(
   }
 
   return target === undefined ? retireNeedsName(noun) : { kind, target, yes };
+}
+
+/**
+ * Parse `pull [--yes] [--force] [path...]` (contract "Front door"): every
+ * argument that starts with `-` must be one of the two flags, anything else
+ * is a picked path.
+ */
+function parsePull(argv: readonly string[]): PullCommand | ParseError {
+  let yes = false;
+  let force = false;
+  const paths: string[] = [];
+
+  let index = 1;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === PULL_YES) {
+      yes = true;
+    } else if (arg === PULL_FORCE) {
+      force = true;
+    } else if (isOption(arg)) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    } else {
+      paths.push(arg);
+    }
+    index++;
+  }
+
+  return { kind: "pull", yes, force, paths };
 }
 
 /**
@@ -484,6 +531,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     return extra === undefined
       ? { kind: "doctor" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === PULL_COMMAND) {
+    return parsePull(argv);
   }
   if (command === MACHINE_COMMAND) {
     const verb = argv[1];
