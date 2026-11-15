@@ -250,3 +250,7 @@ other inputs:
 | `only-dotdot` | `only_repo_dotdot`, Pester `only-repo-dotdot` | `resolve_only` / `Resolve-OnlyPaths` from the inside |
 | `diff-no-sync-point` | Pester `diff-in` | an `IN` label from a recorded sync point, and the summary lines |
 | `commit-opens-pr` | `commit_happy`, Pester `commit-happy` | `origin/master` unmoved, back on `master`, one `sync/…` branch |
+| `status-no-origin` | — | a clone without an origin: `Next: run mksync doctor.` (the old cases use a plain folder) |
+| `status-origin-ahead` | `sync_status_behind`, Pester `status behind` | origin ahead: `Next: mksync pull` |
+| `status-differs` | `sync_status_differs`, `sync_status_no_record`, Pester `status differs`, `status-no-record` | a differing file with no sync point: the plain differ `Next` line, both trees unchanged |
+| `status-nothing` | `sync_status_clean`, Pester `status clean` | everything matches: `Next: nothing to do.` |
