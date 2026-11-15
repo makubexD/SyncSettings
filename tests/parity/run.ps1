@@ -114,6 +114,18 @@ function Validate-Case {
                     }
                 }
             }
+            $pathsProp = $opts.PSObject.Properties['paths']
+            if ($null -ne $pathsProp) {
+                $paths = $pathsProp.Value
+                if ($paths -isnot [System.Array]) {
+                    Die 'options.paths must be an array of strings'
+                }
+                foreach ($p in $paths) {
+                    if ($p -isnot [string]) {
+                        Die 'options.paths must be an array of strings'
+                    }
+                }
+            }
             foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing', 'target')) {
                 $p = $opts.PSObject.Properties[$key]
                 if ($null -ne $p -and $p.Value -isnot [string]) {
@@ -143,14 +155,21 @@ function Validate-Case {
                 Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
             }
         }
+        $frontDoor = $cmd.command -ceq 'status' -or $cmd.command -ceq 'doctor' -or
+            $cmd.command -ceq 'pull' -or $cmd.command -ceq 'push' -or $cmd.command -ceq 'front-diff'
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
-            $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and $cmd.command -cne 'profile-retire') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit'
+            $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and
+            $cmd.command -cne 'profile-retire' -and -not $frontDoor) {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
         }
-        foreach ($key in @('partial', 'message')) {
-            if ($optNames -ccontains $key -and $cmd.command -cne 'commit') {
-                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit'
-            }
+        if ($optNames -ccontains 'partial' -and $cmd.command -cne 'commit') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
+        }
+        if ($optNames -ccontains 'message' -and $cmd.command -cne 'commit' -and $cmd.command -cne 'push') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
+        }
+        if ($optNames -ccontains 'paths' -and -not $frontDoor) {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -382,7 +401,8 @@ function Read-Lines {
 
 # The status lines of a command's output, each as `WORD label`: ANSI color codes
 # removed, notes and every other line dropped (see the README's "How the runner
-# checks it").
+# checks it"). A line starting `Next` is kept whole, without its indent, for the
+# front door's status.
 function Get-StatusLines {
     param([string]$Raw)
     $text = $Raw -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
@@ -399,6 +419,8 @@ function Get-StatusLines {
         $pattern = '^\s*\[?\s*(' + $StatusWords + ')\s*\]?\s+(\S+)'
         if ($line -cmatch $pattern) {
             $result += ($Matches[1] + ' ' + $Matches[2])
+        } elseif ($line -cmatch '^\s*(Next.*)$') {
+            $result += $Matches[1]
         }
     }
     return ,$result
@@ -836,6 +858,7 @@ function Run-Case {
 
             $scriptPath = $null
             $extraArgs = @()
+            $frontDoor = $false
             if (-not [string]::IsNullOrEmpty($EnginePath)) {
                 $scriptPath = Join-Path $repoDir 'mksync.exe'
                 $targetProp = $null
@@ -852,6 +875,11 @@ function Run-Case {
                     'commit'  { $extraArgs += 'commit' }
                     'setup'   { $extraArgs += 'setup' }
                     'statusline' { $extraArgs += 'statusline' }
+                    'status'  { $extraArgs += 'status' }
+                    'doctor'  { $extraArgs += 'doctor' }
+                    'pull'    { $extraArgs += 'pull' }
+                    'push'    { $extraArgs += 'push' }
+                    'front-diff' { $extraArgs += 'diff' }
                     'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
                     'machine-retire' {
                         $extraArgs += 'machine'
@@ -873,6 +901,11 @@ function Run-Case {
                     'preview' { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Preview' }
                     'diff'    { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Diff' }
                     'commit'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Commit-Settings.ps1' }
+                    'status'  { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'status'; $frontDoor = $true }
+                    'doctor'  { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'doctor'; $frontDoor = $true }
+                    'pull'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'pull'; $frontDoor = $true }
+                    'push'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'push'; $frontDoor = $true }
+                    'front-diff' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'diff'; $frontDoor = $true }
                     default   { Die "unknown command '$cmd' in command $($i + 1)" }
                 }
             }
@@ -884,7 +917,8 @@ function Run-Case {
                     if ($key -cne 'force' -and $key -cne 'only' -and $key -cne 'name' -and
                         $key -cne 'profile' -and $key -cne 'replace' -and $key -cne 'claude' -and
                         $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'yes' -and
-                        $key -cne 'target' -and $key -cne 'partial' -and $key -cne 'message') {
+                        $key -cne 'target' -and $key -cne 'partial' -and $key -cne 'message' -and
+                        $key -cne 'paths') {
                         Die "unknown option '$key' in command $($i + 1)"
                     }
                 }
@@ -939,6 +973,12 @@ function Run-Case {
                     }
                     $extraArgs += [string]$messageProp.Value
                 }
+                $pathsProp = $opts.PSObject.Properties['paths']
+                if ($null -ne $pathsProp) {
+                    foreach ($p in @($pathsProp.Value)) {
+                        $extraArgs += [string]$p
+                    }
+                }
             }
 
             $stdinText = ''
@@ -965,8 +1005,12 @@ function Run-Case {
             }
             $rawErr = Join-Path $t 'raw-err'
 
-            if ([string]::IsNullOrEmpty($EnginePath)) {
+            # The front door is a batch file: it runs on its own, everything else
+            # of the old engine runs through powershell.exe -File.
+            $launch = $scriptPath
+            if ([string]::IsNullOrEmpty($EnginePath) -and -not $frontDoor) {
                 $procArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath) + $extraArgs
+                $launch = 'powershell.exe'
             } else {
                 $procArgs = $extraArgs
             }
@@ -1012,22 +1056,12 @@ function Run-Case {
                 # In PS 5.1 a native command's stderr redirected with 2>&1 turns
                 # into error records, which 'Stop' would throw on.
                 $ErrorActionPreference = 'Continue'
-                if ([string]::IsNullOrEmpty($EnginePath)) {
-                    if ($stderrMode) {
-                        $output = @($stdinText | & powershell.exe @procArgs 2>&1)
-                    } elseif ($allOutput) {
-                        $raw = $stdinText | & powershell.exe @procArgs 2> $rawErr | Out-String
-                    } else {
-                        $raw = $stdinText | & powershell.exe @procArgs 2>&1 | Out-String
-                    }
+                if ($stderrMode) {
+                    $output = @($stdinText | & $launch @procArgs 2>&1)
+                } elseif ($allOutput) {
+                    $raw = $stdinText | & $launch @procArgs 2> $rawErr | Out-String
                 } else {
-                    if ($stderrMode) {
-                        $output = @($stdinText | & $scriptPath @procArgs 2>&1)
-                    } elseif ($allOutput) {
-                        $raw = $stdinText | & $scriptPath @procArgs 2> $rawErr | Out-String
-                    } else {
-                        $raw = $stdinText | & $scriptPath @procArgs 2>&1 | Out-String
-                    }
+                    $raw = $stdinText | & $launch @procArgs 2>&1 | Out-String
                 }
                 $rc = $LASTEXITCODE
             } finally {

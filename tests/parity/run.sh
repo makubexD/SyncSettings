@@ -85,6 +85,11 @@ validate_case() {
           else true end)' "$json" > /dev/null 2>&1 \
         || die 'options.only must be an array of strings'
     jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("paths")) then
+            if ($o.paths | type) == "array" then all($o.paths[]; type == "string") else false end
+          else true end)' "$json" > /dev/null 2>&1 \
+        || die 'options.paths must be an array of strings'
+    jq -e 'all(.commands[]; (.options // {}) as $o
         | all($o | to_entries[] | select(.key == "name" or .key == "profile" or .key == "replace"
             or .key == "claude" or .key == "mode" or .key == "existing" or .key == "target");
             .value | type == "string"))' "$json" > /dev/null 2>&1 \
@@ -113,11 +118,17 @@ validate_case() {
           and (if ($o | has("yes")) then
                   $cmd == "setup" or $cmd == "export" or $cmd == "preview"
                   or $cmd == "machine-retire" or $cmd == "profile-retire"
+                  or $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
+                  or $cmd == "push" or $cmd == "front-diff"
                else true end)
           and (if ($o | has("partial")) then $cmd == "commit" else true end)
-          and (if ($o | has("message")) then $cmd == "commit" else true end)
+          and (if ($o | has("message")) then $cmd == "commit" or $cmd == "push" else true end)
+          and (if ($o | has("paths")) then
+                  $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
+                  or $cmd == "push" or $cmd == "front-diff"
+               else true end)
           and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire; partial and message need commit; resetValues needs import or check'
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -229,13 +240,14 @@ expected_path() {
 
 # The status lines of a command's output, each as `WORD label`: ANSI color codes
 # removed, notes and every other line dropped (see the README's "How the runner
-# checks it").
+# checks it"). A line starting `Next` is kept whole, without its indent, for the
+# front door's status.
 status_lines() {
     # A prompt answered from a pipe ends with no newline, so its status line
     # follows it on the same line: drop the `…? [Y/n]` prefix first.
     sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
         | sed -E 's/^.*\? \[[Yy]\/[Nn]\][[:space:]]*//' \
-        | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p"
+        | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p; s/^[[:space:]]*(Next.*)$/\1/p"
 }
 
 # Every line of a command's whole stdout, in order: ANSI color codes removed,
@@ -434,7 +446,7 @@ run_case() {
     local stubs dconf_stub=false
     local stderr_mode all_output keep_ansi target value
     local want_exit want_output want_home want_repo want_values want_state want_gh want_dconf calls first_load
-    local file rel got want_mode got_mode start_head state_want clone
+    local file rel got want_mode got_mode start_head state_want clone positional
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
     t=$(mktemp -d)
@@ -571,6 +583,11 @@ run_case() {
                 commit) args=(./mksync commit) ;;
                 setup) args=(./mksync setup) ;;
                 statusline) args=(./mksync statusline) ;;
+                status) args=(./mksync status) ;;
+                doctor) args=(./mksync doctor) ;;
+                pull) args=(./mksync pull) ;;
+                push) args=(./mksync push) ;;
+                front-diff) args=(./mksync diff) ;;
                 machine-show) args=(./mksync machine show) ;;
                 machine-retire)
                     target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
@@ -590,12 +607,17 @@ run_case() {
                 preview) args=(./export.sh --preview) ;;
                 diff) args=(./export.sh --diff) ;;
                 commit) args=(./commit.sh) ;;
+                status) args=(./sync status) ;;
+                doctor) args=(./sync doctor) ;;
+                pull) args=(./sync pull) ;;
+                push) args=(./sync push) ;;
+                front-diff) args=(./sync diff) ;;
                 *) die "unknown command '$cmd' in command $((i + 1))" ;;
             esac
         fi
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message|resetValues) ;;
+                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message|paths|resetValues) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -622,6 +644,10 @@ run_case() {
         if [[ $(jq -r ".commands[$i].options.resetValues // false" "$dir/case.json") == true ]]; then
             args+=(--reset-values)
         fi
+        # Positional paths, for the front door's commands.
+        while IFS= read -r -d '' positional; do
+            args+=("$positional")
+        done < <(jq -j ".commands[$i].options.paths // [] | .[] | . , \"\\u0000\"" "$dir/case.json")
 
         stdin_file=/dev/null
         if [[ $(jq -r ".commands[$i] | has(\"stdin\")" "$dir/case.json") == true ]]; then
