@@ -85,7 +85,7 @@ import { planCheck } from "./core/plan/check.ts";
 import { planImport } from "./core/plan/import.ts";
 import { planPreview } from "./core/plan/preview.ts";
 import { renderRun } from "./core/plan/run.ts";
-import type { Plan, RunPlan } from "./core/plan/types.ts";
+import type { Plan, RunPlan, Snapshot } from "./core/plan/types.ts";
 import { compareShadow, programShadow, renderShadow } from "./core/shadow.ts";
 import { parseValuesFile } from "./core/values/file.ts";
 import type { Values } from "./core/values/sanitize.ts";
@@ -203,7 +203,7 @@ function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
   return {
     result: {
       code: rendered.code,
-      stdout: writeLines(rendered.lines),
+      stdout: (plan.prompt ?? "") + writeLines(rendered.lines),
       stderr: "",
     },
     backups: outcome.backups,
@@ -747,7 +747,7 @@ async function execute(command: ExecutableCommand): Promise<Result> {
   }
 
   const answers = await readAnswers(command);
-  const snapshot = await buildSnapshot(
+  const built = await buildSnapshot(
     repoRoot,
     config.value,
     os.value,
@@ -757,6 +757,9 @@ async function execute(command: ExecutableCommand): Promise<Result> {
     process.env,
     layers.value,
   );
+  const snapshot: Snapshot = command.resetValues
+    ? { ...built, resetValues: true }
+    : built;
   const context: RunContext = {
     repoRoot,
     os: os.value,

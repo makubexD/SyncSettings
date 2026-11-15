@@ -90,6 +90,11 @@ export interface Snapshot {
   readonly only: readonly string[];
   /** `--force`: overwrite without asking. Never skips the `.bak` backup. */
   readonly force?: boolean;
+  /**
+   * `--reset-values`: contract "Sanitize and hydrate" asks every placeholder
+   * again, with the cached value only as the default, and never infers one.
+   */
+  readonly resetValues?: boolean;
   /** The repo's `HEAD` SHA, when it resolves; absent when it does not. */
   readonly head?: string;
   /**
@@ -247,6 +252,11 @@ export interface RunPlan {
   readonly lines: readonly string[];
   readonly summary: Summary;
   readonly code: number;
+  /**
+   * Raw text printed on stdout before the plan lines: the value prompts of an
+   * import with `--reset-values`.
+   */
+  readonly prompt?: string;
   /** The placeholder whose missing value stopped the plan. */
   readonly missing?: string;
   /**

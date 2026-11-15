@@ -1,0 +1,28 @@
+{
+  "description": "Import --reset-values asks again for every placeholder, replaces the cached value with the piped answer and skips inference, saving the answer in .user-values.json (Sanitize and hydrate).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Sanitized parity file",
+        "sanitizeRules": [
+          { "placeholder": "<YOUR_NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "values": {
+    "<YOUR_NAME>": "Old Name"
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": { "force": true, "resetValues": true },
+      "stdin": "New Name\n"
+    }
+  ]
+}

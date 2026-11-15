@@ -48,6 +48,7 @@ const LAST_SYNC_FILE = "/home/user/.local/state/sync-settings/last-sync";
 
 interface CaseOptions {
   readonly force?: boolean;
+  readonly resetValues?: boolean;
   readonly only?: readonly string[];
 }
 
@@ -165,6 +166,7 @@ function snapshotFor(name: string, os: Os): Snapshot | undefined {
     env: {},
     only: options?.only ?? [],
     force: options?.force === true,
+    ...(options?.resetValues === true ? { resetValues: true } : {}),
   };
 }
 
@@ -830,6 +832,50 @@ describe("planImport values file", () => {
 
     // Assert
     expect(plan?.prepare ?? []).toEqual([]);
+  });
+});
+
+describe("planImport reset values", () => {
+  const LOCAL = "/home/user/.config/parity/a.conf";
+  const PROMPT =
+    "\n  Enter values to fill the placeholders in the config files:\n\n  Full name [Old Name]: \n";
+
+  test("should ask again, replace the cached value and read the overwrite answer next", () => {
+    // Arrange
+    const snapshot = validSnapshot("reset-values-asks");
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(LOCAL, {
+      kind: "file",
+      path: LOCAL,
+      bytes: bytesOf("name=Inferred Name\n"),
+      mode: MODE,
+    });
+    // Without --force, so a wrong answer index would skip the overwrite.
+    const reset: Snapshot = { ...snapshot, force: false, localFiles };
+    const expectedValues = readFileSync(
+      new URL("reset-values-asks/expect/values.json", CASE_ROOT),
+      "utf8",
+    );
+
+    // Act
+    const plan = planImport(reset, ["New Name", "y"]);
+
+    // Assert
+    expect(plan.prompt).toBe(PROMPT);
+    expect(plan.prepare).toEqual([
+      { kind: "writeValues", text: expectedValues },
+    ]);
+    expect(statusLines(plan.lines)).toEqual([
+      "UPDATED dotfiles/common/parity/a.conf",
+    ]);
+    expect(
+      shownActions(
+        plan.steps.flatMap((step) => step.actions.map((entry) => entry.action)),
+      ),
+    ).toEqual([
+      { kind: "backup", path: LOCAL },
+      { kind: "writeLocal", path: LOCAL, text: "name=New Name\n" },
+    ]);
   });
 });
 

@@ -9,7 +9,12 @@ import { strategyFor } from "../merge/strategy.ts";
 import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
-import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
+import {
+  askValues,
+  hydrate,
+  inferValues,
+  resolveValues,
+} from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
@@ -645,24 +650,50 @@ export function planImport(
   }
 
   const gathered = collectRules(snapshot, selected.value, only.paths);
-  const values = resolveValues(
-    gathered.rules,
-    snapshot.values,
-    gathered.inferred,
-    snapshot.env,
-    valueOwner(snapshot),
-  );
-  if (!values.ok) {
-    const placeholder = values.error.placeholder;
-    return {
-      ...errorPlan(values.error.message, 1),
-      ...(placeholder !== undefined ? { missing: placeholder } : {}),
-    };
+  const owner = valueOwner(snapshot);
+  let values: Values;
+  let prompt: string | undefined;
+  let answerIndex = 0;
+  if (snapshot.resetValues === true) {
+    // `--reset-values` asks again for every placeholder and skips inference.
+    const asked = askValues(
+      gathered.rules,
+      snapshot.values,
+      snapshot.env,
+      answers,
+      owner,
+    );
+    if (!asked.ok) {
+      const placeholder = asked.error.placeholder;
+      return {
+        ...errorPlan(asked.error.message, 1),
+        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+      };
+    }
+    values = asked.value.values;
+    prompt = asked.value.text;
+    answerIndex = asked.value.consumed;
+  } else {
+    const resolved = resolveValues(
+      gathered.rules,
+      snapshot.values,
+      gathered.inferred,
+      snapshot.env,
+      owner,
+    );
+    if (!resolved.ok) {
+      const placeholder = resolved.error.placeholder;
+      return {
+        ...errorPlan(resolved.error.message, 1),
+        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+      };
+    }
+    values = resolved.value;
   }
 
   const state: State = {
     snapshot,
-    values: values.value,
+    values,
     only: only.paths,
     isExcluded: compileExcludes(
       snapshot.config.excludePatterns ?? [],
@@ -674,7 +705,7 @@ export function planImport(
     finish: [],
     lines: [],
     pending: [],
-    answerIndex: 0,
+    answerIndex,
     skipped: 0,
     errors: 0,
     userSkips: 0,
@@ -718,11 +749,12 @@ export function planImport(
   };
   return {
     // Bash saves every value whenever an entry has rules, before any file.
-    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values.value),
+    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values),
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,
     summary,
     code: 0,
+    ...(prompt !== undefined ? { prompt } : {}),
   };
 }

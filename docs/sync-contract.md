@@ -256,7 +256,10 @@ placeholders. On import, hydrating puts the values back.
    the environment variable named by `defaultEnv`. An empty answer takes the default. With no default it stops the run
    (see below).
 
-`--reset-values` (bash) or `-ResetValues` (PowerShell) prompts again for every placeholder and skips inference.
+`--reset-values` (bash, program) or `-ResetValues` (PowerShell) prompts again for every placeholder and skips inference.
+The cached value is only the prompt's default. With a machine record, an answer that differs from the record's or the
+profile's value replaces it there; a new one is placed as in [Values on a machine](#values-on-a-machine). The program
+takes the flag on `import` only so far.
 New values are saved back to `.user-values.json`. Each save leaves the file readable by the current user only: mode 600
 on Linux, also tightening an existing file, and no inherited access on Windows. The Windows save doesn't need a domain
 controller, so it works on a domain laptop that's off the network.
@@ -865,7 +868,7 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.
-- Not in the program yet: `export --diff`, `import --reset-values`, `commit`, dconf, package drift and the front door's
+- Not in the program yet: `export --diff`, `export --reset-values`, `commit`, dconf, package drift and the front door's
   own commands. Phase 8 adds all of them; the rules they follow are the sections above, with the program notes there.
 
 ### Layers (program only)
