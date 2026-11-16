@@ -19,6 +19,17 @@ function entry(overrides: Record<string, unknown> = {}): Record<string, unknown>
   return { ...SAFE_ENTRY, ...overrides };
 }
 
+function dconfEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return entry({
+    file: "gnome/dconf/input.ini",
+    module: "gnome",
+    merge: "dconf",
+    localPath: undefined,
+    os: ["linux"],
+    ...overrides,
+  });
+}
+
 function configWith(
   entries: readonly unknown[],
   options: { readonly schemaVersion?: unknown; readonly modules?: unknown } = {},
@@ -60,6 +71,10 @@ function linkedError(file: string): string {
 
 function importNameError(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} needs {layer} in importName.`;
+}
+
+function dconfPathError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} needs a dconfPath like /org/gnome/shell/.`;
 }
 
 function backslashError(file: string): string {
@@ -276,13 +291,42 @@ describe("parseV2", () => {
 
   test("a dconf entry needs no localPath", () => {
     // Arrange
-    const good = entry({
-      file: "gnome/dconf/input.ini",
-      module: "gnome",
-      merge: "dconf",
-      localPath: undefined,
-      os: ["linux"],
-    });
+    const good = dconfEntry({ dconfPath: "/org/gnome/shell/" });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok).toBe(true);
+  });
+
+  test("a dconf entry whose dconfPath is the root stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry({ dconfPath: "/" });
+
+    // Act / Assert
+    expectError(configWith([bad]), dconfPathError(bad.file as string), 1);
+  });
+
+  test("a dconf entry whose dconfPath is an option stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry({ dconfPath: "--version" });
+
+    // Act / Assert
+    expectError(configWith([bad]), dconfPathError(bad.file as string), 1);
+  });
+
+  test("a dconf entry with no dconfPath stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry();
+
+    // Act / Assert
+    expectError(configWith([bad]), dconfPathError(bad.file as string), 1);
+  });
+
+  test("a dconf entry with a folder dconfPath is accepted", () => {
+    // Arrange
+    const good = dconfEntry({ dconfPath: "/org/gnome/shell/" });
 
     // Act
     const result = parseV2(configWith([good]));
@@ -331,7 +375,7 @@ describe("parseV2", () => {
       entry(),
       entry({ file: "vscode/settings.json", merge: "json" }),
       entry({ file: "claude/CLAUDE.md", merge: "import", importName: "CLAUDE.{layer}.md" }),
-      entry({ file: "gnome/dconf/input.ini", module: "gnome", merge: "dconf", os: ["linux"] }),
+      dconfEntry({ dconfPath: "/org/gnome/shell/" }),
       entry({ file: "vscode/snippets", merge: "dir" }),
     ]);
 

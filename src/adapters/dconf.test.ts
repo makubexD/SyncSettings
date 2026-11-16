@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -11,6 +12,9 @@ import { join } from "node:path";
 import { dconfDump, dconfLoad, loginHome } from "./dconf.ts";
 
 const DCONF_PATH = "/org/gnome/shell/";
+
+/** Not a dconf folder: an option dconf would read as one. */
+const OPTION_PATH = "--version";
 
 const DUMP_TEXT =
   "[org/gnome/desktop/interface]\nfont-name=Cantarell 11\n";
@@ -53,6 +57,11 @@ function writeStub(bin: string, name: string, script: string): void {
   const path = join(bin, name);
   writeFileSync(path, `#!/bin/sh\n${script}\n`);
   chmodSync(path, 0o755);
+}
+
+/** A dconf stub that records that it ran in the file `marker`. */
+function ranScript(marker: string): string {
+  return `printf ran > '${marker}'`;
 }
 
 /** The environment a test passes: its stub folder first, then the shell's. */
@@ -106,6 +115,20 @@ describe("dconfDump", () => {
     // Assert
     expect(result).toEqual({ kind: "missing" });
   });
+
+  test("should refuse a path that is not a dconf folder without running dconf", async () => {
+    // Arrange
+    const bin = tempFolder();
+    const marker = join(bin, "dconf-ran");
+    writeStub(bin, "dconf", ranScript(marker));
+
+    // Act
+    const result = await dconfDump(OPTION_PATH, stubEnv(bin));
+
+    // Assert
+    expect(result).toEqual({ kind: "failed" });
+    expect(existsSync(marker)).toBe(false);
+  });
 });
 
 describe("dconfLoad", () => {
@@ -141,6 +164,20 @@ describe("dconfLoad", () => {
 
     // Assert
     expect(result).toEqual({ kind: "failed" });
+  });
+
+  test("should refuse a path that is not a dconf folder without running dconf", () => {
+    // Arrange
+    const bin = tempFolder();
+    const marker = join(bin, "dconf-ran");
+    writeStub(bin, "dconf", ranScript(marker));
+
+    // Act
+    const result = dconfLoad(OPTION_PATH, DUMP_TEXT, stubEnv(bin));
+
+    // Assert
+    expect(result).toEqual({ kind: "failed" });
+    expect(existsSync(marker)).toBe(false);
   });
 });
 

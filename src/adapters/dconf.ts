@@ -7,6 +7,8 @@
  * `dconf not installed`, `dconf dump failed` and `dconf load failed`.
  */
 
+import { isValidDconfPath } from "../core/config/dconf-path.ts";
+
 /** The mode a dconf entry needs for its command: `dump` reads, `load` writes. */
 const DUMP_COMMAND = "dump";
 
@@ -84,12 +86,16 @@ async function runTool(
 /**
  * `dconf dump <path>`: the folder's keys and values, byte for byte as dconf
  * prints them. No `dconf` on `PATH` is `missing` (`dconf not installed`); a
- * non-zero exit or a spawn error is `failed` (`dconf dump failed`).
+ * non-zero exit or a spawn error is `failed` (`dconf dump failed`). A path that
+ * is not a dconf folder is `failed` without running anything.
  */
 export async function dconfDump(
   path: string,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<DumpResult> {
+  if (!isValidDconfPath(path)) {
+    return { kind: "failed" };
+  }
   const result = await runTool("dconf", [DUMP_COMMAND, path], env);
   switch (result.kind) {
     case "ok":
@@ -104,7 +110,8 @@ export async function dconfDump(
 /**
  * `dconf load <path>` with `text` on stdin, merging the named keys into the
  * folder. No `dconf` on `PATH` is `missing` (`dconf not installed`); a non-zero
- * exit or a spawn error is `failed` (`dconf load failed`). Synchronous, because
+ * exit or a spawn error is `failed` (`dconf load failed`). A path that is not
+ * a dconf folder is `failed` without running anything. Synchronous, because
  * the plan executor that runs it is.
  */
 export function dconfLoad(
@@ -112,6 +119,9 @@ export function dconfLoad(
   text: string,
   env: Readonly<Record<string, string | undefined>>,
 ): LoadResult {
+  if (!isValidDconfPath(path)) {
+    return { kind: "failed" };
+  }
   try {
     const result = Bun.spawnSync({
       cmd: ["dconf", LOAD_COMMAND, path],

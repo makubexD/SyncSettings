@@ -1,3 +1,4 @@
+import { isValidDconfPath } from "./dconf-path.ts";
 import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
 
 const CONFIG_FILE = "sync-config.v2.json";
@@ -68,6 +69,10 @@ function linkedMessage(file: string): string {
 
 function importNameMessage(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} needs {layer} in importName.`;
+}
+
+function dconfPathMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} needs a dconfPath like /org/gnome/shell/.`;
 }
 
 function backslashMessage(file: string): string {
@@ -145,6 +150,10 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
     const merge = record.merge;
     if (!isMergeType(merge)) {
       return failure(unknownMergeMessage(file, shown(merge)), 1);
+    }
+
+    if (merge === "dconf" && (typeof record.dconfPath !== "string" || !isValidDconfPath(record.dconfPath))) {
+      return failure(dconfPathMessage(file), 1);
     }
 
     // A dconf entry has no local path: the dconf folder is its destination.
