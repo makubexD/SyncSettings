@@ -49,7 +49,8 @@ Design: the v2 config error `ERROR: sync-config.v2.json: entry <file> needs a dc
 to the other v2 messages ("has linked other than true"), for a `dconf` entry whose `dconfPath` is missing or isn't
 `/` plus one or more `[A-Za-z0-9._-]+/` parts (the v1 rule); and each item of "Out of this plan" above in "Open".
 
-Test: `npx prettier --check docs/sync-contract.md docs/design-layers.md`.
+Test: `npx prettier --check docs/design-layers.md` (`docs/sync-contract.md` keeps its compact tables and isn't
+Prettier-formatted, as on `master`; check it with `git diff --check`).
 
 ## Step 2: Shared cases for the review's rules `[worker]`
 
@@ -255,4 +256,5 @@ The contract and design as built: each rule of step 1 checked against the code, 
 `app/setup.ts`, `app/retire.ts`, `app/shadow.ts` and `app/import.ts`, the runners' safety rules in the README, and the
 roadmap's phase 8 entry listing this plan.
 
-Test: `npx prettier --check docs tests/parity/README.md`.
+Test: `npx prettier --check docs/design-layers.md docs/plan-single-engine.md && git diff --check` (the README, like
+the contract, isn't Prettier-formatted on `master`).
