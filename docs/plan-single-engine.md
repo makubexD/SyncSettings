@@ -213,11 +213,14 @@ the phase 7 finish review").
   `docs/plan-single-engine-8-port.md`, written when `docs/plan-single-engine-8.md` finishes: about 370 shared cases
   and 150 unit and adapter tests would more than double the phase. Phase 8 ports only the dconf and drift groups, with
   their rules.
+- The phase 8 review's fixes: `docs/plan-single-engine-8-fixes.md` (the 14 Required findings of the finish review and
+  the cheap Optional ones; the rest is in the design's "Open" under "Left by the phase 8 review").
 
 ### Phase 9: cut-over
 
 - A release workflow builds the programs with checksums and `gh attestation`.
-- The Claude layout goes live: `bun tools/claude-layout.ts <repo> --cutover` drops the v1 Claude rows, the synced
+- The Claude layout goes live: `bun tools/claude-layout.ts <repo>` lists its writes, then `--cutover` writes the
+  layers and drops the v1 Claude rows (a second run is refused), the synced
   `statusLine` runs `mksync statusline`, and `statusline.sh` is retired.
 - `install.sh` and `install.ps1` download the program. The tool updates itself with `mksync update`, checking the
   config's `schemaVersion`.

@@ -779,7 +779,8 @@ winget install --id Git.Git -e`, or `install Git for Windows from https://git-sc
 - **`pull`** doesn't re-run itself after the fast-forward: the program is the same before and after, so it reads the
   config again and goes on. Its check prints the grouped block of the [import check](#import-check). After the fetch it
   counts `HEAD..origin/master`: at 0 it runs no merge; at `n` it fast-forwards and prints `  Pulled <n> commit(s).`
-- **`push`** checks the clone first, before the export. A push whose
+- **`push`** checks the clone first, before the export: a clone that isn't on `master` with an `origin` remote prints
+  `ERROR: push needs the repo clone on master with an origin remote.` and exits 1, with nothing exported. A push whose
   [up-to-date check](#up-to-date-check) pulled stops there, exit 0, after `Pulled <n> commit(s); run the command
   again.`, with no PR question.
 - **`push`** on a pull-only machine prints `this machine is pull-only (see mksync machine show)` and exits 1. Otherwise
@@ -1441,7 +1442,12 @@ Move a change? Type its number, or press Enter to go on:
   `a layer narrower than <layer> has the file`. A removed setting or file has nothing to place, so moving it prints
   `change <n> removes a setting; it can't move.` Either refusal stops the push with exit 1 before anything is written.
 - On this machine, the merged result of every file is the same after a move as before it; only who else receives the
-  change differs.
+  change differs. A `json` move that would change it (a layer between the two, or a narrower one, setting the same key
+  differently) is refused with `moving <path> to <layer> would change the merged result`, and the push stops with
+  exit 1 before anything is written. A key is found by its own key path, so a name holding a `.` (`"[python]"` >
+  `"editor.formatOnSave"`) moves whole. A move that removes the last key of an object removes the emptied object too.
+- A layer file a move creates prints its `ADDED` or `MODIFIED` line right after its entry's other lines, before any
+  `ORPHAN` line.
 - The block prints again after each move, with the change under its new group and its number kept.
 - The [profile-value rule](#profile-values-program-only) and the [guard](#public-repo-guard-program-only) run after the
   last move, so moving a change to `profile <p>` lets a refused value through.

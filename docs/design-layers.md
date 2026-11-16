@@ -1037,6 +1037,15 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
   ahead and behind counts, `ls-tree` and `cat-file --batch` reads, and the commit and push calls.
 - `tools/claude-layout.ts` (dev-only) splits Claude's `settings.json` into layers for the cut-over (step 28); phase 9
   runs it with `--cutover`.
+- After the phase 8 review (`docs/plan-single-engine-8-fixes.md`): `main.ts` only resolves the repo, OS, home and
+  config and dispatches with a `switch` over the command kind. `app/setup.ts`, `app/retire.ts` and `app/shadow.ts`
+  hold those flows (`executeSetup` takes `execute` as a parameter, so `app/` never imports `main.ts`), and
+  `app/import.ts` holds `runImport`. `app/export.ts` holds `runExport` and the run steps both share, in order:
+  `startRun` (up-to-date and record checks), `buildRun` (snapshot and `RunContext`) and `endRun` (the record lines on
+  stderr), plus the one `failure` helper. `RunContext` carries the snapshot's `env`, which the dconf load uses; the
+  login home is read with `getent passwd <uid>`. `core/plan/move.ts` takes each change's key path from the export
+  plan and refuses a move that changes the merge. `tools/claude-layout.ts` refuses a split repo and, without
+  `--cutover`, prints `would write <path>` lines; its tests use `tools/fixtures/claude-layout/`.
 
 ## Release and update
 
@@ -1446,8 +1455,8 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     phase 9's checklist.
   - The package managers have no stub in the shared-case runners, so the drift rules are core unit tests over stubbed
     lists and the old bash cases.
-  - `main.ts` still holds the `import`, `setup`, `machine`, `profile`, `statusline` and `shadow` flows; each moves to
-    `src/app/` when it next changes.
+  - `main.ts` still holds the `statusline` and `machine show` flows and the `pull` and `push` wiring; each moves to
+    `src/app/` when it next changes. `import`, `setup`, the retires and `shadow` moved in the phase 8 review.
   - The program's `commit` keeps `commit.sh`'s own lines, including `run commit.sh from master`; they change with the
     cut-over's wording review.
 - **Left by the phase 8 review (`docs/plan-single-engine-8-fixes.md`).**

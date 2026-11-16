@@ -144,15 +144,22 @@ exits 0.
 cut, so the result must equal `expect/dconf.log` byte for byte. No `expect/dconf.log` with the stub on means dconf must
 not be loaded. Any other `dconf` call prints a message on stderr and exits 1.
 
-With `"stubs": ["getent"]`, `getent passwd <user>` answers with the case's temp home in the home field
-(`<user>:x:1000:1000::<home>:/bin/bash`) and exits 0; any other call exits 2, as getent does for an unknown key.
+With `"stubs": ["getent"]`, `getent passwd <key>` (the program asks by uid) answers with the case's temp home in the
+home field (`<key>:x:1000:1000::<home>:/bin/bash`) and exits 0; any other call exits 2, as getent does for an unknown
+key. `getent` needs `dconf` in the same list: `run.sh` refuses a case that stubs it alone, since the lookup only guards
+a dconf load. `dconf` and `getent` are Linux only: `run.ps1` skips a case whose `os` leaves out Windows before it looks
+at the stubs, and fails one that would run on Windows with them.
 
 ## How the runner checks it
 
 1. Copy the engine into a temp repo, write `config` or `configV2` and `values`, copy `repo/`, `home/` and `state/`.
 2. Run each command with the home folder as `HOME` (Linux, macOS) or `USERPROFILE` (Windows). `GH`,
    `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `VIRTUAL_ENV` and `CONDA_DEFAULT_ENV` are cleared first, so the caller's
-   shell can't change a case's output (a Python env would otherwise add a statusline section).
+   shell can't change a case's output (a Python env would otherwise add a statusline section). So are
+   `DBUS_SESSION_BUS_ADDRESS`, `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GH_TOKEN` and `GITHUB_TOKEN`, and
+   `GIT_CEILING_DIRECTORIES` is the case's temp folder, so a case can't reach the real session bus, the caller's repo
+   or a GitHub account (both runners). A case's own `env` is applied after, so it may still set them. Copied `home/`
+   files get the current time, so git's stat cache can't call a changed repo twin clean.
 3. Compare:
    - **Exit codes** with `expect/exit`.
    - **Status lines.** Each output line that is a status line becomes `WORD label`: the word without brackets or
