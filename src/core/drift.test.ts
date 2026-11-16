@@ -85,6 +85,18 @@ const APT_EXTRA_FOO =
 const APT_MISSING_FOO =
   "  DRIFT      apt/foo  (in packages/linux/apt.txt, not installed)";
 
+const APT_MISSING_BAR =
+  "  DRIFT      apt/bar  (in packages/linux/deb.txt, not installed)";
+
+const APT_SKIPPED_APT_MARK_FAILED =
+  "  SKIPPED    packages/linux/apt.txt  (apt-mark failed)";
+
+const APT_SKIPPED_APT_MARK_NOT_INSTALLED =
+  "  SKIPPED    packages/linux/apt.txt  (apt-mark not installed)";
+
+const APT_SKIPPED_DPKG_FAILED =
+  "  SKIPPED    packages/linux/apt.txt  (dpkg-query failed)";
+
 describe("package drift", () => {
   test("drift-unreadable-list", () => {
     // An unreadable list file gives awk no text, so it parses as empty; the
@@ -215,6 +227,64 @@ describe("package drift", () => {
     );
 
     expect(lines).toEqual([]);
+  });
+
+  test("drift-apt-mark-failed-keeps-missing", () => {
+    // apt-mark failing skips only the extras check: both missing lines still
+    // print, then the SKIPPED line in their place.
+    const lists = parsePackageLists({
+      apt: "foo\n",
+      deb: "bar https://example.com/bar.deb 0123456789abcdef\n",
+    });
+
+    const lines = driftLines(
+      lists,
+      installedWith({
+        apt: { present: [], chosen: skipped("apt-mark failed") },
+      }),
+      [],
+    );
+
+    expect(lines).toEqual([
+      APT_MISSING_FOO,
+      APT_MISSING_BAR,
+      APT_SKIPPED_APT_MARK_FAILED,
+    ]);
+  });
+
+  test("drift-apt-mark-not-installed-keeps-missing", () => {
+    const lists = parsePackageLists({
+      apt: "foo\n",
+      deb: "bar https://example.com/bar.deb 0123456789abcdef\n",
+    });
+
+    const lines = driftLines(
+      lists,
+      installedWith({
+        apt: { present: [], chosen: skipped("apt-mark not installed") },
+      }),
+      [],
+    );
+
+    expect(lines).toEqual([
+      APT_MISSING_FOO,
+      APT_MISSING_BAR,
+      APT_SKIPPED_APT_MARK_NOT_INSTALLED,
+    ]);
+  });
+
+  test("drift-dpkg-query-failed-skips-the-block", () => {
+    // A failed dpkg-query leaves no present set, so only its SKIPPED line
+    // prints: no missing lines.
+    const lists = parsePackageLists({ apt: "foo\n" });
+
+    const lines = driftLines(
+      lists,
+      installedWith({ apt: skipped("dpkg-query failed") }),
+      [],
+    );
+
+    expect(lines).toEqual([APT_SKIPPED_DPKG_FAILED]);
   });
 
   test("drift-deb-listed", () => {

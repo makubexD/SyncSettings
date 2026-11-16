@@ -11,10 +11,12 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type {
+  AptResult,
   Installed,
   ManagerResult,
   PackageFile,
   PackageListTexts,
+  SkippedTool,
 } from "../core/drift.ts";
 
 /** One tool run: its stdout when it exited 0, or why it did not succeed. */
@@ -154,7 +156,7 @@ function uniqueSorted(names: readonly string[]): string[] {
 }
 
 /** A manager that could not answer, with the contract's note. */
-function skipped(note: string): ManagerResult {
+function skipped(note: string): SkippedTool {
   return { skipped: note };
 }
 
@@ -329,8 +331,9 @@ function newestVersion(dir: string): string | undefined {
 
 /** Two `dpkg-query` sources for apt: present from statuses, chosen from
  * `apt-mark showmanual`. The bash order is kept: a failed dpkg-query never
- * reaches apt-mark. */
-function aptInstalled(run: Run): ManagerResult {
+ * reaches apt-mark, and a failed apt-mark keeps the present set so the
+ * missing lines still print. */
+function aptInstalled(run: Run): AptResult {
   const query = run("dpkg-query", ["-W", DPKG_FORMAT]);
   if (query.kind === "missing") {
     return skipped("dpkg-query not installed");
@@ -349,10 +352,10 @@ function aptInstalled(run: Run): ManagerResult {
 
   const manual = run("apt-mark", ["showmanual"]);
   if (manual.kind === "missing") {
-    return skipped("apt-mark not installed");
+    return { present, chosen: skipped("apt-mark not installed") };
   }
   if (manual.kind === "failed") {
-    return skipped("apt-mark failed");
+    return { present, chosen: skipped("apt-mark failed") };
   }
   const chosen = uniqueSorted(
     manual.stdout

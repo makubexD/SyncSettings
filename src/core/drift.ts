@@ -22,6 +22,16 @@ export interface SkippedTool {
 /** What one manager reported, or why it could not report. */
 export type ManagerResult = ManagerInstalled | SkippedTool;
 
+/** apt keeps `present` even when `apt-mark` cannot answer: the missing lines
+ * still print, and `chosen` carries the skip for the extras check. */
+export interface AptInstalled {
+  readonly present: readonly string[];
+  readonly chosen: readonly string[] | SkippedTool;
+}
+
+/** What apt reported: a present set, or a skip from `dpkg-query`. */
+export type AptResult = AptInstalled | SkippedTool;
+
 /** A file of `apt-sources/` or `apt-sources/keyrings/`. `content` is absent
  * when the file exists but cannot be read, which the contract counts as not
  * installed. */
@@ -37,7 +47,7 @@ export interface InstalledFiles {
 
 /** The system side of every manager, keyed as the contract's table names it. */
 export interface Installed {
-  readonly apt: ManagerResult;
+  readonly apt: AptResult;
   readonly snap: ManagerResult;
   readonly npm: ManagerResult;
   readonly pipx: ManagerResult;
@@ -276,16 +286,24 @@ function withoutArch(name: string): string {
 /** `drift_apt`: two lists for presence, their union for the chosen check. */
 function aptBlock(
   lists: PackageLists,
-  result: ManagerResult,
+  result: AptResult,
   ignored: ReadonlySet<string>,
 ): string[] {
   if ("skipped" in result) {
     return [formatLine("SKIPPED", "packages/linux/apt.txt", result.skipped)];
   }
   const present = new Set(uniqueSorted(result.present));
-  return [
+  const lines = [
     ...missingLines("apt", "apt.txt", lists.apt, present),
     ...missingLines("apt", "deb.txt", lists.deb, present),
+  ];
+  if ("skipped" in result.chosen) {
+    lines.push(
+      formatLine("SKIPPED", "packages/linux/apt.txt", result.chosen.skipped),
+    );
+    return lines;
+  }
+  lines.push(
     ...extraLines(
       "apt",
       "apt.txt",
@@ -293,7 +311,8 @@ function aptBlock(
       result.chosen.map(withoutArch),
       ignored,
     ),
-  ];
+  );
+  return lines;
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {

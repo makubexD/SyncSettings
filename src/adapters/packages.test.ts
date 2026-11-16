@@ -162,7 +162,10 @@ describe("readInstalled: apt", () => {
       run: respond({ "dpkg-query": ok("installed foo\n") }),
     });
 
-    expect(installed.apt).toEqual({ skipped: "apt-mark not installed" });
+    expect(installed.apt).toEqual({
+      present: ["foo"],
+      chosen: { skipped: "apt-mark not installed" },
+    });
   });
 
   test("should report a failed apt-mark", () => {
@@ -175,7 +178,10 @@ describe("readInstalled: apt", () => {
       }),
     });
 
-    expect(installed.apt).toEqual({ skipped: "apt-mark failed" });
+    expect(installed.apt).toEqual({
+      present: ["foo"],
+      chosen: { skipped: "apt-mark failed" },
+    });
   });
 });
 
