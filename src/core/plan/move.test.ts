@@ -6,9 +6,17 @@ import type { JsonValue } from "../json/value.ts";
 import type { LayerName } from "../layers/select.ts";
 import { mergeJsonValues, parseJsonBytes } from "../merge/json.ts";
 import type { JsonLayer } from "../merge/json.ts";
+import { formatLine } from "../status.ts";
 import { changeLines, changeMoveSources } from "./changes.ts";
 import { applyMove, moveJsonChange, moveWholeFile } from "./move.ts";
-import type { Action, LocalEntry, RunPlan, Snapshot } from "./types.ts";
+import type {
+  Action,
+  LocalEntry,
+  RemoveRepoAction,
+  RunPlan,
+  Snapshot,
+  WriteRepoAction,
+} from "./types.ts";
 
 const ENCODER = new TextEncoder();
 const DECODER = new TextDecoder();
@@ -459,6 +467,15 @@ const PROFILE_JSON = `profiles/${PROFILE_NAME}/parity/settings.json`;
 
 const BASE_BASHRC = "dotfiles/common/shell/bashrc";
 
+const PROFILE_BASHRC = `profiles/${PROFILE_NAME}/shell/bashrc`;
+
+const MACHINE_BASHRC = `machines/${MACHINE_NAME}/shell/bashrc`;
+
+const ORPHAN_PATH = "dotfiles/common/stray.txt";
+
+const ORPHAN_NOTE =
+  "no entry in sync-config.json; git rm it or add an entry";
+
 const JSON_ENTRY: ConfigV2Entry = {
   file: "parity/settings.json",
   module: "parity",
@@ -553,6 +570,44 @@ function planOf(...steps: readonly (readonly Action[])[]): RunPlan {
 
 function writeRepo(path: string, text: string): Action {
   return { kind: "writeRepo", path, bytes: bytes(text) };
+}
+
+interface PlannedStep {
+  /** The index of the step's status line in `RunPlan.lines`. */
+  readonly line: number;
+  readonly actions: readonly Action[];
+}
+
+/** A plan with the status lines and step lines an export plan has. */
+function planWithLines(
+  lines: readonly string[],
+  steps: readonly PlannedStep[],
+): RunPlan {
+  return {
+    steps: steps.map((step) => {
+      const pathAction = step.actions.find(
+        (action): action is WriteRepoAction | RemoveRepoAction =>
+          action.kind === "writeRepo" || action.kind === "removeRepo",
+      );
+      return {
+        label: pathAction?.path ?? "",
+        line: step.line,
+        counted: true,
+        actions: step.actions.map((action) => ({ action, failure: "failed" })),
+      };
+    }),
+    finish: [],
+    lines: [...lines],
+    summary: { kind: "none" },
+    code: 0,
+  };
+}
+
+/** Every step's line is the plan line its label is printed on. */
+function expectStepsOnTheirLines(plan: RunPlan): void {
+  for (const step of plan.steps) {
+    expect(plan.lines[step.line]?.includes(step.label)).toBe(true);
+  }
 }
 
 describe("changeMoveSources", () => {
@@ -809,5 +864,165 @@ describe("applyMove", () => {
       return;
     }
     expect(moved.value).toBe(plan);
+  });
+
+  test("a rewrite of a slot the plan already writes keeps its line", () => {
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: {
+        [BASE_JSON]: '{"seed":0}',
+        [PROFILE_JSON]: '{"alpha":1}',
+      },
+      profile: PROFILE,
+    });
+    const lines = [
+      formatLine("MODIFIED", BASE_JSON),
+      formatLine("MODIFIED", PROFILE_JSON),
+    ];
+    const plan = planWithLines(lines, [
+      { line: 0, actions: [writeRepo(BASE_JSON, '{"seed":1}')] },
+      {
+        line: 1,
+        actions: [
+          writeRepo(PROFILE_JSON, '{"alpha":1,"bravo":2,"charlie":3}'),
+        ],
+      },
+    ]);
+
+    // Change 2 is bravo, added by the profile write; widen it to base.
+    const moved = applyMove(plan, snapshot, 2, "base");
+
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) {
+      return;
+    }
+    expect(moved.value.lines).toEqual(lines);
+    expect(moved.value.steps.map((step) => step.line)).toEqual([0, 1]);
+    expectStepsOnTheirLines(moved.value);
+  });
+
+  test("a whole-file move that empties a planned slot turns its line into REMOVED in place", () => {
+    const snapshot = snapshotOf({
+      config: configOf([BASHRC_ENTRY]),
+      repo: { [PROFILE_BASHRC]: "one\n" },
+      profile: PROFILE,
+    });
+    const plan = planWithLines([formatLine("MODIFIED", PROFILE_BASHRC)], [
+      { line: 0, actions: [writeRepo(PROFILE_BASHRC, "two\n")] },
+    ]);
+
+    const moved = applyMove(plan, snapshot, 1, "base");
+
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) {
+      return;
+    }
+    expect(moved.value.lines).toEqual([
+      formatLine("REMOVED", PROFILE_BASHRC),
+      formatLine("ADDED", BASE_BASHRC),
+    ]);
+    expect(moved.value.steps.map((step) => step.line)).toEqual([0, 1]);
+    expectStepsOnTheirLines(moved.value);
+  });
+
+  test("a move that puts the repo's bytes back drops its line and later lines shift up", () => {
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY, BASHRC_ENTRY]),
+      repo: {
+        [BASE_BASHRC]: "one\n",
+        [BASE_JSON]: '{"alpha":0}',
+      },
+      profile: PROFILE,
+      machine: MACHINE_NAME,
+    });
+    const lines = [
+      formatLine("MODIFIED", BASE_BASHRC),
+      formatLine("MODIFIED", BASE_JSON),
+    ];
+    const plan = planWithLines(lines, [
+      { line: 0, actions: [writeRepo(BASE_BASHRC, "two\n")] },
+      { line: 1, actions: [writeRepo(BASE_JSON, '{"alpha":1}')] },
+    ]);
+
+    const moved = applyMove(plan, snapshot, 1, "machine");
+
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) {
+      return;
+    }
+    // The second line shifts up; the machine file the move creates goes last.
+    expect(moved.value.lines).toEqual([
+      formatLine("MODIFIED", BASE_JSON),
+      formatLine("ADDED", MACHINE_BASHRC),
+    ]);
+    expect(moved.value.steps.map((step) => step.line)).toEqual([0, 1]);
+    expectStepsOnTheirLines(moved.value);
+  });
+
+  test("a new layer file's line goes before the orphan report", () => {
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: {
+        [BASE_JSON]: '{"seed":0}',
+        [PROFILE_JSON]: '{"alpha":1}',
+      },
+      profile: PROFILE,
+    });
+    const lines = [
+      formatLine("MODIFIED", PROFILE_JSON),
+      formatLine("ORPHAN", ORPHAN_PATH, ORPHAN_NOTE),
+    ];
+    const plan = planWithLines(lines, [
+      {
+        line: 0,
+        actions: [
+          writeRepo(PROFILE_JSON, '{"alpha":1,"bravo":2,"charlie":3}'),
+        ],
+      },
+    ]);
+
+    // Change 1 is bravo, added by the profile write; widen it to base.
+    const moved = applyMove(plan, snapshot, 1, "base");
+
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) {
+      return;
+    }
+    expect(moved.value.lines).toEqual([
+      formatLine("MODIFIED", PROFILE_JSON),
+      formatLine("MODIFIED", BASE_JSON),
+      formatLine("ORPHAN", ORPHAN_PATH, ORPHAN_NOTE),
+    ]);
+    expect(moved.value.steps.map((step) => step.line)).toEqual([0, 1]);
+    expectStepsOnTheirLines(moved.value);
+  });
+
+  test("a new layer file's line goes before the orphan report with no entry step left", () => {
+    const snapshot = snapshotOf({
+      config: configOf([BASHRC_ENTRY]),
+      repo: { [BASE_BASHRC]: "one\n" },
+      profile: PROFILE,
+      machine: MACHINE_NAME,
+    });
+    const lines = [
+      formatLine("MODIFIED", BASE_BASHRC),
+      formatLine("ORPHAN", ORPHAN_PATH, ORPHAN_NOTE),
+    ];
+    const plan = planWithLines(lines, [
+      { line: 0, actions: [writeRepo(BASE_BASHRC, "two\n")] },
+    ]);
+
+    const moved = applyMove(plan, snapshot, 1, "machine");
+
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) {
+      return;
+    }
+    expect(moved.value.lines).toEqual([
+      formatLine("ADDED", MACHINE_BASHRC),
+      formatLine("ORPHAN", ORPHAN_PATH, ORPHAN_NOTE),
+    ]);
+    expect(moved.value.steps.map((step) => step.line)).toEqual([0]);
+    expectStepsOnTheirLines(moved.value);
   });
 });

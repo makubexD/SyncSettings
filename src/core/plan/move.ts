@@ -15,6 +15,8 @@ const REPO_EOL = "\n";
 const WRITE_FAILURE = "cannot write repo file";
 const REMOVE_FAILURE = "cannot remove from repo";
 const ITEM_SUFFIX = "[]";
+/** An ORPHAN line's start: the word, padded, before its label. */
+const ORPHAN_PREFIX = formatLine("ORPHAN", "");
 
 /** Whether every slot's file, when it has one, parses as JSON. */
 function parseSlots(
@@ -527,17 +529,44 @@ function withMovedSlots(
     lineMap.set(index, keptLines.length);
     keptLines.push(line);
   });
-  const movedSteps = steps.map((step) => ({
+  let movedSteps = steps.map((step) => ({
     ...step,
     line: lineMap.get(step.line) ?? step.line,
   }));
+  // A new line follows the entry's last one, so it reads with the entry rather
+  // than after the orphan report at the end of the block.
+  const slotPaths = new Set(slots.map((slot) => slot.repoPath));
+  let lastSlotLine = -1;
+  for (const step of movedSteps) {
+    if (
+      step.actions.some(
+        (item) =>
+          (item.action.kind === "writeRepo" ||
+            item.action.kind === "removeRepo") &&
+          slotPaths.has(item.action.path),
+      )
+    ) {
+      lastSlotLine = Math.max(lastSlotLine, step.line);
+    }
+  }
+  const orphanLine = keptLines.findIndex((line) =>
+    line.startsWith(ORPHAN_PREFIX),
+  );
+  let insertAt =
+    lastSlotLine >= 0
+      ? lastSlotLine + 1
+      : orphanLine >= 0
+        ? orphanLine
+        : keptLines.length;
   for (const addition of additions) {
     const word = snapshot.repoFiles.has(addition.path) ? "MODIFIED" : "ADDED";
-    const line = keptLines.length;
-    keptLines.push(formatLine(word, addition.path));
+    keptLines.splice(insertAt, 0, formatLine(word, addition.path));
+    movedSteps = movedSteps.map((step) =>
+      step.line >= insertAt ? { ...step, line: step.line + 1 } : step,
+    );
     movedSteps.push({
       label: addition.path,
-      line,
+      line: insertAt,
       counted: true,
       actions: [
         {
@@ -550,6 +579,7 @@ function withMovedSlots(
         },
       ],
     });
+    insertAt++;
   }
   return { ...plan, steps: movedSteps, lines: keptLines };
 }
