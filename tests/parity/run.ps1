@@ -160,16 +160,16 @@ function Validate-Case {
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
             $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and
             $cmd.command -cne 'profile-retire' -and -not $frontDoor) {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
         }
         if ($optNames -ccontains 'partial' -and $cmd.command -cne 'commit') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
         }
         if ($optNames -ccontains 'message' -and $cmd.command -cne 'commit' -and $cmd.command -cne 'push') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
         }
-        if ($optNames -ccontains 'paths' -and -not $frontDoor) {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff'
+        if ($optNames -ccontains 'paths' -and -not $frontDoor -and $cmd.command -cne 'front-check') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -893,6 +893,8 @@ function Run-Case {
                     'pull'    { $extraArgs += 'pull' }
                     'push'    { $extraArgs += 'push' }
                     'front-diff' { $extraArgs += 'diff' }
+                    'front-check' { $extraArgs += 'check' }
+                    'front-preview' { $extraArgs += 'preview' }
                     'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
                     'machine-retire' {
                         $extraArgs += 'machine'
@@ -919,6 +921,8 @@ function Run-Case {
                     'pull'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'pull'; $frontDoor = $true }
                     'push'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'push'; $frontDoor = $true }
                     'front-diff' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'diff'; $frontDoor = $true }
+                    'front-check' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'check'; $frontDoor = $true }
+                    'front-preview' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'preview'; $frontDoor = $true }
                     default   { Die "unknown command '$cmd' in command $($i + 1)" }
                 }
             }

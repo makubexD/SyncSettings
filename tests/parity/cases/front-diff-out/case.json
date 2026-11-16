@@ -1,0 +1,24 @@
+{
+  "description": "mksync diff runs the export diff after fetching origin: the same output and exit code as export --diff (Front door, Diff).",
+  "git": "remote",
+  "syncPoint": true,
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "front-diff"
+    }
+  ]
+}

@@ -125,10 +125,10 @@ validate_case() {
           and (if ($o | has("message")) then $cmd == "commit" or $cmd == "push" else true end)
           and (if ($o | has("paths")) then
                   $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
-                  or $cmd == "push" or $cmd == "front-diff"
+                  or $cmd == "push" or $cmd == "front-diff" or $cmd == "front-check"
                else true end)
           and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push or front-diff; resetValues needs import or check'
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -598,6 +598,8 @@ run_case() {
                 pull) args=(./mksync pull) ;;
                 push) args=(./mksync push) ;;
                 front-diff) args=(./mksync diff) ;;
+                front-check) args=(./mksync check) ;;
+                front-preview) args=(./mksync preview) ;;
                 machine-show) args=(./mksync machine show) ;;
                 machine-retire)
                     target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
@@ -622,6 +624,8 @@ run_case() {
                 pull) args=(./sync pull) ;;
                 push) args=(./sync push) ;;
                 front-diff) args=(./sync diff) ;;
+                front-check) args=(./sync check) ;;
+                front-preview) args=(./sync preview) ;;
                 *) die "unknown command '$cmd' in command $((i + 1))" ;;
             esac
         fi

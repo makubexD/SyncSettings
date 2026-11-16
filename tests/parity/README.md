@@ -19,8 +19,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engin
 
 `--engine <path>` (`-Engine <path>`) runs the cases against one program instead of the OS's engine: it is copied into
 the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the commands are spelled
-`./mksync export …` with the same options (and `./mksync status …`, `diff` for `front-diff`), and it is stripped
-before the repo is compared. With a program:
+`./mksync export …` with the same options (and `./mksync status …`, `diff`, `check` and `preview` for `front-diff`,
+`front-check` and `front-preview`), and it is stripped before the repo is compared. With a program:
 
 - a case with a `setup`, `machine-show`, `machine-retire`, `profile-retire` or `statusline` command prints
   `SKIP <case>: <command> is program only` against an engine other than the program, and counts as skipped;
@@ -94,21 +94,23 @@ record (`machine.json`) and profiles (`profiles/*.json`) go in with mode 600, as
 bash runner wants 600 for them in `expect/state/`, since git can't store that mode.
 
 `command` is one of `export`, `import`, `check` (`import --check`, `-Check`), `preview` (`export --preview`,
-`-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push` and
-`front-diff`, plus the program-only `setup`, `statusline`, `machine-show` (`machine show`), `machine-retire`
-(`machine retire <target>`) and `profile-retire` (`profile retire <target>`). A front door command runs `./sync <cmd>`
-on the bash engine, `.\sync.cmd <cmd>` on the PowerShell engine and `./mksync <cmd>` on the program, with `front-diff`
-spelled `diff` in each. The runner copies the front door with the engine: `sync` and `scripts/linux/front.sh` for bash,
-`sync.cmd` and `scripts/windows/Front.ps1` for PowerShell.
+`-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`,
+`front-check` and `front-preview`, plus the program-only `setup`, `statusline`, `machine-show` (`machine show`),
+`machine-retire` (`machine retire <target>`) and `profile-retire` (`profile retire <target>`). A front door command
+runs `./sync <cmd>` on the bash engine, `.\sync.cmd <cmd>` on the PowerShell engine and `./mksync <cmd>` on the
+program, with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview` in each. The runner
+copies the front door with the engine: `sync` and `scripts/linux/front.sh` for bash, `sync.cmd` and
+`scripts/windows/Front.ps1` for PowerShell.
 `options` uses neutral names that the runner spells for each engine: `force: true` is `--force` or `-Force`,
 `only: [paths]` is `--only` or `-Only`. For the program, `name`, `profile`, `replace`, `claude`, `mode` and `existing`
 are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes` on `setup`, `export`,
 `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`, `pull`, `push` and `front-diff`; and `target`, a
 string, is the name argument of `machine-retire` and `profile-retire`, required there and refused elsewhere. On
 `commit` only, `partial: true` adds `--partial` (`-Partial` on the PowerShell engine); `message`, a string, adds
-`-m <msg>` (`-Message <msg>`) on `commit` and `push`. On the five front door commands, `paths`, a list of strings,
-appends each path as a positional argument after the options. Every command runs with no terminal, as CI does, and
-with stdin empty unless the command has `stdin`: a string sent as its stdin, such as `"n\n"` for a prompt answer. Its
+`-m <msg>` (`-Message <msg>`) on `commit` and `push`. On the six front door commands (`status`, `doctor`, `pull`,
+`push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each path as a positional argument after
+the options. Every command runs with no terminal, as CI does, and with stdin empty unless the command has `stdin`: a
+string sent as its stdin, such as `"n\n"` for a prompt answer. Its
 stderr is merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status
 lines in `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below)
 except for `setup`, `statusline`, `machine-show`, `machine-retire` and `profile-retire`, and any command with
