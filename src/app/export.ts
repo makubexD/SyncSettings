@@ -77,6 +77,8 @@ export interface Result {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
+  /** The up-to-date pull ran and the caller must stop here. */
+  readonly stopped?: boolean;
 }
 
 export function writeLines(lines: readonly string[]): string {

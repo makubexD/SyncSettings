@@ -1,6 +1,7 @@
 {
   "description": "Push on a pull-only machine stops with the contract's line and exit 1 before the export writes anything (Front door, push; Machines (program only)).",
   "os": ["linux"],
+  "git": "remote",
   "configV2": {
     "schemaVersion": 2,
     "modules": {

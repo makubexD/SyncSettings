@@ -62,7 +62,13 @@ export interface PushDeps {
     partial: boolean,
     message: string | undefined,
   ) => Promise<Result>;
+  /** The clone is on `master` with an `origin` remote. */
+  readonly cloneReady: () => Promise<boolean>;
 }
+
+/** `front_require_clone push`. */
+const CLONE_ERROR =
+  "ERROR: push needs the repo clone on master with an origin remote.\n";
 
 /** `front_push`'s line when the export left the repo as it was. */
 const NOTHING_TO_SEND = "  Nothing to send: the repo matches this machine.\n";
@@ -188,9 +194,20 @@ export async function executePush(
   deps: PushDeps,
 ): Promise<Result> {
   const only = input.paths;
+  if (!(await deps.cloneReady())) {
+    return { code: 1, stdout: "", stderr: CLONE_ERROR };
+  }
+
   const exported = await deps.runExport(only, input.yes);
   if (exported.code !== 0) {
     return exported;
+  }
+  if (exported.stopped) {
+    return {
+      code: exported.code,
+      stdout: exported.stdout,
+      stderr: exported.stderr,
+    };
   }
 
   const status = await deps.statusShort();
@@ -198,7 +215,7 @@ export async function executePush(
     return {
       code: 1,
       stdout: exported.stdout,
-      stderr: STATUS_FAILED,
+      stderr: exported.stderr + STATUS_FAILED,
     };
   }
   if (status.stdout.trim() === "") {

@@ -883,6 +883,7 @@ async function execute(
           },
           runCommit: (partial, message) =>
             execute(pushCommitCommand(partial, message)),
+          cloneReady: () => cloneReady(repoRoot),
         },
       );
     } finally {
@@ -992,6 +993,7 @@ async function execute(
       code: upToDate.code,
       stdout: upToDate.stdout,
       stderr: upToDate.stderr,
+      stopped: true,
     };
   }
   const upToDatePrefix = upToDate?.stdout ?? "";

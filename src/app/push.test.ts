@@ -58,6 +58,7 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     ask: async () => true,
     print: () => {},
     runCommit: async () => ({ code: 0, stdout: "committed\n", stderr: "" }),
+    cloneReady: async () => true,
     ...overrides,
   };
 }
@@ -175,5 +176,70 @@ describe("executePush", () => {
       stdout: EXPORTED.stdout + NOTHING_TO_SEND,
       stderr: "",
     });
+  });
+
+  test("a clone that is not ready stops before the export", async () => {
+    let exported = false;
+    const deps = baseDeps({
+      cloneReady: async () => false,
+      runExport: async () => {
+        exported = true;
+        return EXPORTED;
+      },
+    });
+
+    const result = await executePush({ yes: false, paths: [] }, deps);
+
+    expect(result).toEqual({
+      code: 1,
+      stdout: "",
+      stderr:
+        "ERROR: push needs the repo clone on master with an origin remote.\n",
+    });
+    expect(exported).toBe(false);
+  });
+
+  test("an export stopped by the up-to-date pull is returned as it is", async () => {
+    const pulled = {
+      code: 0,
+      stdout: "Pulled 2 commit(s); run the command again.\n",
+      stderr: "",
+      stopped: true,
+    };
+    let asked = false;
+    let committed = false;
+    const deps = baseDeps({
+      runExport: async () => pulled,
+      ask: async () => {
+        asked = true;
+        return true;
+      },
+      runCommit: async () => {
+        committed = true;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await executePush({ yes: false, paths: [] }, deps);
+
+    expect(result).toEqual({
+      code: 0,
+      stdout: "Pulled 2 commit(s); run the command again.\n",
+      stderr: "",
+    });
+    expect(asked).toBe(false);
+    expect(committed).toBe(false);
+  });
+
+  test("a failed git status keeps the export's stderr", async () => {
+    const deps = baseDeps({
+      runExport: async () => ({ ...EXPORTED, stderr: "WARN x\n" }),
+      statusShort: async () => ({ ok: false, stdout: "" }),
+    });
+
+    const result = await executePush({ yes: false, paths: [] }, deps);
+
+    expect(result.stderr.startsWith("WARN x\n")).toBe(true);
+    expect(result.stderr.endsWith("ERROR: git status failed.\n")).toBe(true);
   });
 });
