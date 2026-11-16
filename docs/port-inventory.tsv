@@ -1,0 +1,541 @@
+suite	name	verdict	target	spec
+bash	backup-second-run	PORT		OS:linux-only? (state dir XDG) setup: repo fixture, home has .config/fixture/plain.txt='first'; cmd: import --force twice, changing plain.txt to 'second' between; exit 0 both; expect two distinct dated folders under ~/.local/state/sync-settings/backups, first folder keeps dotfiles/linux/plain.txt='first' (import-updated-backup checks one run only)
+bash	backup-none	PORT		setup: home already matches repo (setup_home_fixture); cmd: import --force; exit 0; no ~/.local/state/sync-settings/backups folder created and no '  Backups    :' summary line (import-updated-backup only covers the UPDATED case)
+bash	excluded	TWIN	export-excluded	file entry x.secret, home has it, export; exit 0; SKIPPED line, repo file not copied (gap: note text 'matches exclude pattern' not in shared expect)
+bash	excluded-credentials	PORT		setup: config uses the shipped excludePatterns plus dir entry dotfiles/common/creds; home creds/ holds .git-credentials .netrc .npmrc .pgpass hosts.yml auth.json secrets.yaml token app.env id_dsa and ordinary.txt; cmd: export; exit 0; each credential name 'SKIPPED dotfiles/common/creds/<f> matches exclude pattern' and not copied; 'ADDED dotfiles/common/creds/ordinary.txt' copied. Tests the shipped default list (no src test mentions netrc)
+bash	error-continues	PORT		OS:linux-only (chmod 444, skipped as root); setup: repo copy dotfiles/linux/plain.txt read-only (444), home plain.txt changed; cmd: export; exit 0; line '^  ERROR +dotfiles/linux/plain.txt' and still a status line for tool.sh, named.conf, no-trailing.txt (one failing file does not stop the rest). src has only parent-failure unit tests
+bash	import-eof-overwrites	TWIN	import-eof-no-force	no --force, stdin EOF, existing local file differs: UPDATED, exit 0 (gap: note 'backup saved as plain.txt.bak' text; .bak content checked via home tree in shared)
+bash	import-check-writes-nothing	PORT		setup: home matches fixture except plain.txt='old' and no-trailing.txt removed; cmd: import --check; exit 3; lines UPDATE dotfiles/linux/plain.txt, CREATE dotfiles/linux/no-trailing.txt, '  2 file(s) would change. mksync pull overwrites them (each keeps a .bak).', '  If you changed them on this machine, run mksync push first.'; home/repo/.user-values.json unchanged. (check-one-change has UPDATE/UNCHANGED only, no CREATE and no summary lines)
+bash	import-check-matches	TWIN	pull-groups-none	after import --force, import --check: exit 0, '  This machine matches the repo.', no CREATE/UPDATE lines, nothing written (shared case is v2 json entry, old is v1 files; doubt)
+bash	import-check-sanitized	PORT		setup: sanitized named.conf imported (import --force) then check -> 'UNCHANGED dotfiles/linux/named.conf' exit 0; then home named.conf='name = Someone Else' -> check exit 3 with 'UPDATE dotfiles/linux/named.conf'; nothing written. (check on a v1 sanitized file; check-hydrated-value is v2 json)
+bash	import-check-needs-values	TWIN	src/core/plan/check.test.ts:should flag a missing value when no record names a profile or machine	no .user-values.json, sanitized entry, import --check: exit 3, 'SKIPPED dotfiles/linux/named.conf needs values: run mksync setup', no 'Enter values' prompt, no .user-values.json created (gap: no-prompt/file-not-created are program-level; doubt)
+bash	import-check-dir	PORT		setup: dir entry, home dir/c.txt='changed' and extra.txt added; cmd: import --check; exit 3; 'UPDATE dotfiles/common/dir/c.txt', 'EXTRA dotfiles/common/dir/extra.txt not in repo; kept', summary '  1 file(s) would change. mksync pull overwrites them (each keeps a .bak).' (EXTRA not counted), '  If you changed them on this machine, run mksync push first.'; nothing written
+bash	import-check-dconf	PORT		OS:linux-only (dconf test bus); setup: dconf entry dotfiles/linux/dconf/app.ini repo '[/]\na=2', bus /test/app/ a=1; cmd: import --check; exit 3; 'UPDATE dotfiles/linux/dconf/app.ini'; dconf dump unchanged, home/repo unchanged
+bash	import-check-reset-rejected	TWIN	reset-values-check-refused	import --check --reset-values: exit 1, 'ERROR: --check cannot be combined with --reset-values.', nothing changed (also src/cli/parse.test.ts)
+bash	import-check-missing-folder	PORT		setup: empty home (no fixture folder); cmd: import --check; exit 3; 'CREATE dotfiles/linux/plain.txt'; home still empty (check creates no folder)
+bash	import-check-error	PORT		OS:linux-only (chmod 000, skipped as root); setup: after import --force, home named.conf mode 000; cmd: import --check; exit 1; '^  ERROR +dotfiles/linux/named.conf', '1 error(s); see the ERROR lines above.', and no 'This machine matches the repo.'
+bash	import-check-no-prompt	PORT		setup: home plain.txt='old' differs; stdin 'n'; cmd: import --check; exit 3; no 'Overwrite ' prompt in output; 'UPDATE dotfiles/linux/plain.txt'; nothing written
+bash	import-only-check	PORT		setup: plain.txt and tool.sh both changed locally; cmd: import --check --only dotfiles/linux/plain.txt; exit 3; 'UPDATE dotfiles/linux/plain.txt', no tool.sh line, '  1 file(s) would change. mksync pull overwrites them (each keeps a .bak).'
+bash	import-only-dir-file	PORT		setup: dir entry, home dir/c.txt='changed', dir/a/b.txt='changed deep'; cmd: import --force --only dotfiles/common/dir/c.txt; exit 0; c.txt restored from repo with 'UPDATED dotfiles/common/dir/c.txt backup saved as c.txt.bak'; a/b.txt keeps local text and gets no status line (only-one-file is a file entry)
+bash	import-only-no-sync-point	TWIN	src/core/plan/import.test.ts:skips HEAD when --only was given	import --force --only <path> in a clone with origin: exit 0, no last-sync file, no '  Sync point :' summary line (gap: unit test is planner-level, no shared case; doubt)
+bash	import-only-unknown	TWIN	only-not-synced	import --force --only <unowned path>: exit 1, home unchanged (gap: shared uses repo-style path and no stderr; old asserts 'ERROR: ~/not-synced is not synced on this machine.' for a ~/ local path)
+bash	import-only-missing-arg	TWIN	src/cli/parse.test.ts:--only needs a path	import --only with no value: exit 1, 'ERROR: --only needs a path.'
+bash	export-only-one	PORT		setup: git repo, plain.txt and tool.sh both changed locally; cmd: export --only dotfiles/linux/plain.txt; exit 0; only dotfiles/linux/plain.txt modified in repo (tool.sh untouched)
+bash	export-only-dir-removed	PORT		setup: dir entry; home dir/a/b.txt='changed' and dir/c.txt deleted; cmd: export --only dotfiles/common/dir/a/b.txt; exit 0; repo a/b.txt updated, repo c.txt still present (no REMOVED for unpicked file)
+bash	export-only-no-reports	PORT		OS:linux-only (package drift stubs); setup: stray repo file dotfiles/linux/stray.txt (would be ORPHAN) and apt-mark differing package list (would be DRIFT); cmd: export --only dotfiles/linux/plain.txt; exit 0; no ORPHAN and no DRIFT lines. (orphan-reported has no --only variant)
+bash	diff-only	TWIN	diff-only	sync point set, two files changed locally, diff --only a.conf: exit 3, 'OUT <picked>' only (gap: summary '  1 file(s) differ: 0 in, 1 out, 0 both.' not in shared output)
+bash	only-no-file-import	PORT		setup: fixture home; cmd: import --force --only '~/.config/fixture/dir/missing.txt'; exit 0; exactly one line '  WARNING: --only matched no file.' (no shared case or src test pins the warning)
+bash	only-no-file-check	PORT		cmd: import --check --only '~/.config/fixture/dir/missing.txt'; exit 0; exactly one '  WARNING: --only matched no file.'
+bash	only-no-file-export	PORT		cmd: export --only '~/.config/fixture/dir/missing.txt'; exit 0; exactly one '  WARNING: --only matched no file.'
+bash	only-no-file-diff	PORT		setup: diff repo (clone with origin); cmd: export --diff --only '~/.config/fixture/dir/missing.txt'; exit 0; exactly one '  WARNING: --only matched no file.'
+bash	only-hit-no-warning	PORT		cmd: import --force --only dotfiles/linux/plain.txt (file handled); exit 0; no '  WARNING: --only matched no file.' line
+bash	common-import	TWIN	hydrate-creates	common-platform sanitized shared.conf into empty home: CREATED, exit 0 (shared is a platform-common sanitized file; doubt: hydrate-creates has a different file)
+bash	common-export	TWIN	export-adds	common-platform file export: 'ADDED dotfiles/common/shared.conf (sanitized)' exit 0 (gap: sanitized note; sanitize-round-trip also covers; doubt)
+bash	dir-export-adds	PORT		setup: dir entry, home dir/a/b.txt (mode 600), dir/c.txt (mode 755), repo has no dotfiles/common/dir; cmd: export; exit 0; 'ADDED dotfiles/common/dir/a/b.txt', 'ADDED dotfiles/common/dir/c.txt'; contents equal and repo modes 600/755 kept
+bash	dir-export-modify-remove	PORT		setup: dir entry; repo has extra dir/old/old.txt; home c.txt='c2'; cmd: export; exit 0; 'MODIFIED dotfiles/common/dir/c.txt', 'REMOVED dotfiles/common/dir/old/old.txt no longer in source', 'UNCHANGED dotfiles/common/dir/a/b.txt'; repo c.txt='c2' and the emptied dir/old/ folder is gone (dir-export-removed has no MODIFIED, no subfolder removal)
+bash	dir-export-excluded	PORT		setup: dir entry, home dir/x.bak added (excludePatterns has *.bak); cmd: export; exit 0; 'SKIPPED dotfiles/common/dir/x.bak matches exclude pattern'; not copied to repo
+bash	dir-export-missing	PORT		setup: dir entry, local folder deleted; cmd: export; exit 0; 'SKIPPED dotfiles/common/dir/ local folder not found: <home>/.config/fixture/dir' (path is machine specific; shared runner needs a redacted home)
+bash	dir-export-symlink	TWIN	src/core/plan/export.test.ts:keeps skipping a dir entry's local symlink	OS:linux-only; dir with link.txt -> c.txt: export exit 0, 'SKIPPED dotfiles/common/dir/link.txt symlink', not copied (unit-level only, no shared case; doubt)
+bash	dir-export-empty-keeps-repo	PORT		setup: repo has dir/a/b.txt and dir/c.txt, local dir emptied; cmd: export; exit 0; 'SKIPPED dotfiles/common/dir/ local folder is empty; repo files kept', no REMOVED line, repo files kept
+bash	dir-export-only-excluded	PORT		setup: repo has dir files, local dir holds only x.secret; cmd: export; exit 0; 'SKIPPED dotfiles/common/dir/x.secret matches exclude pattern' and 'SKIPPED dotfiles/common/dir/ local folder is empty; repo files kept'; no REMOVED; repo files kept
+bash	dir-export-only-symlink	PORT		OS:linux-only; local dir holds only symlink link.txt -> c.txt; cmd: export; exit 0; 'SKIPPED dotfiles/common/dir/link.txt symlink' and 'SKIPPED dotfiles/common/dir/ local folder is empty; repo files kept'; no REMOVED; repo files kept
+bash	dir-export-one-left	TWIN	dir-export-removed	local dir/a/b.txt deleted, c.txt same: 'REMOVED dotfiles/common/dir/a/b.txt' (note 'no longer in source') and 'UNCHANGED' for the other, repo b.txt gone, exit 0 (gap: note text; nested a/ folder)
+bash	dir-export-empty-both	PORT		setup: no repo dir, local dir empty; cmd: export; exit 0; no 'SKIPPED dotfiles/common/dir/ ... empty' line, no REMOVED, repo dotfiles/common/dir not created
+bash	dir-import-creates	PORT		setup: dir entry, empty home; cmd: import --force; exit 0; 'CREATED dotfiles/common/dir/a/b.txt' and 'CREATED dotfiles/common/dir/c.txt'; files written
+bash	dir-import-update-backup	PORT		setup: dir entry, home dir/c.txt='c2'; cmd: import --force; exit 0; 'UPDATED dotfiles/common/dir/c.txt backup saved as c.txt.bak', c.txt.bak holds 'c2', no EXTRA line (import-updated-backup is a file entry)
+bash	dir-roundtrip-unchanged	PORT		setup: dir entry in sync; cmd: export then import --force; exit 0 both; UNCHANGED for dir/a/b.txt and dir/c.txt on both, no ADDED/MODIFIED/REMOVED/CREATED/UPDATED/EXTRA, no .bak anywhere
+bash	dir-import-prompt-reads-stdin	PORT		setup: dir entry, home dir/c.txt='c2'; stdin 'n'; cmd: import (no --force); exit 0; 'SKIPPED dotfiles/common/dir/c.txt user skipped'; c.txt unchanged, no c.txt.bak (import-answer-no is a file entry)
+bash	orphan-none	PORT		setup: repo holds dotfiles/windows/win.conf owned by a windows entry; cmd: export on Linux; exit 0; no ORPHAN line (platform-picks-os does not put a file for the other OS in the repo; doubt)
+bash	orphan-linked-ok	PORT		setup: windows entry with detectLinkedPaths and repo dotfiles/windows/linked.sh.linked/tool/x.bat; cmd: export on Linux; exit 0; no ORPHAN line
+bash	orphan-no-dir-entries	TWIN	orphan-reported	repo file no entry owns (dotfiles/stray.txt): 'ORPHAN dotfiles/stray.txt' exit 0 (gap: note 'no entry in sync-config.json; git rm it or add an entry')
+bash	upstream-none	TWIN	src/core/plan/uptodate.test.ts:a folder that is not a git repo: no check, no message	export in a non-git repo: exit 0, no 'NOTE:' or 'WARNING: repo is' line
+bash	upstream-current	TWIN	src/core/plan/uptodate.test.ts:up to date: no message	export with origin in step: exit 0, no up-to-date message (shared uptodate-current also exit 0)
+bash	upstream-behind-noninteractive	TWIN	uptodate-behind-warns	origin one commit ahead, no terminal: export goes on, exit 0, HEAD not moved; text '  WARNING: repo is 1 commit(s) behind origin/master; run git pull --ff-only.' pinned by src/core/plan/uptodate.test.ts:behind without a terminal (shared expect has status lines only)
+bash	upstream-behind-pull	TWIN	src/core/plan/uptodate.test.ts:behind with a terminal: the question, with the count	OS:linux-only (pty); origin ahead, answer y on a terminal: '  Pulled 1 commit(s); run the command again.', HEAD = origin/master, no export run. Doubt: unit tests cover the decision and lines, the real git pull and stopping before export are untested end to end
+bash	upstream-unreachable	TWIN	src/core/plan/uptodate.test.ts:a fetch that fails: the note, even when behind is known	origin url broken: '  NOTE: could not reach origin; skipping the up-to-date check.', export still runs (UNCHANGED), exit 0
+bash	upstream-off-master	TWIN	src/core/plan/uptodate.test.ts:a branch other than master: no check, no message	on branch feature with origin ahead: no WARNING/NOTE, exit 0
+bash	preview-writes-nothing	TWIN	front-preview	export --preview with changes (MODIFIED, ADDED, REMOVED), exit 0, repo and home unchanged, git status clean (gap: ADDED+REMOVED together and a 'Nothing was written.' line, pinned by push-groups/push-sanitized output)
+bash	preview-shows-diff	PORT		setup: preview repo with a local change adding '+preview change' to plain.txt; cmd: export --preview; exit 0; output holds '+preview change' and 'before/dotfiles/linux/plain.txt' diff header. Doubt: the program's preview prints a grouped block, so the diff text may no longer exist; check docs/sync-contract.md and decide DROP
+bash	preview-matches-export	PORT		same change; cmd: export --preview then export; exit 0; the preview's MODIFIED/ADDED/REMOVED paths equal the paths export changes in dotfiles/ (git status)
+bash	preview-includes-uncommitted	TWIN	src/core/plan/check.test.ts:should show a change exported earlier but not committed	export (real, uncommitted) then export --preview: exit 0, preview still shows the change ('+preview change' in old diff output)
+bash	preview-sanitized	TWIN	push-sanitized	preview of a file whose value is a placeholder: output shows <NAME>/<YOUR_EMAIL> and never the real value, exit 0 (shared is v2 json; old is v1 named.conf; doubt)
+bash	preview-leak-found	PORT		setup: local plain.txt='/home/someone/x'; cmd: export --preview; exit 1; output has 'WARNING: the leak scan' and never the text '/home/someone'
+bash	preview-cleans-up	DROP	the program plans a preview in memory and has no temp folder to clean (bash TMPDIR internals); its leak-run exit 1 is covered by preview-leak-found	bash copies the repo to TMPDIR for --preview and removes it; asserts TMPDIR empty after a passing and a failing run
+bash	preview-reset-rejected	PORT		cmd: export --preview --reset-values; exit 1; 'ERROR: --preview cannot be combined with --reset-values.'; repo/home unchanged (src/core/plan/preview.ts has the message; no test pins it)
+bash	preview-not-a-repo	TWIN	src/core/plan/check.test.ts:preview-without-head-refused	repo folder is not a git repo: export --preview exit 1, 'ERROR: --preview needs a git repo with a commit.'
+bash	commit-macos-branch	TWIN	src/core/plan/commit.test.ts:should build commit.sh's branch name for the OS, machine and stamp	OS:macos label on Linux (SYNC_OS=macos): commit exit 0, one origin branch sync/macos-<host>-..., PR body has 'Platform: macos' (unit test also 'should name the OS as given'; no shared case)
+bash	commit-leak-blocked	TWIN	commit-leak-hit	home path in synced file: commit exit 1, 'ERROR: the leak scan found the lines above; nothing was committed.', no branch, gh not called
+bash	commit-packages	PORT		setup: clone with new packages/linux/apt.txt ('foo'); cmd: commit; exit 0; origin master unmoved, exactly one origin branch sync/linux-<host>-..., diff vs master is only packages/linux/apt.txt containing 'foo'
+bash	commit-packages-leak-blocked	PORT		setup: packages/linux/apt.txt holds a home path; cmd: commit; exit 1; 'ERROR: the leak scan found the lines above; nothing was committed.', output names packages/linux/apt.txt and rule 'home-path' and never the offending text; no branch, gh not called
+bash	commit-scan-missing	PORT		setup: scripts/ci/leak-scan.sh removed in a commit, dotfiles/linux/plain.txt changed; cmd: commit; exit 1; 'ERROR: leak scan could not run; nothing was committed.'; no origin branch, gh not called (src/adapters/leakscan.test.ts pins only the adapter result; doubt)
+bash	commit-outside-changes	TWIN	commit-outside-paths	untracked file outside dotfiles/: commit exit 1, 'ERROR: commit or stash changes outside dotfiles/ first.', no branch, gh not called
+bash	commit-value-blocked	TWIN	commit-cached-value	cached value in a changed synced file: commit exit 1, 'ERROR: a cached value for <NAME> is in <path>; nothing was committed.', no gh call (old text 'author = Fixture User')
+bash	commit-value-case-variant	TWIN	src/core/plan/commit.test.ts:should find a value ignoring case	'author = FIXTURE user' blocked, exit 1, names <NAME> (unit level only; doubt)
+bash	commit-value-doubled	TWIN	src/core/plan/commit.test.ts:should find the backslash-doubled form	'tool = C:\\Tools\\gh.exe' blocked, exit 1, names <WINPATH> (unit level only; doubt)
+bash	commit-value-untracked	PORT		setup: cached value in an untracked new file dotfiles/linux/new/added.txt; cmd: commit; exit 1; 'ERROR: a cached value for <NAME> is in dotfiles/linux/new/added.txt; nothing was committed.'
+bash	commit-value-placeholder-only	TWIN	src/core/plan/commit.test.ts:should let a placeholder on its own pass	'author = <NAME>' commits: exit 0, gh called once (unit level; end-to-end gh call not shared)
+bash	commit-value-not-printed	TWIN	src/core/plan/commit.test.ts:should never return the value	blocked commit exit 1 and output never holds the cached value (case-insensitive)
+bash	preview-scan-missing	PORT		setup: preview repo with a change, scripts/ci/leak-scan.sh removed; cmd: export --preview; exit 1; 'ERROR: leak scan could not run; nothing was committed.', no diff ('before/dotfiles') in output
+bash	sync-diff-fetches	TWIN	front-diff-out	mksync diff fetches origin first: sync point set, origin changed plain.txt, exit 3, 'IN dotfiles/linux/plain.txt' (shared front-diff-out shows OUT; diff-in shows IN through export --diff; doubt)
+bash	sync-diff-offline	PORT		setup: clone whose origin url is unreachable; cmd: mksync diff; exit 0; '  Offline: comparing with the last fetch.' and header 'SyncSettings -- DIFF (linux)' (src/main.ts has OFFLINE_LINE; no test)
+bash	sync-doctor-ready	TWIN	src/core/front/doctor.test.ts:prints every line of an all-OK linux machine, then Ready	doctor with all tools: exit 0, '  Ready.' (gap: old '  OK       mksync on PATH' launcher line; contract says the program has no launcher check)
+bash	sync-doctor-missing-jq	DROP	the compiled program does not need jq (contract: no jq, cmp or bash version check)	jq missing: exit 1, 'MISSING  jq: install with sudo apt-get install jq'
+bash	sync-doctor-gh-signed-out	TWIN	src/core/front/doctor.test.ts:WARN when signed out	gh not signed in: exit 0, 'WARN     gh: not signed in; run gh auth login'
+bash	sync-doctor-no-link	DROP	the program has no mksync launcher link check (contract: no launcher)	no link on PATH: exit 0, 'WARN     mksync not on PATH; run: ln -s'
+bash	sync-status-clean	TWIN	status-nothing	import then status: exit 0, '  Origin    : up to date', '  Unsent    : none', '  Machine   : matches the repo', '  Next: nothing to do.'
+bash	sync-status-behind	TWIN	status-origin-ahead	origin one commit ahead: exit 0, '  Origin    : 1 update(s) waiting', '  Next: mksync pull'
+bash	sync-status-unsent	TWIN	status-unsent	one uncommitted repo file: exit 0, '  Unsent    : 1 changed file(s) not sent yet', '  Next: mksync push'
+bash	sync_status_differs	TWIN	status-differs	plain file edited at home, no sync point (record removed), `status` exit 0: Machine line `  Machine   : 1 file(s) differ from the repo`; shared case asserts the plain-differ Next line.
+bash	sync_status_out	TWIN	status-differs-out	sync point = HEAD, home file edited: `  Machine   : 1 file(s) differ: 0 in, 1 out, 0 both`, `  Next: mksync push`, exit 0. Also unit core/front/status.test.ts:"OUT only: push".
+bash	sync_status_in	TWIN	src/core/front/status.test.ts:IN only: pull	sync point = old HEAD, origin has a newer commit changing the file: `  Machine   : 1 file(s) differ: 1 in, 0 out, 0 both`, `  Next: mksync pull`. Unit-level only (no shared case); a shared case with `origin/` tree + syncPoint would be the end-to-end twin.
+bash	sync_status_both	TWIN	src/core/front/status.test.ts:BOTH: diff, then push or pull file by file	sync point old, origin changed file AND home changed it differently: `  Machine   : 1 file(s) differ: 0 in, 0 out, 1 both`, `  Next: mksync diff, then push or pull file by file.` Unit-level only.
+bash	sync_status_no_record	TWIN	status-differs	no sync point, home edit: `  Machine   : 1 file(s) differ from the repo`, `  Next: mksync pull to take the repo's version, or mksync push to send this machine's.`
+bash	sync_status_not_git	TWIN	src/core/front/status.test.ts:rule 1: not a git clone suggests doctor	repo is a plain folder (git none): `status` exit 0, `  Origin    : not a git clone`, `  Next: run mksync doctor.` (shared status-no-origin covers the clone-without-origin variant only).
+bash	sync_status_writes_nothing	TWIN	status-differs	home file edited after import; `status` exit 0 leaves home and repo trees byte-identical (shared case compares expect trees).
+bash	sync_status_os_name	PORT		OS:linux-only. os-release file with PRETTY_NAME="Test OS 1" given by SYNC_OS_RELEASE; `status` exit 0, output line `  SyncSettings  linux (Test OS 1)`. Spec: adapters/osname.ts has no unit test (osname.test.ts) -> add unit tests (PRETTY_NAME read, last line wins, missing file -> unknown) or shared case with env SYNC_OS_RELEASE.
+bash	front_macos_label	PORT		OS:macos. stub sw_vers reports 26.7.2, SYNC_OS=macos, `status` exit 0: output contains `  SyncSettings  macos (26.7.2)`. Unit test of osname macosName (sw_vers / SYNC_OS_NAME) and status header; CI-only on macOS.
+bash	front_macos_doctor_no_brew	PORT		OS:macos. PATH has no brew, sw_vers stub 26.7.2, SYNC_OS=macos, `doctor` exit 1: line `MISSING  brew: install from https://brew.sh`. Program doctor.ts has no brew check (only install hints use brew), so a unit test of the macOS brew check needs the check added first (contract: macOS doctor adds brew and macOS version).
+bash	front_macos_hints	TWIN	src/core/front/doctor.test.ts:macos keeps brew over another package manager	OS:macos. brew present, jq missing on macOS, `doctor` exit 1: line `MISSING  jq: install with brew install jq`. Unit asserts installHint('macos', .., 'jq') == 'brew install jq'; DOUBT: program doctor may not check jq at all (new engine needs no jq) so the old line may be intentionally gone.
+bash	front_macos_setup_no_bootstrap	PORT		OS:macos. repo has bootstrap/linux.sh printing BOOTSTRAP RAN, brew stub, SYNC_OS=macos, `setup --yes` exit 0: output has no `Also restore apps` question, no `BOOTSTRAP RAN`, and contains `Setup done.` Program setup (phase 9) has no bootstrap yet and no `Setup done.` line; defer to phase 9.
+bash	front_macos_bootstrap_flag	PORT		OS:macos. `setup --bootstrap` with SYNC_OS=macos exit 1: `ERROR: --bootstrap is Ubuntu only.` Program parse has no --bootstrap flag yet (phase 9); parse.test + shared case once the flag exists.
+bash	front_check_failed_next	TWIN	src/core/front/status.test.ts:rule 5: an unknown machine check names the check	config entry with platform "bsd" (invalid) so the machine check fails, git clone: `status` exit 0; `  Machine   : not checked: run ./import.sh --check to see why`, `  Next: the machine check failed; run ./import.sh --check to see why.` (program wording uses mksync check; unit asserts the rule). End-to-end shared case would need a config the program rejects but status tolerates.
+bash	front_pull_only	PORT		origin ahead on two files (plain.txt and no-trailing.txt new text), sync point removed, `pull --yes --force dotfiles/linux/plain.txt` exit 0: home plain.txt == 'new plain'; no-trailing.txt untouched (unpicked not applied); NO last-sync written (partial pull). Units: pull.test 'should pass the picked paths to the check, the diff and the import', import.test 'skips HEAD when --only was given' cover halves; no shared case.
+bash	front_pull_only_guard	TWIN	pull-guard-out	home plain.txt edited (local change), sync point = HEAD, `pull --yes dotfiles/linux/plain.txt` exit 1: OUT line for the picked file, `  ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.`, file unchanged; then same with --force exit 0, plain.txt = repo text, plain.txt.bak = 'local change' (shared pull-force). Picked-path variant only in unit pull.test 'should pass the picked paths...'.
+bash	front_pull_first_yes	TWIN	pull-no-sync-point-yes	no sync point, origin ahead, `pull --yes` exit 1: `  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files.` + `  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).`; local file unchanged; no last-sync written. Unit pull.test 'should refuse a first pull under --yes without a sync point'.
+bash	front_pull_first_force	PORT		no sync point, origin one commit ahead on plain.txt, `pull --yes --force` exit 0: home plain.txt = 'new text', plain.txt.bak exists, last-sync == origin master SHA. (pull-force has a sync point; pull-clean has one too; the no-record + --force path has only unit 'should skip the diff with --force'.)
+bash	front_pull_first_empty	TWIN	src/app/pull.test.ts:should apply nothing when a first pull without --yes gets no answer	no sync point, origin ahead, `pull` with empty stdin exit 0: `  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).`, `  Apply these changes? [y/N] `, `  Nothing applied.`; local file unchanged; no last-sync. Also 'should warn and ask with a no default for a first interactive pull'.
+bash	front_pull_first_y	TWIN	src/app/pull.test.ts:should import a first interactive pull when the answer is yes	no sync point, origin ahead, `pull` stdin 'y' exit 0: plain.txt = 'new text', plain.txt.bak exists, last-sync written.
+bash	front_pull_first_match	TWIN	src/app/pull.test.ts:should run the import to record the sync point when nothing changes	no sync point, home equals repo, `pull --yes` exit 0: no `Apply these changes?` question; last-sync == clone HEAD.
+bash	front_pull_match_only	TWIN	src/core/plan/import.test.ts:skips HEAD when --only was given	no sync point, home equals repo, `pull --yes dotfiles/linux/plain.txt` exit 0: no question asked; NO last-sync written (partial pull).
+bash	front_pull_recorded	TWIN	src/app/pull.test.ts:should print Nothing applied and exit 0 when the apply question is declined	sync point recorded (import wrote it), origin ahead, `pull` stdin 'n' exit 0: `  Apply these changes? [Y/n] ` (default yes), no `No sync is recorded` notice, `  Nothing applied.`, local file unchanged.
+bash	front_push_only	TWIN	push-front-partial	two home files changed, sync point set, `push --yes dotfiles/linux/plain.txt` exit 0: gh `pr create` called; the sync/linux-* branch commits only plain.txt; last-sync unchanged.
+bash	front_diff_only	TWIN	diff-only	two home files edited, `diff dotfiles/linux/plain.txt` exit 3: OUT line only for the picked file; summary `1 file(s) differ: 0 in, 1 out, 0 both.`
+bash	front_only_relative	PORT		home file plain.txt edited, sync point set. (1) cwd = $HOME, `diff .config/fixture/plain.txt` exit 3 with `OUT dotfiles/linux/plain.txt`; (2) cwd = repo, `diff '~/.config/fixture/plain.txt'` (literal ~) exit 3, same OUT line. Needs a `cwd` field in the shared runner or a unit test of resolveOnly (pick.ts) with snapshot.cwd/home; no unit test exists for resolveOnly.
+bash	front_usage_paths	TWIN	src/cli/parse.test.ts:should name diff in the usage line	`help` lists `pull [path...]`, `push [path...]`, `diff [path...]`; program usage tests assert `mksync pull [--yes] [--force] [<path>...]`, `mksync push [--yes] [-m <msg>] [<path>...]`, `mksync diff [<path>...]` (wording differs from the old help text by design).
+bash	sync_symlink	DROP	bash wrapper internals	OS:linux-only. `mksync` is a symlink to the repo's bash `sync` wrapper resolving its own location; the compiled program has no wrapper or repo-relative symlink resolution. Asserts `usage: mksync [command] [options]` via symlink exit 0. Program's no-command usage is covered in src/main.test.ts.
+bash	sync_pull_applies	TWIN	pull-clean	sync point, origin one commit ahead on plain.txt, `pull --yes` exit 0: clone HEAD == origin master, home plain.txt = 'new text', plain.txt.bak exists, `Pulled 1 commit(s).` (shared pull-count).
+bash	sync_pull_matches	TWIN	src/app/pull.test.ts:should run the import to record the sync point when nothing changes	home equals repo, `pull --yes` exit 0: output contains `This machine matches the repo.`
+bash	sync_pull_declined	TWIN	src/app/pull.test.ts:should print Nothing applied and exit 0 when the apply question is declined	no sync point, home plain.txt edited, `pull --force` stdin 'n' exit 0: `Nothing applied.`, local file unchanged.
+bash	sync_pull_dirty	TWIN	pull-unsent-refused	repo working tree has unsent change (plain.txt dirty), `pull --yes` exit 1: `ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.`; clone HEAD unmoved.
+bash	sync_pull_not_master	TWIN	src/app/pull.test.ts:should refuse when the clone is not on master with an origin	clone on branch `feature`, `pull --yes` exit 1: `ERROR: pull needs the repo clone on master with an origin remote.`
+bash	sync_pull_blocks_out	TWIN	pull-guard-out	sync point = HEAD, home plain.txt edited, origin changed a different file, `pull --yes` exit 1: OUT line for plain.txt, `  ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.`, `  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).`; home edit unchanged.
+bash	sync_pull_blocks_both	TWIN	src/app/pull.test.ts:should stop on a BOTH line from the diff	sync point = HEAD, home plain.txt edited AND origin changed plain.txt, `pull --yes` exit 1: BOTH line for plain.txt, the overwrite ERROR line, home edit unchanged. No shared case for the BOTH variant.
+bash	sync_pull_force	TWIN	pull-force	sync point, home plain.txt edited, origin changed another file, `pull --force --yes` exit 0: plain.txt = repo 'plain', plain.txt.bak = 'local change'.
+bash	sync_pull_in_only	TWIN	pull-clean	sync point, only origin changed plain.txt, `pull --yes` exit 0: home = 'new text', .bak exists, no `ERROR:` in output. Unit: pull.test 'should apply when the diff has only IN lines'.
+bash	sync_pull_no_record	TWIN	src/app/pull.test.ts:should skip the diff with --force	no sync point, home plain.txt edited, `pull --yes --force` exit 0: home = repo 'plain', plain.txt.bak exists.
+bash	sync_pull_no_record_skips_diff	TWIN	src/app/pull.test.ts:should skip the diff with --force	no sync point, home edited, clone's diff made to fail, `pull --yes --force` exit 0: repo version applied (diff not run without a sync point). DOUBT: unit is for --force only; 'diff skipped when no sync point' on its own is not asserted (the program has no export.sh to break, a failing diff would need an injected fetch/diff failure).
+bash	sync_pull_diff_fails	TWIN	src/app/pull.test.ts:should stop when the diff cannot tell which side is newer	sync point recorded, home edited, diff fails, `pull --yes` exit 1: output contains `could not tell which side is newer`; local edit not overwritten.
+bash	sync_push_nothing	TWIN	push-front-nothing	machine matches repo, `push --yes` exit 0: `Nothing to send`; gh not called.
+bash	sync_push_behind	PORT		origin one commit ahead of the clone (plain.txt new text), `push --yes` exit 1: old text `ERROR: origin has updates; run mksync pull first.`; clone HEAD unmoved; gh not called. Program text is different: commit.ts BEHIND_ERROR `ERROR: master is behind origin; pull first.` and export prints the uptodate WARNING when behind without a terminal; no shared case. Write the case from the contract (docs/sync-contract.md push row + Up to date section), not from engine output. DOUBT: contract may define the exact front-door line.
+bash	sync_push_opens_pr	TWIN	push-front-opens-pr	home plain.txt changed, `push --yes` exit 0: gh `pr create` called, sync/linux-* branch on origin.
+bash	sync_push_declined	TWIN	push-front-move	home plain.txt changed, `push` stdin 'n' exit 0: `Kept in the repo` line (`  Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.`), gh not called, change stays uncommitted in the working tree. Shared push-front-move ends with the same declined PR question; unit src/app/push.test.ts lists no direct decline test.
+bash	sync_setup_applies	TWIN	setup-flags	OS:linux-only. Debian os-release, `setup --yes` exit 0: plain.txt created at home, `Setup done.` printed, no `Also restore apps` question. Shared setup-flags creates the files via first pull; `Setup done.` and bootstrap question are old-front-door only (program setup = wizard writing machine record, bootstrap phase 9).
+bash	sync_setup_offers_bootstrap	PORT		OS:linux-only (Ubuntu). repo has bootstrap/linux.sh printing BOOTSTRAP RAN, os-release ID=ubuntu, `setup --yes` with stdin 'y' exit 0: `Also restore apps and packages from packages/linux (uses sudo)? [y/N] ` asked, `BOOTSTRAP RAN` printed; rerun with stdin /dev/null exit 0 and no BOOTSTRAP RAN. Not in program until phase 9 (docs/sync-contract.md 'no bootstrap question until phase 9').
+bash	sync_setup_doctor_fails	PORT		OS:linux-only. jq missing from PATH (doctor MISSING), apt-get stub, `setup --yes` exit 1, output has no `IMPORT CHECK` (setup stops after failed doctor). DOUBT: program setup is the wizard and does not run doctor first; may be DROP if phase 9 does not keep doctor-before-setup.
+bash	sync_point_import_records	TWIN	src/core/plan/import.test.ts:records HEAD on a clean run that applied every entry	clean git clone, `import --force` exit 0: state last-sync == HEAD + newline; output `  Sync point : <first 7 of HEAD>`. Shared pull-clean expect/state also holds it.
+bash	sync_point_xdg	TWIN	src/adapters/fs.test.ts:should name the sync point's state folder per OS	XDG_STATE_HOME=state, `import --force`: sync point under $XDG_STATE_HOME/sync-settings/last-sync, nothing under $HOME/.local/state.
+bash	sync_point_check_none	TWIN	src/core/plan/check.test.ts:check-one-change	`import --check` on a machine with changes exits 3 and plans no actions at all (result.actions == []), so no last-sync is written. Shared import-check-writes-nothing (first half of list) is the end-to-end twin.
+bash	sync_point_user_skip	TWIN	src/core/plan/import.test.ts:skips HEAD when a prompt was answered no	home plain.txt differs, `import` stdin 'n' exit 0: SKIPPED dotfiles/linux/plain.txt `user skipped`; no last-sync written.
+bash	sync_point_error	TWIN	src/core/plan/import.test.ts:skips HEAD when the run stops on an error	OS:linux-only (read-only folder chmod 500, not root). Local folder unwritable, `import --force` exit 0: an `  ERROR  ` status line; no last-sync written. Unit asserts the no-write on an ERROR step.
+bash	sync_point_dirty	TWIN	src/core/plan/import.test.ts:skips HEAD on a dirty tree	clone working tree dirty (plain.txt modified), `import --force` exit 0: no last-sync written.
+bash	sync_point_read	PORT		Unit tests for readSyncPoint (src/adapters/git.ts) which has none: file missing -> undefined; content 'abc' -> undefined; 40 zeros (not a commit in this clone) -> undefined; HEAD SHA + newline -> that SHA. (git.test.ts has commitExists tests only.)
+bash	sync_point_write_fails	PORT		OS:linux-only. $HOME/.local/state is a regular file, `import --force` exit 0: line `  WARNING: could not record the sync point in <home>/.local/state/sync-settings/last-sync.` (the exit code stays 0). Program: only commit.ts prints this WARNING; verify whether import's writeState failure produces it (contract line 647); unit or shared (Linux-only) case.
+bash	sync_point_commit_records	TWIN	commit-sync-point	commit with changed plain.txt exit 0: last-sync == pre-commit master SHA (the sync branch's parent), sync/linux-<host>-* branch on origin.
+bash	sync_point_commit_pr_fails	PORT		gh stub logs then exits 1 on pr create, changed plain.txt, `commit` exit 1: output `ERROR: PR creation failed` (program: `ERROR: PR creation failed; branch <name> ...`); no last-sync written. commit.ts has the message, commit.test.ts / shared have no case for a failing gh.
+bash	diff_clean	TWIN	diff-agree	sync point = HEAD, home equals repo, `diff` exit 0: `This machine and the repo agree.`
+bash	diff_out	TWIN	diff-out	sync point = HEAD, home file edited, `diff` exit 3: OUT line, `  1 file(s) differ: 0 in, 1 out, 0 both.`, `  OUT: mksync push sends them.`
+bash	diff_in	TWIN	diff-in	sync point old, origin changed file, `diff` exit 3: IN line, `  1 file(s) differ: 1 in, 0 out, 0 both.`, `  IN: mksync pull takes them.`
+bash	diff_both	TWIN	diff-both	sync point old, origin and home changed differently, `diff` exit 3: BOTH line, `  BOTH: changed on both sides; merge by hand.`
+bash	diff_same_change	TWIN	diff-same-change	origin and home made the identical change since sync point, `diff` exit 0: agree line, no IN/OUT/BOTH/? label.
+bash	diff_origin	TWIN	src/core/plan/diff.test.ts:should print the contract's lines after the title	fetched origin ahead, `diff` exit 3: IN line and header `  Repo       : origin/master <short>` (diff.test asserts the header line at diff.test.ts:321).
+bash	diff_no_origin	TWIN	src/core/plan/diff.test.ts:should print the agree line when nothing differs	clone with origin removed, sync point = HEAD, `diff` exit 0: header `  Repo       : HEAD <short>` (diff.test.ts:362 asserts the HEAD header; shared status-no-origin covers the origin-less clone for status only).
+bash	diff_no_record	TWIN	diff-no-sync-point	no sync point, home edited, `diff` exit 3: `?` line, `  1 file(s) differ. No sync is recorded on this machine, so the newer side is unknown.`, `  Run mksync pull or mksync push once to record one.`
+bash	diff_bad_record	PORT		sync point file holds 40 zeros (not a commit in the clone), home edited, `diff` exit 3: same output as no sync point: `?` line for plain.txt, `  1 file(s) differ. No sync is recorded on this machine, so the newer side is unknown.`, `  Run mksync pull or mksync push once to record one.` Shared case with a state/last-sync fixture (syncPoint:true writes HEAD; needs a raw state tree in case dir) plus the readSyncPoint unit test.
+bash	diff_sanitized	PORT		entry with a sanitize rule whose local file holds the hydrated value (named.conf): sync point = HEAD, home hydrated, `diff` exit 0: `This machine and the repo agree.` and no mention of the hydrated file (comparison runs on the sanitized text). Shared case with values + sanitizeRules.
+bash	diff_dir_removed	PORT		dir entry (dotfiles/common/dir <-> ~/.config/fixture/dir); sync point = HEAD; home file dir/c.txt deleted, `diff` exit 3: OUT line for dotfiles/common/dir/c.txt, `  1 file(s) differ: 0 in, 1 out, 0 both.` Unit labelDiff rows cover missing paths in the abstract, not a dir entry end to end.
+bash	diff_other_platform	PORT		origin has a new commit changing dotfiles/windows/win.conf (entry platform windows) while on linux, sync point = old HEAD, `diff` exit 0: `This machine and the repo agree.`, no `dotfiles/windows/` line. Shared case with origin/ tree and a windows entry (os:[linux,windows] cases: expect the entry skipped on both).
+bash	diff_writes_nothing	TWIN	diff-out	home edited, sync point set, `diff` exit 3: repo tree, last-sync and .user-values.json byte-identical afterwards (shared diff-out compares expect trees). The TMPDIR-empty check is a bash internal.
+bash	diff_export_fails	PORT		sync point = HEAD, .user-values.json removed so a value is missing, `diff` exit 1: the export log text (`missing value for <NAME>`) and `  ERROR: the export for the diff failed; see above.` app/diff.ts has the EXPORT_FAILED text but no test; DOUBT: in the program a missing value may surface differently (no separate export child process).
+bash	diff_flags	PORT		`export --diff --preview` exit 1: `ERROR: --diff cannot be combined with --preview or --yes.` (program text); old case also asserted `--diff --reset-values` -> same ERROR, but the program's export has no --reset-values (unknown option exit 1). parse.test.ts has no --diff clash test (only --check/--reset-values and --preview/--yes). Unit test in cli/parse.test.ts.
+bash	only_repo_path	PORT		resolveOnly: `dotfiles/linux/plain.txt` -> picks [dotfiles/linux/plain.txt], exit 0. Shared only-one-file covers this path through import; pick.ts has no direct unit test (src/core/plan/pick.test.ts covers modules only).
+bash	only_local_tilde	PORT		resolveOnly: `~/.config/fixture/plain.txt` -> dotfiles/linux/plain.txt. Unit test of resolveOnly in pick.test.ts or a shared case with --only '~/.config/parity/a.conf' (no shared case uses a local path).
+bash	only_local_relative	PORT		resolveOnly with snapshot.cwd = $HOME: `.config/fixture/plain.txt` -> dotfiles/linux/plain.txt. Unit test of resolveOnly (cwd) in pick.test.ts.
+bash	only_dir_file	PORT		resolveOnly: `~/.config/fixture/dir/a/b.txt` (inside a dir entry) -> dotfiles/common/dir/a/b.txt. Unit test.
+bash	only_dir_root	PORT		resolveOnly: `~/.config/fixture/dir` (the dir entry's own local folder) -> dotfiles/common/dir. DOUBT: program's resolveOnly (pick.ts) requires absolute.startsWith(local + sep) for dir entries, so the dir root itself returns `ERROR: ~/.config/fixture/dir is not synced on this machine.`; old engine accepted it. A real divergence: decide in the contract and write the test from it.
+bash	only_unknown	PORT		resolveOnly: `~/not-synced` exit 1, exact output `ERROR: ~/not-synced is not synced on this machine.` (shared only-not-synced covers a repo-path argument, not a local path). Unit or shared case.
+bash	only_other_platform	PORT		OS:linux-only. resolveOnly: `dotfiles/windows/win.conf` while on linux exit 1: `ERROR: dotfiles/windows/win.conf is not synced on this machine.` Shared case with os:[linux] and a windows entry, or unit test.
+bash	only_repo_dotdot_name	PORT		resolveOnly: `dotfiles/common/dir/foo..bar` (a `..` inside a name, not a segment) is accepted -> picks [dotfiles/common/dir/foo..bar], exit 0 (shared only-dotdot refuses a real `..` segment; v1.test validateOnlyPath covers the reject side).
+bash	only_repo_linked	PORT		resolveOnly: `dotfiles/linux/plain.txt.linked/x` exit 1: `ERROR: dotfiles/linux/plain.txt.linked/x is not synced on this machine.`, no pick recorded. Unit test (pick.ts rejects `.linked/` repo picks).
+bash	only_selected	PORT		onlySelected(repoPath, only) unit table (pick.ts): only=[dotfiles/common/dir]: dotfiles/common/dir/a/b.txt selected; dotfiles/common/dirx/a not. only=[dotfiles/linux/plain.txt]: dotfiles/linux/plain.txt.linked/x selected; dotfiles/linux/plain.txt2 not. only=[]: everything selected.
+bash	only_direct_relative_import	DROP	bash internals (SYNC_CALLER_PWD)	engine called directly with SYNC_CALLER_PWD unset: a bare filename resolves against the caller's folder. The program always uses its own cwd; the behavior is ported via only-local-relative / front-only-relative.
+bash	only_direct_relative_export	DROP	bash internals (SYNC_CALLER_PWD)	same as only-direct-relative-import for `export --only plain.txt` (cwd = the fixture folder); ported via only-local-relative.
+bash	only_skips_unpicked_values	PORT		two entries: picked plain.txt and an unpicked sanitized needsval.txt whose local file holds the placeholder (no default, empty .user-values.json). `import --force --only dotfiles/linux/plain.txt` exit 0: no `Missing value` prompt, no `missing value for <MISSING>`; plain.txt imported. Without --only the same run exits 1 with `missing value for <MISSING>`. DOUBT: contract says import --only infers values from every entry (shared only-infers-from-all); confirm prompting is still skipped for unpicked entries.
+bash	only_skips_unpicked_values_export	PORT		same two-entry setup, `export --only dotfiles/linux/plain.txt` exit 0: no missing-value prompt/error, repo plain.txt = 'plain local'; without --only exit 1 with `missing value for <MISSING>`.
+bash	dconf_config_valid	TWIN	dconf-config-valid	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_path_missing	TWIN	dconf-path-missing	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_path_relative	TWIN	dconf-path-relative	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_path_root	TWIN	dconf-path-root	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_path_double_slash	TWIN	dconf-path-double-slash	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_path_dotdot	TWIN	dconf-path-dotdot	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_path_space	TWIN	dconf-path-space	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_platform_common	TWIN	dconf-platform-common	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_platform_windows	TWIN	dconf-platform-windows	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_platform_list	TWIN	dconf-platform-list	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_repo_unsafe	TWIN	dconf-repo-unsafe	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_orphan_owned	TWIN	dconf-orphan-owned	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_adds	TWIN	dconf-export-adds	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_unchanged	TWIN	dconf-export-unchanged	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_modifies	TWIN	dconf-export-modifies	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_keys	TWIN	dconf-export-keys	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_keys_no_root	TWIN	dconf-export-keys-no-root	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_keys_nested	TWIN	dconf-export-keys-nested	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_keys_glob	TWIN	dconf-export-keys-glob	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_ptyxis_profile_keys	TWIN	dconf-ptyxis-profile-keys	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_keep_all	TWIN	dconf-export-keep-all	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_no_settings	TWIN	dconf-export-no-settings	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_no_settings_keeps_repo	TWIN	dconf-export-no-settings-keeps-repo	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_keys_empty_result	TWIN	dconf-export-keys-empty-result	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_export_missing_tool	TWIN	src/core/plan/export.test.ts:should skip a dconf entry when dconf is not installed	dconf binary not on PATH, dconf entry, `export` exit 0: `SKIPPED dotfiles/linux/dconf/app.ini  dconf not installed`.
+bash	dconf_export_fails	TWIN	src/core/plan/export.test.ts:should report an error when the dconf dump fails	dconf stub exits 1 on dump, dconf entry first in config, `export` exit 0: `ERROR dotfiles/linux/dconf/app.ini  dconf dump failed`, a later entry (plain.txt) still prints UNCHANGED (continue-after-error: shared error-continues).
+bash	dconf_export_write_fails	PORT		OS:linux-only. dconf entry; repo path dotfiles/linux/dconf is a regular file (in the way); bus has [/] a=1; `export` exit 0: `ERROR dotfiles/linux/dconf/app.ini  cannot create <repo>/dotfiles/linux/dconf`, later plain.txt UNCHANGED. export.test.ts:'reports a file entry's parent failure with the repo folder' covers the mkdir-failure text for file entries only (relative path there); the shared runner cannot make mkdir fail, so use a stage `repo` fixture with a file at dotfiles/linux/dconf.
+bash	dconf_preview_read_only	TWIN	dconf-preview-read-only	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_creates	TWIN	dconf-import-creates	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_unchanged	TWIN	dconf-import-unchanged	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_local_extra	TWIN	dconf-import-local-extra	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_update_yes	TWIN	dconf-import-update-yes	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_update_no	TWIN	dconf-import-update-no	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_force	TWIN	dconf-import-force	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_eof	TWIN	dconf-import-eof	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_merge	TWIN	dconf-import-merge	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_no_repo_file	TWIN	dconf-import-no-repo-file	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_wrong_home	TWIN	dconf-import-wrong-home	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_other_config	TWIN	dconf-import-other-config	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_config_unset	TWIN	dconf-import-config-unset	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_import_missing_tool	TWIN	src/core/plan/import.test.ts:should skip a dconf entry when dconf is not installed	dconf not on PATH, repo dotfiles/linux/dconf/app.ini exists, `import --force` exit 0: `SKIPPED dotfiles/linux/dconf/app.ini  dconf not installed`.
+bash	dconf_import_bad_file	PORT		OS:linux-only. dconf entry; repo app.ini = `[/]\na=2\nbad=notvalid value\n`; bus holds /test/app/a=1; `import --force` exit 0: `ERROR dotfiles/linux/dconf/app.ini  dconf load failed`, dconf read /test/app/a still 1 (unchanged), later plain.txt UNCHANGED. Unit fs.test.ts only asserts the action failure text with a stub, no shared case drives a real invalid file through the test bus.
+bash	dconf_import_prompt_reads_stdin	TWIN	dconf-import-prompt-reads-stdin	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+bash	dconf_roundtrip_values	PORT		OS:linux-only. test bus seeded at /test/app/ with `[/]` s='x=y', m="it's\nline2", l=['a', 'b'], e=@as [], u=uint32 3, t=(1, 'x'); `export` exit 0 with `ADDED dotfiles/linux/dconf/app.ini`; fresh HOME, `import --force` exit 0; the dumped /test/app/ equals the repo app.ini byte for byte. (dconf-roundtrip-settles shared covers the settle case; merge/dconf.test.ts unit-tests parsing, not this value mix.)
+bash	dconf_roundtrip_settles	TWIN	dconf-roundtrip-settles	OS:linux-only. same-name shared case exists (dconf rule through the CLI, Linux-only); confirmed present.
+pester	excluded	BASHTWIN	excluded	nothing more
+pester	common-import	BASHTWIN	common-import	nothing more
+pester	common-export	BASHTWIN	common-export	nothing more
+pester	dir-export-adds	BASHTWIN	dir-export-adds	nothing more
+pester	dir-bracket-name	PORT		dir entry (common/dir) with local file `[x].txt` ("b\n"), export --force-less twice then import --force; exit 0 each; 1st export `ADDED dotfiles/common/dir/[x].txt` and repo bytes `b\n`; 2nd export `UNCHANGED` same path, no `[REMOVED`; import `UNCHANGED` same path, no `[EXTRA`. Bracket in a name must not act as a glob (PowerShell wildcard bug). OS:any
+pester	dir-export-modify-remove	BASHTWIN	dir-export-modify-remove	nothing more
+pester	dir-export-excluded	BASHTWIN	dir-export-excluded	nothing more
+pester	dir-export-missing	BASHTWIN	dir-export-missing	nothing more
+pester	dir-export-empty-keeps-repo	BASHTWIN	dir-export-empty-keeps-repo	nothing more
+pester	dir-export-only-excluded	BASHTWIN	dir-export-only-excluded	nothing more
+pester	dir-export-one-left	BASHTWIN	dir-export-one-left	nothing more
+pester	dir-export-empty-both	BASHTWIN	dir-export-empty-both	nothing more
+pester	dir-import-creates	BASHTWIN	dir-import-creates	nothing more
+pester	dir-import-update-backup	BASHTWIN	dir-import-update-backup	nothing more
+pester	dir-roundtrip-unchanged	BASHTWIN	dir-roundtrip-unchanged	nothing more
+pester	orphan-none	BASHTWIN	orphan-none	nothing more
+pester	orphan-linked-ok	BASHTWIN	orphan-linked-ok	extra: file entry with detectLinkedPaths and a `.linked/` tree is owned (no ORPHAN); OS:windows-only, .linked dropped at cut-over (export.ts scanLinks owns it)
+pester	import-linked-keeps-local	DROP	linked-folders	detectLinkedPaths/.linked trees are removed at cut-over (design-layers "Linked folders": become dir entries; setup-linked-yes/no cover it). The local-only-file-kept part is dir-import-extra. OS:windows-only
+pester	real-config-roundtrip	DROP	v1-real-config	round-trips the repo real v1 sync-config.json + dotfiles with fake values on the Windows engine; v1 config/real dotfiles are replaced by v2 migration at cut-over (phase 10 check, not a parity case). OS:windows-only
+pester	upstream-none	BASHTWIN	upstream-none	nothing more
+pester	upstream-current	BASHTWIN	upstream-current	nothing more
+pester	upstream-behind-noninteractive	BASHTWIN	upstream-behind-noninteractive	nothing more
+pester	upstream-unreachable	BASHTWIN	upstream-unreachable	nothing more
+pester	preview-writes-nothing	BASHTWIN	preview-writes-nothing	nothing more
+pester	preview-shows-diff	BASHTWIN	preview-shows-diff	nothing more
+pester	preview-matches-export	BASHTWIN	preview-matches-export	nothing more
+pester	preview-includes-uncommitted	BASHTWIN	preview-includes-uncommitted	nothing more
+pester	preview-sanitized	BASHTWIN	preview-sanitized	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	preview-leak-found	BASHTWIN	preview-leak-found	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	preview-cleans-up	BASHTWIN	preview-cleans-up	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	preview-reset-rejected	BASHTWIN	preview-reset-rejected	nothing more
+pester	preview-not-a-repo	BASHTWIN	preview-not-a-repo	nothing more
+pester	preview-scan-missing	BASHTWIN	preview-scan-missing	nothing more
+pester	diff-clean	BASHTWIN	diff-clean	nothing more
+pester	diff-out	BASHTWIN	diff-out	nothing more
+pester	diff-both	BASHTWIN	diff-both	nothing more
+pester	diff-same-change	BASHTWIN	diff-same-change	nothing more
+pester	diff-origin	BASHTWIN	diff-origin	nothing more
+pester	diff-no-record	BASHTWIN	diff-no-record	nothing more
+pester	diff-other-platform	BASHTWIN	diff-other-platform	nothing more
+pester	diff-writes-nothing	BASHTWIN	diff-writes-nothing	nothing more
+pester	diff-flags	BASHTWIN	diff-flags	nothing more
+pester	commit-leak-blocked	BASHTWIN	commit-leak-blocked	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-packages	BASHTWIN	commit-packages	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-packages-leak-blocked	BASHTWIN	commit-packages-leak-blocked	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-scan-missing	BASHTWIN	commit-scan-missing	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-outside-changes	BASHTWIN	commit-outside-changes	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-value-blocked	BASHTWIN	commit-value-blocked	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-value-case-variant	BASHTWIN	commit-value-case-variant	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-value-doubled	BASHTWIN	commit-value-doubled	extra: value with backslashes escaped (C:\\Tools) doubled in repo file; see sanitize-longest-first/hydrate-escape-backslashes
+pester	commit-value-untracked	BASHTWIN	commit-value-untracked	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-value-placeholder-only	BASHTWIN	commit-value-placeholder-only	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	commit-value-not-printed	BASHTWIN	commit-value-not-printed	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	sync-point-import-records	BASHTWIN	sync-point-import-records	nothing more
+pester	sync-point-check-none	BASHTWIN	sync-point-check-none	nothing more
+pester	sync-point-user-skip	BASHTWIN	sync-point-user-skip	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	sync-point-dirty	BASHTWIN	sync-point-dirty	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	sync-point-read	BASHTWIN	sync-point-read	extra: Get-SyncPointFile under LOCALAPPDATA; garbage/short/zero-sha records read as none; OS:windows-only path
+pester	sync-point-commit-records	BASHTWIN	sync-point-commit-records	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	only-repo-path	BASHTWIN	only-repo-path	nothing more
+pester	only-local-tilde	BASHTWIN	only-local-tilde	extra: backslash input `~\.config\fixture\win.conf`; OS:windows-only
+pester	only-local-relative	BASHTWIN	only-local-relative	extra: backslash relative `.config\fixture\win.conf` resolved against SYNC_CALLER_PWD; OS:windows-only
+pester	only-dir-file	BASHTWIN	only-dir-file	nothing more
+pester	only-dir-root	BASHTWIN	only-dir-root	nothing more
+pester	only-unknown	BASHTWIN	only-unknown	nothing more
+pester	only-other-platform	BASHTWIN	only-other-platform	nothing more
+pester	only-repo-dotdot-backslash	PORT		os:[windows] case, export --only "dotfiles\common\dir\..\x" (dir entry common/dir configured); exit 1; `ERROR: dotfiles\common\dir\..\x is not synced on this machine.` (backslash form of only-dotdot); nothing written. OS:windows-only
+pester	only-repo-dotdot-name	BASHTWIN	only-repo-dotdot-name	nothing more
+pester	only-selected	BASHTWIN	only-selected	nothing more
+pester	only-entry-selected	TWIN	only-selected	Test-OnlyEntrySelected helper: file entry selected by pick under its `.linked/` (DROP, linked), dir entry selected by a pick inside it, sibling `win.conf2` not selected by `win.conf.linked/x`, empty selection selects all; non-linked parts covered by only-selected/only-dir-file/only-one-file; no extra unit test needed
+pester	import-only-check	BASHTWIN	import-only-check	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	import-only-dir-file	BASHTWIN	import-only-dir-file	nothing more
+pester	import-only-no-sync-point	BASHTWIN	import-only-no-sync-point	nothing more
+pester	import-only-unknown	BASHTWIN	import-only-unknown	nothing more
+pester	import-only-split	PORT		import --force --only a --only b (win.conf, common/shared.conf) with local win.conf="old", shared.conf="owner = local", paths.ini="gh = local"; exit 0; `UPDATED dotfiles/windows/win.conf` + note `backup saved as win.conf.bak`; same for dotfiles/common/shared.conf; output has no `dotfiles/common/paths.ini`; win/shared local files equal repo text, paths.ini untouched. (Pipe-split is Windows-only; program takes a list: parse.test covers the list, no shared case with two picks.)
+pester	export-only-one	BASHTWIN	export-only-one	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	export-only-dir-removed	BASHTWIN	export-only-dir-removed	nothing more
+pester	export-only-no-reports	BASHTWIN	export-only-no-reports	nothing more
+pester	diff-only	BASHTWIN	diff-only	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	only-no-file-import	BASHTWIN	only-no-file-import	nothing more
+pester	only-no-file-check	BASHTWIN	only-no-file-check	nothing more
+pester	only-no-file-export	BASHTWIN	only-no-file-export	nothing more
+pester	only-no-file-diff	BASHTWIN	only-no-file-diff	nothing more
+pester	only-hit-no-warning	BASHTWIN	only-hit-no-warning	nothing more
+pester	diff-only-linked-parent	DROP	linked-folders	file entry with .linked tree: pick only the linked file so parent file is not labeled/counted; .linked removed at cut-over (linked folders become dir entries). Non-linked behavior = diff-only. OS:windows-only
+pester	backup-dated	TWIN	src/adapters/fs.test.ts "should keep a dated copy under the run folder with mode and times" + src/core/plan/run.test.ts "places the Backups folder..."	import --force with differing win.conf: one run folder under state/backups holding dotfiles/<repo path> and the .bak both with old bytes, `  Backups    : <run>` line. Windows part: folder is %LOCALAPPDATA%\SyncSettings\backups (fs.test "should name the sync point state folder per OS"). OS:windows-only part
+pester	backup-second-run	BASHTWIN	backup-second-run	extra: backups under %LOCALAPPDATA%\SyncSettings\backups, CRLF bytes `first\r\n` kept in 1st run folder; OS:windows-only paths
+pester	backup-none	BASHTWIN	backup-none	extra: %LOCALAPPDATA%\SyncSettings\backups absent; OS:windows-only path
+pester	backup-prune	TWIN	src/adapters/fs.test.ts "should keep only the newest 20 run folders"	20 old run folders + a new run -> still 20, oldest removed, newest kept
+pester	backup-xdg	TWIN	src/adapters/fs.test.ts "should name the sync point state folder per OS" + backup-second-run (bash twin)	LOCALAPPDATA override moves backups root and Backups line; XDG_STATE_HOME analog. OS:windows-only
+pester	backup-dated-fails	TWIN	src/adapters/fs.test.ts "should warn and keep writing when the dated copy fails"	`  WARNING: could not keep a dated backup of <repo path>.` (text pinned in fs.test 1050/1076), .bak still written with old bytes, exit 0; Windows trigger = a file where backups folder should be
+pester	backup-dated-no-localappdata	TWIN	src/adapters/fs.test.ts "should warn and keep writing when the dated copy fails" (+run.test.ts:249)	no LOCALAPPDATA -> run folder uncomputable -> same WARNING, never throws. OS:windows-only
+pester	import check writes nothing	BASHTWIN	import-check-writes-nothing	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	import check matches	BASHTWIN	import-check-matches	nothing more
+pester	import check sanitized	BASHTWIN	import-check-sanitized	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	import check needs values	BASHTWIN	import-check-needs-values	nothing more
+pester	import check dir	BASHTWIN	import-check-dir	nothing more
+pester	import check missing folder	BASHTWIN	import-check-missing-folder	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	import check reset rejected	BASHTWIN	import-check-reset-rejected	nothing more
+pester	import check error	BASHTWIN	import-check-error	nothing more
+pester	sync help	TWIN	src/cli/parse.test.ts USAGE_TEXT (lines 674-679)	help exit 0 prints usage line; program usage starts `usage: mksync status | mksync doctor | ...` (new text); `Detected: windows` line has no program counterpart (doctor/status label instead). Doubt: contract "Front door" help wording
+pester	status clean	BASHTWIN	sync-status-clean	nothing more
+pester	status behind	BASHTWIN	sync-status-behind	nothing more
+pester	status unsent	BASHTWIN	sync-status-unsent	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	status differs	BASHTWIN	sync-status-differs	extra: CRLF local file, sync.cmd wrappers; trees unchanged
+pester	status-out	BASHTWIN	sync-status-out	extra: CRLF fixture, sync wrappers
+pester	status-no-record	BASHTWIN	sync-status-no-record	extra: CRLF fixture, sync wrappers
+pester	status not git	BASHTWIN	sync-status-not-git	nothing more
+pester	status os name	BASHTWIN	sync-status-os-name	extra: Windows label line `SyncSettings  windows (Test OS 1)`; OS:windows-only part
+pester	doctor ready	BASHTWIN	sync-doctor-ready	extra: mksync.cmd launcher stub on PATH makes `Ready.`; OS:windows-only
+pester	doctor gh signed out	BASHTWIN	sync-doctor-gh-signed-out	nothing more
+pester	doctor no launcher	DROP	installer	`mksync not on PATH; run the installer again` checks the launcher the installer makes; compiled program is mksync itself. OS:windows-only
+pester	pull applies	BASHTWIN	sync-pull-applies	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	pull matches	BASHTWIN	sync-pull-matches	nothing more
+pester	pull declined	BASHTWIN	sync-pull-declined	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	pull dirty	BASHTWIN	sync-pull-dirty	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	pull-blocks-out	BASHTWIN	sync-pull-blocks-out	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	pull-force	BASHTWIN	sync-pull-force	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	pull-no-record	BASHTWIN	sync-pull-no-record	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	pull not master	BASHTWIN	sync-pull-not-master	nothing more
+pester	push nothing	BASHTWIN	sync-push-nothing	nothing more
+pester	push opens pr	BASHTWIN	sync-push-opens-pr	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	push declined	BASHTWIN	sync-push-declined	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-pull-only	BASHTWIN	front-pull-only	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-pull-only-guard	BASHTWIN	front-pull-only-guard	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-pull-first-yes	BASHTWIN	front-pull-first-yes	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-pull-first-force	BASHTWIN	front-pull-first-force	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-pull-first-empty	BASHTWIN	front-pull-first-empty	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-pull-first-y	BASHTWIN	front-pull-first-y	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-pull-first-match	BASHTWIN	front-pull-first-match	nothing more
+pester	front-pull-match-only	BASHTWIN	front-pull-match-only	nothing more
+pester	front-pull-recorded	BASHTWIN	front-pull-recorded	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-push-only	BASHTWIN	front-push-only	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-diff-only	BASHTWIN	front-diff-only	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-unknown-option-diff	TWIN	src/cli/parse.test.ts (unknown option tests) + src/main.test.ts	diff -x: exit 1, `Unknown option: -x`, no `Offline` (parse fails before any fetch)
+pester	front-unknown-option-pull	TWIN	src/cli/parse.test.ts "should refuse an unknown option after pull"	pull --bogus: exit 1, `Unknown option: --bogus`
+pester	front-unknown-option-push	TWIN	src/cli/parse.test.ts "should refuse an unknown option after push"	push -x: exit 1, `Unknown option: -x`
+pester	front-diff-path-still-runs	TWIN	front-diff-out	diff dotfiles/windows/win.conf with the local file changed: exit 3, an OUT line for that path, not `Unknown option`. Doubt: confirm front-diff-out passes a path argument
+pester	front-only-relative	BASHTWIN	front-only-relative	extra: CRLF fixture files (Windows line endings), see common-crlf/sanitized-crlf-unchanged
+pester	front-usage-paths	BASHTWIN	front-usage-paths	extra: usage text is the Windows wrapper help lines (`  pull [path...]   get the latest repo and apply it here` etc.); program USAGE_TEXT differs, see parse.test
+pester	setup applies	BASHTWIN	sync-setup-applies	nothing more
+pester	setup doctor fails	BASHTWIN	sync-setup-doctor-fails	extra: PATH limited to System32 (no git/gh) so doctor fails, exit 1, no `IMPORT CHECK`; OS:windows-only
+pester	install fresh	DROP	installer	installer scripts rewritten in phase 9. OS:windows-only
+pester	install update	DROP	installer	installer scripts rewritten in phase 9. OS:windows-only
+pester	install not a clone	DROP	installer	installer scripts rewritten in phase 9. OS:windows-only
+pester	install launcher conflict	DROP	installer	installer scripts rewritten in phase 9. OS:windows-only
+pester	install missing gh yes	DROP	installer	installer scripts rewritten in phase 9. OS:windows-only
+pester	install partial	DROP	installer	installer scripts rewritten in phase 9. OS:windows-only
+pester	install runs setup	DROP	installer	installer scripts rewritten in phase 9. OS:windows-only
+pester	pull accepted stops the run	TWIN	src/core/plan/uptodate.test.ts "behind with a terminal: the question, with the count" + "names the count just pulled"	y answer pulls (HEAD==origin/master) and the run stops (returns true); terminal path is unit-only (shared runner has no tty)
+pester	pull declined continues	TWIN	src/core/plan/uptodate.test.ts "behind with a terminal: the question, with the count"	n answer: returns false, HEAD unmoved, run goes on
+pester	non-interactive warns and continues	TWIN	uptodate-behind-warns	no terminal: warning, no prompt, run continues (src/core/plan/uptodate.test.ts "behind without a terminal")
+bash	export-symlink-mode	TWIN	src/adapters/fs.test.ts	
+bash	dir-root-symlink	PORT	src/adapters/fs.test.ts	dir entry whose local root is a symlink to a folder: snapshot lists the folder's files (a/b.txt, c.txt) as regular files, no symlink record for the root, so no '(symlink)' SKIPPED and no EXTRA on import
+bash	dir-symlink-removed	PORT	src/core/plan/export.test.ts	dir entry, repo has dir/c.txt, local c.txt is now a symlink: export gives REMOVED dotfiles/common/dir/c.txt 'no longer in source' and a removeRepo action (existing test only asserts SKIPPED symlink; see doubt)
+bash	backup-dated	TWIN	src/adapters/fs.test.ts	
+bash	backup-prune	TWIN	src/adapters/fs.test.ts	
+bash	backup-xdg	TWIN	src/adapters/fs.test.ts	
+bash	backup-dated-fails	TWIN	src/adapters/fs.test.ts	
+bash	backup-dconf	TWIN	src/core/plan/import.test.ts	
+bash	prompt-empty-stops	PORT	src/core/values/values.test.ts	askValues(rule without default, cached {}, answers [""]) -> {ok:false,error:{message:"missing value for <NAME>: add it to .user-values.json",code:1,placeholder:"<NAME>"}}
+bash	defaultenv-valid	TWIN	src/core/values/values.test.ts	
+bash	values-mode-new	TWIN	src/adapters/fs.test.ts	
+bash	values-mode-tightened	TWIN	src/adapters/fs.test.ts	
+bash	escape-import	TWIN	src/core/plan/import.test.ts	
+bash	escape-export	PORT	src/core/values/values.test.ts	sanitize(bytes "gh = C:\\Tools\\gh.exe\n", rule escapeBackslashes, values {<WINPATH>:"C:\Tools\gh.exe"}) -> "gh = <WINPATH>\n" (doubled form replaced before the plain one) (describe "sanitize"); text mode, not json
+bash	escape-roundtrip-unchanged	PORT	src/core/values/values.test.ts	text file with escaped backslashes: sanitize(hydrate(repo)) equals the repo bytes and hydrate(sanitize(local)) equals the local bytes (existing round-trip test is json only)
+bash	sanitized-large-file	PORT	src/core/compare.test.ts	sanitized compare of a 1025-line (128 x per line) text against the same plus two trailing blank lines is equal and returns within a second (old test had a 20 s timeout)
+bash	sanitized-case-change	TWIN	src/core/compare.test.ts	
+bash	infer-name	TWIN	src/core/values/values.test.ts	
+bash	infer-reset	TWIN	tests/parity/cases	
+bash	infer-keeps-cache	TWIN	src/core/values/values.test.ts	
+bash	infer-escaped	PORT	src/core/values/values.test.ts	inferValues(local "gh = C:\\Tools\\gh.exe", repo "gh = <WINPATH>", rule escapeBackslashes:true) -> {"<WINPATH>":"C:\Tools\gh.exe"} (undoubled)
+bash	infer-skips-unhydrated-local	PORT	src/core/values/values.test.ts	inferValues(local "name = <NAME>", repo "name = <NAME>", rule <NAME>) -> {} (local line still holds the placeholder); resolveValues then stops with "missing value for <NAME>: add it to .user-values.json"
+bash	infer-overlapping-context	PORT	src/core/values/values.test.ts	inferValues(local "abcba", repo "abc<NAME>cba", rule <NAME>) -> {} (prefix and suffix overlap, local shorter than prefix+suffix); resolveValues stops with the missing-value line
+bash	path-repo-outside	TWIN	src/core/config/v1.test.ts	
+bash	path-local-traversal	TWIN	src/core/config/v1.test.ts	
+bash	path-repo-symlink	PORT	src/adapters/fs.test.ts	snapshot reading a repo file entry whose dotfiles/linux/plain.txt is a symlink stops with exit 1 and "ERROR: sync-config.json: entry dotfiles/linux/plain.txt has an unsafe path." before any write (contract: nothing under dotfiles/ is a symlink; program has no such check today, see doubt)
+bash	platform-macos-value	TWIN	src/core/layers/select.test.ts	
+bash	platform-array	PORT	src/core/layers/select.test.ts	v1 entry platform ["linux","macos"], dotfiles/common path: selected on a Linux host and on a macOS host, not on Windows
+bash	platform-array-empty	TWIN	src/core/config/v1.test.ts	
+bash	platform-array-repeat	TWIN	src/core/config/v1.test.ts	
+bash	platform-array-common	TWIN	src/core/config/v1.test.ts	
+bash	platform-array-windows-only	PORT	src/core/layers/select.test.ts	v1 entry platform ["windows"] under dotfiles/windows: not selected on a Linux host (no line, no action), selected on Windows
+bash	platform-bad-sync-os	TWIN	src/core/layers/select.test.ts	
+bash	localpaths-macos	PORT	src/core/plan/pick.test.ts	resolvedLocal(entry{localPath "~/.config/fixture/m.txt", localPaths{macos:"~/.config/other/m.txt"}}, "macos", "/Users/u") -> "/Users/u/.config/other/m.txt"; linux still the localPath
+bash	localpaths-unsafe	TWIN	src/core/config/v1.test.ts	
+bash	localpaths-spaces	PORT	src/core/plan/pick.test.ts	resolvedLocal with localPaths{macos:"~/Library/Application Support/Code/User/settings.json"} on macos -> "<home>/Library/Application Support/Code/User/settings.json" (spaces kept)
+bash	path-real-config	PORT	src/core/config/v1.test.ts	parseV1(repo's own sync-config.json) is ok (no 'has an unsafe path' error)
+bash	path-dotted-name	TWIN	src/core/config/v1.test.ts	
+bash	real-config-roundtrip	PORT	src/core/plan/import.test.ts	repo's real sync-config.json (converted) + dotfiles/ with fixture values, throwaway HOME: planImport has no ERROR line, every dconf entry SKIPPED 'HOME is not the login home; dconf left alone' (10 dconf entries), then planExport on the result prints 'Repo is up to date' with no MODIFIED/ADDED/REMOVED/ORPHAN; dconf entries SKIPPED 'no settings under <path>'. No writes (plan only)
+bash	real-config-dconf-restore	PORT	src/core/plan/import.test.ts	same real config, test-bus HOME == login home, empty dconf: every dconf entry is CREATED with one dconfLoad action whose text equals the repo file; planned dconf text for /org/gnome/desktop/wm/keybindings/ has the repo's switch-to-workspace-up line. Pure plan, no bus (adapter: src/adapters/dconf.test.ts)
+bash	lint-real-config	TWIN	src/core/config/check.test.ts	
+bash	lint-real-packages	DROP	check-packages.sh stays a bash CI script (design-test-moves rows 19)	
+bash	lint-real-plugins	DROP	check-plugins.sh stays a bash CI script (design-test-moves row 21)	
+bash	lint-platform-missing	TWIN	src/core/config/v1.test.ts	
+bash	lint-platform-bad	TWIN	src/core/config/v1.test.ts	
+bash	lint-linux-prefix	TWIN	src/core/config/convert.test.ts	
+bash	lint-linux-local-tilde	TWIN	src/core/config/v1.test.ts	
+bash	lint-macos-local-tilde	TWIN	src/core/config/v1.test.ts	
+bash	lint-dconf-no-local-ok	TWIN	src/core/config/v2.test.ts	
+bash	lint-dir-with-rules	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-file-in-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-typed-file-in-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dir-in-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dir-trailing-slash	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-sibling-prefix	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-windows-root	TWIN	src/core/config/convert.test.ts	
+bash	lint-windows-sibling	TWIN	src/core/config/convert.test.ts	
+bash	lint-windows-linux-prefix	PORT	src/core/config/convert.test.ts	v1 entry platform "windows" with repoPath dotfiles/linux/.bashrc: convert fails with "ERROR: dotfiles/linux/.bashrc: no v2 layer root matches this path" (root !== expectedRoot)
+bash	lint-windows-ok	TWIN	src/core/config/v1.test.ts	
+bash	lint-dconf-ok	TWIN	src/core/config/v2.test.ts	
+bash	lint-dconf-path	TWIN	src/core/config/v1.test.ts	
+bash	lint-dconf-root	TWIN	src/core/config/v1.test.ts	
+bash	lint-dconf-platform	TWIN	tests/parity/cases	
+bash	lint-dconf-localpath	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dconf-rules	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dconf-linked	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dconf-keys-empty	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dconf-keys-type	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-keys-on-file	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-path-on-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-type-unknown	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	drift-unreadable-list	TWIN	src/core/drift.test.ts	
+bash	drift-no-packages	TWIN	src/core/drift.test.ts	
+bash	drift-none	TWIN	src/core/drift.test.ts	
+bash	drift-empty-list	TWIN	src/core/drift.test.ts	
+bash	drift-apt-extra	TWIN	src/core/drift.test.ts	
+bash	drift-apt-missing	TWIN	src/core/drift.test.ts	
+bash	drift-apt-auto-listed	TWIN	src/core/drift.test.ts	
+bash	drift-apt-not-installed-state	TWIN	src/core/drift.test.ts	
+bash	drift-apt-ignored	TWIN	src/core/drift.test.ts	
+bash	drift-apt-ignore-other-manager	TWIN	src/core/drift.test.ts	
+bash	drift-apt-arch-suffix	TWIN	src/core/drift.test.ts	
+bash	drift-deb-listed	TWIN	src/core/drift.test.ts	
+bash	drift-deb-missing	TWIN	src/core/drift.test.ts	
+bash	drift-snap-notes	TWIN	src/core/drift.test.ts	
+bash	drift-snap-options	TWIN	src/core/drift.test.ts	
+bash	drift-snap-extra	TWIN	src/core/drift.test.ts	
+bash	drift-snap-missing	TWIN	src/core/drift.test.ts	
+bash	drift-npm-extra	TWIN	src/core/drift.test.ts	
+bash	drift-npm-scoped	TWIN	src/core/drift.test.ts	
+bash	drift-npm-newest	TWIN	src/core/drift.test.ts	
+bash	drift-npm-hidden	TWIN	src/core/drift.test.ts	
+bash	drift-npm-no-call	TWIN	src/core/drift.test.ts	
+bash	drift-npm-no-nvm	TWIN	src/core/drift.test.ts	
+bash	drift-pipx	TWIN	src/core/drift.test.ts	
+bash	drift-vscode	TWIN	src/core/drift.test.ts	
+bash	drift-font-ok	TWIN	src/core/drift.test.ts	
+bash	drift-font-missing	TWIN	src/core/drift.test.ts	
+bash	drift-font-extra	TWIN	src/core/drift.test.ts	
+bash	drift-font-loose-file	TWIN	src/core/drift.test.ts	
+bash	drift-extension-ok	TWIN	src/core/drift.test.ts	
+bash	drift-extension-missing	TWIN	src/core/drift.test.ts	
+bash	drift-extension-extra	TWIN	src/core/drift.test.ts	
+bash	drift-no-folders	TWIN	src/core/drift.test.ts	
+bash	drift-source-ok	TWIN	src/core/drift.test.ts	
+bash	drift-source-differs	TWIN	src/core/drift.test.ts	
+bash	drift-source-missing	TWIN	src/core/drift.test.ts	
+bash	drift-source-extra	TWIN	src/core/drift.test.ts	
+bash	drift-source-ignored	TWIN	src/core/drift.test.ts	
+bash	drift-key-usr-share	TWIN	src/core/drift.test.ts	
+bash	drift-key-etc-apt	TWIN	src/core/drift.test.ts	
+bash	drift-key-differs	TWIN	src/core/drift.test.ts	
+bash	drift-key-missing	TWIN	src/core/drift.test.ts	
+bash	drift-key-stock-ignored	TWIN	src/core/drift.test.ts	
+bash	drift-tool-missing	TWIN	src/core/drift.test.ts	
+bash	drift-tool-fails	TWIN	src/core/drift.test.ts	
+bash	drift-counts-unchanged	TWIN	src/core/drift.test.ts	
+bash	drift-writes-nothing	TWIN	src/core/drift.test.ts	
+bash	drift-preview	TWIN	src/core/drift.test.ts	
+bash	drift-import-silent	TWIN	src/core/drift.test.ts	
+bash	dconf-test-bus	DROP	bash test harness (on_test_bus/dconf_seed, real-db guard); program adapter tests stub the dconf command, home lookup is TWIN src/adapters/dconf.test.ts:should return the home field of the getent passwd line	
+bash	dconf-symlink-named	PORT	src/adapters/fs.test.ts	same as path-repo-symlink for a dconf entry: symlink dotfiles/linux/dconf/app.ini stops with "ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini has an unsafe path."
+pester	platform-macos-skipped	TWIN	src/core/layers/select.test.ts	
+pester	platform-list-linux-macos-skipped	PORT	src/core/layers/select.test.ts	v1 entry platform ["linux","macos"] on a Windows host: not selected, no line, no action
+pester	platform-list-with-windows-used	PORT	src/core/layers/select.test.ts	v1 entry platform ["windows","macos"] on a Windows host: selected and exported
+pester	platform-list-empty	TWIN	src/core/config/v1.test.ts	
+pester	localpaths-windows-used	PORT	src/core/plan/pick.test.ts	resolvedLocal(entry{localPath "~/.config/fixture/m.txt", localPaths{windows:"~\\other\\m.txt" (v2 form ~/other/m.txt)}}, "windows", "C:\\Users\\u") -> "C:\\Users\\u\\other\\m.txt"
+pester	localpaths-unsafe	TWIN	src/core/config/v1.test.ts	
+pester	path-repo-outside	TWIN	src/core/config/v1.test.ts	
+pester	path-local-traversal	TWIN	src/core/config/v1.test.ts	
+pester	path-repo-symlink	PORT	src/adapters/fs.test.ts	as the bash case; Windows variant is a junction at dotfiles/linux/plain.txt (OS:windows-only variant, symlink variant runs on Linux)
+pester	path-real-config	PORT	src/core/config/v1.test.ts	parseV1(repo's own sync-config.json) is ok (shared with bash path-real-config)
+pester	path-dotted-name	TWIN	src/core/config/v1.test.ts	
+pester	dconf-entry-ignored	PORT	src/core/layers/select.test.ts	dconf entry (platform linux) on a Windows host: not selected, no line, no error, repo file untouched
+pester	dconf-path-missing	PORT	src/core/config/v1.test.ts	dconf entry with no "path": parseV1 stops, exit 1, "ERROR: sync-config.json: entry dotfiles/linux/dconf/app.ini needs \"platform\": \"linux\" and a dconf path like /org/gnome/shell/."
+pester	dconf-path-root	TWIN	src/core/config/v1.test.ts	
+pester	dconf-path-dotdot	TWIN	src/core/config/v1.test.ts	
+pester	dconf-platform-common	TWIN	tests/parity/cases	
+pester	dconf-platform-list	TWIN	src/core/config/v1.test.ts	
+pester	dconf-repo-unsafe	TWIN	tests/parity/cases	
+pester	escape-import	TWIN	src/core/plan/import.test.ts	
+pester	escape-export	PORT	src/core/values/values.test.ts	sanitize(bytes "gh = C:\\Tools\\gh.exe\n", rule escapeBackslashes, values {<WINPATH>:"C:\Tools\gh.exe"}) -> "gh = <WINPATH>\n" (doubled form replaced before the plain one)
+pester	escape-roundtrip-unchanged	PORT	src/core/values/values.test.ts	as bash escape-roundtrip-unchanged
+pester	sanitized-case-change	TWIN	src/core/compare.test.ts	
+pester	infer-escaped	PORT	src/core/values/values.test.ts	as bash infer-escaped
+pester	noninteractive-missing-value-export	PORT	src/core/plan/export.test.ts	export with values {} and a sanitize rule without default/defaultEnv, no answers: result code 1, message "missing value for <NAME>: add it to .user-values.json", no writeRepo action (nothing written under dotfiles/)
+pester	noninteractive-default	TWIN	src/core/values/values.test.ts	
+pester	crlf-common-import-unchanged	TWIN	src/core/compare.test.ts	
+pester	crlf-common-export-unchanged	TWIN	src/core/compare.test.ts	
+pester	crlf-common-diff-same	TWIN	src/core/compare.test.ts	
+pester	crlf-common-changed-line	PORT	src/core/compare.test.ts	windows, dotfiles/common, no rules: repo "a\nb\n" vs local "a\r\nc\r\n" is different (folding must not hide a changed line)
+pester	crlf-windows-byte-exact	TWIN	src/core/compare.test.ts	
+pester	crlf-common-binary	TWIN	src/core/compare.test.ts	
+pester	crlf-common-dir-file	TWIN	src/core/compare.test.ts	
+pester	crlf-common-export-new	PORT	src/core/plan/export.test.ts	windows host, common file entry, local "a\r\nb\r\n", repo absent: ADDED and writeRepo bytes "a\nb\n" (contract: export writes LF; export.ts:515 writes local.bytes unchanged, see doubt)
+pester	crlf-common-export-modified	PORT	src/core/plan/export.test.ts	windows, common file, repo "a\nb\n", local "a\r\nc\r\n": MODIFIED, writeRepo bytes "a\nc\n"
+pester	crlf-windows-export-keeps-crlf	PORT	src/core/plan/export.test.ts	windows, dotfiles/windows file, repo "x\n", local "a\r\nb\r\n": MODIFIED, writeRepo bytes "a\r\nb\r\n"
+pester	crlf-common-binary-export	PORT	src/core/plan/export.test.ts	windows, common file, local bytes 61 00 0D 0A, repo absent: ADDED, writeRepo bytes unchanged 61 00 0D 0A
+pester	crlf-common-dir-export-new	PORT	src/core/plan/export.test.ts	windows, common dir entry, new local file dir/new.txt "y\r\n": ADDED dotfiles/common/dir/new.txt, writeRepo bytes "y\n"
+pester	defaultEnv used	TWIN	src/core/values/values.test.ts	
+pester	default before defaultEnv	TWIN	src/core/values/values.test.ts	
+pester	cached before default	TWIN	src/core/values/values.test.ts	
+pester	no default throws	TWIN	src/core/values/values.test.ts	
+pester	interactive empty answer throws and stores nothing	PORT	src/core/values/values.test.ts	same as bash prompt-empty-stops (askValues with answers [""], no default, no cached): ok:false missing value for <X>; values unchanged
+pester	non-interactive without default throws	TWIN	src/core/values/values.test.ts	
+pester	non-interactive without default does not take the previous value	TWIN	src/core/values/values.test.ts	
+pester	non-interactive takes default	TWIN	src/core/values/values.test.ts	
+pester	values-private-new	PORT	src/adapters/fs.test.ts	writeValuesFile on windows: new .user-values.json readable only by the current user (no inherited ACEs)
+pester	values-private-tightened	PORT	src/adapters/fs.test.ts	writeValuesFile on windows over an existing readable file leaves only the current user
+pester	values-private-no-domain	PORT	src/adapters/fs.test.ts	ACL set must not use Set-Acl/domain lookup: succeeds with the domain controller unreachable (fs.ts:551 is a shortcut, ACL not implemented, see doubt)
+pester	windows-dotfiles-byte-exact (<_>)	PORT	src/adapters/git.test.ts	repo with .gitattributes, core.autocrlf in {input,true,false}, commit dotfiles/windows/shell/.bashrc bytes "lf line\ncrlf line\r\nlast\n", git archive HEAD dotfiles: extracted bytes equal the input (git part runs on Linux too; tar extraction Windows-only)
