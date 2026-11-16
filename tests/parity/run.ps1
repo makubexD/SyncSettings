@@ -1060,6 +1060,13 @@ function Run-Case {
             $oldGh = $env:GH
             $oldVirtualEnv = $env:VIRTUAL_ENV
             $oldCondaEnv = $env:CONDA_DEFAULT_ENV
+            $oldDbus = $env:DBUS_SESSION_BUS_ADDRESS
+            $oldGitDir = $env:GIT_DIR
+            $oldGitWorkTree = $env:GIT_WORK_TREE
+            $oldGitIndexFile = $env:GIT_INDEX_FILE
+            $oldGhToken = $env:GH_TOKEN
+            $oldGithubToken = $env:GITHUB_TOKEN
+            $oldGitCeiling = $env:GIT_CEILING_DIRECTORIES
             $oldPreference = $ErrorActionPreference
             $raw = ''
             $output = @()
@@ -1073,10 +1080,19 @@ function Run-Case {
                 $env:LOCALAPPDATA = $localDir
                 # GH overrides the gh binary in Commit-Settings.ps1; a caller's GH
                 # must never reach a case. VIRTUAL_ENV and CONDA_DEFAULT_ENV would
-                # otherwise add a statusline section.
+                # otherwise add a statusline section. A caller's git repo, bus and
+                # tokens stay out too, and git may not climb above the case folder;
+                # the case's env is applied after, so it may still set them.
                 $env:GH = $null
                 $env:VIRTUAL_ENV = $null
                 $env:CONDA_DEFAULT_ENV = $null
+                $env:DBUS_SESSION_BUS_ADDRESS = $null
+                $env:GIT_DIR = $null
+                $env:GIT_WORK_TREE = $null
+                $env:GIT_INDEX_FILE = $null
+                $env:GH_TOKEN = $null
+                $env:GITHUB_TOKEN = $null
+                $env:GIT_CEILING_DIRECTORIES = $t
                 if ($ghStub) {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
                     $env:GH = Join-Path $t 'bin\gh.cmd'
@@ -1123,6 +1139,13 @@ function Run-Case {
                 $env:GH = $oldGh
                 $env:VIRTUAL_ENV = $oldVirtualEnv
                 $env:CONDA_DEFAULT_ENV = $oldCondaEnv
+                $env:DBUS_SESSION_BUS_ADDRESS = $oldDbus
+                $env:GIT_DIR = $oldGitDir
+                $env:GIT_WORK_TREE = $oldGitWorkTree
+                $env:GIT_INDEX_FILE = $oldGitIndexFile
+                $env:GH_TOKEN = $oldGhToken
+                $env:GITHUB_TOKEN = $oldGithubToken
+                $env:GIT_CEILING_DIRECTORIES = $oldGitCeiling
                 Pop-Location
             }
 

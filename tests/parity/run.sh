@@ -174,6 +174,9 @@ validate_case() {
             and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent")
           else true end' "$json" > /dev/null 2>&1 \
         || die 'stubs may only hold gh, dconf or getent'
+    jq -e '((.stubs // []) | any(. == "getent") | not)
+        or ((.stubs // []) | any(. == "dconf"))' "$json" > /dev/null 2>&1 \
+        || die 'the getent stub needs the dconf stub'
     jq -e 'if has("syncPoint") then (.syncPoint | type) == "boolean" else true end' "$json" > /dev/null 2>&1 \
         || die 'syncPoint must be a boolean'
     if jq -e 'has("syncPoint")' "$json" > /dev/null 2>&1; then
@@ -687,15 +690,22 @@ run_case() {
         esac
         rc=0
         # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
+        # A caller's git repo, bus and tokens stay out too; the case's own env is
+        # applied after the unsets, so a case may still set them deliberately. The
+        # ceiling always holds, so git cannot climb above the case folder.
         if [[ $stderr_mode == true || $all_output == true ]]; then
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
-                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV \
+                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
+                -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
+                GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
         else
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
-                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV \
+                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
+                -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
+                GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         fi
         printf '%s\n' "$rc" >> "$t/actual-exit"

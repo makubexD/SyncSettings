@@ -26,6 +26,7 @@
     "MKSYNC_VISIBILITY": "private"
   },
   "git": "remote",
+  "stubs": ["gh"],
   "commands": [
     {
       "command": "push",
