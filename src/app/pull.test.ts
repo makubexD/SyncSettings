@@ -173,6 +173,39 @@ describe("executePull", () => {
     expect(result.stderr).toBe("ERROR: could not reach origin.\n");
   });
 
+  test("should print no pull count when nothing was fast-forwarded", async () => {
+    // Arrange
+    const { deps: fake } = deps({
+      fetch: { ok: true, pulled: 0 },
+      check: CHANGED,
+      importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
+    });
+
+    // Act
+    const result = await executePull(pullInput({ yes: true }), fake);
+
+    // Assert
+    expect(result.stdout).toBe(CHECK_OUTPUT + IMPORT_OUTPUT);
+    expect(result.stdout).not.toContain("Pulled");
+  });
+
+  test("should print the fast-forwarded count before the check output", async () => {
+    // Arrange
+    const { deps: fake } = deps({
+      fetch: { ok: true, pulled: 2 },
+      check: CHANGED,
+      importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
+    });
+
+    // Act
+    const result = await executePull(pullInput({ yes: true }), fake);
+
+    // Assert
+    expect(result.stdout).toBe(
+      `  Pulled 2 commit(s).\n${CHECK_OUTPUT}${IMPORT_OUTPUT}`,
+    );
+  });
+
   test("should run the import to record the sync point when nothing changes", async () => {
     // Arrange
     const { deps: fake, calls } = deps({

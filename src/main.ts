@@ -5,7 +5,7 @@ import type { EngineHost } from "./adapters/engine.ts";
 import { runPlan } from "./adapters/fs.ts";
 import type { RunContext } from "./adapters/fs.ts";
 import {
-  pullFastForward,
+  readAheadBehind,
   readOrigin,
   readSyncPoint,
   runGitResult,
@@ -242,7 +242,7 @@ async function cloneReady(repoRoot: string): Promise<boolean> {
   return branch.ok && branch.stdout.trim() === "master";
 }
 
-/** `git fetch -q origin master`, then `front_pull`'s fast-forward. */
+/** `git fetch -q origin master`, then `front_pull`'s counted fast-forward. */
 async function fetchAndFastForward(repoRoot: string): Promise<FetchResult> {
   const fetched = await runGitResult(
     repoRoot,
@@ -252,11 +252,22 @@ async function fetchAndFastForward(repoRoot: string): Promise<FetchResult> {
   if (!fetched.ok) {
     return { ok: false, message: "ERROR: could not reach origin." };
   }
-  const pulled = await pullFastForward(repoRoot);
-  if (!pulled.ok) {
+  const counts = await readAheadBehind(repoRoot);
+  if (!counts.ok) {
     return { ok: false, message: "ERROR: pull failed; resolve it and rerun." };
   }
-  return { ok: true };
+  if (counts.behind === 0) {
+    return { ok: true, pulled: 0 };
+  }
+  const merged = await runGitResult(
+    repoRoot,
+    ["merge", "--ff-only", "origin/master"],
+    GIT_ENV,
+  );
+  if (!merged.ok) {
+    return { ok: false, message: "ERROR: pull failed; resolve it and rerun." };
+  }
+  return { ok: true, pulled: counts.behind };
 }
 
 /** Contract "Front door": a failed fetch on `mksync diff` still compares the

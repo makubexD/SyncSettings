@@ -42,10 +42,12 @@ export interface PullDeps {
   readonly cloneReady: () => Promise<boolean>;
 }
 
-/** A git step's outcome; `message` is the line to print when it failed. */
+/** A git step's outcome; `message` is the line to print when it failed,
+ * `pulled` the commits the fast-forward took. */
 export interface FetchResult {
   readonly ok: boolean;
   readonly message?: string;
+  readonly pulled?: number;
 }
 
 /** `front_require_clone pull`. */
@@ -58,6 +60,11 @@ const UNSENT_ERROR =
 
 /** `front_pull`'s fetch failure, when the caller gives no message. */
 const FETCH_ERROR = "ERROR: could not reach origin.";
+
+/** `front_pull`'s count line, printed right after the fast-forward. */
+function pulledLine(count: number): string {
+  return `  Pulled ${count} commit(s).\n`;
+}
 
 /** A diff that can't say which side is newer. */
 const COULD_NOT_TELL =
@@ -117,6 +124,11 @@ function refusal(message: string): Result {
   return { code: 1, stdout: "", stderr: message };
 }
 
+/** A result with what the pull printed before the child ran, in front of it. */
+function prefixed(prefix: string, result: Result): Result {
+  return prefix === "" ? result : { ...result, stdout: prefix + result.stdout };
+}
+
 /** What a child printed, appended to what the pull printed before it. */
 function append(
   before: Result,
@@ -153,7 +165,12 @@ export async function executePull(
     return refusal(`${fetched.message ?? FETCH_ERROR}\n`);
   }
 
-  const check = await deps.runCheck(only);
+  // The fast-forward's count prints before the check reads the new files.
+  const pulled = fetched.pulled ?? 0;
+  const check = prefixed(
+    pulled > 0 ? pulledLine(pulled) : "",
+    await deps.runCheck(only),
+  );
   if (check.code === 0) {
     // Nothing to overwrite, but a full import still records the sync point.
     if (only.length === 0) {
