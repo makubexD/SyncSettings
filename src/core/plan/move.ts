@@ -4,8 +4,16 @@ import type { JsonValue } from "../json/value.ts";
 import type { LayerName } from "../layers/select.ts";
 import { mergeJsonValues, parseJsonBytes } from "../merge/json.ts";
 import type { JsonLayer } from "../merge/json.ts";
+import { formatLine } from "../status.ts";
+import { changeLines, changeMoveSources } from "./changes.ts";
+import type { MoveSource } from "./changes.ts";
+import type { FileStep, RunPlan, Snapshot } from "./types.ts";
 
 const ENCODER = new TextEncoder();
+/** A repo layer file holds LF; the split writes json changes with it. */
+const REPO_EOL = "\n";
+const WRITE_FAILURE = "cannot write repo file";
+const REMOVE_FAILURE = "cannot remove from repo";
 const ITEM_SUFFIX = "[]";
 const KEY_SEPARATOR = ".";
 
@@ -356,6 +364,289 @@ export function moveWholeFile(
     } else {
       result.push(slot);
     }
+  }
+  return { ok: true, value: result };
+}
+
+/** The bytes the plan writes to `path`, or undefined when it writes none. */
+function plannedBytes(plan: RunPlan, path: string): Uint8Array | undefined {
+  for (const step of plan.steps) {
+    for (const item of step.actions) {
+      if (item.action.kind === "writeRepo" && item.action.path === path) {
+        return item.action.bytes;
+      }
+    }
+  }
+  return undefined;
+}
+
+function sameBytes(
+  left: Uint8Array | undefined,
+  right: Uint8Array | undefined,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (
+    left === undefined ||
+    right === undefined ||
+    left.length !== right.length
+  ) {
+    return false;
+  }
+  return left.every((byte, index) => byte === right[index]);
+}
+
+/**
+ * A plan whose writeRepo and removeRepo actions hold the layer slots' new
+ * bytes: an action for a slot path is rewritten, a slot the plan did not write
+ * gains one with the export planner's status line, and a slot a whole-file
+ * move emptied is removed from the repo or dropped from the plan.
+ */
+function withMovedSlots(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  slots: readonly JsonLayer[],
+): RunPlan {
+  let steps: FileStep[] = plan.steps.map((step) => ({
+    ...step,
+    actions: [...step.actions],
+  }));
+  const lines = [...plan.lines];
+  const removedLines = new Set<number>();
+  const additions: { readonly path: string; readonly bytes: Uint8Array }[] = [];
+
+  for (const slot of slots) {
+    const planned = plannedBytes(plan, slot.repoPath);
+    const before = planned ?? snapshot.repoFiles.get(slot.repoPath);
+    const bytes = slot.bytes;
+    if (sameBytes(before, bytes)) {
+      continue;
+    }
+    const index = steps.findIndex((step) =>
+      step.actions.some(
+        (item) =>
+          item.action.kind === "writeRepo" &&
+          item.action.path === slot.repoPath,
+      ),
+    );
+    const plannedStep = steps[index];
+    if (
+      plannedStep !== undefined &&
+      bytes !== undefined &&
+      sameBytes(bytes, snapshot.repoFiles.get(slot.repoPath))
+    ) {
+      // The move put the repo's own bytes back: the write is gone.
+      steps.splice(index, 1);
+      removedLines.add(plannedStep.line);
+      continue;
+    }
+    if (bytes !== undefined) {
+      if (planned === undefined) {
+        additions.push({ path: slot.repoPath, bytes });
+        continue;
+      }
+      steps = steps.map((step) => ({
+        ...step,
+        actions: step.actions.map((item) =>
+          item.action.kind === "writeRepo" && item.action.path === slot.repoPath
+            ? { ...item, action: { ...item.action, bytes } }
+            : item,
+        ),
+      }));
+      continue;
+    }
+    // The slot is emptied by a whole-file move.
+    if (planned === undefined) {
+      continue;
+    }
+    const step = plannedStep;
+    if (step === undefined) {
+      continue;
+    }
+    if (snapshot.repoFiles.has(slot.repoPath)) {
+      // The file leaves the repo, so the mkdir and chmod that would write it go.
+      steps[index] = {
+        ...step,
+        actions: [
+          {
+            action: { kind: "removeRepo", path: slot.repoPath },
+            failure: REMOVE_FAILURE,
+          },
+        ],
+      };
+      lines[step.line] = formatLine("REMOVED", slot.repoPath);
+    } else {
+      // Only the plan wrote the file: with no write left, the step is gone.
+      steps.splice(index, 1);
+      removedLines.add(step.line);
+    }
+  }
+
+  const keptLines: string[] = [];
+  const lineMap = new Map<number, number>();
+  lines.forEach((line, index) => {
+    if (removedLines.has(index)) {
+      return;
+    }
+    lineMap.set(index, keptLines.length);
+    keptLines.push(line);
+  });
+  const movedSteps = steps.map((step) => ({
+    ...step,
+    line: lineMap.get(step.line) ?? step.line,
+  }));
+  for (const addition of additions) {
+    const word = snapshot.repoFiles.has(addition.path) ? "MODIFIED" : "ADDED";
+    const line = keptLines.length;
+    keptLines.push(formatLine(word, addition.path));
+    movedSteps.push({
+      label: addition.path,
+      line,
+      counted: true,
+      actions: [
+        {
+          action: {
+            kind: "writeRepo",
+            path: addition.path,
+            bytes: addition.bytes,
+          },
+          failure: WRITE_FAILURE,
+        },
+      ],
+    });
+  }
+  return { ...plan, steps: movedSteps, lines: keptLines };
+}
+
+/**
+ * Contract "Move a change": the export plan `plan` with its block line `line`
+ * (1-based, as the block numbers it) moved to layer `to`. A json key or array
+ * item goes through `moveJsonChange`, a whole file or `import` side file
+ * through `moveWholeFile`; the slot bytes they return become the plan's
+ * writeRepo and removeRepo actions. A line out of range, or a target layer the
+ * entry has no slot for, is an error; the same layer leaves the plan as it is.
+ */
+export function applyMove(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  line: number,
+  to: LayerName,
+): Result<RunPlan, string> {
+  const sources = changeMoveSources(plan, snapshot);
+  const source = sources[line - 1];
+  if (line < 1 || source === undefined) {
+    return { ok: false, error: `no change on line ${line}` };
+  }
+  if (to === source.layer) {
+    return { ok: true, value: plan };
+  }
+  // shortcut: a removed setting or file has nothing left to place in another
+  // layer, so it can't move; the contract doesn't say (design "Open").
+  if (changeLines(plan, snapshot)[line - 1]?.kind === "-") {
+    return {
+      ok: false,
+      error: `change ${line} removes a setting; it can't move.`,
+    };
+  }
+  const slots: JsonLayer[] = source.entry.slots.map((slot) => ({
+    name: slot.name,
+    repoPath: slot.repoPath,
+    bytes:
+      plannedBytes(plan, slot.repoPath) ??
+      snapshot.repoFiles.get(slot.repoPath),
+  }));
+
+  let moved: Result<readonly JsonLayer[], string>;
+  if (source.kind === "whole") {
+    moved = moveWholeFile(slots, source.layer, to);
+  } else {
+    const path = source.path;
+    if (path === undefined) {
+      return { ok: false, error: `no path for the change on line ${line}` };
+    }
+    moved = moveJsonChange(
+      slots,
+      path,
+      source.kind,
+      source.layer,
+      to,
+      REPO_EOL,
+      source.item,
+    );
+  }
+  if (!moved.ok) {
+    return moved;
+  }
+  const order = slots.map((slot) => slot.name);
+  const narrower = order.indexOf(to) > order.indexOf(source.layer);
+  const result = narrower
+    ? sourceAsInRepo(moved.value, source, snapshot)
+    : { ok: true as const, value: moved.value };
+  if (!result.ok) {
+    return result;
+  }
+  return { ok: true, value: withMovedSlots(plan, snapshot, result.value) };
+}
+
+/**
+ * Contract "Move a change": a change moved to a narrower group is "left as it
+ * was" in the old layer, as the repo holds it, so the machines the new group
+ * leaves out don't receive it. The narrower layer overrides it on this
+ * machine, so the merge here stays the same.
+ */
+function sourceAsInRepo(
+  slots: readonly JsonLayer[],
+  source: MoveSource,
+  snapshot: Snapshot,
+): Result<readonly JsonLayer[], string> {
+  const repoBytes = snapshot.repoFiles.get(source.repoPath);
+  const result: JsonLayer[] = [];
+  for (const slot of slots) {
+    if (slot.name !== source.layer) {
+      result.push(slot);
+      continue;
+    }
+    if (source.kind === "whole" || slot.bytes === undefined) {
+      result.push({ ...slot, bytes: repoBytes });
+      continue;
+    }
+    const current = parseJsonBytes(slot.bytes);
+    const original =
+      repoBytes === undefined ? undefined : parseJsonBytes(repoBytes);
+    const path = source.path;
+    if (current === undefined || path === undefined) {
+      return { ok: false, error: `not valid JSON: ${slot.repoPath}` };
+    }
+    const segments = segmentsFor(current, path, source.kind);
+    let reverted: JsonValue;
+    if (source.kind === "key") {
+      const before = valueAt(original, segments);
+      reverted =
+        before === undefined
+          ? removeAt(current, segments)
+          : setAt(current, segments, before);
+    } else {
+      const item = source.item;
+      const array = valueAt(current, segments);
+      const before = valueAt(original, segments);
+      const keep =
+        before !== undefined &&
+        before.kind === "array" &&
+        item !== undefined &&
+        before.items.some((other) => jsonEqual(other, item));
+      reverted =
+        keep ||
+        item === undefined ||
+        array === undefined ||
+        array.kind !== "array"
+          ? current
+          : setAt(current, segments, {
+              kind: "array",
+              items: array.items.filter((other) => !jsonEqual(other, item)),
+            });
+    }
+    result.push(withValue(slot, reverted, REPO_EOL));
   }
   return { ok: true, value: result };
 }

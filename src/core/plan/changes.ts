@@ -39,11 +39,37 @@ interface DraftLine {
   /** The items of the array a new key path gains; only an added key carries
    * them, so a layer that gains an array another layer holds prints items. */
   readonly addedItems?: readonly JsonValue[];
+  /** The array item an item line (path ending in `[]`) adds or removes. */
+  readonly item?: JsonValue;
 }
 
 export interface MatchedLayer {
   readonly entry: SelectedEntry;
   readonly layer: Layer;
+}
+
+/**
+ * The change one block line stands for, so a move can name the layer slot and
+ * value the line holds. `kind` is `"key"` for a json key path, `"item"` for one
+ * added array item the block lists on its own, and `"whole"` for a whole file
+ * or an `import` side file. `path` is the new-setting path and `item` the one
+ * array item, for the kinds that take one.
+ */
+export interface MoveSource {
+  readonly entry: SelectedEntry;
+  /** The layer the line is printed under: the move's source. */
+  readonly layer: LayerName;
+  /** The action's repo path. */
+  readonly repoPath: string;
+  readonly kind: "key" | "item" | "whole";
+  readonly path?: string;
+  readonly item?: JsonValue;
+}
+
+/** One block line with the change it stands for. */
+interface ExportChange {
+  readonly line: ChangeLine;
+  readonly source: MoveSource;
 }
 
 interface ImportMatch extends MatchedLayer {
@@ -237,6 +263,7 @@ function diffValues(
           keyPath,
           kind: "-",
           what: formatOld(item),
+          item,
         });
       } else {
         matched[at] = true;
@@ -250,6 +277,7 @@ function diffValues(
           keyPath,
           kind: "+",
           what: formatNew(item),
+          item,
         });
       }
     }
@@ -431,43 +459,64 @@ export function exportFileLabel(
 /** One json draft's preview lines: a new key path whose value is an array, and
  * which another layer of the entry already holds, prints one line per item
  * (contract "Push preview", "What changed"); any other draft prints its own
- * line. */
-function exportedDraftLines(
+ * line. Each line carries the move its value would make. */
+function exportedDraftChanges(
   draft: DraftLine,
   match: MatchedLayer,
   module: string,
   file: string,
+  repoPath: string,
   otherLayers: readonly LayerValue[],
-): readonly ChangeLine[] {
+): readonly ExportChange[] {
   const items = draft.addedItems;
   if (
     items !== undefined &&
     otherLayers.some((item) => hasKeyPath(item.value, draft.keyPath))
   ) {
     return items.map((item) => ({
-      layer: match.layer.name,
-      kind: "+",
-      module,
-      file,
-      what: `${draft.path}[]: ${valueText(item)}`,
+      line: {
+        layer: match.layer.name,
+        kind: "+",
+        module,
+        file,
+        what: `${draft.path}[]: ${valueText(item)}`,
+      },
+      source: {
+        entry: match.entry,
+        layer: match.layer.name,
+        repoPath,
+        kind: "item",
+        path: `${draft.path}[]`,
+        item,
+      },
     }));
   }
   return [
     {
-      layer: match.layer.name,
-      kind: draft.kind,
-      module,
-      file,
-      what: `${draft.path}: ${draft.what}`,
+      line: {
+        layer: match.layer.name,
+        kind: draft.kind,
+        module,
+        file,
+        what: `${draft.path}: ${draft.what}`,
+      },
+      source: {
+        entry: match.entry,
+        layer: match.layer.name,
+        repoPath,
+        ...(draft.item === undefined
+          ? { kind: "key" as const, path: draft.path }
+          : { kind: "item" as const, path: draft.path, item: draft.item }),
+      },
     },
   ];
 }
 
-function exportActionLines(
+function exportActionChanges(
   match: MatchedLayer,
   action: Action,
   repoFiles: RepoFiles,
-): readonly ChangeLine[] {
+): readonly ExportChange[] {
   if (action.kind !== "writeRepo" && action.kind !== "removeRepo") {
     return [];
   }
@@ -491,11 +540,12 @@ function exportActionLines(
       (item) => item.layer.repoPath !== match.layer.repoPath,
     );
     return jsonDrafts(oldValue, newValue).flatMap((draft) =>
-      exportedDraftLines(
+      exportedDraftChanges(
         draft,
         match,
         config.module,
         fileLabel(config.file),
+        action.path,
         otherLayers,
       ),
     );
@@ -511,7 +561,45 @@ function exportActionLines(
     file,
     oldBytes,
     newBytes,
+  ).map((line) => ({
+    line,
+    source: {
+      entry: match.entry,
+      layer: match.layer.name,
+      repoPath: action.path,
+      kind: "whole",
+    },
+  }));
+}
+
+/** Every block line with its move source, in the plan's action order. */
+function exportChanges(
+  plan: RunPlan,
+  snapshot: Snapshot,
+): readonly ExportChange[] {
+  const selected = selectEntries(
+    snapshot.config,
+    scopeFor(snapshot),
+    new Set(snapshot.repoFiles.keys()),
   );
+  if (!selected.ok) {
+    return [];
+  }
+  const changes: ExportChange[] = [];
+  for (const step of plan.steps) {
+    for (const item of step.actions) {
+      const action = item.action;
+      if (action.kind !== "writeRepo" && action.kind !== "removeRepo") {
+        continue;
+      }
+      const match = matchExportEntry(selected.value, action.path);
+      if (match === undefined) {
+        continue;
+      }
+      changes.push(...exportActionChanges(match, action, snapshot.repoFiles));
+    }
+  }
+  return changes;
 }
 
 /**
@@ -523,29 +611,19 @@ export function changeLines(
   plan: RunPlan,
   snapshot: Snapshot,
 ): readonly ChangeLine[] {
-  const selected = selectEntries(
-    snapshot.config,
-    scopeFor(snapshot),
-    new Set(snapshot.repoFiles.keys()),
-  );
-  if (!selected.ok) {
-    return [];
-  }
-  const lines: ChangeLine[] = [];
-  for (const step of plan.steps) {
-    for (const item of step.actions) {
-      const action = item.action;
-      if (action.kind !== "writeRepo" && action.kind !== "removeRepo") {
-        continue;
-      }
-      const match = matchExportEntry(selected.value, action.path);
-      if (match === undefined) {
-        continue;
-      }
-      lines.push(...exportActionLines(match, action, snapshot.repoFiles));
-    }
-  }
-  return lines;
+  return exportChanges(plan, snapshot).map((change) => change.line);
+}
+
+/**
+ * The change each `changeLines` line stands for, in the same order and count:
+ * the block's line `n` is index `n - 1`. Contract "Move a change" moves the
+ * one the user picks.
+ */
+export function changeMoveSources(
+  plan: RunPlan,
+  snapshot: Snapshot,
+): readonly MoveSource[] {
+  return exportChanges(plan, snapshot).map((change) => change.source);
 }
 
 /** The selected entry and layer an import action writes: the entry's own local
@@ -573,7 +651,12 @@ function matchImportEntry(
       }
       const source = entry.source;
       if (path === localPath && source !== undefined) {
-        return { entry, layer: source, file: fileLabel(config.file), json: false };
+        return {
+          entry,
+          layer: source,
+          file: fileLabel(config.file),
+          json: false,
+        };
       }
       continue;
     }
@@ -581,9 +664,7 @@ function matchImportEntry(
       const prefix = `${localPath}${separator}`;
       const source = entry.source;
       if (path.startsWith(prefix) && source !== undefined) {
-        const relative = path
-          .slice(prefix.length)
-          .replaceAll(separator, "/");
+        const relative = path.slice(prefix.length).replaceAll(separator, "/");
         return {
           entry,
           layer: source,
@@ -673,7 +754,8 @@ function importActionLines(
     return [];
   }
   const local = snapshot.localFiles.get(action.path);
-  const oldBytes = local !== undefined && local.kind === "file" ? local.bytes : undefined;
+  const oldBytes =
+    local !== undefined && local.kind === "file" ? local.bytes : undefined;
   const config = match.entry.entry;
 
   if (match.json) {
@@ -690,7 +772,9 @@ function importActionLines(
     const rules = config.sanitize ?? [];
     const source = match.entry.source;
     const sourceBytes =
-      source === undefined ? undefined : snapshot.repoFiles.get(source.repoPath);
+      source === undefined
+        ? undefined
+        : snapshot.repoFiles.get(source.repoPath);
     const inferred: Values =
       rules.length === 0 || oldBytes === undefined || sourceBytes === undefined
         ? {}

@@ -1369,6 +1369,11 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     pointer; the contract doesn't say whether that's meant to start a new first backup.
   - A destination key is `<module> <file>: <path>`, so a module name with a space could collide with another
     module's file; module names don't hold spaces today.
+  - "Move a change?" on a `-` line (a removed key, item or file) refuses with `change <n> removes a setting; it can't
+    move.` and the push stops with exit 1; the contract doesn't say whether a removal can move or whether the question
+    should ask again instead.
+  - A change moved to a narrower group leaves the old layer as the repo holds it ("left as it was"), so the other
+    machines don't receive it; a whole file moved narrower keeps the old layer's repo copy instead of leaving it empty.
 
 ### Confirm on Windows
 
