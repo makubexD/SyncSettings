@@ -451,11 +451,26 @@ exported constant, `WINDOWS_OVERLAY_KEYS`, empty until step 27 fills it. The tes
 
 Test: `bun test tools/claude-layout.test.ts && bun run lint`.
 
-## Step 29: Docs `[inline: docs step]`
+## Step 29: `mksync diff`, `check` and `preview` `[worker]`
+
+Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/main.ts`, `tests/parity/run.sh`, new cases.
+
+Found in step 30's check (2026-11-16): no step added these three, so the program prints the usage line and exits 2 for
+each. Contract "Front door" and "The program": `mksync check [<path>…]` runs `import --check --only <path>…`,
+`mksync preview` runs `export --preview`, and `mksync diff [<path>…]` fetches origin's `master` (no prompt,
+`SYNC_FETCH_TIMEOUT` seconds, default 15), printing `  Offline: comparing with the last fetch.` when that fails or
+there is no origin, then runs `export --diff --only <path>…`. An option prints `Unknown option: <arg>`, exit 1.
+`USAGE`, its pin and the contract's usage block become the end-of-phase line. Runner: commands `front-check` and
+`front-preview` (`./mksync check`, `./mksync preview` on both engines), next to `front-diff`. Shared cases
+`front-check`, `front-preview` and `front-diff-offline`, `expect/` from the contract.
+
+Test: `bun test src/cli && bun run build && tests/parity/run.sh --engine dist/mksync front && tests/parity/run.sh front`.
+
+## Step 30: Docs `[inline: docs step]`
 
 Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/daily-workflow.md`, `README.md`.
 
-The contract as built: every line steps 2 to 28 print that step 1 didn't fix, the program's usage line, and "Not in
+The contract as built: every line steps 2 to 29 print that step 1 didn't fix, the program's usage line, and "Not in
 the program yet" removed. The design: "As built in phase 8" under "Code layout" (`src/app/`, the new core and adapter
 files), "Tests" (the new runner fields and stubs, the case counts), Open updated (settled items marked, new leftovers
 added). `docs/daily-workflow.md` and `README.md`: a note that `dist/mksync` now runs every front-door command, still
