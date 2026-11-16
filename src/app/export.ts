@@ -81,6 +81,11 @@ export interface Result {
   readonly stopped?: boolean;
 }
 
+/** A failed command: `message` on stderr, exit `code`. */
+export function failure(message: string, code = 1): Result {
+  return { code, stdout: "", stderr: `${message}\n` };
+}
+
 export function writeLines(lines: readonly string[]): string {
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
 }
@@ -945,7 +950,12 @@ export async function executeExport(
     // the moves ask next, before the profile-value rule (contract "Move a
     // change").
     if (moves && snapshot.record !== undefined) {
-      const loop = await askMoveQuestions(plan, snapshot, settings, terminal.io);
+      const loop = await askMoveQuestions(
+        plan,
+        snapshot,
+        settings,
+        terminal.io,
+      );
       if (!loop.ok) {
         return { code: 1, stdout: "", stderr: `${loop.error}\n` };
       }
