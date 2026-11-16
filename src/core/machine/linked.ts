@@ -18,7 +18,12 @@ export type LinkedSuggestion = "profile" | "no";
 export const MAX_LINKED_FILES = 1000;
 export const MAX_LINKED_BYTES = 10 * 1024 * 1024;
 
-const LINKED_DESTINATION_PREFIX = "linked: ";
+/** The `destinations` key prefix a linked folder's answer is stored under;
+ * contract "Linked folders". */
+export const LINKED_DESTINATION_PREFIX = "linked: ";
+
+const BYTES_PER_KB = 1024;
+const BYTES_PER_MB = 1024 * 1024;
 
 const TRAILING_SEPARATORS = /[\\/]+$/;
 
@@ -156,4 +161,59 @@ export function suggestLinked(
 ): LinkedSuggestion {
   const small = count < MAX_LINKED_FILES && bytes < MAX_LINKED_BYTES;
   return underHome && small ? "profile" : "no";
+}
+
+/**
+ * The form a linked folder is shown and stored in: `~` for the home itself,
+ * `~/<rest>` under it (either separator, always `/` in the result), and the
+ * path unchanged otherwise. No home path reaches a state file.
+ */
+export function homeForm(path: string, home: string): string {
+  if (home === "") {
+    return path;
+  }
+  const base = withoutTrailingSeparators(home.replaceAll("\\", "/"));
+  const normalized = withoutTrailingSeparators(path.replaceAll("\\", "/"));
+  if (normalized === base) {
+    return "~";
+  }
+  if (normalized.startsWith(`${base}/`)) {
+    return `~/${normalized.slice(base.length + 1)}`;
+  }
+  return path;
+}
+
+/** A linked folder's size in the question's words: bytes, then KB, then MB,
+ * rounded to the nearest whole unit. */
+export function formatSize(bytes: number): string {
+  if (bytes < BYTES_PER_KB) {
+    return `${bytes} B`;
+  }
+  if (bytes < BYTES_PER_MB) {
+    return `${Math.round(bytes / BYTES_PER_KB)} KB`;
+  }
+  return `${Math.round(bytes / BYTES_PER_MB)} MB`;
+}
+
+/** The contract's question for one linked folder, with its suggestion as the
+ * default answer. */
+export function linkedQuestion(
+  file: string,
+  path: string,
+  count: number,
+  bytes: number,
+  suggestion: LinkedSuggestion,
+): string {
+  const files = count === 1 ? "1 file" : `${count} files`;
+  const defaultAnswer = suggestion === "profile" ? 1 : 3;
+  return (
+    `${file} uses ${path} (${files}, ${formatSize(bytes)}). ` +
+    `Sync it as a folder? 1) this profile  2) this machine  ` +
+    `3) no [${defaultAnswer}]`
+  );
+}
+
+/** The contract's status line for a linked folder setup hasn't asked about. */
+export function linkedStatusLine(path: string): string {
+  return `Linked folder not synced: ${path} (mksync setup asks)`;
 }

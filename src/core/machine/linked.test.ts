@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { LinkedEntry } from "./linked.ts";
 import {
+  formatSize,
+  homeForm,
   linkedFolders,
+  linkedQuestion,
+  linkedStatusLine,
   MAX_LINKED_BYTES,
   MAX_LINKED_FILES,
   suggestLinked,
@@ -309,5 +313,144 @@ describe("suggestLinked", () => {
 
     // Assert
     expect(result).toBe("no");
+  });
+});
+
+describe("homeForm", () => {
+  test("should turn the home folder into ~", () => {
+    // Act
+    const result = homeForm(HOME, HOME);
+
+    // Assert
+    expect(result).toBe("~");
+  });
+
+  test("should turn a folder under the home into a ~ path", () => {
+    // Act
+    const result = homeForm(`${HOME}/scripts`, HOME);
+
+    // Assert
+    expect(result).toBe("~/scripts");
+  });
+
+  test("should normalize a Windows path under the home to /", () => {
+    // Act
+    const result = homeForm("C:\\Users\\user\\tools\\bin", WINDOWS_HOME);
+
+    // Assert
+    expect(result).toBe("~/tools/bin");
+  });
+
+  test("should keep a folder outside the home unchanged", () => {
+    // Act
+    const result = homeForm("/opt/tools", HOME);
+
+    // Assert
+    expect(result).toBe("/opt/tools");
+  });
+
+  test("should not treat a sibling of the home as under it", () => {
+    // Act
+    const result = homeForm("/home/user-tools", HOME);
+
+    // Assert
+    expect(result).toBe("/home/user-tools");
+  });
+
+  test("should ignore a trailing separator on the home", () => {
+    // Act
+    const result = homeForm(`${HOME}/tools`, `${HOME}/`);
+
+    // Assert
+    expect(result).toBe("~/tools");
+  });
+});
+
+describe("formatSize", () => {
+  test("should report bytes under a kilobyte", () => {
+    // Act
+    const result = formatSize(1023);
+
+    // Assert
+    expect(result).toBe("1023 B");
+  });
+
+  test("should round a kilobyte", () => {
+    // Act
+    const result = formatSize(1024);
+
+    // Assert
+    expect(result).toBe("1 KB");
+  });
+
+  test("should round fractional kilobytes", () => {
+    // Act
+    const result = formatSize(40 * 1024 + 512);
+
+    // Assert
+    expect(result).toBe("41 KB");
+  });
+
+  test("should report megabytes at a megabyte", () => {
+    // Act
+    const result = formatSize(1024 * 1024);
+
+    // Assert
+    expect(result).toBe("1 MB");
+  });
+
+  test("should round fractional megabytes", () => {
+    // Act
+    const result = formatSize(2 * 1024 * 1024 + 512 * 1024);
+
+    // Assert
+    expect(result).toBe("3 MB");
+  });
+});
+
+describe("linkedQuestion", () => {
+  test("should ask with a profile suggestion as the default", () => {
+    // Act
+    const result = linkedQuestion(".bashrc", "~/scripts", 12, 40 * 1024, "profile");
+
+    // Assert
+    expect(result).toBe(
+      ".bashrc uses ~/scripts (12 files, 40 KB). Sync it as a folder? " +
+        "1) this profile  2) this machine  3) no [1]",
+    );
+  });
+
+  test("should ask with no as the default", () => {
+    // Act
+    const result = linkedQuestion(".bashrc", "/opt/tools", 3, 2048, "no");
+
+    // Assert
+    expect(result).toBe(
+      ".bashrc uses /opt/tools (3 files, 2 KB). Sync it as a folder? " +
+        "1) this profile  2) this machine  3) no [3]",
+    );
+  });
+
+  test("should say 1 file for a single file", () => {
+    // Act
+    const result = linkedQuestion(".bashrc", "~/scripts", 1, 5, "profile");
+
+    // Assert
+    expect(result).toBe(
+      ".bashrc uses ~/scripts (1 file, 5 B). Sync it as a folder? " +
+        "1) this profile  2) this machine  3) no [1]",
+    );
+  });
+});
+
+describe("linkedStatusLine", () => {
+  test("should name the folder and point at setup", () => {
+    // Act
+    const result = linkedStatusLine("~/scripts");
+
+    // Assert
+    expect(result).toBe(
+      "Linked folder not synced: ~/scripts (mksync setup asks)",
+    );
   });
 });
