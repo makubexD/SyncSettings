@@ -88,11 +88,14 @@ the design and the runner README.
    doesn't say what happens to the repo copy. Bash removes it (`REMOVED … no longer in source`), since a symlink isn't
    a file of the folder; the program keeps it. Proposal: follow bash, and write the sentence into "Directory entries"
    (step 22).
-5. **Push behind origin.** The old `ERROR: origin has updates; run mksync pull first.` is in neither the contract nor
-   the program. Without a terminal, push runs export (whose up-to-date check warns,
-   `WARNING: repo is <n> commit(s) behind origin/master; run git pull --ff-only.`), then commit stops with
-   `ERROR: master is behind origin; pull first.`, exit 1, and `gh` isn't called. Proposal: the contract's push row and
-   "Checks before pushing" state that, and the case is written from it (step 13).
+5. **Push behind origin.** The bash front door checks before the export (`scripts/linux/front.sh`, `push`): after
+   `git fetch -q origin master`, any commit in `HEAD..origin/master` stops it with
+   `ERROR: origin has updates; run mksync pull first.`, exit 1, nothing exported, `gh` not called. A failed fetch
+   skips the check. The contract doesn't say so, the PowerShell front door doesn't do it, and the program runs export
+   (which only warns without a terminal) and lets commit stop with `ERROR: master is behind origin; pull first.`.
+   Amended at step 1 (first draft had the program's order): the contract's push row states the bash check, the
+   program does the same on every OS (step 13), and the PowerShell front door's lack of it is a Known difference
+   until cut-over (old engines frozen), so the case runs on Linux and macOS.
 6. **Config lint rules.** Fourteen `lint-*` cases test rules of `scripts/ci/check-config.sh` that neither v1 nor v2
    parsing has (an entry inside a `dir` entry, `dir` with sanitize rules, `dconf` with `localPath`, rules, linking or
    bad `keys`, `keys` on a file, an unknown type). The config check script dies at cut-over with the v1 config.
@@ -105,8 +108,8 @@ the design and the runner README.
 Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/plan-single-engine.md`.
 
 Contract: decision 4 in "Directory entries" (a local file that is now a symlink: `SKIPPED <label> symlink`, then the
-repo copy `REMOVED <label> no longer in source`); decision 5 in the `mksync push` row and "Checks before pushing"
-(the behind line and its exit code). Design: "Decided in phase 8, the port": decisions 1 to 6 as rules, one example
+repo copy `REMOVED <label> no longer in source`); decision 5 in the `mksync push` row (the check before the export,
+its line and exit code) and a "Known differences" row for the PowerShell front door. Design: "Decided in phase 8, the port": decisions 1 to 6 as rules, one example
 each, and the Open items they settle. Roadmap phase 8: this plan's link; phase 9: the four setup and bootstrap cases.
 
 Test: `npx prettier --check docs/design-layers.md docs/plan-single-engine.md && git diff --check`.
@@ -353,10 +356,10 @@ Files: new folders under `tests/parity/cases/`. Contract "Diff", "Sync point". `
 
 Test: the shared-case command with filter `diff-`.
 
-## Step 13: Shared cases for pull and push `[worker]`
+## Step 13: Shared cases for pull and push, and push behind origin `[worker]`
 
-Files: new folders under `tests/parity/cases/`. Contract "Front door", "Checks before pushing" (as step 1 left it).
-`git: remote`.
+Files: new folders under `tests/parity/cases/`, `src/app/push.ts`, `src/app/push.test.ts`. Contract "Front door" (as
+step 1 left it). `git: remote`.
 
 - `pull-only-partial` (`front-pull-only`): no sync point, `origin/` changes `plain.txt` and `no-trailing.txt`;
   `pull` with `yes`, `force`, `paths: ["dotfiles/linux/plain.txt"]`; exit 0; home `plain.txt` has origin's text,
@@ -364,11 +367,16 @@ Files: new folders under `tests/parity/cases/`. Contract "Front door", "Checks b
   can't state an absence, lines `! Sync point`).
 - `pull-no-sync-point-force` (`front-pull-first-force`): no sync point, origin changes `plain.txt`; `pull` with
   `yes`, `force`; exit 0; home `plain.txt` new, `plain.txt.bak` old; `expect/state/last-sync` holds origin's head.
-- `push-behind-origin` (`sync-push-behind`), `stubs: ["gh"]`: origin one commit ahead, local change; `push` with
-  `yes`; exit 1; lines (from step 1) the behind `WARNING` and `ERROR: master is behind origin; pull first.`; no
-  `gh.log`.
+- `push-behind-origin` (`sync-push-behind`), `os: ["linux", "macos"]`, `stubs: ["gh"]`: origin one commit ahead,
+  local change; `push` with `yes`; exit 1; lines `ERROR: origin has updates; run mksync pull first.`; repo tree
+  unchanged (nothing exported); no `gh.log`. It fails on the program until the fix below.
 
-Test: the shared-case command with filters `pull-only`, `pull-no-sync-point-force`, `push-behind`.
+The fix: `push` fetches `origin master` after the clone check and before the export; commits in `HEAD..origin/master`
+stop it with that line, exit 1; a failed fetch skips the check. Unit tests in `push.test.ts`: behind stops before
+the export and calls no commit; a failed fetch goes on; up to date goes on.
+
+Test: `bun test src/app/push.test.ts` and the shared-case command with filters `pull-only`,
+`pull-no-sync-point-force`, `push-behind`.
 
 ## Step 14: dconf write failure and a real bus `[worker]`
 
