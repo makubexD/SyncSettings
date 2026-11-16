@@ -550,6 +550,27 @@ describe("writeRecord and writeProfile", () => {
     expect(store.profiles).toEqual([profileOf()]);
   });
 
+  test("should write a profile's linked entries and read them back", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const linked = linkedProfile({}, [linkedDirEntry("~/scripts")]);
+
+    // Act
+    writeProfile(fixture.state, linked);
+    const store = expectOk(storeOf(fixture));
+
+    // Assert
+    expect(store.profiles).toEqual([linked]);
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ entries: [linkedDirEntry("~/scripts")] });
+  });
+
   test("should write both files for the current user only", () => {
     // Arrange
     const fixture = storeFixture();
@@ -739,6 +760,7 @@ describe("readLinkedFolders", () => {
         file: ".bashrc",
         path: "~/scripts",
         name: "scripts",
+        module: "base",
         count: 2,
         bytes: 6,
         suggestion: "profile",

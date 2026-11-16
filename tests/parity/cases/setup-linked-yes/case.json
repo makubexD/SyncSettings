@@ -1,0 +1,36 @@
+{
+  "description": "setup offers a folder a linked entry's file names: --yes takes the profile suggestion under a shell entry with linked: true and adds a dir entry to the profile's entries (Linked folders, mksync setup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file",
+        "linked": true
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "work-1",
+        "yes": true
+      }
+    }
+  ]
+}

@@ -195,21 +195,23 @@ export function formatSize(bytes: number): string {
   return `${Math.round(bytes / BYTES_PER_MB)} MB`;
 }
 
-/** The contract's question for one linked folder, with its suggestion as the
- * default answer. */
+/** The number a suggestion answers with: `1) this profile` or `3) no`. */
+export function linkedSuggestionNumber(suggestion: LinkedSuggestion): 1 | 3 {
+  return suggestion === "profile" ? 1 : 3;
+}
+
+/** The contract's question for one linked folder; the asker adds the
+ * suggested answer after it. */
 export function linkedQuestion(
   file: string,
   path: string,
   count: number,
   bytes: number,
-  suggestion: LinkedSuggestion,
 ): string {
   const files = count === 1 ? "1 file" : `${count} files`;
-  const defaultAnswer = suggestion === "profile" ? 1 : 3;
   return (
     `${file} uses ${path} (${files}, ${formatSize(bytes)}). ` +
-    `Sync it as a folder? 1) this profile  2) this machine  ` +
-    `3) no [${defaultAnswer}]`
+    `Sync it as a folder? 1) this profile  2) this machine  3) no`
   );
 }
 

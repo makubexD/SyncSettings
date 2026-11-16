@@ -6,6 +6,7 @@ import {
   linkedFolders,
   linkedQuestion,
   linkedStatusLine,
+  linkedSuggestionNumber,
   MAX_LINKED_BYTES,
   MAX_LINKED_FILES,
   suggestLinked,
@@ -409,37 +410,44 @@ describe("formatSize", () => {
 });
 
 describe("linkedQuestion", () => {
-  test("should ask with a profile suggestion as the default", () => {
+  test("should ask the contract's question without the suggestion", () => {
     // Act
-    const result = linkedQuestion(".bashrc", "~/scripts", 12, 40 * 1024, "profile");
+    const result = linkedQuestion(".bashrc", "~/scripts", 12, 40 * 1024);
 
     // Assert
     expect(result).toBe(
       ".bashrc uses ~/scripts (12 files, 40 KB). Sync it as a folder? " +
-        "1) this profile  2) this machine  3) no [1]",
-    );
-  });
-
-  test("should ask with no as the default", () => {
-    // Act
-    const result = linkedQuestion(".bashrc", "/opt/tools", 3, 2048, "no");
-
-    // Assert
-    expect(result).toBe(
-      ".bashrc uses /opt/tools (3 files, 2 KB). Sync it as a folder? " +
-        "1) this profile  2) this machine  3) no [3]",
+        "1) this profile  2) this machine  3) no",
     );
   });
 
   test("should say 1 file for a single file", () => {
     // Act
-    const result = linkedQuestion(".bashrc", "~/scripts", 1, 5, "profile");
+    const result = linkedQuestion(".bashrc", "~/scripts", 1, 5);
 
     // Assert
     expect(result).toBe(
       ".bashrc uses ~/scripts (1 file, 5 B). Sync it as a folder? " +
-        "1) this profile  2) this machine  3) no [1]",
+        "1) this profile  2) this machine  3) no",
     );
+  });
+});
+
+describe("linkedSuggestionNumber", () => {
+  test("should answer 1 for a profile suggestion", () => {
+    // Act
+    const result = linkedSuggestionNumber("profile");
+
+    // Assert
+    expect(result).toBe(1);
+  });
+
+  test("should answer 3 for no", () => {
+    // Act
+    const result = linkedSuggestionNumber("no");
+
+    // Assert
+    expect(result).toBe(3);
   });
 });
 

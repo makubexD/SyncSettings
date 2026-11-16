@@ -29,6 +29,7 @@ import {
 } from "./adapters/statusline.ts";
 import {
   readBackupSides,
+  readLinkedFolders,
   readRepoStore,
   readStore,
   readText,
@@ -542,6 +543,8 @@ async function executeSetup(
       isPrivate,
       today: localDate(new Date()),
       flags: command,
+      linkedFolders: (profile, record) =>
+        readLinkedFolders(home, os, config, profile, record),
     },
     terminal.io,
   );

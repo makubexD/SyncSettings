@@ -642,6 +642,8 @@ export interface LinkedFolder {
   readonly path: string;
   /** The folder's own name, for its `linked/<name>/` repo path. */
   readonly name: string;
+  /** The reading entry's module, which its `dir` entry takes. */
+  readonly module: string;
   readonly count: number;
   readonly bytes: number;
   readonly suggestion: LinkedSuggestion;
@@ -760,6 +762,7 @@ export function readLinkedFolders(
         file: pathBase(entry.localPath),
         path,
         name: pathBase(path),
+        module: entry.module,
         count: totals.count,
         bytes: totals.bytes,
         suggestion: suggestLinked(
@@ -788,16 +791,47 @@ function jsonStringRecord(values: Readonly<Record<string, string>>): JsonValue {
   return { kind: "object", entries: new Map(entries) };
 }
 
+/** A linked entry as the profile file holds it, keys in their source order so
+ * the file round trips byte-exact. The parser only lets JSON values through. */
+function entryValue(value: unknown): JsonValue {
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "bool", value };
+  }
+  if (typeof value === "number") {
+    return { kind: "number", text: String(value) };
+  }
+  if (typeof value === "string") {
+    return { kind: "string", value };
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array", items: value.map(entryValue) };
+  }
+  if (typeof value === "object") {
+    const entries: [string, JsonValue][] = Object.entries(value).map(
+      ([key, item]): [string, JsonValue] => [key, entryValue(item)],
+    );
+    return { kind: "object", entries: new Map(entries) };
+  }
+  throw new TypeError(`a linked entry holds a value that isn't JSON`);
+}
+
 function profileValue(profile: Profile): JsonValue {
-  return {
-    kind: "object",
-    entries: new Map<string, JsonValue>([
-      ["modules", jsonStrings(profile.modules)],
-      ["values", jsonStringRecord(profile.values)],
-      ["destinations", jsonStringRecord(profile.destinations)],
-      ["retired", { kind: "bool", value: profile.retired }],
-    ]),
-  };
+  const fields: [string, JsonValue][] = [
+    ["modules", jsonStrings(profile.modules)],
+    ["values", jsonStringRecord(profile.values)],
+    ["destinations", jsonStringRecord(profile.destinations)],
+    ["retired", { kind: "bool", value: profile.retired }],
+  ];
+  if (profile.entries !== undefined) {
+    fields.push([
+      "entries",
+      { kind: "array", items: profile.entries.map(entryValue) },
+    ]);
+  }
+  return { kind: "object", entries: new Map(fields) };
 }
 
 /** The profile as the contract writes it: the key order above, the `json`

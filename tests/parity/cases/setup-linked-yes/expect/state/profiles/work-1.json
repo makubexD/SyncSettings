@@ -1,0 +1,17 @@
+{
+  "modules": [
+    "shell"
+  ],
+  "values": {},
+  "destinations": {},
+  "retired": false,
+  "entries": [
+    {
+      "file": "linked/scripts",
+      "module": "shell",
+      "merge": "dir",
+      "localPath": "~/.config/parity/scripts",
+      "description": "Linked folder ~/.config/parity/scripts"
+    }
+  ]
+}
