@@ -488,6 +488,10 @@ run_case() {
     fi
     if [[ -d $dir/home ]]; then
         cp -a "$dir/home/." "$t/home/" || die 'copying the case home/ failed'
+        # cp -a keeps the fixtures' mtimes, so a home file and its repo twin of the
+        # same size can share one. export.sh copies with cp -p into the same inode,
+        # and git's stat cache then reports the changed repo file as clean.
+        find "$t/home" -type f -exec touch {} + || die 'touching the case home/ failed'
     fi
 
     git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
