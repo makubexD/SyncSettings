@@ -58,4 +58,190 @@ Answer in one fenced block with exactly these headings, in this order, nothing o
 
 ## Answer
 
-Not run yet.
+Run on work machine #1, 2026-11-16, redacted by the user and checked again before commit. Check 8 was replaced: the
+user chose not to download the program to a work machine without asking IT first, so check 8 asked which runtimes are
+installed instead (`node`, `npm`, `bun`, `winget`, versions or "not found"). Whether the unsigned program runs stays
+open for phase 9's real-Windows checklist.
+
+```text
+## 1 tree
+~/.claude/  (821 entries; machine-generated ID names collapsed to <uuid>/<hex>/<num>/<slug> with counts)
+.credentials.json
+.last-cleanup
+.last-update-result.json
+.oauth_refresh.lock.owner.tmp.<hex>
+CLAUDE.md
+WORK-TOOL-3.md
+WORK-TOOL-3.md.bak
+STATUSLINE_GUIDE.md
+history.jsonl
+remote-settings-consent.json
+settings.json
+settings.json.bak
+stats-cache.json
+statusline-simple.sh
+statusline.ps1
+statusline_BACK.ps1
+statusline_BACK_OLD.ps1
+test-statusline.sh
+backups/
+  .claude.json.backup.<num>  (x5)
+cache/
+  changelog.md
+  my-closed-issues.json
+  model-catalog/
+    <uuid>-<hex>-cc.json  (x3)
+    published-floor.json
+chrome/
+  chrome-native-host.bat
+work-tool-1/
+  heal-partial-install.log
+  content/
+    <hex>.db  (x2)
+  sessions/
+    <hex>.db  (x35)
+    <hex>.db-shm  (x35)
+    <hex>.db-wal  (x35)
+    <hex>-events.md  (x1)
+    stats-pid-<num>.json  (the remaining ~260 entries)
+daemon/
+  control.key
+  pipe.key
+  attach-journal/
+    <uuid>.json  (x1)
+  dispatch/
+  pty-pids/
+debug/            (contents skipped)
+downloads/        (empty)
+feedback/         (empty)
+file-history/     (contents skipped)
+hooks/
+  work-tool-1-cache-heal.mjs
+ide/              (empty)
+jobs/
+  pins.json
+paste-cache/
+  <hex>.txt  (x9)
+plans/
+  <slug>.md  (x11)
+plugins/
+  .last_inuse_sweep
+  blocklist.json
+  installed_plugins.json
+  known_marketplaces.json
+  plugin-catalog-cache.json
+  plugin-directory-cache-v2.json
+  .trash/
+    <num>-<num>-<id>/
+  cache/
+    work-tool-2/
+    claude-plugins-official/
+    work-tool-1/
+  data/
+    work-tool-1-work-tool-1/
+    csharp-lsp-claude-plugins-official/
+    typescript-lsp-claude-plugins-official/
+  marketplaces/
+    work-tool-2/
+    claude-plugins-official/
+    work-tool-1/
+  store/
+    cc-plugin-diff_builtin-<hex>.json
+  synced/
+    .bucket-<uuid>_<uuid>  (x3, files)
+    <uuid>_<uuid>/  (x3)
+projects/         (contents skipped)
+scripts/          (empty)
+session-env/
+  <uuid>/  (x324, all empty at this depth)
+sessions/
+  <num>.<hex>.key
+  <num>.json
+shell-snapshots/  (contents skipped)
+skills/
+  work-tool-4            (link, not a plain folder)
+  audit-agent-instructions  (link)
+  find-skills            (link)
+  .trash/
+    <num>-<num>-<id>/
+  synced/
+    .bucket-<uuid>_<uuid>  (x3, files)
+    <uuid>_<uuid>/  (x3)
+state/            (empty)
+todos/            not present
+statsig/          not present
+
+## 2 settings keys
+hooks : object
+  hooks.PreToolUse : array of 1
+  hooks.SessionStart : array of 1
+statusLine : object
+  statusLine.type : string
+  statusLine.command : string
+enabledPlugins : object
+  enabledPlugins.work-tool-1@work-tool-1 : boolean
+  enabledPlugins.agent-skills@work-tool-2 : boolean
+extraKnownMarketplaces : object
+  extraKnownMarketplaces.work-tool-1 : object
+  extraKnownMarketplaces.work-tool-2 : object
+effortLevel : string
+modelSettings : object
+  modelSettings.claude-opus-5-5 : object
+autoUpdatesChannel : string
+tui : string
+inputNeededNotifEnabled : boolean
+agentPushNotifEnabled : boolean
+autoMode : object
+  autoMode.environment : array of 25
+model : string
+
+hooks:
+  PreToolUse   - 1 group (has matcher), 1 hook: type=command, sets "shell": no, program: unknown: not reported
+  SessionStart - 1 group (no matcher),  1 hook: type=command, sets "shell": no, program: node.exe
+
+## 3 statusline
+type: command
+program: powershell.exe
+script: statusline.ps1
+script also in ~/.claude: yes (top level, ~/.claude/statusline.ps1; the command refers to the .claude folder)
+
+## 4 CLAUDE.md
+exists: yes
+lines: 69
+@ lines: 1
+  @WORK-TOOL-3.md
+
+## 5 shell
+Bash tool: Git Bash (MSYS2 bash 5.2.37, MINGW64)
+  how: `echo $0` -> /usr/bin/bash; $BASH_VERSION -> 5.2.37(1)-release; $OSTYPE -> msys; $MSYSTEM -> MINGW64; SHELL -> bash.exe
+PowerShell tool: PowerShell 7.6.9 (Core)
+  how: $PSVersionTable.PSVersion
+Hooks: Git Bash (inferred) - neither hook sets "shell", so Claude Code's default shell for hook commands applies
+Statusline: command is started by the same default shell and itself launches powershell.exe (Windows PowerShell 5.1)
+claude doctor: unknown: interactive screen, not run in this non-interactive session (claude --version -> 2.1.325)
+
+## 6 tools
+Git for Windows: yes - git version 2.50.1.windows.1
+Git Bash: C:/Program Files/Git/usr/bin/bash.exe
+  (also on PATH: System32/bash.exe and ~/AppData/Local/Microsoft/WindowsApps/bash.exe)
+jq: yes - jq-1.6
+CLAUDE_CODE_GIT_BASH_PATH set: no
+PowerShell 5.1: yes (5.1.26100.9711)
+PowerShell 7: yes (7.6.9)
+
+## 7 home
+Git Bash  `ls $HOME/.claude`: yes
+Git Bash  `ls ~/.claude`: yes
+PowerShell 5.1 (-NoProfile)  `$HOME/.claude`: yes
+PowerShell 5.1 (-NoProfile)  `~/.claude`: yes
+PowerShell 7: unknown: not tested separately
+
+## 8 runtimes
+node: v26.13.0
+npm: 11.20.0
+bun: 1.3.14
+winget: v1.29.380
+
+## 9 domain
+USERDNSDOMAIN set: yes
+```

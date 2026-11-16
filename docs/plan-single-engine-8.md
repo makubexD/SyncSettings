@@ -449,6 +449,11 @@ is `{"type": "command", "command": "mksync statusline"}`. Not run on the real re
 Step 27 waits for the survey, so step 28 runs first (the user's choice, 2026-11-16): the Windows overlay's keys are one
 exported constant, `WINDOWS_OVERLAY_KEYS`, empty until step 27 fills it. The test passes its own non-empty list.
 
+Step 27's answer (2026-11-16, confirmed by the user): the Windows overlay takes no keys. Work #1 needs none of the
+Linux hooks, and every
+other key is in the base, so `WINDOWS_OVERLAY_KEYS` stays `[]` and the tool writes no Windows overlay; no code change
+(design, "Confirm on Windows", "Hooks on Windows").
+
 Test: `bun test tools/claude-layout.test.ts && bun run lint`.
 
 ## Step 29: `mksync diff`, `check` and `preview` `[worker]`

@@ -1194,8 +1194,28 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   `null` in the later layer removes the key, or removal isn't supported. Claude and VS Code treat some `null` values as
   meaningful, so `null` may need an explicit marker instead.
 - **`~` instead of `<HOME>` in Claude settings.** Claude Code expands `~` in commands on every OS (see "Statusline and
-  hooks on Windows"), so `settings.json` could drop `<HOME>` and its escaping. Needs the `$HOME` check under "Confirm
-  on Windows".
+  hooks on Windows"), so `settings.json` could drop `<HOME>` and its escaping. The `$HOME` check under "Confirm on
+  Windows" came back yes on work #1: `~` and `$HOME` both resolve under Git Bash and PowerShell 5.1. So nothing on
+  Windows blocks the switch; the layout tool's phase 9 run is where `<HOME>` in `hooks` and `statusLine` becomes `~`,
+  if the user agrees then.
+- **Personal keys in the base.** The layout tool puts every Linux key but `hooks` in the base, so `enabledPlugins`,
+  `extraKnownMarketplaces`, `permissions` and `autoMode` from personal Linux would reach the work machines, merged
+  with their own (work #1 has two work marketplaces and 25 `autoMode.environment` items). Which of those belong in
+  profile `personal` instead is the user's call before phase 9 runs the tool.
+- **Owner of a setting (asked by the user 2026-11-16).** Sync and back up only what the user creates or changes; leave
+  what a tool installs (a plugin's hook, a linked skill, a marketplace's cache) to that tool. The engine has no way yet
+  to tell who made a hook, a skill or a key. Signals the scan could read, none decided: a link's target (a skill that
+  links into `plugins/` or another tool's folder is that tool's); a name that starts with an installed plugin's or
+  marketplace's name (`installed_plugins.json`, `known_marketplaces.json`); a file next to that tool's own logs; a
+  file the repo already holds (the user's). `mksync setup` and `status` would then show the owner beside each new item
+  and ask only about those with no owner found. Asked on work #1 first, from its survey's tree.
+- **Names in the survey.** Names that are generic or public (`audit-agent-instructions`, `find-skills`, the
+  official plugins) stay as they are, as the user prefers original names to numbers. Names that point at the employer
+  stay `work-tool-<n>` while the repo is public (CLAUDE.md rule 1); they can become role names (what each one does)
+  if the user lists the roles, and real names once the repo is private (phase 10).
+- **An existing import line.** Work #1's `CLAUDE.md` already imports `@WORK-TOOL-3.md`. Under the `import` rule
+  (contract, "Layers") that line is base text, so a push would carry it to every machine. At its restore it moves into
+  the work profile's side file, `CLAUDE.work-1.md`.
 - **`<YOUR_NAME>` per profile.** It's likely the same on every profile. Keeping it per profile costs one prompt per job;
   a shared value would need a fifth place (the user), which the decisions don't have.
 - **A config that isn't valid JSON.** The contract has no line for it: the bash engine stops with `jq`'s own parse
@@ -1261,7 +1281,8 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
-  rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
+  rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows": proposed no (step
+  27).
 - **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
   Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored.
@@ -1419,8 +1440,8 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - After a move the block is numbered again in group order, so a moved change can take a new number; the contract
     says its number is kept, which needs a number per change that survives regrouping.
 - **Left by phase 8.**
-  - Step 27 (the Windows answers in this design) waits for the survey from work machine #1; "Confirm on Windows"
-    keeps its questions until then, and the PowerShell twins of the Linux hooks are listed from it.
+  - Step 27 settled "Confirm on Windows" for work #1 from its survey; work #2 and #3, and the unsigned program, are
+    phase 9's checklist.
   - The package managers have no stub in the shared-case runners, so the drift rules are core unit tests over stubbed
     lists and the old bash cases.
   - `main.ts` still holds the `import`, `setup`, `machine`, `profile`, `statusline` and `shadow` flows; each moves to
@@ -1439,17 +1460,32 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
   the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
   the repo would run; if so, resolve through `PATH` only.
-- **Shell.** Which shell Claude Code uses for the statusline and hooks on each work machine: Git Bash or PowerShell.
-  (`claude doctor`, or a hook that prints `$0`.) The docs say Git Bash when Git for Windows is installed.
-- **Git Bash and `jq`.** Whether Git for Windows (with Git Bash) and `jq` are installed on work #1 to #3, and whether
-  `CLAUDE_CODE_GIT_BASH_PATH` is set anywhere.
-- **Current layout.** The current Windows statusline (`statusLine` in `%USERPROFILE%\.claude\settings.json`, and the
-  script it calls), and what else is in `~/.claude` there: hooks, skills, `CLAUDE.md`. Names that point at an employer
-  are redacted (`work-tool-1`) before they reach the repo.
-- **`$HOME` in commands.** Whether `$HOME/.claude/…` in a hook or statusline command resolves under both Git Bash and
-  PowerShell, or only `~` does.
-- **Hooks on Windows.** Which of the Linux hooks the work machines need, and whether each gets a PowerShell twin
-  (`"shell": "powershell"`) or stays Linux-only.
-- **The unsigned program.** Whether each work machine runs the downloaded `mksync.exe` (and the research probe) with
-  no SmartScreen prompt or policy block. The user tries the probe at any work machine; the phase 9 checklist covers it
-  at the latest. If blocked, the run-from-clone fallback is tried there.
+- **The survey (step 27).** Work machine #1's answer (`docs/windows-survey.md`, "Answer", 2026-11-16) settled the
+  next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
+
+- **Shell (work #1: Git Bash).** Claude Code's Bash tool is Git Bash (MSYS2 bash 5.2, `MINGW64`), and neither hook
+  sets `"shell"`, so hooks and the statusline command start under Git Bash, as the documentation says. Its
+  PowerShell tool is PowerShell 7.6; the current statusline command launches `powershell.exe` (5.1) itself.
+- **Git Bash and `jq` (work #1: both).** Git for Windows 2.50 with Git Bash, `jq` 1.6, PowerShell 5.1 and 7;
+  `CLAUDE_CODE_GIT_BASH_PATH` unset. So decision 4 holds there: the program's leak scan runs `bash`, and `mksync
+doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push until it has one.
+- **Current layout (work #1).** `settings.json` holds `hooks` (a `PreToolUse` hook with a matcher and a
+  `SessionStart` hook that runs `node.exe`, the work tool's own `hooks/work-tool-1-cache-heal.mjs`), `statusLine`
+  (`powershell.exe` running `~/.claude/statusline.ps1`), `enabledPlugins` and `extraKnownMarketplaces` (two work
+  marketplaces), `effortLevel`, `modelSettings`, `autoUpdatesChannel`, `tui`, the two notification flags, `autoMode`
+  (`environment`, 25 items) and `model`. `CLAUDE.md` is 69 lines with one import line, `@WORK-TOOL-3.md`. Three skills
+  are links, not folders. None of the Linux hooks is there.
+- **`$HOME` in commands (work #1: both work).** `$HOME/.claude` and `~/.claude` list the same folder under Git Bash
+  and under Windows PowerShell 5.1 (`-NoProfile`); PowerShell 7 wasn't tested on its own.
+- **Hooks on Windows (confirmed by the user, 2026-11-16).** The work machines get none of the Linux hooks: they serve
+  the plan workflow and its worker, which run on personal Linux only. So no PowerShell twins, `hooks` stays in the
+  Linux overlay, and `WINDOWS_OVERLAY_KEYS` in `tools/claude-layout.ts` stays empty: every other key is in the base
+  already. The rule behind it, in the user's words: sync and back up only what we create or change. Work #1's own two
+  hooks look installed by the work tool (`hooks/work-tool-1-cache-heal.mjs`, next to its `heal-partial-install.log`);
+  a hook a tool installs is the tool's, so it isn't synced, and the tool puts it back. Telling the two apart is
+  "Owner of a setting" under "Open".
+- **The unsigned program (open).** The survey didn't download it: the user chose not to put an unknown `.exe` on a
+  work machine without asking IT first. Work #1 has Node 26.13, npm 11.20, Bun 1.3.14 and winget 1.29, so the
+  run-from-clone fallback ("Open", Bun or Node) needs no install there. Bun 1.3.14 is older than the repo's 1.4.4:
+  whether the program's source runs on it, or the Node build is the fallback there, is checked in phase 9. The phase 9
+  checklist asks IT, or tries the program, at the latest.
