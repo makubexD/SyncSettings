@@ -11,14 +11,10 @@ import { planCheck } from "../core/plan/check.ts";
 import { planImport } from "../core/plan/import.ts";
 import { renderRun } from "../core/plan/run.ts";
 import type { RunPlan } from "../core/plan/types.ts";
-import {
-  buildRun,
-  endRun,
-  renderStatic,
-  startRun,
-  writeLines,
-} from "./export.ts";
-import type { AppliedPlan, Result, RunEnvironment } from "./export.ts";
+import { renderStatic, writeLines } from "./export.ts";
+import type { AppliedPlan, Result } from "./export.ts";
+import { buildRun, endRun, startRun } from "./run.ts";
+import type { RunEnvironment } from "./run.ts";
 
 /** Apply a plan's steps and render what the run printed, keeping the run's
  * dated backup folder. */

@@ -33,7 +33,8 @@ import { executeSetup } from "./app/setup.ts";
 import { executeShadow } from "./app/shadow.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
 import { failure, runExport, setupTerminal, writeLines } from "./app/export.ts";
-import type { ExecuteOptions, Result, RunEnvironment } from "./app/export.ts";
+import type { ExecuteOptions, Result } from "./app/export.ts";
+import type { RunEnvironment } from "./app/run.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   CommitCommand,
