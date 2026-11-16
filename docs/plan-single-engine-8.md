@@ -80,11 +80,13 @@ preview` when there is any. The drift cases become core unit tests over stubbed 
    program is the same binary before and after; it reads the config again after the fast-forward and goes on. A
    newer `schemaVersion` is phase 9's check.
 8. **"Move a change?"** After the block and the new-setting questions, `push` asks `Move a change? Type its number,
-or press Enter to go on:` until an empty answer. A number asks `Move it to? 1) all machines  2) <Os> machines
-3) profile <p>  4) this machine [<current>]`. A `json` key moved narrower is written into the new layer and left
-   unchanged in the old one (design case 1: an override); moved wider, it's written into the new layer and removed
-   from the old one. A whole file moves as a whole. The block prints again after each move. `--yes` and a machine
+or press Enter to go on:` until an empty answer. A number asks `Move it to? 1) all machines 2) <Os> machines
+
+3) profile <p> 4) this machine [<current>]`. A `json`key moved narrower is written into the new layer and left
+unchanged in the old one (design case 1: an override); moved wider, it's written into the new layer and removed
+from the old one. A whole file moves as a whole. The block prints again after each move.`--yes` and a machine
    without a record don't ask. The profile-value rule and the guard run after the moves.
+
 9. **Linked folders.** An entry with `detectLinkedPaths` (v1) or `linked: true` (v2) is read for folder paths the
    same way the PowerShell engine's `Find-LinkedPaths` reads them. Each existing folder no entry syncs is asked once,
    with the design's line and suggestion. A yes adds a `dir` entry to the profile file's new `entries` list (layer
@@ -443,6 +445,9 @@ Design "Decided in phase 7", the Claude layout: `bun tools/claude-layout.ts <rep
 drops the v1 entries' Claude rows only when given `--cutover`. The test runs it on a temp copy of the repo and merges
 the Linux layers with `mergeJson`: the result equals `dotfiles/linux/claude/settings.json` except `statusLine`, which
 is `{"type": "command", "command": "mksync statusline"}`. Not run on the real repo in this phase.
+
+Step 27 waits for the survey, so step 28 runs first (the user's choice, 2026-11-16): the Windows overlay's keys are one
+exported constant, `WINDOWS_OVERLAY_KEYS`, empty until step 27 fills it. The test passes its own non-empty list.
 
 Test: `bun test tools/claude-layout.test.ts && bun run lint`.
 
