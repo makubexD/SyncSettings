@@ -1,0 +1,1 @@
+ERROR: push needs the repo clone on master with an origin remote.

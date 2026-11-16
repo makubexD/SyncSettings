@@ -1,0 +1,25 @@
+{
+  "description": "A v2 dconf entry whose dconfPath is / alone is refused when the config is read, so nobody dumps the whole database by accident, exit 1 (design-layers.md, Config v2 error lines; the v1 rule of Path safety, dconf entries).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "gnome": {
+        "description": "GNOME desktop",
+        "os": ["linux"]
+      }
+    },
+    "entries": [
+      {
+        "file": "dconf/app.ini",
+        "module": "gnome",
+        "merge": "dconf",
+        "dconfPath": "/",
+        "keys": ["sources"],
+        "description": "Parity case dconf entry with the root path"
+      }
+    ]
+  },
+  "commands": [{ "command": "export", "stderr": true }]
+}

@@ -1,0 +1,19 @@
+{
+  "description": "Pull with a sync point and origin one commit ahead counts the commit it fast-forwards (Front door, pull row, program notes), then applies the file with a .bak, exit 0.",
+  "os": ["linux", "windows"],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "pull", "options": { "yes": true } }],
+  "syncPoint": true
+}

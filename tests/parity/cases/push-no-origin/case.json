@@ -1,0 +1,19 @@
+{
+  "description": "Push on a clone with no origin remote refuses before the export runs, writes nothing, and prints the front door's clone error, exit 1 (Front door, push row and program notes).",
+  "os": ["linux"],
+  "git": "committed",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "push", "stderr": true }]
+}
