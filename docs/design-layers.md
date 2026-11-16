@@ -892,7 +892,8 @@ No paid signing (Apple notarization, a Windows certificate) while the installers
 
 **If a work machine blocks the unsigned program** (AppLocker, Defender policy): run from the clone. The user installs
 Bun in their own profile (no admin), and `mksync.cmd` in the clone runs `bun run src/main.ts`. Same code, same tests,
-only slower to start.
+only slower to start: Bun compiles the TypeScript on every start, where the program carries it compiled already.
+Where Bun isn't allowed but Node is, the clone runs on Node instead ("Open", "Node as a second fallback").
 
 ## Code layout
 
@@ -1131,6 +1132,13 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 
 ### Design
 
+- **Node as a second fallback (asked by the user 2026-11-16, phase 9).** A work machine may allow Node and block both
+  the program and Bun. The code calls Bun only to start programs and read input (`Bun.spawn`, `Bun.spawnSync`,
+  `Bun.stdin`, `Bun.which`: 18 calls in 13 files). Plan: move those behind one process adapter built on
+  `node:child_process`, so the same code runs on both; build `dist/mksync.mjs` with `bun build --target node`, one
+  JavaScript file that `node mksync.mjs` runs with no `npm install`; run the shared cases against it too; and let
+  `mksync.cmd` use Node when Bun is missing. The Node version to require (20 or 22) and whether the installers offer
+  this file are open.
 - **Pull-only status (decided in phase 8 step 20, to confirm).** The contract only said status "never suggests
   `mksync push`" on a pull-only machine. The program skips the unsent rule there, and a differing machine's next line
   is `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
@@ -1370,7 +1378,7 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - A destination key is `<module> <file>: <path>`, so a module name with a space could collide with another
     module's file; module names don't hold spaces today.
   - "Move a change?" on a `-` line (a removed key, item or file) refuses with `change <n> removes a setting; it can't
-    move.` and the push stops with exit 1; the contract doesn't say whether a removal can move or whether the question
+move.` and the push stops with exit 1; the contract doesn't say whether a removal can move or whether the question
     should ask again instead.
   - A change moved to a narrower group leaves the old layer as the repo holds it ("left as it was"), so the other
     machines don't receive it; a whole file moved narrower keeps the old layer's repo copy instead of leaving it empty.
