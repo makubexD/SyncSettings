@@ -16,6 +16,13 @@ const CONFIG: ConfigV2 = {
   entries: [],
 };
 
+const LINKED_ENTRY = {
+  file: "linked/work-tool-1-scripts",
+  module: "shell",
+  merge: "dir" as const,
+  localPath: "~/work-tool-1-scripts",
+};
+
 const FULL_RECORD: MachineRecord = {
   name: "wk1-laptop",
   profile: "work-1",
@@ -34,6 +41,7 @@ const FULL_RECORD: MachineRecord = {
     },
   ],
   retired: false,
+  entries: [LINKED_ENTRY],
 };
 
 const FULL_TEXT = `{
@@ -62,7 +70,15 @@ const FULL_TEXT = `{
       "date": "2026-01-02"
     }
   ],
-  "retired": false
+  "retired": false,
+  "entries": [
+    {
+      "file": "linked/work-tool-1-scripts",
+      "module": "shell",
+      "merge": "dir",
+      "localPath": "~/work-tool-1-scripts"
+    }
+  ]
 }
 `;
 
@@ -335,6 +351,76 @@ describe("parseRecord", () => {
 
     // Assert
     expect(result.ok).toBe(true);
+  });
+
+  test("leaves entries absent when not given", () => {
+    // Act
+    const result = parseRecord(EMPTY_TEXT, CONFIG);
+
+    // Assert
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Object.hasOwn(result.value, "entries")).toBe(false);
+    }
+  });
+
+  test("accepts a linked folder as a dir entry", () => {
+    // Act
+    const result = parseRecord(
+      JSON.stringify({ ...FULL_RECORD, entries: [LINKED_ENTRY] }),
+      CONFIG,
+    );
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      value: { ...FULL_RECORD, entries: [LINKED_ENTRY] },
+    });
+  });
+
+  test("refuses entries that aren't a list", () => {
+    expectFailure({ ...FULL_RECORD, entries: {} }, "entries has the wrong type");
+  });
+
+  test("refuses an entry that isn't an object", () => {
+    expectFailure(
+      { ...FULL_RECORD, entries: ["linked/work-tool-1-scripts"] },
+      "entry none needs file and localPath as strings",
+    );
+  });
+
+  test("refuses an entry with no file or localPath", () => {
+    expectFailure(
+      {
+        ...FULL_RECORD,
+        entries: [{ ...LINKED_ENTRY, localPath: undefined }],
+      },
+      "entry linked/work-tool-1-scripts needs file and localPath as strings",
+    );
+  });
+
+  test("refuses a non-dir entry", () => {
+    expectFailure(
+      { ...FULL_RECORD, entries: [{ ...LINKED_ENTRY, merge: "whole" }] },
+      "entry linked/work-tool-1-scripts is not a dir",
+    );
+  });
+
+  test("refuses an entry whose repo path is outside linked/", () => {
+    expectFailure(
+      {
+        ...FULL_RECORD,
+        entries: [{ ...LINKED_ENTRY, file: "dotfiles/common/shell/.bashrc" }],
+      },
+      "entry dotfiles/common/shell/.bashrc is outside linked/",
+    );
+  });
+
+  test("refuses an entry that names a module config v2 doesn't know", () => {
+    expectFailure(
+      { ...FULL_RECORD, entries: [{ ...LINKED_ENTRY, module: "nope" }] },
+      "entry linked/work-tool-1-scripts names unknown module nope",
+    );
   });
 });
 
