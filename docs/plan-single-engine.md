@@ -199,6 +199,11 @@ the phase 7 finish review").
 
 ### Phase 8: the rest
 
+**In progress.** [plan-single-engine-8.md](plan-single-engine-8.md) and its review fixes
+([plan-single-engine-8-fixes.md](plan-single-engine-8-fixes.md)) done 2026-11-16 on `engine/front-door`: the Claude
+layout tool, linked folders, move a change, `mksync check`, `preview` and `diff`, and the 14 Required fixes. The
+program passes 222 shared cases. Left: the case port, `docs/plan-single-engine-8-port.md`.
+
 - **First, carried from phase 7: the Windows survey and the Claude layout tool.** Phase 7 closed (2026-11-14) before
   the survey ran on work machine #1 (`docs/windows-survey.md`). When the redacted answer is in, it settles the
   design's "Confirm on Windows" list and the Windows overlay's keys; then `tools/claude-layout.ts` writes the base,
