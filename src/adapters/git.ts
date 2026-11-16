@@ -469,11 +469,22 @@ export interface GitHistoryResult extends GitResult {
 }
 
 /**
+ * The marker `git log -z --name-only --format=%x00` puts before each commit's
+ * path list: the two NULs of the `%x00` format and its `-z` terminator, then
+ * the newline that still separates the commit from its paths. A path cannot
+ * contain NUL, and paths in a list are separated by a single NUL, so this
+ * sequence never occurs inside a path or between two paths.
+ */
+const HISTORY_COMMIT_MARKER = "\u0000\u0000\n";
+
+/**
  * The paths each commit in `range` adds or changes, from
- * `git log --name-only`, one list per commit in git's order (newest first),
- * for the core's `historyRefusals`. A NUL format marker starts each commit, so
- * no path or commit message can be read as a separator. `commits` is empty
- * when git cannot tell.
+ * `git log -z --name-only`, one list per commit in git's order (newest first),
+ * for the core's `historyRefusals`. `-z` prints raw paths, so a non-ASCII or
+ * spaced path is not quoted (`"profiles/jos\303\251.json"`) and reads as the
+ * path the guard checks; `HISTORY_COMMIT_MARKER` starts each commit and a
+ * commit with no such path (a deletion only, say) is not printed at all.
+ * `commits` is empty when git cannot tell.
  */
 export async function readUnpushedHistory(
   repoRoot: string,
@@ -481,8 +492,9 @@ export async function readUnpushedHistory(
 ): Promise<GitHistoryResult> {
   const result = await runGitResult(repoRoot, [
     "log",
+    "-z",
     "--name-only",
-    "--diff-filter=ACMR",
+    "--diff-filter=ACMRT",
     "--format=%x00",
     range,
   ]);
@@ -490,8 +502,8 @@ export async function readUnpushedHistory(
     return { ...result, commits: [] };
   }
   const commits: string[][] = [];
-  for (const chunk of result.stdout.split("\u0000").slice(1)) {
-    commits.push(chunk.split("\n").filter((path) => path !== ""));
+  for (const chunk of result.stdout.split(HISTORY_COMMIT_MARKER).slice(1)) {
+    commits.push([...splitNulRecords(chunk)]);
   }
   return { ...result, commits };
 }

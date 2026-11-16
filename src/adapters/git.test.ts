@@ -57,6 +57,15 @@ const COMMIT_MESSAGE = "sync: test";
 
 const MASTER = "master";
 
+/** A path git quotes without `-z`, because of its non-ASCII bytes. */
+const ACCENTED_PROFILE_FILE = "profiles/josé.json";
+
+/** A path with a space, which git never quotes but must still read whole. */
+const SPACED_PROFILE_FILE = "profiles/with space.json";
+
+/** A path whose only unpushed change is a deletion. */
+const DELETED_PROFILE_FILE = "profiles/deleted.json";
+
 const tempFolders: string[] = [];
 
 function tempFolder(): string {
@@ -494,6 +503,56 @@ describe("readUnpushedHistory", () => {
       ["machines/box.json", "profiles/work.json"],
       ["profiles/work.json"],
     ]);
+  });
+
+  test("should list a non-ASCII path unquoted", async () => {
+    // Arrange
+    const { root } = repoWithOrigin();
+    mkdirSync(join(root, "profiles"), { recursive: true });
+    writeFileSync(join(root, ACCENTED_PROFILE_FILE), "{}\n");
+    git(root, ["add", "-A"]);
+    git(root, [...IDENTITY, "commit", "-q", "-m", "accented profile"]);
+
+    // Act
+    const result = await readUnpushedHistory(root);
+
+    // Assert
+    expect(result.ok).toBe(true);
+    expect(result.commits).toEqual([[ACCENTED_PROFILE_FILE]]);
+  });
+
+  test("should list a path with a space whole", async () => {
+    // Arrange
+    const { root } = repoWithOrigin();
+    mkdirSync(join(root, "profiles"), { recursive: true });
+    writeFileSync(join(root, SPACED_PROFILE_FILE), "{}\n");
+    git(root, ["add", "-A"]);
+    git(root, [...IDENTITY, "commit", "-q", "-m", "spaced profile"]);
+
+    // Act
+    const result = await readUnpushedHistory(root);
+
+    // Assert
+    expect(result.ok).toBe(true);
+    expect(result.commits).toEqual([[SPACED_PROFILE_FILE]]);
+  });
+
+  test("should give no path for a commit that only deletes a file", async () => {
+    // Arrange
+    const { root } = repoWithOrigin();
+    mkdirSync(join(root, "profiles"), { recursive: true });
+    writeFileSync(join(root, DELETED_PROFILE_FILE), "{}\n");
+    git(root, ["add", "-A"]);
+    git(root, [...IDENTITY, "commit", "-q", "-m", "add profile"]);
+    git(root, ["rm", "-q", DELETED_PROFILE_FILE]);
+    git(root, [...IDENTITY, "commit", "-q", "-m", "delete profile"]);
+
+    // Act
+    const result = await readUnpushedHistory(root);
+
+    // Assert
+    expect(result.ok).toBe(true);
+    expect(result.commits).toEqual([[DELETED_PROFILE_FILE]]);
   });
 
   test("should report no commits when nothing is unpushed", async () => {
