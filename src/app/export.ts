@@ -20,9 +20,10 @@ import type { FirstBackupFile } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
 import { askNewSettings } from "../cli/ask.ts";
 import type { RunCommand } from "../cli/parse.ts";
-import type { ConfigV2 } from "../core/config/types.ts";
+import type { ConfigV2, Os } from "../core/config/types.ts";
 import { guard, PROFILES_FOLDER } from "../core/guard.ts";
 import type { GuardDecision, Visibility } from "../core/guard.ts";
+import type { LayerName } from "../core/layers/select.ts";
 import { firstBackupWrites, planFirstBackup } from "../core/machine/backup.ts";
 import type {
   BackupQuestion,
@@ -34,10 +35,13 @@ import type {
 import { changeLines } from "../core/plan/changes.ts";
 import { planExport } from "../core/plan/export.ts";
 import {
+  changeLineNumbers,
   groupBlock,
   groupedBlock,
+  OS_TITLES,
   withoutNewSettings,
 } from "../core/plan/groups.ts";
+import { applyMove } from "../core/plan/move.ts";
 import {
   answersOf,
   newSettingChoices,
@@ -65,6 +69,8 @@ import type {
 } from "../core/plan/types.ts";
 import { formatLine } from "../core/status.ts";
 import type { SetupIo } from "../wizard/setup.ts";
+import { askMoves } from "./push.ts";
+import type { MoveSession } from "./push.ts";
 
 /** What the front prints and the code it exits with. */
 export interface Result {
@@ -78,7 +84,7 @@ export function writeLines(lines: readonly string[]): string {
 }
 
 /** The setup flow's terminal: text to stdout, answers from stdin. */
-interface SetupTerminal {
+export interface SetupTerminal {
   readonly io: SetupIo;
   close(): void;
 }
@@ -416,6 +422,147 @@ function printBlock(
   return true;
 }
 
+/** The layer a "Move it to?" group names, in the contract's order. */
+const MOVE_GROUP_LAYERS: Readonly<Record<1 | 2 | 3 | 4, LayerName>> = {
+  1: "base",
+  2: "os",
+  3: "profile",
+  4: "machine",
+};
+
+/** The group a change line's layer is in: 1 all machines, 2 this OS, 3 the
+ * profile, 4 this machine. */
+function moveGroupOf(layer: LayerName): 1 | 2 | 3 | 4 {
+  switch (layer) {
+    case "base":
+      return 1;
+    case "os":
+      return 2;
+    case "profile":
+      return 3;
+    case "machine":
+      return 4;
+    default: {
+      const unhandled: never = layer;
+      throw new Error(`unhandled layer: ${String(unhandled)}`);
+    }
+  }
+}
+
+/** The block's change lines for `plan`, with the answered new settings dropped
+ * (they print under `New settings`), and each line's index in `changeLines`,
+ * which `applyMove` takes. */
+interface ShownChanges {
+  readonly lines: readonly ChangeLine[];
+  readonly indexes: readonly number[];
+}
+
+function shownChanges(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  settings: readonly NewSettingLine[],
+): ShownChanges {
+  const all = changeLines(plan, snapshot);
+  const lines = withoutNewSettings(all, settings);
+  return { lines, indexes: lines.map((line) => all.indexOf(line)) };
+}
+
+/** One shown change the block numbers `number`: its layer and the index
+ * `applyMove` takes. */
+interface NumberedChange {
+  readonly layer: LayerName;
+  readonly index: number;
+}
+
+/** The shown change the block numbers `number` (the number the user types,
+ * not the input index), or undefined when it prints none. */
+function changeForNumber(
+  shown: ShownChanges,
+  record: { readonly name: string; readonly profile: string },
+  os: Os,
+  number: number,
+): NumberedChange | undefined {
+  const at = changeLineNumbers(shown.lines, record, os).indexOf(number);
+  const line = at === -1 ? undefined : shown.lines[at];
+  const index = at === -1 ? undefined : shown.indexes[at];
+  if (line === undefined || index === undefined || index < 0) {
+    return undefined;
+  }
+  return { layer: line.layer, index };
+}
+
+/** The plan the "Move a change" questions left, or the move's error. */
+type MoveRun =
+  | { readonly ok: true; readonly plan: RunPlan }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Contract "Move a change": ask "Move a change?" over the plan's block, from
+ * the terminal the export asks its other questions on. The caller has already
+ * printed the block. A move replaces the plan and prints the block again; an
+ * empty answer or the end of the input goes on, and a move's error ends the
+ * export.
+ */
+async function askMoveQuestions(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  settings: readonly NewSettingLine[],
+  io: SetupIo,
+): Promise<MoveRun> {
+  const record = snapshot.record;
+  if (record === undefined) {
+    return { ok: true, plan };
+  }
+  let current = plan;
+  const shown = (): ShownChanges => shownChanges(current, snapshot, settings);
+  if (shown().lines.length === 0) {
+    return { ok: true, plan };
+  }
+  const session: MoveSession = {
+    get lineCount() {
+      return shown().lines.length;
+    },
+    groupOf: (number) => {
+      const change = changeForNumber(shown(), record, snapshot.os, number);
+      if (change === undefined) {
+        throw new Error(`no change on line ${number}`);
+      }
+      return moveGroupOf(change.layer);
+    },
+    targets: `1) all machines  2) ${OS_TITLES[snapshot.os]} machines  3) profile ${record.profile}  4) this machine`,
+    move: (number, group) => {
+      const change = changeForNumber(shown(), record, snapshot.os, number);
+      if (change === undefined) {
+        return { ok: false, error: `no change on line ${number}` };
+      }
+      const moved = applyMove(
+        current,
+        snapshot,
+        change.index + 1,
+        MOVE_GROUP_LAYERS[group],
+      );
+      if (!moved.ok) {
+        return moved;
+      }
+      current = moved.value;
+      return {
+        ok: true,
+        value: writeLines(
+          groupBlock(shown().lines, record, snapshot.os, "push", settings),
+        ),
+      };
+    },
+  };
+  const result = await askMoves(
+    session,
+    () => io.readLine(),
+    (text) => io.write(text),
+  );
+  return result.ok
+    ? { ok: true, plan: current }
+    : { ok: false, error: result.error };
+}
+
 /**
  * Run an export plan and print its grouped block before its status lines. The
  * answered new settings are listed under `New settings` and never repeated in
@@ -438,7 +585,7 @@ function runExport(
   const refused = exportRefusal(plan, snapshot, lines);
   if (refused !== undefined) {
     const block =
-      lines.length === 0 && settings.length === 0
+      blockPrinted || (lines.length === 0 && settings.length === 0)
         ? []
         : groupBlock(lines, snapshot.record, snapshot.os, "push", settings);
     return {
@@ -688,36 +835,67 @@ function applyExportPlan(
  * answers, run, then store an array item's answer in the profile (contract
  * "New settings (program only)"). Without a record, or with no new setting,
  * the export is the plan as it stands.
+ *
+ * With `moves`, the push also asks "Move a change" after the block and the new
+ * setting questions, before the profile-value rule and the guard (contract
+ * "Move a change"). `shared` is the push's terminal, so the answers it leaves
+ * for the PR question aren't lost when this run's reader closes.
  */
 export async function executeExport(
   snapshot: Snapshot,
   command: RunCommand,
   context: RunContext,
   backup?: FirstBackupRun,
+  moves = false,
+  shared?: SetupTerminal,
 ): Promise<Result> {
   // One terminal for every question this export asks, so answers read for the
-  // new settings stay available to the first backup's questions.
-  const terminal = setupTerminal();
+  // new settings stay available to the first backup's questions. The push
+  // passes its own, so the answers left for its PR question aren't lost when a
+  // reader closes.
+  const terminal = shared ?? setupTerminal();
   try {
     const planned = planExport(snapshot);
     const settings = planned.newSettings ?? [];
     const question = newSettingChoices(snapshot.record, snapshot.os);
     if (question === undefined || settings.length === 0) {
-      // A refused export writes nothing, so its questions are not asked.
-      const lines = withoutNewSettings(
+      const plannedLines = withoutNewSettings(
         changeLines(planned, snapshot),
         settings,
       );
-      const refused = exportRefusal(planned, snapshot, lines);
+      let plan = planned;
       let blockPrinted = false;
+      // The moves run before the profile-value rule, so a change moved to a
+      // group that may hold the value is judged in its new group (contract
+      // "Move a change").
+      if (moves && !command.yes && snapshot.record !== undefined) {
+        if (plannedLines.length > 0) {
+          blockPrinted = printBlock(terminal.io, plannedLines, snapshot);
+          const loop = await askMoveQuestions(
+            plan,
+            snapshot,
+            settings,
+            terminal.io,
+          );
+          if (!loop.ok) {
+            return { code: 1, stdout: "", stderr: `${loop.error}\n` };
+          }
+          plan = loop.plan;
+        }
+      }
+      // A refused export writes nothing, so its questions are not asked.
+      const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
+      const refused = exportRefusal(plan, snapshot, lines);
       let answers: ReadonlyMap<string, BackupSide> | undefined;
       if (refused === undefined && backup !== undefined) {
         // The block comes before the first-backup questions (decision 2).
-        blockPrinted = printBlock(terminal.io, lines, snapshot);
+        if (!blockPrinted) {
+          blockPrinted = printBlock(terminal.io, lines, snapshot);
+        }
         answers = await askFirstBackup(backup, terminal.io);
       }
       const applied = runExport(
-        planned,
+        plan,
         snapshot,
         context,
         [],
@@ -760,7 +938,17 @@ export async function executeExport(
       question,
       terminal.io,
     );
-    const plan = planExport(snapshot, answersOf(settings, choices));
+    let plan = planExport(snapshot, answersOf(settings, choices));
+    // The block and the new-setting questions are already on the terminal, so
+    // the moves ask next, before the profile-value rule (contract "Move a
+    // change").
+    if (moves && snapshot.record !== undefined) {
+      const loop = await askMoveQuestions(plan, snapshot, settings, terminal.io);
+      if (!loop.ok) {
+        return { code: 1, stdout: "", stderr: `${loop.error}\n` };
+      }
+      plan = loop.plan;
+    }
     // The head and the questions are already on the terminal, so only the blank
     // line that ends the last question and the refused lines follow.
     const refused = exportRefusal(
@@ -786,6 +974,8 @@ export async function executeExport(
     );
     return finishFirstBackup(backup, applied.prepared, applied.result);
   } finally {
-    terminal.close();
+    if (shared === undefined) {
+      terminal.close();
+    }
   }
 }

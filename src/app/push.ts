@@ -1,13 +1,13 @@
 /**
  * `mksync push` (contract "Front door", the push row and the program note):
- * run the export, ask the "Move a change" questions, report when the repo
- * already matches this machine, and otherwise show the repo's changes, ask,
- * and commit. Mirrors `scripts/linux/front.sh` `front_push`.
+ * run the export, report when the repo already matches this machine, and
+ * otherwise show the repo's changes, ask, and commit. Mirrors
+ * `scripts/linux/front.sh` `front_push`.
  *
- * The pull-only refusal and the export's questions come from the export the
- * flow runs; this module only orders it with the "Move a change" loop, the PR
- * question and the commit. Every effect is a dependency, so the flow is
- * testable without git, a terminal or a repo.
+ * The pull-only refusal, the "Move a change" questions and the export's other
+ * questions come from the export the flow runs; this module only orders it
+ * with the PR question and the commit. Every effect is a dependency, so the
+ * flow is testable without git, a terminal or a repo.
  */
 
 import type { Result as CoreResult } from "../core/config/types.ts";
@@ -27,8 +27,8 @@ export interface StatusResult {
   readonly stdout: string;
 }
 
-/** What a push's "Move a change" loop asks: how many lines the block lists,
- * which group each change is in, the target wording, and the move itself. */
+/** What the "Move a change" loop asks: how many lines the block lists, which
+ * group each change is in, the target wording, and the move itself. */
 export interface MoveSession {
   /** The number of changes the block lists. */
   readonly lineCount: number;
@@ -62,11 +62,6 @@ export interface PushDeps {
     partial: boolean,
     message: string | undefined,
   ) => Promise<Result>;
-  /** The "Move a change" session, when this machine has a record and the
-   * export found something to move; absent or undefined asks nothing. */
-  readonly moves?: () => Promise<MoveSession | undefined>;
-  /** Read one answer to a question; undefined is the end of the input. */
-  readonly readAnswer?: (question: string) => Promise<string | undefined>;
 }
 
 /** `front_push`'s line when the export left the repo as it was. */
@@ -185,8 +180,8 @@ export async function askMoves(
 
 /**
  * Run `mksync push` end to end, stopping at the export's first failure. The
- * export's output prints before the "Move a change" questions, so the changes
- * they ask about are already on the terminal; the commit's output follows.
+ * export's output prints before the repo's changes, and the commit's output
+ * follows.
  */
 export async function executePush(
   input: PushInput,
@@ -198,36 +193,27 @@ export async function executePush(
     return exported;
   }
 
-  // The block must be printed before the questions ask about it; it stays
-  // unprinted when there is no session, as before.
-  let exportedPrinted = false;
-  const moves = deps.moves;
-  const readAnswer = deps.readAnswer;
-  if (!input.yes && moves !== undefined && readAnswer !== undefined) {
-    const session = await moves();
-    if (session !== undefined) {
-      deps.print(exported);
-      const moved = await askMoves(session, readAnswer, (text) => {
-        deps.print({ code: 0, stdout: text, stderr: "" });
-      });
-      if (!moved.ok) {
-        return { code: 1, stdout: "", stderr: moved.error };
-      }
-      exportedPrinted = true;
-    }
-  }
-
   const status = await deps.statusShort();
-  const before = exportedPrinted ? "" : exported.stdout;
-  const beforeErr = exportedPrinted ? "" : exported.stderr;
   if (!status.ok) {
-    return { code: 1, stdout: before, stderr: STATUS_FAILED };
+    return {
+      code: 1,
+      stdout: exported.stdout,
+      stderr: STATUS_FAILED,
+    };
   }
   if (status.stdout.trim() === "") {
-    return { code: 0, stdout: before + NOTHING_TO_SEND, stderr: beforeErr };
+    return {
+      code: 0,
+      stdout: exported.stdout + NOTHING_TO_SEND,
+      stderr: exported.stderr,
+    };
   }
 
-  deps.print({ code: 0, stdout: before + status.stdout, stderr: beforeErr });
+  deps.print({
+    code: 0,
+    stdout: exported.stdout + status.stdout,
+    stderr: exported.stderr,
+  });
   if (!input.yes && !(await deps.ask(PR_QUESTION, true))) {
     return { code: 0, stdout: KEPT_IN_REPO, stderr: "" };
   }

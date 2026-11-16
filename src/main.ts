@@ -59,6 +59,7 @@ import type {
   ExportGuard,
   FirstBackupRun,
   Result,
+  SetupTerminal,
 } from "./app/export.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
@@ -208,8 +209,15 @@ function pushCommitCommand(
   };
 }
 
-/** The paths the push's `git status --short` reads, as `front_push` does. */
-const PUSH_STATUS_PATHS = ["dotfiles", "packages", "sync-config.json"] as const;
+/** The paths the push's `git status --short` reads: `front_push`'s, plus the
+ * profile and machine layers, which only the program writes. */
+const PUSH_STATUS_PATHS = [
+  "dotfiles",
+  "packages",
+  "sync-config.json",
+  "profiles",
+  "machines",
+] as const;
 
 /** Contract "Front door": pull needs the clone on `master` with an origin. */
 async function cloneReady(repoRoot: string): Promise<boolean> {
@@ -261,6 +269,17 @@ function pullAnswer(
   return /^[Yy]/.test(given);
 }
 
+/** A question on a terminal already in use: the prompt goes out before its
+ * answer is read. */
+async function askTerminalQuestion(
+  io: SetupIo,
+  question: string,
+  defaultYes: boolean,
+): Promise<boolean> {
+  io.write(question);
+  return pullAnswer(await io.readLine(), defaultYes);
+}
+
 /** A pull question: the prompt goes out before its answer is read. */
 async function askPullQuestion(
   question: string,
@@ -268,8 +287,7 @@ async function askPullQuestion(
 ): Promise<boolean> {
   const terminal = setupTerminal();
   try {
-    terminal.io.write(question);
-    return pullAnswer(await terminal.io.readLine(), defaultYes);
+    return await askTerminalQuestion(terminal.io, question, defaultYes);
   } finally {
     terminal.close();
   }
@@ -742,8 +760,19 @@ async function executeShadow(
   }
 }
 
+/** What a child run adds to its command: the push turns the "Move a change"
+ * questions on, and shares its terminal so the answers left for its PR
+ * question aren't lost when the export's reader closes. */
+interface ExecuteOptions {
+  readonly moves?: boolean;
+  readonly terminal?: SetupTerminal;
+}
+
 /** Run the command against the repo found from the working folder. */
-async function execute(command: ExecutableCommand): Promise<Result> {
+async function execute(
+  command: ExecutableCommand,
+  options?: ExecuteOptions,
+): Promise<Result> {
   const repoRoot = findRepoRoot(process.cwd());
   if (repoRoot === undefined) {
     return failure(
@@ -792,26 +821,39 @@ async function execute(command: ExecutableCommand): Promise<Result> {
     );
   }
   if (command.kind === "push") {
-    return executePush(
-      {
-        yes: command.yes,
-        paths: command.paths,
-        ...(command.message === undefined
-          ? {}
-          : { message: command.message }),
-      },
-      {
-        runExport: (only, yes) => execute(pushExportCommand(only, yes)),
-        statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
-        ask: askPullQuestion,
-        print: (shown) => {
-          process.stdout.write(shown.stdout);
-          process.stderr.write(shown.stderr);
+    // One terminal for the whole push: the export's questions and the PR
+    // question share it, so an answer piped ahead isn't lost when the export
+    // closes its own reader.
+    const terminal = setupTerminal();
+    try {
+      return await executePush(
+        {
+          yes: command.yes,
+          paths: command.paths,
+          ...(command.message === undefined
+            ? {}
+            : { message: command.message }),
         },
-        runCommit: (partial, message) =>
-          execute(pushCommitCommand(partial, message)),
-      },
-    );
+        {
+          runExport: (only, yes) =>
+            execute(pushExportCommand(only, yes), {
+              moves: true,
+              terminal,
+            }),
+          statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
+          ask: (question, defaultYes) =>
+            askTerminalQuestion(terminal.io, question, defaultYes),
+          print: (shown) => {
+            process.stdout.write(shown.stdout);
+            process.stderr.write(shown.stderr);
+          },
+          runCommit: (partial, message) =>
+            execute(pushCommitCommand(partial, message)),
+        },
+      );
+    } finally {
+      terminal.close();
+    }
   }
   if (command.kind === "setup") {
     return executeSetup(repoRoot, config.value, os.value, home, state, command);
@@ -1015,7 +1057,14 @@ async function execute(command: ExecutableCommand): Promise<Result> {
               repo: backupSides.repo,
               yes: command.yes,
             };
-      result = await executeExport(snapshot, command, context, firstBackup);
+      result = await executeExport(
+        snapshot,
+        command,
+        context,
+        firstBackup,
+        options?.moves ?? false,
+        options?.terminal,
+      );
     }
     if (
       command.preview &&

@@ -1374,6 +1374,8 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     should ask again instead.
   - A change moved to a narrower group leaves the old layer as the repo holds it ("left as it was"), so the other
     machines don't receive it; a whole file moved narrower keeps the old layer's repo copy instead of leaving it empty.
+  - After a move the block is numbered again in group order, so a moved change can take a new number; the contract
+    says its number is kept, which needs a number per change that survives regrouping.
 
 ### Confirm on Windows
 
