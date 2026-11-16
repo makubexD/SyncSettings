@@ -565,6 +565,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
         location,
         now: () => new Date(),
         pid: process.pid,
+        env: process.env,
       },
       state,
       parent.sha,

@@ -219,7 +219,13 @@ export async function buildSnapshot(
   const dconfDumps = await dconfDumpsFor(snapshot);
   let built = snapshot;
   if (dconfDumps !== undefined) {
-    const login = await loginHome(snapshot.env.USER ?? "", snapshot.env);
+    // The login home is the real uid's, not `$USER`'s: with `sudo` or a
+    // rewritten environment the two can differ.
+    const uid = process.getuid?.();
+    const login =
+      uid === undefined
+        ? undefined
+        : await loginHome(String(uid), snapshot.env);
     built = {
       ...snapshot,
       dconfDumps,

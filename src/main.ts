@@ -1074,6 +1074,7 @@ async function execute(
     os: os.value,
     stateFolder: state,
     location: layers.value.location,
+    env: snapshot.env,
     now: () => new Date(),
     pid: process.pid,
   };

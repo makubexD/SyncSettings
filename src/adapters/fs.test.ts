@@ -47,6 +47,18 @@ const RUN_NAME = "20260203-040506-4242";
 
 const KEPT_BACKUP_RUNS = 20;
 
+/** The dconf folder an import loads into. */
+const DCONF_PATH = "/org/gnome/shell/";
+
+/** The text a dconf load receives on stdin. */
+const DCONF_TEXT = "[org/gnome/shell]\n";
+
+/** A variable only the context's environment sets, so the stub proves it saw it. */
+const ENV_MARKER = "context-env";
+
+/** `sh` lives here; the stub folder is the only other PATH entry. */
+const SYSTEM_PATH = "/usr/bin:/bin";
+
 const tempFolders: string[] = [];
 
 function tempFolder(): string {
@@ -83,6 +95,13 @@ function writeFixture(path: string, text: string, mode = FILE_MODE): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
   chmodSync(path, mode);
+}
+
+/** Write an executable `#!/bin/sh` stub named `name` into `bin`. */
+function writeStub(bin: string, name: string, script: string): void {
+  const path = join(bin, name);
+  writeFileSync(path, `#!/bin/sh\n${script}\n`);
+  chmodSync(path, 0o755);
 }
 
 function bytesOf(text: string): Uint8Array {
@@ -140,6 +159,7 @@ function runContext(home: string, repo: string): RunContext {
     os: "linux",
     stateFolder: state,
     location: stateStore(state),
+    env: {},
     now: () => RUN_TIME,
     pid: RUN_PID,
   };
@@ -412,6 +432,42 @@ describe("runPlan", () => {
     expect(
       readFileSync(join(repo, "dotfiles", "linux", "shell", "bashrc"), "utf8"),
     ).toBe("export A=1\n");
+  });
+
+  test("should run a dconf load with the context's environment", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const bin = tempFolder();
+    const argsFile = join(tempFolder(), "args");
+    const markerFile = join(tempFolder(), "marker");
+    writeStub(
+      bin,
+      "dconf",
+      `cat > /dev/null\nprintf '%s\\n' "$*" > '${argsFile}'\nprintf '%s' "$MKSYNC_TEST_MARKER" > '${markerFile}'`,
+    );
+    const plan = planOf([
+      stepOf([
+        actionOf(
+          { kind: "dconfLoad", path: DCONF_PATH, text: DCONF_TEXT },
+          "dconf load failed",
+        ),
+      ]),
+    ]);
+    const context: RunContext = {
+      ...runContext(home, repo),
+      env: {
+        PATH: `${bin}:${SYSTEM_PATH}`,
+        MKSYNC_TEST_MARKER: ENV_MARKER,
+      },
+    };
+
+    // Act
+    const outcome = runPlan(plan, context);
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(readFileSync(argsFile, "utf8").trim()).toBe(`load ${DCONF_PATH}`);
+    expect(readFileSync(markerFile, "utf8")).toBe(ENV_MARKER);
   });
 
   test("should write a profile layer file under the state folder", () => {

@@ -71,6 +71,8 @@ export interface RunContext {
   readonly stateFolder: string;
   /** The store the run's record, profile and layer files live in. */
   readonly location: StoreLocation;
+  /** The environment the snapshot used; the tools a step runs see it too. */
+  readonly env: Readonly<Record<string, string | undefined>>;
   /** The current time, so tests fix the dated backup's name. */
   readonly now: () => Date;
   readonly pid: number;
@@ -778,7 +780,7 @@ function runAction(
       }
       case "dconfLoad":
         // Any failure, a missing dconf too, is the contract's `dconf load failed`.
-        return dconfLoad(action.path, action.text, process.env).kind === "ok"
+        return dconfLoad(action.path, action.text, context.env).kind === "ok"
           ? ACTION_OK
           : { ok: false, warning: undefined };
       case "writeValues":

@@ -139,16 +139,16 @@ export function dconfLoad(
 }
 
 /**
- * The home field of `getent passwd <user>`'s first line. The import's
- * login-home guard compares `HOME` with it; a missing `getent`, a non-zero
- * exit and a malformed line all give `undefined`, so the guard leaves dconf
- * alone.
+ * The home field of `getent passwd <key>`'s first line. `key` is the passwd
+ * database key: a login name or a numeric uid. The import's login-home guard
+ * compares `HOME` with it; a missing `getent`, a non-zero exit and a malformed
+ * line all give `undefined`, so the guard leaves dconf alone.
  */
 export async function loginHome(
-  user: string,
+  key: string,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<string | undefined> {
-  const result = await runTool("getent", [PASSWD_DATABASE, user], env);
+  const result = await runTool("getent", [PASSWD_DATABASE, key], env);
   if (result.kind !== "ok") {
     return undefined;
   }
