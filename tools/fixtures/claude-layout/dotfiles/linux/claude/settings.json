@@ -1,0 +1,180 @@
+{
+  "cleanupPeriodDays": 36500,
+  "permissions": {
+    "allow": [
+      "Agent",
+      "Bash(*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Task(*)",
+      "Skill(*)",
+      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+      "mcp__plugin_context-mode_context-mode__ctx_stats",
+      "mcp__plugin_context-mode_context-mode__ctx_doctor",
+      "mcp__plugin_context-mode_context-mode__ctx_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+      "mcp__plugin_context-mode_context-mode__ctx_search",
+      "Bash(gh pr edit * --add-label reviewed)",
+      "Bash(gh pr merge * --merge --delete-branch)",
+      "Bash(gh pr checks *)"
+    ],
+    "defaultMode": "auto"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/worker-mode-guard.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/node.sh <HOME>/.claude/hooks/context-mode-cache-heal.mjs"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/metrics-capture.sh SessionStart",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/metrics-capture.sh UserPromptSubmit",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/context-gate.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Skill|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/metrics-capture.sh PostToolUse",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/context-gate.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<HOME>/.claude/hooks/metrics-capture.sh SessionEnd",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "<HOME>/.claude/statusline.sh"
+  },
+  "enabledPlugins": {
+    "context-mode@context-mode": true,
+    "agent-skills@addy-agent-skills": true,
+    "claude-notifications-go@claude-notifications-go": true
+  },
+  "extraKnownMarketplaces": {
+    "context-mode": {
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
+      },
+      "autoUpdate": true
+    },
+    "addy-agent-skills": {
+      "source": {
+        "source": "github",
+        "repo": "addyosmani/agent-skills"
+      }
+    },
+    "sigil": {
+      "source": {
+        "source": "github",
+        "repo": "<YOUR_GH_USERNAME>/sigil",
+        "ref": "marketplace"
+      }
+    },
+    "claude-notifications-go": {
+      "source": {
+        "source": "github",
+        "repo": "777genius/agent-notifications",
+        "ref": "release/platform-linux-windows"
+      }
+    }
+  },
+  "effortLevel": "medium",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "medium"
+    }
+  },
+  "autoUpdatesChannel": "latest",
+  "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "autoMode": {
+    "environment": [
+      "**Host**: personal Ubuntu developer machine with open internet. No organization, no production infrastructure, no deploy targets.",
+      "**Source control**: repos under github.com/<YOUR_GH_USERNAME> are the user's own and trusted. Many are PUBLIC, so a push publishes content.",
+      "**Package registry**: npm publish targets the public npm registry (e.g. the user's own `repown` CLI). Publishing is a public release.",
+      "**Data**: no regulated or employer data on this machine. The user permits reading local config, .env and credential files when a task needs them.",
+      "**Tooling**: node via nvm, rtk (command-output proxy hook), context-mode plugin, jq, git, gh.",
+      "**Merges**: the owner allows Claude to merge its own PRs in their repos with `gh pr merge <n> --merge --delete-branch`, without asking, once `pr-ready <n>` exits 0 for a PR from a plan the owner approved with a GO or a feature tested before it was sent. Never with `--admin`, never after a force-push."
+    ]
+  },
+  "model": "opus"
+}

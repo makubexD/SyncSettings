@@ -1,7 +1,10 @@
-// Dev-only: writes the layered Claude settings of the design's "The Claude
-// layout waits for cut-over", widens the v2 row to Windows, and (with
-// --cutover) drops the v1 Claude rows. Never compiled into the program, and not
-// run against the real repo before phase 9.
+// Dev-only: plans the layered Claude settings of the design's "The Claude
+// layout waits for cut-over", widens the v2 row to Windows, and drops the v1
+// Claude rows. Without --cutover it prints the planned writes and changes
+// nothing; with it, it writes them. It refuses a repo that already has the
+// split base file. Never compiled into the program, and not run against the
+// real repo before phase 9.
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Result } from "../src/core/config/types.ts";
@@ -49,7 +52,7 @@ export interface ClaudeLayout {
   readonly windows: JsonValue | undefined;
 }
 
-interface LayoutWrite {
+export interface LayoutWrite {
   readonly repoPath: string;
   readonly text: string;
 }
@@ -407,15 +410,20 @@ async function writeAll(
 }
 
 /**
- * Runs the layout on a repo folder: the base and Linux layers, the Windows
- * overlay when its key list is not empty, the v2 row widened to Windows and,
- * with `cutover`, the v1 Claude rows dropped. Nothing is written unless every
- * file it needs reads and parses.
+ * Plans the layout on a repo folder: the base and Linux layers, the Windows
+ * overlay when its key list is not empty, the v2 row widened to Windows and
+ * the v1 Claude rows dropped. Refuses a repo that already has the split base
+ * file. Returns the planned writes in plan order; `cutover` writes them, and
+ * without it nothing is written. No plan is made unless every file it needs
+ * reads and parses.
  */
 export async function runLayout(
   repoDir: string,
   options: LayoutOptions = {},
-): Promise<Result<void, string>> {
+): Promise<Result<readonly LayoutWrite[], string>> {
+  if (existsSync(join(repoDir, BASE_SETTINGS_FILE))) {
+    return err("the Claude layout is already split.");
+  }
   const sourceText = await readText(repoDir, LINUX_SETTINGS_FILE);
   if (!sourceText.ok) {
     return sourceText;
@@ -460,22 +468,29 @@ export async function runLayout(
     writes.push({ repoPath: V2_CONFIG_FILE, text: widenedText });
   }
 
-  if (options.cutover === true) {
-    const v1Text = await readText(repoDir, V1_CONFIG_FILE);
-    if (!v1Text.ok) {
-      return v1Text;
-    }
-    const dropped = dropClaudeConfigRows(v1Text.value);
-    if (!dropped.ok) {
-      return dropped;
-    }
-    if (dropped.value !== v1Text.value) {
-      writes.push({ repoPath: V1_CONFIG_FILE, text: dropped.value });
-    }
+  const v1Text = await readText(repoDir, V1_CONFIG_FILE);
+  if (!v1Text.ok) {
+    return v1Text;
+  }
+  const dropped = dropClaudeConfigRows(v1Text.value);
+  if (!dropped.ok) {
+    return dropped;
+  }
+  if (dropped.value !== v1Text.value) {
+    writes.push({ repoPath: V1_CONFIG_FILE, text: dropped.value });
   }
 
-  await writeAll(repoDir, writes);
-  return { ok: true, value: undefined };
+  if (options.cutover === true) {
+    try {
+      await writeAll(repoDir, writes);
+    } catch (error) {
+      if (error instanceof Error) {
+        return err(error.message);
+      }
+      throw error;
+    }
+  }
+  return { ok: true, value: writes };
 }
 
 const USAGE = "bun tools/claude-layout.ts <repo folder> [--cutover]";
@@ -505,6 +520,11 @@ export async function main(argv: readonly string[]): Promise<number> {
   if (!result.ok) {
     console.error(`ERROR: ${result.error}`);
     return 1;
+  }
+  if (!cutover) {
+    for (const write of result.value) {
+      console.log(`would write ${write.repoPath}`);
+    }
   }
   return 0;
 }

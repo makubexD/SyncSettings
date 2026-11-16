@@ -1,21 +1,26 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
+  chmod,
   copyFile,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { checkV1V2 } from "../src/core/config/check.ts";
+import { parseV1 } from "../src/core/config/v1.ts";
+import { parseV2 } from "../src/core/config/v2.ts";
 import { jsonEqual, parseJson } from "../src/core/json/value.ts";
 import type { JsonValue } from "../src/core/json/value.ts";
 import { mergeJson, parseJsonBytes } from "../src/core/merge/json.ts";
-import { main, runLayout } from "./claude-layout.ts";
+import { dropClaudeConfigRows, main, runLayout } from "./claude-layout.ts";
 
-const REPO = join(import.meta.dir, "..");
+const FIXTURES = join(import.meta.dir, "fixtures/claude-layout");
 
 const BASE = "dotfiles/common/claude/settings.json";
 const LINUX = "dotfiles/linux/claude/settings.json";
@@ -43,15 +48,67 @@ afterAll(async () => {
   );
 });
 
-/** A throwaway copy of the repo files the tool reads. */
+/** A throwaway copy of the frozen repo files the tool reads. */
 async function makeRepo(): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "mksync-claude-layout-"));
   temporaryRepos.push(repo);
   await mkdir(join(repo, "dotfiles/linux/claude"), { recursive: true });
   for (const file of [LINUX, V1, V2]) {
-    await copyFile(join(REPO, file), join(repo, file));
+    await copyFile(join(FIXTURES, file), join(repo, file));
   }
   return repo;
+}
+
+/** Every file under a folder, by repo-relative path, with its bytes. */
+async function snapshot(root: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  async function walk(dir: string, prefix: string): Promise<void> {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(path, relative);
+      } else {
+        files[relative] = await readFile(path, "utf8");
+      }
+    }
+  }
+  await walk(root, "");
+  return files;
+}
+
+/**
+ * The v1 config text with each Claude row block dropped, derived from the
+ * four-space row blocks alone rather than from the tool's span logic.
+ */
+function withoutClaudeRows(text: string): string {
+  const kept: string[] = [];
+  let block: string[] | undefined;
+  for (const line of text.split("\n")) {
+    if (block === undefined) {
+      if (line === "    {") {
+        block = [line];
+      } else {
+        kept.push(line);
+      }
+      continue;
+    }
+    block.push(line);
+    if (line !== "    }," && line !== "    }") {
+      continue;
+    }
+    const rowText = block.join("\n");
+    const path =
+      /"repoPath"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(rowText)?.[1] ?? "";
+    if (!CLAUDE_ROW_PATTERN.test(path)) {
+      kept.push(...block);
+    }
+    block = undefined;
+  }
+  if (block !== undefined) {
+    kept.push(...block);
+  }
+  return kept.join("\n");
 }
 
 function parseValue(text: string): JsonValue {
@@ -124,7 +181,7 @@ async function readJson(repo: string, file: string): Promise<JsonValue> {
 describe("claude-layout", () => {
   test("the Linux layers merge back to today's settings, status line aside", async () => {
     const repo = await makeRepo();
-    expect(await main([repo])).toBe(0);
+    expect(await main([repo, "--cutover"])).toBe(0);
 
     const merged = mergeJson(
       [
@@ -141,7 +198,7 @@ describe("claude-layout", () => {
       throw new Error("the merged layers are not JSON");
     }
 
-    const original = parseValue(await readFile(join(REPO, LINUX), "utf8"));
+    const original = parseValue(await readFile(join(FIXTURES, LINUX), "utf8"));
     const expectedEntries = new Map(objectEntries(original));
     expectedEntries.set("statusLine", STATUS_LINE);
 
@@ -158,7 +215,7 @@ describe("claude-layout", () => {
 
   test("hooks are in the Linux overlay only", async () => {
     const repo = await makeRepo();
-    expect((await runLayout(repo)).ok).toBe(true);
+    expect((await runLayout(repo, { cutover: true })).ok).toBe(true);
 
     const linux = objectEntries(await readJson(repo, LINUX));
     const base = objectEntries(await readJson(repo, BASE));
@@ -168,18 +225,19 @@ describe("claude-layout", () => {
 
   test("no Windows overlay while the key list is empty", async () => {
     const repo = await makeRepo();
-    expect((await runLayout(repo)).ok).toBe(true);
+    expect((await runLayout(repo, { cutover: true })).ok).toBe(true);
     expect(existsSync(join(repo, WINDOWS))).toBe(false);
   });
 
   test("a non-empty key list writes the Windows overlay", async () => {
     const repo = await makeRepo();
     const result = await runLayout(repo, {
+      cutover: true,
       windowsOverlayKeys: ["theme", "tui"],
     });
     expect(result.ok).toBe(true);
 
-    const source = objectEntries(await readJson(REPO, LINUX));
+    const source = objectEntries(await readJson(FIXTURES, LINUX));
     const windows = objectEntries(await readJson(repo, WINDOWS));
     expect(
       jsonEqual(required(windows, "theme"), required(source, "theme")),
@@ -192,8 +250,8 @@ describe("claude-layout", () => {
 
   test("the v2 Claude settings entry lists windows", async () => {
     const repo = await makeRepo();
-    const beforeText = await readFile(join(REPO, V2), "utf8");
-    expect((await runLayout(repo)).ok).toBe(true);
+    const beforeText = await readFile(join(FIXTURES, V2), "utf8");
+    expect((await runLayout(repo, { cutover: true })).ok).toBe(true);
     const afterText = await readFile(join(repo, V2), "utf8");
 
     const os = required(claudeSettingsEntry(parseValue(afterText)), "os");
@@ -221,12 +279,29 @@ describe("claude-layout", () => {
     }
   });
 
-  test("v1 stays untouched without --cutover", async () => {
+  test("without --cutover, main prints the planned writes and changes nothing", async () => {
     const repo = await makeRepo();
-    expect(await main([repo])).toBe(0);
-    expect(await readFile(join(repo, V1), "utf8")).toBe(
-      await readFile(join(REPO, V1), "utf8"),
-    );
+    const before = await snapshot(repo);
+    const lines: string[] = [];
+    const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map((arg) => String(arg)).join(" "));
+    });
+    let code: number;
+    try {
+      code = await main([repo]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(code).toBe(0);
+    expect(lines).toEqual([
+      `would write ${BASE}`,
+      `would write ${LINUX}`,
+      `would write ${V2}`,
+      `would write ${V1}`,
+    ]);
+    expect(await snapshot(repo)).toEqual(before);
+    expect(existsSync(join(repo, BASE))).toBe(false);
   });
 
   test("v1 loses the Claude settings and statusline rows with --cutover", async () => {
@@ -234,7 +309,7 @@ describe("claude-layout", () => {
     expect(await main([repo, "--cutover"])).toBe(0);
 
     const beforeRows = v1Files(
-      parseValue(await readFile(join(REPO, V1), "utf8")),
+      parseValue(await readFile(join(FIXTURES, V1), "utf8")),
     );
     const afterRows = v1Files(
       parseValue(await readFile(join(repo, V1), "utf8")),
@@ -257,6 +332,88 @@ describe("claude-layout", () => {
     ).toBe(true);
   });
 
+  test("dropClaudeConfigRows drops the Claude rows and keeps every other byte", async () => {
+    const input = await readFile(join(FIXTURES, V1), "utf8");
+    const dropped = dropClaudeConfigRows(input);
+    if (!dropped.ok) {
+      throw new Error(dropped.error);
+    }
+
+    expect(dropped.value).not.toBe(input);
+    expect(dropped.value).toBe(withoutClaudeRows(input));
+  });
+
+  test("the --cutover output keeps config v1 and v2 in step", async () => {
+    const repo = await makeRepo();
+    expect(await main([repo, "--cutover"])).toBe(0);
+
+    const v1 = parseV1(await readFile(join(repo, V1), "utf8"));
+    if (!v1.ok) {
+      throw new Error(v1.error.message);
+    }
+    const v2 = parseV2(await readFile(join(repo, V2), "utf8"));
+    if (!v2.ok) {
+      throw new Error(v2.error.message);
+    }
+
+    expect(checkV1V2(v1.value, v2.value)).toEqual([]);
+  });
+
+  test("a second --cutover run is refused and changes nothing", async () => {
+    const repo = await makeRepo();
+    expect(await main([repo, "--cutover"])).toBe(0);
+    const before = await snapshot(repo);
+
+    const errors: string[] = [];
+    const spy = spyOn(console, "error").mockImplementation(
+      (...args: unknown[]) => {
+        errors.push(args.map((arg) => String(arg)).join(" "));
+      },
+    );
+    let code: number;
+    try {
+      code = await main([repo, "--cutover"]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(code).toBe(1);
+    expect(errors).toEqual(["ERROR: the Claude layout is already split."]);
+    expect(await snapshot(repo)).toEqual(before);
+  });
+
+  test("a write error follows the ERROR line and exits 1", async () => {
+    if (process.getuid?.() === 0) {
+      return;
+    }
+    const repo = await makeRepo();
+    const claudeDir = join(repo, "dotfiles/linux/claude");
+    const linuxSettings = join(repo, LINUX);
+    // The folder alone is not enough: the existing settings.json keeps its own
+    // write bit, so writeFile could still truncate it.
+    await chmod(linuxSettings, 0o444);
+    await chmod(claudeDir, 0o555);
+
+    const errors: string[] = [];
+    const spy = spyOn(console, "error").mockImplementation(
+      (...args: unknown[]) => {
+        errors.push(args.map((arg) => String(arg)).join(" "));
+      },
+    );
+    let code: number;
+    try {
+      code = await main([repo, "--cutover"]);
+    } finally {
+      spy.mockRestore();
+      await chmod(claudeDir, 0o755);
+      await chmod(linuxSettings, 0o644);
+    }
+
+    expect(code).toBe(1);
+    expect(errors.length).toBe(1);
+    expect(errors[0]?.startsWith("ERROR: ")).toBe(true);
+  });
+
   test("bad JSON exits 1 and writes nothing", async () => {
     const repo = await makeRepo();
     await writeFile(join(repo, LINUX), "{ not json\n", "utf8");
@@ -268,7 +425,7 @@ describe("claude-layout", () => {
     );
     let code: number;
     try {
-      code = await main([repo]);
+      code = await main([repo, "--cutover"]);
     } finally {
       spy.mockRestore();
     }
@@ -277,7 +434,7 @@ describe("claude-layout", () => {
     expect(errors.some((line) => line.startsWith("ERROR: "))).toBe(true);
     expect(existsSync(join(repo, BASE))).toBe(false);
     expect(await readFile(join(repo, V2), "utf8")).toBe(
-      await readFile(join(REPO, V2), "utf8"),
+      await readFile(join(FIXTURES, V2), "utf8"),
     );
   });
 });
