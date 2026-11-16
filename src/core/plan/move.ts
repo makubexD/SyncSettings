@@ -15,25 +15,6 @@ const REPO_EOL = "\n";
 const WRITE_FAILURE = "cannot write repo file";
 const REMOVE_FAILURE = "cannot remove from repo";
 const ITEM_SUFFIX = "[]";
-const KEY_SEPARATOR = ".";
-
-/** The key segments a new-setting path names. A path is its literal key when
- * the source object holds it as one key, as VS Code keys such as
- * "editor.fontSize" do, and object keys joined with "." otherwise. */
-function segmentsFor(
-  root: JsonValue,
-  path: string,
-  kind: "key" | "item",
-): readonly string[] {
-  const keyPath = kind === "item" ? path.slice(0, -ITEM_SUFFIX.length) : path;
-  if (keyPath === "") {
-    return [];
-  }
-  if (root.kind === "object" && root.entries.has(keyPath)) {
-    return [keyPath];
-  }
-  return keyPath.split(KEY_SEPARATOR);
-}
 
 /** Whether every slot's file, when it has one, parses as JSON. */
 function parseSlots(
@@ -201,14 +182,17 @@ function rebuild(
  * merge of every slot is the same before and after.
  *
  * `path` is the new-setting path: object keys joined with ".", an array item
- * with a trailing "[]"; `item` names the one array item a `kind: "item"` move
- * takes. Slots are in layer order; a slot with no file yet can take the value
- * and gets the file. A source with no value (or no such item) at `path`, a
- * slot that isn't valid JSON, or a layer not among `slots` is an error.
+ * with a trailing "[]"; `keyPath` is the object keys that lead to the changed
+ * value (for an item, to the array), which names a key holding a "." as one
+ * segment. `item` names the one array item a `kind: "item"` move takes. Slots
+ * are in layer order; a slot with no file yet can take the value and gets the
+ * file. A source with no value (or no such item) at `keyPath`, a slot that
+ * isn't valid JSON, or a layer not among `slots` is an error.
  */
 export function moveJsonChange(
   slots: readonly JsonLayer[],
   path: string,
+  keyPath: readonly string[],
   kind: "key" | "item",
   from: LayerName,
   to: LayerName,
@@ -240,8 +224,7 @@ export function moveJsonChange(
   if (sourceRoot === undefined) {
     return { ok: false, error: `no value at ${path}` };
   }
-  const segments = segmentsFor(sourceRoot, path, kind);
-  const sourceValue = valueAt(sourceRoot, segments);
+  const sourceValue = valueAt(sourceRoot, keyPath);
   if (sourceValue === undefined) {
     return { ok: false, error: `no value at ${path}` };
   }
@@ -255,16 +238,16 @@ export function moveJsonChange(
     // under the source value to keep the merged result and fill what it lacks.
     // Wider: the source value wins over the target's, so merge it on top to
     // keep keys only the target holds.
-    const targetValue = valueAt(targetRoot, segments);
+    const targetValue = valueAt(targetRoot, keyPath);
     const written =
       targetValue === undefined
         ? sourceValue
         : wider
           ? mergeJsonValues([targetValue, sourceValue])
           : mergeJsonValues([sourceValue, targetValue]);
-    replacements.set(toIndex, setAt(targetRoot, segments, written));
-    if (wider && !betweenSetsKey(values, toIndex, fromIndex, segments)) {
-      replacements.set(fromIndex, removeAt(sourceRoot, segments));
+    replacements.set(toIndex, setAt(targetRoot, keyPath, written));
+    if (wider && !betweenSetsKey(values, toIndex, fromIndex, keyPath)) {
+      replacements.set(fromIndex, removeAt(sourceRoot, keyPath));
     }
   } else {
     if (
@@ -274,7 +257,7 @@ export function moveJsonChange(
     ) {
       return { ok: false, error: `no value at ${path}` };
     }
-    const targetArray = valueAt(targetRoot, segments);
+    const targetArray = valueAt(targetRoot, keyPath);
     const existing =
       targetArray !== undefined && targetArray.kind === "array"
         ? targetArray.items
@@ -282,16 +265,16 @@ export function moveJsonChange(
     if (!existing.some((other) => jsonEqual(other, item))) {
       replacements.set(
         toIndex,
-        setAt(targetRoot, segments, {
+        setAt(targetRoot, keyPath, {
           kind: "array",
           items: [...existing, item],
         }),
       );
     }
-    if (wider && !betweenSetsItem(values, toIndex, fromIndex, segments, item)) {
+    if (wider && !betweenSetsItem(values, toIndex, fromIndex, keyPath, item)) {
       replacements.set(
         fromIndex,
-        setAt(sourceRoot, segments, {
+        setAt(sourceRoot, keyPath, {
           kind: "array",
           items: sourceValue.items.filter((other) => !jsonEqual(other, item)),
         }),
@@ -568,6 +551,7 @@ export function applyMove(
     moved = moveJsonChange(
       slots,
       path,
+      source.keyPath,
       source.kind,
       source.layer,
       to,
@@ -618,7 +602,7 @@ function sourceAsInRepo(
     if (current === undefined || path === undefined) {
       return { ok: false, error: `not valid JSON: ${slot.repoPath}` };
     }
-    const segments = segmentsFor(current, path, source.kind);
+    const segments = source.keyPath;
     let reverted: JsonValue;
     if (source.kind === "key") {
       const before = valueAt(original, segments);

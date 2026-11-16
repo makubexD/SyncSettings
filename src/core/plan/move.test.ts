@@ -62,6 +62,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor.fontSize",
+      ["editor.fontSize"],
       "key",
       "base",
       "profile",
@@ -90,6 +91,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor.fontSize",
+      ["editor.fontSize"],
       "key",
       "profile",
       "base",
@@ -115,6 +117,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor.fontSize",
+      ["editor.fontSize"],
       "key",
       "profile",
       "base",
@@ -143,6 +146,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "permissions.allow[]",
+      ["permissions", "allow"],
       "item",
       "profile",
       "base",
@@ -170,6 +174,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "allow[]",
+      ["allow"],
       "item",
       "profile",
       "base",
@@ -187,6 +192,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor",
+      ["editor"],
       "key",
       "profile",
       "base",
@@ -210,6 +216,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor.fontSize",
+      ["editor.fontSize"],
       "key",
       "base",
       "profile",
@@ -228,6 +235,36 @@ describe("moveJsonChange", () => {
     );
   });
 
+  test("a nested key whose name has a dot moves to machine", () => {
+    const before = [
+      slot("base", '{"[python]": {"editor.formatOnSave": true}}'),
+      slot("os", undefined),
+      slot("profile", undefined),
+      slot("machine", undefined),
+    ];
+    const result = moveJsonChange(
+      before,
+      "[python].editor.formatOnSave",
+      ["[python]", "editor.formatOnSave"],
+      "key",
+      "base",
+      "machine",
+      EOL,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expectSameMerge(before, result.value);
+    expect(textOf(layerNamed(result.value, "machine"))).toBe(
+      '{\n  "[python]": {\n    "editor.formatOnSave": true\n  }\n}\n',
+    );
+    // Narrower: base is left as the repo holds it.
+    expect(textOf(layerNamed(result.value, "base"))).toBe(
+      '{"[python]": {"editor.formatOnSave": true}}',
+    );
+  });
+
   test("the same layer leaves the slots unchanged", () => {
     const before = [
       slot("base", '{"editor.fontSize": 14}'),
@@ -236,6 +273,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor.fontSize",
+      ["editor.fontSize"],
       "key",
       "profile",
       "profile",
@@ -257,6 +295,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor.tabSize",
+      ["editor.tabSize"],
       "key",
       "base",
       "profile",
@@ -277,6 +316,7 @@ describe("moveJsonChange", () => {
     const result = moveJsonChange(
       before,
       "editor.fontSize",
+      ["editor.fontSize"],
       "key",
       "base",
       "profile",

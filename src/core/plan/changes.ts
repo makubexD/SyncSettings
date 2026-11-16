@@ -63,6 +63,9 @@ export interface MoveSource {
   readonly repoPath: string;
   readonly kind: "key" | "item" | "whole";
   readonly path?: string;
+  /** The object keys leading to the changed value; for an item, to the array
+   * that holds it; empty for "whole". */
+  readonly keyPath: readonly string[];
   readonly item?: JsonValue;
 }
 
@@ -487,6 +490,7 @@ function exportedDraftChanges(
         repoPath,
         kind: "item",
         path: `${draft.path}[]`,
+        keyPath: draft.keyPath,
         item,
       },
     }));
@@ -505,8 +509,13 @@ function exportedDraftChanges(
         layer: match.layer.name,
         repoPath,
         ...(draft.item === undefined
-          ? { kind: "key" as const, path: draft.path }
-          : { kind: "item" as const, path: draft.path, item: draft.item }),
+          ? { kind: "key" as const, path: draft.path, keyPath: draft.keyPath }
+          : {
+              kind: "item" as const,
+              path: draft.path,
+              keyPath: draft.keyPath,
+              item: draft.item,
+            }),
       },
     },
   ];
@@ -568,6 +577,7 @@ function exportActionChanges(
       layer: match.layer.name,
       repoPath: action.path,
       kind: "whole",
+      keyPath: [],
     },
   }));
 }
