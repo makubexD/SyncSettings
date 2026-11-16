@@ -102,14 +102,15 @@ program, with `front-diff`, `front-check` and `front-preview` spelled `diff`, `c
 copies the front door with the engine: `sync` and `scripts/linux/front.sh` for bash, `sync.cmd` and
 `scripts/windows/Front.ps1` for PowerShell.
 `options` uses neutral names that the runner spells for each engine: `force: true` is `--force` or `-Force`,
-`only: [paths]` is `--only` or `-Only`. For the program, `name`, `profile`, `replace`, `claude`, `mode` and `existing`
-are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes` on `setup`, `export`,
-`preview`, `machine-retire`, `profile-retire`, `status`, `doctor`, `pull`, `push` and `front-diff`; and `target`, a
-string, is the name argument of `machine-retire` and `profile-retire`, required there and refused elsewhere. On
-`commit` only, `partial: true` adds `--partial` (`-Partial` on the PowerShell engine); `message`, a string, adds
-`-m <msg>` (`-Message <msg>`) on `commit` and `push`. On the six front door commands (`status`, `doctor`, `pull`,
-`push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each path as a positional argument after
-the options. Every command runs with no terminal, as CI does, and with stdin empty unless the command has `stdin`: a
+`only: [paths]` is `--only` or `-Only`, and `resetValues`, a boolean, is `--reset-values` (`-ResetValues` on the
+PowerShell engine), allowed on `import` and `check` only. For the program, `name`, `profile`, `replace`, `claude`,
+`mode` and `existing` are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes`
+on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`, `pull`, `push` and
+`front-diff`; and `target`, a string, is the name argument of `machine-retire` and `profile-retire`, required there
+and refused elsewhere. On `commit` only, `partial: true` adds `--partial` (`-Partial` on the PowerShell engine);
+`message`, a string, adds `-m <msg>` (`-Message <msg>`) on `commit` and `push`. On the six front door commands
+(`status`, `doctor`, `pull`, `push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each path
+as a positional argument after the options. Every command runs with no terminal, as CI does, and with stdin empty unless the command has `stdin`: a
 string sent as its stdin, such as `"n\n"` for a prompt answer. Its
 stderr is merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status
 lines in `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below)

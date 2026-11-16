@@ -144,6 +144,10 @@ function Validate-Case {
             if ($null -ne $messageProp -and $messageProp.Value -isnot [string]) {
                 Die 'options.message must be a string'
             }
+            $resetProp = $opts.PSObject.Properties['resetValues']
+            if ($null -ne $resetProp -and $resetProp.Value -isnot [bool]) {
+                Die 'options.resetValues must be a boolean'
+            }
         }
 
         $optNames = @()
@@ -160,16 +164,19 @@ function Validate-Case {
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
             $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and
             $cmd.command -cne 'profile-retire' -and -not $frontDoor) {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'partial' -and $cmd.command -cne 'commit') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'message' -and $cmd.command -cne 'commit' -and $cmd.command -cne 'push') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'paths' -and -not $frontDoor -and $cmd.command -cne 'front-check') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        }
+        if ($optNames -ccontains 'resetValues' -and $cmd.command -cne 'import' -and $cmd.command -cne 'check') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -261,10 +268,7 @@ function Validate-Case {
             Die 'stubs may only hold gh; dconf and getent are Linux only'
         }
         foreach ($s in $stubs) {
-            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent')) {
-                Die "the $s stub is Linux only: run this case with tests/parity/run.sh"
-            }
-            if (-not ($s -is [string] -and $s -ceq 'gh')) {
+            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent'))) {
                 Die 'stubs may only hold gh; dconf and getent are Linux only'
             }
         }
@@ -427,6 +431,8 @@ function Get-StatusLines {
         if ($line -cmatch $pattern) {
             $result += ($Matches[1] + ' ' + $Matches[2])
         } elseif ($line -cmatch '^\s*(Next.*)$') {
+            $result += $Matches[1]
+        } elseif ($line -cmatch '^\s*(Linked folder not synced: .*)$') {
             $result += $Matches[1]
         }
     }
@@ -774,6 +780,13 @@ function Run-Case {
         }
         if (Test-Path -LiteralPath (Join-Path $Dir 'home') -PathType Container) {
             Copy-Tree (Join-Path $Dir 'home') $homeDir
+            # Copy-Item keeps the fixtures' mtimes, so a home file and its repo
+            # twin of the same size can share one; git's stat cache then reports
+            # the changed repo file as clean.
+            $now = Get-Date
+            foreach ($homeFile in @(Get-ChildItem -LiteralPath $homeDir -Recurse -File -Force)) {
+                $homeFile.LastWriteTime = $now
+            }
         }
 
         # Git: everything committed on master, and for `remote` also a bare
@@ -935,7 +948,7 @@ function Run-Case {
                         $key -cne 'profile' -and $key -cne 'replace' -and $key -cne 'claude' -and
                         $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'yes' -and
                         $key -cne 'target' -and $key -cne 'partial' -and $key -cne 'message' -and
-                        $key -cne 'paths') {
+                        $key -cne 'paths' -and $key -cne 'resetValues') {
                         Die "unknown option '$key' in command $($i + 1)"
                     }
                 }
@@ -989,6 +1002,14 @@ function Run-Case {
                         $extraArgs += '-m'
                     }
                     $extraArgs += [string]$messageProp.Value
+                }
+                $resetProp = $opts.PSObject.Properties['resetValues']
+                if ($null -ne $resetProp -and $resetProp.Value -eq $true) {
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $extraArgs += '-ResetValues'
+                    } else {
+                        $extraArgs += '--reset-values'
+                    }
                 }
                 $pathsProp = $opts.PSObject.Properties['paths']
                 if ($null -ne $pathsProp) {
@@ -1349,6 +1370,24 @@ foreach ($caseDir in $caseDirs) {
                 continue
             }
         }
+    }
+
+    # dconf and getent are Linux stubs: a case whose os list still reaches
+    # Windows with one is invalid, not skipped.
+    $linuxStub = $null
+    $stubsProp = $case.PSObject.Properties['stubs']
+    if ($null -ne $stubsProp) {
+        foreach ($s in @($stubsProp.Value)) {
+            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent')) {
+                $linuxStub = $s
+                break
+            }
+        }
+    }
+    if ($null -ne $linuxStub) {
+        Write-Output "FAIL ${caseName}: the $linuxStub stub is Linux only: run this case with tests/parity/run.sh"
+        $failed++
+        continue
     }
 
     $reason = $null
