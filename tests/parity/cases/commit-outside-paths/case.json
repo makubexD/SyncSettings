@@ -1,9 +1,7 @@
 {
-  "description": "Import writes a file outside dotfiles/ and sync-config.json, so commit refuses it, exit 1, and never calls gh (Checks before pushing).",
+  "description": "Import writes a file outside dotfiles/ and sync-config.json, so commit refuses it, exit 1, and never calls gh (Checks before pushing). The home is the repo, and its committed .config/parity/keep.txt keeps the target folder present, so the PowerShell engine's missing-folder skip (Known differences) doesn't apply.",
   "git": "remote",
-  "stubs": [
-    "gh"
-  ],
+  "stubs": ["gh"],
   "env": {
     "HOME": ".",
     "USERPROFILE": ".",
@@ -12,9 +10,7 @@
   },
   "config": {
     "version": 1,
-    "excludePatterns": [
-      "*.bak"
-    ],
+    "excludePatterns": ["*.bak"],
     "files": [
       {
         "repoPath": "dotfiles/common/parity/a.conf",

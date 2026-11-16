@@ -1579,6 +1579,7 @@ old engines keep their own columns.
 | `defaultEnv` name check | none needed | stops the run on an invalid name | stops the run on an invalid name, on every OS |
 | Import check, target folder missing | `SKIPPED`, not a change | `CREATE` | `CREATE`, on every OS |
 | Import check for another profile | `-Check -User <other>` is an error | not supported | not supported |
+| Value prompt, input not a terminal | takes the default without reading input, so `-ResetValues` keeps the cached value | reads the answer from the input | as Linux, on every OS |
 | `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu | writes the machine record; no bootstrap question until phase 9 |
 | `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` | `dist/mksync` in the clone until phase 9 |
 | Installer | `install.ps1`, `irm … \| iex`, winget | `install.sh`, `curl … \| bash`, apt-get | downloads the program at cut-over (phase 9) |
