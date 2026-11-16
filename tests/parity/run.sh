@@ -251,7 +251,7 @@ status_lines() {
     # follows it on the same line: drop the `…? [Y/n]` prefix first.
     sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
         | sed -E 's/^.*\? \[[Yy]\/[Nn]\][[:space:]]*//' \
-        | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p; s/^[[:space:]]*(Next.*)$/\1/p"
+        | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p; s/^[[:space:]]*(Next.*)$/\1/p; s/^[[:space:]]*(Linked folder not synced: .*)$/\1/p"
 }
 
 # Every line of a command's whole stdout, in order: ANSI color codes removed,

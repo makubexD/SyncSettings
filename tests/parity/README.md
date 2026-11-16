@@ -155,7 +155,7 @@ With `"stubs": ["getent"]`, `getent passwd <user>` answers with the case's temp 
    - **Status lines.** Each output line that is a status line becomes `WORD label`: the word without brackets or
      color, then the label. Notes and every other line are dropped, so the bash layout and the PowerShell
      `[WORD      ] label` layout read the same. A line starting `Next` is kept whole and without its indent
-     (`Next: mksync pull`), so a `status` case is compared on it. With `stderr: true` on the command, its stderr
+     (`Next: mksync pull`), so a `status` case is compared on it; so is a line starting `Linked folder not synced:`. With `stderr: true` on the command, its stderr
      lines are kept whole (color dropped too) and come after its stdout status lines. A whole-stdout command (above)
      keeps every line of its stdout instead, in order, with color codes and a trailing `\r` removed and a final line
      without a newline kept; `statusline` keeps its color codes. An empty stdout adds no line, and a whole-stdout
@@ -257,6 +257,7 @@ other inputs:
 | `status-differs` | `sync_status_differs`, `sync_status_no_record`, Pester `status differs`, `status-no-record` | a differing file with no sync point: the plain differ `Next` line, both trees unchanged |
 | `status-differs-out` | — | a sync point and only this machine changed the file: the diff splits it, `Next: mksync push` |
 | `status-nothing` | `sync_status_clean`, Pester `status clean` | everything matches: `Next: nothing to do.` |
+| `status-linked` | — | a linked folder setup hasn't asked about: its `Linked folder not synced:` line; the folder answered no is left out |
 | `status-unsent` | `sync_status_unsent`, Pester `status unsent` | one uncommitted repo file: the `Unsent` line, `1 changed file(s) not sent yet` |
 | `pull-clean` | `sync_pull_applies`, `sync_pull_in_only`; Pester `pull applies` | the `Pulled 1 commit(s).` note and `HEAD` equal to origin's |
 | `pull-guard-out` | `sync_pull_blocks_out`, Pester `pull-blocks-out` | the `ERROR:` and `--force` hint text; the old case has an `IN` file next to the `OUT` one |

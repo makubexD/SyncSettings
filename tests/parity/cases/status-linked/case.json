@@ -1,0 +1,34 @@
+{
+  "description": "Status lists the linked folder setup hasn't asked about, and asks nothing: the folder the profile answered no to is left out (Linked folders, Front door).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file",
+        "linked": true
+      }
+    ]
+  },
+  "git": "remote",
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "status"
+    }
+  ]
+}

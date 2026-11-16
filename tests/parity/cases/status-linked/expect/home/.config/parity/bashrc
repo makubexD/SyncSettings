@@ -1,0 +1,2 @@
+export PATH="$HOME/.config/parity/scripts:$PATH"
+export DONE="$HOME/.config/parity/done"

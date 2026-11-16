@@ -10,6 +10,7 @@ import { readSyncPoint, runGitResult } from "../adapters/git.ts";
 import { readOsName } from "../adapters/osname.ts";
 import { buildSnapshot } from "../adapters/snapshot.ts";
 import type { Layers } from "../adapters/snapshot.ts";
+import { readLinkedFolders } from "../adapters/store.ts";
 import type { RunCommand } from "../cli/parse.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
 import type {
@@ -19,6 +20,7 @@ import type {
   StatusFacts,
 } from "../core/front/status.ts";
 import { statusLines } from "../core/front/status.ts";
+import { linkedStatusLine } from "../core/machine/linked.ts";
 import { planCheck } from "../core/plan/check.ts";
 import type { Snapshot } from "../core/plan/types.ts";
 import { diffExport } from "./diff.ts";
@@ -328,7 +330,13 @@ export async function executeStatus(input: StatusInput): Promise<Result> {
     unsent: git.unsent,
     machine: checked.machine,
     pullOnly: input.layers.record?.pullOnly === true,
-    linked: [],
+    linked: readLinkedFolders(
+      input.home,
+      input.os,
+      input.config,
+      input.layers.profile,
+      input.layers.record,
+    ).map((folder) => linkedStatusLine(folder.path)),
   };
   return { code: 0, stdout: writeLines(statusLines(facts)), stderr: "" };
 }
