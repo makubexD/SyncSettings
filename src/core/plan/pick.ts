@@ -16,6 +16,7 @@ export type OnlyOutcome =
  * OS. `machineScope` treats a missing profile as every module.
  */
 export function scopeFor(snapshot: Snapshot): SelectScope {
+  const recordEntries = snapshot.record?.entries;
   return {
     os: snapshot.os,
     ...(snapshot.profile !== undefined ? { profile: snapshot.profile } : {}),
@@ -30,6 +31,7 @@ export function scopeFor(snapshot: Snapshot): SelectScope {
           ).on,
         }
       : {}),
+    ...(recordEntries !== undefined ? { machineEntries: recordEntries } : {}),
   };
 }
 

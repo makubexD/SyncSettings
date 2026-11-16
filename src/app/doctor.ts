@@ -177,6 +177,7 @@ function driftCount(
 /** The layers' scope, as `scopeFor` builds it from a snapshot. */
 function scopeOf(input: DoctorInput): SelectScope {
   const { profile, machine, record } = input.layers;
+  const recordEntries = record?.entries;
   return {
     os: input.os,
     ...(profile !== undefined ? { profile } : {}),
@@ -186,6 +187,7 @@ function scopeOf(input: DoctorInput): SelectScope {
           modules: machineScope(input.config, profile, record, input.os).on,
         }
       : {}),
+    ...(recordEntries !== undefined ? { machineEntries: recordEntries } : {}),
   };
 }
 
