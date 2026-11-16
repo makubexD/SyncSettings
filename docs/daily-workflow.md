@@ -275,8 +275,10 @@ don't rely on it: read the diff.
 
 ## Try a machine record
 
-Until phase 8 the `mksync` front door doesn't know machine records; only the program does. To try one on a machine,
-build it and run its `setup`, telling it to stop before touching any file:
+The `mksync` front door the installers link doesn't know machine records; only the program does. Since phase 8,
+`dist/mksync` runs every front-door command itself (`status`, `doctor`, `pull`, `push`, `diff`, `check`, `preview`),
+plus `commit` and linked folders, but the installers still link the old front door until phase 9. To try a record on a
+machine, build the program and run its `setup`, telling it to stop before touching any file:
 
 ```bash
 bun install --frozen-lockfile && bun run build

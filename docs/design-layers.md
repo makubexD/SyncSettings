@@ -1005,7 +1005,7 @@ src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node
   the export plan stops on it first.
 - `core/merge/strategy.ts` (`strategyFor`) gives one `MergeStrategy` per merge type (`whole.ts`, `json.ts`,
   `import.ts`); the export and import plans merge and split through it, except the import plan's side files, which
-  `mergeImport` still returns. `dir` and `dconf` have no strategy yet (phase 8).
+  `mergeImport` still returns. `dir` and `dconf` have no strategy yet (added in phase 8).
 - `core/machine/backup.ts` plans the first backup from the local and repo sides (`planFirstBackup`,
   `firstBackupWrites`); `main.ts` reads both sides again after the export's writes, so the backup carries what that
   export added. `adapters/store.ts` (`writeFirstBackup`) refuses a symlinked path, undoes its own writes on a failure,
@@ -1015,6 +1015,28 @@ src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node
   backup. `adapters/visibility.ts` judges every push URL of `origin`.
 - `core/statusline/format.ts` builds the line from facts that `adapters/statusline.ts` reads (payload, git, `/proc`,
   the context-window file, the `SYNC_*` overrides).
+
+**As built in phase 8.** The front door's commands in the program, one flow per command:
+
+- `src/app/<command>.ts` wires core and adapters for one command: `export.ts` (the export flow moved out of `main.ts`,
+  with the questions, the guard and the up-to-date check), `commit.ts`, `diff.ts`, `status.ts`, `doctor.ts`,
+  `pull.ts` and `push.ts` (with "Move a change?"). `main.ts` parses and dispatches; it still holds `import`, `setup`,
+  `machine`, `profile`, `statusline` and `shadow`.
+- New core, all pure: `core/plan/diff.ts` labels each changed file `IN`, `OUT` or `BOTH` from three trees and builds
+  the diff text; `core/plan/commit.ts` names the branch and writes the message and PR body, and finds paths outside the
+  sync and cached values; `core/plan/move.ts` moves a `json` change or a whole file between layers;
+  `core/plan/uptodate.ts` decides the up-to-date check's action; `core/front/status.ts` and `core/front/doctor.ts`
+  turn facts into the status and doctor lines; `core/drift.ts` compares package lists with what's installed;
+  `core/machine/linked.ts` finds linked folders and words their question and status line.
+- `core/merge/strategy.ts` now has a strategy for every merge type: `dconf` (`core/merge/dconf.ts`, keys filtered and
+  rendered as `dconf dump` does) and `dir` join `whole`, `json` and `import`.
+- New adapters, one per outside tool: `adapters/gh.ts` (`gh pr create`), `adapters/dconf.ts` (`dconf dump`, `dconf
+load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-query`, `apt-mark`, `snap`, `pipx`,
+  `code` and the GNOME extension list), `adapters/leakscan.ts` (`bash scripts/ci/leak-scan.sh`) and
+  `adapters/osname.ts` (the status's OS name). Git calls stay in `adapters/git.ts`, which gains fetch, fast-forward,
+  ahead and behind counts, `ls-tree` and `cat-file --batch` reads, and the commit and push calls.
+- `tools/claude-layout.ts` (dev-only) splits Claude's `settings.json` into layers for the cut-over (step 28); phase 9
+  runs it with `--cutover`.
 
 ## Release and update
 
@@ -1081,6 +1103,15 @@ in the VM and leaves Pester to CI.
 program on both OSes (3 skipped until phase 8: `commit` and `diff`), 37 for bash, 36 for PowerShell
 (`import-eof-no-force` is skipped there).
 
+At the end of phase 8 (2026-11-16, Linux) there are 219 shared cases, 76 of them new in phase 8: the program passes
+all 219; bash passes 115 and skips 104 (`v2 only` and the program-only commands). The runners gained these fields:
+`syncPoint` (writes the repo's `HEAD` as the sync point), `origin/` (a commit that puts `origin/master` one ahead),
+`unsent/` (files left uncommitted in the clone), and `stubs` as a list of `gh`, `dconf` and `getent`
+(`tests/parity/README.md`, "The stubs"). The `dconf` stub answers `dump` from the case's `.ini` files and logs each
+`load` to `dconf.log`, compared with `expect/dconf.log`; the `getent` stub makes the case's temp home the login home.
+The runner touches the copied `home/` files, so a home file and its repo twin never share an mtime that git's stat
+cache would take for "unchanged".
+
 **Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
 without writing anything and compares them with the old engine's check and preview: the same files, the same
 placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
@@ -1092,10 +1123,10 @@ the clone, so the command writes nothing in the repo or home.
 
 Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholders the same in every exported file.
 
-- 10 dconf files, in the check and the preview: program `SKIPPED (not supported yet)`, engine `UNCHANGED`. dconf comes
-  in phase 8.
+- 10 dconf files, in the check and the preview: program `SKIPPED (not supported yet)`, engine `UNCHANGED`. Phase 8
+  built dconf in the program.
 - 11 package and extension `DRIFT` lines in the old engine's preview (apt, npm, pipx, a GNOME extension, an apt
-  source); the program prints none. Package drift comes in phase 8.
+  source); the program prints none. Phase 8 built package drift in the program. Shadow runs again in phase 9.
 
 **Shared cases for layers (phase 5).** The shared cases carried only v1 until phase 5. Layers need config v2, so a
 case may give `configV2` instead of `config`, plus `env` (from phase 6: `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`
@@ -1175,8 +1206,8 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   it as `ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.`, with `none` for a missing key, and words
   the other v2 refusals (exit 1) as `ERROR: sync-config.v2.json: entry <file> …`: `names unknown module <m>`,
   `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
-  `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`. They enter the
-  contract when v2 does.
+  `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`, and (phase 8)
+  `has linked other than true`. They enter the contract when v2 does.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
@@ -1224,7 +1255,8 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   ("Decided in phase 8"); the review moves to phase 9, before cut-over.
 - **ESLint.** Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
   flat config; adding it (and which rule set) is decided when the code is big enough to need it, at the latest in
-  phase 8. Phase 8's plan leaves it to the user: it needs a new dependency (`ts-add-package`).
+  phase 8. Phase 8's plan leaves it to the user: it needs a new dependency (`ts-add-package`). Phase 8 ended with
+  `tsc` only; the question moves to phase 9.
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
@@ -1237,8 +1269,8 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
   the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
-parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
-  in the contract's program column in the phase's docs step.
+parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo.
+  Settled in phase 8's docs step: both are in the contract's "The program".
 - **Boundaries review, phase 4.** Phase 5 closed the home-path copies (`core/paths.ts`), the shared picking
   (`core/plan/pick.ts`), the merge strategies (`core/merge/`) and the snapshot reading (`adapters/snapshot.ts`,
   `parseValuesFile`, `pickOs`). Left:
@@ -1380,12 +1412,21 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - A destination key is `<module> <file>: <path>`, so a module name with a space could collide with another
     module's file; module names don't hold spaces today.
   - "Move a change?" on a `-` line (a removed key, item or file) refuses with `change <n> removes a setting; it can't
-move.` and the push stops with exit 1; the contract doesn't say whether a removal can move or whether the question
-    should ask again instead.
+move.` and the push stops with exit 1. Phase 8's docs step wrote this into the contract as built; whether a removal
+    should move, or the question ask again instead, stays open.
   - A change moved to a narrower group leaves the old layer as the repo holds it ("left as it was"), so the other
     machines don't receive it; a whole file moved narrower keeps the old layer's repo copy instead of leaving it empty.
   - After a move the block is numbered again in group order, so a moved change can take a new number; the contract
     says its number is kept, which needs a number per change that survives regrouping.
+- **Left by phase 8.**
+  - Step 27 (the Windows answers in this design) waits for the survey from work machine #1; "Confirm on Windows"
+    keeps its questions until then, and the PowerShell twins of the Linux hooks are listed from it.
+  - The package managers have no stub in the shared-case runners, so the drift rules are core unit tests over stubbed
+    lists and the old bash cases.
+  - `main.ts` still holds the `import`, `setup`, `machine`, `profile`, `statusline` and `shadow` flows; each moves to
+    `src/app/` when it next changes.
+  - The program's `commit` keeps `commit.sh`'s own lines, including `run commit.sh from master`; they change with the
+    cut-over's wording review.
 
 ### Confirm on Windows
 

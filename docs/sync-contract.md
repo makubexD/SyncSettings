@@ -719,7 +719,7 @@ codes are the same on both systems, except where this section says otherwise.
 | `mksync diff [path…]` | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview` | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything | 0, 3 from a check that found changes, or 1 on an error |
 | `mksync setup [--yes] [--bootstrap]` | Doctor, the import check, on Ubuntu `Also restore apps and packages … [y/N]` (bootstrap), then applies like `pull`. Windows has no bootstrap question and no `--bootstrap` | 0, or 1 on an error |
-| `dist/mksync setup …`, `dist/mksync machine show` | Program only until phase 8, when the front door hands them over: the first run that writes the machine record, and the record ([Machines](#machines-program-only)) | as there |
+| `dist/mksync setup …`, `dist/mksync machine show` | Program only until phase 9, when the installers hand them over: the first run that writes the machine record, and the record ([Machines](#machines-program-only)) | as there |
 
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
 sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
@@ -762,14 +762,23 @@ lines and exit codes above, except:
   `OUT` or `BOTH` file. It adds the [linked folder](#linked-folders-detectlinkedpaths) lines after the machine line.
 - **`doctor`** checks what the program needs: `git`, `gh` and its sign-in, the origin remote, the machine record,
   unset values, and `bash` (a `WARN`, since only the leak scan needs it). No `jq`, `cmp`, bash version or launcher
-  line. On Linux it adds the `drift` line of [Package drift](#package-drift).
+  line. On Linux it adds the `drift` line of [Package drift](#package-drift). Its lines, in order: `git`, `gh`,
+  `repo clone with origin` (`WARN repo has no origin remote`), `machine record` (`WARN no machine record; run mksync
+setup`), `values`, `bash` (`WARN bash: needed by the leak scan; install with <command>`; on Windows `install with
+winget install --id Git.Git -e`, or `install Git for Windows from https://git-scm.com` without `winget`), then the
+  `drift` line. A `MISSING` line is followed by `Fix the MISSING items, then run mksync doctor again.`
 - **`pull`** doesn't re-run itself after the fast-forward: the program is the same before and after, so it reads the
   config again and goes on. Its check prints the grouped block of the [import check](#import-check).
 - **`push`** on a pull-only machine prints `this machine is pull-only (see mksync machine show)` and exits 1. Otherwise
   it runs the export with its grouped block and questions ([Push preview](#push-preview-program-only)), then
   [Move a change](#move-a-change-program-only), the profile-value rule and the guard, then `Open a PR with these
 changes? [Y/n]` and `mksync commit`.
-- **`diff`** runs `mksync export --diff` after the fetch.
+- **`pull`** and **`push`** keep the front door's own lines: `ERROR: <command> needs the repo clone on master with an
+  origin remote.`, `ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.`,
+  `Nothing applied.` after a declined apply, `Nothing to send: the repo matches this machine.`, and `Kept in the repo.
+Run mksync push again, or git restore dotfiles to drop them.` after a declined PR question.
+- **`diff`** runs `mksync export --diff` after the fetch. A clone with no commit stops it with `ERROR: --diff needs a
+git repo with a commit.`, and a tree git can't read with `ERROR: cannot read <ref> from git.`, exit 1.
 - `mksync check` and `mksync preview` are `mksync import --check` and `mksync export --preview`.
 
 `install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`:
@@ -821,7 +830,7 @@ changes? [Y/n]` and `mksync commit`.
 
 One TypeScript engine, compiled to one `mksync` program per OS (`mksync.exe` on Windows), is replacing the bash and
 PowerShell engines ([design](design-layers.md)). Until cut-over the front door above still calls the old engines, and
-the program is run by its tests and by shadow mode only.
+the program is run as `dist/mksync` from the clone, by its tests and by shadow mode.
 
 It takes the old entry points' verbs and flags unchanged:
 
@@ -857,20 +866,19 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
   line on stderr and exits 2:
 
   ```text
-  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
-  ```
-
-  Phase 8 adds its commands to it one step at a time (`docs/plan-single-engine-8.md`); at the end of the phase it
-  reads:
-
-  ```text
   usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync export [--preview] [--diff] [--yes] [--only <path>...] | mksync import [--check] [--force] [--reset-values] [--only <path>...] | mksync commit [-m <msg>] [--partial] | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--yes] | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.
-- Not in the program yet: `export --diff`, `export --reset-values`, `commit`, dconf, package drift and the front door's
-  own commands. Phase 8 adds all of them; the rules they follow are the sections above, with the program notes there.
+- Run outside a clone, it stops with `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
+parents.`, and a config file it can't read with `ERROR: cannot read <file>.`, exit 1.
+- Flag errors, each exit 1 before anything runs: `ERROR: --only needs a path.`, `ERROR: --diff cannot be combined
+with --preview or --yes.`, `ERROR: --check cannot be combined with --reset-values.`, and `Missing value for -m` for a
+  `-m` with nothing after it (`commit`, `push`).
+- Since phase 8 the program runs every command of the old engines and the front door: `export --diff`,
+  `import --reset-values`, `commit`, dconf, package drift, and `status`, `doctor`, `pull`, `push`, `diff`, `check`
+  and `preview`. The installers still link the old front door; phase 9 switches them to the program.
 
 ### Layers (program only)
 
@@ -897,7 +905,9 @@ ERROR: profile <name>: <reason>.
 
 Each stops the run with exit code 2 before any file is touched, as the record's own errors do. `<reason>` is
 `not valid JSON`, `unknown field <f>`, `<f> has the wrong type`, `unknown module <m>` or
-`destination <key> is not a layer`.
+`destination <key> is not a layer`, and for a linked folder's entry ([Linked folders](#linked-folders-detectlinkedpaths))
+`entry <file> needs file and localPath as strings`, `entry <file> is outside linked/`,
+`entry <file> names unknown module <m>` or `entry <file> is not a dir`.
 
 A profile's `destinations` maps a key path (as in the `needs a destination` note below) to a layer slot: `base`,
 `os`, `profile` or `machine`. Any other value is `destination <key> is not a layer`. (`base` is accepted since phase 7,
@@ -980,7 +990,7 @@ them on every OS.
 ### Machines (program only)
 
 Each machine has one record, written by `mksync setup` ([design, "Machine records"](design-layers.md#machine-records)).
-Until phase 8 these commands run as `dist/mksync …`; the bash and PowerShell front doors don't know them.
+Until phase 9 these commands run as `dist/mksync …`; the bash and PowerShell front doors don't know them.
 
 **The record** is `<state>/machine.json`:
 
@@ -1414,7 +1424,9 @@ Move a change? Type its number, or press Enter to go on:
   narrower layer now overrides it for the machines it covers. Moved to a wider group, it is written into the new
   layer and removed from the old one, unless a layer between the two sets it, which would win once it's gone; then the
   old layer keeps it. A whole file, or an `import` side file, moves as a whole, under the same rule: a wider move
-  past a layer that has the file keeps the old copy, and a narrower move past one is refused.
+  past a layer that has the file keeps the old copy, and a narrower move past one is refused with
+  `a layer narrower than <layer> has the file`. A removed setting or file has nothing to place, so moving it prints
+  `change <n> removes a setting; it can't move.` Either refusal stops the push with exit 1 before anything is written.
 - On this machine, the merged result of every file is the same after a move as before it; only who else receives the
   change differs.
 - The block prints again after each move, with the change under its new group and its number kept.
@@ -1538,9 +1550,9 @@ old engines keep their own columns.
 | Exclude patterns | case-insensitive (`-like`) | case-sensitive | case-insensitive on Windows, case-sensitive elsewhere: the file system decides |
 | Shared files without rules ([Compare](#compare)) | CRLF folded to LF; export writes LF | byte for byte | CRLF folded to LF on Windows, byte for byte elsewhere: Git on Windows may check a file out with CRLF |
 | End of input at the overwrite prompt | depends on the host; run with `-Force` | counts as yes | counts as yes, on every OS |
-| `detectLinkedPaths` | supported | not supported | not in the program: linked folders become `dir` entries (phase 8) |
-| `type: dconf` | validated, never run | supported | validated; export and import report `SKIPPED` with `not supported yet` until phase 8, then as Linux |
-| [Package drift](#package-drift) | not yet: phase 8 adds a list to compare | supported | not yet (phase 8) |
+| `detectLinkedPaths` | supported | not supported | not copied: `mksync setup` offers each linked folder as a `dir` entry ([Linked folders](#linked-folders-detectlinkedpaths)) |
+| `type: dconf` | validated, never run | supported | as Linux; validated, never run on Windows and macOS |
+| [Package drift](#package-drift) | not yet | supported | as Linux; prints nothing on Windows and macOS |
 | `-User <name>` (import into another profile, elevated) | supported | not supported | not supported; dropped at cut-over |
 | File modes | not kept | kept (`cp -p`; mode copied for written text) | kept on Linux and macOS; not on Windows, which has none |
 | Status line layout | `[WORD      ] label`, colored | `WORD       label` | `WORD       label` on every OS; no color when stdout isn't a terminal |
@@ -1548,8 +1560,8 @@ old engines keep their own columns.
 | `defaultEnv` name check | none needed | stops the run on an invalid name | stops the run on an invalid name, on every OS |
 | Import check, target folder missing | `SKIPPED`, not a change | `CREATE` | `CREATE`, on every OS |
 | Import check for another profile | `-Check -User <other>` is an error | not supported | not supported |
-| `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu | front door: phase 8 |
-| `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` | front door: phase 8 |
+| `mksync setup` | no bootstrap question | offers `bootstrap/linux.sh` on Ubuntu | writes the machine record; no bootstrap question until phase 9 |
+| `mksync` on `PATH` | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin` | symlink in `~/.local/bin` | `dist/mksync` in the clone until phase 9 |
 | Installer | `install.ps1`, `irm … \| iex`, winget | `install.sh`, `curl … \| bash`, apt-get | downloads the program at cut-over (phase 9) |
 | Export, a file entry's repo folder cannot be created | not checked | `cannot create <absolute repo folder>` | `cannot create <repo-relative folder>`: the planner holds no absolute path |
 
