@@ -46,7 +46,7 @@ import { executeDoctor } from "./app/doctor.ts";
 import { executePull } from "./app/pull.ts";
 import type { FetchResult } from "./app/pull.ts";
 import { executePush } from "./app/push.ts";
-import { executeStatus, unsentCount } from "./app/status.ts";
+import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
 import {
   CANNOT_LIST_TRACKED,
   ensureUpToDate,
@@ -65,6 +65,7 @@ import type {
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   CommitCommand,
+  DiffCommand,
   DoctorCommand,
   MachineShowCommand,
   PullCommand,
@@ -168,8 +169,8 @@ function pullImportCommand(
   };
 }
 
-/** A pull child's `export --diff`, narrowed to the pull's paths. */
-function pullDiffCommand(only: readonly string[]): RunCommand {
+/** A child's `export --diff`, narrowed to the pulled or picked paths. */
+function diffCommand(only: readonly string[]): RunCommand {
   return {
     kind: "run",
     command: "export",
@@ -258,11 +259,31 @@ async function fetchAndFastForward(repoRoot: string): Promise<FetchResult> {
   return { ok: true };
 }
 
+/** Contract "Front door": a failed fetch on `mksync diff` still compares the
+ * last one it saw. */
+const OFFLINE_LINE = "  Offline: comparing with the last fetch.\n";
+
+/**
+ * `git fetch -q origin master` as `mksync status` runs it: no prompt, under
+ * `SYNC_FETCH_TIMEOUT`. `undefined` when there is no origin (the diff prints
+ * nothing then); `false` when an origin exists but the fetch failed.
+ */
+async function fetchOriginForDiff(
+  repoRoot: string,
+): Promise<boolean | undefined> {
+  const origin = await runGitResult(
+    repoRoot,
+    ["remote", "get-url", "origin"],
+    GIT_ENV,
+  );
+  if (!origin.ok) {
+    return undefined;
+  }
+  return fetchOrigin(repoRoot, process.env);
+}
+
 /** Bash's `read` trims; an empty answer or end of input takes the default. */
-function pullAnswer(
-  answer: string | undefined,
-  defaultYes: boolean,
-): boolean {
+function pullAnswer(answer: string | undefined, defaultYes: boolean): boolean {
   const given = answer?.trim() ?? "";
   if (given === "") {
     return defaultYes;
@@ -300,6 +321,7 @@ type Resolved =
   | ShadowCommand
   | StatusCommand
   | DoctorCommand
+  | DiffCommand
   | PullCommand
   | PushCommand
   | MachineShowCommand
@@ -313,6 +335,7 @@ type ExecutableCommand =
   | ShadowCommand
   | StatusCommand
   | DoctorCommand
+  | DiffCommand
   | PullCommand
   | PushCommand
   | MachineShowCommand
@@ -783,6 +806,16 @@ async function execute(
     );
   }
 
+  if (command.kind === "diff") {
+    // Contract "Front door": fetch first so the repo side is current; offline
+    // still compares with the last fetch. Then exactly `export --diff --only`.
+    const fetched = await fetchOriginForDiff(repoRoot);
+    const result = await execute(diffCommand(command.paths));
+    return fetched === false
+      ? { ...result, stdout: OFFLINE_LINE + result.stdout }
+      : result;
+  }
+
   const os = pickOs(process.env.SYNC_OS, process.platform);
   if (!os.ok) {
     return failure(os.error.message, os.error.code);
@@ -805,11 +838,9 @@ async function execute(
     return executePull(
       { yes: command.yes, force: command.force, paths: command.paths },
       {
-        runCheck: (only) =>
-          execute(pullImportCommand(true, false, only)),
-        runDiff: (only) => execute(pullDiffCommand(only)),
-        runImport: (only) =>
-          execute(pullImportCommand(false, true, only)),
+        runCheck: (only) => execute(pullImportCommand(true, false, only)),
+        runDiff: (only) => execute(diffCommand(only)),
+        runImport: (only) => execute(pullImportCommand(false, true, only)),
         unsent: async () => (await unsentCount(repoRoot)) ?? 0,
         fetchAndFastForward: () => fetchAndFastForward(repoRoot),
         hasSyncPoint: async () =>
@@ -1108,6 +1139,8 @@ export function run(argv: readonly string[]): Resolved {
     case "status":
       return parsed;
     case "doctor":
+      return parsed;
+    case "diff":
       return parsed;
     case "pull":
       return parsed;

@@ -11,6 +11,7 @@ export const USAGE =
   "usage: mksync status | mksync doctor | " +
   "mksync pull [--yes] [--force] [<path>...] | " +
   "mksync push [--yes] [-m <msg>] [<path>...] | " +
+  "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
   "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
   "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
   "mksync commit [-m <msg>] [--partial] | " +
@@ -58,6 +59,12 @@ export interface StatusCommand {
 /** `doctor`: print one check line per requirement, exit 1 with a MISSING. */
 export interface DoctorCommand {
   readonly kind: "doctor";
+}
+
+/** `diff [path...]`: fetch origin's `master`, then label the picked paths. */
+export interface DiffCommand {
+  readonly kind: "diff";
+  readonly paths: readonly string[];
 }
 
 /** `pull [--yes] [--force] [path...]`: the flags and the picked paths. */
@@ -142,6 +149,7 @@ export type ParsedCommand =
   | ShadowCommand
   | StatusCommand
   | DoctorCommand
+  | DiffCommand
   | PullCommand
   | PushCommand
   | MachineShowCommand
@@ -179,6 +187,12 @@ const STATUS_COMMAND = "status";
 
 const DOCTOR_COMMAND = "doctor";
 
+const DIFF_COMMAND = "diff";
+
+const CHECK_COMMAND = "check";
+
+const PREVIEW_COMMAND = "preview";
+
 const PULL_COMMAND = "pull";
 
 const PULL_YES = "--yes";
@@ -200,8 +214,7 @@ const ONLY_OPTION = "--only";
 
 const ONLY_NEEDS_PATH = "ERROR: --only needs a path.";
 
-const PREVIEW_YES_CLASH =
-  "ERROR: --preview and --yes can't be used together.";
+const PREVIEW_YES_CLASH = "ERROR: --preview and --yes can't be used together.";
 
 const DIFF_CLASH = "ERROR: --diff cannot be combined with --preview or --yes.";
 
@@ -343,6 +356,73 @@ function parseRetire(
   }
 
   return target === undefined ? retireNeedsName(noun) : { kind, target, yes };
+}
+
+/** The positional paths after a command, or the option that ended them. */
+function parsePaths(
+  argv: readonly string[],
+  from: number,
+): { readonly paths: readonly string[] } | ParseError {
+  const paths: string[] = [];
+  for (let index = from; index < argv.length; index++) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (isOption(arg)) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    paths.push(arg);
+  }
+  return { paths };
+}
+
+/**
+ * `check [path...]`: the import check over the picked paths, spelled as
+ * `import --check --only <path>...`.
+ */
+function parseCheck(argv: readonly string[]): RunCommand | ParseError {
+  const taken = parsePaths(argv, 1);
+  if ("kind" in taken) {
+    return taken;
+  }
+  return {
+    kind: "run",
+    command: "import",
+    force: false,
+    preview: false,
+    check: true,
+    resetValues: false,
+    yes: false,
+    only: taken.paths,
+  };
+}
+
+/** `diff [path...]`: the paths the export diff labels. */
+function parseDiff(argv: readonly string[]): DiffCommand | ParseError {
+  const taken = parsePaths(argv, 1);
+  if ("kind" in taken) {
+    return taken;
+  }
+  return { kind: "diff", paths: taken.paths };
+}
+
+/** `preview`: the export preview, which takes no paths or options. */
+function parsePreview(argv: readonly string[]): RunCommand | ParseError {
+  const extra = argv[1];
+  if (extra !== undefined) {
+    return error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  return {
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: true,
+    check: false,
+    resetValues: false,
+    yes: false,
+    only: [],
+  };
 }
 
 /**
@@ -595,6 +675,15 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     return extra === undefined
       ? { kind: "doctor" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === DIFF_COMMAND) {
+    return parseDiff(argv);
+  }
+  if (command === CHECK_COMMAND) {
+    return parseCheck(argv);
+  }
+  if (command === PREVIEW_COMMAND) {
+    return parsePreview(argv);
   }
   if (command === PULL_COMMAND) {
     return parsePull(argv);

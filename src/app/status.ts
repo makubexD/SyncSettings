@@ -90,7 +90,7 @@ function fetchSeconds(
  * `git fetch -q origin master` under the status fetch limit. A failed or
  * timed-out fetch is `false`, which the status reports as offline.
  */
-async function fetchOrigin(
+export async function fetchOrigin(
   repoRoot: string,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<boolean> {
@@ -103,7 +103,10 @@ async function fetchOrigin(
     seconds === 0
       ? undefined
       : new Promise<"timeout">((resolve) => {
-          timer = setTimeout(() => resolve("timeout"), seconds * MILLISECONDS_PER_SECOND);
+          timer = setTimeout(
+            () => resolve("timeout"),
+            seconds * MILLISECONDS_PER_SECOND,
+          );
         });
   try {
     const child = Bun.spawn(["git", "fetch", "-q", "origin", "master"], {
@@ -176,18 +179,10 @@ async function originFromRepo(
 }
 
 /** Changed files under the sync paths; `null` when the folder isn't a clone. */
-export async function unsentCount(
-  repoRoot: string,
-): Promise<number | null> {
+export async function unsentCount(repoRoot: string): Promise<number | null> {
   const status = await runGitResult(
     repoRoot,
-    [
-      "status",
-      "--porcelain",
-      "--untracked-files=all",
-      "--",
-      ...UNSENT_PATHS,
-    ],
+    ["status", "--porcelain", "--untracked-files=all", "--", ...UNSENT_PATHS],
     GIT_ENV,
   );
   // A failed status prints nothing, so `wc -l` reads it as no changes.
