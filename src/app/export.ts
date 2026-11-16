@@ -9,6 +9,9 @@ import {
   readTrackedPaths,
   readUpstreamFacts,
 } from "../adapters/git.ts";
+import { readIdentity } from "../adapters/scan.ts";
+import { buildSnapshot, previewWorkingTree } from "../adapters/snapshot.ts";
+import type { Layers } from "../adapters/snapshot.ts";
 import {
   firstBackupFiles,
   readBackupSides,
@@ -16,7 +19,7 @@ import {
   writeFirstBackup,
   writeStoreProfile,
 } from "../adapters/store.ts";
-import type { FirstBackupFile } from "../adapters/store.ts";
+import type { BackupSides, FirstBackupFile } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
 import { askNewSettings } from "../cli/ask.ts";
 import type { RunCommand } from "../cli/parse.ts";
@@ -25,6 +28,8 @@ import { guard, PROFILES_FOLDER } from "../core/guard.ts";
 import type { GuardDecision, Visibility } from "../core/guard.ts";
 import type { LayerName } from "../core/layers/select.ts";
 import { firstBackupWrites, planFirstBackup } from "../core/machine/backup.ts";
+import { checkRecord } from "../core/machine/check.ts";
+import type { CheckMode, CheckResult } from "../core/machine/check.ts";
 import type {
   BackupQuestion,
   BackupSide,
@@ -42,6 +47,7 @@ import {
   withoutNewSettings,
 } from "../core/plan/groups.ts";
 import { applyMove } from "../core/plan/move.ts";
+import { planPreview } from "../core/plan/preview.ts";
 import {
   answersOf,
   newSettingChoices,
@@ -64,6 +70,7 @@ import {
 import type {
   ChangeLine,
   NewSettingLine,
+  Plan,
   RunPlan,
   Snapshot,
 } from "../core/plan/types.ts";
@@ -88,6 +95,11 @@ export function failure(message: string, code = 1): Result {
 
 export function writeLines(lines: readonly string[]): string {
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+}
+
+/** Print a plan that writes nothing: the import check and the export preview. */
+export function renderStatic(plan: Plan): Result {
+  return { code: plan.code, stdout: writeLines(plan.lines), stderr: "" };
 }
 
 /** The setup flow's terminal: text to stdout, answers from stdin. */
@@ -149,6 +161,14 @@ export function setupTerminal(): SetupTerminal {
   };
 }
 
+/** What a child run adds to its command: the push turns the "Move a change"
+ * questions on, and shares its terminal so the answers left for its PR
+ * question aren't lost when the export's reader closes. */
+export interface ExecuteOptions {
+  readonly moves?: boolean;
+  readonly terminal?: SetupTerminal;
+}
+
 /** What running a plan gave back: its printed result and the run's dated
  * backup folder when a copy landed. */
 export interface AppliedPlan {
@@ -197,6 +217,18 @@ export async function exportGuard(
  * tracked files can't be listed stops export: the guard fails closed. */
 export const CANNOT_LIST_TRACKED =
   "ERROR: can't list the clone's files, so the public-repo guard can't check them.";
+
+/** What an export or import run works on, once `main` has read the repo, the
+ * OS, the config and the layers. */
+export interface RunEnvironment {
+  readonly repoRoot: string;
+  readonly state: string;
+  readonly home: string;
+  readonly os: Os;
+  readonly config: ConfigV2;
+  readonly layers: Layers;
+  readonly options: ExecuteOptions | undefined;
+}
 
 /** What the up-to-date check printed before the run, and whether the run
  * stops: yes pulled (exit 0), or the pull failed (exit 1). */
@@ -258,6 +290,127 @@ export async function ensureUpToDate(repoRoot: string): Promise<UpToDateRun> {
       throw new Error(`unhandled up-to-date action: ${String(unhandled)}`);
     }
   }
+}
+
+/** Decision 8: the record check a command makes. */
+function checkMode(command: RunCommand): CheckMode {
+  if (command.command !== "export") {
+    return "pull";
+  }
+  return command.preview ? "preview" : "push";
+}
+
+/** What `startRun` gave back: the run stops with this result, or goes on with
+ * the prefix `finish` adds and the record check's lines `endRun` merges in. */
+export type RunStart =
+  | { readonly kind: "stop"; readonly result: Result }
+  | {
+      readonly kind: "go";
+      readonly finish: (result: Result) => Result;
+      readonly check: CheckResult | undefined;
+    };
+
+/**
+ * The checks an export or import makes before it runs: the up-to-date check,
+ * then the record check. A stop comes back as a result for the caller to
+ * return at once; otherwise `finish` carries the lines printed before the run.
+ */
+export async function startRun(
+  env: RunEnvironment,
+  command: RunCommand,
+): Promise<RunStart> {
+  // Contract "Up-to-date check": export and import start by checking the
+  // repo, not check, preview or diff. The lines print before everything else
+  // this run writes.
+  const upToDate =
+    (command.command === "export" && command.preview) ||
+    (command.command === "import" && command.check)
+      ? undefined
+      : await ensureUpToDate(env.repoRoot);
+  if (upToDate !== undefined && upToDate.stop) {
+    return {
+      kind: "stop",
+      result: {
+        code: upToDate.code,
+        stdout: upToDate.stdout,
+        stderr: upToDate.stderr,
+        stopped: true,
+      },
+    };
+  }
+  const upToDatePrefix = upToDate?.stdout ?? "";
+  const finish = (result: Result): Result =>
+    upToDatePrefix === ""
+      ? result
+      : { ...result, stdout: upToDatePrefix + result.stdout };
+
+  const check =
+    env.layers.record === undefined
+      ? undefined
+      : checkRecord(
+          env.layers.record,
+          readIdentity(process.env, env.os),
+          checkMode(command),
+        );
+  if (check !== undefined && check.stop) {
+    return {
+      kind: "stop",
+      result: finish({ code: 1, stdout: "", stderr: writeLines(check.lines) }),
+    };
+  }
+  return { kind: "go", finish, check };
+}
+
+/** What a run goes on with: the snapshot it built and the run's context. */
+export interface BuiltRun {
+  readonly snapshot: Snapshot;
+  readonly context: RunContext;
+}
+
+/** Build the run's snapshot and the context its steps run under. */
+export async function buildRun(
+  env: RunEnvironment,
+  command: RunCommand,
+): Promise<BuiltRun> {
+  const built = await buildSnapshot(
+    env.repoRoot,
+    env.config,
+    env.os,
+    env.home,
+    command,
+    process.cwd(),
+    process.env,
+    env.layers,
+  );
+  const snapshot: Snapshot = command.resetValues
+    ? { ...built, resetValues: true }
+    : built;
+  const context: RunContext = {
+    repoRoot: env.repoRoot,
+    os: env.os,
+    stateFolder: env.state,
+    location: env.layers.location,
+    env: snapshot.env,
+    now: () => new Date(),
+    pid: process.pid,
+  };
+  return { snapshot, context };
+}
+
+/** Merge the record check's lines into a run's stderr, after the prefix
+ * `finish` adds to its stdout. */
+export function endRun(
+  result: Result,
+  check: CheckResult | undefined,
+  finish: (result: Result) => Result,
+): Result {
+  if (check === undefined || check.lines.length === 0) {
+    return finish(result);
+  }
+  return finish({
+    ...result,
+    stderr: writeLines(check.lines) + result.stderr,
+  });
 }
 
 /**
@@ -578,7 +731,7 @@ async function askMoveQuestions(
  * `blockPrinted`, the caller already printed the block, ahead of the
  * first-backup questions.
  */
-function runExport(
+function runExportPlan(
   plan: RunPlan,
   snapshot: Snapshot,
   context: RunContext,
@@ -901,7 +1054,7 @@ export async function executeExport(
         }
         answers = await askFirstBackup(backup, terminal.io);
       }
-      const applied = runExport(
+      const applied = runExportPlan(
         plan,
         snapshot,
         context,
@@ -926,7 +1079,7 @@ export async function executeExport(
         blockPrinted = printBlock(terminal.io, lines, snapshot, settings);
         answers = await askFirstBackup(backup, terminal.io);
       }
-      const applied = runExport(
+      const applied = runExportPlan(
         plan,
         snapshot,
         context,
@@ -990,4 +1143,110 @@ export async function executeExport(
       terminal.close();
     }
   }
+}
+
+/** Contract "Public-repo guard (program only)", Refused: two lines per path. */
+function refusedText(paths: readonly string[]): string {
+  return paths
+    .flatMap((path) => [
+      `refused: the repo is public, so ${path} can't be pushed.`,
+      "It is kept on this machine and goes in with the first push after the repo is private.",
+    ])
+    .join("\n");
+}
+
+/** Contract "Public-repo guard (program only)", Held: the line and the paths. */
+function heldText(paths: readonly string[]): string {
+  return writeLines([
+    `held until the repo is private: ${paths.length} file(s)`,
+    ...paths.map((path) => `  ${path}`),
+  ]);
+}
+
+/**
+ * Run `mksync export` end to end: the up-to-date and record checks, the
+ * public-repo guard's refusal, the first backup's sides, then the export
+ * itself.
+ */
+export async function runExport(
+  env: RunEnvironment,
+  command: RunCommand,
+): Promise<Result> {
+  const started = await startRun(env, command);
+  if (started.kind === "stop") {
+    return started.result;
+  }
+  const { finish, check } = started;
+
+  // The record checks run first, then the public-repo guard's (contract
+  // "Public-repo guard (program only)").
+  const exportGuardResult = await exportGuard(
+    env.repoRoot,
+    env.state,
+    env.config,
+  );
+  if (exportGuardResult === undefined) {
+    return finish(failure(CANNOT_LIST_TRACKED));
+  }
+  if (!command.preview && exportGuardResult.decision.refused.length > 0) {
+    return finish(failure(refusedText(exportGuardResult.decision.refused)));
+  }
+  // Contract "The first backup": a private repo and a record not yet the
+  // pointer read both sides before the run.
+  let backupSides: BackupSides | undefined;
+  if (exportGuardResult.visibility === "private") {
+    const sides = readBackupSides(env.state, env.repoRoot, env.config);
+    if (!sides.ok) {
+      return finish(failure(sides.error.message, sides.error.code));
+    }
+    backupSides = sides.value;
+  }
+
+  const { snapshot, context } = await buildRun(env, command);
+
+  let result: Result;
+  if (command.preview) {
+    const firstBackup =
+      backupSides === undefined
+        ? undefined
+        : planFirstBackup(backupSides.local, backupSides.repo).paths;
+    result = renderStatic(
+      planPreview(
+        snapshot,
+        previewWorkingTree(env.repoRoot, snapshot.repoFiles),
+        firstBackup,
+      ),
+    );
+  } else {
+    const firstBackup: FirstBackupRun | undefined =
+      backupSides === undefined
+        ? undefined
+        : {
+            stateFolder: env.state,
+            repoRoot: env.repoRoot,
+            config: env.config,
+            local: backupSides.local,
+            repo: backupSides.repo,
+            yes: command.yes,
+          };
+    result = await executeExport(
+      snapshot,
+      command,
+      context,
+      firstBackup,
+      env.options?.moves ?? false,
+      env.options?.terminal,
+    );
+  }
+  if (
+    command.preview &&
+    result.code === 0 &&
+    exportGuardResult.decision.held.length > 0
+  ) {
+    result = {
+      ...result,
+      stdout: result.stdout + heldText(exportGuardResult.decision.held),
+    };
+  }
+  return endRun(result, check, finish);
 }

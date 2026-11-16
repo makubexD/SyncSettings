@@ -1,6 +1,4 @@
 import pkg from "../package.json" with { type: "json" };
-import { runPlan } from "./adapters/fs.ts";
-import type { RunContext } from "./adapters/fs.ts";
 import {
   readAheadBehind,
   readSyncPoint,
@@ -14,7 +12,6 @@ import {
   findRepoRoot,
   loadConfig,
   loadLayers,
-  previewWorkingTree,
   V1_CONFIG,
   V2_CONFIG,
 } from "./adapters/snapshot.ts";
@@ -23,12 +20,11 @@ import {
   renderStatusline,
   STATUSLINE_UNAVAILABLE,
 } from "./adapters/statusline.ts";
-import { readBackupSides } from "./adapters/store.ts";
-import type { BackupSides } from "./adapters/store.ts";
 import { readVisibility } from "./adapters/visibility.ts";
 import { executeCommit } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
 import { executeDoctor } from "./app/doctor.ts";
+import { runImport } from "./app/import.ts";
 import { executePull } from "./app/pull.ts";
 import type { FetchResult } from "./app/pull.ts";
 import { executePush } from "./app/push.ts";
@@ -36,22 +32,8 @@ import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
 import { executeShadow } from "./app/shadow.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
-import {
-  CANNOT_LIST_TRACKED,
-  ensureUpToDate,
-  executeExport,
-  exportGuard,
-  failure,
-  setupTerminal,
-  writeLines,
-} from "./app/export.ts";
-import type {
-  AppliedPlan,
-  ExportGuard,
-  FirstBackupRun,
-  Result,
-  SetupTerminal,
-} from "./app/export.ts";
+import { failure, runExport, setupTerminal, writeLines } from "./app/export.ts";
+import type { ExecuteOptions, Result, RunEnvironment } from "./app/export.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
 import type {
   CommitCommand,
@@ -68,29 +50,14 @@ import type {
   StatuslineCommand,
 } from "./cli/parse.ts";
 import { pickOs } from "./core/layers/select.ts";
-import { planFirstBackup } from "./core/machine/backup.ts";
 import { checkRecord } from "./core/machine/check.ts";
-import type { CheckMode } from "./core/machine/check.ts";
 import { machineScope } from "./core/machine/scope.ts";
 import { renderMachineShow } from "./core/machine/show.ts";
-import { planCheck } from "./core/plan/check.ts";
-import { planImport } from "./core/plan/import.ts";
-import { planPreview } from "./core/plan/preview.ts";
-import { renderRun } from "./core/plan/run.ts";
-import type { Plan, RunPlan, Snapshot } from "./core/plan/types.ts";
 import type { SetupIo } from "./wizard/setup.ts";
 
 export { USAGE };
 
 export type { Result } from "./app/export.ts";
-
-/** Decision 8: the record check a command makes. */
-function checkMode(command: RunCommand): CheckMode {
-  if (command.command !== "export") {
-    return "pull";
-  }
-  return command.preview ? "preview" : "push";
-}
 
 /** Git calls that could ask for credentials get the front door's `front_git`. */
 const GIT_ENV: Readonly<Record<string, string>> = {
@@ -321,80 +288,6 @@ async function statuslineOutput(): Promise<string> {
 /** The contract's no-record line, and exit 1. */
 const NO_RECORD = "ERROR: no machine record here; run mksync setup.";
 
-/**
- * Read the import's prompt answers as a list, which is what `planImport`
- * takes. End of input counts as yes, so no answers means every file applies.
- */
-async function readAnswers(command: RunCommand): Promise<readonly string[]> {
-  if (
-    command.command !== "import" ||
-    command.check ||
-    (command.force && !command.resetValues)
-  ) {
-    return [];
-  }
-  // shortcut: a terminal user does not see the Overwrite prompt yet. The whole
-  // of stdin is read up front because the planner takes answers as a list; with
-  // no piped input this waits for end of input before anything is applied.
-  const text = await Bun.stdin.text();
-  const lines = text.split(/\r?\n/);
-  if (lines[lines.length - 1] === "") {
-    lines.pop();
-  }
-  return lines;
-}
-
-/** Print a plan that writes nothing: the import check and the export preview. */
-function renderStatic(plan: Plan): Result {
-  return { code: plan.code, stdout: writeLines(plan.lines), stderr: "" };
-}
-
-/** Apply a plan's steps and render what the run printed, keeping the run's
- * dated backup folder. */
-function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
-  const outcome = runPlan(plan, context);
-  const rendered = renderRun(plan, outcome);
-  return {
-    result: {
-      code: rendered.code,
-      stdout: (plan.prompt ?? "") + writeLines(rendered.lines),
-      stderr: "",
-    },
-    backups: outcome.backups,
-  };
-}
-
-/** Apply a plan's steps and render what the run printed. */
-function applyPlan(plan: RunPlan, context: RunContext): Result {
-  return applyPlanAndBackup(plan, context).result;
-}
-
-/** Contract "Public-repo guard (program only)", Refused: two lines per path. */
-function refusedText(paths: readonly string[]): string {
-  return paths
-    .flatMap((path) => [
-      `refused: the repo is public, so ${path} can't be pushed.`,
-      "It is kept on this machine and goes in with the first push after the repo is private.",
-    ])
-    .join("\n");
-}
-
-/** Contract "Public-repo guard (program only)", Held: the line and the paths. */
-function heldText(paths: readonly string[]): string {
-  return writeLines([
-    `held until the repo is private: ${paths.length} file(s)`,
-    ...paths.map((path) => `  ${path}`),
-  ]);
-}
-
-/** What a child run adds to its command: the push turns the "Move a change"
- * questions on, and shares its terminal so the answers left for its PR
- * question aren't lost when the export's reader closes. */
-interface ExecuteOptions {
-  readonly moves?: boolean;
-  readonly terminal?: SetupTerminal;
-}
-
 /** Run the command against the repo found from the working folder. */
 async function execute(
   command: ExecutableCommand,
@@ -433,308 +326,188 @@ async function execute(
   }
 
   const state = stateFolder(os.value, home, process.env);
-  if (command.kind === "pull") {
-    // Decision 7: each child reads the config again, so a fast-forward's new
-    // config and code are the ones this pull goes on with.
-    return executePull(
-      { yes: command.yes, force: command.force, paths: command.paths },
-      {
-        runCheck: (only) => execute(pullImportCommand(true, false, only)),
-        runDiff: (only) => execute(diffCommand(only)),
-        runImport: (only) => execute(pullImportCommand(false, true, only)),
-        unsent: async () => (await unsentCount(repoRoot)) ?? 0,
-        fetchAndFastForward: () => fetchAndFastForward(repoRoot),
-        hasSyncPoint: async () =>
-          (await readSyncPoint(repoRoot, state)) !== undefined,
-        ask: askPullQuestion,
-        print: (shown) => {
-          process.stdout.write(shown.stdout);
-          process.stderr.write(shown.stderr);
-        },
-        cloneReady: () => cloneReady(repoRoot),
-      },
-    );
-  }
-  if (command.kind === "push") {
-    // One terminal for the whole push: the export's questions and the PR
-    // question share it, so an answer piped ahead isn't lost when the export
-    // closes its own reader.
-    const terminal = setupTerminal();
-    try {
-      return await executePush(
+  switch (command.kind) {
+    case "pull":
+      // Decision 7: each child reads the config again, so a fast-forward's new
+      // config and code are the ones this pull goes on with.
+      return executePull(
+        { yes: command.yes, force: command.force, paths: command.paths },
         {
-          yes: command.yes,
-          paths: command.paths,
-          ...(command.message === undefined
-            ? {}
-            : { message: command.message }),
-        },
-        {
-          runExport: (only, yes) =>
-            execute(pushExportCommand(only, yes), {
-              moves: true,
-              terminal,
-            }),
-          statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
-          ask: (question, defaultYes) =>
-            askTerminalQuestion(terminal.io, question, defaultYes),
+          runCheck: (only) => execute(pullImportCommand(true, false, only)),
+          runDiff: (only) => execute(diffCommand(only)),
+          runImport: (only) => execute(pullImportCommand(false, true, only)),
+          unsent: async () => (await unsentCount(repoRoot)) ?? 0,
+          fetchAndFastForward: () => fetchAndFastForward(repoRoot),
+          hasSyncPoint: async () =>
+            (await readSyncPoint(repoRoot, state)) !== undefined,
+          ask: askPullQuestion,
           print: (shown) => {
             process.stdout.write(shown.stdout);
             process.stderr.write(shown.stderr);
           },
-          runCommit: (partial, message) =>
-            execute(pushCommitCommand(partial, message)),
           cloneReady: () => cloneReady(repoRoot),
         },
       );
-    } finally {
-      terminal.close();
+    case "push": {
+      // One terminal for the whole push: the export's questions and the PR
+      // question share it, so an answer piped ahead isn't lost when the export
+      // closes its own reader.
+      const terminal = setupTerminal();
+      try {
+        return await executePush(
+          {
+            yes: command.yes,
+            paths: command.paths,
+            ...(command.message === undefined
+              ? {}
+              : { message: command.message }),
+          },
+          {
+            runExport: (only, yes) =>
+              execute(pushExportCommand(only, yes), {
+                moves: true,
+                terminal,
+              }),
+            statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
+            ask: (question, defaultYes) =>
+              askTerminalQuestion(terminal.io, question, defaultYes),
+            print: (shown) => {
+              process.stdout.write(shown.stdout);
+              process.stderr.write(shown.stderr);
+            },
+            runCommit: (partial, message) =>
+              execute(pushCommitCommand(partial, message)),
+            cloneReady: () => cloneReady(repoRoot),
+          },
+        );
+      } finally {
+        terminal.close();
+      }
+    }
+    case "setup":
+      return executeSetup(
+        repoRoot,
+        config.value,
+        os.value,
+        home,
+        state,
+        command,
+        execute,
+      );
+    case "machine-retire":
+    case "profile-retire":
+      return executeRetire(repoRoot, config.value, state, command);
+    case "commit":
+    case "shadow":
+    case "status":
+    case "doctor":
+    case "machine-show":
+    case "run":
+      break;
+    default: {
+      const unhandled: never = command;
+      throw new Error(`unhandled command: ${String(unhandled)}`);
     }
   }
-  if (command.kind === "setup") {
-    return executeSetup(
-      repoRoot,
-      config.value,
-      os.value,
-      home,
-      state,
-      command,
-      execute,
-    );
-  }
-  if (command.kind === "machine-retire" || command.kind === "profile-retire") {
-    return executeRetire(repoRoot, config.value, state, command);
-  }
+
   const layers = loadLayers(state, repoRoot, config.value);
   if (!layers.ok) {
     return failure(layers.error.message, layers.error.code);
   }
-  if (command.kind === "commit") {
-    return executeCommit({
-      repoRoot,
-      config: config.value,
-      state,
-      os: os.value,
-      location: layers.value.location,
-      command,
-      ...(layers.value.profile !== undefined
-        ? { profile: layers.value.profile }
-        : {}),
-      ...(layers.value.record !== undefined
-        ? { record: layers.value.record }
-        : {}),
-    });
-  }
-  if (command.kind === "shadow") {
-    return executeShadow(
-      repoRoot,
-      config.value,
-      os.value,
-      home,
-      state,
-      layers.value,
-    );
-  }
-  if (command.kind === "status") {
-    return executeStatus({
-      repoRoot,
-      config: config.value,
-      os: os.value,
-      home,
-      state,
-      layers: layers.value,
-    });
-  }
-  if (command.kind === "doctor") {
-    return executeDoctor({
-      repoRoot,
-      config: config.value,
-      os: os.value,
-      home,
-      layers: layers.value,
-    });
-  }
-  if (command.kind === "machine-show") {
-    const record = layers.value.record;
-    if (record === undefined) {
-      return failure(NO_RECORD);
-    }
-    const warnings = checkRecord(
-      record,
-      readIdentity(process.env, os.value),
-      "pull",
-    );
-    const lines = renderMachineShow(
-      record,
-      machineScope(config.value, layers.value.profile, record, os.value),
-    );
-    return {
-      code: 0,
-      stdout: writeLines(lines),
-      stderr: writeLines(warnings.lines),
-    };
-  }
-
-  if (command.diff === true) {
-    const snapshot = await buildSnapshot(
-      repoRoot,
-      config.value,
-      os.value,
-      home,
-      command,
-      process.cwd(),
-      process.env,
-      layers.value,
-    );
-    return diffExport(repoRoot, state, snapshot);
-  }
-
-  // Contract "Up-to-date check": export and import start by checking the
-  // repo, not check, preview or diff. The lines print before everything else
-  // this run writes.
-  const upToDate =
-    (command.command === "export" && command.preview) ||
-    (command.command === "import" && command.check)
-      ? undefined
-      : await ensureUpToDate(repoRoot);
-  if (upToDate !== undefined && upToDate.stop) {
-    return {
-      code: upToDate.code,
-      stdout: upToDate.stdout,
-      stderr: upToDate.stderr,
-      stopped: true,
-    };
-  }
-  const upToDatePrefix = upToDate?.stdout ?? "";
-  const finish = (result: Result): Result =>
-    upToDatePrefix === ""
-      ? result
-      : { ...result, stdout: upToDatePrefix + result.stdout };
-
-  const check =
-    layers.value.record === undefined
-      ? undefined
-      : checkRecord(
-          layers.value.record,
-          readIdentity(process.env, os.value),
-          checkMode(command),
-        );
-  if (check !== undefined && check.stop) {
-    return finish({ code: 1, stdout: "", stderr: writeLines(check.lines) });
-  }
-
-  // The record checks run first, then the public-repo guard's (contract
-  // "Public-repo guard (program only)").
-  let exportGuardResult: ExportGuard | undefined;
-  if (command.command === "export") {
-    exportGuardResult = await exportGuard(repoRoot, state, config.value);
-    if (exportGuardResult === undefined) {
-      return finish(failure(CANNOT_LIST_TRACKED));
-    }
-  }
-  if (
-    exportGuardResult !== undefined &&
-    !command.preview &&
-    exportGuardResult.decision.refused.length > 0
-  ) {
-    return finish(failure(refusedText(exportGuardResult.decision.refused)));
-  }
-  // Contract "The first backup": a private repo and a record not yet the
-  // pointer read both sides before the run.
-  let backupSides: BackupSides | undefined;
-  if (
-    command.command === "export" &&
-    exportGuardResult?.visibility === "private"
-  ) {
-    const sides = readBackupSides(state, repoRoot, config.value);
-    if (!sides.ok) {
-      return finish(failure(sides.error.message, sides.error.code));
-    }
-    backupSides = sides.value;
-  }
-
-  const answers = await readAnswers(command);
-  const built = await buildSnapshot(
+  const environment: RunEnvironment = {
     repoRoot,
-    config.value,
-    os.value,
+    state,
     home,
-    command,
-    process.cwd(),
-    process.env,
-    layers.value,
-  );
-  const snapshot: Snapshot = command.resetValues
-    ? { ...built, resetValues: true }
-    : built;
-  const context: RunContext = {
-    repoRoot,
     os: os.value,
-    stateFolder: state,
-    location: layers.value.location,
-    env: snapshot.env,
-    now: () => new Date(),
-    pid: process.pid,
+    config: config.value,
+    layers: layers.value,
+    options,
   };
-
-  let result: Result;
-  if (command.command === "export") {
-    if (command.preview) {
-      const firstBackup =
-        backupSides === undefined
-          ? undefined
-          : planFirstBackup(backupSides.local, backupSides.repo).paths;
-      result = renderStatic(
-        planPreview(
-          snapshot,
-          previewWorkingTree(repoRoot, snapshot.repoFiles),
-          firstBackup,
-        ),
-      );
-    } else {
-      const firstBackup: FirstBackupRun | undefined =
-        backupSides === undefined
-          ? undefined
-          : {
-              stateFolder: state,
-              repoRoot,
-              config: config.value,
-              local: backupSides.local,
-              repo: backupSides.repo,
-              yes: command.yes,
-            };
-      result = await executeExport(
-        snapshot,
+  switch (command.kind) {
+    case "commit":
+      return executeCommit({
+        repoRoot,
+        config: config.value,
+        state,
+        os: os.value,
+        location: layers.value.location,
         command,
-        context,
-        firstBackup,
-        options?.moves ?? false,
-        options?.terminal,
+        ...(layers.value.profile !== undefined
+          ? { profile: layers.value.profile }
+          : {}),
+        ...(layers.value.record !== undefined
+          ? { record: layers.value.record }
+          : {}),
+      });
+    case "shadow":
+      return executeShadow(
+        repoRoot,
+        config.value,
+        os.value,
+        home,
+        state,
+        layers.value,
       );
-    }
-    if (
-      command.preview &&
-      result.code === 0 &&
-      exportGuardResult !== undefined &&
-      exportGuardResult.decision.held.length > 0
-    ) {
-      result = {
-        ...result,
-        stdout: result.stdout + heldText(exportGuardResult.decision.held),
+    case "status":
+      return executeStatus({
+        repoRoot,
+        config: config.value,
+        os: os.value,
+        home,
+        state,
+        layers: layers.value,
+      });
+    case "doctor":
+      return executeDoctor({
+        repoRoot,
+        config: config.value,
+        os: os.value,
+        home,
+        layers: layers.value,
+      });
+    case "machine-show": {
+      const record = layers.value.record;
+      if (record === undefined) {
+        return failure(NO_RECORD);
+      }
+      const warnings = checkRecord(
+        record,
+        readIdentity(process.env, os.value),
+        "pull",
+      );
+      const lines = renderMachineShow(
+        record,
+        machineScope(config.value, layers.value.profile, record, os.value),
+      );
+      return {
+        code: 0,
+        stdout: writeLines(lines),
+        stderr: writeLines(warnings.lines),
       };
     }
-  } else {
-    result = command.check
-      ? renderStatic(planCheck(snapshot))
-      : applyPlan(planImport(snapshot, answers), context);
+    case "run": {
+      if (command.diff === true) {
+        const snapshot = await buildSnapshot(
+          repoRoot,
+          config.value,
+          os.value,
+          home,
+          command,
+          process.cwd(),
+          process.env,
+          layers.value,
+        );
+        return diffExport(repoRoot, state, snapshot);
+      }
+      return command.command === "export"
+        ? runExport(environment, command)
+        : runImport(environment, command);
+    }
+    default: {
+      const unhandled: never = command;
+      throw new Error(`unhandled command: ${String(unhandled)}`);
+    }
   }
-  if (check === undefined || check.lines.length === 0) {
-    return finish(result);
-  }
-  return finish({
-    ...result,
-    stderr: writeLines(check.lines) + result.stderr,
-  });
 }
 
 /**
