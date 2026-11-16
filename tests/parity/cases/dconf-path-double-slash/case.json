@@ -1,0 +1,31 @@
+{
+  "description": "A dconf path with an empty segment between two slashes stops both engines with exit 1 (Path safety; dconf entries).",
+  "os": [
+    "linux"
+  ],
+  "stubs": [
+    "dconf",
+    "getent"
+  ],
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/org//gnome/",
+        "description": "Parity case dconf entry with a double slash"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true
+    }
+  ]
+}

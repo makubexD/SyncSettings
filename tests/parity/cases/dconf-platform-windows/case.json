@@ -1,0 +1,24 @@
+{
+  "description": "A dconf entry with platform windows stops both engines with exit 1: only linux runs a dconf entry (Path safety; dconf entries).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "windows",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry with a windows platform"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true
+    }
+  ]
+}

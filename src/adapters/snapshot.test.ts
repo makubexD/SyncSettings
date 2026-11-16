@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -8,12 +9,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ConfigV2 } from "../core/config/types.ts";
+import type { RunCommand } from "../cli/parse.ts";
+import type { ConfigV2, ConfigV2Entry } from "../core/config/types.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import type { RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { readSnapshot } from "./fs.ts";
 import type { StoreLocation } from "./store.ts";
 import {
+  buildSnapshot,
   findRepoRoot,
   loadConfig,
   loadLayers,
@@ -49,6 +52,28 @@ const MACHINE_LAYER_FILE = `machines/${MACHINE_NAME}/parity/settings.json`;
 
 const LAYER_BYTES = '{"a":3}\n';
 
+/** The dconf folder a Linux snapshot dumps. */
+const DCONF_FOLDER = "/org/gnome/parity/";
+
+/** A dconf entry on Linux, so `buildSnapshot` dumps and looks the home up. */
+const DCONF_ENTRY: ConfigV2Entry = {
+  file: "parity/dconf.ini",
+  module: "base",
+  merge: "dconf",
+  dconfPath: DCONF_FOLDER,
+  os: ["linux"],
+};
+
+/** A `$USER` the uid lookup must not use. */
+const OTHER_USER = "someone-else";
+
+const PASSWD_LINE = "tester:x:1000:1000:tester:/home/tester:/bin/sh";
+
+const LOGIN_HOME = "/home/tester";
+
+/** `sh` lives here; the stub folder is the only other PATH entry. */
+const SYSTEM_PATH = "/usr/bin:/bin";
+
 const tempFolders: string[] = [];
 
 function tempFolder(): string {
@@ -60,6 +85,13 @@ function tempFolder(): string {
 function writeFixture(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
+}
+
+/** Write an executable `#!/bin/sh` stub named `name` into `bin`. */
+function writeStub(bin: string, name: string, script: string): void {
+  const path = join(bin, name);
+  writeFileSync(path, `#!/bin/sh\n${script}\n`);
+  chmodSync(path, 0o755);
 }
 
 afterEach(() => {
@@ -246,6 +278,20 @@ function snapshotOf(fixture: StateFixture, layers: Layers): Snapshot {
     ...(layers.machine !== undefined ? { machine: layers.machine } : {}),
     ...(layers.record !== undefined ? { record: layers.record } : {}),
   });
+}
+
+/** An `export` run, so `buildSnapshot` stops before the git reads. */
+function exportCommand(): RunCommand {
+  return {
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: false,
+    check: false,
+    resetValues: false,
+    yes: false,
+    only: [],
+  };
 }
 
 /** The local store's paths, as `readStore` reports them. */
@@ -445,4 +491,46 @@ describe("readSnapshot with layers", () => {
       LAYER_BYTES,
     );
   });
+});
+
+describe("buildSnapshot's dconf login home", () => {
+  test.skipIf(process.getuid === undefined)(
+    "should look the login home up by uid, not $USER",
+    async () => {
+      // Arrange
+      const fixture = stateFixture();
+      const bin = tempFolder();
+      const keyFile = join(tempFolder(), "key");
+      writeStub(
+        bin,
+        "getent",
+        `printf '%s\\n' "$2" > '${keyFile}'\nprintf '%s\\n' '${PASSWD_LINE}'`,
+      );
+      writeStub(bin, "dconf", "printf '%s\\n' '[/]'");
+      const config: ConfigV2 = {
+        schemaVersion: 2,
+        modules: { base: { description: "Base" } },
+        entries: [DCONF_ENTRY],
+      };
+      const env = { PATH: `${bin}:${SYSTEM_PATH}`, USER: OTHER_USER };
+
+      // Act
+      const snapshot = await buildSnapshot(
+        fixture.repo,
+        config,
+        "linux",
+        fixture.home,
+        exportCommand(),
+        fixture.home,
+        env,
+        { location: stateLocation(fixture) },
+      );
+
+      // Assert
+      expect(readFileSync(keyFile, "utf8").trim()).toBe(
+        String(process.getuid?.()),
+      );
+      expect(snapshot.loginHome).toBe(LOGIN_HOME);
+    },
+  );
 });

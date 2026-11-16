@@ -1,3 +1,4 @@
+import { hasDotDotSegment, isValidDconfPath } from "./dconf-path.ts";
 import type { ConfigError, ConfigV1, Result } from "./types.ts";
 
 const CONFIG_FILE = "sync-config.json";
@@ -6,13 +7,7 @@ const OS_NAMES: readonly string[] = ["windows", "linux", "macos"];
 
 const PLATFORM_NAMES: readonly string[] = ["common", ...OS_NAMES];
 
-const DCONF_PATH_RE = /^(\/[A-Za-z0-9._-]+)+\/$/;
-
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-const DOTDOT = "..";
-
-const PATH_SEPARATOR_RE = /[\\/]/;
 
 const INVALID_JSON_MESSAGE = `ERROR: ${CONFIG_FILE}: invalid JSON.`;
 
@@ -25,10 +20,6 @@ function repoPathOf(entry: unknown): string {
     return entry.repoPath;
   }
   return "";
-}
-
-function hasDotDotSegment(path: string): boolean {
-  return path.split(PATH_SEPARATOR_RE).includes(DOTDOT);
 }
 
 function isSafeRepoPath(path: string): boolean {
@@ -50,10 +41,6 @@ function isValidPlatform(platform: unknown): boolean {
     return false;
   }
   return platform.every((name) => typeof name === "string" && OS_NAMES.includes(name));
-}
-
-function isValidDconfPath(path: string): boolean {
-  return DCONF_PATH_RE.test(path) && !hasDotDotSegment(path);
 }
 
 function platformMessage(repoPath: string): string {

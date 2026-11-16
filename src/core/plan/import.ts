@@ -3,13 +3,19 @@ import type { SanitizeRule } from "../config/types.ts";
 import { jsonEqual } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
+import { dconfNeedsLoad } from "../merge/dconf.ts";
 import { mergeImport } from "../merge/import.ts";
 import { parseJsonBytes } from "../merge/json.ts";
 import { strategyFor } from "../merge/strategy.ts";
 import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
-import { hydrate, inferValues, resolveValues } from "../values/hydrate.ts";
+import {
+  askValues,
+  hydrate,
+  inferValues,
+  resolveValues,
+} from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
@@ -48,6 +54,16 @@ const EXTRA_NOTE = "not in repo; kept";
 const SYMLINK_NOTE = "symlink";
 
 const DCONF_NOTE = "not supported yet";
+
+const DCONF_MISSING_NOTE = "dconf not installed";
+
+const DCONF_HOME_NOTE = "HOME is not the login home; dconf left alone";
+
+const DCONF_CONFIG_NOTE = "XDG_CONFIG_HOME is not ~/.config; dconf left alone";
+
+const DCONF_FAILED_NOTE = "dconf dump failed";
+
+const DCONF_LOAD_FAILURE = "dconf load failed";
 
 const SYNC_POINT_FILE = "last-sync";
 
@@ -517,13 +533,133 @@ function planDir(state: State, selected: SelectedEntry): void {
   }
 }
 
+/** Contract "Backups": a dconf entry's backup sits under the state folder. */
+function dconfBackupPath(snapshot: Snapshot, repoPath: string): string {
+  const separator = separatorFor(snapshot.os);
+  const folder = joinPath(
+    snapshot.home,
+    `.local${separator}state${separator}sync-settings${separator}dconf`,
+    separator,
+  );
+  return joinPath(folder, `${basename(repoPath)}.bak`, separator);
+}
+
+/** A dump as bash keeps it: command substitution drops its trailing newlines. */
+function dumpText(text: string): string {
+  return text.replace(/\n+$/, "");
+}
+
+/**
+ * Contract "dconf entries" and table "Import": merge the repo file into its
+ * dconf folder, keeping a `.bak` of the old dump before every `UPDATED`. The
+ * guards and their order are `import_dconf` in `import.sh`.
+ */
 function planDconf(state: State, selected: SelectedEntry): void {
   const repoPath = primaryRepoPath(selected);
   if (!onlySelected(repoPath, state.only)) {
     return;
   }
-  pushStatus(state, "SKIPPED", repoPath, DCONF_NOTE);
-  state.skipped++;
+  state.pending = [];
+
+  const entry = selected.entry;
+  const dconfPath = entry.dconfPath;
+  const dumps =
+    state.snapshot.os === "linux" ? state.snapshot.dconfDumps : undefined;
+  const dump = dconfPath === undefined ? undefined : dumps?.get(dconfPath);
+  if (dconfPath === undefined || dump === undefined) {
+    // Windows and macOS never run dconf, and a snapshot without the dump has
+    // nothing to compare.
+    pushStatus(state, "SKIPPED", repoPath, DCONF_NOTE);
+    state.skipped++;
+    return;
+  }
+
+  const repoBytes = state.snapshot.repoFiles.get(repoPath);
+  if (repoBytes === undefined) {
+    pushStatus(state, "SKIPPED", repoPath, REPO_MISSING_NOTE);
+    state.skipped++;
+    return;
+  }
+
+  if (dump.kind === "missing") {
+    pushStatus(state, "SKIPPED", repoPath, DCONF_MISSING_NOTE);
+    state.skipped++;
+    return;
+  }
+
+  // dconf writes reach the service of the login session, so a throwaway HOME
+  // or another XDG_CONFIG_HOME would still change the real desktop.
+  if (
+    state.snapshot.loginHome === undefined ||
+    state.snapshot.home !== state.snapshot.loginHome
+  ) {
+    pushStatus(state, "SKIPPED", repoPath, DCONF_HOME_NOTE);
+    state.skipped++;
+    return;
+  }
+  const configHome = state.snapshot.env.XDG_CONFIG_HOME;
+  if (
+    configHome !== undefined &&
+    configHome !== "" &&
+    configHome !== `${state.snapshot.home}/.config`
+  ) {
+    pushStatus(state, "SKIPPED", repoPath, DCONF_CONFIG_NOTE);
+    state.skipped++;
+    return;
+  }
+
+  if (dump.kind === "failed") {
+    pushStatus(state, "ERROR", repoPath, DCONF_FAILED_NOTE);
+    return;
+  }
+
+  const repoText = new TextDecoder().decode(repoBytes);
+  const current = dumpText(dump.text);
+  const load: StepAction = {
+    action: { kind: "dconfLoad", path: dconfPath, text: repoText },
+    failure: DCONF_LOAD_FAILURE,
+  };
+
+  // Nothing set under the folder yet: load with no prompt and no backup.
+  if (current === "") {
+    state.pending.push(load);
+    const line = pushStatus(state, "CREATED", repoPath);
+    recordStep(state, repoPath, line, true);
+    return;
+  }
+
+  // A load only adds or replaces the keys it names, so a key only the machine
+  // has is not a difference (contract "Import merges; it never resets").
+  if (!dconfNeedsLoad(repoText, current)) {
+    const line = pushStatus(state, "UNCHANGED", repoPath);
+    recordStep(state, repoPath, line, false);
+    return;
+  }
+
+  if (!overwriteAccepted(state)) {
+    const line = pushStatus(state, "SKIPPED", repoPath, USER_SKIPPED_NOTE);
+    state.skipped++;
+    recordStep(state, repoPath, line, false);
+    return;
+  }
+
+  state.pending.push({
+    action: {
+      kind: "writeState",
+      path: dconfBackupPath(state.snapshot, repoPath),
+      text: `${current}\n`,
+      repoPath,
+    },
+    failure: BACKUP_FAILURE,
+  });
+  state.pending.push(load);
+  const line = pushStatus(
+    state,
+    "UPDATED",
+    repoPath,
+    `backup saved as ${basename(repoPath)}.bak`,
+  );
+  recordStep(state, repoPath, line, true);
 }
 
 /** The state file of contract "Sync point" for this OS. */
@@ -645,24 +781,50 @@ export function planImport(
   }
 
   const gathered = collectRules(snapshot, selected.value, only.paths);
-  const values = resolveValues(
-    gathered.rules,
-    snapshot.values,
-    gathered.inferred,
-    snapshot.env,
-    valueOwner(snapshot),
-  );
-  if (!values.ok) {
-    const placeholder = values.error.placeholder;
-    return {
-      ...errorPlan(values.error.message, 1),
-      ...(placeholder !== undefined ? { missing: placeholder } : {}),
-    };
+  const owner = valueOwner(snapshot);
+  let values: Values;
+  let prompt: string | undefined;
+  let answerIndex = 0;
+  if (snapshot.resetValues === true) {
+    // `--reset-values` asks again for every placeholder and skips inference.
+    const asked = askValues(
+      gathered.rules,
+      snapshot.values,
+      snapshot.env,
+      answers,
+      owner,
+    );
+    if (!asked.ok) {
+      const placeholder = asked.error.placeholder;
+      return {
+        ...errorPlan(asked.error.message, 1),
+        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+      };
+    }
+    values = asked.value.values;
+    prompt = asked.value.text;
+    answerIndex = asked.value.consumed;
+  } else {
+    const resolved = resolveValues(
+      gathered.rules,
+      snapshot.values,
+      gathered.inferred,
+      snapshot.env,
+      owner,
+    );
+    if (!resolved.ok) {
+      const placeholder = resolved.error.placeholder;
+      return {
+        ...errorPlan(resolved.error.message, 1),
+        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+      };
+    }
+    values = resolved.value;
   }
 
   const state: State = {
     snapshot,
-    values: values.value,
+    values,
     only: only.paths,
     isExcluded: compileExcludes(
       snapshot.config.excludePatterns ?? [],
@@ -674,7 +836,7 @@ export function planImport(
     finish: [],
     lines: [],
     pending: [],
-    answerIndex: 0,
+    answerIndex,
     skipped: 0,
     errors: 0,
     userSkips: 0,
@@ -718,11 +880,12 @@ export function planImport(
   };
   return {
     // Bash saves every value whenever an entry has rules, before any file.
-    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values.value),
+    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values),
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,
     summary,
     code: 0,
+    ...(prompt !== undefined ? { prompt } : {}),
   };
 }

@@ -696,6 +696,40 @@ The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are
 - **The Windows survey runs once, early.** One prompt on work machine #1 (`docs/windows-survey.md`) answers "Confirm
   on Windows" with names and shapes only.
 
+## Decided in phase 8
+
+The plan's decisions (`docs/plan-single-engine-8.md`), as rules. Exact lines are in the contract ("The program",
+"Diff", "Checks before pushing", "dconf entries", "Package drift", "Front door", "Move a change", "Linked folders").
+
+- **Old verbs and new commands side by side.** The program keeps `export` and `import`, gains `export --diff`,
+  `import --reset-values` and `commit`, and takes the front door's `status`, `doctor`, `pull`, `push`, `diff`,
+  `check` and `preview` as its own. Example: the shared case `commit-opens-pr` runs `mksync export` then
+  `mksync commit` against the program, and `export.sh` then `commit.sh` against bash.
+- **Diff without a temp folder.** `base` and `theirs` come from git objects; `mine` is `base` with the export's writes
+  applied in memory. Example: on personal Linux, `.bashrc` edited since the last sync reads `OUT` without any copy of
+  the clone being made.
+- **Commit is the program's,** with one new check: the guard reads the unpushed commits too. Example: a profile file
+  committed by hand and then `git rm --cached` is still refused while the repo is public, since pushing the branch
+  would publish the first commit (settles "Left by the phase 6 audits", the first item).
+- **The leak scan stays bash.** The program runs `scripts/ci/leak-scan.sh`. Example: a work machine without Git Bash
+  can't push until it has one; the survey says whether that happens.
+- **dconf through stubs.** The shared cases stub `dconf` and `getent`, so the dconf rules run against bash and the
+  program without a session bus. Example: `dconf-keys-filter` dumps a fixture `.ini` and expects the filtered repo
+  file.
+- **Drift stays in export and preview,** as the contract says; `docs/design-test-moves.md`'s "moves into `mksync
+doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Linux, `mksync doctor` says
+  `WARN drift: 3 package(s) differ; run mksync preview`, and the preview lists them.
+- **Pull doesn't re-run itself.** The program reads the config again after the fast-forward. Example: a pull that
+  brings a new entry applies it in the same run.
+- **Move a change.** A key moved narrower is an override; moved wider, it leaves the old layer. This machine's merged
+  files never change by a move. Example: on work #1, `editor.fontSize` 14 → 15 in the base moved to "profile work-1"
+  leaves the base at 14 for personal Linux and writes 15 into the profile's layer.
+- **Linked folders become `dir` entries** in a profile's or record's `entries`, asked once by `setup`. Example: on
+  work #1, `.bashrc` sources `~/work-tool-1-scripts`; setup suggests "this profile", and the folder syncs as
+  `profiles/work-1/linked/work-tool-1-scripts/`.
+- **The port has its own plan.** The old cases without a shared twin (`docs/design-test-moves.md`) are ported by
+  `docs/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
+
 ## Linked folders
 
 Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
@@ -856,9 +890,10 @@ the installers' downloads should run without a prompt. This is the documented be
 Apple Silicon also refuses unsigned code outright, so the macOS program needs at least an ad-hoc signature (above).
 No paid signing (Apple notarization, a Windows certificate) while the installers download from a script.
 
-**If a work machine blocks the unsigned program** (AppLocker, Defender policy): run from the clone. The user installs
-Bun in their own profile (no admin), and `mksync.cmd` in the clone runs `bun run src/main.ts`. Same code, same tests,
-only slower to start.
+**Two ways to run.** The program is the first: nothing to install. The second runs from the clone on a runtime the
+user picks, Bun or Node, for a machine that blocks the unsigned program (AppLocker, Defender policy) or a user who
+prefers it ("Open", "Run from the clone on Bun or Node"). Same code, same tests, only slower to start: the runtime
+compiles the TypeScript on every start, where the program carries it compiled already.
 
 ## Code layout
 
@@ -970,7 +1005,7 @@ src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node
   the export plan stops on it first.
 - `core/merge/strategy.ts` (`strategyFor`) gives one `MergeStrategy` per merge type (`whole.ts`, `json.ts`,
   `import.ts`); the export and import plans merge and split through it, except the import plan's side files, which
-  `mergeImport` still returns. `dir` and `dconf` have no strategy yet (phase 8).
+  `mergeImport` still returns. `dir` and `dconf` have no strategy yet (added in phase 8).
 - `core/machine/backup.ts` plans the first backup from the local and repo sides (`planFirstBackup`,
   `firstBackupWrites`); `main.ts` reads both sides again after the export's writes, so the backup carries what that
   export added. `adapters/store.ts` (`writeFirstBackup`) refuses a symlinked path, undoes its own writes on a failure,
@@ -980,6 +1015,37 @@ src/cli --include=*.ts --exclude=*.test.ts`. Core tests read fixtures with `node
   backup. `adapters/visibility.ts` judges every push URL of `origin`.
 - `core/statusline/format.ts` builds the line from facts that `adapters/statusline.ts` reads (payload, git, `/proc`,
   the context-window file, the `SYNC_*` overrides).
+
+**As built in phase 8.** The front door's commands in the program, one flow per command:
+
+- `src/app/<command>.ts` wires core and adapters for one command: `export.ts` (the export flow moved out of `main.ts`,
+  with the questions, the guard and the up-to-date check), `commit.ts`, `diff.ts`, `status.ts`, `doctor.ts`,
+  `pull.ts` and `push.ts` (with "Move a change?"). `main.ts` parses and dispatches; it still holds `import`, `setup`,
+  `machine`, `profile`, `statusline` and `shadow`.
+- New core, all pure: `core/plan/diff.ts` labels each changed file `IN`, `OUT` or `BOTH` from three trees and builds
+  the diff text; `core/plan/commit.ts` names the branch and writes the message and PR body, and finds paths outside the
+  sync and cached values; `core/plan/move.ts` moves a `json` change or a whole file between layers;
+  `core/plan/uptodate.ts` decides the up-to-date check's action; `core/front/status.ts` and `core/front/doctor.ts`
+  turn facts into the status and doctor lines; `core/drift.ts` compares package lists with what's installed;
+  `core/machine/linked.ts` finds linked folders and words their question and status line.
+- `core/merge/strategy.ts` now has a strategy for every merge type: `dconf` (`core/merge/dconf.ts`, keys filtered and
+  rendered as `dconf dump` does) and `dir` join `whole`, `json` and `import`.
+- New adapters, one per outside tool: `adapters/gh.ts` (`gh pr create`), `adapters/dconf.ts` (`dconf dump`, `dconf
+load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-query`, `apt-mark`, `snap`, `pipx`,
+  `code` and the GNOME extension list), `adapters/leakscan.ts` (`bash scripts/ci/leak-scan.sh`) and
+  `adapters/osname.ts` (the status's OS name). Git calls stay in `adapters/git.ts`, which gains fetch, fast-forward,
+  ahead and behind counts, `ls-tree` and `cat-file --batch` reads, and the commit and push calls.
+- `tools/claude-layout.ts` (dev-only) splits Claude's `settings.json` into layers for the cut-over (step 28); phase 9
+  runs it with `--cutover`.
+- After the phase 8 review (`docs/plan-single-engine-8-fixes.md`): `main.ts` only resolves the repo, OS, home and
+  config and dispatches with a `switch` over the command kind. `app/setup.ts`, `app/retire.ts` and `app/shadow.ts`
+  hold those flows (`executeSetup` takes `execute` as a parameter, so `app/` never imports `main.ts`), and
+  `app/import.ts` holds `runImport`. `app/export.ts` holds `runExport` and the run steps both share, in order:
+  `startRun` (up-to-date and record checks), `buildRun` (snapshot and `RunContext`) and `endRun` (the record lines on
+  stderr), plus the one `failure` helper. `RunContext` carries the snapshot's `env`, which the dconf load uses; the
+  login home is read with `getent passwd <uid>`. `core/plan/move.ts` takes each change's key path from the export
+  plan and refuses a move that changes the merge. `tools/claude-layout.ts` refuses a split repo and, without
+  `--cutover`, prints `would write <path>` lines; its tests use `tools/fixtures/claude-layout/`.
 
 ## Release and update
 
@@ -1046,6 +1112,15 @@ in the VM and leaves Pester to CI.
 program on both OSes (3 skipped until phase 8: `commit` and `diff`), 37 for bash, 36 for PowerShell
 (`import-eof-no-force` is skipped there).
 
+At the end of phase 8 (2026-11-16, Linux) there are 219 shared cases, 76 of them new in phase 8: the program passes
+all 219; bash passes 115 and skips 104 (`v2 only` and the program-only commands). The runners gained these fields:
+`syncPoint` (writes the repo's `HEAD` as the sync point), `origin/` (a commit that puts `origin/master` one ahead),
+`unsent/` (files left uncommitted in the clone), and `stubs` as a list of `gh`, `dconf` and `getent`
+(`tests/parity/README.md`, "The stubs"). The `dconf` stub answers `dump` from the case's `.ini` files and logs each
+`load` to `dconf.log`, compared with `expect/dconf.log`; the `getent` stub makes the case's temp home the login home.
+The runner touches the copied `home/` files, so a home file and its repo twin never share an mtime that git's stat
+cache would take for "unchanged".
+
 **Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
 without writing anything and compares them with the old engine's check and preview: the same files, the same
 placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
@@ -1057,10 +1132,10 @@ the clone, so the command writes nothing in the repo or home.
 
 Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholders the same in every exported file.
 
-- 10 dconf files, in the check and the preview: program `SKIPPED (not supported yet)`, engine `UNCHANGED`. dconf comes
-  in phase 8.
+- 10 dconf files, in the check and the preview: program `SKIPPED (not supported yet)`, engine `UNCHANGED`. Phase 8
+  built dconf in the program.
 - 11 package and extension `DRIFT` lines in the old engine's preview (apt, npm, pipx, a GNOME extension, an apt
-  source); the program prints none. Package drift comes in phase 8.
+  source); the program prints none. Phase 8 built package drift in the program. Shadow runs again in phase 9.
 
 **Shared cases for layers (phase 5).** The shared cases carried only v1 until phase 5. Layers need config v2, so a
 case may give `configV2` instead of `config`, plus `env` (from phase 6: `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`
@@ -1097,6 +1172,20 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 
 ### Design
 
+- **Run from the clone on Bun or Node (asked by the user 2026-11-16, phase 9).** Two layers: the program first, with
+  nothing to install; then the clone, on the runtime the user picks, Bun and Node as equal choices rather than a
+  fallback order. `MKSYNC_RUNTIME=bun|node` picks one; unset, the launcher (`mksync.cmd`, and a `mksync` script on
+  Linux and macOS) takes whichever is installed, Bun first. The code calls Bun only to start programs and read input
+  (`Bun.spawn`, `Bun.spawnSync`, `Bun.stdin`, `Bun.which`: 18 calls in 13 files). Plan: move those behind one process
+  adapter built on `node:child_process`, so the same code runs on both; build `dist/mksync.mjs` with
+  `bun build --target node`, one JavaScript file that `node mksync.mjs` runs with no `npm install`; and run the shared
+  cases against the program, Bun from the clone and Node. The Node version to require (20 or 22) and whether the
+  installers offer the Node file are open.
+- **Pull-only status (decided in phase 8 step 20, to confirm).** The contract only said status "never suggests
+  `mksync push`" on a pull-only machine. The program skips the unsent rule there, and a differing machine's next line
+  is `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
+  `OUT` or `BOTH` file. Unsent files on a pull-only machine still block `mksync pull`; whether status should say so
+  is open.
 - **A profile without a value.** `personal` has no `<YOUR_WORK_MARKETPLACE>`. Today import stops rather than write a
   placeholder. Options: the profile marks the value "none" and the engine drops that array item; or the item moves out
   of the base into each work profile's JSON layer, which "Merge and split" adds by item. The second needs no new rule
@@ -1114,8 +1203,28 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   `null` in the later layer removes the key, or removal isn't supported. Claude and VS Code treat some `null` values as
   meaningful, so `null` may need an explicit marker instead.
 - **`~` instead of `<HOME>` in Claude settings.** Claude Code expands `~` in commands on every OS (see "Statusline and
-  hooks on Windows"), so `settings.json` could drop `<HOME>` and its escaping. Needs the `$HOME` check under "Confirm
-  on Windows".
+  hooks on Windows"), so `settings.json` could drop `<HOME>` and its escaping. The `$HOME` check under "Confirm on
+  Windows" came back yes on work #1: `~` and `$HOME` both resolve under Git Bash and PowerShell 5.1. So nothing on
+  Windows blocks the switch; the layout tool's phase 9 run is where `<HOME>` in `hooks` and `statusLine` becomes `~`,
+  if the user agrees then.
+- **Personal keys in the base.** The layout tool puts every Linux key but `hooks` in the base, so `enabledPlugins`,
+  `extraKnownMarketplaces`, `permissions` and `autoMode` from personal Linux would reach the work machines, merged
+  with their own (work #1 has two work marketplaces and 25 `autoMode.environment` items). Which of those belong in
+  profile `personal` instead is the user's call before phase 9 runs the tool.
+- **Owner of a setting (asked by the user 2026-11-16).** Sync and back up only what the user creates or changes; leave
+  what a tool installs (a plugin's hook, a linked skill, a marketplace's cache) to that tool. The engine has no way yet
+  to tell who made a hook, a skill or a key. Signals the scan could read, none decided: a link's target (a skill that
+  links into `plugins/` or another tool's folder is that tool's); a name that starts with an installed plugin's or
+  marketplace's name (`installed_plugins.json`, `known_marketplaces.json`); a file next to that tool's own logs; a
+  file the repo already holds (the user's). `mksync setup` and `status` would then show the owner beside each new item
+  and ask only about those with no owner found. Asked on work #1 first, from its survey's tree.
+- **Names in the survey.** Names that are generic or public (`audit-agent-instructions`, `find-skills`, the
+  official plugins) stay as they are, as the user prefers original names to numbers. Names that point at the employer
+  stay `work-tool-<n>` while the repo is public (CLAUDE.md rule 1); they can become role names (what each one does)
+  if the user lists the roles, and real names once the repo is private (phase 10).
+- **An existing import line.** Work #1's `CLAUDE.md` already imports `@WORK-TOOL-3.md`. Under the `import` rule
+  (contract, "Layers") that line is base text, so a push would carry it to every machine. At its restore it moves into
+  the work profile's side file, `CLAUDE.work-1.md`.
 - **`<YOUR_NAME>` per profile.** It's likely the same on every profile. Keeping it per profile costs one prompt per job;
   a shared value would need a fifth place (the user), which the decisions don't have.
 - **A config that isn't valid JSON.** The contract has no line for it: the bash engine stops with `jq`'s own parse
@@ -1126,7 +1235,9 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   it as `ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.`, with `none` for a missing key, and words
   the other v2 refusals (exit 1) as `ERROR: sync-config.v2.json: entry <file> …`: `names unknown module <m>`,
   `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
-  `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`. They enter the
+  `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`, and (phase 8)
+  `has linked other than true`, and (phase 8 review) `needs a dconfPath like /org/gnome/shell/.` for a `dconf` entry
+  whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule. They enter the
   contract when v2 does.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
@@ -1171,15 +1282,18 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
 - **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
   drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
-  or become hidden, is the `cli` skill's review before phase 8.
+  or become hidden, is the `cli` skill's review before phase 8. Phase 8 keeps them and adds `commit` beside them
+  ("Decided in phase 8"); the review moves to phase 9, before cut-over.
 - **ESLint.** Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
   flat config; adding it (and which rule set) is decided when the code is big enough to need it, at the latest in
-  phase 8.
+  phase 8. Phase 8's plan leaves it to the user: it needs a new dependency (`ts-add-package`). Phase 8 ended with
+  `tsc` only; the question moves to phase 9.
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
-  rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows".
+  rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows": proposed no (step
+  27).
 - **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
   Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored.
@@ -1187,8 +1301,8 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
   the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
-parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo. They go
-  in the contract's program column in the phase's docs step.
+parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo.
+  Settled in phase 8's docs step: both are in the contract's "The program".
 - **Boundaries review, phase 4.** Phase 5 closed the home-path copies (`core/paths.ts`), the shared picking
   (`core/plan/pick.ts`), the merge strategies (`core/merge/`) and the snapshot reading (`adapters/snapshot.ts`,
   `parseValuesFile`, `pickOs`). Left:
@@ -1258,7 +1372,7 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1.
 - **Left by the phase 6 audits.** Each is a behavior the contract doesn't fix yet:
   - The guard checks tracked paths, not unpushed history: a state file committed and then `git rm --cached` still
-    goes out with the next push. Phase 8 owns the push.
+    goes out with the next push. Phase 8 owns the push: settled by its step 9, which reads `origin/master..HEAD`.
   - A piped `setup --replace` prints the old machine values as suggestions on stdout.
   - A `__proto__` placeholder in `.user-values.json` is dropped without a message.
   - Profile names read from file names, and retire names, aren't checked against the layer-name rule.
@@ -1329,6 +1443,39 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     pointer; the contract doesn't say whether that's meant to start a new first backup.
   - A destination key is `<module> <file>: <path>`, so a module name with a space could collide with another
     module's file; module names don't hold spaces today.
+  - "Move a change?" on a `-` line (a removed key, item or file) refuses with `change <n> removes a setting; it can't
+move.` and the push stops with exit 1. Phase 8's docs step wrote this into the contract as built; whether a removal
+    should move, or the question ask again instead, stays open.
+  - A change moved to a narrower group leaves the old layer as the repo holds it ("left as it was"), so the other
+    machines don't receive it; a whole file moved narrower keeps the old layer's repo copy instead of leaving it empty.
+  - After a move the block is numbered again in group order, so a moved change can take a new number; the contract
+    says its number is kept, which needs a number per change that survives regrouping.
+- **Left by phase 8.**
+  - Step 27 settled "Confirm on Windows" for work #1 from its survey; work #2 and #3, and the unsigned program, are
+    phase 9's checklist.
+  - The package managers have no stub in the shared-case runners, so the drift rules are core unit tests over stubbed
+    lists and the old bash cases.
+  - `main.ts` still holds the `statusline` and `machine show` flows and the `pull` and `push` wiring; each moves to
+    `src/app/` when it next changes. `import`, `setup`, the retires and `shadow` moved in the phase 8 review.
+  - The program's `commit` keeps `commit.sh`'s own lines, including `run commit.sh from master`; they change with the
+    cut-over's wording review.
+- **Left by the phase 8 review (`docs/plan-single-engine-8-fixes.md`).**
+  - **The first push from a private repo (phase 10).** Commit's sync paths are `dotfiles/`, `sync-config.json` and
+    `packages/`, so once the guard reads private, a push holding `profiles/`, `machines/` or `sync-config.v2.json`
+    stops with `commit or stash changes outside dotfiles/ first.` Phase 10 adds those paths to the sync paths, the
+    staged paths and `isSyncPath` when the guard reads private, with a `commit-private-backup` case.
+  - **One flow in `app/export.ts`, and one home per helper (cleanup plan after phase 9).** `executeExport`'s three
+    branches repeat plan, moves, refusal, block and first backup; `Result`, `writeLines` and `setupTerminal` move to
+    `app/io.ts`, `askMoves` to `app/moves.ts` (ending the `export.ts`–`push.ts` cycle). Copies to merge:
+    `refusedText`, the `[Y/n]` answer rule, the no-prompt git environment, `VALUES_FILE`,
+    `LINKED_DESTINATION_PREFIX`, `sameBytes`, `hasKeyPath`, the `RunCommand` literals, and `diff.ts`'s `byCodeUnit`,
+    which should be `drift.ts`'s byte-order `compareC`. `core/plan/move.ts` splits into JSON path, slot and plan
+    files.
+  - **Typed answers and `read -r` (phase 9).** Bash `read -r` trims spaces and tabs at both ends and keeps a trailing
+    `\r`; the program's `askValues` trims only the line end. Decide together with the PowerShell `Read-Host` rule.
+  - **Atomic profile and record writes (phase 9).** `writePrivateFile` rewrites an existing 0644 file before
+    tightening its mode, and a crash mid-write leaves a file that no longer parses: write a 0600 temp file and rename
+    it.
 
 ### Confirm on Windows
 
@@ -1341,17 +1488,38 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
   the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
   the repo would run; if so, resolve through `PATH` only.
-- **Shell.** Which shell Claude Code uses for the statusline and hooks on each work machine: Git Bash or PowerShell.
-  (`claude doctor`, or a hook that prints `$0`.) The docs say Git Bash when Git for Windows is installed.
-- **Git Bash and `jq`.** Whether Git for Windows (with Git Bash) and `jq` are installed on work #1 to #3, and whether
-  `CLAUDE_CODE_GIT_BASH_PATH` is set anywhere.
-- **Current layout.** The current Windows statusline (`statusLine` in `%USERPROFILE%\.claude\settings.json`, and the
-  script it calls), and what else is in `~/.claude` there: hooks, skills, `CLAUDE.md`. Names that point at an employer
-  are redacted (`work-tool-1`) before they reach the repo.
-- **`$HOME` in commands.** Whether `$HOME/.claude/…` in a hook or statusline command resolves under both Git Bash and
-  PowerShell, or only `~` does.
-- **Hooks on Windows.** Which of the Linux hooks the work machines need, and whether each gets a PowerShell twin
-  (`"shell": "powershell"`) or stays Linux-only.
-- **The unsigned program.** Whether each work machine runs the downloaded `mksync.exe` (and the research probe) with
-  no SmartScreen prompt or policy block. The user tries the probe at any work machine; the phase 9 checklist covers it
-  at the latest. If blocked, the run-from-clone fallback is tried there.
+- **Leak scan's `bash` (phase 8 review).** The program runs bare `bash`; with WSL installed, `System32\bash.exe` can
+  come before Git Bash on `PATH` and can't open the script, so every push stops at "could not run". Find Git Bash
+  explicitly and pass the script path with `/`.
+- **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
+  the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
+  `[Console]::OutputEncoding` first, and give the call a timeout.
+- **The survey (step 27).** Work machine #1's answer (`docs/windows-survey.md`, "Answer", 2026-11-16) settled the
+  next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
+
+- **Shell (work #1: Git Bash).** Claude Code's Bash tool is Git Bash (MSYS2 bash 5.2, `MINGW64`), and neither hook
+  sets `"shell"`, so hooks and the statusline command start under Git Bash, as the documentation says. Its
+  PowerShell tool is PowerShell 7.6; the current statusline command launches `powershell.exe` (5.1) itself.
+- **Git Bash and `jq` (work #1: both).** Git for Windows 2.50 with Git Bash, `jq` 1.6, PowerShell 5.1 and 7;
+  `CLAUDE_CODE_GIT_BASH_PATH` unset. So decision 4 holds there: the program's leak scan runs `bash`, and `mksync
+doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push until it has one.
+- **Current layout (work #1).** `settings.json` holds `hooks` (a `PreToolUse` hook with a matcher and a
+  `SessionStart` hook that runs `node.exe`, the work tool's own `hooks/work-tool-1-cache-heal.mjs`), `statusLine`
+  (`powershell.exe` running `~/.claude/statusline.ps1`), `enabledPlugins` and `extraKnownMarketplaces` (two work
+  marketplaces), `effortLevel`, `modelSettings`, `autoUpdatesChannel`, `tui`, the two notification flags, `autoMode`
+  (`environment`, 25 items) and `model`. `CLAUDE.md` is 69 lines with one import line, `@WORK-TOOL-3.md`. Three skills
+  are links, not folders. None of the Linux hooks is there.
+- **`$HOME` in commands (work #1: both work).** `$HOME/.claude` and `~/.claude` list the same folder under Git Bash
+  and under Windows PowerShell 5.1 (`-NoProfile`); PowerShell 7 wasn't tested on its own.
+- **Hooks on Windows (confirmed by the user, 2026-11-16).** The work machines get none of the Linux hooks: they serve
+  the plan workflow and its worker, which run on personal Linux only. So no PowerShell twins, `hooks` stays in the
+  Linux overlay, and `WINDOWS_OVERLAY_KEYS` in `tools/claude-layout.ts` stays empty: every other key is in the base
+  already. The rule behind it, in the user's words: sync and back up only what we create or change. Work #1's own two
+  hooks look installed by the work tool (`hooks/work-tool-1-cache-heal.mjs`, next to its `heal-partial-install.log`);
+  a hook a tool installs is the tool's, so it isn't synced, and the tool puts it back. Telling the two apart is
+  "Owner of a setting" under "Open".
+- **The unsigned program (open).** The survey didn't download it: the user chose not to put an unknown `.exe` on a
+  work machine without asking IT first. Work #1 has Node 26.13, npm 11.20, Bun 1.3.14 and winget 1.29, so the
+  run-from-clone fallback ("Open", Bun or Node) needs no install there. Bun 1.3.14 is older than the repo's 1.4.4:
+  whether the program's source runs on it, or the Node build is the fallback there, is checked in phase 9. The phase 9
+  checklist asks IT, or tries the program, at the latest.

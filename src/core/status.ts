@@ -15,6 +15,16 @@ export const STATUS_WORDS = [
 
 export type StatusWord = (typeof STATUS_WORDS)[number];
 
+/**
+ * The diff's labels. `formatLine` prints them, but they stay out of
+ * `STATUS_WORDS`: that list is the import and export status words, which build
+ * a regular expression and enumerate the words they print.
+ */
+export type DiffWord = "IN" | "OUT" | "BOTH" | "?";
+
+/** Any word `formatLine` prints. */
+export type LineWord = StatusWord | DiffWord;
+
 const WORD_WIDTH = 10;
 
 /**
@@ -23,7 +33,7 @@ const WORD_WIDTH = 10;
  * note in parentheses after two spaces.
  */
 export function formatLine(
-  word: StatusWord,
+  word: LineWord,
   label: string,
   note?: string,
 ): string {

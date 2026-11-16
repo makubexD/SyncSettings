@@ -17,6 +17,13 @@ const CONFIG: ConfigV2 = {
   entries: [],
 };
 
+const LINKED_ENTRY = {
+  file: "linked/work-tool-1-scripts",
+  module: "shell",
+  merge: "dir" as const,
+  localPath: "~/work-tool-1-scripts",
+};
+
 const FULL_FILE = {
   modules: ["git", "shell"],
   values: {
@@ -28,6 +35,7 @@ const FULL_FILE = {
     "vscode settings.json: window.zoomLevel": "machine",
   },
   retired: true,
+  entries: [LINKED_ENTRY],
 };
 
 const FULL_PROFILE: Profile = { name: NAME, ...FULL_FILE };
@@ -162,6 +170,163 @@ describe("parseProfile", () => {
     expectFailureText(
       JSON.stringify({ retired: "yes" }),
       `ERROR: profile ${NAME}: retired has the wrong type.`,
+    );
+  });
+
+  test("leaves entries absent when not given", () => {
+    // Act
+    const result = parseProfile(NAME, "{}", CONFIG);
+
+    // Assert
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Object.hasOwn(result.value, "entries")).toBe(false);
+    }
+  });
+
+  test("accepts a linked folder as a dir entry", () => {
+    // Act
+    const result = parseProfile(
+      NAME,
+      JSON.stringify({ entries: [LINKED_ENTRY] }),
+      CONFIG,
+    );
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        name: NAME,
+        modules: [],
+        values: {},
+        destinations: {},
+        retired: false,
+        entries: [LINKED_ENTRY],
+      },
+    });
+  });
+
+  test("keeps a linked entry unchanged", () => {
+    // Arrange
+    const text = JSON.stringify({ entries: [LINKED_ENTRY] });
+
+    // Act
+    const result = parseProfile(NAME, text, CONFIG);
+
+    // Assert
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(JSON.stringify(result.value.entries)).toBe(
+        JSON.stringify([LINKED_ENTRY]),
+      );
+    }
+  });
+
+  test("refuses entries that aren't a list", () => {
+    expectFailureText(
+      JSON.stringify({ entries: {} }),
+      `ERROR: profile ${NAME}: entries has the wrong type.`,
+    );
+  });
+
+  test("refuses an entry that isn't an object", () => {
+    expectFailureText(
+      JSON.stringify({ entries: ["linked/work-tool-1-scripts"] }),
+      `ERROR: profile ${NAME}: entry none needs file and localPath as strings.`,
+    );
+  });
+
+  test("refuses an entry with no file or localPath", () => {
+    expectFailureText(
+      JSON.stringify({
+        entries: [{ ...LINKED_ENTRY, localPath: undefined }],
+      }),
+      `ERROR: profile ${NAME}: entry linked/work-tool-1-scripts needs file and localPath as strings.`,
+    );
+  });
+
+  test("refuses a non-dir entry", () => {
+    expectFailureText(
+      JSON.stringify({ entries: [{ ...LINKED_ENTRY, merge: "whole" }] }),
+      `ERROR: profile ${NAME}: entry linked/work-tool-1-scripts is not a dir.`,
+    );
+  });
+
+  test("refuses an entry whose repo path is outside linked/", () => {
+    expectFailureText(
+      JSON.stringify({
+        entries: [{ ...LINKED_ENTRY, file: "shell/.bashrc" }],
+      }),
+      `ERROR: profile ${NAME}: entry shell/.bashrc is outside linked/.`,
+    );
+  });
+
+  test.each([
+    "linked/../parity/settings.json",
+    "linked/./x/",
+    "linked//x/",
+    "linked\\x",
+  ])("refuses an entry file %s outside linked/", (file) => {
+    expectFailureText(
+      JSON.stringify({ entries: [{ ...LINKED_ENTRY, file }] }),
+      `ERROR: profile ${NAME}: entry ${file} is outside linked/.`,
+    );
+  });
+
+  test("drops fields a dir entry doesn't use", () => {
+    // Act
+    const result = parseProfile(
+      NAME,
+      JSON.stringify({ entries: [{ ...LINKED_ENTRY, sanitize: [] }] }),
+      CONFIG,
+    );
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        name: NAME,
+        modules: [],
+        values: {},
+        destinations: {},
+        retired: false,
+        entries: [LINKED_ENTRY],
+      },
+    });
+  });
+
+  test("refuses an entry that names a module config v2 doesn't know", () => {
+    expectFailureText(
+      JSON.stringify({ entries: [{ ...LINKED_ENTRY, module: "nope" }] }),
+      `ERROR: profile ${NAME}: entry linked/work-tool-1-scripts names unknown module nope.`,
+    );
+  });
+
+  test("accepts a linked folder's no", () => {
+    // Act
+    const result = parseProfile(
+      NAME,
+      JSON.stringify({ destinations: { "linked: /home/jane/scripts": "no" } }),
+      CONFIG,
+    );
+
+    // Assert
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.destinations).toEqual({
+        "linked: /home/jane/scripts": "no",
+      });
+    }
+  });
+
+  test("refuses a linked destination other than no", () => {
+    expectFailureText(
+      JSON.stringify({ destinations: { "linked: /home/jane/scripts": "yes" } }),
+      `ERROR: profile ${NAME}: destination linked: /home/jane/scripts is not no.`,
+    );
+    expectFailureText(
+      JSON.stringify({ destinations: { "linked: /home/jane/scripts": null } }),
+      `ERROR: profile ${NAME}: destination linked: /home/jane/scripts is not no.`,
     );
   });
 

@@ -1,0 +1,31 @@
+{
+  "description": "Export sends a home path into a synced file, so the leak scan stops commit, exit 1, and it never calls gh (Checks before pushing).",
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export"
+    },
+    {
+      "command": "commit",
+      "output": "all",
+      "stderr": true
+    }
+  ]
+}

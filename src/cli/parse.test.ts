@@ -9,6 +9,7 @@ const EXPORT = {
   force: false,
   preview: false,
   check: false,
+  resetValues: false,
   yes: false,
   only: [],
 } as const;
@@ -19,6 +20,7 @@ const IMPORT = {
   force: false,
   preview: false,
   check: false,
+  resetValues: false,
   yes: false,
   only: [],
 } as const;
@@ -29,7 +31,41 @@ const VERSION = { kind: "version" } as const;
 
 const MACHINE_SHOW = { kind: "machine-show" } as const;
 
+const STATUS = { kind: "status" } as const;
+
+const DOCTOR = { kind: "doctor" } as const;
+
+const DIFF = { kind: "diff", paths: [] } as const;
+
+const CHECK = {
+  kind: "run",
+  command: "import",
+  force: false,
+  preview: false,
+  check: true,
+  resetValues: false,
+  yes: false,
+  only: [],
+} as const;
+
+const PREVIEW = {
+  kind: "run",
+  command: "export",
+  force: false,
+  preview: true,
+  check: false,
+  resetValues: false,
+  yes: false,
+  only: [],
+} as const;
+
+const PULL = { kind: "pull", yes: false, force: false, paths: [] } as const;
+
+const PUSH = { kind: "push", yes: false, paths: [] } as const;
+
 const SETUP = { kind: "setup" } as const;
+
+const COMMIT = { kind: "commit", partial: false } as const;
 
 function unknownOption(arg: string): { kind: "error"; message: string } {
   return { kind: "error", message: `Unknown option: ${arg}` };
@@ -118,6 +154,25 @@ describe("parseArgs", () => {
     });
   });
 
+  test("should parse import --reset-values", () => {
+    expect(parseArgs(["import", "--reset-values"])).toEqual({
+      ...IMPORT,
+      resetValues: true,
+    });
+  });
+
+  test("should refuse import --check --reset-values", () => {
+    expect(parseArgs(["import", "--check", "--reset-values"])).toEqual(
+      usageError("ERROR: --check cannot be combined with --reset-values."),
+    );
+  });
+
+  test("should refuse import --reset-values --check", () => {
+    expect(parseArgs(["import", "--reset-values", "--check"])).toEqual(
+      usageError("ERROR: --check cannot be combined with --reset-values."),
+    );
+  });
+
   test("should collect one path per repeated --only", () => {
     expect(
       parseArgs(["export", "--only", "dotfiles/a", "--only", "dotfiles/b"]),
@@ -185,6 +240,167 @@ describe("parseArgs", () => {
       kind: "error",
       message: "ERROR: --only needs a path.",
     });
+  });
+
+  test("should parse status", () => {
+    expect(parseArgs(["status"])).toEqual(STATUS);
+  });
+
+  test("should refuse an option after status", () => {
+    expect(parseArgs(["status", "--force"])).toEqual(unknownOption("--force"));
+  });
+
+  test("should refuse a stray argument after status", () => {
+    expect(parseArgs(["status", "extra"])).toEqual(unknownOption("extra"));
+  });
+
+  test("should parse doctor", () => {
+    expect(parseArgs(["doctor"])).toEqual(DOCTOR);
+  });
+
+  test("should refuse an option after doctor", () => {
+    expect(parseArgs(["doctor", "--force"])).toEqual(unknownOption("--force"));
+  });
+
+  test("should refuse a stray argument after doctor", () => {
+    expect(parseArgs(["doctor", "extra"])).toEqual(unknownOption("extra"));
+  });
+
+  test("should parse a bare diff", () => {
+    expect(parseArgs(["diff"])).toEqual(DIFF);
+  });
+
+  test("should parse diff with picked paths", () => {
+    expect(
+      parseArgs([
+        "diff",
+        "dotfiles/common/parity/a.conf",
+        "/home/user/.gitconfig",
+      ]),
+    ).toEqual({
+      ...DIFF,
+      paths: ["dotfiles/common/parity/a.conf", "/home/user/.gitconfig"],
+    });
+  });
+
+  test("should refuse an option after diff", () => {
+    expect(parseArgs(["diff", "--yes"])).toEqual(unknownOption("--yes"));
+  });
+
+  test("should parse a bare check", () => {
+    expect(parseArgs(["check"])).toEqual(CHECK);
+  });
+
+  test("should parse check with picked paths", () => {
+    expect(
+      parseArgs(["check", "dotfiles/common/parity/a.conf", "b.conf"]),
+    ).toEqual({
+      ...CHECK,
+      only: ["dotfiles/common/parity/a.conf", "b.conf"],
+    });
+  });
+
+  test("should refuse an option after check", () => {
+    expect(parseArgs(["check", "--only", "dotfiles/a"])).toEqual(
+      unknownOption("--only"),
+    );
+  });
+
+  test("should parse preview", () => {
+    expect(parseArgs(["preview"])).toEqual(PREVIEW);
+  });
+
+  test("should refuse an option after preview", () => {
+    expect(parseArgs(["preview", "--yes"])).toEqual(unknownOption("--yes"));
+  });
+
+  test("should refuse a stray argument after preview", () => {
+    expect(parseArgs(["preview", "dotfiles/a"])).toEqual(
+      unknownOption("dotfiles/a"),
+    );
+  });
+
+  test("should parse pull", () => {
+    expect(parseArgs(["pull"])).toEqual(PULL);
+  });
+
+  test("should parse pull --yes", () => {
+    expect(parseArgs(["pull", "--yes"])).toEqual({ ...PULL, yes: true });
+  });
+
+  test("should parse pull --force", () => {
+    expect(parseArgs(["pull", "--force"])).toEqual({ ...PULL, force: true });
+  });
+
+  test("should parse pull with one path", () => {
+    expect(parseArgs(["pull", "dotfiles/common/parity/a.conf"])).toEqual({
+      ...PULL,
+      paths: ["dotfiles/common/parity/a.conf"],
+    });
+  });
+
+  test("should parse pull with several paths and both flags", () => {
+    expect(parseArgs(["pull", "--yes", "a.conf", "--force", "b.conf"])).toEqual(
+      { ...PULL, yes: true, force: true, paths: ["a.conf", "b.conf"] },
+    );
+  });
+
+  test("should refuse an unknown option after pull", () => {
+    expect(parseArgs(["pull", "--bogus"])).toEqual(unknownOption("--bogus"));
+  });
+
+  test("should refuse a short option after pull", () => {
+    expect(parseArgs(["pull", "-x"])).toEqual(unknownOption("-x"));
+  });
+
+  test("should parse push", () => {
+    expect(parseArgs(["push"])).toEqual(PUSH);
+  });
+
+  test("should parse push --yes", () => {
+    expect(parseArgs(["push", "--yes"])).toEqual({ ...PUSH, yes: true });
+  });
+
+  test("should parse push with one path", () => {
+    expect(parseArgs(["push", "dotfiles/common/parity/a.conf"])).toEqual({
+      ...PUSH,
+      paths: ["dotfiles/common/parity/a.conf"],
+    });
+  });
+
+  test("should parse push with several paths and -m", () => {
+    expect(
+      parseArgs(["push", "--yes", "-m", "sync: work", "a.conf", "b.conf"]),
+    ).toEqual({
+      ...PUSH,
+      yes: true,
+      message: "sync: work",
+      paths: ["a.conf", "b.conf"],
+    });
+  });
+
+  test("should keep a push -m message that starts with a dash", () => {
+    expect(parseArgs(["push", "-m", "--yes"])).toEqual({
+      ...PUSH,
+      message: "--yes",
+    });
+  });
+
+  test("should keep the last push -m message", () => {
+    expect(parseArgs(["push", "-m", "one", "-m", "two"])).toEqual({
+      ...PUSH,
+      message: "two",
+    });
+  });
+
+  test("should refuse push -m with no value", () => {
+    expect(parseArgs(["push", "-m"])).toEqual(
+      usageError("Missing value for -m"),
+    );
+  });
+
+  test("should refuse an unknown option after push", () => {
+    expect(parseArgs(["push", "--bogus"])).toEqual(unknownOption("--bogus"));
   });
 
   test("should parse machine show", () => {
@@ -410,8 +626,82 @@ describe("parseArgs", () => {
     expect(parseArgs(["setup", "work-1"])).toEqual(unknownOption("work-1"));
   });
 
+  test("should parse commit with no options", () => {
+    expect(parseArgs(["commit"])).toEqual(COMMIT);
+  });
+
+  test("should parse commit -m and --partial", () => {
+    expect(parseArgs(["commit", "-m", "sync: work", "--partial"])).toEqual({
+      ...COMMIT,
+      message: "sync: work",
+      partial: true,
+    });
+  });
+
+  test("should keep an -m message that starts with a dash", () => {
+    expect(parseArgs(["commit", "-m", "--partial"])).toEqual({
+      ...COMMIT,
+      message: "--partial",
+    });
+  });
+
+  test("should keep the last commit -m message", () => {
+    expect(parseArgs(["commit", "-m", "one", "-m", "two"])).toEqual({
+      ...COMMIT,
+      message: "two",
+    });
+  });
+
+  test("should refuse commit -m with no value", () => {
+    expect(parseArgs(["commit", "-m"])).toEqual(
+      usageError("ERROR: -m needs a value."),
+    );
+  });
+
+  test("should refuse an unknown option after commit", () => {
+    expect(parseArgs(["commit", "--bogus"])).toEqual(unknownOption("--bogus"));
+  });
+
+  test("should refuse a stray argument after commit", () => {
+    expect(parseArgs(["commit", "work-1"])).toEqual(unknownOption("work-1"));
+  });
+
   test("should keep shadow out of the usage line", () => {
     expect(USAGE_TEXT.includes("shadow")).toBe(false);
+  });
+
+  test("should name status in the usage line", () => {
+    expect(USAGE_TEXT.startsWith("usage: mksync status |")).toBe(true);
+  });
+
+  test("should name doctor in the usage line", () => {
+    expect(
+      USAGE_TEXT.startsWith("usage: mksync status | mksync doctor |"),
+    ).toBe(true);
+  });
+
+  test("should name pull in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes("mksync pull [--yes] [--force] [<path>...]"),
+    ).toBe(true);
+  });
+
+  test("should name push in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes("mksync push [--yes] [-m <msg>] [<path>...]"),
+    ).toBe(true);
+  });
+
+  test("should name diff in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync diff [<path>...]")).toBe(true);
+  });
+
+  test("should name check in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync check [<path>...]")).toBe(true);
+  });
+
+  test("should name preview in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync preview")).toBe(true);
   });
 
   test("should name machine show in the usage line", () => {
@@ -434,9 +724,25 @@ describe("parseArgs", () => {
     expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
   });
 
+  test("should name commit in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync commit [-m <msg>] [--partial]")).toBe(
+      true,
+    );
+  });
+
   test("should name export --yes in the usage line", () => {
     expect(
-      USAGE_TEXT.includes("mksync export [--preview] [--yes] [--only <path>...]"),
+      USAGE_TEXT.includes(
+        "mksync export [--preview] [--diff] [--yes] [--only <path>...]",
+      ),
+    ).toBe(true);
+  });
+
+  test("should name import --reset-values in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes(
+        "mksync import [--check] [--force] [--reset-values] [--only <path>...]",
+      ),
     ).toBe(true);
   });
 });
@@ -447,10 +753,13 @@ describe("USAGE", () => {
       join(import.meta.dir, "../../docs/sync-contract.md"),
       "utf8",
     );
+    // The contract keeps the current line and the end-of-phase line side by
+    // side until step 30; USAGE is the last one written.
     const usageLine = contract
       .split("\n")
       .map((line) => line.trim())
-      .find((line) => line.startsWith("usage: mksync "));
+      .filter((line) => line.startsWith("usage: mksync "))
+      .at(-1);
 
     expect(usageLine).toBe(USAGE_TEXT);
   });

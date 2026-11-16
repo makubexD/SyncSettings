@@ -1,0 +1,31 @@
+{
+  "description": "A dconf path with a .. segment stops both engines with exit 1 before touching anything (Path safety; dconf entries).",
+  "os": [
+    "linux"
+  ],
+  "stubs": [
+    "dconf",
+    "getent"
+  ],
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/org/../etc/",
+        "description": "Parity case dconf entry with a .. segment"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "stderr": true
+    }
+  ]
+}

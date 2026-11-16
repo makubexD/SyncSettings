@@ -1,0 +1,7 @@
+MODIFIED dotfiles/common/parity/a.conf
+
+  +==========================================+
+  |        SyncSettings -- COMMIT           |
+  +==========================================+
+
+ERROR: a cached value for <YOUR_EMAIL> is in dotfiles/common/parity/a.conf; nothing was committed.

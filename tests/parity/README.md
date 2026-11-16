@@ -19,9 +19,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engin
 
 `--engine <path>` (`-Engine <path>`) runs the cases against one program instead of the OS's engine: it is copied into
 the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the commands are spelled
-`./mksync export …` with the same options, and it is stripped before the repo is compared. With a program:
+`./mksync export …` with the same options (and `./mksync status …`, `diff`, `check` and `preview` for `front-diff`,
+`front-check` and `front-preview`), and it is stripped before the repo is compared. With a program:
 
-- a case with a `diff` or `commit` command prints `SKIP <case>: <command> comes in phase 8` and is not a failure;
 - a case with a `setup`, `machine-show`, `machine-retire`, `profile-retire` or `statusline` command prints
   `SKIP <case>: <command> is program only` against an engine other than the program, and counts as skipped;
 - a `configV2` case prints `SKIP <case>: v2 only` against an engine other than the program and counts as skipped, not
@@ -55,6 +55,9 @@ cases/<name>/
   home/            the home folder before the run (optional; empty when missing)
   repo/            repo files before the run, besides sync-config.json (optional)
   state/           the engine's state folder before the run (optional)
+  origin/          repo files committed on top of master in a second clone, so origin is ahead (optional)
+  unsent/          repo-relative files copied over the working tree after the commit, left uncommitted (optional)
+  dconf/           the dumps the dconf stub answers, one .ini per path (optional)
   expect/
     exit           one exit code per command, one per line
     output.txt     the status lines of every command, in order
@@ -63,6 +66,7 @@ cases/<name>/
     values.json    optional: .user-values.json after the last command
     state/         optional: files the engine's state folder must hold
     gh.log         optional: the gh calls, when the case stubs gh
+    dconf.log      optional: the dconf loads, when the case stubs dconf
   expect.<os>/     optional: only what differs from expect/ on linux, macos or windows
 ```
 
@@ -77,7 +81,10 @@ cases/<name>/
 | `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. A `configV2` case may set only `SYNC_PROFILE`, `SYNC_MACHINE`, `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`, `MKSYNC_VISIBILITY`, `SYNC_NOW`, `SYNC_LOAD`, `SYNC_MEM`, `SYNC_GIT`, `CONTEXT_CLEAR_AT` and `CTX_WINDOW_DIR`; any other key is a runner error. `CTX_WINDOW_DIR` is a path relative to the case's temp home (`.claude/state/ctx-window` reaches the command as `<home>/.claude/state/ctx-window`); an absolute path or one with a `..` segment is a runner error |
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": …, "stderr": true }`, the last two optional |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
-| `stubs` | Optional. `["gh"]` puts a `gh` stub first on `PATH`; see `expect/gh.log` below |
+| `syncPoint` | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error |
+| `stubs` | Optional. Any of `gh`, `dconf` and `getent`, as a list: each names a stub put first on `PATH`; see [The stubs](#the-stubs) below |
+| `origin/` (folder) | Optional. A tree of repo-relative files committed on top of `master` in a second clone and pushed to the bare origin, then `git fetch origin` in the repo: `origin/master` is one commit ahead, while the repo's `master` and working tree stay unchanged. Needs `"git": "remote"`; without it, a runner error |
+| `unsent/` (folder) | Optional. A tree of repo-relative files copied over the repo's working tree after the initial commit, the push and `origin/`, and left uncommitted, so `git status --porcelain` shows them. They are compared like any other repo file, so `expect/repo/` must hold them. Needs `"git": "committed"` or `"remote"`; without one, a runner error |
 | `differences` | Required when the case has an `expect.<os>/` folder, and only then: the names of the rows it records |
 
 `home/`, `repo/` and `state/` are copied into the case's temp folders before the first command. `state/` goes into
@@ -87,18 +94,28 @@ record (`machine.json`) and profiles (`profiles/*.json`) go in with mode 600, as
 bash runner wants 600 for them in `expect/state/`, since git can't store that mode.
 
 `command` is one of `export`, `import`, `check` (`import --check`, `-Check`), `preview` (`export --preview`,
-`-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, plus the program-only `setup`, `statusline`,
-`machine-show` (`machine show`), `machine-retire` (`machine retire <target>`) and `profile-retire`
-(`profile retire <target>`).
+`-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`,
+`front-check` and `front-preview`, plus the program-only `setup`, `statusline`, `machine-show` (`machine show`),
+`machine-retire` (`machine retire <target>`) and `profile-retire` (`profile retire <target>`). A front door command
+runs `./sync <cmd>` on the bash engine, `.\sync.cmd <cmd>` on the PowerShell engine and `./mksync <cmd>` on the
+program, with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview` in each. The runner
+copies the front door with the engine: `sync` and `scripts/linux/front.sh` for bash, `sync.cmd` and
+`scripts/windows/Front.ps1` for PowerShell.
 `options` uses neutral names that the runner spells for each engine: `force: true` is `--force` or `-Force`,
-`only: [paths]` is `--only` or `-Only`. For the program, `name`, `profile`, `replace`, `claude`, `mode` and `existing`
-are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes` on `setup`, `export`,
-`preview`, `machine-retire` and `profile-retire`; and `target`, a string, is the name argument of `machine-retire` and
-`profile-retire`, required there and refused elsewhere. Every command runs with no terminal, as CI does, and with stdin
-empty unless the command has `stdin`: a string sent as its stdin, such as `"n\n"` for a prompt answer. Its stderr is
-merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status lines in
-`output.txt`, for the warnings the program prints there. A command's output is read as status lines (below) except for
-`setup`, `statusline`, `machine-show`, `machine-retire` and `profile-retire`, and any command with `"output": "all"`:
+`only: [paths]` is `--only` or `-Only`, and `resetValues`, a boolean, is `--reset-values` (`-ResetValues` on the
+PowerShell engine), allowed on `import` and `check` only. For the program, `name`, `profile`, `replace`, `claude`,
+`mode` and `existing` are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes`
+on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`, `pull`, `push` and
+`front-diff`; and `target`, a string, is the name argument of `machine-retire` and `profile-retire`, required there
+and refused elsewhere. On `commit` only, `partial: true` adds `--partial` (`-Partial` on the PowerShell engine);
+`message`, a string, adds `-m <msg>` (`-Message <msg>`) on `commit` and `push`. On the six front door commands
+(`status`, `doctor`, `pull`, `push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each path
+as a positional argument after the options. Every command runs with no terminal, as CI does, and with stdin empty unless the command has `stdin`: a
+string sent as its stdin, such as `"n\n"` for a prompt answer. Its
+stderr is merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status
+lines in `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below)
+except for `setup`, `statusline`, `machine-show`, `machine-retire` and `profile-retire`, and any command with
+`"output": "all"`:
 those keep their whole stdout instead, so the `machine show` fields, the scan block and the `ERROR:`, `held` and
 `refused:` lines reach `output.txt`. `statusline` keeps its ANSI color codes in `output.txt`, as the contract writes
 them; every other whole-stdout command has them removed. `output` may only be `"all"`; anything else is a runner
@@ -107,33 +124,52 @@ error.
 ### Per-OS expectations
 
 `expect.<os>/` (`linux`, `macos`, `windows`) holds only what differs on that OS. Each entry replaces its twin in
-`expect/`: `exit` and `output.txt` as files, `home/` and `repo/` as whole trees, `values.json`, `state/` and `gh.log`
-the same way. Use it only for a row of the contract's
+`expect/`: `exit` and `output.txt` as files, `home/` and `repo/` as whole trees, `values.json`, `state/`, `gh.log` and
+`dconf.log` the same way. Use it only for a row of the contract's
 [Known differences](../../docs/sync-contract.md#known-differences), named in `differences`. The one other allowed
 name is `"Entry selection"`, for a case where each OS picks its own entries by design.
 
-### The `gh` stub
+### The stubs
 
 With `"stubs": ["gh"]`, every `gh` call appends its arguments, joined by spaces, as one line to a log outside both
 trees; the stub prints nothing and exits 0. Each logged line is cut to its first two words (`pr create`), so branch
 names and titles don't matter, and the result must equal `expect/gh.log` line for line. No `expect/gh.log` with the
 stub on means `gh` must not be called.
 
+With `"stubs": ["dconf"]`, a `dconf` first on `PATH` stands in for the session's dconf. `dconf dump <path>` prints the
+case's `dconf/<name>.ini`, where `<name>` is the path without its leading and trailing `/` and with the remaining `/`
+turned to `-` (`/org/gnome/desktop/` is `dconf/org-gnome-desktop.ini`); a missing file prints nothing. Either way it
+exits 0.
+`dconf load <path>` appends the line `load <path>` and then its stdin verbatim to a log outside both trees; there is no
+cut, so the result must equal `expect/dconf.log` byte for byte. No `expect/dconf.log` with the stub on means dconf must
+not be loaded. Any other `dconf` call prints a message on stderr and exits 1.
+
+With `"stubs": ["getent"]`, `getent passwd <key>` (the program asks by uid) answers with the case's temp home in the
+home field (`<key>:x:1000:1000::<home>:/bin/bash`) and exits 0; any other call exits 2, as getent does for an unknown
+key. `getent` needs `dconf` in the same list: `run.sh` refuses a case that stubs it alone, since the lookup only guards
+a dconf load. `dconf` and `getent` are Linux only: `run.ps1` skips a case whose `os` leaves out Windows before it looks
+at the stubs, and fails one that would run on Windows with them.
+
 ## How the runner checks it
 
 1. Copy the engine into a temp repo, write `config` or `configV2` and `values`, copy `repo/`, `home/` and `state/`.
 2. Run each command with the home folder as `HOME` (Linux, macOS) or `USERPROFILE` (Windows). `GH`,
    `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `VIRTUAL_ENV` and `CONDA_DEFAULT_ENV` are cleared first, so the caller's
-   shell can't change a case's output (a Python env would otherwise add a statusline section).
+   shell can't change a case's output (a Python env would otherwise add a statusline section). So are
+   `DBUS_SESSION_BUS_ADDRESS`, `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GH_TOKEN` and `GITHUB_TOKEN`, and
+   `GIT_CEILING_DIRECTORIES` is the case's temp folder, so a case can't reach the real session bus, the caller's repo
+   or a GitHub account (both runners). A case's own `env` is applied after, so it may still set them. Copied `home/`
+   files get the current time, so git's stat cache can't call a changed repo twin clean.
 3. Compare:
    - **Exit codes** with `expect/exit`.
    - **Status lines.** Each output line that is a status line becomes `WORD label`: the word without brackets or
      color, then the label. Notes and every other line are dropped, so the bash layout and the PowerShell
-     `[WORD      ] label` layout read the same. With `stderr: true` on the command, its stderr lines are kept whole
-     (color dropped too) and come after its stdout status lines. A whole-stdout command (above) keeps every line of
-     its stdout instead, in order, with color codes and a trailing `\r` removed and a final line without a newline
-     kept; `statusline` keeps its color codes. An empty stdout adds no line, and a whole-stdout command's stderr is
-     left out unless `stderr: true`. The result must equal `expect/output.txt`, line for line.
+     `[WORD      ] label` layout read the same. A line starting `Next` is kept whole and without its indent
+     (`Next: mksync pull`), so a `status` case is compared on it; so is a line starting `Linked folder not synced:`. With `stderr: true` on the command, its stderr
+     lines are kept whole (color dropped too) and come after its stdout status lines. A whole-stdout command (above)
+     keeps every line of its stdout instead, in order, with color codes and a trailing `\r` removed and a final line
+     without a newline kept; `statusline` keeps its color codes. An empty stdout adds no line, and a whole-stdout
+     command's stderr is left out unless `stderr: true`. The result must equal `expect/output.txt`, line for line.
    - **Trees**, byte for byte, file list and content. The runner leaves out what an engine keeps for itself:
      `.user-values.json`, the state folder (`~/.local/state/sync-settings`, `%LOCALAPPDATA%\SyncSettings`), and `.git`
      (the bare `origin` lives outside the repo). File modes are compared only where the file system keeps them.
@@ -141,18 +177,22 @@ stub on means `gh` must not be called.
      order ignored.
    - **State**, when `expect/state/` exists: each file in it must be in the state folder with the same bytes; other
      state files, such as the sync point, whose SHA changes per run, are ignored. A run's dated backup folder
-     `backups/<run>/` is read as `backups/RUN/`, and there must be exactly one, so the time and pid don't matter.
+     `backups/<run>/` is read as `backups/RUN/`, and there must be exactly one, so the time and pid don't matter. An
+     expected state file may hold `<START_HEAD>`: the runner replaces it with the repo's `HEAD`, recorded right after
+     setup (the commit the case starts from), before comparing; without a git repo it is a case error.
    - **gh calls**, when the case stubs `gh` (above).
+   - **dconf loads**, when the case stubs `dconf` (above).
 
 Each file is taken from `expect.<os>/` when it's there for the OS the runner is on, else from `expect/`.
 
 ## What fits
 
-A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh` (`stubs`) and a
-prompt answer (`stdin`) are covered. `dconf` and the package managers have no stub yet, so those cases stay in
-`tests/linux/engine.sh`. Text the runner drops (notes, `ERROR:` messages, summaries) and a check of one function from
-the inside stay in that engine's own suite. A write failure, a symlink in `home/` and an uncommitted repo change can't be set up
-yet; the program's unit tests cover those ([design, "Open"](../../docs/design-layers.md#open)).
+A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh`, `dconf` and
+`getent` (`stubs`) and a prompt answer (`stdin`) are covered. The package managers have no stub yet, so those cases stay
+in `tests/linux/engine.sh`, as does a dconf case that needs a real session bus rather than the stub. Text the runner
+drops (notes, `ERROR:` messages, summaries) and a check of one function from the inside stay in that engine's own
+suite. A write failure and a symlink in `home/` can't be set up yet; the program's unit tests cover those
+([design, "Open"](../../docs/design-layers.md#open)).
 
 ## Reading a failure
 
@@ -178,6 +218,8 @@ The part after the case name says which check failed:
 | `values.json:`, `state …:` | `expect/values.json` or `expect/state/` |
 | `gh line N:` | gh call N, cut to its first two words |
 | `gh: want no call` | the case has no `expect/gh.log`, so gh must not be called, and it was |
+| `dconf line N:` | line N of the dconf log |
+| `dconf.log:`, `dconf: want a load`, `dconf: want no load` | the dconf log against `expect/dconf.log` |
 | anything else | the case itself is malformed: `case.json`, `differences`, an `expect.<os>/` name |
 
 Only the first difference prints. Fix it and run the case again with its name as the filter.
@@ -220,3 +262,15 @@ other inputs:
 | `only-dotdot` | `only_repo_dotdot`, Pester `only-repo-dotdot` | `resolve_only` / `Resolve-OnlyPaths` from the inside |
 | `diff-no-sync-point` | Pester `diff-in` | an `IN` label from a recorded sync point, and the summary lines |
 | `commit-opens-pr` | `commit_happy`, Pester `commit-happy` | `origin/master` unmoved, back on `master`, one `sync/…` branch |
+| `status-no-origin` | — | a clone without an origin: `Next: run mksync doctor.` (the old cases use a plain folder) |
+| `status-origin-ahead` | `sync_status_behind`, Pester `status behind` | origin ahead: `Next: mksync pull` |
+| `status-differs` | `sync_status_differs`, `sync_status_no_record`, Pester `status differs`, `status-no-record` | a differing file with no sync point: the plain differ `Next` line, both trees unchanged |
+| `status-differs-out` | — | a sync point and only this machine changed the file: the diff splits it, `Next: mksync push` |
+| `status-nothing` | `sync_status_clean`, Pester `status clean` | everything matches: `Next: nothing to do.` |
+| `status-linked` | — | a linked folder setup hasn't asked about: its `Linked folder not synced:` line; the folder answered no is left out |
+| `status-unsent` | `sync_status_unsent`, Pester `status unsent` | one uncommitted repo file: the `Unsent` line, `1 changed file(s) not sent yet` |
+| `pull-clean` | `sync_pull_applies`, `sync_pull_in_only`; Pester `pull applies` | the `Pulled 1 commit(s).` note and `HEAD` equal to origin's |
+| `pull-guard-out` | `sync_pull_blocks_out`, Pester `pull-blocks-out` | the `ERROR:` and `--force` hint text; the old case has an `IN` file next to the `OUT` one |
+| `pull-force` | `sync_pull_force`, Pester `pull-force` | an origin change fast-forwarded in the same pull |
+| `pull-unsent-refused` | `sync_pull_dirty`, Pester `pull dirty` | the `ERROR:` text and the clone's `HEAD` unmoved |
+| `pull-no-sync-point-yes` | `front_pull_first_yes`, Pester `front-pull-first-yes` | the `ERROR:` and hint text, no sync point written; the old case fast-forwards origin first |

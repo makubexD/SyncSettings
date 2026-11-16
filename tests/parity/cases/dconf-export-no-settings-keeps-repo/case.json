@@ -1,0 +1,19 @@
+{
+  "description": "An empty dump leaves the existing repo file as it is: export is SKIPPED and never touches it (dconf entries, Export).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

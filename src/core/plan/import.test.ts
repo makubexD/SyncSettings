@@ -28,7 +28,12 @@ import { formatLine, STATUS_WORDS } from "../status.ts";
 import { planImport } from "./import.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
-import type { Action, LocalEntry, Snapshot } from "./types.ts";
+import type {
+  Action,
+  DconfDumpResult,
+  LocalEntry,
+  Snapshot,
+} from "./types.ts";
 
 const CASE_ROOT = new URL("../../../tests/parity/cases/", import.meta.url);
 
@@ -48,6 +53,7 @@ const LAST_SYNC_FILE = "/home/user/.local/state/sync-settings/last-sync";
 
 interface CaseOptions {
   readonly force?: boolean;
+  readonly resetValues?: boolean;
   readonly only?: readonly string[];
 }
 
@@ -165,6 +171,7 @@ function snapshotFor(name: string, os: Os): Snapshot | undefined {
     env: {},
     only: options?.only ?? [],
     force: options?.force === true,
+    ...(options?.resetValues === true ? { resetValues: true } : {}),
   };
 }
 
@@ -287,6 +294,7 @@ function shownActions(actions: readonly Action[]): readonly ShownAction[] {
           ...(action.mode !== undefined ? { mode: action.mode } : {}),
         };
       case "writeState":
+      case "dconfLoad":
         return { kind: action.kind, ...path, text: action.text };
       case "chmod":
         return { kind: action.kind, ...path, mode: action.mode };
@@ -833,6 +841,50 @@ describe("planImport values file", () => {
   });
 });
 
+describe("planImport reset values", () => {
+  const LOCAL = "/home/user/.config/parity/a.conf";
+  const PROMPT =
+    "\n  Enter values to fill the placeholders in the config files:\n\n  Full name [Old Name]: \n";
+
+  test("should ask again, replace the cached value and read the overwrite answer next", () => {
+    // Arrange
+    const snapshot = validSnapshot("reset-values-asks");
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(LOCAL, {
+      kind: "file",
+      path: LOCAL,
+      bytes: bytesOf("name=Inferred Name\n"),
+      mode: MODE,
+    });
+    // Without --force, so a wrong answer index would skip the overwrite.
+    const reset: Snapshot = { ...snapshot, force: false, localFiles };
+    const expectedValues = readFileSync(
+      new URL("reset-values-asks/expect/values.json", CASE_ROOT),
+      "utf8",
+    );
+
+    // Act
+    const plan = planImport(reset, ["New Name", "y"]);
+
+    // Assert
+    expect(plan.prompt).toBe(PROMPT);
+    expect(plan.prepare).toEqual([
+      { kind: "writeValues", text: expectedValues },
+    ]);
+    expect(statusLines(plan.lines)).toEqual([
+      "UPDATED dotfiles/common/parity/a.conf",
+    ]);
+    expect(
+      shownActions(
+        plan.steps.flatMap((step) => step.actions.map((entry) => entry.action)),
+      ),
+    ).toEqual([
+      { kind: "backup", path: LOCAL },
+      { kind: "writeLocal", path: LOCAL, text: "name=New Name\n" },
+    ]);
+  });
+});
+
 const LAYER_MODULES: ConfigV2["modules"] = {
   parity: { description: "Parity case files" },
 };
@@ -929,6 +981,10 @@ interface LayerSnapshotOptions {
   readonly values?: Readonly<Record<string, string>>;
   readonly dirs?: readonly string[];
   readonly excludePatterns?: readonly string[];
+  readonly force?: boolean;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly dconfDumps?: ReadonlyMap<string, DconfDumpResult>;
+  readonly loginHome?: string;
 }
 
 function bytesOf(text: string): Uint8Array {
@@ -974,9 +1030,15 @@ function layeredSnapshot(os: Os, options: LayerSnapshotOptions): Snapshot {
     localFiles,
     localDirs,
     values: options.values ?? {},
-    env: {},
+    env: options.env ?? {},
     only: [],
-    force: true,
+    force: options.force ?? true,
+    ...(options.dconfDumps !== undefined
+      ? { dconfDumps: options.dconfDumps }
+      : {}),
+    ...(options.loginHome !== undefined
+      ? { loginHome: options.loginHome }
+      : {}),
   };
 }
 
@@ -1387,5 +1449,285 @@ describe("planImport values on a machine", () => {
 
     // Assert
     expect(plan.prepare).toEqual([]);
+  });
+});
+
+const DCONF_PATH = "/org/gnome/parity/";
+
+const DCONF_REPO_PATH = "dotfiles/linux/parity/dconf.ini";
+
+const DCONF_COMMON_REPO_PATH = "dotfiles/common/parity/dconf.ini";
+
+const DCONF_REPO_TEXT = "[/]\nfont-name=Cantarell 11\n";
+
+const DCONF_OLD_DUMP = "[/]\nfont-name=Old 10\n\n";
+
+const DCONF_MACHINE_ONLY_DUMP =
+  "[/]\nfont-name=Cantarell 11\ncolor-scheme=default\n";
+
+const DCONF_BACKUP_PATH =
+  "/home/user/.local/state/sync-settings/dconf/dconf.ini.bak";
+
+/** A dconf entry on Linux, or on every OS when `everyOs` is set. */
+function dconfEntry(everyOs = false): ConfigV2Entry {
+  return {
+    file: "parity/dconf.ini",
+    module: "parity",
+    merge: "dconf",
+    dconfPath: DCONF_PATH,
+    ...(everyOs ? {} : { os: ["linux"] }),
+  };
+}
+
+interface DconfSnapshotOptions {
+  readonly repo?: Readonly<Record<string, string>>;
+  readonly dump?: DconfDumpResult;
+  readonly force?: boolean;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly loginHome?: string;
+}
+
+/** A Linux snapshot with one dconf entry and its dump. */
+function dconfSnapshot(options: DconfSnapshotOptions = {}): Snapshot {
+  return layeredSnapshot("linux", {
+    entries: [dconfEntry()],
+    repo:
+      options.repo === undefined
+        ? { [DCONF_REPO_PATH]: DCONF_REPO_TEXT }
+        : options.repo,
+    force: options.force ?? true,
+    env: options.env ?? { HOME, USER: "user" },
+    dconfDumps: new Map([
+      [DCONF_PATH, options.dump ?? { kind: "ok", text: DCONF_OLD_DUMP }],
+    ]),
+    loginHome: options.loginHome ?? HOME,
+  });
+}
+
+describe("planImport dconf", () => {
+  test("should skip a dconf entry whose repo file is missing", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ repo: {} });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_REPO_PATH, "not found in repo"),
+    );
+    expect(plan.steps).toEqual([]);
+  });
+
+  test("should skip a dconf entry when dconf is not installed", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ dump: { kind: "missing" } });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_REPO_PATH, "dconf not installed"),
+    );
+    expect(plan.steps).toEqual([]);
+  });
+
+  test("should skip a dconf entry when HOME is not the login home", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ loginHome: "/home/other" });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        DCONF_REPO_PATH,
+        "HOME is not the login home; dconf left alone",
+      ),
+    );
+    expect(plan.steps).toEqual([]);
+  });
+
+  test("should skip a dconf entry when XDG_CONFIG_HOME is not ~/.config", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({
+      env: { HOME, USER: "user", XDG_CONFIG_HOME: "/tmp/config" },
+    });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        DCONF_REPO_PATH,
+        "XDG_CONFIG_HOME is not ~/.config; dconf left alone",
+      ),
+    );
+    expect(plan.steps).toEqual([]);
+  });
+
+  test("should report an error when the dconf dump fails", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ dump: { kind: "failed" } });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("ERROR", DCONF_REPO_PATH, "dconf dump failed"),
+    );
+    expect(plan.steps).toEqual([]);
+  });
+
+  test("should load a repo file into an empty dconf folder without backup", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ dump: { kind: "ok", text: "" } });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([`CREATED ${DCONF_REPO_PATH}`]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "dconfLoad",
+        path: DCONF_PATH,
+        text: DCONF_REPO_TEXT,
+      },
+    ]);
+  });
+
+  test("should leave dconf alone when every repo key is already set", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({
+      dump: { kind: "ok", text: DCONF_MACHINE_ONLY_DUMP },
+    });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `UNCHANGED ${DCONF_REPO_PATH}`,
+    ]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should back up the dump, then load, when a repo key differs", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ dump: { kind: "ok", text: DCONF_OLD_DUMP } });
+
+    // Act
+    const result = runSnapshot(snapshot, []);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([`UPDATED ${DCONF_REPO_PATH}`]);
+    expect(result.lines).toContain(
+      formatLine(
+        "UPDATED",
+        DCONF_REPO_PATH,
+        "backup saved as dconf.ini.bak",
+      ),
+    );
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeState",
+        path: DCONF_BACKUP_PATH,
+        text: "[/]\nfont-name=Old 10\n",
+      },
+      {
+        kind: "dconfLoad",
+        path: DCONF_PATH,
+        text: DCONF_REPO_TEXT,
+      },
+    ]);
+  });
+
+  test("should keep the backup in the dated folder under the repo path", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ dump: { kind: "ok", text: DCONF_OLD_DUMP } });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.steps[0]?.actions[0]).toEqual({
+      action: {
+        kind: "writeState",
+        path: DCONF_BACKUP_PATH,
+        text: "[/]\nfont-name=Old 10\n",
+        repoPath: DCONF_REPO_PATH,
+      },
+      failure: "cannot create backup",
+    });
+  });
+
+  test("should update dconf when the overwrite prompt is accepted", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ force: false });
+
+    // Act
+    const result = runSnapshot(snapshot, [""]);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([`UPDATED ${DCONF_REPO_PATH}`]);
+    expect(result.actions.map((action) => action.kind)).toEqual([
+      "writeState",
+      "dconfLoad",
+    ]);
+  });
+
+  test("should skip dconf when the overwrite prompt is declined", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({ force: false });
+
+    // Act
+    const result = runSnapshot(snapshot, ["n"]);
+
+    // Assert
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", DCONF_REPO_PATH, "user skipped"),
+    );
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should keep a dconf entry skipped on Windows", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("windows", {
+      entries: [dconfEntry(true)],
+      repo: {},
+    });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_COMMON_REPO_PATH, "not supported yet"),
+    );
+    expect(plan.steps).toEqual([]);
+  });
+
+  test("should keep a dconf entry skipped on macOS", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("macos", {
+      entries: [dconfEntry(true)],
+      repo: {},
+    });
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("SKIPPED", DCONF_COMMON_REPO_PATH, "not supported yet"),
+    );
+    expect(plan.steps).toEqual([]);
   });
 });

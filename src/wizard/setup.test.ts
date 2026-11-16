@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Scan } from "../adapters/scan.ts";
+import type { LinkedFolder } from "../adapters/store.ts";
 import type { Profile } from "../core/config/profile.ts";
-import type { ConfigV2 } from "../core/config/types.ts";
+import type { ConfigV2, ConfigV2Entry } from "../core/config/types.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import type { SetupFlags, SetupInput, SetupOutcome } from "./setup.ts";
 import { runSetup } from "./setup.ts";
@@ -517,5 +518,155 @@ describe("runSetup", () => {
       "windows-terminal",
     ]);
     expect(outcome.record.os).toBe("windows");
+  });
+});
+
+const FLAGS_ALL: SetupFlags = {
+  profile: "work-1",
+  claude: "claude",
+  mode: "push",
+  existing: "backup",
+};
+
+const LINKED_SCRIPTS: LinkedFolder = {
+  file: ".bashrc",
+  path: "~/scripts",
+  name: "scripts",
+  module: "shell",
+  count: 1,
+  bytes: 40,
+  suggestion: "profile",
+};
+
+const LINKED_QUESTION =
+  ".bashrc uses ~/scripts (1 file, 40 B). Sync it as a folder? " +
+  "1) this profile  2) this machine  3) no";
+
+function scriptsEntry(localPath: string, file = "linked/scripts"): ConfigV2Entry {
+  return {
+    file,
+    module: "shell",
+    merge: "dir",
+    localPath,
+    description: `Linked folder ${localPath}`,
+  };
+}
+
+function linkedInput(
+  folders: readonly LinkedFolder[],
+  flags: SetupFlags = FLAGS_ALL,
+): SetupInput {
+  return input({ linkedFolders: () => folders }, flags);
+}
+
+describe("runSetup linked folders", () => {
+  test("should add a profile entry when the answer is this profile", async () => {
+    // Arrange
+    const setup = linkedInput([LINKED_SCRIPTS]);
+
+    // Act
+    const { outcome, output } = await run(setup, ["1"]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.entries).toEqual([scriptsEntry("~/scripts")]);
+    expect(outcome.record.entries).toBeUndefined();
+    expect(output).toContain(`${LINKED_QUESTION} [1] `);
+  });
+
+  test("should add a machine entry when the answer is this machine", async () => {
+    // Arrange
+    const setup = linkedInput([LINKED_SCRIPTS]);
+
+    // Act
+    const { outcome } = await run(setup, ["2"]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.entries).toBeUndefined();
+    expect(outcome.record.entries).toEqual([scriptsEntry("~/scripts")]);
+  });
+
+  test("should store the no in the profile's destinations", async () => {
+    // Arrange
+    const setup = linkedInput([LINKED_SCRIPTS]);
+
+    // Act
+    const { outcome } = await run(setup, ["3"]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.destinations).toEqual({
+      "linked: ~/scripts": "no",
+    });
+    expect(outcome.profile.entries).toBeUndefined();
+    expect(outcome.record.entries).toBeUndefined();
+  });
+
+  test("should take the suggestion under --yes without asking", async () => {
+    // Arrange
+    const outside: LinkedFolder = {
+      ...LINKED_SCRIPTS,
+      path: "/opt/tools",
+      name: "tools",
+      suggestion: "no",
+    };
+    const setup = linkedInput([LINKED_SCRIPTS, outside], {
+      ...FLAGS_ALL,
+      yes: true,
+    });
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.entries).toEqual([scriptsEntry("~/scripts")]);
+    expect(outcome.profile.destinations).toEqual({
+      "linked: /opt/tools": "no",
+    });
+    expect(output).not.toContain("Sync it as a folder?");
+  });
+
+  test("should ask again after a bad answer", async () => {
+    // Arrange
+    const setup = linkedInput([LINKED_SCRIPTS]);
+
+    // Act
+    const { outcome, output } = await run(setup, ["4", "1"]);
+
+    // Assert
+    expect(output).toContain(
+      `${LINKED_QUESTION} [1] Pick 1 to 3.\n${LINKED_QUESTION} [1] `,
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.entries).toEqual([scriptsEntry("~/scripts")]);
+  });
+
+  test("should number a second folder of the same name in the same layer", async () => {
+    // Arrange
+    const other: LinkedFolder = {
+      ...LINKED_SCRIPTS,
+      path: "~/work/scripts",
+    };
+    const setup = linkedInput([LINKED_SCRIPTS, other]);
+
+    // Act
+    const { outcome } = await run(setup, ["1", "1"]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.entries).toEqual([
+      scriptsEntry("~/scripts"),
+      scriptsEntry("~/work/scripts", "linked/scripts-2"),
+    ]);
+  });
+
+  test("should ask nothing when there are no linked folders", async () => {
+    // Act
+    const { output } = await run(input({}, FLAGS_ALL));
+
+    // Assert
+    expect(output).not.toContain("Sync it as a folder?");
   });
 });

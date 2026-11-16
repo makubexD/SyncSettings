@@ -1,0 +1,19 @@
+{
+  "description": "After the PR opens, the sync point holds the branch's parent, the commit the case started from, exit 0 (Sync point).",
+  "git": "remote",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": { "GIT_CONFIG_GLOBAL": "../home/gitconfig" },
+  "commands": [{ "command": "export" }, { "command": "commit" }]
+}

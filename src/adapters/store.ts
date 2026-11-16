@@ -7,31 +7,42 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import type { Dirent } from "node:fs";
-import { dirname, join } from "node:path";
+import type { Dirent, Stats } from "node:fs";
+import { dirname, join, posix } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import { parseProfile } from "../core/config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
+  ConfigV2Entry,
+  Os,
   Result as LoadResult,
 } from "../core/config/types.ts";
 import { MACHINES_FOLDER, PROFILES_FOLDER } from "../core/guard.ts";
 import type { JsonValue } from "../core/json/value.ts";
 import { writeJson } from "../core/json/value.ts";
 import { LAYER_NAME } from "../core/layers/names.ts";
+import { effectiveOs } from "../core/layers/select.ts";
 import type {
   FirstBackupWrites,
   LayerFile,
   LocalBackup,
   RepoBackup,
 } from "../core/machine/backup.ts";
+import type { LinkedSuggestion } from "../core/machine/linked.ts";
+import {
+  homeForm,
+  linkedFolders,
+  suggestLinked,
+  unaskedFolders,
+} from "../core/machine/linked.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import {
   parseRecord,
   recordMessage,
   recordText,
 } from "../core/machine/record.ts";
+import { expandHome } from "../core/paths.ts";
 
 /** The state folder's record file; contract "The record". */
 const MACHINE_FILE = "machine.json";
@@ -623,6 +634,168 @@ export function readRepoStore(
   return readRepoEntries(repoRoot, config, STATE_REPO_ERROR_LINES);
 }
 
+/** A linked folder setup hasn't asked about, contract "Linked folders". */
+export interface LinkedFolder {
+  /** The reading entry's file name, without its path. */
+  readonly file: string;
+  /** The folder in `~` form, the way it is shown and stored. */
+  readonly path: string;
+  /** The folder's own name, for its `linked/<name>/` repo path. */
+  readonly name: string;
+  /** The reading entry's module, which its `dir` entry takes. */
+  readonly module: string;
+  readonly count: number;
+  readonly bytes: number;
+  readonly suggestion: LinkedSuggestion;
+}
+
+const PATH_SEPARATORS = /[\\/]+/;
+
+/** The last component of a local path, with either separator style. */
+function pathBase(path: string): string {
+  const parts = path.split(PATH_SEPARATORS).filter((part) => part !== "");
+  return parts[parts.length - 1] ?? path;
+}
+
+/** The folder names never offered: `.` and `..`. */
+const DOT_NAMES: readonly string[] = [".", ".."];
+
+/** Whether a found folder is one the program offers: not the home itself and
+ * not a path naming `.` or `..` (contract "Linked folders"). */
+function isOfferableFolder(path: string): boolean {
+  const normalized = posix.normalize(path);
+  if (normalized === "~" || normalized === "~/") {
+    return false;
+  }
+  const name = pathBase(normalized);
+  if (name === "" || DOT_NAMES.includes(name)) {
+    return false;
+  }
+  return !normalized
+    .split(PATH_SEPARATORS)
+    .some((part) => DOT_NAMES.includes(part));
+}
+
+/** Whether a path is a real folder: an lstat says directory, so a symlink
+ * never counts, even one that points at a folder. */
+function isRealDirectory(path: string): boolean {
+  try {
+    const stat = lstatSync(path);
+    return stat.isDirectory() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** A folder's regular files and their bytes. */
+interface FolderTotals {
+  readonly count: number;
+  readonly bytes: number;
+}
+
+/** `folder`'s regular files and their bytes, recursively, never following a
+ * symlink. A file or folder that vanishes mid-walk is left out. */
+function folderTotals(folder: string): FolderTotals {
+  let count = 0;
+  let bytes = 0;
+  const walk = (current: string): void => {
+    let names: readonly string[];
+    try {
+      names = readdirSync(current);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const path = join(current, name);
+      let stat: Stats;
+      try {
+        stat = lstatSync(path);
+      } catch {
+        continue;
+      }
+      if (stat.isSymbolicLink()) {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        walk(path);
+      } else if (stat.isFile()) {
+        count += 1;
+        bytes += stat.size;
+      }
+    }
+  };
+  walk(folder);
+  return { count, bytes };
+}
+
+/**
+ * Contract "Linked folders": every folder a `linked` entry's file references
+ * that exists, no entry syncs and the profile hasn't answered, in config
+ * order with each folder named once (the first file wins). The home itself
+ * and a path naming `.` or `..` are never offered. A missing or
+ * unreadable entry file is skipped. Folder paths come back in `~` form, so no
+ * home path reaches a state file, and their sizes count regular files only,
+ * never through a symlink.
+ */
+export function readLinkedFolders(
+  home: string,
+  os: Os,
+  config: ConfigV2,
+  profile?: Profile,
+  record?: MachineRecord,
+): readonly LinkedFolder[] {
+  const entries: readonly ConfigV2Entry[] = [
+    ...config.entries,
+    ...(profile?.entries ?? []),
+    ...(record?.entries ?? []),
+  ];
+  const exists = (path: string): boolean =>
+    isRealDirectory(expandHome(path, os, home));
+  const seen = new Set<string>();
+  const folders: LinkedFolder[] = [];
+  for (const entry of config.entries) {
+    if (entry.linked !== true || entry.localPath === undefined) {
+      continue;
+    }
+    if (!effectiveOs(config, entry).includes(os)) {
+      continue;
+    }
+    const text = readText(expandHome(entry.localPath, os, home));
+    if (text === undefined) {
+      continue;
+    }
+    const found = linkedFolders(text, home)
+      .map((path) => homeForm(path, home))
+      .filter(isOfferableFolder);
+    for (const path of unaskedFolders(
+      found,
+      entries,
+      profile?.destinations ?? {},
+      exists,
+    )) {
+      if (seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
+      const totals = folderTotals(expandHome(path, os, home));
+      folders.push({
+        file: pathBase(entry.localPath),
+        path,
+        name: pathBase(path),
+        module: entry.module,
+        count: totals.count,
+        bytes: totals.bytes,
+        suggestion: suggestLinked(
+          totals.count,
+          totals.bytes,
+          path.startsWith("~"),
+        ),
+      });
+    }
+  }
+  return folders;
+}
+
 function jsonString(value: string): JsonValue {
   return { kind: "string", value };
 }
@@ -638,16 +811,47 @@ function jsonStringRecord(values: Readonly<Record<string, string>>): JsonValue {
   return { kind: "object", entries: new Map(entries) };
 }
 
+/** A linked entry as the profile file holds it, keys in their source order so
+ * the file round trips byte-exact. The parser only lets JSON values through. */
+function entryValue(value: unknown): JsonValue {
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "bool", value };
+  }
+  if (typeof value === "number") {
+    return { kind: "number", text: String(value) };
+  }
+  if (typeof value === "string") {
+    return { kind: "string", value };
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array", items: value.map(entryValue) };
+  }
+  if (typeof value === "object") {
+    const entries: [string, JsonValue][] = Object.entries(value).map(
+      ([key, item]): [string, JsonValue] => [key, entryValue(item)],
+    );
+    return { kind: "object", entries: new Map(entries) };
+  }
+  throw new TypeError(`a linked entry holds a value that isn't JSON`);
+}
+
 function profileValue(profile: Profile): JsonValue {
-  return {
-    kind: "object",
-    entries: new Map<string, JsonValue>([
-      ["modules", jsonStrings(profile.modules)],
-      ["values", jsonStringRecord(profile.values)],
-      ["destinations", jsonStringRecord(profile.destinations)],
-      ["retired", { kind: "bool", value: profile.retired }],
-    ]),
-  };
+  const fields: [string, JsonValue][] = [
+    ["modules", jsonStrings(profile.modules)],
+    ["values", jsonStringRecord(profile.values)],
+    ["destinations", jsonStringRecord(profile.destinations)],
+    ["retired", { kind: "bool", value: profile.retired }],
+  ];
+  if (profile.entries !== undefined) {
+    fields.push([
+      "entries",
+      { kind: "array", items: profile.entries.map(entryValue) },
+    ]);
+  }
+  return { kind: "object", entries: new Map(fields) };
 }
 
 /** The profile as the contract writes it: the key order above, the `json`

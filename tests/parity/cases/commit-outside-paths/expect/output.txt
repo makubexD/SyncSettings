@@ -1,0 +1,9 @@
+CREATED dotfiles/common/parity/a.conf
+
+  +==========================================+
+  |        SyncSettings -- COMMIT           |
+  +==========================================+
+
+  Changes outside sync paths:
+    ?? .config/parity/a.conf
+ERROR: commit or stash changes outside dotfiles/ first.

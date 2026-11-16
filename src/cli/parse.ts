@@ -8,8 +8,13 @@ import type { ClaudeMode } from "../core/machine/record.ts";
 import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
-  "usage: mksync export [--preview] [--yes] [--only <path>...] | " +
-  "mksync import [--check] [--force] [--only <path>...] | " +
+  "usage: mksync status | mksync doctor | " +
+  "mksync pull [--yes] [--force] [<path>...] | " +
+  "mksync push [--yes] [-m <msg>] [<path>...] | " +
+  "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
+  "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
+  "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
+  "mksync commit [-m <msg>] [--partial] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
   "[--existing backup|keep|stop] [--yes] | " +
@@ -29,8 +34,12 @@ export interface RunCommand {
   readonly preview: boolean;
   /** `import --check`: what an import would change. */
   readonly check: boolean;
+  /** `import --reset-values`: prompt again for every placeholder. */
+  readonly resetValues: boolean;
   /** `export --yes`: take the suggestions without asking. */
   readonly yes: boolean;
+  /** `export --diff`: label what changed on each side, writing nothing. */
+  readonly diff?: boolean;
   readonly only: readonly string[];
 }
 
@@ -40,6 +49,39 @@ export interface RunCommand {
  */
 export interface ShadowCommand {
   readonly kind: "shadow";
+}
+
+/** `status`: print where this machine stands, exit 0. */
+export interface StatusCommand {
+  readonly kind: "status";
+}
+
+/** `doctor`: print one check line per requirement, exit 1 with a MISSING. */
+export interface DoctorCommand {
+  readonly kind: "doctor";
+}
+
+/** `diff [path...]`: fetch origin's `master`, then label the picked paths. */
+export interface DiffCommand {
+  readonly kind: "diff";
+  readonly paths: readonly string[];
+}
+
+/** `pull [--yes] [--force] [path...]`: the flags and the picked paths. */
+export interface PullCommand {
+  readonly kind: "pull";
+  readonly yes: boolean;
+  readonly force: boolean;
+  readonly paths: readonly string[];
+}
+
+/** `push [--yes] [-m <msg>] [path...]`: the flags, the message and the picked
+ * paths. */
+export interface PushCommand {
+  readonly kind: "push";
+  readonly yes: boolean;
+  readonly message?: string;
+  readonly paths: readonly string[];
 }
 
 /** `machine show`: print the machine record, exit 0. */
@@ -65,6 +107,16 @@ export interface ProfileRetireCommand {
 
 /** Either retire command. */
 export type RetireCommand = MachineRetireCommand | ProfileRetireCommand;
+
+/**
+ * `commit`: open a PR for the sync paths. `-m` replaces the message built from
+ * the changed files; `--partial` records no sync point.
+ */
+export interface CommitCommand {
+  readonly kind: "commit";
+  readonly message?: string;
+  readonly partial: boolean;
+}
 
 /** `setup`: the first-run flow's flags, parsed but not validated. */
 export interface SetupCommand extends SetupFlags {
@@ -95,9 +147,15 @@ export interface ParseError {
 export type ParsedCommand =
   | RunCommand
   | ShadowCommand
+  | StatusCommand
+  | DoctorCommand
+  | DiffCommand
+  | PullCommand
+  | PushCommand
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
+  | CommitCommand
   | SetupCommand
   | VersionCommand
   | StatuslineCommand
@@ -119,6 +177,35 @@ const RETIRE_VERB = "retire";
 
 const SETUP_COMMAND = "setup";
 
+const COMMIT_COMMAND = "commit";
+
+const MESSAGE_OPTION = "-m";
+
+const PARTIAL_OPTION = "--partial";
+
+const STATUS_COMMAND = "status";
+
+const DOCTOR_COMMAND = "doctor";
+
+const DIFF_COMMAND = "diff";
+
+const CHECK_COMMAND = "check";
+
+const PREVIEW_COMMAND = "preview";
+
+const PULL_COMMAND = "pull";
+
+const PULL_YES = "--yes";
+
+const PULL_FORCE = "--force";
+
+const PUSH_COMMAND = "push";
+
+const PUSH_YES = "--yes";
+
+/** `front_push`'s missing `-m` value, before any child runs. */
+const MESSAGE_NEEDS_VALUE = "Missing value for -m";
+
 const STATUSLINE_COMMAND = "statusline";
 
 const SETUP_YES = "--yes";
@@ -127,8 +214,12 @@ const ONLY_OPTION = "--only";
 
 const ONLY_NEEDS_PATH = "ERROR: --only needs a path.";
 
-const PREVIEW_YES_CLASH =
-  "ERROR: --preview and --yes can't be used together.";
+const PREVIEW_YES_CLASH = "ERROR: --preview and --yes can't be used together.";
+
+const DIFF_CLASH = "ERROR: --diff cannot be combined with --preview or --yes.";
+
+const CHECK_RESET_VALUES_CLASH =
+  "ERROR: --check cannot be combined with --reset-values.";
 
 const UNKNOWN_OPTION_PREFIX = "Unknown option: ";
 
@@ -160,8 +251,8 @@ const SETUP_EXISTING_CHOICES: readonly ExistingAction[] = [
 
 /** The options each verb accepts besides `--only`, which takes a value. */
 const FLAGS: Readonly<Record<CommandName, readonly string[]>> = {
-  export: ["--preview", SETUP_YES],
-  import: ["--check", "--force"],
+  export: ["--preview", "--diff", SETUP_YES],
+  import: ["--check", "--force", "--reset-values"],
 };
 
 function isCommandName(value: string): value is CommandName {
@@ -267,6 +358,150 @@ function parseRetire(
   return target === undefined ? retireNeedsName(noun) : { kind, target, yes };
 }
 
+/** The positional paths after a command, or the option that ended them. */
+function parsePaths(
+  argv: readonly string[],
+  from: number,
+): { readonly paths: readonly string[] } | ParseError {
+  const paths: string[] = [];
+  for (let index = from; index < argv.length; index++) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (isOption(arg)) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    paths.push(arg);
+  }
+  return { paths };
+}
+
+/**
+ * `check [path...]`: the import check over the picked paths, spelled as
+ * `import --check --only <path>...`.
+ */
+function parseCheck(argv: readonly string[]): RunCommand | ParseError {
+  const taken = parsePaths(argv, 1);
+  if ("kind" in taken) {
+    return taken;
+  }
+  return {
+    kind: "run",
+    command: "import",
+    force: false,
+    preview: false,
+    check: true,
+    resetValues: false,
+    yes: false,
+    only: taken.paths,
+  };
+}
+
+/** `diff [path...]`: the paths the export diff labels. */
+function parseDiff(argv: readonly string[]): DiffCommand | ParseError {
+  const taken = parsePaths(argv, 1);
+  if ("kind" in taken) {
+    return taken;
+  }
+  return { kind: "diff", paths: taken.paths };
+}
+
+/** `preview`: the export preview, which takes no paths or options. */
+function parsePreview(argv: readonly string[]): RunCommand | ParseError {
+  const extra = argv[1];
+  if (extra !== undefined) {
+    return error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  return {
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: true,
+    check: false,
+    resetValues: false,
+    yes: false,
+    only: [],
+  };
+}
+
+/**
+ * Parse `pull [--yes] [--force] [path...]` (contract "Front door"): every
+ * argument that starts with `-` must be one of the two flags, anything else
+ * is a picked path.
+ */
+function parsePull(argv: readonly string[]): PullCommand | ParseError {
+  let yes = false;
+  let force = false;
+  const paths: string[] = [];
+
+  let index = 1;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === PULL_YES) {
+      yes = true;
+    } else if (arg === PULL_FORCE) {
+      force = true;
+    } else if (isOption(arg)) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    } else {
+      paths.push(arg);
+    }
+    index++;
+  }
+
+  return { kind: "pull", yes, force, paths };
+}
+
+/**
+ * Parse `push [--yes] [-m <msg>] [path...]` as `front_push` does: `-m` takes
+ * the next argument as its message even when it starts with `-`, a later `-m`
+ * replaces an earlier one, and every argument that isn't a flag is a picked
+ * path.
+ */
+function parsePush(argv: readonly string[]): PushCommand | ParseError {
+  let yes = false;
+  let message: string | undefined;
+  const paths: string[] = [];
+
+  let index = 1;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === PUSH_YES) {
+      yes = true;
+      index++;
+      continue;
+    }
+    if (arg === MESSAGE_OPTION) {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        return error(MESSAGE_NEEDS_VALUE);
+      }
+      message = value;
+      index += 2;
+      continue;
+    }
+    if (isOption(arg)) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    paths.push(arg);
+    index++;
+  }
+
+  return {
+    kind: "push",
+    yes,
+    paths,
+    ...(message === undefined ? {} : { message }),
+  };
+}
+
 /**
  * Parse the flags after `setup` (decision 5). The flow validates names, not
  * this parser; here a flag only has to take its value and be given once.
@@ -364,6 +599,46 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
 }
 
 /**
+ * Parse `commit [-m <msg>] [--partial]` as `commit.sh` does: `-m` takes the
+ * next argument as its message even when it starts with `-`, a later `-m`
+ * replaces an earlier one, and `--partial` may repeat. Any other argument,
+ * positional ones included, is `Unknown option: <arg>`.
+ */
+function parseCommit(argv: readonly string[]): CommitCommand | ParseError {
+  let message: string | undefined;
+  let partial = false;
+
+  let index = 1;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === MESSAGE_OPTION) {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        return setupError(`${MESSAGE_OPTION} needs a value.`);
+      }
+      message = value;
+      index += 2;
+      continue;
+    }
+    if (arg === PARTIAL_OPTION) {
+      partial = true;
+      index++;
+      continue;
+    }
+    return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+  }
+
+  return {
+    kind: "commit",
+    ...(message === undefined ? {} : { message }),
+    partial,
+  };
+}
+
+/**
  * Parse argv into the program's command, the usage line, the version or an
  * option error. An argument that starts with `-` and isn't a valid flag for
  * the verb is `Unknown option: <arg>`, as the entry points print it; a stray
@@ -388,6 +663,33 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     return extra === undefined
       ? { kind: "statusline" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === STATUS_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "status" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === DOCTOR_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "doctor" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === DIFF_COMMAND) {
+    return parseDiff(argv);
+  }
+  if (command === CHECK_COMMAND) {
+    return parseCheck(argv);
+  }
+  if (command === PREVIEW_COMMAND) {
+    return parsePreview(argv);
+  }
+  if (command === PULL_COMMAND) {
+    return parsePull(argv);
+  }
+  if (command === PUSH_COMMAND) {
+    return parsePush(argv);
   }
   if (command === MACHINE_COMMAND) {
     const verb = argv[1];
@@ -418,6 +720,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   if (command === SETUP_COMMAND) {
     return parseSetup(argv);
   }
+  if (command === COMMIT_COMMAND) {
+    return parseCommit(argv);
+  }
   if (isOption(command) || !isCommandName(command)) {
     return isOption(command)
       ? error(`${UNKNOWN_OPTION_PREFIX}${command}`)
@@ -429,7 +734,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   let force = false;
   let preview = false;
   let check = false;
+  let resetValues = false;
   let yes = false;
+  let diff = false;
 
   let index = 1;
   while (index < argv.length) {
@@ -456,8 +763,14 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
       case "--preview":
         preview = true;
         break;
+      case "--diff":
+        diff = true;
+        break;
       case "--check":
         check = true;
+        break;
+      case "--reset-values":
+        resetValues = true;
         break;
       case SETUP_YES:
         if (yes) {
@@ -474,6 +787,22 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   if (yes && preview) {
     return error(PREVIEW_YES_CLASH);
   }
+  if (diff && (preview || yes)) {
+    return error(DIFF_CLASH);
+  }
+  if (check && resetValues) {
+    return error(CHECK_RESET_VALUES_CLASH);
+  }
 
-  return { kind: "run", command, force, preview, check, yes, only };
+  return {
+    kind: "run",
+    command,
+    force,
+    preview,
+    check,
+    resetValues,
+    yes,
+    ...(diff ? { diff: true } : {}),
+    only,
+  };
 }

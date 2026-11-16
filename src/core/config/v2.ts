@@ -1,3 +1,4 @@
+import { isValidDconfPath } from "./dconf-path.ts";
 import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
 
 const CONFIG_FILE = "sync-config.v2.json";
@@ -62,8 +63,16 @@ function elevateMessage(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} has elevate other than false.`;
 }
 
+function linkedMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has linked other than true.`;
+}
+
 function importNameMessage(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} needs {layer} in importName.`;
+}
+
+function dconfPathMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} needs a dconfPath like /org/gnome/shell/.`;
 }
 
 function backslashMessage(file: string): string {
@@ -143,6 +152,10 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
       return failure(unknownMergeMessage(file, shown(merge)), 1);
     }
 
+    if (merge === "dconf" && (typeof record.dconfPath !== "string" || !isValidDconfPath(record.dconfPath))) {
+      return failure(dconfPathMessage(file), 1);
+    }
+
     // A dconf entry has no local path: the dconf folder is its destination.
     if (merge !== "dconf" && typeof record.localPath !== "string") {
       return failure(entryShapeMessage(file), 1);
@@ -158,6 +171,10 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
 
     if (Object.hasOwn(record, "elevate") && record.elevate !== false) {
       return failure(elevateMessage(file), 1);
+    }
+
+    if (Object.hasOwn(record, "linked") && record.linked !== true) {
+      return failure(linkedMessage(file), 1);
     }
 
     if (

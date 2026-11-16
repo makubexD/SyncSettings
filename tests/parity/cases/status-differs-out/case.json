@@ -1,0 +1,28 @@
+{
+  "description": "status with a sync point and only this machine changed the file: the diff summary on the machine line and Next: mksync push (Front door, status row).",
+  "os": [
+    "linux",
+    "windows"
+  ],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "status"
+    }
+  ],
+  "syncPoint": true
+}

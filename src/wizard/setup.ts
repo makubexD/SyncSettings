@@ -1,7 +1,13 @@
 import type { Scan } from "../adapters/scan.ts";
+import type { LinkedFolder } from "../adapters/store.ts";
 import type { Profile } from "../core/config/profile.ts";
-import type { ConfigV2, Os } from "../core/config/types.ts";
+import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../core/layers/names.ts";
+import {
+  LINKED_DESTINATION_PREFIX,
+  linkedQuestion,
+  linkedSuggestionNumber,
+} from "../core/machine/linked.ts";
 import type { ClaudeMode, MachineRecord } from "../core/machine/record.ts";
 import { replaceRecord } from "../core/machine/replace.ts";
 
@@ -36,6 +42,12 @@ export interface SetupInput {
   /** `YYYY-MM-DD`, for a replaced record's history. */
   readonly today: string;
   readonly flags: SetupFlags;
+  /** The linked folders to ask about, read once through this input: the flow
+   * makes no other read and reads nothing by itself. */
+  readonly linkedFolders?: (
+    profile: Profile,
+    record: MachineRecord,
+  ) => readonly LinkedFolder[];
 }
 
 /** The terminal: text out, one answer line in, `undefined` at end of input. */
@@ -106,6 +118,11 @@ const TOOL_MODULES: readonly (readonly [string, string])[] = [
   ["htop", "htop"],
   ["rtk", "rtk"],
 ];
+
+/** A linked folder's `dir` entry sits under its layer's `linked/` folder. */
+const LINKED_FOLDER = "linked/";
+
+const LINKED_CHOICES: readonly number[] = [1, 2, 3];
 
 const OS_MODULES: Readonly<Record<Os, readonly string[]>> = {
   linux: ["gnome"],
@@ -280,6 +297,48 @@ function profileNamed(input: SetupInput, name: string): Profile | undefined {
   );
 }
 
+/** The `dir` entry a linked folder's answer adds to a layer, under a folder
+ * name that layer doesn't use yet: a second folder of the same name becomes
+ * `<name>-2`, then `<name>-3`. */
+function linkedEntry(
+  entries: readonly ConfigV2Entry[],
+  folder: LinkedFolder,
+): ConfigV2Entry {
+  const used = new Set(entries.map((entry) => entry.file));
+  let name = folder.name;
+  for (let index = 2; used.has(`${LINKED_FOLDER}${name}`); index += 1) {
+    name = `${folder.name}-${index}`;
+  }
+  return {
+    file: `${LINKED_FOLDER}${name}`,
+    module: folder.module,
+    merge: "dir",
+    localPath: folder.path,
+    description: `Linked folder ${folder.path}`,
+  };
+}
+
+/** The linked-folder question's answer: the suggestion under `--yes`, else the
+ * user's, ending at end of input on the suggestion. */
+async function linkedAnswer(
+  io: SetupIo,
+  flags: SetupFlags,
+  folder: LinkedFolder,
+): Promise<number> {
+  const suggestion = linkedSuggestionNumber(folder.suggestion);
+  if (flags.yes === true) {
+    return suggestion;
+  }
+  const value = await ask(
+    io,
+    linkedQuestion(folder.file, folder.path, folder.count, folder.bytes),
+    suggestion,
+    pick(LINKED_CHOICES),
+    "Pick 1 to 3.",
+  );
+  return value ?? suggestion;
+}
+
 /**
  * The first-run flow of `mksync setup`, per the contract's "mksync setup": the
  * scan block, the profile list, the four questions and the summary. It returns
@@ -448,6 +507,37 @@ export async function runSetup(
   };
   const record = buildRecord(input, replacing, name, profileName, claude, mode);
 
+  const profileEntries = [...(profile.entries ?? [])];
+  const recordEntries = [...(record.entries ?? [])];
+  const destinations = { ...profile.destinations };
+  const folders = input.linkedFolders?.(profile, record) ?? [];
+  for (const folder of folders) {
+    const choice = await linkedAnswer(io, flags, folder);
+    if (choice === 1) {
+      profileEntries.push(linkedEntry(profileEntries, folder));
+    } else if (choice === 2) {
+      recordEntries.push(linkedEntry(recordEntries, folder));
+    } else {
+      destinations[`${LINKED_DESTINATION_PREFIX}${folder.path}`] = "no";
+    }
+  }
+  if (folders.length > 0 && flags.yes !== true) {
+    io.write("\n");
+  }
+  const answeredProfile: Profile = {
+    ...profile,
+    destinations,
+    ...(profile.entries !== undefined || profileEntries.length > 0
+      ? { entries: profileEntries }
+      : {}),
+  };
+  const answeredRecord: MachineRecord = {
+    ...record,
+    ...(record.entries !== undefined || recordEntries.length > 0
+      ? { entries: recordEntries }
+      : {}),
+  };
+
   const nameFlag =
     replacing === undefined
       ? `--name ${record.name}`
@@ -458,8 +548,8 @@ export async function runSetup(
   );
   return {
     ok: true,
-    record,
-    profile,
+    record: answeredRecord,
+    profile: answeredProfile,
     newProfile: existing === undefined,
     action,
     replaced: replacing !== undefined,

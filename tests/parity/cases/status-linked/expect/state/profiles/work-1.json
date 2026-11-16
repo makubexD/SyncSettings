@@ -1,0 +1,10 @@
+{
+  "modules": [
+    "shell"
+  ],
+  "values": {},
+  "destinations": {
+    "linked: ~/.config/parity/done": "no"
+  },
+  "retired": false
+}

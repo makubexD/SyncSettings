@@ -26,7 +26,8 @@ new window afterwards so it finds `mksync`.
 Run the same line again to update. `SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR` and the other `SYNCSETTINGS_*` variables
 change the defaults, for example for a fork; the [front door section](docs/sync-contract.md#front-door) lists them all.
 
-A compiled `mksync` program that will replace both engines is being built in `src/`; the installers don't use it yet.
+A compiled `mksync` program that will replace both engines is being built in `src/`. Built from the clone
+(`bun run build`), `dist/mksync` already runs every front-door command; the installers don't install it until phase 9.
 
 ## Every day
 

@@ -1,0 +1,19 @@
+{
+  "description": "Answering yes to the overwrite prompt loads the repo file and backs up the old dump: UPDATED (Import; dconf entries; Backups).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "import", "stdin": "y\n" }]
+}

@@ -17,6 +17,7 @@ import type { Profile } from "../core/config/profile.ts";
 import type {
   ConfigError,
   ConfigV2,
+  ConfigV2Entry,
   Result as LoadResult,
 } from "../core/config/types.ts";
 import type { FirstBackupWrites } from "../core/machine/backup.ts";
@@ -25,6 +26,7 @@ import type { FirstBackupFile, Store } from "./store.ts";
 import {
   firstBackupFiles,
   readBackupSides,
+  readLinkedFolders,
   readRepoStore,
   readStore,
   writeFirstBackup,
@@ -548,6 +550,27 @@ describe("writeRecord and writeProfile", () => {
     expect(store.profiles).toEqual([profileOf()]);
   });
 
+  test("should write a profile's linked entries and read them back", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const linked = linkedProfile({}, [linkedDirEntry("~/scripts")]);
+
+    // Act
+    writeProfile(fixture.state, linked);
+    const store = expectOk(storeOf(fixture));
+
+    // Assert
+    expect(store.profiles).toEqual([linked]);
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ entries: [linkedDirEntry("~/scripts")] });
+  });
+
   test("should write both files for the current user only", () => {
     // Arrange
     const fixture = storeFixture();
@@ -656,6 +679,202 @@ describe("readRepoStore", () => {
       PROFILE_NAME,
     ]);
     expect(repo.profiles[0]?.modules).toEqual(["base"]);
+  });
+});
+
+/** A bashrc naming one folder in the home and one that doesn't exist. */
+const LINKED_BASHRC = 'export PATH="$HOME/scripts:$PATH"\n/nonexistent\n';
+
+/** A bashrc naming a folder the linked-folder scan may skip. */
+const SQUATTER_BASHRC = 'export PATH="$HOME/squatter:$PATH"\n';
+
+function linkedBashrc(): ConfigV2Entry {
+  return {
+    file: "bash/bashrc",
+    module: "base",
+    merge: "whole",
+    localPath: "~/.bashrc",
+    linked: true,
+  };
+}
+
+function unlinkedBashrc(): ConfigV2Entry {
+  return {
+    file: "bash/bashrc",
+    module: "base",
+    merge: "whole",
+    localPath: "~/.bashrc",
+  };
+}
+
+function linkedConfig(entries: readonly ConfigV2Entry[]): ConfigV2 {
+  return {
+    schemaVersion: 2,
+    modules: { base: { description: "Base" } },
+    entries,
+  };
+}
+
+function linkedDirEntry(localPath: string): ConfigV2Entry {
+  return { file: "linked/scripts", module: "base", merge: "dir", localPath };
+}
+
+function linkedProfile(
+  destinations: Readonly<Record<string, string>> = {},
+  entries?: readonly ConfigV2Entry[],
+): Profile {
+  const profile: Profile = {
+    name: PROFILE_NAME,
+    modules: [],
+    values: {},
+    destinations,
+    retired: false,
+  };
+  return entries === undefined ? profile : { ...profile, entries };
+}
+
+/** A throwaway home with a two-file folder under it. */
+function linkedHome(): string {
+  const home = tempFolder();
+  writeFixture(join(home, "scripts", "one.sh"), "one");
+  writeFixture(join(home, "scripts", "two.sh"), "two");
+  return home;
+}
+
+describe("readLinkedFolders", () => {
+  test("should read a linked folder and skip a folder that isn't there", () => {
+    // Arrange
+    const home = linkedHome();
+    writeFixture(join(home, ".bashrc"), LINKED_BASHRC);
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([linkedBashrc()]),
+    );
+
+    // Assert
+    expect(result).toEqual([
+      {
+        file: ".bashrc",
+        path: "~/scripts",
+        name: "scripts",
+        module: "base",
+        count: 2,
+        bytes: 6,
+        suggestion: "profile",
+      },
+    ]);
+  });
+
+  test("should skip a folder a profile dir entry syncs", () => {
+    // Arrange
+    const home = linkedHome();
+    writeFixture(join(home, ".bashrc"), LINKED_BASHRC);
+    const profile = linkedProfile({}, [linkedDirEntry("~/scripts")]);
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([linkedBashrc()]),
+      profile,
+    );
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  test("should skip a folder the profile answered linked: no", () => {
+    // Arrange
+    const home = linkedHome();
+    writeFixture(join(home, ".bashrc"), LINKED_BASHRC);
+    const profile = linkedProfile({ "linked: ~/scripts": "no" });
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([linkedBashrc()]),
+      profile,
+    );
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  test("should not read an entry without linked", () => {
+    // Arrange
+    const home = linkedHome();
+    writeFixture(join(home, ".bashrc"), LINKED_BASHRC);
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([unlinkedBashrc()]),
+    );
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  test("should skip a symlinked folder", () => {
+    // Arrange
+    const home = linkedHome();
+    writeFixture(join(home, ".bashrc"), SQUATTER_BASHRC);
+    symlinkSync(join(home, "scripts"), join(home, "squatter"));
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([linkedBashrc()]),
+    );
+
+    // Assert
+    expect(result).toEqual([]);
+  });
+
+  test("should skip the home, dot and dot-dot folders", () => {
+    // Arrange
+    const home = tempFolder();
+    writeFixture(join(home, "proj", "tools", "one.sh"), "one");
+    writeFixture(
+      join(home, ".bashrc"),
+      'export PATH="~/proj/..:~/.:~/..:~/proj/tools"\n',
+    );
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([linkedBashrc()]),
+    );
+
+    // Assert
+    expect(result.map((folder) => folder.path)).toEqual(["~/proj/tools"]);
+  });
+
+  test("should suggest no for a folder at the file limit", () => {
+    // Arrange
+    const home = tempFolder();
+    writeFixture(join(home, ".bashrc"), SQUATTER_BASHRC);
+    for (let index = 0; index < 1000; index += 1) {
+      writeFixture(join(home, "squatter", `file-${index}.sh`), "");
+    }
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([linkedBashrc()]),
+    );
+
+    // Assert
+    expect(result.map((folder) => folder.count)).toEqual([1000]);
+    expect(result[0]?.suggestion).toBe("no");
   });
 });
 

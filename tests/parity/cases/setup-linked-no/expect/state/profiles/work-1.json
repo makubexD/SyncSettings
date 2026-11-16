@@ -1,0 +1,10 @@
+{
+  "modules": [
+    "shell"
+  ],
+  "values": {},
+  "destinations": {
+    "linked: ~/.config/parity/scripts": "no"
+  },
+  "retired": false
+}

@@ -1,0 +1,22 @@
+{
+  "description": "A partial commit opens the PR and leaves the recorded sync point as it was, exit 0 (Sync point).",
+  "git": "remote",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": { "GIT_CONFIG_GLOBAL": "../home/gitconfig" },
+  "commands": [
+    { "command": "export" },
+    { "command": "commit", "options": { "partial": true } }
+  ]
+}

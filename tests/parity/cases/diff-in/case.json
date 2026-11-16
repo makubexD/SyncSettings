@@ -1,0 +1,18 @@
+{
+  "description": "Diff with a recorded sync point labels a file only origin changed as IN (Diff).",
+  "git": "remote",
+  "syncPoint": true,
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "diff" }]
+}

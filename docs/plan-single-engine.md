@@ -199,6 +199,11 @@ the phase 7 finish review").
 
 ### Phase 8: the rest
 
+**In progress.** [plan-single-engine-8.md](plan-single-engine-8.md) and its review fixes
+([plan-single-engine-8-fixes.md](plan-single-engine-8-fixes.md)) done 2026-11-16 on `engine/front-door`: the Claude
+layout tool, linked folders, move a change, `mksync check`, `preview` and `diff`, and the 14 Required fixes. The
+program passes 222 shared cases. Left: the case port, `docs/plan-single-engine-8-port.md`.
+
 - **First, carried from phase 7: the Windows survey and the Claude layout tool.** Phase 7 closed (2026-11-14) before
   the survey ran on work machine #1 (`docs/windows-survey.md`). When the redacted answer is in, it settles the
   design's "Confirm on Windows" list and the Windows overlay's keys; then `tools/claude-layout.ts` writes the base,
@@ -209,12 +214,18 @@ the phase 7 finish review").
   stops at the survey step if it isn't in.
 - Diff and the sync point, commit and the PR per profile, dconf and package drift, linked-folder suggestions, the
   `mksync` front door.
-- The cases of the old engines that have no shared twin, ported (the phase 3 list).
+- The cases of the old engines that have no shared twin, ported (the phase 3 list). Their own plan,
+  `docs/plan-single-engine-8-port.md`, written when `docs/plan-single-engine-8.md` finishes: about 370 shared cases
+  and 150 unit and adapter tests would more than double the phase. Phase 8 ports only the dconf and drift groups, with
+  their rules.
+- The phase 8 review's fixes: `docs/plan-single-engine-8-fixes.md` (the 14 Required findings of the finish review and
+  the cheap Optional ones; the rest is in the design's "Open" under "Left by the phase 8 review").
 
 ### Phase 9: cut-over
 
 - A release workflow builds the programs with checksums and `gh attestation`.
-- The Claude layout goes live: `bun tools/claude-layout.ts <repo> --cutover` drops the v1 Claude rows, the synced
+- The Claude layout goes live: `bun tools/claude-layout.ts <repo>` lists its writes, then `--cutover` writes the
+  layers and drops the v1 Claude rows (a second run is refused), the synced
   `statusLine` runs `mksync statusline`, and `statusline.sh` is retired.
 - `install.sh` and `install.ps1` download the program. The tool updates itself with `mksync update`, checking the
   config's `schemaVersion`.

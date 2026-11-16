@@ -1,0 +1,37 @@
+{
+  "description": "Push with a record and without --yes moves a base json key to the profile layer after the block, leaving the base repo file as the repo holds it and the profile layer file holding the key; git status lists the profile layer file and the PR question is answered n, exit 0 (Move a change (program only)).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "remote",
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "1\n3\n\nn\n",
+      "output": "all"
+    }
+  ]
+}

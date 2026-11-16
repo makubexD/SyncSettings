@@ -1,0 +1,19 @@
+{
+  "description": "Push when the repo matches this machine runs the export, prints Nothing to send and opens no PR, exit 0 (Front door, push row).",
+  "os": ["linux"],
+  "git": "remote",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "push" }]
+}

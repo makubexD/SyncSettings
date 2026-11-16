@@ -30,14 +30,17 @@ export interface Layer {
   readonly repoPath: string;
 }
 
-/** What this run has: its OS, the profile and machine chosen for it, and the
- * modules it keeps on. Without a profile `modules` is absent and every module
- * is on. */
+/** What this run has: its OS, the profile and machine chosen for it, the
+ * modules it keeps on, and the machine record's linked-folder entries (the
+ * profile's come with the profile). Without a profile `modules` is absent and
+ * every module is on. */
 export interface SelectScope {
   readonly os: Os;
   readonly profile?: Profile;
   readonly machine?: string;
   readonly modules?: readonly string[];
+  /** The record's `entries` list, read only when the scope has a machine. */
+  readonly machineEntries?: readonly ConfigV2Entry[];
 }
 
 export interface SelectedEntry {
@@ -171,8 +174,29 @@ function writeRootFor(os: readonly Os[]): string {
   return os.length === 1 && only !== undefined ? osRoot(only) : BASE_ROOT;
 }
 
+// A linked-folder entry lives in exactly one layer, its profile's or its
+// machine's `linked/` folder, and never in base or OS.
+function linkedSelected(
+  entry: ConfigV2Entry,
+  root: LayerRoot,
+  files: ReadonlySet<string>,
+): SelectedEntry {
+  const layer = layerAt(root, entry);
+  const layers = slotHasLayer(layer, entry, files) ? [layer] : [];
+  return {
+    entry,
+    slots: [layer],
+    layers,
+    source: layers[layers.length - 1],
+    writeRoot: root.root,
+  };
+}
+
 // Contract "Layers (program only)": with a profile, an entry whose module the
 // profile doesn't keep on is off, and an entry for another system stays off too.
+// After the config entries come the linked folders answered "this profile" and
+// "this machine": each is its layer's `linked/` entry, so the module filter
+// applies and the OS filter doesn't, since it belongs to this run's setup.
 export function selectEntries(
   config: ConfigV2,
   scope: SelectScope,
@@ -204,6 +228,27 @@ export function selectEntries(
       source: layers[layers.length - 1],
       writeRoot: writeRootFor(osList),
     });
+  }
+  const linked: readonly (readonly [
+    readonly ConfigV2Entry[] | undefined,
+    LayerRoot | undefined,
+  ])[] = [
+    [scope.profile?.entries, roots.find((root) => root.name === "profile")],
+    [scope.machineEntries, roots.find((root) => root.name === "machine")],
+  ];
+  for (const [entries, root] of linked) {
+    if (root === undefined) {
+      continue;
+    }
+    for (const entry of entries ?? []) {
+      if (
+        scope.modules !== undefined &&
+        !scope.modules.includes(entry.module)
+      ) {
+        continue;
+      }
+      selected.push(linkedSelected(entry, root, files));
+    }
   }
   return { ok: true, value: selected };
 }

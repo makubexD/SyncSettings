@@ -111,6 +111,35 @@ function whole(
   return { file, module: "git", merge: "whole", ...extra };
 }
 
+/** A linked folder as the profile or record stores it: a `dir` entry under the
+ * layer's `linked/` folder. */
+function linkedEntry(name: string, module = "git"): ConfigV2Entry {
+  return {
+    file: `linked/${name}`,
+    module,
+    merge: "dir",
+    localPath: `~/work-tool-1/${name}`,
+  };
+}
+
+function profileLayer(repoPath: string): Layer {
+  return {
+    name: "profile",
+    label: "work-1",
+    root: "profiles/work-1/",
+    repoPath,
+  };
+}
+
+function machineLayer(repoPath: string): Layer {
+  return {
+    name: "machine",
+    label: "wk1-laptop",
+    root: "machines/wk1-laptop/",
+    repoPath,
+  };
+}
+
 function profileOf(
   name: string,
   modules: readonly string[],
@@ -462,5 +491,145 @@ describe("selectEntries", () => {
     expect(selected(config, { os: "linux" })[0]?.writeRoot).toBe(
       "dotfiles/linux/",
     );
+  });
+});
+
+describe("selectEntries with linked folders", () => {
+  test("a profile linked entry has one profile slot and no layer without its file", () => {
+    // Arrange
+    const profile = profileOf("work-1", ["git"], {
+      entries: [linkedEntry("scripts")],
+    });
+
+    // Act
+    const [entry] = selected(configOf([]), { os: "linux", profile });
+
+    // Assert
+    expect(entry?.slots).toEqual([
+      profileLayer("profiles/work-1/linked/scripts"),
+    ]);
+    expect(entry?.layers).toEqual([]);
+    expect(entry?.source).toBeUndefined();
+  });
+
+  test("a profile linked entry gets its layer from a file under its folder", () => {
+    // Arrange
+    const profile = profileOf("work-1", ["git"], {
+      entries: [linkedEntry("scripts")],
+    });
+    const files = new Set(["profiles/work-1/linked/scripts/a"]);
+    const expected = profileLayer("profiles/work-1/linked/scripts");
+
+    // Act
+    const [entry] = selected(configOf([]), { os: "linux", profile }, files);
+
+    // Assert
+    expect(entry?.layers).toEqual([expected]);
+    expect(entry?.source).toEqual(expected);
+  });
+
+  test("a profile linked entry writes under the profile root", () => {
+    // Arrange
+    const profile = profileOf("work-1", ["git"], {
+      entries: [linkedEntry("scripts")],
+    });
+
+    // Act
+    const [entry] = selected(configOf([]), { os: "linux", profile });
+
+    // Assert
+    expect(entry?.writeRoot).toBe("profiles/work-1/");
+  });
+
+  test("a record linked entry has one machine slot and no layer without its file", () => {
+    // Arrange
+    const machineEntries = [linkedEntry("tools")];
+
+    // Act
+    const [entry] = selected(configOf([]), {
+      os: "linux",
+      machine: "wk1-laptop",
+      machineEntries,
+    });
+
+    // Assert
+    expect(entry?.slots).toEqual([
+      machineLayer("machines/wk1-laptop/linked/tools"),
+    ]);
+    expect(entry?.layers).toEqual([]);
+    expect(entry?.writeRoot).toBe("machines/wk1-laptop/");
+  });
+
+  test("a record linked entry gets its layer from a file under its folder", () => {
+    // Arrange
+    const machineEntries = [linkedEntry("tools")];
+    const files = new Set(["machines/wk1-laptop/linked/tools/a"]);
+    const expected = machineLayer("machines/wk1-laptop/linked/tools");
+
+    // Act
+    const [entry] = selected(
+      configOf([]),
+      { os: "linux", machine: "wk1-laptop", machineEntries },
+      files,
+    );
+
+    // Assert
+    expect(entry?.layers).toEqual([expected]);
+    expect(entry?.source).toEqual(expected);
+  });
+
+  test("record entries are ignored without a machine", () => {
+    // Act
+    const entries = selected(configOf([]), {
+      os: "linux",
+      machineEntries: [linkedEntry("tools")],
+    });
+
+    // Assert
+    expect(entries).toEqual([]);
+  });
+
+  test("a linked entry whose module is off is dropped", () => {
+    // Arrange
+    const profile = profileOf("work-1", ["git"], {
+      entries: [linkedEntry("settings", "gnome")],
+    });
+
+    // Act
+    const entries = selected(configOf([]), {
+      os: "linux",
+      profile,
+      modules: ["git"],
+    });
+
+    // Assert
+    expect(entries).toEqual([]);
+  });
+
+  test("config entries come first and read as before", () => {
+    // Arrange
+    const config = configOf([whole("git/.gitconfig.local", { os: ["linux"] })]);
+    const files = new Set([
+      "dotfiles/linux/git/.gitconfig.local",
+      "profiles/work-1/linked/scripts/a",
+    ]);
+    const withLinked = profileOf("work-1", ["git"], {
+      entries: [linkedEntry("scripts")],
+    });
+
+    // Act
+    const expected = selected(
+      config,
+      { os: "linux", profile: profileOf("work-1", ["git"]) },
+      files,
+    );
+    const entries = selected(config, { os: "linux", profile: withLinked }, files);
+
+    // Assert
+    expect(entries[0]).toEqual(expected[0]);
+    expect(entries.map((entry) => entry.entry.file)).toEqual([
+      "git/.gitconfig.local",
+      "linked/scripts",
+    ]);
   });
 });

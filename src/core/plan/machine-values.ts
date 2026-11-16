@@ -16,10 +16,13 @@ export function valueOwner(snapshot: Snapshot): ValueOwner | undefined {
 
 /**
  * The `writeMachineValues` action for a run with a record: the values this run
- * resolved that the record and profile don't already hold, split by the
- * contract's "Values on a machine" table (`placeValue`). Machine values are
- * appended to the record's values, profile and `ask` values to the profile's,
- * existing entries first in their order. Nothing new means no action.
+ * resolved that differ from what the record and profile hold, split by where
+ * the placeholder already lives, or the contract's "Values on a machine" table
+ * (`placeValue`) for a new one. A value the record holds is written to the
+ * machine entries when it changed, one the profile holds to the profile's;
+ * unchanged ones are skipped. Machine values are appended to the record's
+ * values, profile and `ask` values to the profile's, existing entries first in
+ * their order. Nothing to write means no action.
  */
 export function machineValuesWrite(
   snapshot: Snapshot,
@@ -33,10 +36,16 @@ export function machineValuesWrite(
   const machineEntries: [string, string][] = [];
   const profileEntries: [string, string][] = [];
   for (const [placeholder, value] of Object.entries(values)) {
-    if (
-      Object.hasOwn(record.values, placeholder) ||
-      (profile !== undefined && Object.hasOwn(profile.values, placeholder))
-    ) {
+    if (Object.hasOwn(record.values, placeholder)) {
+      if (record.values[placeholder] !== value) {
+        machineEntries.push([placeholder, value]);
+      }
+      continue;
+    }
+    if (profile !== undefined && Object.hasOwn(profile.values, placeholder)) {
+      if (profile.values[placeholder] !== value) {
+        profileEntries.push([placeholder, value]);
+      }
       continue;
     }
     if (placeValue(placeholder) === "machine") {

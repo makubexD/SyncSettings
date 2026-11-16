@@ -1,0 +1,33 @@
+{
+  "description": "setup answers no to the folder a linked entry's file names: the no is stored as linked: <path> in the profile's destinations and the folder isn't asked again (Linked folders, mksync setup).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file",
+        "linked": true
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "stdin": "work-1\n2\n1\n1\n3\n"
+    }
+  ]
+}

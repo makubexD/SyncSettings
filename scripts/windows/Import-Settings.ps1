@@ -43,7 +43,8 @@ if ($null -ne $Only) {
 }
 
 if ($Check -and $ResetValues) {
-    Write-Host 'ERROR: -Check cannot be combined with -ResetValues.' -ForegroundColor Red
+    # The contract's line, on stderr, as the other engines print it.
+    [Console]::Error.WriteLine('ERROR: --check cannot be combined with --reset-values.')
     exit 1
 }
 

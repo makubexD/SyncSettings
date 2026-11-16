@@ -1,4 +1,10 @@
-import type { ConfigV2, Os, Result } from "../config/types.ts";
+import { parseLinkedEntries } from "../config/profile.ts";
+import type {
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+  Result,
+} from "../config/types.ts";
 import type { JsonValue } from "../json/value.ts";
 import { writeJson } from "../json/value.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../layers/names.ts";
@@ -30,6 +36,9 @@ export interface MachineRecord {
   readonly values: Readonly<Record<string, string>>;
   readonly replaced: readonly ReplacedMachine[];
   readonly retired: boolean;
+  /** Linked folders answered "this machine" (contract "Linked folders"),
+   * absent when the record hasn't an `entries` list. */
+  readonly entries?: readonly ConfigV2Entry[];
 }
 
 const FIELDS: readonly string[] = [
@@ -45,6 +54,9 @@ const FIELDS: readonly string[] = [
   "replaced",
   "retired",
 ];
+
+/** Every key a record may hold: the required fields plus `entries`. */
+const ALL_FIELDS: readonly string[] = [...FIELDS, "entries"];
 
 const MODULE_FIELDS: readonly string[] = ["add", "remove"];
 
@@ -163,14 +175,15 @@ function readReplaced(value: unknown): readonly ReplacedMachine[] | undefined {
 }
 
 /**
- * Parses the full record form. Every field is required and no other is
- * allowed. The error is the contract's reason without its `ERROR:` line:
- * `not valid JSON`, `unknown field <f>`, `missing field <f>`,
+ * Parses the full record form. Every field is required except `entries`, and
+ * no other is allowed. The error is the contract's reason without its
+ * `ERROR:` line: `not valid JSON`, `unknown field <f>`, `missing field <f>`,
  * `<f> has the wrong type`, `<f> must be lowercase letters, digits and -;
  * this is <value>`, `<f> can't be <value>: it names another layer`,
- * `<f> can't be <value>` for an `os` or `claude` outside its list, or
- * `unknown module <m>`. The `{"name", "home": "repo"}` pointer form is read
- * elsewhere.
+ * `<f> can't be <value>` for an `os` or `claude` outside its list,
+ * `unknown module <m>`, or a linked entry that isn't a `dir` entry under
+ * `linked/` (`entry <file> ...`). The `{"name", "home": "repo"}` pointer form
+ * is read elsewhere.
  */
 export function parseRecord(
   text: string,
@@ -187,7 +200,7 @@ export function parseRecord(
   }
 
   for (const key of Object.keys(parsed)) {
-    if (!FIELDS.includes(key)) {
+    if (!ALL_FIELDS.includes(key)) {
       return failure(`unknown field ${key}`);
     }
   }
@@ -276,21 +289,31 @@ export function parseRecord(
     return failure("retired has the wrong type");
   }
 
+  const entries =
+    parsed.entries === undefined
+      ? undefined
+      : parseLinkedEntries(parsed.entries, config);
+  if (entries !== undefined && !entries.ok) {
+    return failure(entries.error);
+  }
+
+  const record: MachineRecord = {
+    name,
+    profile,
+    os,
+    hostname,
+    domain,
+    claude,
+    pullOnly,
+    modules: modules.value,
+    values,
+    replaced,
+    retired,
+  };
   return {
     ok: true,
-    value: {
-      name,
-      profile,
-      os,
-      hostname,
-      domain,
-      claude,
-      pullOnly,
-      modules: modules.value,
-      values,
-      replaced,
-      retired,
-    },
+    value:
+      entries === undefined ? record : { ...record, entries: entries.value },
   };
 }
 
@@ -311,6 +334,34 @@ function jsonStrings(values: readonly string[]): JsonValue {
   return { kind: "array", items: values.map(jsonString) };
 }
 
+/** A linked entry as the file holds it, keys in their source order so a
+ * canonical record round trips byte-exact. The parser only lets JSON values
+ * through. */
+function jsonValue(value: unknown): JsonValue {
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "bool", value };
+  }
+  if (typeof value === "number") {
+    return { kind: "number", text: String(value) };
+  }
+  if (typeof value === "string") {
+    return { kind: "string", value };
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array", items: value.map(jsonValue) };
+  }
+  if (isRecord(value)) {
+    const entries: [string, JsonValue][] = Object.entries(value).map(
+      ([key, item]): [string, JsonValue] => [key, jsonValue(item)],
+    );
+    return { kind: "object", entries: new Map(entries) };
+  }
+  throw new TypeError(`a linked entry holds a value that isn't JSON`);
+}
+
 function replacedValue(item: ReplacedMachine): JsonValue {
   const domain: JsonValue =
     item.domain === null ? { kind: "null" } : jsonString(item.domain);
@@ -328,37 +379,41 @@ function recordValue(record: MachineRecord): JsonValue {
   const values: [string, JsonValue][] = Object.entries(record.values).map(
     ([key, value]) => [key, jsonString(value)],
   );
-  return {
-    kind: "object",
-    entries: new Map<string, JsonValue>([
-      ["name", jsonString(record.name)],
-      ["profile", jsonString(record.profile)],
-      ["os", jsonString(record.os)],
-      ["hostname", jsonString(record.hostname)],
-      [
-        "domain",
-        record.domain === null ? { kind: "null" } : jsonString(record.domain),
-      ],
-      ["claude", jsonString(record.claude)],
-      ["pullOnly", { kind: "bool", value: record.pullOnly }],
-      [
-        "modules",
-        {
-          kind: "object",
-          entries: new Map<string, JsonValue>([
-            ["add", jsonStrings(record.modules.add)],
-            ["remove", jsonStrings(record.modules.remove)],
-          ]),
-        },
-      ],
-      ["values", { kind: "object", entries: new Map(values) }],
-      [
-        "replaced",
-        { kind: "array", items: record.replaced.map(replacedValue) },
-      ],
-      ["retired", { kind: "bool", value: record.retired }],
-    ]),
-  };
+  const fields: [string, JsonValue][] = [
+    ["name", jsonString(record.name)],
+    ["profile", jsonString(record.profile)],
+    ["os", jsonString(record.os)],
+    ["hostname", jsonString(record.hostname)],
+    [
+      "domain",
+      record.domain === null ? { kind: "null" } : jsonString(record.domain),
+    ],
+    ["claude", jsonString(record.claude)],
+    ["pullOnly", { kind: "bool", value: record.pullOnly }],
+    [
+      "modules",
+      {
+        kind: "object",
+        entries: new Map<string, JsonValue>([
+          ["add", jsonStrings(record.modules.add)],
+          ["remove", jsonStrings(record.modules.remove)],
+        ]),
+      },
+    ],
+    ["values", { kind: "object", entries: new Map(values) }],
+    [
+      "replaced",
+      { kind: "array", items: record.replaced.map(replacedValue) },
+    ],
+    ["retired", { kind: "bool", value: record.retired }],
+  ];
+  if (record.entries !== undefined) {
+    fields.push([
+      "entries",
+      { kind: "array", items: record.entries.map(jsonValue) },
+    ]);
+  }
+  return { kind: "object", entries: new Map(fields) };
 }
 
 /**

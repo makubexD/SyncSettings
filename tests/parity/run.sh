@@ -85,6 +85,11 @@ validate_case() {
           else true end)' "$json" > /dev/null 2>&1 \
         || die 'options.only must be an array of strings'
     jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("paths")) then
+            if ($o.paths | type) == "array" then all($o.paths[]; type == "string") else false end
+          else true end)' "$json" > /dev/null 2>&1 \
+        || die 'options.paths must be an array of strings'
+    jq -e 'all(.commands[]; (.options // {}) as $o
         | all($o | to_entries[] | select(.key == "name" or .key == "profile" or .key == "replace"
             or .key == "claude" or .key == "mode" or .key == "existing" or .key == "target");
             .value | type == "string"))' "$json" > /dev/null 2>&1 \
@@ -92,6 +97,15 @@ validate_case() {
     jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("yes")) then ($o.yes | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.yes must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("partial")) then ($o.partial | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.partial must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("message")) then ($o.message | type) == "string" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.message must be a string'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("resetValues")) then ($o.resetValues | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.resetValues must be a boolean'
     jq -e 'all(.commands[];
         .command as $cmd
         | (.options // {}) as $o
@@ -104,8 +118,17 @@ validate_case() {
           and (if ($o | has("yes")) then
                   $cmd == "setup" or $cmd == "export" or $cmd == "preview"
                   or $cmd == "machine-retire" or $cmd == "profile-retire"
-               else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
+                  or $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
+                  or $cmd == "push" or $cmd == "front-diff"
+               else true end)
+          and (if ($o | has("partial")) then $cmd == "commit" else true end)
+          and (if ($o | has("message")) then $cmd == "commit" or $cmd == "push" else true end)
+          and (if ($o | has("paths")) then
+                  $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
+                  or $cmd == "push" or $cmd == "front-diff" or $cmd == "front-check"
+               else true end)
+          and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
+        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -147,9 +170,25 @@ validate_case() {
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
-            (.stubs | type) == "array" and all(.stubs[]; . == "gh")
+            (.stubs | type) == "array"
+            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent")
           else true end' "$json" > /dev/null 2>&1 \
-        || die 'stubs may only hold gh'
+        || die 'stubs may only hold gh, dconf or getent'
+    jq -e '((.stubs // []) | any(. == "getent") | not)
+        or ((.stubs // []) | any(. == "dconf"))' "$json" > /dev/null 2>&1 \
+        || die 'the getent stub needs the dconf stub'
+    jq -e 'if has("syncPoint") then (.syncPoint | type) == "boolean" else true end' "$json" > /dev/null 2>&1 \
+        || die 'syncPoint must be a boolean'
+    if jq -e 'has("syncPoint")' "$json" > /dev/null 2>&1; then
+        jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'syncPoint needs git remote'
+    fi
+    if [[ -d $dir/origin ]]; then
+        jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'origin/ needs git remote'
+    fi
+    if [[ -d $dir/unsent ]]; then
+        jq -e '.git == "committed" or .git == "remote"' "$json" > /dev/null 2>&1 \
+            || die 'unsent/ needs git committed or remote'
+    fi
     if jq -e 'has("config") and has("configV2")' "$json" > /dev/null 2>&1; then
         die 'case.json has both config and configV2'
     fi
@@ -208,13 +247,14 @@ expected_path() {
 
 # The status lines of a command's output, each as `WORD label`: ANSI color codes
 # removed, notes and every other line dropped (see the README's "How the runner
-# checks it").
+# checks it"). A line starting `Next` is kept whole, without its indent, for the
+# front door's status.
 status_lines() {
     # A prompt answered from a pipe ends with no newline, so its status line
     # follows it on the same line: drop the `…? [Y/n]` prefix first.
     sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
         | sed -E 's/^.*\? \[[Yy]\/[Nn]\][[:space:]]*//' \
-        | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p"
+        | sed -nE "s/^[[:space:]]*\[?[[:space:]]*($STATUS_WORDS)[[:space:]]*\]?[[:space:]]+([^[:space:]]+).*/\1 \2/p; s/^[[:space:]]*(Next.*)$/\1/p; s/^[[:space:]]*(Linked folder not synced: .*)$/\1/p"
 }
 
 # Every line of a command's whole stdout, in order: ANSI color codes removed,
@@ -348,6 +388,62 @@ write_gh_stub() {
     chmod +x "$temp/bin/gh" || die 'making the gh stub executable failed'
 }
 
+# Write the dconf stub into $temp/bin. `dump <path>` prints the case's
+# dconf/<name>.ini, where <name> is the path without its leading and trailing
+# slashes and with the rest turned to dashes; a missing file prints nothing.
+# `load <path>` appends `load <path>` and then its stdin verbatim to
+# $temp/dconf.log. Anything else prints a message on stderr and exits 1.
+write_dconf_stub() {
+    local temp=$1 dir=$2
+    mkdir -p "$temp/bin" || die 'creating the dconf stub folder failed'
+    # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
+    printf '%s\n' \
+        '#!/bin/sh' \
+        "case_dir='$dir'" \
+        "log='$temp/dconf.log'" \
+        'case ${1:-} in' \
+        '    dump)' \
+        '        [ "$#" -eq 2 ] || { echo "dconf stub: dump needs a path" >&2; exit 1; }' \
+        '        name=${2#/}' \
+        '        name=${name%/}' \
+        "        name=\$(printf '%s' \"\$name\" | tr '/' '-')" \
+        '        if [ -f "$case_dir/dconf/$name.ini" ]; then cat "$case_dir/dconf/$name.ini"; fi' \
+        '        exit 0' \
+        '        ;;' \
+        '    load)' \
+        '        [ "$#" -eq 2 ] || { echo "dconf stub: load needs a path" >&2; exit 1; }' \
+        '        printf "load %s\n" "$2" >> "$log"' \
+        '        cat >> "$log"' \
+        '        exit 0' \
+        '        ;;' \
+        '    *)' \
+        '        printf "dconf stub: unsupported: %s\n" "$*" >&2' \
+        '        exit 1' \
+        '        ;;' \
+        'esac' > "$temp/bin/dconf" || die 'writing the dconf stub failed'
+    chmod +x "$temp/bin/dconf" || die 'making the dconf stub executable failed'
+}
+
+# Write the getent stub into $temp/bin: `getent passwd <user>` answers with the
+# case's temp home in the home field and exits 0; anything else is getent's
+# "key not found", exit 2.
+write_getent_stub() {
+    local temp=$1 home=$2
+    mkdir -p "$temp/bin" || die 'creating the getent stub folder failed'
+    # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'case ${1:-} in' \
+        '    passwd)' \
+        '        [ "$#" -eq 2 ] || exit 2' \
+        "        printf '%s:x:1000:1000::%s:/bin/bash\\n' \"\$2\" '$home'" \
+        '        exit 0' \
+        '        ;;' \
+        '    *) exit 2 ;;' \
+        'esac' > "$temp/bin/getent" || die 'writing the getent stub failed'
+    chmod +x "$temp/bin/getent" || die 'making the getent stub executable failed'
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, prints the first difference and
@@ -356,9 +452,10 @@ write_gh_stub() {
 run_case() {
     local dir=$1
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
+    local stubs dconf_stub=false
     local stderr_mode all_output keep_ansi target value
-    local want_exit want_output want_home want_repo want_values want_state want_gh calls
-    local file rel got want_mode got_mode
+    local want_exit want_output want_home want_repo want_values want_state want_gh want_dconf calls first_load
+    local file rel got want_mode got_mode start_head state_want clone positional
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
     t=$(mktemp -d)
@@ -376,6 +473,9 @@ run_case() {
     mkdir -p "$t/repo" "$t/home" "$t/empty"
     if [[ -n $engine_path ]]; then
         cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+        # The program runs the leak scan from the repo, as commit.sh does.
+        mkdir -p "$t/repo/scripts"
+        cp -a "$REPO/scripts/ci" "$t/repo/scripts/" || die 'copying scripts/ci failed'
     else
         mkdir -p "$t/repo/scripts"
         cp -a "$REPO/export.sh" "$REPO/import.sh" "$REPO/commit.sh" "$REPO/sync" "$t/repo/" \
@@ -393,7 +493,56 @@ run_case() {
     fi
     if [[ -d $dir/home ]]; then
         cp -a "$dir/home/." "$t/home/" || die 'copying the case home/ failed'
+        # cp -a keeps the fixtures' mtimes, so a home file and its repo twin of the
+        # same size can share one. export.sh copies with cp -p into the same inode,
+        # and git's stat cache then reports the changed repo file as clean.
+        find "$t/home" -type f -exec touch {} + || die 'touching the case home/ failed'
     fi
+
+    git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
+    start_head=''
+    case $git_mode in
+        none) ;;
+        committed|remote)
+            setup_git "$t/repo" "$t" "$git_mode"
+            # The commit the case starts from: a sync point and an expected
+            # state file's <START_HEAD> both name it.
+            start_head=$(git_env -C "$t/repo" rev-parse HEAD) || die 'reading HEAD failed'
+            ;;
+        *) die 'git must be none, committed or remote' ;;
+    esac
+
+    # A sync point is the commit the last sync left on master, as the engine
+    # records it. It goes in before the case's state/ copy, so a case can
+    # override it there.
+    if [[ $(jq -r '.syncPoint // false' "$dir/case.json") == true ]]; then
+        mkdir -p "$t/home/.local/state/sync-settings" \
+            || die 'creating the engine state folder failed'
+        printf '%s\n' "$start_head" > "$t/home/.local/state/sync-settings/last-sync" \
+            || die 'writing the sync point failed'
+    fi
+
+    # An origin/ tree is one commit on top of master, made in a second clone and
+    # pushed to the bare origin: origin/master is ahead, the repo's master and
+    # working tree are not.
+    if [[ -d $dir/origin ]]; then
+        clone=$t/origin-clone
+        git_env clone -q "$t/origin.git" "$clone" || die 'cloning origin failed'
+        cp -a "$dir/origin/." "$clone/" || die 'copying the case origin/ failed'
+        git_env -C "$clone" add -A || die 'git add in the origin clone failed'
+        git_env -c user.name=parity -c user.email=parity@example.com -C "$clone" \
+            commit -q -m origin || die 'git commit in the origin clone failed'
+        git_env -C "$clone" push -q origin master || die 'git push to origin failed'
+        rm -rf "$clone" || die 'removing the origin clone failed'
+        git_env -C "$t/repo" fetch -q origin || die 'git fetch origin failed'
+    fi
+
+    # An unsent/ tree goes over the repo's working tree after the commit and
+    # stays uncommitted, so `git status --porcelain` shows it.
+    if [[ -d $dir/unsent ]]; then
+        cp -a "$dir/unsent/." "$t/repo/" || die 'copying the case unsent/ failed'
+    fi
+
     # A seeded state/ goes into the folder the engine treats as its own state,
     # before the first command, exactly like the engine's own files.
     if [[ -d $dir/state ]]; then
@@ -406,17 +555,21 @@ run_case() {
             || die 'setting the state record modes failed'
     fi
 
-    git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
-    case $git_mode in
-        none) ;;
-        committed|remote) setup_git "$t/repo" "$t" "$git_mode" ;;
-        *) die 'git must be none, committed or remote' ;;
-    esac
-
-    if jq -e '(.stubs // []) | any(. == "gh")' "$dir/case.json" > /dev/null 2>&1; then
+    stubs=$(jq -r '(.stubs // []) | join(" ")' "$dir/case.json") || die 'reading stubs failed'
+    if [[ -n $stubs ]]; then
+        path_env=(PATH="$t/bin:$PATH")
+    fi
+    if [[ " $stubs " == *' gh '* ]]; then
         gh_stub=true
         write_gh_stub "$t"
-        path_env=(PATH="$t/bin:$PATH" GH="$t/bin/gh")
+        path_env+=(GH="$t/bin/gh")
+    fi
+    if [[ " $stubs " == *' dconf '* ]]; then
+        dconf_stub=true
+        write_dconf_stub "$t" "$dir"
+    fi
+    if [[ " $stubs " == *' getent '* ]]; then
+        write_getent_stub "$t" "$t/home"
     fi
 
     # Optional case env: a string sets the variable, null unsets it. Applied by
@@ -445,8 +598,17 @@ run_case() {
                 import) args=(./mksync import) ;;
                 check) args=(./mksync import --check) ;;
                 preview) args=(./mksync export --preview) ;;
+                diff) args=(./mksync export --diff) ;;
+                commit) args=(./mksync commit) ;;
                 setup) args=(./mksync setup) ;;
                 statusline) args=(./mksync statusline) ;;
+                status) args=(./mksync status) ;;
+                doctor) args=(./mksync doctor) ;;
+                pull) args=(./mksync pull) ;;
+                push) args=(./mksync push) ;;
+                front-diff) args=(./mksync diff) ;;
+                front-check) args=(./mksync check) ;;
+                front-preview) args=(./mksync preview) ;;
                 machine-show) args=(./mksync machine show) ;;
                 machine-retire)
                     target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
@@ -466,12 +628,19 @@ run_case() {
                 preview) args=(./export.sh --preview) ;;
                 diff) args=(./export.sh --diff) ;;
                 commit) args=(./commit.sh) ;;
+                status) args=(./sync status) ;;
+                doctor) args=(./sync doctor) ;;
+                pull) args=(./sync pull) ;;
+                push) args=(./sync push) ;;
+                front-diff) args=(./sync diff) ;;
+                front-check) args=(./sync check) ;;
+                front-preview) args=(./sync preview) ;;
                 *) die "unknown command '$cmd' in command $((i + 1))" ;;
             esac
         fi
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|yes|target) ;;
+                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message|paths|resetValues) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -489,6 +658,19 @@ run_case() {
         if [[ $(jq -r ".commands[$i].options.yes // false" "$dir/case.json") == true ]]; then
             args+=(--yes)
         fi
+        if [[ $(jq -r ".commands[$i].options.partial // false" "$dir/case.json") == true ]]; then
+            args+=(--partial)
+        fi
+        if [[ $(jq -r ".commands[$i].options | has(\"message\")" "$dir/case.json") == true ]]; then
+            args+=(-m "$(jq -r ".commands[$i].options.message" "$dir/case.json")")
+        fi
+        if [[ $(jq -r ".commands[$i].options.resetValues // false" "$dir/case.json") == true ]]; then
+            args+=(--reset-values)
+        fi
+        # Positional paths, for the front door's commands.
+        while IFS= read -r -d '' positional; do
+            args+=("$positional")
+        done < <(jq -j ".commands[$i].options.paths // [] | .[] | . , \"\\u0000\"" "$dir/case.json")
 
         stdin_file=/dev/null
         if [[ $(jq -r ".commands[$i] | has(\"stdin\")" "$dir/case.json") == true ]]; then
@@ -510,15 +692,22 @@ run_case() {
         esac
         rc=0
         # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
+        # A caller's git repo, bus and tokens stay out too; the case's own env is
+        # applied after the unsets, so a case may still set them deliberately. The
+        # ceiling always holds, so git cannot climb above the case folder.
         if [[ $stderr_mode == true || $all_output == true ]]; then
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
-                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV \
+                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
+                -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
+                GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
         else
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
-                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV \
+                -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
+                -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
+                GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         fi
         printf '%s\n' "$rc" >> "$t/actual-exit"
@@ -549,6 +738,23 @@ run_case() {
         else
             calls=$(head -n 1 "$t/gh-cut")
             [[ -z $calls ]] || die "gh: want no call, got \"$calls\""
+        fi
+    fi
+
+    # Every dconf load is logged verbatim as `load <path>` and the loaded text,
+    # with no cut, and the log must match expect/dconf.log byte for byte. No
+    # expected file means dconf must not be loaded, as for gh above.
+    if $dconf_stub; then
+        want_dconf=$(expected_path "$dir" dconf.log)
+        if [[ -f $want_dconf ]]; then
+            [[ -f $t/dconf.log ]] || die 'dconf: want a load, got nothing'
+            if ! cmp -s "$want_dconf" "$t/dconf.log"; then
+                first_line_diff dconf "$want_dconf" "$t/dconf.log" \
+                    || die 'dconf.log: differs from expect'
+            fi
+        else
+            first_load=$(head -n 1 "$t/dconf.log" 2> /dev/null) || true
+            [[ -z $first_load ]] || die "dconf: want no load, got \"$first_load\""
         fi
     fi
 
@@ -588,7 +794,16 @@ run_case() {
             rel=${file#"$want_state"/}
             got=$t/state/$rel
             [[ -f $got ]] || die "state $rel: missing"
-            cmp -s "$file" "$got" || die "state $rel: differs"
+            # <START_HEAD> stands for the commit the case started from, which
+            # changes per run; substitute it before comparing.
+            state_want=$file
+            if grep -qF '<START_HEAD>' "$file"; then
+                [[ -n $start_head ]] || die "state $rel: <START_HEAD> needs a git repo"
+                state_want=$t/state-want
+                sed "s/<START_HEAD>/$start_head/g" "$file" > "$state_want" \
+                    || die "state $rel: substituting <START_HEAD> failed"
+            fi
+            cmp -s "$state_want" "$got" || die "state $rel: differs"
             want_mode=$(file_mode "$file") || die "state $rel: cannot read the wanted file"
             # The record and profiles hold values, so the program writes them
             # for the current user only; git can't store mode 600.
@@ -651,17 +866,6 @@ for dir in "$CASES"/*/; do
         printf 'FAIL %s: %s\n' "$case_name" "${reason:-invalid case.json}"
         failed_cases=$((failed_cases + 1))
         continue
-    fi
-
-    # The program takes neither diff nor commit until phase 8: skip the case
-    # without counting it as a failure.
-    if [[ -n $engine_path ]]; then
-        phase8=$(jq -r '[.commands[].command | select(. == "diff" or . == "commit")]
-            | first // empty' "$dir/case.json" 2> /dev/null) || true
-        if [[ -n $phase8 ]]; then
-            printf 'SKIP %s: %s comes in phase 8\n' "$case_name" "$phase8"
-            continue
-        fi
     fi
 
     # setup, machine show, the retire commands and statusline are the program's

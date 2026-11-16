@@ -95,9 +95,9 @@ function Resolve-MachineAlias {
 # -- Main ---------------------------------------------------------------------
 
 Write-Host
-Write-Host '+==========================================+' -ForegroundColor Cyan
-Write-Host '|        SyncSettings -- COMMIT             |' -ForegroundColor Cyan
-Write-Host '+==========================================+' -ForegroundColor Cyan
+Write-Host '  +==========================================+' -ForegroundColor Cyan
+Write-Host '  |        SyncSettings -- COMMIT           |' -ForegroundColor Cyan
+Write-Host '  +==========================================+' -ForegroundColor Cyan
 Write-Host
 
 $bodyFile = $null
@@ -303,7 +303,6 @@ try {
     exit 0
 
 } catch {
-    Write-Host
     Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 } finally {

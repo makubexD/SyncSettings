@@ -114,6 +114,18 @@ function Validate-Case {
                     }
                 }
             }
+            $pathsProp = $opts.PSObject.Properties['paths']
+            if ($null -ne $pathsProp) {
+                $paths = $pathsProp.Value
+                if ($paths -isnot [System.Array]) {
+                    Die 'options.paths must be an array of strings'
+                }
+                foreach ($p in $paths) {
+                    if ($p -isnot [string]) {
+                        Die 'options.paths must be an array of strings'
+                    }
+                }
+            }
             foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing', 'target')) {
                 $p = $opts.PSObject.Properties[$key]
                 if ($null -ne $p -and $p.Value -isnot [string]) {
@@ -123,6 +135,18 @@ function Validate-Case {
             $yesProp = $opts.PSObject.Properties['yes']
             if ($null -ne $yesProp -and $yesProp.Value -isnot [bool]) {
                 Die 'options.yes must be a boolean'
+            }
+            $partialProp = $opts.PSObject.Properties['partial']
+            if ($null -ne $partialProp -and $partialProp.Value -isnot [bool]) {
+                Die 'options.partial must be a boolean'
+            }
+            $messageProp = $opts.PSObject.Properties['message']
+            if ($null -ne $messageProp -and $messageProp.Value -isnot [string]) {
+                Die 'options.message must be a string'
+            }
+            $resetProp = $opts.PSObject.Properties['resetValues']
+            if ($null -ne $resetProp -and $resetProp.Value -isnot [bool]) {
+                Die 'options.resetValues must be a boolean'
             }
         }
 
@@ -135,9 +159,24 @@ function Validate-Case {
                 Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
             }
         }
+        $frontDoor = $cmd.command -ceq 'status' -or $cmd.command -ceq 'doctor' -or
+            $cmd.command -ceq 'pull' -or $cmd.command -ceq 'push' -or $cmd.command -ceq 'front-diff'
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
-            $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and $cmd.command -cne 'profile-retire') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
+            $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and
+            $cmd.command -cne 'profile-retire' -and -not $frontDoor) {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        }
+        if ($optNames -ccontains 'partial' -and $cmd.command -cne 'commit') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        }
+        if ($optNames -ccontains 'message' -and $cmd.command -cne 'commit' -and $cmd.command -cne 'push') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        }
+        if ($optNames -ccontains 'paths' -and -not $frontDoor -and $cmd.command -cne 'front-check') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        }
+        if ($optNames -ccontains 'resetValues' -and $cmd.command -cne 'import' -and $cmd.command -cne 'check') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -226,12 +265,35 @@ function Validate-Case {
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
         if ($stubs -isnot [System.Array]) {
-            Die 'stubs may only hold gh'
+            Die 'stubs may only hold gh; dconf and getent are Linux only'
         }
         foreach ($s in $stubs) {
-            if (-not ($s -is [string] -and $s -ceq 'gh')) {
-                Die 'stubs may only hold gh'
+            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent'))) {
+                Die 'stubs may only hold gh; dconf and getent are Linux only'
             }
+        }
+    }
+
+    $syncPointProp = $case.PSObject.Properties['syncPoint']
+    if ($null -ne $syncPointProp -and $syncPointProp.Value -isnot [bool]) {
+        Die 'syncPoint must be a boolean'
+    }
+    $hasSyncPoint = $null -ne $syncPointProp
+    $hasOrigin = Test-Path -LiteralPath (Join-Path $Dir 'origin') -PathType Container
+    if ($hasSyncPoint -or $hasOrigin) {
+        $remotes = ($null -ne $gitProp -and $gitProp.Value -is [string] -and $gitProp.Value -ceq 'remote')
+        if (-not $remotes) {
+            if ($hasSyncPoint) {
+                Die 'syncPoint needs git remote'
+            }
+            Die 'origin/ needs git remote'
+        }
+    }
+    $hasUnsent = Test-Path -LiteralPath (Join-Path $Dir 'unsent') -PathType Container
+    if ($hasUnsent) {
+        $committed = ($null -ne $gitProp -and $gitProp.Value -is [string] -and ($gitProp.Value -ceq 'committed' -or $gitProp.Value -ceq 'remote'))
+        if (-not $committed) {
+            Die 'unsent/ needs git committed or remote'
         }
     }
 
@@ -350,7 +412,8 @@ function Read-Lines {
 
 # The status lines of a command's output, each as `WORD label`: ANSI color codes
 # removed, notes and every other line dropped (see the README's "How the runner
-# checks it").
+# checks it"). A line starting `Next` is kept whole, without its indent, for the
+# front door's status.
 function Get-StatusLines {
     param([string]$Raw)
     $text = $Raw -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
@@ -367,6 +430,10 @@ function Get-StatusLines {
         $pattern = '^\s*\[?\s*(' + $StatusWords + ')\s*\]?\s+(\S+)'
         if ($line -cmatch $pattern) {
             $result += ($Matches[1] + ' ' + $Matches[2])
+        } elseif ($line -cmatch '^\s*(Next.*)$') {
+            $result += $Matches[1]
+        } elseif ($line -cmatch '^\s*(Linked folder not synced: .*)$') {
+            $result += $Matches[1]
         }
     }
     return ,$result
@@ -606,6 +673,28 @@ function Invoke-Git {
     }
 }
 
+# The full SHA at HEAD of $RepoDir, with the user's own configuration kept out.
+function Get-GitHead {
+    param([string]$RepoDir)
+    $oldGlobal = $env:GIT_CONFIG_GLOBAL
+    $oldNoSystem = $env:GIT_CONFIG_NOSYSTEM
+    $oldPreference = $ErrorActionPreference
+    try {
+        $env:GIT_CONFIG_GLOBAL = 'NUL'
+        $env:GIT_CONFIG_NOSYSTEM = '1'
+        $ErrorActionPreference = 'Continue'
+        $head = @(& git -C $RepoDir rev-parse HEAD 2> $null)
+        if ($LASTEXITCODE -ne 0) {
+            Die 'git rev-parse HEAD failed'
+        }
+    } finally {
+        $ErrorActionPreference = $oldPreference
+        $env:GIT_CONFIG_GLOBAL = $oldGlobal
+        $env:GIT_CONFIG_NOSYSTEM = $oldNoSystem
+    }
+    return [string]$head[0]
+}
+
 # Put the case's temp repo under git: everything committed on master, and for
 # `remote` also a bare origin at <temp>\origin.git that master tracks.
 function Setup-Git {
@@ -659,6 +748,9 @@ function Run-Case {
         # Engine files (scripts\ci too: later cases need leak-scan).
         if (-not [string]::IsNullOrEmpty($EnginePath)) {
             Copy-Item -LiteralPath $EnginePath -Destination (Join-Path $repoDir 'mksync.exe') -Force
+            # The program runs the leak scan from the repo, as run.sh copies it.
+            New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
         } else {
             Copy-Item -LiteralPath (Join-Path $Repo 'sync.cmd') -Destination $repoDir -Force
             New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
@@ -691,11 +783,13 @@ function Run-Case {
         }
         if (Test-Path -LiteralPath (Join-Path $Dir 'home') -PathType Container) {
             Copy-Tree (Join-Path $Dir 'home') $homeDir
-        }
-        # A seeded state/ goes into the folder the engine treats as its own
-        # state, before the first command, exactly like the engine's own files.
-        if (Test-Path -LiteralPath (Join-Path $Dir 'state') -PathType Container) {
-            Copy-Tree (Join-Path $Dir 'state') (Join-Path $localDir 'SyncSettings')
+            # Copy-Item keeps the fixtures' mtimes, so a home file and its repo
+            # twin of the same size can share one; git's stat cache then reports
+            # the changed repo file as clean.
+            $now = Get-Date
+            foreach ($homeFile in @(Get-ChildItem -LiteralPath $homeDir -Recurse -File -Force)) {
+                $homeFile.LastWriteTime = $now
+            }
         }
 
         # Git: everything committed on master, and for `remote` also a bare
@@ -705,8 +799,49 @@ function Run-Case {
         if ($null -ne $gitProp) {
             $gitMode = [string]$gitProp.Value
         }
+        $startHead = ''
         if ($gitMode -ceq 'committed' -or $gitMode -ceq 'remote') {
             Setup-Git -RepoDir $repoDir -TempDir $t -Mode $gitMode
+            # The commit the case starts from: a sync point and an expected
+            # state file's <START_HEAD> both name it.
+            $startHead = Get-GitHead -RepoDir $repoDir
+        }
+
+        # A sync point is the commit the last sync left on master, as the engine
+        # records it. It goes in before the case's state/ copy, so a case can
+        # override it there.
+        $syncPointProp = $Case.PSObject.Properties['syncPoint']
+        if ($null -ne $syncPointProp -and $syncPointProp.Value -eq $true) {
+            $stateRoot = Join-Path $localDir 'SyncSettings'
+            New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
+            [IO.File]::WriteAllText((Join-Path $stateRoot 'last-sync'), ($startHead + "`n"),
+                [System.Text.UTF8Encoding]::new($false))
+        }
+
+        # An origin/ tree is one commit on top of master, made in a second clone
+        # and pushed to the bare origin: origin/master is ahead, the repo's
+        # master and working tree are not.
+        if (Test-Path -LiteralPath (Join-Path $Dir 'origin') -PathType Container) {
+            $cloneDir = Join-Path $t 'origin-clone'
+            Invoke-Git -What 'git clone of origin' -GitArgs @('clone', '-q', (Join-Path $t 'origin.git'), $cloneDir)
+            Copy-Tree (Join-Path $Dir 'origin') $cloneDir
+            Invoke-Git -What 'git add in the origin clone' -GitArgs @('-C', $cloneDir, 'add', '-A')
+            Invoke-Git -What 'git commit in the origin clone' -GitArgs @('-c', 'user.name=parity', '-c', 'user.email=parity@example.com', '-C', $cloneDir, 'commit', '-q', '-m', 'origin')
+            Invoke-Git -What 'git push to origin' -GitArgs @('-C', $cloneDir, 'push', '-q', 'origin', 'master')
+            Remove-Item -LiteralPath $cloneDir -Recurse -Force
+            Invoke-Git -What 'git fetch origin' -GitArgs @('-C', $repoDir, 'fetch', '-q', 'origin')
+        }
+
+        # An unsent/ tree goes over the repo's working tree after the commit and
+        # stays uncommitted, so `git status --porcelain` shows it.
+        if (Test-Path -LiteralPath (Join-Path $Dir 'unsent') -PathType Container) {
+            Copy-Tree (Join-Path $Dir 'unsent') $repoDir
+        }
+
+        # A seeded state/ goes into the folder the engine treats as its own
+        # state, before the first command, exactly like the engine's own files.
+        if (Test-Path -LiteralPath (Join-Path $Dir 'state') -PathType Container) {
+            Copy-Tree (Join-Path $Dir 'state') (Join-Path $localDir 'SyncSettings')
         }
 
         # gh stub: first on PATH for every command, logging each call's args.
@@ -752,6 +887,7 @@ function Run-Case {
 
             $scriptPath = $null
             $extraArgs = @()
+            $frontDoor = $false
             if (-not [string]::IsNullOrEmpty($EnginePath)) {
                 $scriptPath = Join-Path $repoDir 'mksync.exe'
                 $targetProp = $null
@@ -764,8 +900,17 @@ function Run-Case {
                     'import'  { $extraArgs += 'import' }
                     'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
                     'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
+                    'diff'    { $extraArgs += 'export'; $extraArgs += '--diff' }
+                    'commit'  { $extraArgs += 'commit' }
                     'setup'   { $extraArgs += 'setup' }
                     'statusline' { $extraArgs += 'statusline' }
+                    'status'  { $extraArgs += 'status' }
+                    'doctor'  { $extraArgs += 'doctor' }
+                    'pull'    { $extraArgs += 'pull' }
+                    'push'    { $extraArgs += 'push' }
+                    'front-diff' { $extraArgs += 'diff' }
+                    'front-check' { $extraArgs += 'check' }
+                    'front-preview' { $extraArgs += 'preview' }
                     'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
                     'machine-retire' {
                         $extraArgs += 'machine'
@@ -787,6 +932,13 @@ function Run-Case {
                     'preview' { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Preview' }
                     'diff'    { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Diff' }
                     'commit'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Commit-Settings.ps1' }
+                    'status'  { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'status'; $frontDoor = $true }
+                    'doctor'  { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'doctor'; $frontDoor = $true }
+                    'pull'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'pull'; $frontDoor = $true }
+                    'push'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'push'; $frontDoor = $true }
+                    'front-diff' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'diff'; $frontDoor = $true }
+                    'front-check' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'check'; $frontDoor = $true }
+                    'front-preview' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'preview'; $frontDoor = $true }
                     default   { Die "unknown command '$cmd' in command $($i + 1)" }
                 }
             }
@@ -798,7 +950,8 @@ function Run-Case {
                     if ($key -cne 'force' -and $key -cne 'only' -and $key -cne 'name' -and
                         $key -cne 'profile' -and $key -cne 'replace' -and $key -cne 'claude' -and
                         $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'yes' -and
-                        $key -cne 'target') {
+                        $key -cne 'target' -and $key -cne 'partial' -and $key -cne 'message' -and
+                        $key -cne 'paths' -and $key -cne 'resetValues') {
                         Die "unknown option '$key' in command $($i + 1)"
                     }
                 }
@@ -836,6 +989,37 @@ function Run-Case {
                 if ($null -ne $yesProp -and $yesProp.Value -eq $true) {
                     $extraArgs += '--yes'
                 }
+                $partialProp = $opts.PSObject.Properties['partial']
+                if ($null -ne $partialProp -and $partialProp.Value -eq $true) {
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $extraArgs += '-Partial'
+                    } else {
+                        $extraArgs += '--partial'
+                    }
+                }
+                $messageProp = $opts.PSObject.Properties['message']
+                if ($null -ne $messageProp) {
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $extraArgs += '-Message'
+                    } else {
+                        $extraArgs += '-m'
+                    }
+                    $extraArgs += [string]$messageProp.Value
+                }
+                $resetProp = $opts.PSObject.Properties['resetValues']
+                if ($null -ne $resetProp -and $resetProp.Value -eq $true) {
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $extraArgs += '-ResetValues'
+                    } else {
+                        $extraArgs += '--reset-values'
+                    }
+                }
+                $pathsProp = $opts.PSObject.Properties['paths']
+                if ($null -ne $pathsProp) {
+                    foreach ($p in @($pathsProp.Value)) {
+                        $extraArgs += [string]$p
+                    }
+                }
             }
 
             $stdinText = ''
@@ -862,8 +1046,12 @@ function Run-Case {
             }
             $rawErr = Join-Path $t 'raw-err'
 
-            if ([string]::IsNullOrEmpty($EnginePath)) {
+            # The front door is a batch file: it runs on its own, everything else
+            # of the old engine runs through powershell.exe -File.
+            $launch = $scriptPath
+            if ([string]::IsNullOrEmpty($EnginePath) -and -not $frontDoor) {
                 $procArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath) + $extraArgs
+                $launch = 'powershell.exe'
             } else {
                 $procArgs = $extraArgs
             }
@@ -875,6 +1063,13 @@ function Run-Case {
             $oldGh = $env:GH
             $oldVirtualEnv = $env:VIRTUAL_ENV
             $oldCondaEnv = $env:CONDA_DEFAULT_ENV
+            $oldDbus = $env:DBUS_SESSION_BUS_ADDRESS
+            $oldGitDir = $env:GIT_DIR
+            $oldGitWorkTree = $env:GIT_WORK_TREE
+            $oldGitIndexFile = $env:GIT_INDEX_FILE
+            $oldGhToken = $env:GH_TOKEN
+            $oldGithubToken = $env:GITHUB_TOKEN
+            $oldGitCeiling = $env:GIT_CEILING_DIRECTORIES
             $oldPreference = $ErrorActionPreference
             $raw = ''
             $output = @()
@@ -888,10 +1083,19 @@ function Run-Case {
                 $env:LOCALAPPDATA = $localDir
                 # GH overrides the gh binary in Commit-Settings.ps1; a caller's GH
                 # must never reach a case. VIRTUAL_ENV and CONDA_DEFAULT_ENV would
-                # otherwise add a statusline section.
+                # otherwise add a statusline section. A caller's git repo, bus and
+                # tokens stay out too, and git may not climb above the case folder;
+                # the case's env is applied after, so it may still set them.
                 $env:GH = $null
                 $env:VIRTUAL_ENV = $null
                 $env:CONDA_DEFAULT_ENV = $null
+                $env:DBUS_SESSION_BUS_ADDRESS = $null
+                $env:GIT_DIR = $null
+                $env:GIT_WORK_TREE = $null
+                $env:GIT_INDEX_FILE = $null
+                $env:GH_TOKEN = $null
+                $env:GITHUB_TOKEN = $null
+                $env:GIT_CEILING_DIRECTORIES = $t
                 if ($ghStub) {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
                     $env:GH = Join-Path $t 'bin\gh.cmd'
@@ -909,22 +1113,12 @@ function Run-Case {
                 # In PS 5.1 a native command's stderr redirected with 2>&1 turns
                 # into error records, which 'Stop' would throw on.
                 $ErrorActionPreference = 'Continue'
-                if ([string]::IsNullOrEmpty($EnginePath)) {
-                    if ($stderrMode) {
-                        $output = @($stdinText | & powershell.exe @procArgs 2>&1)
-                    } elseif ($allOutput) {
-                        $raw = $stdinText | & powershell.exe @procArgs 2> $rawErr | Out-String
-                    } else {
-                        $raw = $stdinText | & powershell.exe @procArgs 2>&1 | Out-String
-                    }
+                if ($stderrMode) {
+                    $output = @($stdinText | & $launch @procArgs 2>&1)
+                } elseif ($allOutput) {
+                    $raw = $stdinText | & $launch @procArgs 2> $rawErr | Out-String
                 } else {
-                    if ($stderrMode) {
-                        $output = @($stdinText | & $scriptPath @procArgs 2>&1)
-                    } elseif ($allOutput) {
-                        $raw = $stdinText | & $scriptPath @procArgs 2> $rawErr | Out-String
-                    } else {
-                        $raw = $stdinText | & $scriptPath @procArgs 2>&1 | Out-String
-                    }
+                    $raw = $stdinText | & $launch @procArgs 2>&1 | Out-String
                 }
                 $rc = $LASTEXITCODE
             } finally {
@@ -948,6 +1142,13 @@ function Run-Case {
                 $env:GH = $oldGh
                 $env:VIRTUAL_ENV = $oldVirtualEnv
                 $env:CONDA_DEFAULT_ENV = $oldCondaEnv
+                $env:DBUS_SESSION_BUS_ADDRESS = $oldDbus
+                $env:GIT_DIR = $oldGitDir
+                $env:GIT_WORK_TREE = $oldGitWorkTree
+                $env:GIT_INDEX_FILE = $oldGitIndexFile
+                $env:GH_TOKEN = $oldGhToken
+                $env:GITHUB_TOKEN = $oldGithubToken
+                $env:GIT_CEILING_DIRECTORIES = $oldGitCeiling
                 Pop-Location
             }
 
@@ -1069,7 +1270,19 @@ function Run-Case {
                 if (-not (Test-Path -LiteralPath $gotFile -PathType Leaf)) {
                     Die "state ${rel}: missing"
                 }
-                $wantHash = (Get-FileHash -LiteralPath $wantFile -Algorithm SHA256).Hash
+                # <START_HEAD> stands for the commit the case started from,
+                # which changes per run; substitute it before comparing.
+                $wantHashFile = $wantFile
+                $wantText = [IO.File]::ReadAllText($wantFile)
+                if ($wantText.Contains('<START_HEAD>')) {
+                    if ([string]::IsNullOrEmpty($startHead)) {
+                        Die "state ${rel}: <START_HEAD> needs a git repo"
+                    }
+                    $wantText = $wantText.Replace('<START_HEAD>', $startHead)
+                    $wantHashFile = Join-Path $t ([Guid]::NewGuid().ToString('N'))
+                    [IO.File]::WriteAllText($wantHashFile, $wantText, [System.Text.UTF8Encoding]::new($false))
+                }
+                $wantHash = (Get-FileHash -LiteralPath $wantHashFile -Algorithm SHA256).Hash
                 $gotHash = (Get-FileHash -LiteralPath $gotFile -Algorithm SHA256).Hash
                 if ($wantHash -cne $gotHash) {
                     Die "state ${rel}: differs"
@@ -1152,16 +1365,6 @@ foreach ($caseDir in $caseDirs) {
         continue
     }
 
-    # The program takes neither diff nor commit until phase 8: skip the case
-    # without counting it as a failure.
-    if (-not [string]::IsNullOrEmpty($EnginePath)) {
-        $phase8 = @($case.commands | Where-Object { $_.command -ceq 'diff' -or $_.command -ceq 'commit' })[0]
-        if ($null -ne $phase8) {
-            Write-Output "SKIP ${caseName}: $($phase8.command) comes in phase 8"
-            continue
-        }
-    }
-
     # setup, machine show, the retire commands and statusline are the program's
     # alone: the old engines don't know them, so the case is skipped, not failed.
     if ([string]::IsNullOrEmpty($EnginePath)) {
@@ -1193,6 +1396,24 @@ foreach ($caseDir in $caseDirs) {
                 continue
             }
         }
+    }
+
+    # dconf and getent are Linux stubs: a case whose os list still reaches
+    # Windows with one is invalid, not skipped.
+    $linuxStub = $null
+    $stubsProp = $case.PSObject.Properties['stubs']
+    if ($null -ne $stubsProp) {
+        foreach ($s in @($stubsProp.Value)) {
+            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent')) {
+                $linuxStub = $s
+                break
+            }
+        }
+    }
+    if ($null -ne $linuxStub) {
+        Write-Output "FAIL ${caseName}: the $linuxStub stub is Linux only: run this case with tests/parity/run.sh"
+        $failed++
+        continue
     }
 
     $reason = $null

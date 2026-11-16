@@ -1,0 +1,17 @@
+{
+  "description": "mksync preview shows the one change an export would send, writes nothing and exits 0 (Front door, check and preview row; Export preview).",
+  "git": "committed",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "front-preview" }]
+}

@@ -1,0 +1,19 @@
+{
+  "description": "With force no overwrite prompt is asked: import is UPDATED and backs up the old dump (dconf entries, Import; Backups).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "import", "options": { "force": true } }]
+}

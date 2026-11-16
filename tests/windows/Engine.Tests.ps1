@@ -73,6 +73,8 @@ BeforeAll {
     # Runs Import-Settings.ps1 -Check with stdin redirected, so it can never prompt.
     function Invoke-ImportCheck {
         param([switch]$ResetValues, [string]$User = '', [string]$Only = '')
+        # The -ResetValues refusal goes to stderr, which must not fail the test.
+        $ErrorActionPreference = 'Continue'
         $script:EngineScript = Join-Path $script:RepoDir 'scripts\windows\Import-Settings.ps1'
         $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:EngineScript, '-Check')
         if ($ResetValues) { $argList += '-ResetValues' }
@@ -3193,7 +3195,7 @@ Describe 'Windows engine' {
             Invoke-ImportCheck -ResetValues
 
             $script:EngineExit | Should -Be 1
-            $script:EngineOut | Should -Match ([regex]::Escape('ERROR: -Check cannot be combined with -ResetValues.'))
+            $script:EngineOut | Should -Match ([regex]::Escape('ERROR: --check cannot be combined with --reset-values.'))
             (Get-TreeHash $script:HomeDir) | Should -Be $homeBefore
             (Get-TreeHash $script:RepoDir) | Should -Be $repoBefore
         }

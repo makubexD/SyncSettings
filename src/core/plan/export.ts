@@ -9,6 +9,7 @@ import { parseJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { LayerName, SelectedEntry } from "../layers/select.ts";
+import { exportDconf } from "../merge/dconf.ts";
 import { strategyFor } from "../merge/strategy.ts";
 import type { LayerFile, SplitContext } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
@@ -54,6 +55,12 @@ const EXCLUDE_NOTE = "matches exclude pattern";
 const ORPHAN_NOTE = "no entry in sync-config.json; git rm it or add an entry";
 
 const DCONF_NOTE = "not supported yet";
+
+const DCONF_MISSING_NOTE = "dconf not installed";
+
+const DCONF_FAILED_NOTE = "dconf dump failed";
+
+const WRITE_DCONF_FAILURE = "cannot write repo file";
 
 const EMPTY_FOLDER_NOTE = "local folder is empty; repo files kept";
 
@@ -570,13 +577,71 @@ function planDir(state: State, selected: SelectedEntry): void {
   }
 }
 
+/**
+ * Contract "dconf entries", export: the dump filtered by `keys`, compared byte
+ * for byte with the repo file. An empty result is `SKIPPED`; a missing `dconf`
+ * and an empty folder skip without touching the repo file, and a failed dump
+ * is an `ERROR`. Windows and macOS keep the whole entry `SKIPPED`.
+ */
 function planDconf(state: State, selected: SelectedEntry): void {
   const repoPath = primaryRepoPath(selected);
   if (!onlySelected(repoPath, state.only)) {
     return;
   }
-  pushStatus(state, "SKIPPED", repoPath, DCONF_NOTE);
-  state.skipped++;
+  state.pending = [];
+
+  const entry = selected.entry;
+  const dconfPath = entry.dconfPath;
+  const dumps =
+    state.snapshot.os === "linux" ? state.snapshot.dconfDumps : undefined;
+  const dump = dconfPath === undefined ? undefined : dumps?.get(dconfPath);
+  if (dconfPath === undefined || dump === undefined) {
+    pushStatus(state, "SKIPPED", repoPath, DCONF_NOTE);
+    state.skipped++;
+    return;
+  }
+
+  switch (dump.kind) {
+    case "missing":
+      pushStatus(state, "SKIPPED", repoPath, DCONF_MISSING_NOTE);
+      state.skipped++;
+      return;
+    case "failed":
+      pushStatus(state, "ERROR", repoPath, DCONF_FAILED_NOTE);
+      return;
+    case "ok":
+      break;
+  }
+
+  const result = exportDconf(
+    dump.text,
+    entry.keys,
+    state.snapshot.repoFiles.get(repoPath),
+  );
+  if (result.status === "SKIPPED") {
+    pushStatus(state, "SKIPPED", repoPath, `no settings under ${dconfPath}`);
+    state.skipped++;
+    return;
+  }
+  if (result.status === "UNCHANGED") {
+    pushStatus(state, "UNCHANGED", repoPath);
+    return;
+  }
+
+  if (result.status === "ADDED") {
+    mkdirParent(state, repoPath);
+  }
+  state.pending.push({
+    action: {
+      kind: "writeRepo",
+      path: repoPath,
+      bytes: new TextEncoder().encode(result.text),
+    },
+    failure: WRITE_DCONF_FAILURE,
+  });
+  const line = pushStatus(state, result.status, repoPath);
+  state.changed++;
+  recordStep(state, repoPath, line, true);
 }
 
 function rootsFor(config: ConfigV2, entry: ConfigV2Entry): readonly string[] {

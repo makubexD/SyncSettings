@@ -1,0 +1,20 @@
+{
+  "description": "A * in a keys pattern also matches /, so sub/* keeps a key of the nested section sub/deep: dconf entries, keys.",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "keys": ["sub/*"],
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

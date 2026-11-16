@@ -1,0 +1,29 @@
+{
+  "description": "Diff with --only labels and counts only the picked path (Diff).",
+  "git": "remote",
+  "syncPoint": true,
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "First parity case file"
+      },
+      {
+        "repoPath": "dotfiles/common/parity/b.conf",
+        "localPath": "~/.config/parity/b.conf",
+        "platform": "common",
+        "description": "Second parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "diff",
+      "options": { "only": ["dotfiles/common/parity/a.conf"] }
+    }
+  ]
+}

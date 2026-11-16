@@ -1,0 +1,2 @@
+Linked folder not synced: ~/.config/parity/scripts (mksync setup asks)
+Next: nothing to do.

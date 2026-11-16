@@ -1,0 +1,2 @@
+SKIPPED dotfiles/linux/dconf/app.ini
+SKIPPED dotfiles/linux/dconf/app.ini

@@ -1,0 +1,16 @@
+{
+  "description": "mksync check lists the file the import would overwrite, writes nothing and exits 3 (Front door, check and preview row; Import check).",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/app.conf",
+        "localPath": "~/.config/parity/app.conf",
+        "platform": "common",
+        "description": "Differs from the repo"
+      }
+    ]
+  },
+  "commands": [{ "command": "front-check" }]
+}

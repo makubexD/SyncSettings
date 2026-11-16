@@ -1,0 +1,19 @@
+{
+  "description": "A repo file a dconf entry owns is never reported as an ORPHAN by export: the entry is UNCHANGED (ORPHAN; dconf entries).",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}
