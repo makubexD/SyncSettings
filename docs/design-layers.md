@@ -1227,7 +1227,9 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   the other v2 refusals (exit 1) as `ERROR: sync-config.v2.json: entry <file> …`: `names unknown module <m>`,
   `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
   `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`, and (phase 8)
-  `has linked other than true`. They enter the contract when v2 does.
+  `has linked other than true`, and (phase 8 review) `needs a dconfPath like /org/gnome/shell/.` for a `dconf` entry
+  whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule. They enter the
+  contract when v2 does.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
@@ -1448,6 +1450,23 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     `src/app/` when it next changes.
   - The program's `commit` keeps `commit.sh`'s own lines, including `run commit.sh from master`; they change with the
     cut-over's wording review.
+- **Left by the phase 8 review (`docs/plan-single-engine-8-fixes.md`).**
+  - **The first push from a private repo (phase 10).** Commit's sync paths are `dotfiles/`, `sync-config.json` and
+    `packages/`, so once the guard reads private, a push holding `profiles/`, `machines/` or `sync-config.v2.json`
+    stops with `commit or stash changes outside dotfiles/ first.` Phase 10 adds those paths to the sync paths, the
+    staged paths and `isSyncPath` when the guard reads private, with a `commit-private-backup` case.
+  - **One flow in `app/export.ts`, and one home per helper (cleanup plan after phase 9).** `executeExport`'s three
+    branches repeat plan, moves, refusal, block and first backup; `Result`, `writeLines` and `setupTerminal` move to
+    `app/io.ts`, `askMoves` to `app/moves.ts` (ending the `export.ts`–`push.ts` cycle). Copies to merge:
+    `refusedText`, the `[Y/n]` answer rule, the no-prompt git environment, `VALUES_FILE`,
+    `LINKED_DESTINATION_PREFIX`, `sameBytes`, `hasKeyPath`, the `RunCommand` literals, and `diff.ts`'s `byCodeUnit`,
+    which should be `drift.ts`'s byte-order `compareC`. `core/plan/move.ts` splits into JSON path, slot and plan
+    files.
+  - **Typed answers and `read -r` (phase 9).** Bash `read -r` trims spaces and tabs at both ends and keeps a trailing
+    `\r`; the program's `askValues` trims only the line end. Decide together with the PowerShell `Read-Host` rule.
+  - **Atomic profile and record writes (phase 9).** `writePrivateFile` rewrites an existing 0644 file before
+    tightening its mode, and a crash mid-write leaves a file that no longer parses: write a 0600 temp file and rename
+    it.
 
 ### Confirm on Windows
 
@@ -1460,6 +1479,12 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
   the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
   the repo would run; if so, resolve through `PATH` only.
+- **Leak scan's `bash` (phase 8 review).** The program runs bare `bash`; with WSL installed, `System32\bash.exe` can
+  come before Git Bash on `PATH` and can't open the script, so every push stops at "could not run". Find Git Bash
+  explicitly and pass the script path with `/`.
+- **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
+  the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
+  `[Console]::OutputEncoding` first, and give the call a timeout.
 - **The survey (step 27).** Work machine #1's answer (`docs/windows-survey.md`, "Answer", 2026-11-16) settled the
   next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
 

@@ -376,6 +376,8 @@ four questions:
 - `3` stores `"linked: <localPath>": "no"` in the profile's `destinations`, and the folder isn't asked again.
 - `mksync status` asks nothing; it prints `Linked folder not synced: <path> (mksync setup asks)` for each folder not
   answered yet.
+- A found folder whose name is `.` or `..`, or the home folder itself, is never offered. A `dir` entry whose `file`
+  has an empty, `.` or `..` part, or a `\`, is refused with `entry <file> is outside linked/`.
 
 ## dconf entries (`type: dconf`)
 
@@ -461,7 +463,7 @@ A search that cannot finish stops the commit too, with `ERROR: could not search 
 [public-repo guard](#public-repo-guard-program-only), the leak scan, the cached values. Its differences:
 
 - **Unpushed history.** Besides the tracked paths, the guard reads every commit in `origin/master..HEAD`
-  (`git log --name-only`). While the repo is public, a commit that adds or changes a path under `profiles/` or
+  (`git log -z --name-only`, so a path git would quote is read as it is). While the repo is public, a commit that adds or changes a path under `profiles/` or
   `machines/` is refused with the guard's `refused` line for that path, even when a later commit removed it from the
   index, because pushing the branch would publish it.
 - **The leak scan stays bash.** The program runs `bash scripts/ci/leak-scan.sh` as `commit.sh` does. With no `bash`
@@ -470,6 +472,9 @@ A search that cannot finish stops the commit too, with `ERROR: could not search 
   holds them without one.
 - **The PR.** Branch `sync/<os>-<machine>-<stamp>` as `commit.sh` names it, the machine from the record when there is
   one; the PR body adds `Profile: <p>` when there is a record.
+- **Git failures.** A git step that fails (reading the branch, the fetch, the counts, creating the branch, reading the
+  new commit, switching back) prints git's own error lines and exits 1, as `commit.sh` lets git's `fatal:` line
+  through. A commit that succeeded is never undone: when reading it back fails, the branch and its commit stay.
 
 ## Orphan report
 
@@ -515,6 +520,10 @@ counted, and neither are its `SKIPPED` lines, so the "file(s) skipped" note keep
 | Tool missing | `SKIPPED` | The list | `<tool> not installed` |
 | Tool fails | `SKIPPED` | The list | `<tool> failed` |
 | nvm folder missing | `SKIPPED` | `packages/linux/npm.txt` | `nvm not installed` |
+
+When `dpkg-query` works and `apt-mark` is missing or fails, the `apt` block still prints its
+`in packages/linux/<file>, not installed` lines, then `SKIPPED packages/linux/apt.txt (apt-mark …)` in place of the
+extras, as bash does.
 
 For `apt-source` and `apt-key`, `<file>` is `apt-sources`, and a listed source or key that can't be read counts as not
 installed. A failing tool never stops the rest of the report. A missing font or extension folder means nothing is present, so
@@ -768,7 +777,11 @@ setup`), `values`, `bash` (`WARN bash: needed by the leak scan; install with <co
 winget install --id Git.Git -e`, or `install Git for Windows from https://git-scm.com` without `winget`), then the
   `drift` line. A `MISSING` line is followed by `Fix the MISSING items, then run mksync doctor again.`
 - **`pull`** doesn't re-run itself after the fast-forward: the program is the same before and after, so it reads the
-  config again and goes on. Its check prints the grouped block of the [import check](#import-check).
+  config again and goes on. Its check prints the grouped block of the [import check](#import-check). After the fetch it
+  counts `HEAD..origin/master`: at 0 it runs no merge; at `n` it fast-forwards and prints `  Pulled <n> commit(s).`
+- **`push`** checks the clone first, before the export. A push whose
+  [up-to-date check](#up-to-date-check) pulled stops there, exit 0, after `Pulled <n> commit(s); run the command
+  again.`, with no PR question.
 - **`push`** on a pull-only machine prints `this machine is pull-only (see mksync machine show)` and exits 1. Otherwise
   it runs the export with its grouped block and questions ([Push preview](#push-preview-program-only)), then
   [Move a change](#move-a-change-program-only), the profile-value rule and the guard, then `Open a PR with these
