@@ -54,6 +54,10 @@ function elevateError(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} has elevate other than false.`;
 }
 
+function linkedError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has linked other than true.`;
+}
+
 function importNameError(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} needs {layer} in importName.`;
 }
@@ -155,6 +159,25 @@ describe("parseV2", () => {
 
     // Act / Assert
     expectError(configWith([bad]), elevateError(bad.file as string), 1);
+  });
+
+  test("a file entry with linked true is accepted", () => {
+    // Arrange
+    const good = entry({ linked: true });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok).toBe(true);
+  });
+
+  test("a linked value that is not true stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ linked: "yes" });
+
+    // Act / Assert
+    expectError(configWith([bad]), linkedError(bad.file as string), 1);
   });
 
   test("an import entry whose importName has no {layer} stops with exit 1", () => {

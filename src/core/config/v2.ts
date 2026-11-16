@@ -62,6 +62,10 @@ function elevateMessage(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} has elevate other than false.`;
 }
 
+function linkedMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has linked other than true.`;
+}
+
 function importNameMessage(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} needs {layer} in importName.`;
 }
@@ -158,6 +162,10 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
 
     if (Object.hasOwn(record, "elevate") && record.elevate !== false) {
       return failure(elevateMessage(file), 1);
+    }
+
+    if (Object.hasOwn(record, "linked") && record.linked !== true) {
+      return failure(linkedMessage(file), 1);
     }
 
     if (

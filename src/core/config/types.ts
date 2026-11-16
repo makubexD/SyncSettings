@@ -64,6 +64,8 @@ export interface ConfigV2Entry {
   readonly keys?: readonly string[];
   readonly scanLinks?: boolean;
   readonly elevate?: false;
+  /** A file entry read for linked folders (contract "Linked folders"). */
+  readonly linked?: true;
   readonly description?: string;
 }
 
