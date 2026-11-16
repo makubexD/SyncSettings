@@ -272,6 +272,86 @@ whole_output() {
     done
 }
 
+# One command's output for the expect/lines.txt check: ANSI color codes
+# removed, each line trimmed, and a status line in either engine's layout read
+# as `WORD label note` with single spaces between (see the README's "How the
+# runner checks it"). Notes and every other line stay as they are, trimmed.
+normalize_output() {
+    local line word label rest
+    sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
+        | sed -E 's/^.*\? \[[Yy]\/[Nn]\][[:space:]]*//' \
+        | while IFS= read -r line || [[ -n $line ]]; do
+            line=${line#"${line%%[![:space:]]*}"}
+            line=${line%"${line##*[![:space:]]}"}
+            if [[ $line =~ ^\[[[:space:]]*($STATUS_WORDS)[[:space:]]*\][[:space:]]+([^[:space:]]+)(.*)$ ]]; then
+                word=${BASH_REMATCH[1]}
+                label=${BASH_REMATCH[2]}
+                rest=${BASH_REMATCH[3]}
+            elif [[ $line =~ ^($STATUS_WORDS)[[:space:]]+([^[:space:]]+)(.*)$ ]]; then
+                word=${BASH_REMATCH[1]}
+                label=${BASH_REMATCH[2]}
+                rest=${BASH_REMATCH[3]}
+            else
+                printf '%s\n' "$line"
+                continue
+            fi
+            if [[ $rest =~ ^[[:space:]]+\((.*)\)[[:space:]]*$ ]]; then
+                printf '%s %s %s\n' "$word" "$label" "${BASH_REMATCH[1]}"
+            else
+                printf '%s %s\n' "$word" "$label"
+            fi
+        done
+}
+
+# Check expect/lines.txt against the per-command normalized output. Lines
+# before any `# <n>` belong to command 1; `# <n>` starts command n's lines.
+# Each expected line must appear in that command's output, in the file's order,
+# other lines allowed between. `! <text>` means no line of that command's
+# output contains <text>. A failure names the first missing (or present `!`)
+# line and prints the command's normalized output.
+check_lines() {
+    local dir=$1 count=$2 want line cmd=1 idx text found
+    local -a want_lines=() got=() pos=()
+    want=$(expected_path "$dir" lines.txt)
+    [[ -f $want ]] || return 0
+    mapfile -t want_lines < "$want"
+    for ((idx = 1; idx <= count; idx++)); do
+        pos[idx]=0
+    done
+    for line in "${want_lines[@]}"; do
+        if [[ $line =~ ^#[[:space:]]+([0-9]+)$ ]]; then
+            cmd=${BASH_REMATCH[1]}
+            (( cmd >= 1 && cmd <= count )) || die "lines command $cmd: no such command"
+            continue
+        fi
+        mapfile -t got < "$t/cmd-$cmd.lines"
+        if [[ $line == '! '* ]]; then
+            text=${line#! }
+            for ((idx = 0; idx < ${#got[@]}; idx++)); do
+                if [[ ${got[idx]} == *"$text"* ]]; then
+                    die "lines command $cmd: \"$text\" must not appear
+output was:
+$(cat "$t/cmd-$cmd.lines")"
+                fi
+            done
+        else
+            found=false
+            for ((idx = pos[cmd]; idx < ${#got[@]}; idx++)); do
+                if [[ ${got[idx]} == "$line" ]]; then
+                    pos[cmd]=$((idx + 1))
+                    found=true
+                    break
+                fi
+            done
+            if [[ $found == false ]]; then
+                die "lines command $cmd: missing \"$line\"
+output was:
+$(cat "$t/cmd-$cmd.lines")"
+            fi
+        fi
+    done
+}
+
 # Compare two line files, one line per command or per status line. $1 is the
 # name `exit` or `output`, $2 the wanted file, $3 the got file; a missing wanted
 # file means nothing was expected.
@@ -722,6 +802,12 @@ run_case() {
                     printf '%s\n' "$line"
                 done >> "$t/actual-output"
         fi
+        # The same command's whole output, normalized for expect/lines.txt.
+        # Stderr joins it only when the case asked for stderr, as for output.txt.
+        normalize_output "$t/raw" > "$t/cmd-$((i + 1)).lines"
+        if [[ $stderr_mode == true && -f $t/raw-err ]]; then
+            normalize_output "$t/raw-err" >> "$t/cmd-$((i + 1)).lines"
+        fi
     done
 
     # Each gh call is cut to its first two words, so branch names and titles
@@ -822,6 +908,7 @@ run_case() {
     want_output=$(expected_path "$dir" output.txt)
     first_line_diff exit "$want_exit" "$t/actual-exit"
     first_line_diff output "$want_output" "$t/actual-output"
+    check_lines "$dir" "$count"
 
     want_home=$(expected_path "$dir" home)
     if [[ -d $want_home ]]; then

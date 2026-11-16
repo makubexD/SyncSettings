@@ -463,6 +463,104 @@ function Get-WholeOutput {
     return ,$result
 }
 
+# One command's output for the expect/lines.txt check: ANSI color codes
+# removed, each line trimmed, and a status line in either engine's layout read
+# as `WORD label note` with single spaces between (see the README's "How the
+# runner checks it"). Notes and every other line stay as they are, trimmed.
+function Get-NormalizedLines {
+    param([string]$Raw)
+    $text = $Raw -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
+    $text = $text -replace "`r`n", "`n"
+    $text = $text -replace "`r", "`n"
+    $result = @()
+    if ($text.Length -eq 0) {
+        return ,$result
+    }
+    if ($text.EndsWith("`n")) {
+        $text = $text.Substring(0, $text.Length - 1)
+    }
+    $patternPs = '^\[\s*(' + $StatusWords + ')\s*\]\s+(\S+)(.*)$'
+    $patternBash = '^(' + $StatusWords + ')\s+(\S+)(.*)$'
+    foreach ($line in ($text -split "`n")) {
+        # A prompt answered from a pipe ends with no newline, so its status line
+        # follows it on the same line: drop the `...? [Y/n]` prefix first.
+        $line = $line -creplace '^.*\? \[[Yy]/[Nn]\][ \t]*', ''
+        $line = $line.Trim()
+        if ($line -cmatch $patternPs) {
+            $word = $Matches[1]
+            $label = $Matches[2]
+            $rest = $Matches[3]
+        } elseif ($line -cmatch $patternBash) {
+            $word = $Matches[1]
+            $label = $Matches[2]
+            $rest = $Matches[3]
+        } else {
+            $result += $line
+            continue
+        }
+        $noteMatch = [regex]::Match($rest, '^\s+\((.*)\)\s*$')
+        if ($noteMatch.Success) {
+            $result += ($word + ' ' + $label + ' ' + $noteMatch.Groups[1].Value)
+        } else {
+            $result += ($word + ' ' + $label)
+        }
+    }
+    return ,$result
+}
+
+# Check expect/lines.txt against the per-command normalized output. Lines
+# before any `# <n>` belong to command 1; `# <n>` starts command n's lines.
+# Each expected line must appear in that command's output, in the file's order,
+# other lines allowed between. `! <text>` means no line of that command's
+# output contains <text>. A failure names the first missing (or present `!`)
+# line and prints the command's normalized output.
+function Compare-LineChecks {
+    param([string]$Dir, [object[]]$CommandLines, [int]$CommandCount)
+    $wantFile = Get-ExpectedPath $Dir 'lines.txt'
+    if (-not (Test-Path -LiteralPath $wantFile -PathType Leaf)) {
+        return
+    }
+    $positions = New-Object int[] $CommandCount
+    $cmd = 1
+    foreach ($line in (Read-Lines $wantFile)) {
+        if ($line -cmatch '^#\s+([0-9]+)$') {
+            $cmd = [int]$Matches[1]
+            if ($cmd -lt 1 -or $cmd -gt $CommandCount) {
+                Die "lines command $cmd`: no such command"
+            }
+            continue
+        }
+        $got = @()
+        if ($cmd -ge 1 -and $cmd -le $CommandLines.Count) {
+            $got = @($CommandLines[$cmd - 1])
+        }
+        $normalizedOutput = ''
+        if ($got.Count -gt 0) {
+            $normalizedOutput = ($got -join "`n")
+        }
+        if ($line.StartsWith('! ')) {
+            $text = $line.Substring(2)
+            foreach ($g in $got) {
+                if ($g.Contains($text)) {
+                    Die ("lines command {0}: `"{1}`" must not appear`noutput was:`n{2}" -f $cmd, $text, $normalizedOutput)
+                }
+            }
+        } else {
+            $found = $false
+            for ($j = $positions[$cmd - 1]; $j -lt $got.Count; $j++) {
+                if ($got[$j] -ceq $line) {
+                    $positions[$cmd - 1] = $j + 1
+                    $found = $true
+                    break
+                }
+            }
+            if (-not $found) {
+                Die ("lines command {0}: missing `"{1}`"`noutput was:`n{2}" -f $cmd, $line, $normalizedOutput)
+            }
+        }
+    }
+}
+
 # Compare two line lists, one line per command or per status line. $What is the
 # name `exit` or `output`; a missing wanted file means nothing was expected.
 function Compare-Lines {
@@ -880,6 +978,7 @@ function Run-Case {
         $commands = $Case.commands
         $exitCodes = New-Object System.Collections.Generic.List[string]
         $statusOut = New-Object System.Collections.Generic.List[string]
+        $lineOutputs = New-Object System.Collections.Generic.List[object]
 
         for ($i = 0; $i -lt $commands.Count; $i++) {
             $cmdObj = $commands[$i]
@@ -1172,21 +1271,28 @@ function Run-Case {
                         $statusOut.Add($line)
                     }
                 }
+                $rawErrText = ''
                 foreach ($item in $output) {
                     if ($item -isnot [System.Management.Automation.ErrorRecord]) {
                         continue
                     }
                     $line = ([string]$item) -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
                     $statusOut.Add($line.TrimEnd("`r"))
+                    $rawErrText += $line + "`n"
                 }
+                # The same command's whole output, normalized for
+                # expect/lines.txt: stdout, then stderr as for output.txt.
+                $lineOutputs.Add((Get-NormalizedLines -Raw ($rawText + $rawErrText)))
             } elseif ($allOutput) {
                 foreach ($line in (Get-WholeOutput -Raw $raw -KeepAnsi:$keepAnsi)) {
                     $statusOut.Add($line)
                 }
+                $lineOutputs.Add((Get-NormalizedLines -Raw $raw))
             } else {
                 foreach ($line in (Get-StatusLines $raw)) {
                     $statusOut.Add($line)
                 }
+                $lineOutputs.Add((Get-NormalizedLines -Raw $raw))
             }
         }
 
@@ -1304,6 +1410,7 @@ function Run-Case {
             $wantOutputLines = Read-Lines $wantOutput
         }
         Compare-Lines -What 'output' -Want $wantOutputLines -Got $statusOut.ToArray()
+        Compare-LineChecks -Dir $Dir -CommandLines $lineOutputs.ToArray() -CommandCount $commands.Count
 
         # powershell.exe started with a temp USERPROFILE leaves empty AppData
         # folders behind. Drop them only when no file is under them, so a file
