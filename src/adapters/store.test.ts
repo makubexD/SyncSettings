@@ -837,6 +837,26 @@ describe("readLinkedFolders", () => {
     expect(result).toEqual([]);
   });
 
+  test("should skip the home, dot and dot-dot folders", () => {
+    // Arrange
+    const home = tempFolder();
+    writeFixture(join(home, "proj", "tools", "one.sh"), "one");
+    writeFixture(
+      join(home, ".bashrc"),
+      'export PATH="~/proj/..:~/.:~/..:~/proj/tools"\n',
+    );
+
+    // Act
+    const result = readLinkedFolders(
+      home,
+      "linux",
+      linkedConfig([linkedBashrc()]),
+    );
+
+    // Assert
+    expect(result.map((folder) => folder.path)).toEqual(["~/proj/tools"]);
+  });
+
   test("should suggest no for a folder at the file limit", () => {
     // Arrange
     const home = tempFolder();

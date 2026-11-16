@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import { parseProfile } from "../core/config/profile.ts";
 import type {
@@ -657,6 +657,25 @@ function pathBase(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+/** The folder names never offered: `.` and `..`. */
+const DOT_NAMES: readonly string[] = [".", ".."];
+
+/** Whether a found folder is one the program offers: not the home itself and
+ * not a path naming `.` or `..` (contract "Linked folders"). */
+function isOfferableFolder(path: string): boolean {
+  const normalized = posix.normalize(path);
+  if (normalized === "~" || normalized === "~/") {
+    return false;
+  }
+  const name = pathBase(normalized);
+  if (name === "" || DOT_NAMES.includes(name)) {
+    return false;
+  }
+  return !normalized
+    .split(PATH_SEPARATORS)
+    .some((part) => DOT_NAMES.includes(part));
+}
+
 /** Whether a path is a real folder: an lstat says directory, so a symlink
  * never counts, even one that points at a folder. */
 function isRealDirectory(path: string): boolean {
@@ -712,7 +731,8 @@ function folderTotals(folder: string): FolderTotals {
 /**
  * Contract "Linked folders": every folder a `linked` entry's file references
  * that exists, no entry syncs and the profile hasn't answered, in config
- * order with each folder named once (the first file wins). A missing or
+ * order with each folder named once (the first file wins). The home itself
+ * and a path naming `.` or `..` are never offered. A missing or
  * unreadable entry file is skipped. Folder paths come back in `~` form, so no
  * home path reaches a state file, and their sizes count regular files only,
  * never through a symlink.
@@ -744,9 +764,9 @@ export function readLinkedFolders(
     if (text === undefined) {
       continue;
     }
-    const found = linkedFolders(text, home).map((path) =>
-      homeForm(path, home),
-    );
+    const found = linkedFolders(text, home)
+      .map((path) => homeForm(path, home))
+      .filter(isOfferableFolder);
     for (const path of unaskedFolders(
       found,
       entries,

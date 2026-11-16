@@ -46,6 +46,22 @@ const LINKED_DESTINATION_VALUE = "no";
  * repo path is `profiles/<p>/linked/<folder>` or `machines/<m>/linked/<folder>`. */
 const LINKED_FOLDER = "linked/";
 
+/** The parts of a linked `file` after `linked/`; `undefined` when one is
+ * empty, `.` or `..`, or the file holds a `\` (contract "Linked folders"). */
+function linkedParts(file: string): readonly string[] | undefined {
+  if (file.includes("\\")) {
+    return undefined;
+  }
+  const parts = file.split("/").slice(1);
+  if (parts.length === 0) {
+    return undefined;
+  }
+  const refused = parts.some(
+    (part) => part === "" || part === "." || part === "..",
+  );
+  return refused ? undefined : parts;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -104,7 +120,7 @@ function linkedEntry(
       error: `entry ${shownFile} needs file and localPath as strings`,
     };
   }
-  if (!file.startsWith(LINKED_FOLDER) || file.length === LINKED_FOLDER.length) {
+  if (!file.startsWith(LINKED_FOLDER) || linkedParts(file) === undefined) {
     return { ok: false, error: `entry ${file} is outside linked/` };
   }
   const moduleName = value.module;
@@ -122,7 +138,19 @@ function linkedEntry(
   if (value.merge !== "dir") {
     return { ok: false, error: `entry ${file} is not a dir` };
   }
-  return { ok: true, value: value as unknown as ConfigV2Entry };
+  // Only the fields a linked `dir` entry uses: `sanitizeRules` and the other
+  // file-entry fields are dropped, not passed through (contract "Directory
+  // entries" forbids `sanitizeRules` on a `dir` entry).
+  const entry: ConfigV2Entry = {
+    file,
+    module: moduleName,
+    merge: "dir",
+    localPath: value.localPath,
+  };
+  if (typeof value.description !== "string") {
+    return { ok: true, value: entry };
+  }
+  return { ok: true, value: { ...entry, description: value.description } };
 }
 
 /**

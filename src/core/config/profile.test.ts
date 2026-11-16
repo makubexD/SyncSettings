@@ -261,6 +261,40 @@ describe("parseProfile", () => {
     );
   });
 
+  test.each([
+    "linked/../parity/settings.json",
+    "linked/./x/",
+    "linked//x/",
+    "linked\\x",
+  ])("refuses an entry file %s outside linked/", (file) => {
+    expectFailureText(
+      JSON.stringify({ entries: [{ ...LINKED_ENTRY, file }] }),
+      `ERROR: profile ${NAME}: entry ${file} is outside linked/.`,
+    );
+  });
+
+  test("drops fields a dir entry doesn't use", () => {
+    // Act
+    const result = parseProfile(
+      NAME,
+      JSON.stringify({ entries: [{ ...LINKED_ENTRY, sanitize: [] }] }),
+      CONFIG,
+    );
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        name: NAME,
+        modules: [],
+        values: {},
+        destinations: {},
+        retired: false,
+        entries: [LINKED_ENTRY],
+      },
+    });
+  });
+
   test("refuses an entry that names a module config v2 doesn't know", () => {
     expectFailureText(
       JSON.stringify({ entries: [{ ...LINKED_ENTRY, module: "nope" }] }),
