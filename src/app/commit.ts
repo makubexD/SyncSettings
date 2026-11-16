@@ -19,6 +19,7 @@ import { createInterface } from "node:readline/promises";
 import { join } from "node:path";
 import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
+import type { GitResult } from "../adapters/git.ts";
 import { prCreate } from "../adapters/gh.ts";
 import {
   changedSyncPaths,
@@ -30,7 +31,6 @@ import {
   readParentSha,
   readUnpushedHistory,
   runGitResult,
-  runGitText,
   stagePaths,
   statusPorcelain,
   switchToMaster,
@@ -315,6 +315,16 @@ function writeSyncPoint(
     : `  WARNING: could not record the sync point in ${path}.\n`;
 }
 
+/**
+ * Contract "Checks before pushing", Git failures: a failed git step's own
+ * error lines, with trailing whitespace trimmed and one newline. A run that
+ * printed nothing on stderr gets the contract's fallback, naming the step.
+ */
+function gitErrorText(result: GitResult, step: string): string {
+  const text = result.stderr.trim();
+  return text === "" ? `ERROR: git ${step} failed.\n` : `${text}\n`;
+}
+
 /** What `mksync commit` reads from the run. */
 export interface CommitInput {
   readonly repoRoot: string;
@@ -329,9 +339,11 @@ export interface CommitInput {
 
 /**
  * Run `mksync commit` end to end. `commit.sh`'s order and lines; a check that
- * refuses exits 1 before any branch exists. A failed add or commit switches
- * back to `master` and drops the branch; a failed push or PR keeps the branch
- * checked out with its commit, as `commit.sh` does.
+ * refuses exits 1 before any branch exists. A failed git step prints git's own
+ * error lines and exits 1. A failed add or commit switches back to `master` and
+ * drops the branch; a failed read of the new commit keeps the branch and its
+ * commit checked out, since the commit already succeeded, and so do a failed
+ * push or PR, as `commit.sh` does.
  */
 export async function executeCommit(input: CommitInput): Promise<Result> {
   const { repoRoot, config, state, os, location, command, record, profile } =
@@ -439,13 +451,13 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   const message = commitMessage(command.message, statusLines);
   stdout += `  Commit message: ${message}\n\n`;
 
-  const current = await runGitText(repoRoot, [
+  const current = await runGitResult(repoRoot, [
     "symbolic-ref",
     "--short",
     "HEAD",
   ]);
-  if (current === undefined || current.code !== 0) {
-    return done(1, "");
+  if (!current.ok) {
+    return done(1, gitErrorText(current, "symbolic-ref"));
   }
   const branchCurrent = current.stdout.trim();
   if (branchCurrent !== BASE_BRANCH) {
@@ -458,11 +470,11 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
     BASE_BRANCH,
   ]);
   if (!fetched.ok) {
-    return done(1, "");
+    return done(1, gitErrorText(fetched, "fetch"));
   }
   const counts = await readAheadBehind(repoRoot);
   if (!counts.ok) {
-    return done(1, "");
+    return done(1, gitErrorText(counts, "rev-list"));
   }
   if (counts.behind > 0) {
     const merged = await runGitResult(repoRoot, [
@@ -481,7 +493,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   const branch = branchName(os, machineAlias, localStamp(new Date()));
   const switched = await switchToNewBranch(repoRoot, branch);
   if (!switched.ok) {
-    return done(1, "");
+    return done(1, gitErrorText(switched, "switch"));
   }
 
   const added = await stagePaths(repoRoot, paths);
@@ -496,8 +508,8 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   }
   const parent = await readParentSha(repoRoot);
   if (parent.sha === undefined) {
-    await cleanupBranch(repoRoot, branch);
-    return done(1, "");
+    // The commit succeeded, so the branch and its commit stay checked out.
+    return done(1, gitErrorText(parent, "rev-parse"));
   }
 
   const pushed = await pushBranch(repoRoot, branch);
@@ -541,7 +553,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
 
   const back = await switchToMaster(repoRoot);
   if (!back.ok) {
-    return done(1, "");
+    return done(1, gitErrorText(back, "switch"));
   }
 
   if (!command.partial) {
