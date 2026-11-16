@@ -104,6 +104,35 @@ function removeAt(root: JsonValue, segments: readonly string[]): JsonValue {
   return { kind: "object", entries };
 }
 
+/** A copy of `root` with the value at `segments` removed, pruning each parent
+ * object the removal leaves empty, up to but not including the root. A path
+ * that leaves objects leaves `root` as it is. */
+function removeAtPruned(
+  root: JsonValue,
+  segments: readonly string[],
+): JsonValue {
+  const head = segments[0];
+  if (head === undefined || root.kind !== "object") {
+    return root;
+  }
+  const entries = new Map(root.entries);
+  if (segments.length === 1) {
+    entries.delete(head);
+    return { kind: "object", entries };
+  }
+  const child = entries.get(head);
+  if (child === undefined) {
+    return root;
+  }
+  const pruned = removeAtPruned(child, segments.slice(1));
+  if (pruned.kind === "object" && pruned.entries.size === 0) {
+    entries.delete(head);
+  } else {
+    entries.set(head, pruned);
+  }
+  return { kind: "object", entries };
+}
+
 function withValue(
   slot: JsonLayer,
   value: JsonValue,
@@ -154,6 +183,16 @@ function betweenSetsItem(
   return false;
 }
 
+/** The merge of the slots that hold a file, in layer order; a move must not
+ * change it. A slot with no file contributes nothing. */
+function mergeSlotValues(
+  values: readonly (JsonValue | undefined)[],
+): JsonValue {
+  return mergeJsonValues(
+    values.filter((value): value is JsonValue => value !== undefined),
+  );
+}
+
 function rebuild(
   slots: readonly JsonLayer[],
   replacements: ReadonlyMap<number, JsonValue>,
@@ -178,8 +217,11 @@ function rebuild(
  * the contract's "Move a change": a move to a narrower layer writes the value
  * into that layer without removing it from the wider one, so the narrower
  * layer overrides it; a move to a wider layer writes it into that layer and
- * removes it from the narrower one, unless a layer in between sets it. The
- * merge of every slot is the same before and after.
+ * removes it from the narrower one, unless a layer in between sets it. A
+ * removal that empties a parent object prunes that object up to (but not
+ * including) the root; an emptied array stays as an empty array. The merge of
+ * every slot is the same before and after: a move whose merged result over
+ * the slots in layer order would differ from the merge before it is refused.
  *
  * `path` is the new-setting path: object keys joined with ".", an array item
  * with a trailing "[]"; `keyPath` is the object keys that lead to the changed
@@ -247,7 +289,7 @@ export function moveJsonChange(
           : mergeJsonValues([sourceValue, targetValue]);
     replacements.set(toIndex, setAt(targetRoot, keyPath, written));
     if (wider && !betweenSetsKey(values, toIndex, fromIndex, keyPath)) {
-      replacements.set(fromIndex, removeAt(sourceRoot, keyPath));
+      replacements.set(fromIndex, removeAtPruned(sourceRoot, keyPath));
     }
   } else {
     if (
@@ -280,6 +322,16 @@ export function moveJsonChange(
         }),
       );
     }
+  }
+
+  const finalValues = values.map(
+    (value, index) => replacements.get(index) ?? value,
+  );
+  if (!jsonEqual(mergeSlotValues(values), mergeSlotValues(finalValues))) {
+    return {
+      ok: false,
+      error: `moving ${path} to ${to} would change the merged result`,
+    };
   }
 
   return { ok: true, value: rebuild(slots, replacements, eol) };

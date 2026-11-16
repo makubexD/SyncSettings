@@ -328,6 +328,79 @@ describe("moveJsonChange", () => {
     }
     expect(result.error).toBe("not valid JSON: dotfiles/profile/settings.json");
   });
+
+  test("a wider move that would reveal a layer between is refused", () => {
+    const before = [
+      slot("base", '{"a": {"b": 1}, "c": 5}'),
+      slot("os", '{"a": 7}'),
+      slot("profile", undefined),
+      slot("machine", '{"a": {"b": 2}}'),
+    ];
+    const result = moveJsonChange(
+      before,
+      "a.b",
+      ["a", "b"],
+      "key",
+      "machine",
+      "base",
+      EOL,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("would change the merged result");
+  });
+
+  test("a narrower move past a layer that sets the key is refused", () => {
+    const before = [
+      slot("base", '{"k": 1}'),
+      slot("os", '{"k": 2}'),
+      slot("profile", undefined),
+      slot("machine", undefined),
+    ];
+    const result = moveJsonChange(
+      before,
+      "k",
+      ["k"],
+      "key",
+      "base",
+      "machine",
+      EOL,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("would change the merged result");
+  });
+
+  test("a wider move prunes the empty parent object it leaves", () => {
+    const before = [
+      slot("base", "{}"),
+      slot("os", undefined),
+      slot("profile", undefined),
+      slot("machine", '{"a": {"b": 1}, "z": 0}'),
+    ];
+    const result = moveJsonChange(
+      before,
+      "a.b",
+      ["a", "b"],
+      "key",
+      "machine",
+      "base",
+      EOL,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expectSameMerge(before, result.value);
+    expect(textOf(layerNamed(result.value, "base"))).toBe(
+      '{\n  "a": {\n    "b": 1\n  }\n}\n',
+    );
+    expect(textOf(layerNamed(result.value, "machine"))).toBe('{\n  "z": 0\n}\n');
+  });
 });
 
 describe("moveWholeFile", () => {
