@@ -1,0 +1,35 @@
+{
+  "description": "Push with picked paths exports and commits only those, records no sync point, and opens a PR, exit 0 (Front door, push row; Sync point).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": ["gh"],
+  "env": { "GIT_CONFIG_GLOBAL": "../home/gitconfig" },
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "First parity case file"
+      },
+      {
+        "repoPath": "dotfiles/common/parity/b.conf",
+        "localPath": "~/.config/parity/b.conf",
+        "platform": "common",
+        "description": "Second parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "options": {
+        "yes": true,
+        "paths": ["dotfiles/common/parity/a.conf"]
+      }
+    }
+  ]
+}

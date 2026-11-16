@@ -1,0 +1,32 @@
+{
+  "description": "Push on a pull-only machine stops with the contract's line and exit 1 before the export writes anything (Front door, push; Machines (program only)).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "push",
+      "stderr": true,
+      "output": "all"
+    }
+  ]
+}

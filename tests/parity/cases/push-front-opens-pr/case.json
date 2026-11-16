@@ -1,0 +1,20 @@
+{
+  "description": "Push exports this machine's change and, with --yes, commits it and opens a PR, exit 0 (Front door, push row).",
+  "os": ["linux"],
+  "git": "remote",
+  "stubs": ["gh"],
+  "env": { "GIT_CONFIG_GLOBAL": "../home/gitconfig" },
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "push", "options": { "yes": true } }]
+}

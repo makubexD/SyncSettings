@@ -10,6 +10,7 @@ import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 export const USAGE =
   "usage: mksync status | mksync doctor | " +
   "mksync pull [--yes] [--force] [<path>...] | " +
+  "mksync push [--yes] [-m <msg>] [<path>...] | " +
   "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
   "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
   "mksync commit [-m <msg>] [--partial] | " +
@@ -64,6 +65,15 @@ export interface PullCommand {
   readonly kind: "pull";
   readonly yes: boolean;
   readonly force: boolean;
+  readonly paths: readonly string[];
+}
+
+/** `push [--yes] [-m <msg>] [path...]`: the flags, the message and the picked
+ * paths. */
+export interface PushCommand {
+  readonly kind: "push";
+  readonly yes: boolean;
+  readonly message?: string;
   readonly paths: readonly string[];
 }
 
@@ -133,6 +143,7 @@ export type ParsedCommand =
   | StatusCommand
   | DoctorCommand
   | PullCommand
+  | PushCommand
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
@@ -173,6 +184,13 @@ const PULL_COMMAND = "pull";
 const PULL_YES = "--yes";
 
 const PULL_FORCE = "--force";
+
+const PUSH_COMMAND = "push";
+
+const PUSH_YES = "--yes";
+
+/** `front_push`'s missing `-m` value, before any child runs. */
+const MESSAGE_NEEDS_VALUE = "Missing value for -m";
 
 const STATUSLINE_COMMAND = "statusline";
 
@@ -359,6 +377,52 @@ function parsePull(argv: readonly string[]): PullCommand | ParseError {
 }
 
 /**
+ * Parse `push [--yes] [-m <msg>] [path...]` as `front_push` does: `-m` takes
+ * the next argument as its message even when it starts with `-`, a later `-m`
+ * replaces an earlier one, and every argument that isn't a flag is a picked
+ * path.
+ */
+function parsePush(argv: readonly string[]): PushCommand | ParseError {
+  let yes = false;
+  let message: string | undefined;
+  const paths: string[] = [];
+
+  let index = 1;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === PUSH_YES) {
+      yes = true;
+      index++;
+      continue;
+    }
+    if (arg === MESSAGE_OPTION) {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        return error(MESSAGE_NEEDS_VALUE);
+      }
+      message = value;
+      index += 2;
+      continue;
+    }
+    if (isOption(arg)) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    paths.push(arg);
+    index++;
+  }
+
+  return {
+    kind: "push",
+    yes,
+    paths,
+    ...(message === undefined ? {} : { message }),
+  };
+}
+
+/**
  * Parse the flags after `setup` (decision 5). The flow validates names, not
  * this parser; here a flag only has to take its value and be given once.
  */
@@ -534,6 +598,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   }
   if (command === PULL_COMMAND) {
     return parsePull(argv);
+  }
+  if (command === PUSH_COMMAND) {
+    return parsePush(argv);
   }
   if (command === MACHINE_COMMAND) {
     const verb = argv[1];

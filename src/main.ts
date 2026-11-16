@@ -9,6 +9,7 @@ import {
   readOrigin,
   readSyncPoint,
   runGitResult,
+  statusPorcelain,
 } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
 import { readIdentity, readScan } from "./adapters/scan.ts";
@@ -43,6 +44,7 @@ import { diffExport } from "./app/diff.ts";
 import { executeDoctor } from "./app/doctor.ts";
 import { executePull } from "./app/pull.ts";
 import type { FetchResult } from "./app/pull.ts";
+import { executePush } from "./app/push.ts";
 import { executeStatus, unsentCount } from "./app/status.ts";
 import {
   CANNOT_LIST_TRACKED,
@@ -64,6 +66,7 @@ import type {
   DoctorCommand,
   MachineShowCommand,
   PullCommand,
+  PushCommand,
   RetireCommand,
   RunCommand,
   SetupCommand,
@@ -178,6 +181,36 @@ function pullDiffCommand(only: readonly string[]): RunCommand {
   };
 }
 
+/** A push child's `export`: the picked paths, with `--yes` taking the new
+ * settings' suggestions, as the design's "Push and pull" says. */
+function pushExportCommand(only: readonly string[], yes: boolean): RunCommand {
+  return {
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: false,
+    check: false,
+    resetValues: false,
+    yes,
+    only,
+  };
+}
+
+/** A push child's `commit`: `--partial` when the push had picked paths. */
+function pushCommitCommand(
+  partial: boolean,
+  message: string | undefined,
+): CommitCommand {
+  return {
+    kind: "commit",
+    partial,
+    ...(message === undefined ? {} : { message }),
+  };
+}
+
+/** The paths the push's `git status --short` reads, as `front_push` does. */
+const PUSH_STATUS_PATHS = ["dotfiles", "packages", "sync-config.json"] as const;
+
 /** Contract "Front door": pull needs the clone on `master` with an origin. */
 async function cloneReady(repoRoot: string): Promise<boolean> {
   const inside = await runGitResult(repoRoot, [
@@ -249,6 +282,7 @@ type Resolved =
   | StatusCommand
   | DoctorCommand
   | PullCommand
+  | PushCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -261,6 +295,7 @@ type ExecutableCommand =
   | StatusCommand
   | DoctorCommand
   | PullCommand
+  | PushCommand
   | MachineShowCommand
   | RetireCommand
   | CommitCommand
@@ -756,6 +791,28 @@ async function execute(command: ExecutableCommand): Promise<Result> {
       },
     );
   }
+  if (command.kind === "push") {
+    return executePush(
+      {
+        yes: command.yes,
+        paths: command.paths,
+        ...(command.message === undefined
+          ? {}
+          : { message: command.message }),
+      },
+      {
+        runExport: (only, yes) => execute(pushExportCommand(only, yes)),
+        statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
+        ask: askPullQuestion,
+        print: (shown) => {
+          process.stdout.write(shown.stdout);
+          process.stderr.write(shown.stderr);
+        },
+        runCommit: (partial, message) =>
+          execute(pushCommitCommand(partial, message)),
+      },
+    );
+  }
   if (command.kind === "setup") {
     return executeSetup(repoRoot, config.value, os.value, home, state, command);
   }
@@ -1001,6 +1058,8 @@ export function run(argv: readonly string[]): Resolved {
     case "doctor":
       return parsed;
     case "pull":
+      return parsed;
+    case "push":
       return parsed;
     case "machine-show":
       return parsed;

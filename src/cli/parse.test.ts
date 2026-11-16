@@ -37,6 +37,8 @@ const DOCTOR = { kind: "doctor" } as const;
 
 const PULL = { kind: "pull", yes: false, force: false, paths: [] } as const;
 
+const PUSH = { kind: "push", yes: false, paths: [] } as const;
+
 const SETUP = { kind: "setup" } as const;
 
 const COMMIT = { kind: "commit", partial: false } as const;
@@ -283,6 +285,56 @@ describe("parseArgs", () => {
 
   test("should refuse a short option after pull", () => {
     expect(parseArgs(["pull", "-x"])).toEqual(unknownOption("-x"));
+  });
+
+  test("should parse push", () => {
+    expect(parseArgs(["push"])).toEqual(PUSH);
+  });
+
+  test("should parse push --yes", () => {
+    expect(parseArgs(["push", "--yes"])).toEqual({ ...PUSH, yes: true });
+  });
+
+  test("should parse push with one path", () => {
+    expect(parseArgs(["push", "dotfiles/common/parity/a.conf"])).toEqual({
+      ...PUSH,
+      paths: ["dotfiles/common/parity/a.conf"],
+    });
+  });
+
+  test("should parse push with several paths and -m", () => {
+    expect(
+      parseArgs(["push", "--yes", "-m", "sync: work", "a.conf", "b.conf"]),
+    ).toEqual({
+      ...PUSH,
+      yes: true,
+      message: "sync: work",
+      paths: ["a.conf", "b.conf"],
+    });
+  });
+
+  test("should keep a push -m message that starts with a dash", () => {
+    expect(parseArgs(["push", "-m", "--yes"])).toEqual({
+      ...PUSH,
+      message: "--yes",
+    });
+  });
+
+  test("should keep the last push -m message", () => {
+    expect(parseArgs(["push", "-m", "one", "-m", "two"])).toEqual({
+      ...PUSH,
+      message: "two",
+    });
+  });
+
+  test("should refuse push -m with no value", () => {
+    expect(parseArgs(["push", "-m"])).toEqual(
+      usageError("Missing value for -m"),
+    );
+  });
+
+  test("should refuse an unknown option after push", () => {
+    expect(parseArgs(["push", "--bogus"])).toEqual(unknownOption("--bogus"));
   });
 
   test("should parse machine show", () => {
@@ -567,6 +619,12 @@ describe("parseArgs", () => {
   test("should name pull in the usage line", () => {
     expect(
       USAGE_TEXT.includes("mksync pull [--yes] [--force] [<path>...]"),
+    ).toBe(true);
+  });
+
+  test("should name push in the usage line", () => {
+    expect(
+      USAGE_TEXT.includes("mksync push [--yes] [-m <msg>] [<path>...]"),
     ).toBe(true);
   });
 
