@@ -202,7 +202,9 @@ the phase 7 finish review").
 **In progress.** [plan-single-engine-8.md](plan-single-engine-8.md) and its review fixes
 ([plan-single-engine-8-fixes.md](plan-single-engine-8-fixes.md)) done 2026-11-16 on `engine/front-door`: the Claude
 layout tool, linked folders, move a change, `mksync check`, `preview` and `diff`, and the 14 Required fixes. The
-program passes 222 shared cases. Left: the case port, `docs/plan-single-engine-8-port.md`.
+program passes 222 shared cases. Left: the case port, [plan-single-engine-8-port.md](plan-single-engine-8-port.md)
+on `engine/case-port`, with the inventory of every old case in [port-inventory.tsv](port-inventory.tsv): 124 cases to
+port and six gaps the program has against the contract.
 
 - **First, carried from phase 7: the Windows survey and the Claude layout tool.** Phase 7 closed (2026-11-14) before
   the survey ran on work machine #1 (`docs/windows-survey.md`). When the redacted answer is in, it settles the
@@ -229,6 +231,9 @@ program passes 222 shared cases. Left: the case port, `docs/plan-single-engine-8
   `statusLine` runs `mksync statusline`, and `statusline.sh` is retired.
 - `install.sh` and `install.ps1` download the program. The tool updates itself with `mksync update`, checking the
   config's `schemaVersion`.
+- `mksync setup` gains doctor first, the Ubuntu bootstrap question and `--bootstrap`, with the four old cases the port
+  left for them: `sync-setup-offers-bootstrap`, `sync-setup-doctor-fails`, `front-macos-setup-no-bootstrap`,
+  `front-macos-bootstrap-flag`.
 - The `.linked/` trees are converted. Tag `two-engines-final`, then delete the bash and PowerShell engines and their
   suites. `bootstrap/linux.sh` stays bash.
 - The user runs the real-Windows checklist: what the VM couldn't run, plus a smoke run (install, first run, pull,

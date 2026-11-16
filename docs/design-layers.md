@@ -730,6 +730,37 @@ doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Li
 - **The port has its own plan.** The old cases without a shared twin (`docs/design-test-moves.md`) are ported by
   `docs/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
 
+## Decided in phase 8, the port
+
+The port plan's decisions (`docs/plan-single-engine-8-port.md`), as rules. Its inventory, `docs/port-inventory.tsv`,
+gives every old case of `docs/design-test-moves.md` a verdict.
+
+- **Ported cases check the text the old case checked.** A shared case may add `expect/lines.txt`: lines that must
+  appear in each command's output, in order, other lines allowed between them; `! <text>` must not appear; `# <n>`
+  starts command `n`'s lines. Status lines read `WORD label note` with single spaces on every engine. Example:
+  `only-no-file-import` expects `WARNING: --only matched no file.`, a line the status-line check drops.
+- **What the runner can't set up stays a unit or adapter test:** a write failure, a symlink in `home/`, an
+  unreachable origin, a failing `gh`, a real dconf bus, the package managers. The runner doesn't grow for them.
+  Example: `error-continues` (a read-only repo file) is an `export.test.ts` case with a failing write action.
+- **Gaps are fixed contract first.** Where the program breaks a rule the contract already states, the port writes
+  the case, then the fix: a symlink under `dotfiles/`, `--only` with a `dir` entry's folder, LF for shared files
+  exported on Windows, the preview's `--stat` and diff, the macOS doctor's `brew` line, and the Windows ACL on local
+  state. Example: on work #1, a shared `.editorconfig` saved with CRLF is pushed with LF.
+- **A local file that became a symlink in a `dir` entry** loses its repo copy (`REMOVED … no longer in source`), as
+  bash does: a symlink isn't a file of the folder. Example: replacing `~/.config/fixture/dir/c.txt` with a link to
+  another file removes `dotfiles/common/dir/c.txt` on the next export.
+- **Push behind origin stops before the export,** as the bash front door does:
+  `ERROR: origin has updates; run mksync pull first.`, exit 1. The PowerShell front door doesn't check, a Known
+  difference until cut-over. Example: personal Linux pushes while work #1's PR was merged; nothing is exported until
+  `mksync pull`.
+- **Config lint rules move to v2 only where the rule has a v2 meaning.** The fourteen `lint-*` rules of
+  `scripts/ci/check-config.sh` are decided one by one (port step 28): a v2 refusal with its `ERROR:
+sync-config.v2.json: entry <file> …` line, or dropped with the reason. Example: a file entry inside a `dir` entry's
+  folder is refused in v2 too; a check on a v1-only field is dropped.
+- **Setup and bootstrap cases wait for phase 9,** with the bootstrap question, `--bootstrap` and doctor before
+  setup: `sync-setup-offers-bootstrap`, `sync-setup-doctor-fails`, `front-macos-setup-no-bootstrap`,
+  `front-macos-bootstrap-flag`.
+
 ## Linked folders
 
 Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
@@ -1290,13 +1321,15 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   `tsc` only; the question moves to phase 9.
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
-  re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
+  re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case. Settled by
+  the port: every case was re-read for `docs/port-inventory.tsv` (2026-11-16).
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows": proposed no (step
   27).
 - **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
-  Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored.
+  Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored. The
+  sync-point half: the contract's "Sync point" now has the `WARNING`, and port step 20 tests it on import.
 - **Overwrite prompt on a terminal (phase 4, program).** `planImport` takes the answers as a list, so the program
   reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
   the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.

@@ -67,6 +67,7 @@ cases/<name>/
     state/         optional: files the engine's state folder must hold
     gh.log         optional: the gh calls, when the case stubs gh
     dconf.log      optional: the dconf loads, when the case stubs dconf
+    lines.txt      optional: lines the output must hold, for text the status lines drop
   expect.<os>/     optional: only what differs from expect/ on linux, macos or windows
 ```
 
@@ -180,6 +181,13 @@ at the stubs, and fails one that would run on Windows with them.
      `backups/<run>/` is read as `backups/RUN/`, and there must be exactly one, so the time and pid don't matter. An
      expected state file may hold `<START_HEAD>`: the runner replaces it with the repo's `HEAD`, recorded right after
      setup (the commit the case starts from), before comparing; without a git repo it is a case error.
+   - **Lines**, when `expect/lines.txt` exists: notes, `ERROR:` and `WARNING:` lines and summaries the status-line
+     check drops. Each command's output is read with color removed and each line trimmed, and a status line in
+     either layout is read as `WORD label note`, single spaces between. A line `# <n>` starts the expected lines of
+     command `n` (1-based); lines before any `#` belong to command 1. Each expected line must appear in that
+     command's output, in the file's order, other lines allowed between them. A line `! <text>` means no line of that
+     command's output contains `<text>`. A failure names the first missing (or present `!`) line and prints the
+     command's normalized output. `output.txt` stays the exact check of status lines.
    - **gh calls**, when the case stubs `gh` (above).
    - **dconf loads**, when the case stubs `dconf` (above).
 
@@ -189,9 +197,9 @@ Each file is taken from `expect.<os>/` when it's there for the OS the runner is 
 
 A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh`, `dconf` and
 `getent` (`stubs`) and a prompt answer (`stdin`) are covered. The package managers have no stub yet, so those cases stay
-in `tests/linux/engine.sh`, as does a dconf case that needs a real session bus rather than the stub. Text the runner
-drops (notes, `ERROR:` messages, summaries) and a check of one function from the inside stay in that engine's own
-suite. A write failure and a symlink in `home/` can't be set up yet; the program's unit tests cover those
+in `tests/linux/engine.sh`, as does a dconf case that needs a real session bus rather than the stub. Text the
+status-line check drops (notes, `ERROR:` messages, summaries) goes in `expect/lines.txt`; a check of one function
+from the inside stays in that engine's own suite, or the program's unit tests. A write failure and a symlink in `home/` can't be set up yet; the program's unit tests cover those
 ([design, "Open"](../../docs/design-layers.md#open)).
 
 ## Reading a failure
