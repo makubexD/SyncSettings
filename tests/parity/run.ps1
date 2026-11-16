@@ -748,6 +748,9 @@ function Run-Case {
         # Engine files (scripts\ci too: later cases need leak-scan).
         if (-not [string]::IsNullOrEmpty($EnginePath)) {
             Copy-Item -LiteralPath $EnginePath -Destination (Join-Path $repoDir 'mksync.exe') -Force
+            # The program runs the leak scan from the repo, as run.sh copies it.
+            New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
         } else {
             Copy-Item -LiteralPath (Join-Path $Repo 'sync.cmd') -Destination $repoDir -Force
             New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null

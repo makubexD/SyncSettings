@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runLeakScan } from "./leakscan.ts";
+import { findBash, runLeakScan } from "./leakscan.ts";
 
 const SYNC_PATHS = ["dotfiles", "sync-config.json"];
 
@@ -68,9 +68,7 @@ describe("runLeakScan", () => {
 
   test("should report exit 1 as hits with the scan's output", async () => {
     // Arrange
-    const { root } = repoWithScan(
-      `printf '%s\\n' '${HIT_LINE}'\nexit 1`,
-    );
+    const { root } = repoWithScan(`printf '%s\\n' '${HIT_LINE}'\nexit 1`);
 
     // Act
     const result = await runLeakScan(root, SYNC_PATHS);
@@ -83,9 +81,7 @@ describe("runLeakScan", () => {
 
   test("should report any other exit as could not run", async () => {
     // Arrange
-    const { root } = repoWithScan(
-      "printf 'ERROR: scan failed\\n' >&2\nexit 2",
-    );
+    const { root } = repoWithScan("printf 'ERROR: scan failed\\n' >&2\nexit 2");
 
     // Act
     const result = await runLeakScan(root, SYNC_PATHS);
@@ -118,5 +114,58 @@ describe("runLeakScan", () => {
 
     // Assert
     expect(readFileSync(log, "utf8").trim()).toBe(expected);
+  });
+});
+
+describe("findBash", () => {
+  const GIT_ROOT = "C:\\Program Files\\Git";
+  const GIT_BASH = `${GIT_ROOT}\\bin\\bash.exe`;
+
+  test("should use bash from PATH off Windows", () => {
+    // Act
+    const bash = findBash("linux", null, () => false);
+
+    // Assert
+    expect(bash).toBe("bash");
+  });
+
+  test("should find Git's bash next to git in cmd on Windows", () => {
+    // Act
+    const bash = findBash(
+      "win32",
+      `${GIT_ROOT}\\cmd\\git.exe`,
+      (path) => path === GIT_BASH,
+    );
+
+    // Assert
+    expect(bash).toBe(GIT_BASH);
+  });
+
+  test("should find Git's bash from git in mingw64 bin on Windows", () => {
+    // Act
+    const bash = findBash(
+      "win32",
+      `${GIT_ROOT}\\mingw64\\bin\\git.exe`,
+      (path) => path === GIT_BASH,
+    );
+
+    // Assert
+    expect(bash).toBe(GIT_BASH);
+  });
+
+  test("should find no bash on Windows without git", () => {
+    // Act
+    const bash = findBash("win32", null, () => true);
+
+    // Assert
+    expect(bash).toBeUndefined();
+  });
+
+  test("should find no bash on Windows when Git has no bash.exe", () => {
+    // Act
+    const bash = findBash("win32", `${GIT_ROOT}\\cmd\\git.exe`, () => false);
+
+    // Assert
+    expect(bash).toBeUndefined();
   });
 });
