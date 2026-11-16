@@ -396,6 +396,7 @@ write_gh_stub() {
 write_dconf_stub() {
     local temp=$1 dir=$2
     mkdir -p "$temp/bin" || die 'creating the dconf stub folder failed'
+    # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
     printf '%s\n' \
         '#!/bin/sh' \
         "case_dir='$dir'" \
@@ -429,6 +430,7 @@ write_dconf_stub() {
 write_getent_stub() {
     local temp=$1 home=$2
     mkdir -p "$temp/bin" || die 'creating the getent stub folder failed'
+    # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
     printf '%s\n' \
         '#!/bin/sh' \
         'case ${1:-} in' \

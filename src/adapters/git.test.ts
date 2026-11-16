@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -708,14 +703,26 @@ describe("stagePaths", () => {
 
     // Assert
     expect(result.ok).toBe(true);
-    expect(git(root, ["diff", "--cached", "--name-only"])).toBe(`${REPO_FILE}\n`);
+    expect(git(root, ["diff", "--cached", "--name-only"])).toBe(
+      `${REPO_FILE}\n`,
+    );
   });
 });
+
+/** A seeded repo whose own config holds a test identity: `commitStaged` runs a
+ * real `git commit`, and a CI runner has no identity of its own. Only this
+ * temp repo's config is written. */
+function repoWithIdentity(): string {
+  const root = repoWithCommit();
+  git(root, ["config", "user.name", "Test User"]);
+  git(root, ["config", "user.email", "test@example.com"]);
+  return root;
+}
 
 describe("commitStaged", () => {
   test("should commit the staged changes with the message", async () => {
     // Arrange
-    const root = repoWithCommit();
+    const root = repoWithIdentity();
     writeFileSync(join(root, REPO_FILE), "name = changed\n");
     await stagePaths(root, [REPO_FILE]);
 
@@ -729,7 +736,7 @@ describe("commitStaged", () => {
 
   test("should report nothing to commit as a failure", async () => {
     // Arrange
-    const root = repoWithCommit();
+    const root = repoWithIdentity();
 
     // Act
     const result = await commitStaged(root, COMMIT_MESSAGE);
