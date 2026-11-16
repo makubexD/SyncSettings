@@ -1412,7 +1412,9 @@ Move a change? Type its number, or press Enter to go on:
   prints `Pick 1 to <n>.` and asks again; an empty answer or end of input to the first one goes on.
 - A `json` key moved to a narrower group is written into that group's layer and left as it was in the old one: the
   narrower layer now overrides it for the machines it covers. Moved to a wider group, it is written into the new
-  layer and removed from the old one. A whole file, or an `import` side file, moves as a whole.
+  layer and removed from the old one, unless a layer between the two sets it, which would win once it's gone; then the
+  old layer keeps it. A whole file, or an `import` side file, moves as a whole, under the same rule: a wider move
+  past a layer that has the file keeps the old copy, and a narrower move past one is refused.
 - On this machine, the merged result of every file is the same after a move as before it; only who else receives the
   change differs.
 - The block prints again after each move, with the change under its new group and its number kept.
