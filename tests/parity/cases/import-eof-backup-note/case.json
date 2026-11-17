@@ -1,0 +1,17 @@
+{
+  "description": "Import at end of input without --force counts as yes, overwrites and saves the old bytes as a .bak: UPDATED with the backup note (Overwrite prompt; Statuses, Import).",
+  "os": ["linux", "macos"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "common",
+        "description": "Import overwrite fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "import" }]
+}

@@ -1,0 +1,11 @@
+SKIPPED dotfiles/common/creds/.git-credentials
+SKIPPED dotfiles/common/creds/.netrc
+SKIPPED dotfiles/common/creds/.npmrc
+SKIPPED dotfiles/common/creds/.pgpass
+SKIPPED dotfiles/common/creds/app.env
+SKIPPED dotfiles/common/creds/auth.json
+SKIPPED dotfiles/common/creds/hosts.yml
+SKIPPED dotfiles/common/creds/id_dsa
+ADDED dotfiles/common/creds/ordinary.txt
+SKIPPED dotfiles/common/creds/secrets.yaml
+SKIPPED dotfiles/common/creds/token

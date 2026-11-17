@@ -1,0 +1,44 @@
+{
+  "description": "Export of a dir entry skips every credential the shipped excludePatterns name and copies only the ordinary file (Exclude patterns; Statuses, Export; Directory entries).",
+  "config": {
+    "version": 1,
+    "excludePatterns": [
+      "*.pem",
+      "*.key",
+      "*.pfx",
+      "*.p12",
+      "*.bak",
+      "id_rsa*",
+      "id_ed25519*",
+      "id_ecdsa*",
+      "*.credential*",
+      "credentials",
+      "credentials.json",
+      ".env",
+      ".env.*",
+      "*.secret*",
+      "*.token*",
+      ".git-credentials",
+      ".netrc",
+      ".npmrc",
+      ".pgpass",
+      "hosts.yml",
+      "auth.json",
+      "secrets.yaml",
+      "token",
+      "*.env",
+      "id_dsa*"
+    ],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/creds",
+        "localPath": "~/.config/fixture/creds",
+        "type": "dir",
+        "platform": "common",
+        "description": "Excluded credentials fixture"
+      }
+    ]
+  },
+  "env": { "LC_ALL": "C" },
+  "commands": [{ "command": "export" }]
+}
