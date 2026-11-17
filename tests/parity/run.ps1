@@ -841,6 +841,49 @@ function Write-GhStub {
     [IO.File]::WriteAllText((Join-Path $binDir 'gh.cmd'), $body, [System.Text.UTF8Encoding]::new($false))
 }
 
+# The local state the program writes must be readable by the user only on
+# Windows: no inherited access rules and exactly one rule, the current user.
+# This replaces the Pester cases values-private-new, values-private-tightened and
+# values-private-no-domain (tests/windows/Engine.Tests.ps1). Only files the
+# program wrote during the case are checked; a seeded file the program left
+# alone still carries the runner's own ACL, and the last sync point is no secret.
+function Test-PrivateFiles {
+    param([string]$RepoDir, [string]$LocalDir, [DateTime]$RunStartUtc)
+
+    $candidates = New-Object System.Collections.Generic.List[object]
+    $candidates.Add(@{ Path = (Join-Path $RepoDir '.user-values.json'); Name = '.user-values.json' })
+    $stateRoot = Join-Path $LocalDir 'SyncSettings'
+    $candidates.Add(@{ Path = (Join-Path $stateRoot 'machine.json'); Name = 'SyncSettings\machine.json' })
+    $profilesDir = Join-Path $stateRoot 'profiles'
+    if (Test-Path -LiteralPath $profilesDir -PathType Container) {
+        foreach ($profileFile in @(Get-ChildItem -LiteralPath $profilesDir -Filter '*.json' -File -Force | Sort-Object Name)) {
+            $candidates.Add(@{ Path = $profileFile.FullName; Name = ('SyncSettings\profiles\' + $profileFile.Name) })
+        }
+    }
+
+    $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    foreach ($candidate in $candidates) {
+        $file = $candidate.Path
+        $name = $candidate.Name
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            continue
+        }
+        if ((Get-Item -LiteralPath $file).LastWriteTimeUtc -lt $RunStartUtc) {
+            continue
+        }
+        $acl = Get-Acl -LiteralPath $file
+        if (-not $acl.AreAccessRulesProtected) {
+            Die "acl: $name inherits access"
+        }
+        $sids = @($acl.Access | ForEach-Object {
+            $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+        })
+        if ($sids.Count -ne 1 -or $sids[0] -cne $currentSid) {
+            Die "acl: $name is not private to the current user"
+        }
+    }
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, throwing the first difference.
@@ -999,6 +1042,10 @@ function Run-Case {
                 }
             }
         }
+
+        # Every file the program writes has a LastWriteTimeUtc at or after this
+        # point; the seeding above is older, so Test-PrivateFiles skips it.
+        $runStartUtc = [DateTime]::UtcNow
 
         # Commands
         $commands = $Case.commands
@@ -1320,6 +1367,11 @@ function Run-Case {
                 }
                 $lineOutputs.Add((Get-NormalizedLines -Raw $raw))
             }
+        }
+
+        # Program cases only: the PowerShell engine's own ACL stays covered by Pester.
+        if (-not [string]::IsNullOrEmpty($EnginePath)) {
+            Test-PrivateFiles -RepoDir $repoDir -LocalDir $localDir -RunStartUtc $runStartUtc
         }
 
         # Each gh call is cut to its first two words, so branch names and titles
