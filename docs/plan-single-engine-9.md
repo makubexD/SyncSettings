@@ -385,22 +385,42 @@ Test: `bun test src/app/update.test.ts src/core/update src/cli && bun run lint`.
 
 ## Step 21: install.sh downloads the program `[worker]`
 
-Files: `install.sh`, `tests/linux/bootstrap.sh` (its installer cases).
+Files: `install.sh`, `tests/linux/engine.sh` (its `install` cases and their helpers: the installer cases live there,
+not in `bootstrap.sh`).
 
-Decision 3, Linux and macOS. After the clone: pick the asset from `uname -s`/`uname -m`, download it and
-`SHA256SUMS` from `SYNCSETTINGS_RELEASE_URL` (default as step 20), check with `sha256sum`/`shasum -a 256`, verify the
-attestation when `gh auth status` succeeds, install to `$SYNCSETTINGS_BIN/mksync` (default `~/.local/bin`) with mode
-0755, then run `mksync setup`. `--runtime bun|node`: no download; link the clone's `mksync` launcher there instead.
-Keep bash 3.2 syntax.
+Decision 3, Linux and macOS. After the clone: pick the asset from `uname -s`/`uname -m` (`SYNC_OS` and a new
+`SYNC_ARCH` override them, as `SYNC_OS` already does): Linux `x86_64` → `mksync-linux-x64`, Linux `aarch64`/`arm64` →
+`mksync-linux-arm64`, macOS `arm64` → `mksync-darwin-arm64`, anything else → `ERROR: no mksync program for <os>
+<arch>.`, exit 1. The tag: under `file://`, `<base>/latest` holds it; over https, the final URL of the `<base>/latest`
+redirect. Download `<base>/download/<tag>/<asset>` and `SHA256SUMS` with `curl -fsSL` (`SYNCSETTINGS_RELEASE_URL`,
+default as step 20) into a temp folder, check with `sha256sum` (or `shasum -a 256`); a digest that doesn't match or is
+missing → `ERROR: <asset>: checksum does not match SHA256SUMS.`, exit 1, nothing installed. Verify the attestation
+with `"${GH:-gh}" attestation verify <file> --repo makubexD/SyncSettings` when `"${GH:-gh}" auth status` succeeds; a
+failure → `ERROR: <asset>: attestation check failed.`, exit 1. Install to `$SYNCSETTINGS_BIN/mksync` (default
+`~/.local/bin`) with mode 0755 through a temp file renamed over. What is already at `$bin/mksync`: a symlink into the
+clone (an older install's `sync` link) is replaced; a file byte-identical to the download is left as is; anything
+else keeps today's `ERROR: <path> already exists; remove it and run this again.`, exit 1. Then run
+`"$bin/mksync" setup [--yes]` with the answers source as stdin. `--runtime bun|node`: no download; link
+`<clone>/mksync` (the launcher) there instead, with the same conflict rule; the usage line lists it. Keep bash 3.2
+syntax.
 
-New cases in `tests/linux/bootstrap.sh`, against a `file://` release folder with a fake program:
+The harness: `setup_install_origin` also builds a release folder `$t/release` (`latest` = `v9.9.9`, the four assets
+under `download/v9.9.9/`, a matching `SHA256SUMS`), `run_install` passes `SYNCSETTINGS_RELEASE_URL=file://$t/release`,
+and the fake program is a script that logs `mksync <args>` to `$t/stub/log` and then runs
+`"$HOME/SyncSettings/sync" "$@"`, so the setup cases keep their results. `curl` is a stub in `$t/stub` that serves
+only `file://` URLs (copying to `-o` or stdout, exit 22 when the file is missing) and fails any other URL, so no case
+reaches the network; `make_install_path` adds `curl`, `sha256sum`, `chmod`, `mv`, `rm`, `mktemp`, `cut` and `cat`.
+Existing cases that check `$bin/mksync` is a link to `sync` now check it is the fake program.
 
-- install → `$bin/mksync` is the fake program, mode 0755, setup ran through it.
-- a `SHA256SUMS` that doesn't match → the decision 3 line, exit 1, no `$bin/mksync`.
-- `--runtime node` → `$bin/mksync` links to `<clone>/mksync`, nothing downloaded.
-- an unsupported `uname -m` (`SYNC_ARCH=ia32` override) → `ERROR: no mksync program for linux ia32.`, exit 1.
+New cases, against that release:
 
-Test: `tests/linux/bootstrap.sh install`.
+- install → `$bin/mksync` is the fake program, mode 0755, setup ran through it (`mksync setup` in the log).
+- a `SHA256SUMS` that doesn't match → its line, exit 1, no `$bin/mksync`.
+- `--runtime node` → `$bin/mksync` links to `<clone>/mksync`, the curl stub never ran.
+- an unsupported `uname -m` (`SYNC_ARCH=ia32`) → `ERROR: no mksync program for linux ia32.`, exit 1.
+- a second install over the same program → exit 0, the file unchanged.
+
+Test: `tests/linux/engine.sh install`.
 
 ## Step 22: install.ps1 downloads the program `[worker]`
 
