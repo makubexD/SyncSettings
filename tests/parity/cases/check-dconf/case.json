@@ -1,0 +1,19 @@
+{
+  "description": "The import check reads the dconf dump, reports the keys the repo would change as UPDATE, exits 3, and loads nothing (Import check, dconf entries). Ported from import-check-dconf.",
+  "os": ["linux"],
+  "stubs": ["dconf", "getent"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/dconf/app.ini",
+        "type": "dconf",
+        "platform": "linux",
+        "path": "/test/app/",
+        "description": "Parity case dconf entry"
+      }
+    ]
+  },
+  "commands": [{ "command": "check" }]
+}

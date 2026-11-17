@@ -1,0 +1,19 @@
+{
+  "description": "The import check reports a sanitized entry whose placeholder has no value as SKIPPED with the setup hint, counts it as a change and exits 3 without prompting or writing values (Import check, Sanitize and hydrate). Ported from import-check-needs-values, Pester import check needs values.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/named.conf",
+        "localPath": "~/.config/fixture/named.conf",
+        "platform": "common",
+        "description": "Sanitized fixture without a value",
+        "sanitizeRules": [
+          { "placeholder": "<NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "commands": [{ "command": "check" }]
+}
