@@ -809,7 +809,8 @@ update.`, exit 2, before anything else; also after a pull that fast-forwards to 
 9. **The overwrite prompt** is asked per file as import reaches it, one line read at a time.
 10. **Links and atomic writes.** State and repo writes go through a temp file and a rename (0600 for state); a state
     or repo path that is a symlink is refused with `ERROR: <path> is a symlink.`, exit 1. Home writes keep following
-    links; a link inside a `dir` entry's folder is `SKIPPED <path> (symlink)`.
+    links; a link inside a `dir` entry's folder is `SKIPPED <path> (symlink)`. 0600 means values, records, profiles
+    and `machine.json`; the sync point and dconf backups keep their mode, as the shared cases pin it (step 14).
 11. **Config paths checked on read.** An empty, absolute, `..` or `\` entry `file` is
     `ERROR: sync-config.v2.json: entry <file> has an unsafe path.`; an `import` entry without `{layer}` in
     `importName` is `ERROR: sync-config.v2.json: entry <file> needs {layer} in importName.`; both exit 1.

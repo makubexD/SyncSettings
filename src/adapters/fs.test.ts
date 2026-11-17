@@ -1389,6 +1389,64 @@ describe("runPlan", () => {
     expect(readFileSync(stateFile, "utf8")).toBe("0123456789abcdef\n");
   });
 
+  test("should refuse a symlinked values file and leave its target unchanged", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const valuesLink = join(repo, ".user-values.json");
+    const target = join(home, "values-target.json");
+    writeFixture(target, '{"name": "old"}\n');
+    symlinkSync(target, valuesLink);
+    const stepFile = join(repo, "dotfiles", "linux", "x.txt");
+    const plan: RunPlan = {
+      prepare: [{ kind: "writeValues", text: '{"name": "new"}\n' }],
+      steps: [
+        stepOf([
+          actionOf({
+            kind: "writeRepo",
+            path: "dotfiles/linux/x.txt",
+            bytes: bytesOf("x\n"),
+          }),
+        ]),
+      ],
+      finish: [],
+      lines: [],
+      summary: { kind: "none" },
+      code: 0,
+    };
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.refused).toBe(`ERROR: ${valuesLink} is a symlink.`);
+    expect(readFileSync(target, "utf8")).toBe('{"name": "old"}\n');
+    expect(lstatSync(valuesLink).isSymbolicLink()).toBe(true);
+    expect(existsSync(stepFile)).toBe(false);
+  });
+
+  test("should refuse a symlinked sync point and leave its target unchanged", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const context = runContext(home, repo);
+    const syncPoint = join(context.stateFolder, "last-sync");
+    mkdirSync(context.stateFolder, { recursive: true });
+    const target = join(home, "sync-point-target");
+    writeFixture(target, "0123456789abcdef\n");
+    symlinkSync(target, syncPoint);
+    const plan = planOf(
+      [],
+      [{ kind: "writeState", path: syncPoint, text: "fedcba9876543210\n" }],
+    );
+
+    // Act
+    const outcome = runPlan(plan, context);
+
+    // Assert
+    expect(outcome.refused).toBe(`ERROR: ${syncPoint} is a symlink.`);
+    expect(readFileSync(target, "utf8")).toBe("0123456789abcdef\n");
+    expect(lstatSync(syncPoint).isSymbolicLink()).toBe(true);
+  });
+
   test("should keep a dated copy under the run folder with mode and times", () => {
     // Arrange
     const { home, repo } = fixture();

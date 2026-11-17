@@ -53,16 +53,20 @@ function withSyncPointWarning(plan: RunPlan, warning: string): RunPlan {
  * dated backup folder. */
 function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
   const outcome = runPlan(plan, context);
-  const warning = syncPointWarning(outcome.failedFinish);
+  const refused = outcome.refused;
+  const warning =
+    refused === undefined
+      ? syncPointWarning(outcome.failedFinish)
+      : undefined;
   const rendered = renderRun(
     warning === undefined ? plan : withSyncPointWarning(plan, warning),
     outcome,
   );
   return {
     result: {
-      code: rendered.code,
+      code: refused === undefined ? rendered.code : 1,
       stdout: (plan.prompt ?? "") + writeLines(rendered.lines),
-      stderr: "",
+      stderr: refused === undefined ? "" : `${refused}\n`,
     },
     backups: outcome.backups,
   };

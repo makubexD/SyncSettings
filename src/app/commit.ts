@@ -288,13 +288,20 @@ async function cleanupBranch(
   await deleteBranch(repoRoot, branch);
 }
 
+/** What writing the sync point printed: the contract's warning when it only
+ * failed, or the line a refused symlink stopped the run with. */
+interface SyncPointWrite {
+  readonly warning: string;
+  readonly refused: string | undefined;
+}
+
 /** Record an opened PR's parent as the sync point, and warn when the write
- * fails, as `write_last_sync` does. */
+ * fails, as `write_last_sync` does. A symlinked sync point is refused. */
 function writeSyncPoint(
   context: RunContext,
   state: string,
   parent: string,
-): string {
+): SyncPointWrite {
   const path = join(state, SYNC_POINT_FILE);
   const text = `${parent}\n`;
   const plan: RunPlan = {
@@ -304,16 +311,23 @@ function writeSyncPoint(
     summary: { kind: "none" },
     code: 0,
   };
-  runPlan(plan, context);
+  const outcome = runPlan(plan, context);
+  if (outcome.refused !== undefined) {
+    return { warning: "", refused: outcome.refused };
+  }
   let written: string | undefined;
   try {
     written = readFileSync(path, "utf8");
   } catch {
     written = undefined;
   }
-  return written === text
-    ? ""
-    : `  WARNING: could not record the sync point in ${path}.\n`;
+  return {
+    warning:
+      written === text
+        ? ""
+        : `  WARNING: could not record the sync point in ${path}.\n`,
+    refused: undefined,
+  };
 }
 
 /**
@@ -558,7 +572,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   }
 
   if (!command.partial) {
-    stdout += writeSyncPoint(
+    const syncPoint = writeSyncPoint(
       {
         repoRoot,
         os,
@@ -571,6 +585,10 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
       state,
       parent.sha,
     );
+    if (syncPoint.refused !== undefined) {
+      return done(1, `${syncPoint.refused}\n`);
+    }
+    stdout += syncPoint.warning;
   }
 
   stdout += `  PR opened: ${prUrl}\n`;

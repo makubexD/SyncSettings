@@ -6,6 +6,7 @@
  */
 
 import { join } from "node:path";
+import { SymlinkRefusal } from "../adapters/atomic.ts";
 import { readOrigin } from "../adapters/git.ts";
 import { readScan } from "../adapters/scan.ts";
 import {
@@ -205,6 +206,9 @@ export async function executeSetup(
   try {
     writeProfile(state, profile);
   } catch (error) {
+    if (error instanceof SymlinkRefusal) {
+      return failure(error.message);
+    }
     const message = error instanceof Error ? error.message : String(error);
     return failure(
       `ERROR: cannot write the profile ${profile.name}: ${message}`,
@@ -213,6 +217,9 @@ export async function executeSetup(
   try {
     writeRecord(state, record);
   } catch (error) {
+    if (error instanceof SymlinkRefusal) {
+      return failure(error.message);
+    }
     const message = error instanceof Error ? error.message : String(error);
     return failure(`ERROR: cannot write the machine record: ${message}`);
   }
