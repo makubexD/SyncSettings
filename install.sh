@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # Install or update SyncSettings on Linux and macOS: clone the repo (or
-# fast-forward an existing clone), link mksync, then run setup. Designed to be
-# piped into bash, so every line is a function definition and the last line runs
-# the installer. It runs on macOS's bash 3.2, so keep it free of bash 4 syntax.
+# fast-forward an existing clone), install the mksync program from the latest
+# release (or link the clone's launcher with --runtime), then run setup.
+# Designed to be piped into bash, so every line is a function definition and the
+# last line runs the installer. It runs on macOS's bash 3.2, so keep it free of
+# bash 4 syntax.
 set -euo pipefail
 
+# The download folder, removed when the installer exits.
+work_tmp=''
+
 usage() {
-    printf 'usage: install.sh [--yes] [--no-setup]\n'
-    printf '  --yes       answer yes to the questions\n'
-    printf '  --no-setup  clone and link mksync, but do not run setup\n'
+    printf 'usage: install.sh [--yes] [--no-setup] [--runtime bun|node]\n'
+    printf '  --yes                answer yes to the questions\n'
+    printf '  --no-setup           clone and install mksync, but do not run setup\n'
+    printf '  --runtime bun|node   link the clone launcher instead of downloading the program\n'
 }
 
 # The file the questions are read from: SYNCSETTINGS_TTY when set, else stdin
@@ -223,50 +229,171 @@ install_repo() {
     fi
 }
 
-# Put mksync on PATH, refusing to overwrite something that isn't its link.
-link_mksync() {
-    local dir=$1 bin=$2 os=$3 link target file
-    target=$(readlink -f "$dir/sync")
-    mkdir -p "$bin"
-    link=$bin/mksync
-
-    if [[ -e $link || -L $link ]]; then
-        if [[ ! -L $link ]] || [[ $(readlink -f "$link" 2> /dev/null || true) != "$target" ]]; then
-            printf 'ERROR: %s already exists; remove it and run this again.\n' "$link" >&2
-            exit 1
-        fi
-    fi
-
-    ln -sfn "$dir/sync" "$link"
-    case ":$PATH:" in
-        *":$bin:"*) ;;
+# The release asset for this system: SYNC_ARCH overrides uname -m, as SYNC_OS
+# overrides uname -s. Prints the name, or stops when there is no program for it.
+program_asset() {
+    local os=$1 arch
+    arch=${SYNC_ARCH:-$(uname -m 2> /dev/null || printf 'unknown')}
+    case "$os $arch" in
+        'linux x86_64') printf 'mksync-linux-x64' ;;
+        'linux aarch64'|'linux arm64') printf 'mksync-linux-arm64' ;;
+        'macos arm64') printf 'mksync-darwin-arm64' ;;
         *)
-            # The literal ~ is for the reader, not a path to expand.
-            # shellcheck disable=SC2088
-            if [[ $os == macos ]]; then
-                file='~/.zprofile'
-            else
-                file='~/.bashrc'
-            fi
-            printf '  Add this line to %s, then open a new terminal: export PATH="%s:%s"\n' "$file" "$bin" "\$PATH"
+            printf 'ERROR: no mksync program for %s %s.\n' "$os" "$arch" >&2
+            exit 1
             ;;
     esac
 }
 
-# Run `sync setup`, with stdin from the answers source and --yes when given.
-# $4 is the bash to run it with: the Homebrew bash on macOS, nothing on Linux.
-run_setup() {
-    local dir=$1 yes=$2 tty=$3 bash_bin=${4:-} rc=0
-    local -a cmd
-    if [[ -n $bash_bin ]]; then
-        cmd=("$bash_bin" "$dir/sync")
-    else
-        cmd=("$dir/sync")
+# The latest release tag: under file:// the <base>/latest file holds it; over
+# https it is the last part of the URL the <base>/latest redirect ends at.
+release_tag() {
+    local base=$1 url
+    case $base in
+        file://*) curl -fsSL "$base/latest" ;;
+        *)
+            url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$base/latest")
+            printf '%s' "${url##*/}"
+            ;;
+    esac
+}
+
+# Download $1 to $2, or stop with the URL that failed.
+fetch_release_file() {
+    if ! curl -fsSL -o "$2" "$1"; then
+        printf 'ERROR: could not download %s.\n' "$1" >&2
+        exit 1
     fi
-    if (( yes )); then
-        ${cmd[@]+"${cmd[@]}"} setup --yes < "$tty" || rc=$?
+}
+
+# The SHA256 of a file, hash only.
+sha256_file() {
+    local text
+    if command -v sha256sum > /dev/null 2>&1; then
+        text=$(sha256sum "$1")
     else
-        ${cmd[@]+"${cmd[@]}"} setup < "$tty" || rc=$?
+        text=$(shasum -a 256 "$1")
+    fi
+    printf '%s' "${text%% *}"
+}
+
+# The digest SHA256SUMS holds for $2, or failure when it has no line for it.
+sum_for() {
+    local sums=$1 name=$2 line
+    while IFS= read -r line || [[ -n $line ]]; do
+        case $line in
+            *" $name")
+                line=${line% "$name"}
+                printf '%s' "${line%% *}"
+                return 0
+                ;;
+        esac
+    done < "$sums"
+    return 1
+}
+
+# True when the symlink $1 resolves inside the clone $2.
+link_into_clone() {
+    local link=$1 dir=$2 resolved
+    [[ -L $link ]] || return 1
+    resolved=$(readlink -f "$link" 2> /dev/null) || return 1
+    case $resolved in
+        "$dir"/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# True when $bin/mksync may be written: it is absent, a symlink into the clone,
+# or a file already byte-identical to $3. Anything else keeps the conflict
+# error and stops. Returns 1 for the identical file, so it is left as is.
+check_conflict() {
+    local link=$1 dir=$2 source=$3
+    [[ -e $link || -L $link ]] || return 0
+    link_into_clone "$link" "$dir" && return 0
+    if [[ -f $link && ! -L $link ]] && cmp -s "$link" "$source"; then
+        return 1
+    fi
+    printf 'ERROR: %s already exists; remove it and run this again.\n' "$link" >&2
+    exit 1
+}
+
+# Tell the user how to put $1 on PATH when it is not there yet. $2 is the OS.
+path_hint() {
+    local bin=$1 os=$2 file
+    case ":$PATH:" in
+        *":$bin:"*) return 0 ;;
+    esac
+    # The literal ~ is for the reader, not a path to expand.
+    # shellcheck disable=SC2088
+    if [[ $os == macos ]]; then
+        file='~/.zprofile'
+    else
+        file='~/.bashrc'
+    fi
+    printf '  Add this line to %s, then open a new terminal: export PATH="%s:%s"\n' "$file" "$bin" "\$PATH"
+}
+
+# Install mksync into $2: the latest release's program for this OS and CPU,
+# checked against SHA256SUMS and its attestation; or, with a non-empty $4, the
+# clone's launcher linked there for that runtime.
+install_program() {
+    local dir=$1 bin=$2 os=$3 runtime=${4:-} base tmp tag asset hash link inst
+    # Resolve the clone once, so "a symlink into the clone" compares real paths.
+    dir=$(cd "$dir" && pwd -P)
+    link=$bin/mksync
+
+    if [[ -n $runtime ]]; then
+        if check_conflict "$link" "$dir" "$dir/mksync"; then
+            mkdir -p "$bin"
+            ln -sfn "$dir/mksync" "$link"
+        fi
+        path_hint "$bin" "$os"
+        return 0
+    fi
+
+    asset=$(program_asset "$os")
+    base=${SYNCSETTINGS_RELEASE_URL:-https://github.com/makubexD/SyncSettings/releases}
+    tmp=$(mktemp -d)
+    work_tmp=$tmp
+    trap 'if [[ -n $work_tmp ]]; then rm -rf "$work_tmp"; fi' EXIT
+
+    if ! tag=$(release_tag "$base") || [[ -z $tag ]]; then
+        printf 'ERROR: could not find the latest release at %s.\n' "$base" >&2
+        exit 1
+    fi
+    fetch_release_file "$base/download/$tag/$asset" "$tmp/$asset"
+    fetch_release_file "$base/download/$tag/SHA256SUMS" "$tmp/SHA256SUMS"
+
+    hash=$(sum_for "$tmp/SHA256SUMS" "$asset" || true)
+    if [[ -z $hash || $(sha256_file "$tmp/$asset") != "$hash" ]]; then
+        printf 'ERROR: %s: checksum does not match SHA256SUMS.\n' "$asset" >&2
+        exit 1
+    fi
+
+    if "${GH:-gh}" auth status > /dev/null 2>&1; then
+        if ! "${GH:-gh}" attestation verify "$tmp/$asset" --repo makubexD/SyncSettings > /dev/null 2>&1; then
+            printf 'ERROR: %s: attestation check failed.\n' "$asset" >&2
+            exit 1
+        fi
+    fi
+
+    if check_conflict "$link" "$dir" "$tmp/$asset"; then
+        mkdir -p "$bin"
+        inst=$(mktemp "$bin/.mksync.XXXXXX")
+        cat "$tmp/$asset" > "$inst"
+        chmod 0755 "$inst"
+        mv -f "$inst" "$link"
+    fi
+    path_hint "$bin" "$os"
+}
+
+# Run `mksync setup`, with stdin from the answers source and --yes when given.
+run_setup() {
+    local bin=$1 yes=$2 tty=$3 rc=0
+    if (( yes )); then
+        "$bin/mksync" setup --yes < "$tty" || rc=$?
+    else
+        "$bin/mksync" setup < "$tty" || rc=$?
     fi
     if (( rc != 0 )); then
         exit "$rc"
@@ -274,11 +401,27 @@ run_setup() {
 }
 
 main() {
-    local yes=0 no_setup=0 url dir ref bin tty os brew_bash=''
+    local yes=0 no_setup=0 url dir ref bin tty os runtime='' brew_bash=''
     while (( $# > 0 )); do
         case $1 in
             --yes) yes=1; shift ;;
             --no-setup) no_setup=1; shift ;;
+            --runtime)
+                shift
+                if (( $# == 0 )); then
+                    usage >&2
+                    exit 1
+                fi
+                runtime=$1
+                case $runtime in
+                    bun|node) ;;
+                    *)
+                        usage >&2
+                        exit 1
+                        ;;
+                esac
+                shift
+                ;;
             *)
                 usage >&2
                 exit 1
@@ -301,10 +444,10 @@ main() {
         ensure_tools "$yes" "$tty"
     fi
     install_repo "$dir" "$url" "$ref"
-    link_mksync "$dir" "$bin" "$os"
+    install_program "$dir" "$bin" "$os" "$runtime"
 
     if (( ! no_setup )); then
-        run_setup "$dir" "$yes" "$tty" "$brew_bash"
+        run_setup "$bin" "$yes" "$tty"
     fi
 
     printf '  Installed. Run mksync any time.\n'
