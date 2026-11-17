@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
+import { planImport } from "../core/plan/import.ts";
 import type {
   Action,
   FileStep,
@@ -44,6 +45,11 @@ const RUN_TIME = new Date(2026, 1, 3, 4, 5, 6);
 const RUN_PID = 4242;
 
 const RUN_NAME = "20260203-040506-4242";
+
+/** A later local time, so the second run's folder differs from the first's. */
+const SECOND_RUN_TIME = new Date(2026, 1, 3, 4, 5, 7);
+
+const SECOND_RUN_NAME = "20260203-040507-4242";
 
 const KEPT_BACKUP_RUNS = 20;
 
@@ -184,7 +190,10 @@ function stepOf(
   return { label, line: 0, counted: false, actions };
 }
 
-function planOf(steps: readonly FileStep[], finish: readonly Action[] = []): RunPlan {
+function planOf(
+  steps: readonly FileStep[],
+  finish: readonly Action[] = [],
+): RunPlan {
   return { steps, finish, lines: [], summary: { kind: "none" }, code: 0 };
 }
 
@@ -237,9 +246,12 @@ describe("readSnapshot", () => {
     ]);
 
     // Assert
-    expect(textOf(snapshot.repoFiles.get("dotfiles/common/git/config") ?? new Uint8Array())).toBe(
-      "name = repo\n",
-    );
+    expect(
+      textOf(
+        snapshot.repoFiles.get("dotfiles/common/git/config") ??
+          new Uint8Array(),
+      ),
+    ).toBe("name = repo\n");
     const local = snapshot.localFiles.get(localFile);
     expect(local?.kind).toBe("file");
     if (local?.kind !== "file") {
@@ -283,8 +295,14 @@ describe("readSnapshot", () => {
   test("should read an import entry's side file for a later layer", () => {
     // Arrange
     const { home, repo } = fixture();
-    writeFixture(join(repo, "dotfiles", "common", "claude", "CLAUDE.md"), "base\n");
-    writeFixture(join(repo, "dotfiles", "linux", "claude", "CLAUDE.md"), "os\n");
+    writeFixture(
+      join(repo, "dotfiles", "common", "claude", "CLAUDE.md"),
+      "base\n",
+    );
+    writeFixture(
+      join(repo, "dotfiles", "linux", "claude", "CLAUDE.md"),
+      "os\n",
+    );
     const sideFile = join(home, ".claude", "CLAUDE.linux.md");
     writeFixture(sideFile, "os edited\n");
     const entry: ConfigV2Entry = {
@@ -309,7 +327,10 @@ describe("readSnapshot", () => {
   test("should read a file entry's local path through a symlink", () => {
     // Arrange
     const { home, repo } = fixture();
-    writeFixture(join(repo, "dotfiles", "common", "git", "config"), "name = repo\n");
+    writeFixture(
+      join(repo, "dotfiles", "common", "git", "config"),
+      "name = repo\n",
+    );
     const target = join(home, ".config", "git", "config.real");
     writeFixture(target, "name = user\n", PRIVATE_MODE);
     const localFile = join(home, ".config", "git", "config");
@@ -368,11 +389,40 @@ describe("readSnapshot", () => {
     ]);
 
     // Assert
-    expect(snapshot.localFiles.get(join(localDir, "settings.json"))?.kind).toBe("file");
-    expect(snapshot.localFiles.get(join(localDir, "snippets", "git.json"))?.kind).toBe("file");
+    expect(snapshot.localFiles.get(join(localDir, "settings.json"))?.kind).toBe(
+      "file",
+    );
+    expect(
+      snapshot.localFiles.get(join(localDir, "snippets", "git.json"))?.kind,
+    ).toBe("file");
     expect(snapshot.localFiles.get(link)?.kind).toBe("symlink");
     expect(snapshot.localDirs.has(localDir)).toBe(true);
     expect(snapshot.localDirs.has(join(localDir, "snippets"))).toBe(true);
+  });
+
+  test("should read a dir entry whose local folder is a symlink to a folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    writeFixture(
+      join(repo, "dotfiles", "common", "code", "User", "settings.json"),
+      "{}\n",
+    );
+    const realDir = join(home, ".config", "Code", "User.real");
+    writeFixture(join(realDir, "settings.json"), "{}\n");
+    const localDir = join(home, ".config", "Code", "User");
+    symlinkSync(realDir, localDir);
+
+    // Act
+    const snapshot = snapshotOf(repo, home, [
+      directoryEntry("~/.config/Code/User"),
+    ]);
+
+    // Assert
+    expect(snapshot.localFiles.get(join(localDir, "settings.json"))?.kind).toBe(
+      "file",
+    );
+    expect(snapshot.localFiles.has(localDir)).toBe(false);
+    expect(snapshot.localDirs.has(localDir)).toBe(true);
   });
 
   test("should leave a missing local file out", () => {
@@ -394,8 +444,14 @@ describe("readSnapshot", () => {
   test("should read every file under dotfiles for the orphan report", () => {
     // Arrange
     const { home, repo } = fixture();
-    writeFixture(join(repo, "dotfiles", "linux", "shell", "bashrc"), "export A=1\n");
-    writeFixture(join(repo, "dotfiles", "windows", "shell", "profile.ps1"), "#\n");
+    writeFixture(
+      join(repo, "dotfiles", "linux", "shell", "bashrc"),
+      "export A=1\n",
+    );
+    writeFixture(
+      join(repo, "dotfiles", "windows", "shell", "profile.ps1"),
+      "#\n",
+    );
     writeFixture(join(repo, "sync-config.json"), "{}\n");
 
     // Act
@@ -479,7 +535,7 @@ describe("runPlan", () => {
         actionOf({
           kind: "writeRepo",
           path: "profiles/work-1/x.json",
-          bytes: bytesOf("{\"a\":3}\n"),
+          bytes: bytesOf('{"a":3}\n'),
         }),
       ]),
     ]);
@@ -494,7 +550,7 @@ describe("runPlan", () => {
         join(stateFolder("linux", home, {}), "profiles", "work-1", "x.json"),
         "utf8",
       ),
-    ).toBe("{\"a\":3}\n");
+    ).toBe('{"a":3}\n');
     expect(existsSync(join(repo, "profiles", "work-1", "x.json"))).toBe(false);
   });
 
@@ -507,13 +563,13 @@ describe("runPlan", () => {
         actionOf({
           kind: "writeRepo",
           path: "machines/wk1-laptop/parity/settings.json",
-          bytes: bytesOf("{\"machine\":1}\n"),
+          bytes: bytesOf('{"machine":1}\n'),
         }),
         actionOf({ kind: "mkdir", path: "profiles/work-1/parity" }),
         actionOf({
           kind: "writeRepo",
           path: "profiles/work-1/parity/settings.json",
-          bytes: bytesOf("{\"profile\":1}\n"),
+          bytes: bytesOf('{"profile":1}\n'),
         }),
       ]),
     ]);
@@ -528,13 +584,13 @@ describe("runPlan", () => {
         join(repo, "machines", "wk1-laptop", "parity", "settings.json"),
         "utf8",
       ),
-    ).toBe("{\"machine\":1}\n");
+    ).toBe('{"machine":1}\n');
     expect(
       readFileSync(
         join(repo, "profiles", "work-1", "parity", "settings.json"),
         "utf8",
       ),
-    ).toBe("{\"profile\":1}\n");
+    ).toBe('{"profile":1}\n');
     const state = stateFolder("linux", home, {});
     expect(existsSync(join(state, "machines"))).toBe(false);
     expect(existsSync(join(state, "profiles"))).toBe(false);
@@ -550,13 +606,13 @@ describe("runPlan", () => {
         actionOf({
           kind: "writeRepo",
           path: "machines/wk1-laptop/parity/settings.json",
-          bytes: bytesOf("{\"machine\":1}\n"),
+          bytes: bytesOf('{"machine":1}\n'),
         }),
         actionOf({ kind: "mkdir", path: "profiles/work-1/parity" }),
         actionOf({
           kind: "writeRepo",
           path: "profiles/work-1/parity/settings.json",
-          bytes: bytesOf("{\"profile\":1}\n"),
+          bytes: bytesOf('{"profile":1}\n'),
         }),
       ]),
     ]);
@@ -571,13 +627,13 @@ describe("runPlan", () => {
         join(state, "machines", "wk1-laptop", "parity", "settings.json"),
         "utf8",
       ),
-    ).toBe("{\"machine\":1}\n");
+    ).toBe('{"machine":1}\n');
     expect(
       readFileSync(
         join(state, "profiles", "work-1", "parity", "settings.json"),
         "utf8",
       ),
-    ).toBe("{\"profile\":1}\n");
+    ).toBe('{"profile":1}\n');
     expect(existsSync(join(repo, "machines"))).toBe(false);
     expect(existsSync(join(repo, "profiles"))).toBe(false);
   });
@@ -587,14 +643,14 @@ describe("runPlan", () => {
     const { home, repo } = fixture();
     const state = stateFolder("linux", home, {});
     const stateFile = join(state, "profiles", "work-1", "x.json");
-    writeFixture(stateFile, "{\"a\":1}\n");
+    writeFixture(stateFile, '{"a":1}\n');
     const runFolder = join(state, "backups", RUN_NAME);
     const plan = planOf([
       stepOf([
         actionOf({
           kind: "writeRepo",
           path: "profiles/work-1/x.json",
-          bytes: bytesOf("{\"a\":2}\n"),
+          bytes: bytesOf('{"a":2}\n'),
         }),
       ]),
     ]);
@@ -607,8 +663,8 @@ describe("runPlan", () => {
     expect(outcome.backups).toBe(runFolder);
     expect(
       readFileSync(join(runFolder, "profiles", "work-1", "x.json"), "utf8"),
-    ).toBe("{\"a\":1}\n");
-    expect(readFileSync(stateFile, "utf8")).toBe("{\"a\":2}\n");
+    ).toBe('{"a":1}\n');
+    expect(readFileSync(stateFile, "utf8")).toBe('{"a":2}\n');
   });
 
   test("should fail a state path that resolves outside the state folder", () => {
@@ -707,7 +763,7 @@ describe("runPlan", () => {
         actionOf({
           kind: "writeRepo",
           path: "profiles/work-1/new.json",
-          bytes: bytesOf("{\"b\":1}\n"),
+          bytes: bytesOf('{"b":1}\n'),
         }),
       ]),
     ]);
@@ -721,7 +777,7 @@ describe("runPlan", () => {
     expect(existsSync(join(state, "backups"))).toBe(false);
     expect(
       readFileSync(join(state, "profiles", "work-1", "new.json"), "utf8"),
-    ).toBe("{\"b\":1}\n");
+    ).toBe('{"b":1}\n');
   });
 
   test("should remove a repo file", () => {
@@ -730,7 +786,9 @@ describe("runPlan", () => {
     const repoFile = join(repo, "dotfiles", "common", "git", "config");
     writeFixture(repoFile, "x\n");
     const plan = planOf([
-      stepOf([actionOf({ kind: "removeRepo", path: "dotfiles/common/git/config" })]),
+      stepOf([
+        actionOf({ kind: "removeRepo", path: "dotfiles/common/git/config" }),
+      ]),
     ]);
 
     // Act
@@ -931,7 +989,9 @@ describe("runPlan", () => {
     const source = statSync(localFile);
     const backup = `${localFile}.bak`;
     writeFixture(backup, "older\n", PRIVATE_MODE);
-    const plan = planOf([stepOf([actionOf({ kind: "backup", path: localFile })])]);
+    const plan = planOf([
+      stepOf([actionOf({ kind: "backup", path: localFile })]),
+    ]);
 
     // Act
     const outcome = runPlan(plan, runContext(home, repo));
@@ -983,7 +1043,13 @@ describe("runPlan", () => {
   test("should write the state file and create its folder", () => {
     // Arrange
     const { home, repo } = fixture();
-    const stateFile = join(home, ".local", "state", "sync-settings", "last-sync");
+    const stateFile = join(
+      home,
+      ".local",
+      "state",
+      "sync-settings",
+      "last-sync",
+    );
     const plan = planOf([
       stepOf([
         actionOf({
@@ -1015,7 +1081,13 @@ describe("runPlan", () => {
           "cannot write local file",
         ),
       ]),
-      stepOf([actionOf({ kind: "writeLocal", path: later, bytes: bytesOf("later\n") })]),
+      stepOf([
+        actionOf({
+          kind: "writeLocal",
+          path: later,
+          bytes: bytesOf("later\n"),
+        }),
+      ]),
     ]);
 
     // Act
@@ -1049,7 +1121,9 @@ describe("runPlan", () => {
           "cannot write local file",
         ),
       ]),
-      stepOf([actionOf({ kind: "writeLocal", path: next, bytes: bytesOf("next\n") })]),
+      stepOf([
+        actionOf({ kind: "writeLocal", path: next, bytes: bytesOf("next\n") }),
+      ]),
     ]);
 
     // Act
@@ -1097,11 +1171,7 @@ describe("runPlan", () => {
     const when = new Date("2026-01-02T03:04:05Z");
     utimesSync(localFile, when, when);
     const source = statSync(localFile);
-    const runFolder = join(
-      stateFolder("linux", home, {}),
-      "backups",
-      RUN_NAME,
-    );
+    const runFolder = join(stateFolder("linux", home, {}), "backups", RUN_NAME);
     const dated = join(runFolder, "dotfiles", "common", "git", "config");
     const plan = planOf([
       stepOf([
@@ -1124,6 +1194,77 @@ describe("runPlan", () => {
     expect(statSync(dated).mtime.getTime()).toBe(source.mtime.getTime());
   });
 
+  test("should keep each import run's own dated backup folder", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    writeFixture(
+      join(repo, "dotfiles", "common", "git", "config"),
+      "name = repo\n",
+    );
+    const localFile = join(home, ".config", "git", "config");
+    writeFixture(localFile, "name = first\n");
+    const state = stateFolder("linux", home, {});
+    const firstFolder = join(state, "backups", RUN_NAME);
+    const secondFolder = join(state, "backups", SECOND_RUN_NAME);
+    const entries = [localFileEntry("~/.config/git/config")];
+    const firstPlan = planImport(snapshotOf(repo, home, entries), []);
+    runPlan(firstPlan, runContext(home, repo));
+    writeFixture(localFile, "name = second\n");
+    const secondPlan = planImport(snapshotOf(repo, home, entries), []);
+
+    // Act
+    const outcome = runPlan(secondPlan, {
+      ...runContext(home, repo),
+      now: () => SECOND_RUN_TIME,
+    });
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.backups).toBe(secondFolder);
+    expect(readdirSync(join(state, "backups")).sort()).toEqual([
+      RUN_NAME,
+      SECOND_RUN_NAME,
+    ]);
+    expect(
+      readFileSync(
+        join(firstFolder, "dotfiles", "common", "git", "config"),
+        "utf8",
+      ),
+    ).toBe("name = first\n");
+    expect(
+      readFileSync(
+        join(secondFolder, "dotfiles", "common", "git", "config"),
+        "utf8",
+      ),
+    ).toBe("name = second\n");
+    expect(readFileSync(localFile, "utf8")).toBe("name = repo\n");
+  });
+
+  test("should make no backup folder when an import changes nothing", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    writeFixture(
+      join(repo, "dotfiles", "common", "git", "config"),
+      "name = same\n",
+    );
+    const localFile = join(home, ".config", "git", "config");
+    writeFixture(localFile, "name = same\n");
+    const state = stateFolder("linux", home, {});
+    const plan = planImport(
+      snapshotOf(repo, home, [localFileEntry("~/.config/git/config")]),
+      [],
+    );
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.backups).toBeUndefined();
+    expect(existsSync(join(state, "backups"))).toBe(false);
+    expect(readFileSync(localFile, "utf8")).toBe("name = same\n");
+  });
+
   test("should warn and keep writing when the dated copy fails", () => {
     // Arrange
     const { home, repo } = fixture();
@@ -1139,7 +1280,11 @@ describe("runPlan", () => {
           path: localFile,
           repoPath: "dotfiles/common/git/config",
         }),
-        actionOf({ kind: "writeLocal", path: localFile, bytes: bytesOf("new\n") }),
+        actionOf({
+          kind: "writeLocal",
+          path: localFile,
+          bytes: bytesOf("new\n"),
+        }),
       ]),
     ]);
 
@@ -1165,7 +1310,11 @@ describe("runPlan", () => {
     const plan = planOf([
       stepOf([
         actionOf({ kind: "backup", path: localFile, repoPath }),
-        actionOf({ kind: "writeLocal", path: localFile, bytes: bytesOf("new\n") }),
+        actionOf({
+          kind: "writeLocal",
+          path: localFile,
+          bytes: bytesOf("new\n"),
+        }),
       ]),
     ]);
 
@@ -1277,7 +1426,9 @@ describe("paths", () => {
   test("should name the sync point's state folder per OS", () => {
     // Act
     const linux = stateFolder("linux", "/home/user", {});
-    const xdg = stateFolder("linux", "/home/user", { XDG_STATE_HOME: "/state" });
+    const xdg = stateFolder("linux", "/home/user", {
+      XDG_STATE_HOME: "/state",
+    });
     const windows = stateFolder("windows", "C:\\Users\\user", {
       LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local",
     });

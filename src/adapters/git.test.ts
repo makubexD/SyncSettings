@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,6 +20,7 @@ import {
   readMachineAlias,
   readParentSha,
   readPorcelain,
+  readSyncPoint,
   readUnpushedHistory,
   runGitResult,
   stagePaths,
@@ -37,6 +44,23 @@ const REPO_FILE = "dotfiles/common/git/config";
 const MISSING_REPO_PATH = "dotfiles/common/git/missing";
 
 const UNKNOWN_SHA = "0123456789abcdef0123456789abcdef01234567";
+
+/** A full-length SHA-shaped string that names no commit. */
+const ZERO_SHA = "0000000000000000000000000000000000000000";
+
+/** A sync point file that is not a SHA at all. */
+const NOT_A_SHA = "abc";
+
+/** The repo's own attribute file, copied so `-text` reaches the throwaway repo. */
+const GITATTRIBUTES_URL = new URL("../../.gitattributes", import.meta.url);
+
+/** A dotfile holding both line endings, committed under the `-text` rule. */
+const BYTE_EXACT_FILE = "dotfiles/windows/parity.txt";
+
+const BYTE_EXACT_TEXT = "lf line\ncrlf line\r\nlast\n";
+
+/** The documented `core.autocrlf` values the archive must ignore. */
+const AUTOCRLF_VALUES = ["input", "true", "false"] as const;
 
 const UNTRACKED_FILE = "dotfiles/common/git/new";
 
@@ -114,6 +138,50 @@ function seedCommit(root: string): string {
 /** A repo with one commit holding `sync-config.json` and one dotfile. */
 function repoWithCommit(): string {
   return seedCommit(emptyRepo());
+}
+
+/** The text `bytes` decodes to, for byte-for-byte assertions. */
+function textOf(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * A repo whose one commit holds `BYTE_EXACT_FILE`, with the repo's own
+ * `.gitattributes` and `core.autocrlf` set in this repo only.
+ */
+function byteExactRepo(autocrlf: string): string {
+  const root = emptyRepo();
+  copyFileSync(GITATTRIBUTES_URL, join(root, ".gitattributes"));
+  mkdirSync(join(root, "dotfiles", "windows"), { recursive: true });
+  writeFileSync(join(root, BYTE_EXACT_FILE), BYTE_EXACT_TEXT);
+  git(root, ["config", "core.autocrlf", autocrlf]);
+  git(root, ["add", "-A"]);
+  git(root, [...IDENTITY, "commit", "-q", "-m", "bytes"]);
+  return root;
+}
+
+/** The bytes `git archive HEAD dotfiles` hands back for `path`. */
+function archivedBytes(root: string, path: string): Uint8Array {
+  const archive = join(root, "archive.tar");
+  git(root, [
+    "archive",
+    "--format=tar",
+    "--output",
+    archive,
+    "HEAD",
+    "dotfiles",
+  ]);
+  const result = Bun.spawnSync({
+    cmd: ["tar", "-xO", "-f", archive, path],
+    cwd: root,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`tar -xO ${path} failed: ${result.stderr.toString()}`);
+  }
+  return new Uint8Array(result.stdout);
 }
 
 /** A repo whose first branch is `master`, for the origin cases. */
@@ -329,6 +397,80 @@ describe("commitExists", () => {
     // Assert
     expect(exists).toBe(false);
   });
+});
+
+describe("readSyncPoint", () => {
+  test("should return HEAD's SHA when the file holds it with a newline", async () => {
+    // Arrange
+    const root = repoWithCommit();
+    const state = join(root, "state");
+    mkdirSync(state);
+    const sha = git(root, ["rev-parse", "HEAD"]).trim();
+    writeFileSync(join(state, "last-sync"), `${sha}\n`);
+
+    // Act
+    const point = await readSyncPoint(root, state);
+
+    // Assert
+    expect(point).toBe(sha);
+  });
+
+  test("should return undefined when the file is missing", async () => {
+    // Arrange
+    const root = repoWithCommit();
+    const state = join(root, "state");
+    mkdirSync(state);
+
+    // Act
+    const point = await readSyncPoint(root, state);
+
+    // Assert
+    expect(point).toBeUndefined();
+  });
+
+  test("should return undefined when the file is not a SHA", async () => {
+    // Arrange
+    const root = repoWithCommit();
+    const state = join(root, "state");
+    mkdirSync(state);
+    writeFileSync(join(state, "last-sync"), `${NOT_A_SHA}\n`);
+
+    // Act
+    const point = await readSyncPoint(root, state);
+
+    // Assert
+    expect(point).toBeUndefined();
+  });
+
+  test("should return undefined when the file holds forty zeroes", async () => {
+    // Arrange
+    const root = repoWithCommit();
+    const state = join(root, "state");
+    mkdirSync(state);
+    writeFileSync(join(state, "last-sync"), `${ZERO_SHA}\n`);
+
+    // Act
+    const point = await readSyncPoint(root, state);
+
+    // Assert
+    expect(point).toBeUndefined();
+  });
+});
+
+describe("git archive of dotfiles", () => {
+  test.each(AUTOCRLF_VALUES)(
+    "should keep the committed bytes with core.autocrlf %s",
+    (autocrlf) => {
+      // Arrange
+      const root = byteExactRepo(autocrlf);
+
+      // Act
+      const bytes = archivedBytes(root, BYTE_EXACT_FILE);
+
+      // Assert
+      expect(textOf(bytes)).toBe(BYTE_EXACT_TEXT);
+    },
+  );
 });
 
 describe("runGitResult", () => {
