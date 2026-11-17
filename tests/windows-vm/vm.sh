@@ -57,7 +57,8 @@ cmd_run() {
     id="$(date +%s)-$$"
     printf '%s' "$1" >"$JOBS/$id.tmp"
     mv "$JOBS/$id.tmp" "$JOBS/$id.job"
-    while [[ ! -f $JOBS/$id.exit ]]; do
+    # -s, not -f: the guest's write reaches the share as an empty file first.
+    while [[ ! -s $JOBS/$id.exit ]]; do
         running || die 'the VM stopped during the job'
         sleep 1
     done
