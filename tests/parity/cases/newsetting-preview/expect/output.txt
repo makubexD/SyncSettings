@@ -19,6 +19,22 @@ New settings
   --------------------------------------------------
 
   1 file(s) would change.
+  Leak scan: clean.
+ dotfiles/common/parity/settings.json | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+diff --git a/dotfiles/common/parity/settings.json b/dotfiles/common/parity/settings.json
+index 875a722..0751a96 100644
+--- a/dotfiles/common/parity/settings.json
++++ b/dotfiles/common/parity/settings.json
+@@ -1,4 +1,6 @@
+ {
+-  "baseKey": 1,
+-  "delta": ["x"]
++  "baseKey": 2,
++  "delta": [
++    "x"
++  ]
+ }
   Nothing was written. Run mksync push to send it.
 
 held until the repo is private: 2 file(s)

@@ -1,0 +1,17 @@
+{
+  "description": "Preview of one modified file prints the leak scan line, the stat and the diff before Nothing was written, and writes nothing to the repo or the machine (Export preview).",
+  "git": "committed",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/plain.txt",
+        "platform": "linux",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "preview" }]
+}

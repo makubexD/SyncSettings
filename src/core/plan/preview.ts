@@ -26,7 +26,8 @@ const ONLY_ERROR = "ERROR: --preview cannot be combined with --only.";
 
 const NO_COMMIT_ERROR = "ERROR: --preview needs a git repo with a commit.";
 
-const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
+/** The line the preview prints when the exported result equals `HEAD`. */
+export const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
 /** The line the app prints the leak scan and the git stat and diff before. */
 export const NOTHING_WRITTEN =
