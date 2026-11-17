@@ -204,7 +204,9 @@ the phase 7 finish review").
 folders, move a change, `mksync check`, `preview` and `diff`, and the 14 Required fixes. Then the case port,
 [plan-single-engine-8-port.md](plan-single-engine-8-port.md) on `engine/case-port`: every old case has a final verdict
 in [port-inventory.tsv](port-inventory.tsv) (133 ported, 383 twins, 20 dropped, 4 for phase 9), the program's six
-gaps against the contract are fixed, and the program passes 292 shared cases.
+gaps against the contract are fixed, and the program passes 292 shared cases. The finish review fixed the preview's
+Windows leak-hit paths and run.ps1's stderr lines; nine `dir` and `--only` cases carry `oldEngines: ["bash"]`, since
+the frozen PowerShell engine differs there and is deleted at cut-over.
 
 - **First, carried from phase 7: the Windows survey and the Claude layout tool.** Phase 7 closed (2026-11-14) before
   the survey ran on work machine #1 (`docs/windows-survey.md`). When the redacted answer is in, it settles the
