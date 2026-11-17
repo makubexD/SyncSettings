@@ -347,6 +347,12 @@ Test: `bun test src/adapters/fs.test.ts src/core/plan/export.test.ts` and the sh
 
 Files: new folders under `tests/parity/cases/`. Contract "Directory entries", "Import". Same entry as step 10.
 
+First, the two cases left from step 13 (its fix is committed; fixture as in step 10), test filter `dir-export`:
+
+- `dir-export-modify-remove` and `dir-export-one-left`, exactly as step 13 lists them.
+
+Then:
+
 - `dir-import-creates` (`dir-import-creates`): empty home; `import --force`; exit 0; `CREATED …/a/b.txt`,
   `CREATED …/c.txt`.
 - `dir-import-update-backup` (`dir-import-update-backup`): local `c.txt` is `c2`; `import --force`; `UPDATED
