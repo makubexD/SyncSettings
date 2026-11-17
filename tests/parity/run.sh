@@ -567,7 +567,14 @@ run_case() {
 
     mkdir -p "$t/repo" "$t/home" "$t/empty"
     if [[ -n $engine_path ]]; then
-        cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+        if [[ $engine_path == "$REPO/mksync" ]]; then
+            # The clone launcher runs src/main.ts next to itself, so a copy
+            # would look for the sources in the temp repo. A link keeps it in
+            # the clone while the cases still run ./mksync.
+            ln -s "$engine_path" "$t/repo/mksync" || die 'linking the launcher failed'
+        else
+            cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+        fi
         # The program runs the leak scan from the repo, as commit.sh does.
         mkdir -p "$t/repo/scripts"
         cp -a "$REPO/scripts/ci" "$t/repo/scripts/" || die 'copying scripts/ci failed'
@@ -795,19 +802,21 @@ run_case() {
         # A caller's git repo, bus and tokens stay out too; the case's own env is
         # applied after the unsets, so a case may still set them deliberately. The
         # ceiling always holds, so git cannot climb above the case folder.
+        # Bun's transpile cache would otherwise land in the case's home; keep it
+        # outside both compared trees.
         if [[ $stderr_mode == true || $all_output == true ]]; then
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
                 -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
                 -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
-                GIT_CEILING_DIRECTORIES="$t" \
+                XDG_CACHE_HOME="$t/xdg-cache" GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
         else
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
                 -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
                 -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
-                GIT_CEILING_DIRECTORIES="$t" \
+                XDG_CACHE_HOME="$t/xdg-cache" GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         fi
         printf '%s\n' "$rc" >> "$t/actual-exit"

@@ -34,6 +34,12 @@ the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the com
 
 Without the option the runner is unchanged.
 
+### Engines
+
+`--engine ./mksync` runs the clone's launcher, which is linked into the temp repo rather than copied so it still finds
+`src/main.ts` next to itself. `MKSYNC_RUNTIME=bun` or `MKSYNC_RUNTIME=node` from the caller's environment picks the
+runtime; unset, the launcher takes the first installed of Bun then Node.
+
 ## Adding a case
 
 1. Find the rule in the contract. A behavior the contract doesn't state yet goes into the contract first.
