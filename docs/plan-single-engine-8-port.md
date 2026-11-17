@@ -20,7 +20,7 @@ can delete the old engines without losing a check.
 
 The inventory is a first pass. This plan overrides it where they differ: eleven `TWIN` rows whose twin skips the
 note or `ERROR:` text the old case checks (marked `gap:` in their spec) are ported here, and the setup and bootstrap
-rows wait for phase 9 (decision 6). Step 37 records the final verdict of every row.
+rows wait for phase 9 (decision 6). Step 39 records the final verdict of every row.
 
 ## Shared rules
 
@@ -42,7 +42,7 @@ rows wait for phase 9 (decision 6). Step 37 records the final verdict of every r
 - **Case names.** Each step names its new cases. The names share a prefix with their group (`only-`, `check-`,
   `dir-`, …), so the step's filter also reruns the group's existing cases.
 - **Description** of each case: one sentence and the contract section in brackets, plus `Ported from <old name>` (and
-  the Pester name when there is one). Step 37 builds the "Moved from" table from these.
+  the Pester name when there is one). Step 39 builds the "Moved from" table from these.
 - **Layout.** `src/core/` stays pure. Tests sit next to their file. No new dependencies.
 - Each worker step: about 3 files (a shared case folder counts as one file), one concern. The test commands run that
   step's cases and tests only; the full suite (`tests/all.sh`) runs once, in the finish.
@@ -77,20 +77,24 @@ the design and the runner README.
 3. **Gaps found by the inventory are fixed here, contract first.** The contract already states each rule; the
    program doesn't follow it:
    - a symlink under `dotfiles/` (contract "Paths": `Nothing under dotfiles/ is a symlink`): the program's
-     `readTree` follows it. It must stop with `ERROR: sync-config.json: entry <repoPath> has an unsafe path.` (step 27);
+     `readTree` follows it. It must stop with `ERROR: sync-config.json: entry <repoPath> has an unsafe path.` (step 29);
+   - an unreadable local file (contract "Status lines": an `ERROR` line, `<n> error(s)`, exit 1): the snapshot drops it,
+     so check reports `CREATE` and export would treat the file as gone (step 27);
+   - a sync point write that fails (contract "Sync point": `WARNING: could not record the sync point in <file>.`): the
+     program ignores the result of its `finish` actions (step 28);
    - `--only` with a `dir` entry's own folder (contract "Only": `equal to a dir entry's folder gives its repoPath`):
      the program's `resolveOnly` refuses it (step 8);
    - Windows export of a shared file (contract "Line endings": `export writes it with LF line endings`): the program
-     writes the local CRLF bytes (step 29);
+     writes the local CRLF bytes (step 31);
    - the export preview's `--stat` summary and full diff (contract "Export preview"): the program prints neither
-     (steps 30 and 31);
-   - the macOS doctor's `brew` line (contract "Front door", `mksync doctor`): missing (step 32);
+     (steps 32 and 33);
+   - the macOS doctor's `brew` line (contract "Front door", `mksync doctor`): missing (step 34);
    - local state readable by the user only on Windows (design rule 6, "checked on the VM"): `writeValuesFile` skips
-     the ACL (step 33).
+     the ACL (step 35).
 4. **A local file that became a symlink in a `dir` entry.** The contract skips symlinks (`SKIPPED … symlink`) but
    doesn't say what happens to the repo copy. Bash removes it (`REMOVED … no longer in source`), since a symlink isn't
    a file of the folder; the program keeps it. Proposal: follow bash, and write the sentence into "Directory entries"
-   (step 28).
+   (step 30).
 5. **Push behind origin.** The bash front door checks before the export (`scripts/linux/front.sh`, `push`): after
    `git fetch -q origin master`, any commit in `HEAD..origin/master` stops it with
    `ERROR: origin has updates; run mksync pull first.`, exit 1, nothing exported, `gh` not called. A failed fetch
@@ -102,8 +106,8 @@ the design and the runner README.
 6. **Config lint rules.** Fourteen `lint-*` cases test rules of `scripts/ci/check-config.sh` that neither v1 nor v2
    parsing has (an entry inside a `dir` entry, `dir` with sanitize rules, `dconf` with `localPath`, rules, linking or
    bad `keys`, `keys` on a file, an unknown type). The config check script dies at cut-over with the v1 config.
-   Proposal: step 34 decides, rule by rule, which have a v2 meaning (a file inside a `dir` entry's folder does; a
-   v1 field name doesn't), writes those as v2 refusals in the design, and step 35 adds them to `parseV2`. The rest
+   Proposal: step 36 decides, rule by rule, which have a v2 meaning (a file inside a `dir` entry's folder does; a
+   v1 field name doesn't), writes those as v2 refusals in the design, and step 37 adds them to `parseV2`. The rest
    are dropped with that reason.
 
 ## Step 1: The port's rules in the contract, design and roadmap `[inline: contract and design text, written from the decisions above]`
@@ -594,7 +598,40 @@ repo files kept`, no `REMOVED` (`dir-export-only-symlink`).
 
 Test: `bun test src/core/plan/export.test.ts src/core/plan/check.test.ts src/app/import.test.ts`.
 
-## Step 27: A symlink under `dotfiles/` stops the run `[worker]`
+## Step 27: An unreadable local file is an `ERROR` `[worker]`
+
+Files: `src/core/plan/types.ts`, `src/adapters/fs.ts`, the plan code that reads a local file's bytes (`changes.ts`,
+`export.ts`, `import.ts` under `src/core/plan/`), and their tests.
+
+Found by step 26 (`import-check-error`): `readBytes` in `src/adapters/fs.ts` turns a local file it can't read into an
+absent one, so `check` reports `CREATE …` and exit 3, export reports the file gone, and a `dir` export would remove its
+repo copy. Bash prints `ERROR <label> cannot read local file` (`import.sh`, `export.sh`). The fix: the snapshot keeps
+an unreadable local file as its own kind (no bytes); check, import and export give it `ERROR <label>` with the note
+`cannot read local file`, write nothing for it, and go on with the other files; the run ends with the contract's
+`<n> error(s); see the ERROR lines above.` and exit 1. A `dir` export never removes the repo copy of an unreadable
+file. Unit tests: the snapshot of a mode 000 file (skipped as root) is the unreadable kind; check gives the `ERROR`
+line, `1 error(s); see the ERROR lines above.`, exit 1 and no `This machine matches the repo.` (step 26's
+`import-check-error`); export of a `dir` entry with one unreadable file gives its `ERROR` and no `REMOVED`; import
+gives the `ERROR` and no write for it.
+
+Test: `bun test src/adapters/fs.test.ts src/core/plan/`.
+
+## Step 28: A failed sync point write warns `[worker]`
+
+Files: `src/adapters/fs.ts`, `src/adapters/fs.test.ts`, the import app (`src/app/import.ts`) and its test (new
+`src/app/import.test.ts` if none).
+
+Found by step 26 (`sync-point-write-fails`): `runPlan` runs the `finish` actions and drops their results, so a
+`writeState` that fails prints nothing and `Sync point : <sha>` still shows. The contract ("Sync point") says a failed
+write prints `WARNING: could not record the sync point in <file>.` and never changes the exit code. The fix:
+`runPlan` returns the failed `finish` actions in its outcome; the import prints the warning for a failed `writeState`
+(the file path as the contract shows it) and leaves out the `Sync point :` line, exit unchanged. Unit tests: a
+`writeState` whose folder is a file gives the warning and exit 0 (step 26's `sync-point-write-fails`); a good write
+prints no warning.
+
+Test: `bun test src/adapters/fs.test.ts src/app/import.test.ts`.
+
+## Step 29: A symlink under `dotfiles/` stops the run `[worker]`
 
 Files: `src/adapters/fs.ts`, `src/adapters/fs.test.ts`.
 
@@ -606,7 +643,7 @@ refuse a symlink anywhere under `dotfiles/`. Local symlinks keep their contract 
 
 Test: `bun test src/adapters/fs.test.ts`.
 
-## Step 28: A local file that became a symlink in a `dir` entry `[worker]`
+## Step 30: A local file that became a symlink in a `dir` entry `[worker]`
 
 Files: `src/core/plan/export.ts`, `src/core/plan/export.test.ts`.
 
@@ -617,7 +654,7 @@ empty; repo files kept`) still wins when every local file is a symlink.
 
 Test: `bun test src/core/plan/export.test.ts`.
 
-## Step 29: Shared files exported with LF on Windows `[worker]`
+## Step 31: Shared files exported with LF on Windows `[worker]`
 
 Files: `src/core/plan/export.ts`, `src/core/plan/export.test.ts`, `src/core/compare.test.ts`.
 
@@ -636,7 +673,7 @@ LF. A sanitized shared file follows the same rule after sanitizing.
 
 Test: `bun test src/core/plan/export.test.ts src/core/compare.test.ts`.
 
-## Step 30: The preview's diff from git `[worker:high: reasoning: a stat and full diff of an in-memory tree against HEAD without touching the working tree, refs or the real index]`
+## Step 32: The preview's diff from git `[worker:high: reasoning: a stat and full diff of an in-memory tree against HEAD without touching the working tree, refs or the real index]`
 
 Files: `src/adapters/git.ts`, `src/adapters/git.test.ts`.
 
@@ -650,7 +687,7 @@ file give the three stat lines and diff headers; the working tree, `HEAD`, the r
 
 Test: `bun test src/adapters/git.test.ts`.
 
-## Step 31: The preview prints the stat and diff `[worker]`
+## Step 33: The preview prints the stat and diff `[worker]`
 
 Files: the preview's app file (`src/app/export.ts`), its test, new case `tests/parity/cases/preview-shows-diff/`.
 
@@ -662,12 +699,12 @@ lines above. Fix them before committing.` and `! /home/someone`) and `preview-sc
 (`repo/scripts/ci/leak-scan.sh` absent; exit 1; lines `ERROR: leak scan could not run; nothing was committed.`; if
 the runner always copies it, a unit test in the app's test file instead). Then the code: after the status lines, run
 the leak scan on the exported temp repo through `src/adapters/leakscan.ts` (as `src/app/commit.ts` does), then print
-step 30's stat and diff (sanitized text, as the plan holds it), and none when the scan hit or couldn't run (exit 1).
+step 32's stat and diff (sanitized text, as the plan holds it), and none when the scan hit or couldn't run (exit 1).
 Remove the `shortcut:` comment in `src/core/plan/preview.ts`.
 
 Test: `bun test src/app/` and the shared-case command with filter `preview-`.
 
-## Step 32: The macOS doctor and label `[worker]`
+## Step 34: The macOS doctor and label `[worker]`
 
 Files: `src/core/front/doctor.ts`, `src/core/front/doctor.test.ts`, `src/adapters/osname.test.ts` (new).
 
@@ -679,7 +716,7 @@ Then the `brew` check.
 
 Test: `bun test src/core/front/doctor.test.ts src/adapters/osname.test.ts`.
 
-## Step 33: Local state readable by the user only on Windows `[worker]`
+## Step 35: Local state readable by the user only on Windows `[worker]`
 
 Files: `src/adapters/fs.ts`, `src/adapters/fs.test.ts`, `tests/parity/run.ps1`.
 
@@ -693,7 +730,7 @@ no inherited rule and one rule, the current user (Pester `values-private-new`, `
 Test: `bun test src/adapters/fs.test.ts`; the `run.ps1` check runs in the VM in the finish
 (`tests/windows-vm/vm.sh status` 0), or on CI.
 
-## Step 34: Config lint rules in v2 `[inline: deciding which v1 lint rules have a v2 meaning is design work]`
+## Step 36: Config lint rules in v2 `[inline: deciding which v1 lint rules have a v2 meaning is design work]`
 
 Files: `docs/design-layers.md`, `docs/port-inventory.tsv`.
 
@@ -706,16 +743,16 @@ refusals next to the other v2 lines in the design and the verdicts in the invent
 
 Test: `npx prettier --check docs/design-layers.md`.
 
-## Step 35: The v2 refusals `[worker]`
+## Step 37: The v2 refusals `[worker]`
 
 Files: `src/core/config/v2.ts`, `src/core/config/v2.test.ts`.
 
-The refusals step 34 wrote, one test each with its exact line, plus a valid config with the sibling-prefix shape
+The refusals step 36 wrote, one test each with its exact line, plus a valid config with the sibling-prefix shape
 (`dotfiles/common/dir` and `dotfiles/common/dir2`) still accepted.
 
 Test: `bun test src/core/config/v2.test.ts`.
 
-## Step 36: The pending inventory rows `[inline: reconciling the inventory with what the steps did]`
+## Step 38: The pending inventory rows `[inline: reconciling the inventory with what the steps did]`
 
 Files: `docs/port-inventory.tsv`.
 
@@ -725,7 +762,7 @@ verdict.
 
 Test: `awk -F'\t' 'NR>1 && $3=="PORT"' docs/port-inventory.tsv` prints nothing.
 
-## Step 37: Docs `[inline: docs summary of the port]`
+## Step 39: Docs `[inline: docs summary of the port]`
 
 Files: `docs/design-test-moves.md`, `tests/parity/README.md`, `docs/plan-single-engine.md`, `docs/sync-contract.md`.
 
