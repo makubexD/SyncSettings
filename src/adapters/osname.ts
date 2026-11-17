@@ -7,6 +7,7 @@
 
 import { readFileSync } from "node:fs";
 import type { Os } from "../core/config/types.ts";
+import { decode, runSync } from "./process.ts";
 
 const UNKNOWN = "unknown";
 
@@ -68,21 +69,14 @@ function linuxName(
  * non-zero (the bash `… 2>/dev/null || printf 'unknown'`).
  */
 function commandLine(cmd: readonly string[]): string | undefined {
-  try {
-    const result = Bun.spawnSync({
-      cmd: [...cmd],
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (result.exitCode !== 0) {
-      return undefined;
-    }
-    return new TextDecoder().decode(result.stdout).trim();
-  } catch {
-    // A missing binary is "cannot tell".
+  const result = runSync([...cmd], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (result.notStarted === true || result.code !== 0) {
     return undefined;
   }
+  return decode(result.stdout).trim();
 }
 
 function macosName(): string {
