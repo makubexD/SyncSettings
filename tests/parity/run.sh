@@ -188,9 +188,9 @@ validate_case() {
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
             (.stubs | type) == "array"
-            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent")
+            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent" or . == "bootstrap")
           else true end' "$json" > /dev/null 2>&1 \
-        || die 'stubs may only hold gh, dconf or getent'
+        || die 'stubs may only hold gh, dconf, getent or bootstrap'
     jq -e '((.stubs // []) | any(. == "getent") | not)
         or ((.stubs // []) | any(. == "dconf"))' "$json" > /dev/null 2>&1 \
         || die 'the getent stub needs the dconf stub'
@@ -541,6 +541,23 @@ write_getent_stub() {
     chmod +x "$temp/bin/getent" || die 'making the getent stub executable failed'
 }
 
+# Write the bootstrap stub into the case's repo: `bootstrap/linux.sh` appends
+# `ran` to $temp/bootstrap.log and prints BOOTSTRAP RAN, then exits 0. The front
+# door runs the repo's own file, so this is the one stub inside a compared tree;
+# its log stays outside both trees. `$0` is the repo's absolute path, or the
+# relative one the caller ran from the repo root, so its two parents are $temp.
+write_bootstrap_stub() {
+    local temp=$1
+    mkdir -p "$temp/repo/bootstrap" || die 'creating the bootstrap stub folder failed'
+    # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
+    printf '%s\n' \
+        '#!/bin/sh' \
+        "printf 'ran\\n' >> \"\${0%/*}/../../bootstrap.log\"" \
+        "printf 'BOOTSTRAP RAN\\n'" \
+        'exit 0' > "$temp/repo/bootstrap/linux.sh" || die 'writing the bootstrap stub failed'
+    chmod +x "$temp/repo/bootstrap/linux.sh" || die 'making the bootstrap stub executable failed'
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, prints the first difference and
@@ -549,9 +566,10 @@ write_getent_stub() {
 run_case() {
     local dir=$1
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
-    local stubs dconf_stub=false
+    local stubs dconf_stub=false bootstrap_stub=false
     local stderr_mode all_output keep_ansi target value
     local want_exit want_output want_home want_repo want_values want_state want_gh want_dconf calls first_load
+    local want_bootstrap first_run
     local file rel got want_mode got_mode start_head state_want clone positional
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
@@ -679,6 +697,10 @@ run_case() {
     fi
     if [[ " $stubs " == *' getent '* ]]; then
         write_getent_stub "$t" "$t/home"
+    fi
+    if [[ " $stubs " == *' bootstrap '* ]]; then
+        bootstrap_stub=true
+        write_bootstrap_stub "$t"
     fi
 
     # Optional case env: a string sets the variable, null unsets it. Applied by
@@ -872,6 +894,19 @@ run_case() {
         else
             first_load=$(head -n 1 "$t/dconf.log" 2> /dev/null) || true
             [[ -z $first_load ]] || die "dconf: want no load, got \"$first_load\""
+        fi
+    fi
+
+    # The bootstrap stub appends `ran` to its log; the log must equal
+    # expect/bootstrap.log byte for byte, or no run when the file is absent.
+    if $bootstrap_stub; then
+        want_bootstrap=$(expected_path "$dir" bootstrap.log)
+        if [[ -f $want_bootstrap ]]; then
+            [[ -f $t/bootstrap.log ]] || die 'bootstrap: want a run, got nothing'
+            cmp -s "$want_bootstrap" "$t/bootstrap.log" || die 'bootstrap.log: differs from expect'
+        else
+            first_run=$(head -n 1 "$t/bootstrap.log" 2> /dev/null) || true
+            [[ -z $first_run ]] || die "bootstrap: want no run, got \"$first_run\""
         fi
     fi
 

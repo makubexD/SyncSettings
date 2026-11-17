@@ -299,11 +299,11 @@ function Validate-Case {
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
         if ($stubs -isnot [System.Array]) {
-            Die 'stubs may only hold gh; dconf and getent are Linux only'
+            Die 'stubs may only hold gh; dconf, getent and bootstrap are Linux only'
         }
         foreach ($s in $stubs) {
-            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent'))) {
-                Die 'stubs may only hold gh; dconf and getent are Linux only'
+            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap'))) {
+                Die 'stubs may only hold gh; dconf, getent and bootstrap are Linux only'
             }
         }
     }
@@ -1639,13 +1639,13 @@ foreach ($caseDir in $caseDirs) {
         }
     }
 
-    # dconf and getent are Linux stubs: a case whose os list still reaches
+    # dconf, getent and bootstrap are Linux stubs: a case whose os list still reaches
     # Windows with one is invalid, not skipped.
     $linuxStub = $null
     $stubsProp = $case.PSObject.Properties['stubs']
     if ($null -ne $stubsProp) {
         foreach ($s in @($stubsProp.Value)) {
-            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent')) {
+            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap')) {
                 $linuxStub = $s
                 break
             }
