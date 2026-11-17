@@ -641,7 +641,8 @@ writes nothing either, because the machine agrees with only part of the repo.
 `commit.sh` writes it after the PR opens and the clone is back on `master`, with the sync commit's parent (the
 `master` commit the branch starts from), not the sync commit itself: until the PR merges, `origin/master` still has
 the old files, and with the sync commit as the base they would read as `IN` and a pull would undo the push. A run
-that failed before that (commit, push or PR) writes nothing. A partial commit (`commit.sh --partial`, which the front
+that failed before that (commit, push or PR) writes nothing. A PR that `gh` fails to open leaves the pushed branch and exits 1 with
+`ERROR: PR creation failed; branch <branch> is pushed. Run: gh pr create --base master --head <branch>`. A partial commit (`commit.sh --partial`, which the front
 door uses when `mksync push` is given paths) writes nothing either, for the same reason as a partial import: part of
 the repo only was sent.
 

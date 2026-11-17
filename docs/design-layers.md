@@ -1535,6 +1535,16 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - **Atomic profile and record writes (phase 9).** `writePrivateFile` rewrites an existing 0644 file before
     tightening its mode, and a crash mid-write leaves a file that no longer parses: write a 0600 temp file and rename
     it.
+- **Left by the case port (`docs/plan-single-engine-8-port.md`, 2026-11-17).**
+  - **Drift in export and preview.** The contract ("Package drift", "Program") and "Drift stays in export and
+    preview" above say the program reports `DRIFT` after an export's or a preview's orphan report; the program
+    reports drift only in `mksync doctor` (`src/app/doctor.ts` is the only caller of `core/drift.ts`). No shared case
+    catches it, since the runners have no package-manager stub. Either the program adds the report (and skips it
+    under `--only`, as the contract's "Picking files" says), or the contract moves drift to doctor.
+  - **Windows ACL on an existing file with explicit grants.** `icacls /inheritance:r /grant:r *<SID>:F` removes
+    inherited rules and replaces the user's own grant, but an explicit rule for another account stays. The values
+    file and the state files are only ever created by the program, so none has one; `run.ps1`'s check would catch
+    one.
 
 ### Confirm on Windows
 
