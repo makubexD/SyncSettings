@@ -13,6 +13,15 @@ const BACKSLASH = "\\";
 
 const INVALID_JSON_MESSAGE = `ERROR: ${CONFIG_FILE}: invalid JSON.`;
 
+// Fields a merge can not use, in the order the first present one is named.
+const DISALLOWED_FIELDS: Readonly<Record<MergeType, readonly string[]>> = {
+  dir: ["sanitize", "scanLinks", "dconfPath", "keys"],
+  dconf: ["localPath", "sanitize", "scanLinks"],
+  whole: ["dconfPath", "keys"],
+  json: ["dconfPath", "keys"],
+  import: ["dconfPath", "keys"],
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -95,6 +104,34 @@ function moduleOsMessage(module: string): string {
   return `ERROR: ${CONFIG_FILE}: module ${module} has an os that is not a list of linux, macos or windows.`;
 }
 
+function canNotUseMessage(file: string, field: string, merge: MergeType): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} can not use ${field} with merge ${merge}.`;
+}
+
+function insideDirMessage(file: string, dir: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} is inside dir entry ${dir}.`;
+}
+
+function trailingSlashMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has a trailing / in file.`;
+}
+
+function keysMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} needs keys as a non-empty list of strings.`;
+}
+
+function disallowedField(record: Record<string, unknown>, merge: MergeType): string | undefined {
+  return DISALLOWED_FIELDS[merge].find((field) => Object.hasOwn(record, field));
+}
+
+function isKeyList(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string")
+  );
+}
+
 function failure(message: string, code: 1 | 2): Result<ConfigV2, ConfigError> {
   return { ok: false, error: { message, code } };
 }
@@ -128,6 +165,8 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
       return failure(moduleOsMessage(name), 1);
     }
   }
+
+  const parsedEntries: { readonly file: string; readonly merge: MergeType }[] = [];
 
   for (const entry of entries) {
     const record = isRecord(entry) ? entry : {};
@@ -196,6 +235,31 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
       if (outside !== undefined) {
         return failure(osMessage(file, shown(outside), moduleName), 1);
       }
+    }
+
+    const field = disallowedField(record, merge);
+    if (field !== undefined) {
+      return failure(canNotUseMessage(file, field, merge), 1);
+    }
+
+    if (file.endsWith("/")) {
+      return failure(trailingSlashMessage(file), 1);
+    }
+
+    if (merge === "dconf" && Object.hasOwn(record, "keys") && !isKeyList(record.keys)) {
+      return failure(keysMessage(file), 1);
+    }
+
+    parsedEntries.push({ file, merge });
+  }
+
+  const dirFiles = parsedEntries
+    .filter((entry) => entry.merge === "dir")
+    .map((entry) => entry.file);
+  for (const entry of parsedEntries) {
+    const dir = dirFiles.find((candidate) => entry.file.startsWith(`${candidate}/`));
+    if (dir !== undefined) {
+      return failure(insideDirMessage(entry.file, dir), 1);
     }
   }
 
