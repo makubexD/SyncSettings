@@ -607,8 +607,9 @@ Found by step 26 (`import-check-error`): `readBytes` in `src/adapters/fs.ts` tur
 absent one, so `check` reports `CREATE …` and exit 3, export reports the file gone, and a `dir` export would remove its
 repo copy. Bash prints `ERROR <label> cannot read local file` (`import.sh`, `export.sh`). The fix: the snapshot keeps
 an unreadable local file as its own kind (no bytes); check, import and export give it `ERROR <label>` with the note
-`cannot read local file`, write nothing for it, and go on with the other files; the run ends with the contract's
-`<n> error(s); see the ERROR lines above.` and exit 1. A `dir` export never removes the repo copy of an unreadable
+`cannot read local file`, write nothing for it, and go on with the other files; `check` ends with the contract's
+`<n> error(s); see the ERROR lines above.` and exit 1, while import and export still exit 0 (contract "Statuses": an
+`ERROR` affects only its own file). A `dir` export never removes the repo copy of an unreadable
 file. Unit tests: the snapshot of a mode 000 file (skipped as root) is the unreadable kind; check gives the `ERROR`
 line, `1 error(s); see the ERROR lines above.`, exit 1 and no `This machine matches the repo.` (step 26's
 `import-check-error`); export of a `dir` entry with one unreadable file gives its `ERROR` and no `REMOVED`; import
