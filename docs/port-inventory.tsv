@@ -417,12 +417,12 @@ bash	lint-linux-prefix	TWIN	src/core/config/convert.test.ts
 bash	lint-linux-local-tilde	TWIN	src/core/config/v1.test.ts	
 bash	lint-macos-local-tilde	TWIN	src/core/config/v1.test.ts	
 bash	lint-dconf-no-local-ok	TWIN	src/core/config/v2.test.ts	
-bash	lint-dir-with-rules	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-file-in-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-typed-file-in-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-dir-in-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-dir-trailing-slash	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-sibling-prefix	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dir-with-rules	PORT	src/core/config/v2.test.ts	v2 merge dir with sanitize or scanLinks: "ERROR: sync-config.v2.json: entry <file> can not use sanitize with merge dir." exit 1 (design-layers "Decided in phase 8, the port")
+bash	lint-file-in-dir	PORT	src/core/config/v2.test.ts	v2 merge whole entry d/x.txt next to merge dir entry d: "entry d/x.txt is inside dir entry d." exit 1
+bash	lint-typed-file-in-dir	PORT	src/core/config/v2.test.ts	v2 has no typed/untyped file; any non-dir merge inside a dir entry: "entry d/x.txt is inside dir entry d." exit 1
+bash	lint-dir-in-dir	PORT	src/core/config/v2.test.ts	v2 merge dir entry d/e inside merge dir entry d: "entry d/e is inside dir entry d." exit 1
+bash	lint-dir-trailing-slash	PORT	src/core/config/v2.test.ts	v2 file "d/" (v1 trimmed it): "entry d/ has a trailing / in file." exit 1
+bash	lint-sibling-prefix	PORT	src/core/config/v2.test.ts	v2 entry d-old/x.txt next to merge dir entry d is accepted: the inside-a-dir rule needs d plus /
 bash	lint-windows-root	TWIN	src/core/config/convert.test.ts	
 bash	lint-windows-sibling	TWIN	src/core/config/convert.test.ts	
 bash	lint-windows-linux-prefix	PORT	src/core/config/convert.test.ts	v1 entry platform "windows" with repoPath dotfiles/linux/.bashrc: convert fails with "ERROR: dotfiles/linux/.bashrc: no v2 layer root matches this path" (root !== expectedRoot)
@@ -431,14 +431,14 @@ bash	lint-dconf-ok	TWIN	src/core/config/v2.test.ts
 bash	lint-dconf-path	TWIN	src/core/config/v1.test.ts	
 bash	lint-dconf-root	TWIN	src/core/config/v1.test.ts	
 bash	lint-dconf-platform	TWIN	tests/parity/cases	
-bash	lint-dconf-localpath	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-dconf-rules	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-dconf-linked	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-dconf-keys-empty	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-dconf-keys-type	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-keys-on-file	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-path-on-dir	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
-bash	lint-type-unknown	DROP	v1-only CI lint rule of scripts/ci/check-config.sh; parseV1 and parseV2 have no such rule and design-layers 'Config v2' lists none (see doubt)	
+bash	lint-dconf-localpath	PORT	src/core/config/v2.test.ts	v2 merge dconf with localPath: "entry <file> can not use localPath with merge dconf." exit 1
+bash	lint-dconf-rules	PORT	src/core/config/v2.test.ts	v2 merge dconf with sanitize: "entry <file> can not use sanitize with merge dconf." exit 1
+bash	lint-dconf-linked	PORT	src/core/config/v2.test.ts	v2 merge dconf with scanLinks: "entry <file> can not use scanLinks with merge dconf." exit 1
+bash	lint-dconf-keys-empty	PORT	src/core/config/v2.test.ts	v2 merge dconf with keys []: "entry <file> needs keys as a non-empty list of strings." exit 1
+bash	lint-dconf-keys-type	PORT	src/core/config/v2.test.ts	v2 merge dconf with keys "font-name": "entry <file> needs keys as a non-empty list of strings." exit 1
+bash	lint-keys-on-file	PORT	src/core/config/v2.test.ts	v2 merge whole with keys: "entry <file> can not use keys with merge whole." exit 1
+bash	lint-path-on-dir	PORT	src/core/config/v2.test.ts	v2 merge dir with dconfPath: "entry <file> can not use dconfPath with merge dir." exit 1
+bash	lint-type-unknown	TWIN	src/core/config/v2.test.ts	
 bash	drift-unreadable-list	TWIN	src/core/drift.test.ts	
 bash	drift-no-packages	TWIN	src/core/drift.test.ts	
 bash	drift-none	TWIN	src/core/drift.test.ts	

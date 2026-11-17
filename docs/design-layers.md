@@ -754,9 +754,29 @@ gives every old case of `docs/design-test-moves.md` a verdict.
   difference until cut-over. Example: personal Linux pushes while work #1's PR was merged; nothing is exported until
   `mksync pull`.
 - **Config lint rules move to v2 only where the rule has a v2 meaning.** The fourteen `lint-*` rules of
-  `scripts/ci/check-config.sh` are decided one by one (port step 28): a v2 refusal with its `ERROR:
-sync-config.v2.json: entry <file> …` line, or dropped with the reason. Example: a file entry inside a `dir` entry's
-  folder is refused in v2 too; a check on a v1-only field is dropped.
+  `scripts/ci/check-config.sh` were decided one by one (port step 36). None is dropped: each v1 field it checks has a
+  v2 field (`type` → `merge`, `path` → `dconfPath`, `sanitizeRules` → `sanitize`, `detectLinkedPaths` →
+  `scanLinks`), so each keeps its meaning. Four new refusals carry twelve of them ("Config v2 error lines" in
+  "Open"):
+  - `can not use <field> with merge <merge>`: `sanitize` or `scanLinks` on a `dir` entry, which copies files as they
+    are (`lint-dir-with-rules`); `localPath`, `sanitize` or `scanLinks` on a `dconf` entry, which loads the database
+    and has no file to hydrate or scan (`lint-dconf-localpath`, `lint-dconf-rules`, `lint-dconf-linked`);
+    `dconfPath` or `keys` on any other merge (`lint-keys-on-file`, `lint-path-on-dir`). The fields are checked in
+    that order and the first one present is named.
+  - `is inside dir entry <dir>`: an entry whose `file` starts with a `dir` entry's `file` plus `/`, whatever its
+    merge (`lint-file-in-dir`, `lint-typed-file-in-dir`, `lint-dir-in-dir`). Layer roots are shared, so the two
+    entries would own the same layer files. A sibling such as `d-old/x.txt` next to `d` is not inside it
+    (`lint-sibling-prefix`, a case that must not be refused).
+  - `has a trailing / in file`: v1 trimmed `dotfiles/linux/d/` before the inside-a-dir check
+    (`lint-dir-trailing-slash`); v2 refuses the slash instead, since `file` must match the parity check's layer
+    path exactly.
+  - `needs keys as a non-empty list of strings`: `keys` on a `dconf` entry that is empty or not a list of strings
+    (`lint-dconf-keys-empty`, `lint-dconf-keys-type`).
+  - `lint-type-unknown` is already `has an unknown merge <m>`.
+
+  Example: a config with `{"file": "vscode/snippets", "merge": "dir", "sanitize": [...]}` stops with
+  `ERROR: sync-config.v2.json: entry vscode/snippets can not use sanitize with merge dir.`, exit 1.
+
 - **Setup and bootstrap cases wait for phase 9,** with the bootstrap question, `--bootstrap` and doctor before
   setup: `sync-setup-offers-bootstrap`, `sync-setup-doctor-fails`, `front-macos-setup-no-bootstrap`,
   `front-macos-bootstrap-flag`.
@@ -1268,8 +1288,9 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
   `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`, and (phase 8)
   `has linked other than true`, and (phase 8 review) `needs a dconfPath like /org/gnome/shell/.` for a `dconf` entry
-  whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule. They enter the
-  contract when v2 does.
+  whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule, and (port step
+  36, from the v1 lint rules) `can not use <field> with merge <merge>`, `is inside dir entry <dir>`,
+  `has a trailing / in file` and `needs keys as a non-empty list of strings`. They enter the contract when v2 does.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
