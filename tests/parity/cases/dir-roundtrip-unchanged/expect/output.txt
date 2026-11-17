@@ -1,0 +1,4 @@
+UNCHANGED dotfiles/common/dir/a/b.txt
+UNCHANGED dotfiles/common/dir/c.txt
+UNCHANGED dotfiles/common/dir/a/b.txt
+UNCHANGED dotfiles/common/dir/c.txt

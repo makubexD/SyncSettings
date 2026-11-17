@@ -1,0 +1,20 @@
+{
+  "description": "Export then import of a dir entry whose home and repo agree writes nothing: UNCHANGED for both files on both runs and no .bak (Statuses, Export and Import; Directory entries). Ported from dir-roundtrip-unchanged, Pester dir-roundtrip-unchanged.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.secret"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    { "command": "export" },
+    { "command": "import", "options": { "force": true } }
+  ]
+}
