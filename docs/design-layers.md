@@ -781,6 +781,42 @@ gives every old case of `docs/design-test-moves.md` a verdict.
   setup: `sync-setup-offers-bootstrap`, `sync-setup-doctor-fails`, `front-macos-setup-no-bootstrap`,
   `front-macos-bootstrap-flag`.
 
+## Decided in phase 9
+
+Confirmed in the review of [plan-single-engine-9.md](plan-single-engine-9.md) (2026-11-17), which holds each one's
+full text and the steps that build it.
+
+1. **Node runs the source, not a build.** `erasableSyntaxOnly` in `tsconfig.json`, every `Bun.*` call behind one process
+   adapter on `node:child_process`, and `node src/main.ts` (Node 22.18 or newer, which strips types without a flag)
+   runs the program from the clone with no build and no `npm install`; Bun runs `bun src/main.ts`. No
+   `dist/mksync.mjs`. The oldest Bun to accept is checked on work #1 (Bun 1.3.14) in the cut-over plan.
+2. **Launchers.** `mksync` and `mksync.cmd` at the repo root pick Bun or Node (`MKSYNC_RUNTIME=bun|node`; unset, Bun
+   first) and stop with `ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.`, exit 2, when neither
+   fits.
+3. **Installers download the program; the clone stays.** SHA256 against `SHA256SUMS` always, `gh attestation verify`
+   when `gh` is signed in; `~/.local/bin/mksync`, or `%LOCALAPPDATA%\mksync\mksync.exe` on the user `Path`.
+   `--runtime bun|node` (`-Runtime`) links the clone's launcher instead.
+4. **Releases.** A tag `v<x.y.z>` equal to `package.json`'s `version` releases the four programs, `SHA256SUMS` and a
+   provenance attestation. First `v0.9.0`, tagged by the user; `v1.0.0` after the old engines are deleted.
+5. **`mksync update`** replaces the program only with a newer release, checked as the installers check; on Windows
+   through `mksync.old.exe`, deleted on the next start. Run from the clone it refuses (`git pull` updates it). No
+   `--check`.
+6. **A newer `schemaVersion`** stops with `ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync
+update.`, exit 2, before anything else; also after a pull that fast-forwards to one.
+7. **Usage errors exit 2** in the program: unknown option, clashing flags, a repeated flag, an unknown verb in a
+   group. The old engines keep 1 until they are deleted.
+8. **Typed answers** are trimmed of spaces, tabs and `\r` at both ends; only spaces is empty.
+9. **The overwrite prompt** is asked per file as import reaches it, one line read at a time.
+10. **Links and atomic writes.** State and repo writes go through a temp file and a rename (0600 for state); a state
+    or repo path that is a symlink is refused with `ERROR: <path> is a symlink.`, exit 1. Home writes keep following
+    links; a link inside a `dir` entry's folder is `SKIPPED <path> (symlink)`.
+11. **Config paths checked on read.** An empty, absolute, `..` or `\` entry `file` is
+    `ERROR: sync-config.v2.json: entry <file> has an unsafe path.`; an `import` entry without `{layer}` in
+    `importName` is `ERROR: sync-config.v2.json: entry <file> needs {layer} in importName.`; both exit 1.
+12. **Front door.** `export`, `import` and `commit` still run but leave the usage line; `update` joins it; `shadow`
+    stays hidden and goes with the old engines.
+13. **No ESLint.** `tsc --noEmit` with `strict` and `erasableSyntaxOnly` is the lint.
+
 ## Linked folders
 
 Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
@@ -1223,7 +1259,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 
 ### Design
 
-- **Run from the clone on Bun or Node (asked by the user 2026-11-16, phase 9).** Two layers: the program first, with
+- **Run from the clone on Bun or Node (asked by the user 2026-11-16, phase 9).** Settled in phase 9, decision 1. Two layers: the program first, with
   nothing to install; then the clone, on the runtime the user picks, Bun and Node as equal choices rather than a
   fallback order. `MKSYNC_RUNTIME=bun|node` picks one; unset, the launcher (`mksync.cmd`, and a `mksync` script on
   Linux and macOS) takes whichever is installed, Bun first. The code calls Bun only to start programs and read input
@@ -1299,7 +1335,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **JSON with comments (JSONC).** VS Code's `settings.json` may hold comments and trailing commas; Claude's may not.
   Phase 5 refuses both (`not valid JSON`), since no synced file has them today. If one needs them, the parser keeps
   comments attached to the next key, or the entry stays `whole`.
-- **Exit code for usage errors.** The front door exits 1 on an unknown option or clashing flags and 2 only on a
+- **Exit code for usage errors.** Settled in phase 9, decision 7. The front door exits 1 on an unknown option or clashing flags and 2 only on a
   missing command or a missing answer; the `cli` skill's contract uses 2 for every usage error (its review in phase 6,
   step 1, which settled the new command names: `mksync whoami` became `mksync machine show`, `--push`/`--pull-only`
   became `--mode`). Moving `Unknown option` to exit 2 changes `pull`, `push` and `diff`, so it waits for the cut-over
@@ -1332,15 +1368,15 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
-- **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
+- **`mksync export` and `mksync import`.** Settled in phase 9, decision 12. Phase 4 gives the program the old entry points' verbs, so the shared cases
   drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
   or become hidden, is the `cli` skill's review before phase 8. Phase 8 keeps them and adds `commit` beside them
   ("Decided in phase 8"); the review moves to phase 9, before cut-over.
-- **ESLint.** Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
+- **ESLint.** Settled in phase 9, decision 13. Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
   flat config; adding it (and which rule set) is decided when the code is big enough to need it, at the latest in
   phase 8. Phase 8's plan leaves it to the user: it needs a new dependency (`ts-add-package`). Phase 8 ended with
   `tsc` only; the question moves to phase 9.
-- **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
+- **`mksync shadow`.** Settled in phase 9, decision 12. The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case. Settled by
   the port: every case was re-read for `docs/port-inventory.tsv` (2026-11-16).
@@ -1351,7 +1387,7 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
   Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored. The
   sync-point half: the contract's "Sync point" now has the `WARNING`, and port step 20 tests it on import.
-- **Overwrite prompt on a terminal (phase 4, program).** `planImport` takes the answers as a list, so the program
+- **Overwrite prompt on a terminal (phase 4, program).** Settled in phase 9, decision 9. `planImport` takes the answers as a list, so the program
   reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
   the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
@@ -1370,14 +1406,14 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - An `import` entry whose base layer has no file but a later one does: export passes the present layers only, so
     the first present layer is taken as the base. Pull reports `no layer holds the file`, so it can't arise from a
     pull; a shared case should pin what export does.
-  - An `import` entry without `importName` gets `ERROR` with `needs {layer} in importName` at run time; `parseV2`
+  - Settled in phase 9, decision 11: an `import` entry without `importName` gets `ERROR` with `needs {layer} in importName` at run time; `parseV2`
     should reject it, so the error comes before any file.
 - **Security review, phase 4 (before cut-over).** Fixed: sanitize and hydrate rescanning their own output. Left, each
   needing a shared case first where it shows in files or statuses:
-  - `file` in a v2 entry isn't checked when the config is read. Since phase 5 step 28 the adapter fails a repo or
+  - Settled in phase 9, decision 11: `file` in a v2 entry isn't checked when the config is read. Since phase 5 step 28 the adapter fails a repo or
     state write that resolves outside `dotfiles/`, `profiles/` or `machines/`; left: reject absolute, `..`, `\` and
     empty in `parseV2` so the error comes first, and check the resolved dated-backup path.
-  - Writes follow symlinks (a committed link under `dotfiles/`, a linked `.user-values.json`, a linked folder inside a
+  - Settled in phase 9, decision 10: Writes follow symlinks (a committed link under `dotfiles/`, a linked `.user-values.json`, a linked folder inside a
     dir entry), and `readRepoTree` counts a repo link as a file. Refuse links, and write through a temp file and a
     rename, which also makes writes atomic (today a crash can empty `.user-values.json` or the sync point).
   - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
@@ -1525,14 +1561,14 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     `LINKED_DESTINATION_PREFIX`, `sameBytes`, `hasKeyPath`, the `RunCommand` literals, and `diff.ts`'s `byCodeUnit`,
     which should be `drift.ts`'s byte-order `compareC`. `core/plan/move.ts` splits into JSON path, slot and plan
     files.
-  - **Typed answers and `read -r` (phase 9).** Bash `read -r` trims spaces and tabs at both ends and keeps a trailing
+  - **Typed answers and `read -r` (phase 9).** Settled in phase 9, decision 8. Bash `read -r` trims spaces and tabs at both ends and keeps a trailing
     `\r`; the program's `askValues` trims only the line end. Decide together with the PowerShell `Read-Host` rule.
   - **The missing-value line's stream (case port, 2026-11-16).** With no terminal, bash still prints the value
     prompt (` <prompt>:`) and then `missing value for <PLACEHOLDER>: add it to .user-values.json` on stderr, so the
     merged output reads as one line; the program prints no prompt and the line on stdout. The contract names neither
     the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
     (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
-  - **Atomic profile and record writes (phase 9).** `writePrivateFile` rewrites an existing 0644 file before
+  - **Atomic profile and record writes (phase 9).** Settled in phase 9, decision 10. `writePrivateFile` rewrites an existing 0644 file before
     tightening its mode, and a crash mid-write leaves a file that no longer parses: write a 0600 temp file and rename
     it.
 - **Left by the case port (`docs/plan-single-engine-8-port.md`, 2026-11-17).**
