@@ -1438,7 +1438,8 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - Mutants no test kills: inference keeping the last match, sanitize's doubled-form order (a value ending in `\`),
     the placeholder tie-break order, `EXTRA` ignoring excludes, `\r` kept in inference, `paths.ts` `~\` on Linux and
     its trailing-separator branch, `elevate !== false`.
-  - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag.
+  - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag. `release.yml` (phase 9)
+    pins every action by SHA.
 - **Finish review, phase 5.** Fixed in steps 19 to 31. Left:
   - A removed key leaves every layer that sets it (contract, "Layers"), so a machine can't drop a key the base sets
     without dropping it for every machine. A later layer that masks a key (a tombstone value) would allow it; it needs
