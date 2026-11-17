@@ -28,7 +28,9 @@ const NO_COMMIT_ERROR = "ERROR: --preview needs a git repo with a commit.";
 
 const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
 
-const NOTHING_WRITTEN = "  Nothing was written. Run mksync push to send it.";
+/** The line the app prints the leak scan and the git stat and diff before. */
+export const NOTHING_WRITTEN =
+  "  Nothing was written. Run mksync push to send it.";
 
 /** Contract "The first backup": the group the preview ends with once the guard
  * reads private and the record isn't the pointer yet. */
@@ -77,6 +79,26 @@ function writtenCount(actions: readonly Action[]): number {
     }
   }
   return count;
+}
+
+/**
+ * The repo tree a real export would leave: the tree the preview compares with
+ * every write and removal applied. Folder, mode, dconf and state writes leave
+ * it as it is. The input is never mutated.
+ */
+function exportResultTree(
+  repo: RepoFiles,
+  actions: readonly Action[],
+): RepoFiles {
+  const tree = new Map(repo);
+  for (const action of actions) {
+    if (action.kind === "writeRepo") {
+      tree.set(action.path, action.bytes);
+    } else if (action.kind === "removeRepo") {
+      tree.delete(action.path);
+    }
+  }
+  return tree;
 }
 
 /**
@@ -194,6 +216,18 @@ function goesToNotes(
   return notes;
 }
 
+/** What the preview hands the app: the plan's lines and code, and the repo
+ * tree a real export would leave. */
+export interface PreviewPlan extends Plan {
+  /**
+   * The tree the export is compared against `HEAD`, with the plan's writes and
+   * removals applied: the working tree when the caller has one, the snapshot's
+   * repo files otherwise. Absent from an error or a profile-value hit, where no
+   * export would happen.
+   */
+  readonly tree?: RepoFiles;
+}
+
 /**
  * The export preview: what a commit would send, from a snapshot and its `HEAD`
  * bytes. `workingTree` is the tree the export is compared against `HEAD`, when
@@ -203,15 +237,14 @@ function goesToNotes(
  * is the paths a first backup would add, already sorted; the preview ends with
  * their group. It never returns a write action.
  *
- * shortcut: the leak scan and the `--stat`/diff text belong to the adapter that
- * prints the plan, so the plan carries the status lines and the messages
- * around them; the adapter prints the diff when these lines leave it out.
+ * The app leak-scans `tree` and prints git's stat and diff of it before the
+ * NOTHING_WRITTEN line.
  */
 export function planPreview(
   snapshot: Snapshot,
   workingTree?: RepoFiles,
   firstBackup: readonly string[] = [],
-): Plan {
+): PreviewPlan {
   if (snapshot.only.length > 0) {
     return { actions: [], lines: [ONLY_ERROR], code: 1 };
   }
@@ -276,6 +309,9 @@ export function planPreview(
     head,
     block,
   );
+  const actions = plan.steps.flatMap((step) =>
+    step.actions.map((entry) => entry.action),
+  );
   return {
     actions: [],
     lines:
@@ -283,5 +319,6 @@ export function planPreview(
         ? previewed
         : [...previewed, ...firstBackupLines(firstBackup)],
     code: 0,
+    tree: exportResultTree(workingTree ?? snapshot.repoFiles, actions),
   };
 }

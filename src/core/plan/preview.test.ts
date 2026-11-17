@@ -67,6 +67,21 @@ const CONFIG: ConfigV2 = {
   ],
 };
 
+const DIR_CONFIG: ConfigV2 = {
+  schemaVersion: 2,
+  modules: {},
+  entries: [
+    {
+      file: "test",
+      module: "test",
+      merge: "dir",
+      localPath: "~/.config/test",
+    },
+  ],
+};
+
+const DIR_LOCAL_PATH = "/home/user/.config/test";
+
 const JSON_BASE_PATH = "dotfiles/common/parity/settings.json";
 
 const JSON_OS_PATH = "dotfiles/linux/parity/settings.json";
@@ -125,6 +140,12 @@ const PROFILE_SETTINGS_ADDED = "profiles/work-1/parity/settings.json";
 
 function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
+}
+
+const DECODER = new TextDecoder();
+
+function text(value: Uint8Array | undefined): string | undefined {
+  return value === undefined ? undefined : DECODER.decode(value);
 }
 
 function snapshot(
@@ -411,4 +432,102 @@ describe("planPreview", () => {
       expect(result.lines).toContain(MATCHES_HEAD);
     },
   );
+
+  test("should hand the app the tree an export would leave", () => {
+    // Arrange
+    const repoFile = bytes("old\n");
+    const untouched = bytes("keep\n");
+    const repoFiles = new Map([
+      [REPO_FILE, repoFile],
+      [UPPERCASE_PROFILE_FILE, untouched],
+    ]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview = snapshot(repoFiles, headFiles, bytes("new\n"));
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(text(result.tree?.get(REPO_FILE))).toBe("new\n");
+    expect(text(result.tree?.get(UPPERCASE_PROFILE_FILE))).toBe("keep\n");
+  });
+
+  test("should keep sync-config.json in the tree when a working tree is passed", () => {
+    // Arrange
+    const repoFile = bytes("same\n");
+    const config = bytes("{}\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([
+      [REPO_FILE, repoFile],
+      [CONFIG_PATH, config],
+    ]);
+    const workingTree = new Map([
+      [REPO_FILE, repoFile],
+      [CONFIG_PATH, config],
+    ]);
+    const preview = snapshot(repoFiles, headFiles, repoFile);
+
+    // Act
+    const result = planPreview(preview, workingTree);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(text(result.tree?.get(CONFIG_PATH))).toBe("{}\n");
+    expect(text(result.tree?.get(REPO_FILE))).toBe("same\n");
+  });
+
+  test("should leave a removed file out of the tree", () => {
+    // Arrange
+    const kept = bytes("same\n");
+    const repoFiles = new Map([
+      [REPO_FILE, kept],
+      [MISSING_FROM_WORKING_TREE, bytes("gone\n")],
+    ]);
+    const local: LocalEntry = {
+      kind: "file",
+      path: LOCAL_FILE,
+      bytes: kept,
+      mode: 0o644,
+    };
+    const preview: Snapshot = {
+      config: DIR_CONFIG,
+      os: "linux",
+      home: HOME,
+      cwd: HOME,
+      repoFiles,
+      localFiles: new Map([[LOCAL_FILE, local]]),
+      localDirs: new Set([DIR_LOCAL_PATH]),
+      values: {},
+      env: {},
+      only: [],
+      headFiles: repoFiles,
+    };
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.tree?.has(REPO_FILE)).toBe(true);
+    expect(result.tree?.has(MISSING_FROM_WORKING_TREE)).toBe(false);
+  });
+
+  test("should carry no tree when --only refuses the preview", () => {
+    // Arrange
+    const repoFile = bytes("same\n");
+    const repoFiles = new Map([[REPO_FILE, repoFile]]);
+    const headFiles = new Map([[REPO_FILE, repoFile]]);
+    const preview: Snapshot = {
+      ...snapshot(repoFiles, headFiles, repoFile),
+      only: [REPO_FILE],
+    };
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.tree).toBeUndefined();
+  });
 });
