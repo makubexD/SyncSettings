@@ -1,0 +1,1 @@
+ERROR: ~/not-synced is not synced on this machine.

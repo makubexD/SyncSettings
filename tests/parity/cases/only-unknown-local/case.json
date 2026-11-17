@@ -1,0 +1,31 @@
+{
+  "description": "Import refuses a --only local path no entry owns, exit 1, before touching any file (Picking files). Ported from import-only-unknown, Pester only-unknown.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true,
+        "only": ["~/not-synced"]
+      }
+    }
+  ]
+}

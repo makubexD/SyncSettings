@@ -1,0 +1,24 @@
+{
+  "description": "Export refuses a --only repo path of an entry selected for another OS, exit 1, before touching any file (Picking files). Ported from only-other-platform, Pester only-other-platform.",
+  "os": ["linux"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/windows/win.conf",
+        "localPath": "~/.config/fixture/win.conf",
+        "platform": "windows",
+        "description": "Windows fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["dotfiles/windows/win.conf"]
+      }
+    }
+  ]
+}
