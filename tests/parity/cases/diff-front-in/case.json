@@ -8,9 +8,9 @@
     "excludePatterns": ["*.bak"],
     "files": [
       {
-        "repoPath": "dotfiles/linux/plain.txt",
+        "repoPath": "dotfiles/common/plain.txt",
         "localPath": "~/.config/parity/plain.txt",
-        "platform": "linux",
+        "platform": "common",
         "description": "Plain text fixture"
       }
     ]

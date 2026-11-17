@@ -1,1 +1,1 @@
-IN dotfiles/linux/plain.txt
+IN dotfiles/common/plain.txt

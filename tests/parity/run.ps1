@@ -892,7 +892,10 @@ function Test-PrivateFiles {
             $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
         })
         if ($sids.Count -ne 1 -or $sids[0] -cne $currentSid) {
-            Die "acl: $name is not private to the current user"
+            $found = @($acl.Access | ForEach-Object {
+                '{0} {1} {2} inherited={3}' -f $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value, $_.AccessControlType, $_.FileSystemRights, $_.IsInherited
+            }) -join '; '
+            Die "acl: $name is not private to the current user ($currentSid); owner $($acl.Owner); rules: $found"
         }
     }
 }
