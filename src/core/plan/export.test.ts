@@ -442,9 +442,7 @@ function layeredSnapshot(os: Os, options: LayerSnapshotOptions): Snapshot {
   };
 }
 
-function profileOf(
-  destinations: Readonly<Record<string, string>>,
-): Profile {
+function profileOf(destinations: Readonly<Record<string, string>>): Profile {
   return {
     name: "work-1",
     modules: ["parity"],
@@ -523,7 +521,9 @@ describe("planExport", () => {
     const result = runCase("export-adds");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-adds", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-adds", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(shownActions(result.actions)).toEqual([
       { kind: "mkdir", path: "dotfiles/common/parity" },
@@ -541,11 +541,17 @@ describe("planExport", () => {
     const result = runCase("export-excluded");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-excluded", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-excluded", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
     expect(result.lines).toContain(
-      formatLine("SKIPPED", "dotfiles/common/parity/x.log", "matches exclude pattern"),
+      formatLine(
+        "SKIPPED",
+        "dotfiles/common/parity/x.log",
+        "matches exclude pattern",
+      ),
     );
   });
 
@@ -568,12 +574,39 @@ describe("planExport", () => {
     );
   });
 
+  test("should stop with the missing-value message when no value is cached", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        jsonEntry({
+          sanitize: [{ placeholder: "<NAME>", prompt: "Full name" }],
+        }),
+      ],
+      repo: { "dotfiles/common/parity/settings.json": '{"name": "<NAME>"}' },
+      local: { ".config/parity/settings.json": '{"name": "Parity User"}' },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.lines).toEqual([
+      "missing value for <NAME>: add it to .user-values.json",
+    ]);
+    expect(result.actions.some((action) => action.kind === "writeRepo")).toBe(
+      false,
+    );
+  });
+
   test("export-modified", () => {
     // Act
     const result = runCase("export-modified");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-modified", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-modified", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(shownActions(result.actions)).toEqual([
       {
@@ -658,7 +691,9 @@ describe("planExport", () => {
     const result = runCase("export-unchanged");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-unchanged", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-unchanged", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
   });
@@ -693,7 +728,9 @@ describe("planExport", () => {
     const result = runCase("orphan-reported");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("orphan-reported", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("orphan-reported", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
     expect(result.lines).toContain(
@@ -740,8 +777,14 @@ describe("planExport", () => {
 
   test("platform-picks-os", () => {
     const written: Readonly<Record<Os, readonly string[]>> = {
-      linux: ["dotfiles/linux/parity/lin.conf", "dotfiles/common/parity/com.conf"],
-      windows: ["dotfiles/windows/parity/win.conf", "dotfiles/common/parity/com.conf"],
+      linux: [
+        "dotfiles/linux/parity/lin.conf",
+        "dotfiles/common/parity/com.conf",
+      ],
+      windows: [
+        "dotfiles/windows/parity/win.conf",
+        "dotfiles/common/parity/com.conf",
+      ],
       macos: ["dotfiles/common/parity/com.conf"],
     };
 
@@ -750,7 +793,9 @@ describe("planExport", () => {
       const result = runCase("platform-picks-os", os);
 
       // Assert
-      expect(statusLines(result.lines)).toEqual(expectedOutput("platform-picks-os", os));
+      expect(statusLines(result.lines)).toEqual(
+        expectedOutput("platform-picks-os", os),
+      );
       expect(result.code).toBe(0);
       expect(
         shownActions(result.actions)
@@ -848,7 +893,11 @@ describe("planExport values on a machine", () => {
         entries: [
           jsonEntry({
             sanitize: [
-              { placeholder: "<HOME>", prompt: "Home folder", default: "/home/user" },
+              {
+                placeholder: "<HOME>",
+                prompt: "Home folder",
+                default: "/home/user",
+              },
             ],
           }),
         ],
@@ -908,13 +957,21 @@ describe("planExport layers", () => {
         path: "dotfiles/common/parity/settings.json",
         text: JSON_BASE_CHANGED_TEXT,
       },
-      { kind: "chmod", path: "dotfiles/common/parity/settings.json", mode: MODE },
+      {
+        kind: "chmod",
+        path: "dotfiles/common/parity/settings.json",
+        mode: MODE,
+      },
       {
         kind: "writeRepo",
         path: "dotfiles/linux/parity/settings.json",
         text: JSON_OS_CHANGED_TEXT,
       },
-      { kind: "chmod", path: "dotfiles/linux/parity/settings.json", mode: MODE },
+      {
+        kind: "chmod",
+        path: "dotfiles/linux/parity/settings.json",
+        mode: MODE,
+      },
     ]);
     expect(result.code).toBe(0);
   });
@@ -934,7 +991,9 @@ describe("planExport layers", () => {
     const result = observe(snapshot);
 
     // Assert
-    expect(result.lines.some((line) => line.includes(UNUSED_PROFILE_FILE))).toBe(false);
+    expect(
+      result.lines.some((line) => line.includes(UNUSED_PROFILE_FILE)),
+    ).toBe(false);
   });
 
   test("should send a new json array item to the one layer a base-only file has", () => {
@@ -958,7 +1017,11 @@ describe("planExport layers", () => {
         path: "dotfiles/common/parity/settings.json",
         text: JSON_LIST_ADDED_TEXT,
       },
-      { kind: "chmod", path: "dotfiles/common/parity/settings.json", mode: MODE },
+      {
+        kind: "chmod",
+        path: "dotfiles/common/parity/settings.json",
+        mode: MODE,
+      },
     ]);
     expect(result.code).toBe(0);
   });
@@ -1143,7 +1206,11 @@ describe("planExport layers", () => {
       },
     ]);
     expect(result.lines).toContain(
-      formatLine("MODIFIED", "dotfiles/linux/parity/settings.json", "sanitized"),
+      formatLine(
+        "MODIFIED",
+        "dotfiles/linux/parity/settings.json",
+        "sanitized",
+      ),
     );
   });
 
@@ -1158,7 +1225,8 @@ describe("planExport layers", () => {
         }),
       ],
       repo: {
-        [`dotfiles/common/${EXTENSIONLESS_JSON_FILE}`]: EXTENSIONLESS_JSON_REPO_TEXT,
+        [`dotfiles/common/${EXTENSIONLESS_JSON_FILE}`]:
+          EXTENSIONLESS_JSON_REPO_TEXT,
       },
       local: {
         [EXTENSIONLESS_JSON_LOCAL]: JSON.stringify({
@@ -1198,7 +1266,8 @@ describe("planExport layers", () => {
         "dotfiles/linux/parity/settings.json": '{"osKey": 1}',
       },
       local: {
-        ".config/parity/settings.json": '{"paths":["/home/user/bin"],"osKey": 1}',
+        ".config/parity/settings.json":
+          '{"paths":["/home/user/bin"],"osKey": 1}',
       },
       values: { "<HOMEDIR>": "/home/user" },
     });
@@ -1533,14 +1602,10 @@ interface DconfSnapshotOptions {
 
 /** A Linux snapshot with one dconf entry and, when given, its dump result. */
 function dconfSnapshot(options: DconfSnapshotOptions): Snapshot {
-  const extra =
-    options.keys === undefined ? {} : { keys: options.keys };
+  const extra = options.keys === undefined ? {} : { keys: options.keys };
   return layeredSnapshot("linux", {
     entries: [dconfEntry(options.everyOs === true, extra)],
-    repo:
-      options.repo === undefined
-        ? {}
-        : { [DCONF_REPO_PATH]: options.repo },
+    repo: options.repo === undefined ? {} : { [DCONF_REPO_PATH]: options.repo },
     ...(options.dump === undefined
       ? {}
       : { dconfDumps: new Map([[DCONF_PATH, options.dump]]) }),
@@ -1664,9 +1729,7 @@ describe("planExport dconf", () => {
     const result = observe(snapshot);
 
     // Assert
-    expect(statusLines(result.lines)).toEqual([
-      `UNCHANGED ${DCONF_REPO_PATH}`,
-    ]);
+    expect(statusLines(result.lines)).toEqual([`UNCHANGED ${DCONF_REPO_PATH}`]);
     expect(result.actions).toEqual([]);
   });
 
