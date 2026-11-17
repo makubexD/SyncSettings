@@ -1,0 +1,43 @@
+{
+  "description": "setup's profile question answered \" 1 \\r\" picks profile 1 (personal), the same outcome as answering \"1\": the record, the profile and both entries are written and the summary names it (Machines (program only), mksync setup). Trimmed since phase 9 decision 8.",
+  "os": ["linux"],
+  "oldEngines": ["none"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "stdin": " 1 \r\n2\n1\n1\n"
+    }
+  ]
+}

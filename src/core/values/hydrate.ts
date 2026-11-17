@@ -1,3 +1,4 @@
+import { trimAnswer } from "../answer.ts";
 import type { ConfigError, Result, SanitizeRule } from "../config/types.ts";
 import {
   encodeUtf8,
@@ -213,11 +214,6 @@ export interface AskedValues {
   readonly consumed: number;
 }
 
-/** A prompt answer as bash `read -r` leaves it: a trailing `\r` dropped. */
-function stripAnswerCarriageReturn(answer: string): string {
-  return answer.endsWith("\r") ? answer.slice(0, -1) : answer;
-}
-
 /**
  * The interactive path of the bash engine's `request_values` with reset on and
  * direction import: every rule's placeholder is asked for in order, with any
@@ -271,7 +267,7 @@ export function askValues(
     if (raw !== undefined) {
       consumed++;
     }
-    const answer = stripAnswerCarriageReturn(raw ?? "");
+    const answer = trimAnswer(raw ?? "");
     const chosen = answer.length > 0 ? answer : fallback;
     if (chosen.length === 0) {
       return missingValue(placeholder, owner);

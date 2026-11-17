@@ -1154,7 +1154,8 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
 - **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
   the suggestion in brackets. `--yes` takes every suggestion without asking. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints
-  `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below).
+  `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below). Answers are trimmed of
+  spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (program; phase 9 decision 8).
 - **Suggestions.** The profile: the one whose non-retired record has exactly this hostname, with the `This looks like`
   line; two or more such records, or none, give no suggestion and no line (always none while public). Claude: `2` when
   the scan found `claude`, else `1`. Mode: `1`. Existing files: `1`.

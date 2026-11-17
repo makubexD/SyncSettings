@@ -52,6 +52,7 @@ import type {
   StatusCommand,
   StatuslineCommand,
 } from "./cli/parse.ts";
+import { trimAnswer } from "./core/answer.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import { machineScope } from "./core/machine/scope.ts";
@@ -211,7 +212,7 @@ async function fetchOriginForDiff(
 
 /** Bash's `read` trims; an empty answer or end of input takes the default. */
 function pullAnswer(answer: string | undefined, defaultYes: boolean): boolean {
-  const given = answer?.trim() ?? "";
+  const given = answer === undefined ? "" : trimAnswer(answer);
   if (given === "") {
     return defaultYes;
   }

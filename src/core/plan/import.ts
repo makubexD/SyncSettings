@@ -1,3 +1,4 @@
+import { trimAnswer } from "../answer.ts";
 import { same } from "../compare.ts";
 import type { SanitizeRule } from "../config/types.ts";
 import { jsonEqual } from "../json/value.ts";
@@ -171,7 +172,7 @@ function overwriteAccepted(state: State): boolean {
   if (answer === undefined) {
     return true;
   }
-  const trimmed = answer.trim();
+  const trimmed = trimAnswer(answer);
   if (trimmed === "") {
     return true;
   }
