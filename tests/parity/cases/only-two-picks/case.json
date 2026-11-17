@@ -1,0 +1,43 @@
+{
+  "description": "Import with two --only picks updates both picked files with their backups and leaves the third entry untouched (Picking files, Backups). Ported from Pester import-only-split.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/linux/tool.sh",
+        "localPath": "~/.config/fixture/tool.sh",
+        "platform": "linux",
+        "description": "Shell script fixture"
+      },
+      {
+        "repoPath": "dotfiles/linux/other.txt",
+        "localPath": "~/.config/fixture/other.txt",
+        "platform": "linux",
+        "description": "Unpicked fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true,
+        "only": ["dotfiles/linux/plain.txt", "dotfiles/linux/tool.sh"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "description": "Check with --only lists only the picked changed file and exits 3 (Picking files, Import check). Ported from import-only-check, Pester import-only-check.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/linux/tool.sh",
+        "localPath": "~/.config/fixture/tool.sh",
+        "platform": "linux",
+        "description": "Shell script fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "check",
+      "options": {
+        "only": ["dotfiles/linux/plain.txt"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "description": "Export with --only writes only the picked file and leaves the other entry's repo copy unchanged (Picking files). Ported from export-only-one, Pester export-only-one.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/linux/tool.sh",
+        "localPath": "~/.config/fixture/tool.sh",
+        "platform": "linux",
+        "description": "Shell script fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["dotfiles/linux/plain.txt"]
+      }
+    }
+  ]
+}
