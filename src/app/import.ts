@@ -6,6 +6,7 @@
 
 import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
+import { readAllStdin } from "../adapters/process.ts";
 import type { RunCommand } from "../cli/parse.ts";
 import { planCheck } from "../core/plan/check.ts";
 import { planImport } from "../core/plan/import.ts";
@@ -82,7 +83,7 @@ async function readAnswers(command: RunCommand): Promise<readonly string[]> {
   // shortcut: a terminal user does not see the Overwrite prompt yet. The whole
   // of stdin is read up front because the planner takes answers as a list; with
   // no piped input this waits for end of input before anything is applied.
-  const text = await Bun.stdin.text();
+  const text = await readAllStdin();
   const lines = text.split(/\r?\n/);
   if (lines[lines.length - 1] === "") {
     lines.pop();

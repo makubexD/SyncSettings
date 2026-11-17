@@ -1,7 +1,7 @@
 /**
  * The process adapter: run commands, find them on `PATH` and read stdin. It
  * sits on `node:child_process`, `node:fs` and `node:path`, so the same module
- * serves Bun and Node; no `Bun.*` API may appear here.
+ * serves Bun and Node; no Bun-only API may appear here.
  *
  * Failure is a result, never an exception: a missing command, a timeout and a
  * death by signal are codes the contract can print.

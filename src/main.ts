@@ -7,6 +7,7 @@ import {
   statusPorcelain,
 } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
+import { readAllStdin } from "./adapters/process.ts";
 import { readIdentity } from "./adapters/scan.ts";
 import {
   buildSnapshot,
@@ -280,7 +281,7 @@ function isStatuslineCommand(value: Resolved): value is StatuslineCommand {
 /** `statusline`'s whole body: stdin in, one line out, 0 whatever fails. */
 async function statuslineOutput(): Promise<string> {
   try {
-    return renderStatusline(await Bun.stdin.text());
+    return renderStatusline(await readAllStdin());
   } catch {
     // Contract: the command prints one line and exits 0 whatever fails.
     return STATUSLINE_UNAVAILABLE;

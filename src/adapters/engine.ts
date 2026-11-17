@@ -4,12 +4,12 @@
  * `core/shadow.ts`; this module only does the I/O.
  */
 
-import { spawn } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import type { ShadowResult } from "../core/shadow.ts";
+import { decode, run } from "./process.ts";
 
 /**
  * The host whose old-engine scripts shadow runs: Windows runs `sync.cmd`,
@@ -49,38 +49,6 @@ function isMissing(error: unknown): boolean {
   );
 }
 
-/** Run one process with an argument array and collect what it printed. */
-function runProcess(
-  file: string,
-  args: readonly string[],
-  cwd: string,
-): Promise<ProcessOutput> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(file, [...args], {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    child.stdout?.on("data", (chunk: Buffer) => {
-      out.push(chunk);
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      err.push(chunk);
-    });
-    child.on("error", (error) => {
-      reject(error);
-    });
-    child.on("close", (code) => {
-      resolve({
-        stdout: Buffer.concat(out).toString("utf8"),
-        stderr: Buffer.concat(err).toString("utf8"),
-        code,
-      });
-    });
-  });
-}
-
 /**
  * The old engine's command for a step, run from the repo it belongs to. On
  * Windows `sync.cmd` maps `check`, `preview` and `export` onto the PowerShell
@@ -111,14 +79,23 @@ function engineCommand(
   }
 }
 
-function runEngineStep(
+/** Run one process with an argument array and collect what it printed. */
+async function runEngineStep(
   repoRoot: string,
   host: EngineHost,
   step: EngineStep,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<ProcessOutput> {
   const command = engineCommand(host, step, env);
-  return runProcess(command.file, command.args, repoRoot);
+  const result = await run([command.file, ...command.args], { cwd: repoRoot });
+  if (result.notStarted) {
+    throw new Error(`${command.file} could not run`);
+  }
+  return {
+    stdout: decode(result.stdout),
+    stderr: decode(result.stderr),
+    code: result.code,
+  };
 }
 
 function splitLines(output: string): readonly string[] {
