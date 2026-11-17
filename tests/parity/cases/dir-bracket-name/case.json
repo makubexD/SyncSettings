@@ -1,0 +1,21 @@
+{
+  "description": "Export of a dir entry adds a file whose name holds brackets, a second export and an import --force leave it unchanged: ADDED, then UNCHANGED twice (Statuses; Directory entries). Ported from Pester dir-bracket-name.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.secret"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    { "command": "export" },
+    { "command": "export" },
+    { "command": "import", "options": { "force": true } }
+  ]
+}

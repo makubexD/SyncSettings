@@ -1,0 +1,3 @@
+ADDED dotfiles/common/dir/[x].txt
+UNCHANGED dotfiles/common/dir/[x].txt
+UNCHANGED dotfiles/common/dir/[x].txt
