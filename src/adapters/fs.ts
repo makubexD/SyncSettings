@@ -1,6 +1,7 @@
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -37,6 +38,7 @@ import type {
   Snapshot,
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
+import { restrictToCurrentUser } from "./acl.ts";
 import { dconfLoad } from "./dconf.ts";
 import { expandHome } from "./paths.ts";
 import { writeStoreProfile, writeStoreRecord } from "./store.ts";
@@ -637,8 +639,10 @@ const PRIVATE_MODE = 0o600;
 function writeValuesFile(text: string, context: RunContext): void {
   const path = pathFor(context.os).join(context.repoRoot, VALUES_FILE);
   if (context.os === "windows") {
-    // shortcut: the Windows ACL (no inherited access) comes with the Windows
-    // adapter; see the design's "Confirm on Windows".
+    if (!existsSync(path)) {
+      writeFileSync(path, "");
+    }
+    restrictToCurrentUser(path);
     writeFileSync(path, text);
     return;
   }
