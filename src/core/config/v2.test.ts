@@ -49,6 +49,10 @@ function expectError(text: string, message: string, code: 1 | 2): void {
   expect(result).toEqual({ ok: false, error: { message, code } });
 }
 
+function unsafePathError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an unsafe path.`;
+}
+
 function unknownModuleError(file: string, module: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} names unknown module ${module}.`;
 }
@@ -219,6 +223,14 @@ describe("parseV2", () => {
     expectError(configWith([bad]), importNameError(bad.file as string), 1);
   });
 
+  test("an import entry with no importName stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ merge: "import" });
+
+    // Act / Assert
+    expectError(configWith([bad]), importNameError(bad.file as string), 1);
+  });
+
   test("a localPath with a backslash stops with exit 1", () => {
     // Arrange
     const bad = entry({ localPath: "~\\.gitconfig" });
@@ -287,6 +299,57 @@ describe("parseV2", () => {
 
     // Act / Assert
     expectError(configWith([bad]), entryShapeError("7"), 1);
+  });
+
+  test("an entry file with a .. segment stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "../x" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("../x"), 1);
+  });
+
+  test("an absolute entry file stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "/etc/x" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("/etc/x"), 1);
+  });
+
+  test("an entry file starting with a drive letter stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "C:/x" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("C:/x"), 1);
+  });
+
+  test("an entry file with a backslash stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "a\\b" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("a\\b"), 1);
+  });
+
+  test("an empty entry file stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError(""), 1);
+  });
+
+  test("an entry file with a folder is accepted", () => {
+    // Arrange
+    const good = entry({ file: "a/b.json" });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok).toBe(true);
   });
 
   test("a non-dconf entry with no localPath stops with exit 1", () => {

@@ -1,0 +1,22 @@
+{
+  "description": "A v2 import entry whose importName has no {layer} is refused when the config is read, exit 1 before anything is written (Layers; Config v2).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "claude": {
+        "description": "Claude Code"
+      }
+    },
+    "entries": [
+      {
+        "file": "claude/CLAUDE.md",
+        "module": "claude",
+        "merge": "import",
+        "localPath": "~/.claude/CLAUDE.md",
+        "importName": "CLAUDE.md",
+        "description": "Parity case import entry with no layer in importName"
+      }
+    ]
+  },
+  "commands": [{ "command": "status", "stderr": true }]
+}

@@ -142,6 +142,14 @@ ERROR: sync-config.json: entry <repoPath> has an unsafe path.
 ERROR: sync-config.json: entry <repoPath> has an unknown localPaths key <key>.
 ```
 
+The program's `sync-config.v2.json` has its own check when it reads the config: an entry `file` that is empty, starts
+with `/` or a drive letter (`C:`), holds a `..` segment, or holds a `\` stops with exit 1 before anything is written
+([design, "Config v2"](design-layers.md#config-v2), decision 11).
+
+```text
+ERROR: sync-config.v2.json: entry <file> has an unsafe path.
+```
+
 A dconf entry has no `localPath`. Instead its `platform` must be the string `linux` (a list, even `["linux"]`, stops
 both engines), and its `path` must start and end with `/`, hold
 at least one segment of letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody
@@ -996,7 +1004,14 @@ file, the marker line and one `@<importName>` line per such layer, in layer orde
 ```
 
 Each of those layers is written next to the local file under its `importName` (`{layer}` is the OS, profile or
-machine name), with its own status line. Export stores the text above the marker in the base layer, compared with CRLF
+machine name), with its own status line. `importName` must hold `{layer}`; an `import` entry whose `importName` is
+missing, isn't a string, or lacks it stops with exit 1 when the config is read:
+
+```text
+ERROR: sync-config.v2.json: entry <file> needs {layer} in importName.
+```
+
+Export stores the text above the marker in the base layer, compared with CRLF
 folded to LF; an edit to the block itself is not stored and prints the note
 `import block is written by mksync, edit not pushed` on the base's status line. The marker that counts is the last
 marker line followed only by `@` lines and blank lines; a marker line quoted inside the base text stays base text.

@@ -1,0 +1,21 @@
+{
+  "description": "An absolute v2 entry file is refused when the config is read, exit 1 before anything is written (Path safety; Config v2).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "/etc/x",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig",
+        "description": "Parity case entry with an absolute file"
+      }
+    ]
+  },
+  "commands": [{ "command": "status", "stderr": true }]
+}
