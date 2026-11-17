@@ -17,6 +17,7 @@ import {
   inferValues,
   resolveValues,
 } from "../values/hydrate.ts";
+import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
@@ -83,13 +84,12 @@ interface State {
   readonly values: Values;
   readonly only: readonly string[];
   readonly isExcluded: (path: string) => boolean;
-  readonly answers: readonly string[];
+  readonly askOverwrite: (name: string) => boolean;
   readonly force: boolean;
   readonly steps: FileStep[];
   readonly finish: Action[];
   readonly lines: string[];
   pending: StepAction[];
-  answerIndex: number;
   skipped: number;
   errors: number;
   userSkips: number;
@@ -162,21 +162,14 @@ function ensureParentDir(state: State, path: string): void {
   });
 }
 
-/** Contract "Overwrite prompt": an empty answer and end of input both mean yes. */
-function overwriteAccepted(state: State): boolean {
+/** Contract "Overwrite prompt": an empty answer and end of input both mean yes.
+ * `name` is what the prompt prints: the local file for an entry, the entry's
+ * `path` for a dconf entry. */
+function overwriteAccepted(state: State, name: string): boolean {
   if (state.force) {
     return true;
   }
-  const answer = state.answers[state.answerIndex];
-  state.answerIndex++;
-  if (answer === undefined) {
-    return true;
-  }
-  const trimmed = trimAnswer(answer);
-  if (trimmed === "") {
-    return true;
-  }
-  return /^[Yy]/.test(trimmed);
+  return state.askOverwrite(name);
 }
 
 function writeCreated(
@@ -254,7 +247,7 @@ function applyBytes(
       recordStep(state, label, line, false);
       return;
     }
-    if (!overwriteAccepted(state)) {
+    if (!overwriteAccepted(state, localPath)) {
       const line = pushStatus(state, "SKIPPED", label, USER_SKIPPED_NOTE);
       state.skipped++;
       recordStep(state, label, line, false);
@@ -645,7 +638,7 @@ function planDconf(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  if (!overwriteAccepted(state)) {
+  if (!overwriteAccepted(state, dconfPath)) {
     const line = pushStatus(state, "SKIPPED", repoPath, USER_SKIPPED_NOTE);
     state.skipped++;
     recordStep(state, repoPath, line, false);
@@ -767,14 +760,23 @@ function collectRules(
   return { rules, inferred: Object.fromEntries(inferred) };
 }
 
+/** What `prepareImport` resolved before any answer is read. */
+interface PreparedImport {
+  readonly snapshot: Snapshot;
+  readonly selected: readonly SelectedEntry[];
+  readonly only: readonly string[];
+  readonly gathered: {
+    readonly rules: readonly SanitizeRule[];
+    readonly inferred: Values;
+  };
+  readonly owner: ValueOwner | undefined;
+}
+
 /**
- * The import plan: every status line, action and the exit code the contract
- * gives import, from a snapshot, the `--force` flag and the prompt answers.
+ * The entries, `--only` paths, sanitize rules and value owner an import reads
+ * from its snapshot, or the plan of an early error (config or `--only`).
  */
-export function planImport(
-  snapshot: Snapshot,
-  answers: readonly string[],
-): RunPlan {
+function prepareImport(snapshot: Snapshot): PreparedImport | RunPlan {
   const selected = selectEntries(
     snapshot.config,
     scopeFor(snapshot),
@@ -789,63 +791,140 @@ export function planImport(
     return only.plan;
   }
 
-  const gathered = collectRules(snapshot, selected.value, only.paths);
-  const owner = valueOwner(snapshot);
-  let values: Values;
-  let prompt: string | undefined;
-  let answerIndex = 0;
+  return {
+    snapshot,
+    selected: selected.value,
+    only: only.paths,
+    gathered: collectRules(snapshot, selected.value, only.paths),
+    owner: valueOwner(snapshot),
+  };
+}
+
+function isPrepared(value: PreparedImport | RunPlan): value is PreparedImport {
+  return "selected" in value;
+}
+
+/** The values an import resolved, the value prompt it prints and how many
+ * answers the value prompt consumed (the overwrite answers follow them). */
+export type ImportValuesResult =
+  | {
+      readonly ok: true;
+      readonly values: Values;
+      readonly prompt: string | undefined;
+      readonly consumed: number;
+    }
+  | { readonly ok: false; readonly plan: RunPlan };
+
+/**
+ * The number of value answers `--reset-values` reads before the overwrite
+ * questions, or an early-error plan. Zero when the run doesn't reset values.
+ */
+export function importValueAnswerCount(
+  snapshot: Snapshot,
+): number | RunPlan {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return prepared;
+  }
+  if (snapshot.resetValues !== true) {
+    return 0;
+  }
+  const seen = new Set<string>();
+  for (const rule of prepared.gathered.rules) {
+    if (rule.placeholder.length > 0 && !seen.has(rule.placeholder)) {
+      seen.add(rule.placeholder);
+    }
+  }
+  return seen.size;
+}
+
+/**
+ * Resolve the import's values: `--reset-values` asks each placeholder again
+ * from `valueAnswers`, otherwise the values are resolved without answers. The
+ * returned prompt is the value prompts' text, printed before the run's lines.
+ */
+export function resolveImportValues(
+  snapshot: Snapshot,
+  valueAnswers: readonly string[],
+): ImportValuesResult {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return { ok: false, plan: prepared };
+  }
+
   if (snapshot.resetValues === true) {
     // `--reset-values` asks again for every placeholder and skips inference.
     const asked = askValues(
-      gathered.rules,
+      prepared.gathered.rules,
       snapshot.values,
       snapshot.env,
-      answers,
-      owner,
+      valueAnswers,
+      prepared.owner,
     );
     if (!asked.ok) {
       const placeholder = asked.error.placeholder;
       return {
-        ...errorPlan(asked.error.message, 1),
-        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+        ok: false,
+        plan: {
+          ...errorPlan(asked.error.message, 1),
+          ...(placeholder !== undefined ? { missing: placeholder } : {}),
+        },
       };
     }
-    values = asked.value.values;
-    prompt = asked.value.text;
-    answerIndex = asked.value.consumed;
-  } else {
-    const resolved = resolveValues(
-      gathered.rules,
-      snapshot.values,
-      gathered.inferred,
-      snapshot.env,
-      owner,
-    );
-    if (!resolved.ok) {
-      const placeholder = resolved.error.placeholder;
-      return {
-        ...errorPlan(resolved.error.message, 1),
-        ...(placeholder !== undefined ? { missing: placeholder } : {}),
-      };
-    }
-    values = resolved.value;
+    return {
+      ok: true,
+      values: asked.value.values,
+      prompt: asked.value.text,
+      consumed: asked.value.consumed,
+    };
   }
 
+  const resolved = resolveValues(
+    prepared.gathered.rules,
+    snapshot.values,
+    prepared.gathered.inferred,
+    snapshot.env,
+    prepared.owner,
+  );
+  if (!resolved.ok) {
+    const placeholder = resolved.error.placeholder;
+    return {
+      ok: false,
+      plan: {
+        ...errorPlan(resolved.error.message, 1),
+        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+      },
+    };
+  }
+  return { ok: true, values: resolved.value, prompt: undefined, consumed: 0 };
+}
+
+/**
+ * The plan body once the values are resolved: every status line, action and
+ * the exit code the contract gives import, with `askOverwrite` deciding each
+ * differing file (its `name` is what the prompt prints).
+ */
+function buildImportPlan(
+  prepared: PreparedImport,
+  values: Values,
+  prompt: string | undefined,
+  askOverwrite: (name: string) => boolean,
+): RunPlan {
+  const snapshot = prepared.snapshot;
   const state: State = {
     snapshot,
     values,
-    only: only.paths,
+    only: prepared.only,
     isExcluded: compileExcludes(
       snapshot.config.excludePatterns ?? [],
       snapshot.os,
     ),
-    answers,
+    askOverwrite,
     force: snapshot.force === true,
     steps: [],
     finish: [],
     lines: [],
     pending: [],
-    answerIndex,
     skipped: 0,
     errors: 0,
     userSkips: 0,
@@ -853,8 +932,8 @@ export function planImport(
     createdDirs: new Set<string>(),
   };
 
-  for (const entry of selected.value) {
-    if (!entrySelected(entry, only.paths)) {
+  for (const entry of prepared.selected) {
+    if (!entrySelected(entry, prepared.only)) {
       continue;
     }
     switch (entry.entry.merge) {
@@ -889,7 +968,7 @@ export function planImport(
   };
   return {
     // Bash saves every value whenever an entry has rules, before any file.
-    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values),
+    prepare: valuesPrepare(snapshot, prepared.gathered.rules.length > 0, values),
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,
@@ -897,4 +976,78 @@ export function planImport(
     code: 0,
     ...(prompt !== undefined ? { prompt } : {}),
   };
+}
+
+/**
+ * The ordered overwrite questions an import asks once its values are resolved:
+ * each differing file's prompt name, before any write. With `--force` there are
+ * none.
+ */
+export function importOverwriteQuestions(
+  snapshot: Snapshot,
+  values: Values,
+): readonly string[] {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return [];
+  }
+  const names: string[] = [];
+  buildImportPlan(prepared, values, undefined, (name) => {
+    names.push(name);
+    return true;
+  });
+  return names;
+}
+
+/**
+ * The import plan given resolved values and the overwrite answers, in the
+ * order `importOverwriteQuestions` asked them. An exhausted list answers the
+ * rest as yes, as the contract's empty answer and end of input do.
+ */
+export function importPlan(
+  snapshot: Snapshot,
+  values: Values,
+  prompt: string | undefined,
+  overwriteAnswers: readonly (string | undefined)[],
+): RunPlan {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return prepared;
+  }
+  let index = 0;
+  const askOverwrite = (): boolean => {
+    const answer = overwriteAnswers[index];
+    index++;
+    if (answer === undefined) {
+      return true;
+    }
+    const trimmed = trimAnswer(answer);
+    if (trimmed === "") {
+      return true;
+    }
+    return /^[Yy]/.test(trimmed);
+  };
+  return buildImportPlan(prepared, values, prompt, askOverwrite);
+}
+
+/**
+ * The import plan from one list of answers: the value answers of
+ * `--reset-values` first, then the overwrite answers. Callers that ask each
+ * question as it comes use `resolveImportValues`, `importOverwriteQuestions`
+ * and `importPlan` instead.
+ */
+export function planImport(
+  snapshot: Snapshot,
+  answers: readonly string[],
+): RunPlan {
+  const resolved = resolveImportValues(snapshot, answers);
+  if (!resolved.ok) {
+    return resolved.plan;
+  }
+  return importPlan(
+    snapshot,
+    resolved.values,
+    resolved.prompt,
+    answers.slice(resolved.consumed),
+  );
 }

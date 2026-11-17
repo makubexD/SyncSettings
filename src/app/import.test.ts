@@ -12,6 +12,7 @@ import type { StoreLocation } from "../adapters/store.ts";
 import type { RunCommand } from "../cli/parse.ts";
 import type { ConfigV2 } from "../core/config/types.ts";
 import { runImport } from "./import.ts";
+import type { ImportIo } from "./import.ts";
 import type { RunEnvironment } from "./run.ts";
 
 /** The prefix of each test's temp folder, removed after the test. */
@@ -56,6 +57,24 @@ const COMMAND: RunCommand = {
   resetValues: false,
   yes: false,
   only: [],
+};
+
+/** `mksync import` without `--force`, so differing files ask to overwrite. */
+const ASK_COMMAND: RunCommand = { ...COMMAND, force: false };
+
+/** Three whole-file entries whose local files all differ from the repo, so an
+ * import asks one overwrite question per file. */
+const THREE_NAMES = ["one.txt", "two.txt", "three.txt"] as const;
+
+const THREE_CONFIG: ConfigV2 = {
+  schemaVersion: 2,
+  modules: { parity: { description: "Parity fixture" } },
+  entries: THREE_NAMES.map((name) => ({
+    file: `parity/${name}`,
+    module: "parity",
+    merge: "whole",
+    localPath: `~/.config/parity/${name}`,
+  })),
 };
 
 const tempFolders: string[] = [];
@@ -133,6 +152,34 @@ function fixture(): Fixture {
   return { root, home, repo };
 }
 
+/** A throwaway home and clone holding the three `THREE_CONFIG` files, each of
+ * whose local copies differs from the repo, so import asks per file. */
+function threeFileFixture(): Fixture {
+  const root = tempFolder();
+  const home = join(root, "home", "user");
+  const repo = join(root, "repo");
+  const local = join(home, ".config", "parity");
+  mkdirSync(local, { recursive: true });
+  mkdirSync(join(repo, "dotfiles", "linux", "parity"), { recursive: true });
+  for (const name of THREE_NAMES) {
+    writeFileSync(join(repo, "dotfiles", "linux", "parity", name), `repo ${name}\n`);
+    writeFileSync(join(local, name), `local ${name}\n`);
+  }
+  git(repo, ["init", "-q"]);
+  git(repo, ["add", "--", "dotfiles"]);
+  git(repo, [
+    "-c",
+    "user.name=Parity",
+    "-c",
+    "user.email=parity@example.test",
+    "commit",
+    "-q",
+    "-m",
+    "fixture",
+  ]);
+  return { root, home, repo };
+}
+
 /** The local store's paths, as `readStore` reports them. */
 function stateStore(state: string): StoreLocation {
   return {
@@ -142,15 +189,42 @@ function stateStore(state: string): StoreLocation {
   };
 }
 
-function runEnvironment(setup: Fixture, state: string): RunEnvironment {
+function runEnvironment(
+  setup: Fixture,
+  state: string,
+  config: ConfigV2 = CONFIG,
+): RunEnvironment {
   return {
     repoRoot: setup.repo,
     state,
     home: setup.home,
     os: "linux",
-    config: CONFIG,
+    config,
     layers: { location: stateStore(state) },
     options: undefined,
+  };
+}
+
+/** One thing the fake import io did, in the order it did it. */
+type IoEvent = { readonly kind: "write"; readonly text: string } | { readonly kind: "read" };
+
+/** An import io that answers from `answers` and records every write and read. */
+function fakeImportIo(
+  answers: readonly (string | undefined)[],
+): { readonly io: ImportIo; readonly events: IoEvent[] } {
+  const events: IoEvent[] = [];
+  const queue = [...answers];
+  return {
+    events,
+    io: {
+      write: (text) => {
+        events.push({ kind: "write", text });
+      },
+      readLine: async () => {
+        events.push({ kind: "read" });
+        return queue.shift();
+      },
+    },
   };
 }
 
@@ -191,5 +265,38 @@ describe("runImport", () => {
     expect(
       readFileSync(join(state, SYNC_POINT_FOLDER, SYNC_POINT_FILE), "utf8"),
     ).toBe(`${head}\n`);
+  });
+});
+
+describe("runImport overwrite prompt", () => {
+  test("should print each question before reading its answer, in file order", async () => {
+    // Arrange
+    const setup = threeFileFixture();
+    const state = join(setup.root, "state");
+    mkdirSync(state);
+    process.env[XDG_STATE_HOME_ENV] = state;
+    const fake = fakeImportIo(["n", "y", undefined]);
+    const promptFor = (name: string): string =>
+      `  Overwrite ${join(setup.home, ".config", "parity", name)}? [Y/n] `;
+
+    // Act
+    const result = await runImport(
+      runEnvironment(setup, state, THREE_CONFIG),
+      ASK_COMMAND,
+      fake.io,
+    );
+
+    // Assert
+    expect(fake.events).toEqual([
+      { kind: "write", text: promptFor("one.txt") },
+      { kind: "read" },
+      { kind: "write", text: promptFor("two.txt") },
+      { kind: "read" },
+      { kind: "write", text: promptFor("three.txt") },
+      { kind: "read" },
+    ]);
+    expect(result.stdout).toMatch(/SKIPPED\s+dotfiles\/linux\/parity\/one\.txt/);
+    expect(result.stdout).toMatch(/UPDATED\s+dotfiles\/linux\/parity\/two\.txt/);
+    expect(result.stdout).toMatch(/UPDATED\s+dotfiles\/linux\/parity\/three\.txt/);
   });
 });

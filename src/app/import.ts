@@ -6,12 +6,17 @@
 
 import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
-import { readAllStdin } from "../adapters/process.ts";
+import { stdinLines } from "../adapters/process.ts";
 import type { RunCommand } from "../cli/parse.ts";
 import { planCheck } from "../core/plan/check.ts";
-import { planImport } from "../core/plan/import.ts";
+import {
+  importOverwriteQuestions,
+  importPlan,
+  importValueAnswerCount,
+  resolveImportValues,
+} from "../core/plan/import.ts";
 import { renderRun } from "../core/plan/run.ts";
-import type { Action, RunPlan } from "../core/plan/types.ts";
+import type { Action, RunPlan, Snapshot } from "../core/plan/types.ts";
 import { renderStatic, writeLines } from "./export.ts";
 import type { AppliedPlan, Result } from "./export.ts";
 import { buildRun, endRun, startRun } from "./run.ts";
@@ -68,27 +73,68 @@ function applyPlan(plan: RunPlan, context: RunContext): Result {
   return applyPlanAndBackup(plan, context).result;
 }
 
+/** The import's input and output, so a test can fake both: a line source and
+ * where each prompt goes. */
+export interface ImportIo {
+  /** One input line, `undefined` at end of input. */
+  readLine(): Promise<string | undefined>;
+  /** Text printed before its answer is read. */
+  write(text: string): void;
+}
+
+/** The real terminal: lines from `stdinLines` (lazily), prompts to stdout. */
+function defaultImportIo(): ImportIo {
+  let lines: AsyncIterableIterator<string> | undefined;
+  return {
+    readLine: async () => {
+      lines ??= stdinLines();
+      const next = await lines.next();
+      return next.done ? undefined : next.value;
+    },
+    write: (text) => {
+      process.stdout.write(text);
+    },
+  };
+}
+
+/** The overwrite prompt, as `import.sh` prints it, before one answer. */
+function overwritePrompt(name: string): string {
+  return `  Overwrite ${name}? [Y/n] `;
+}
+
 /**
- * Read the import's prompt answers as a list, which is what `planImport`
- * takes. End of input counts as yes, so no answers means every file applies.
+ * Read the answers one prompt at a time and plan the run: the value answers of
+ * `--reset-values` first, then one per differing file, printing each overwrite
+ * prompt before its answer is read. End of input answers the rest as yes.
  */
-async function readAnswers(command: RunCommand): Promise<readonly string[]> {
-  if (
-    command.command !== "import" ||
-    command.check ||
-    (command.force && !command.resetValues)
-  ) {
-    return [];
+async function planWithAnswers(
+  snapshot: Snapshot,
+  io: ImportIo,
+): Promise<RunPlan> {
+  const valueCount = importValueAnswerCount(snapshot);
+  if (typeof valueCount !== "number") {
+    return valueCount;
   }
-  // shortcut: a terminal user does not see the Overwrite prompt yet. The whole
-  // of stdin is read up front because the planner takes answers as a list; with
-  // no piped input this waits for end of input before anything is applied.
-  const text = await readAllStdin();
-  const lines = text.split(/\r?\n/);
-  if (lines[lines.length - 1] === "") {
-    lines.pop();
+  const valueAnswers: string[] = [];
+  for (let i = 0; i < valueCount; i++) {
+    valueAnswers.push((await io.readLine()) ?? "");
   }
-  return lines;
+  const resolved = resolveImportValues(snapshot, valueAnswers);
+  if (!resolved.ok) {
+    return resolved.plan;
+  }
+  const names = importOverwriteQuestions(snapshot, resolved.values);
+  const overwriteAnswers: (string | undefined)[] = [];
+  for (const name of names) {
+    io.write(overwritePrompt(name));
+    overwriteAnswers.push(await io.readLine());
+  }
+  return importPlan(
+    snapshot,
+    resolved.values,
+    resolved.prompt,
+    overwriteAnswers,
+  );
 }
 
 /** Run `mksync import` end to end: the checks, the answers, then the check's
@@ -96,15 +142,15 @@ async function readAnswers(command: RunCommand): Promise<readonly string[]> {
 export async function runImport(
   env: RunEnvironment,
   command: RunCommand,
+  io: ImportIo = defaultImportIo(),
 ): Promise<Result> {
   const started = await startRun(env, command);
   if (started.kind === "stop") {
     return started.result;
   }
-  const answers = await readAnswers(command);
   const { snapshot, context } = await buildRun(env, command);
   const result = command.check
     ? renderStatic(planCheck(snapshot))
-    : applyPlan(planImport(snapshot, answers), context);
+    : applyPlan(await planWithAnswers(snapshot, io), context);
   return endRun(result, started.check, started.finish);
 }
