@@ -133,6 +133,22 @@ describe("same", () => {
     expect(result).toBe(false);
   });
 
+  test("crlf-common-changed-line", () => {
+    // Arrange
+    const repo = encode("a\nb\n");
+    const local = encode("a\r\nc\r\n");
+
+    // Act
+    const result = same(repo, local, {
+      os: "windows",
+      shared: true,
+      sanitized: false,
+    });
+
+    // Assert
+    expect(result).toBe(false);
+  });
+
   test("should call sanitized text the same when only CRLF and trailing blank lines differ", () => {
     // Arrange
     const repo = caseBytes(

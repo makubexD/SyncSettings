@@ -1,4 +1,4 @@
-import { foldCrlf, same } from "../compare.ts";
+import { containsNul, foldCrlf, same } from "../compare.ts";
 import type {
   ConfigV2,
   ConfigV2Entry,
@@ -93,6 +93,26 @@ interface State {
   changed: number;
   skipped: number;
   hits: number;
+}
+
+/**
+ * Contract "Line endings": a shared file in the repo holds LF, so a Windows
+ * local file's CRLF pairs are folded before it is written. Any other path, and
+ * a NUL byte's binary file, keeps the bytes as they are.
+ */
+function repoBytes(
+  snapshot: Snapshot,
+  repoPath: string,
+  bytes: Uint8Array,
+): Uint8Array {
+  if (
+    snapshot.os === "windows" &&
+    repoPath.startsWith(BASE_ROOT) &&
+    !containsNul(bytes)
+  ) {
+    return foldCrlf(bytes);
+  }
+  return bytes;
 }
 
 function compareOptions(
@@ -226,7 +246,11 @@ function writeRepoFile(
   if (repo === undefined) {
     mkdirParent(state, repoPath);
     state.pending.push({
-      action: { kind: "writeRepo", path: repoPath, bytes },
+      action: {
+        kind: "writeRepo",
+        path: repoPath,
+        bytes: repoBytes(state.snapshot, repoPath, bytes),
+      },
       failure,
     });
     state.pending.push({
@@ -245,7 +269,11 @@ function writeRepoFile(
   }
 
   state.pending.push({
-    action: { kind: "writeRepo", path: repoPath, bytes },
+    action: {
+      kind: "writeRepo",
+      path: repoPath,
+      bytes: repoBytes(state.snapshot, repoPath, bytes),
+    },
     failure,
   });
   if (!sanitized) {
@@ -522,7 +550,11 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (repo === undefined) {
       mkdirParent(state, label, CREATE_PARENT_FOLDER_FAILURE);
       state.pending.push({
-        action: { kind: "writeRepo", path: label, bytes: local.bytes },
+        action: {
+          kind: "writeRepo",
+          path: label,
+          bytes: repoBytes(state.snapshot, label, local.bytes),
+        },
         failure: COPY_TO_REPO_FAILURE,
       });
       state.pending.push({
@@ -538,7 +570,11 @@ function planDir(state: State, selected: SelectedEntry): void {
       pushStatus(state, "UNCHANGED", label);
     } else {
       state.pending.push({
-        action: { kind: "writeRepo", path: label, bytes: local.bytes },
+        action: {
+          kind: "writeRepo",
+          path: label,
+          bytes: repoBytes(state.snapshot, label, local.bytes),
+        },
         failure: COPY_TO_REPO_FAILURE,
       });
       state.pending.push({

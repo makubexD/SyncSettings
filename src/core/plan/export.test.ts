@@ -1093,6 +1093,148 @@ describe("planExport", () => {
     ).toBe(false);
     expect(result.code).toBe(0);
   });
+
+  test("crlf-common-export-new", () => {
+    // Arrange: a shared file local to Windows arrives with CRLF.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [wholeEntry("parity/a.conf", "~/.config/parity/a.conf")],
+      repo: {},
+      local: { ".config/parity/a.conf": "a\r\nb\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ADDED dotfiles/common/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: "dotfiles/common/parity" },
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/a.conf",
+        text: "a\nb\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-common-export-modified", () => {
+    // Arrange: the repo holds LF; only the local file changed, with CRLF.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [wholeEntry("parity/a.conf", "~/.config/parity/a.conf")],
+      repo: { "dotfiles/common/parity/a.conf": "a\nb\n" },
+      local: { ".config/parity/a.conf": "a\r\nc\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/common/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/a.conf",
+        text: "a\nc\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-windows-export-keeps-crlf", () => {
+    // Arrange: a Windows-only file keeps the line endings this OS wrote.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [
+        {
+          ...wholeEntry("parity/a.conf", "~/.config/parity/a.conf"),
+          os: ["windows"],
+        },
+      ],
+      repo: { "dotfiles/windows/parity/a.conf": "x\n" },
+      local: { ".config/parity/a.conf": "a\r\nb\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/windows/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/windows/parity/a.conf",
+        text: "a\r\nb\r\n",
+      },
+      { kind: "chmod", path: "dotfiles/windows/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-common-binary-export", () => {
+    // Arrange: a NUL byte means the file is binary, so its bytes stay as they are.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [wholeEntry("parity/a.conf", "~/.config/parity/a.conf")],
+      repo: {},
+      local: { ".config/parity/a.conf": "" },
+    });
+    const localPath = `${WINDOWS_HOME}\\.config\\parity\\a.conf`;
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localPath, {
+      kind: "file",
+      path: localPath,
+      bytes: new Uint8Array([0x61, 0x00, 0x0d, 0x0a]),
+      mode: MODE,
+    });
+
+    // Act
+    const result = observe({ ...snapshot, localFiles });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ADDED dotfiles/common/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: "dotfiles/common/parity" },
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/a.conf",
+        text: "a\u0000\r\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-common-dir-export-new", () => {
+    // Arrange: a new file in a shared dir entry, written by Windows with CRLF.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [dirEntry()],
+      repo: {},
+      local: { ".config/parity/dir/new.txt": "y\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ADDED dotfiles/common/dir/new.txt",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: "dotfiles/common/dir" },
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/dir/new.txt",
+        text: "y\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/dir/new.txt", mode: MODE },
+    ]);
+  });
+
 });
 
 describe("planExport values file", () => {
