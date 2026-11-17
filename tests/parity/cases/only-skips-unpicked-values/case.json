@@ -1,0 +1,40 @@
+{
+  "description": "Import with --only updates the picked file without asking for an unpicked entry's missing value, and the same run without --only stops with exit 1 and writes nothing (Picking files, Values). Ported from only-skips-unpicked-values.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/linux/san.conf",
+        "localPath": "~/.config/fixture/san.conf",
+        "platform": "linux",
+        "description": "Sanitized fixture",
+        "sanitizeRules": [
+          { "placeholder": "<MISSING>", "prompt": "Missing value" }
+        ]
+      }
+    ]
+  },
+  "values": {},
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true,
+        "only": ["dotfiles/linux/plain.txt"]
+      }
+    },
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}
