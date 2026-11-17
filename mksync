@@ -1,0 +1,96 @@
+#!/bin/sh
+# Run the program from the clone on Bun or Node (phase 9, decision 2).
+# MKSYNC_RUNTIME=bun|node picks the runtime; unset, the first installed of Bun
+# then Node. Node must be 22.18 or newer, since that is where it runs the
+# TypeScript source without a flag. MKSYNC_LAUNCHER=1 tells the program it runs
+# from the clone, so `mksync update` asks for git pull instead of downloading.
+# Usage: mksync [command] [arguments]
+
+MKSYNC_LAUNCHER=1
+export MKSYNC_LAUNCHER
+
+# The launcher's own folder. One symlink level is followed, so an installer can
+# link this file into ~/.local/bin and still find src/main.ts in the clone.
+self=$0
+case $self in
+    */*) ;;
+    *) self=$(command -v "$self" 2>/dev/null) || self=$0 ;;
+esac
+if [ -L "$self" ]; then
+    link=$(readlink "$self" 2>/dev/null) || link=
+    case $link in
+        '') ;;
+        /*) self=$link ;;
+        *) self=${self%/*}/$link ;;
+    esac
+fi
+case $self in
+    */*) dir=${self%/*} ;;
+    *) dir=. ;;
+esac
+if [ -d "$dir" ]; then
+    dir=$(cd "$dir" && pwd -P)
+fi
+
+# True when $1, a dotted version, is 22.18.0 or newer. Fields are compared as
+# numbers, so 9.99.99 is older than 10.0.0 and 23.0.0 is newer than 22.18.0.
+version_ok() {
+    version=$1
+    version=${version#v}
+    version=${version%%[!0-9.]*}
+    major=${version%%.*}
+    rest=${version#*.}
+    if [ "$rest" = "$version" ]; then
+        minor=0
+        patch=0
+    else
+        minor=${rest%%.*}
+        after=${rest#*.}
+        if [ "$after" = "$rest" ]; then
+            patch=0
+        else
+            patch=${after%%.*}
+        fi
+    fi
+    for field in "$major" "$minor" "$patch"; do
+        case $field in
+            ''|*[!0-9]*) return 1 ;;
+        esac
+    done
+    [ "$major" -gt 22 ] && return 0
+    [ "$major" -eq 22 ] || return 1
+    [ "$minor" -gt 18 ] && return 0
+    [ "$minor" -eq 18 ] || return 1
+    [ "$patch" -ge 0 ]
+}
+
+runtime=${MKSYNC_RUNTIME-}
+case $runtime in
+    '')
+        if command -v bun >/dev/null 2>&1; then
+            runtime=bun
+        else
+            runtime=node
+        fi
+        ;;
+    bun|node) ;;
+    *)
+        printf 'ERROR: MKSYNC_RUNTIME must be bun or node.\n' >&2
+        exit 2
+        ;;
+esac
+
+if ! command -v "$runtime" >/dev/null 2>&1; then
+    printf 'ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.\n' >&2
+    exit 2
+fi
+
+if [ "$runtime" = node ]; then
+    node_version=$(node -p 'process.versions.node' 2>/dev/null) || node_version=
+    if ! version_ok "$node_version"; then
+        printf 'ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.\n' >&2
+        exit 2
+    fi
+fi
+
+exec "$runtime" "$dir/src/main.ts" "$@"
