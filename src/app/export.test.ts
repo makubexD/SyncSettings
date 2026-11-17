@@ -253,6 +253,29 @@ describe("previewTail", () => {
     expect(tempFolders()).toEqual(before);
   });
 
+  test("should strip the temp folder from a hit when grep echoes it with a backslash", async () => {
+    // Arrange
+    const calls = newCalls();
+    const stub = deps(calls, (paths) => ({
+      kind: "hits",
+      code: 1,
+      stdout: hitText(`${dirname(paths[0] ?? "")}\\${PLAIN_REPO_PATH}`),
+      stderr: "",
+    }));
+
+    // Act
+    const result = await previewTail(
+      REPO_ROOT,
+      preview(CHANGED_LINES),
+      stub,
+    );
+
+    // Assert
+    const lines = result.stdout.split("\n").slice(0, -1);
+    expect(lines).toContain(`${PLAIN_REPO_PATH}:1: home-path`);
+    expect(result.stdout).not.toContain(TEMP_PREFIX);
+  });
+
   test("should stop with the ERROR on stderr and no end lines when the scan cannot run", async () => {
     // Arrange
     const calls = newCalls();

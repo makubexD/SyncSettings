@@ -234,8 +234,10 @@ export async function previewTail(
       };
     }
     if (scan.kind === "hits") {
+      // grep echoes each scanned path as given, so on Windows a hit starts
+      // with the temp folder and a backslash; both forms are stripped.
       const hits = textLines(scan.stdout).map((line) =>
-        line.replaceAll(`${tmp}/`, ""),
+        line.replaceAll(`${tmp}/`, "").replaceAll(`${tmp}\\`, ""),
       );
       return renderStatic({
         actions: [],
