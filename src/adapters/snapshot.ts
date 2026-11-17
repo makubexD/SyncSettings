@@ -19,7 +19,7 @@ import type { DconfDumpResult, RepoFiles, Snapshot } from "../core/plan/types.ts
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { dconfDump, loginHome } from "./dconf.ts";
-import { readSnapshot } from "./fs.ts";
+import { findRepoSymlink, readSnapshot } from "./fs.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
 import { readStore, readText } from "./store.ts";
 import type { StoreLocation } from "./store.ts";
@@ -59,7 +59,9 @@ function readBytes(path: string): Uint8Array | undefined {
 
 /**
  * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`
- * converted in memory by the same converter that writes the v2 file.
+ * converted in memory by the same converter that writes the v2 file. Contract
+ * "Path safety": a symlink under `dotfiles/` stops the run before it touches a
+ * file.
  */
 export function loadConfig(
   repoRoot: string,
@@ -69,18 +71,24 @@ export function loadConfig(
     error: { message: `ERROR: cannot read ${file}.`, code: 1 },
   });
 
+  let loaded: LoadResult<ConfigV2, ConfigError>;
   const v2Path = join(repoRoot, V2_CONFIG);
   if (existsSync(v2Path)) {
     const text = readText(v2Path);
-    return text === undefined ? unreadable(V2_CONFIG) : parseV2(text);
+    loaded = text === undefined ? unreadable(V2_CONFIG) : parseV2(text);
+  } else {
+    const text = readText(join(repoRoot, V1_CONFIG));
+    if (text === undefined) {
+      return unreadable(V1_CONFIG);
+    }
+    const v1 = parseV1(text);
+    loaded = v1.ok ? convertV1(v1.value) : v1;
   }
-
-  const text = readText(join(repoRoot, V1_CONFIG));
-  if (text === undefined) {
-    return unreadable(V1_CONFIG);
+  if (!loaded.ok) {
+    return loaded;
   }
-  const v1 = parseV1(text);
-  return v1.ok ? convertV1(v1.value) : v1;
+  const error = findRepoSymlink(repoRoot, loaded.value);
+  return error === undefined ? loaded : { ok: false, error };
 }
 
 /** `.user-values.json` next to the config, keyed by placeholder. */

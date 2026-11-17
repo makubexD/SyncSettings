@@ -16,7 +16,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
-import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import type {
+  ConfigError,
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+} from "../core/config/types.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import { planImport } from "../core/plan/import.ts";
 import type {
@@ -29,6 +34,7 @@ import type {
 import { readSnapshot, runPlan } from "./fs.ts";
 import type { RunContext } from "./fs.ts";
 import { expandHome, homeFolder, stateFolder } from "./paths.ts";
+import { loadConfig } from "./snapshot.ts";
 import type { StoreLocation } from "./store.ts";
 
 const FILE_MODE = 0o644;
@@ -485,6 +491,165 @@ describe("readSnapshot", () => {
       "dotfiles/linux/shell/bashrc",
       "dotfiles/windows/shell/profile.ps1",
     ]);
+  });
+});
+
+/** A minimal v1 config, so `loadConfig` converts it in memory. */
+function writeV1Config(repo: string, files: readonly unknown[]): void {
+  writeFixture(
+    join(repo, "sync-config.json"),
+    `${JSON.stringify({ version: 1, files }, null, 2)}\n`,
+  );
+}
+
+/** The contract's message for a symlink the config owns, or does not. */
+function unsafePathError(name: string): ConfigError {
+  return {
+    message: `ERROR: sync-config.json: entry ${name} has an unsafe path.`,
+    code: 1,
+  };
+}
+
+/** A file entry whose repoPath sits under `dotfiles/linux/`. */
+function plainConfigEntry(): unknown {
+  return {
+    repoPath: "dotfiles/linux/plain.txt",
+    localPath: "~/plain.txt",
+    platform: "linux",
+  };
+}
+
+describe("loadConfig path safety", () => {
+  test("should reject a file entry whose repoPath is a symlink", () => {
+    // Arrange
+    const { repo } = fixture();
+    writeV1Config(repo, [plainConfigEntry()]);
+    const link = join(repo, "dotfiles", "linux", "plain.txt");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync("nowhere", link);
+
+    // Act
+    const loaded = loadConfig(repo);
+
+    // Assert
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) {
+      throw new Error("the symlinked repoPath was accepted");
+    }
+    expect(loaded.error).toEqual(
+      unsafePathError("dotfiles/linux/plain.txt"),
+    );
+  });
+
+  test("should reject a dconf entry whose repoPath is a symlink", () => {
+    // Arrange
+    const { repo } = fixture();
+    writeV1Config(repo, [
+      {
+        repoPath: "dotfiles/linux/dconf/app.ini",
+        type: "dconf",
+        platform: "linux",
+        path: "/test/app/",
+      },
+    ]);
+    const link = join(repo, "dotfiles", "linux", "dconf", "app.ini");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync("nowhere", link);
+
+    // Act
+    const loaded = loadConfig(repo);
+
+    // Assert
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) {
+      throw new Error("the symlinked dconf repoPath was accepted");
+    }
+    expect(loaded.error).toEqual(
+      unsafePathError("dotfiles/linux/dconf/app.ini"),
+    );
+  });
+
+  test("should reject a dir entry holding a symlink and name the folder", () => {
+    // Arrange
+    const { repo } = fixture();
+    writeV1Config(repo, [
+      {
+        repoPath: "dotfiles/linux/folder",
+        localPath: "~/.config/folder",
+        type: "dir",
+        platform: "linux",
+      },
+    ]);
+    const target = join(repo, "target.txt");
+    writeFixture(target, "x\n");
+    const link = join(repo, "dotfiles", "linux", "folder", "sub", "a.txt");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(target, link);
+
+    // Act
+    const loaded = loadConfig(repo);
+
+    // Assert
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) {
+      throw new Error("the symlink inside the dir entry was accepted");
+    }
+    expect(loaded.error).toEqual(unsafePathError("dotfiles/linux/folder"));
+  });
+
+  test("should reject a symlink no entry owns and name the symlink", () => {
+    // Arrange
+    const { repo } = fixture();
+    writeV1Config(repo, [plainConfigEntry()]);
+    const link = join(repo, "dotfiles", "linux", "stray.txt");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync("nowhere", link);
+
+    // Act
+    const loaded = loadConfig(repo);
+
+    // Assert
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) {
+      throw new Error("the stray symlink was accepted");
+    }
+    expect(loaded.error).toEqual(unsafePathError("dotfiles/linux/stray.txt"));
+  });
+
+  test("should accept a repo with no symlink under dotfiles", () => {
+    // Arrange
+    const { repo } = fixture();
+    writeV1Config(repo, [plainConfigEntry()]);
+    writeFixture(join(repo, "dotfiles", "linux", "plain.txt"), "x\n");
+
+    // Act
+    const loaded = loadConfig(repo);
+
+    // Assert
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) {
+      throw new Error(`the repo was refused: ${loaded.error.message}`);
+    }
+    expect(loaded.value.entries).toHaveLength(1);
+  });
+});
+
+describe("readSnapshot path safety", () => {
+  test("should skip a symlink under dotfiles in the repo tree", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const target = join(repo, "target.txt");
+    writeFixture(target, "x\n");
+    const link = join(repo, "dotfiles", "linux", "x.txt");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(target, link);
+
+    // Act
+    const snapshot = snapshotOf(repo, home, []);
+
+    // Assert
+    expect(snapshot.repoFiles.has("dotfiles/linux/x.txt")).toBe(false);
+    expect(snapshot.repoFiles.size).toBe(0);
   });
 });
 

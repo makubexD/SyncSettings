@@ -11,9 +11,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
-import { posix, win32 } from "node:path";
+import { join, posix, relative, sep, win32 } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
-import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import type {
+  ConfigError,
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+} from "../core/config/types.ts";
 import {
   MACHINES_FOLDER,
   PROFILES_FOLDER,
@@ -45,6 +50,9 @@ const REPO_PREFIX = "dotfiles/";
 const MODE_MASK = 0o7777;
 
 const DOTFILES_FOLDER = "dotfiles";
+
+/** The config file the contract's unsafe path message names, v1 or v2. */
+const CONFIG_FILE = "sync-config.json";
 
 /** Everything the snapshot adapter reads besides the disk itself. */
 export interface SnapshotInput {
@@ -128,13 +136,16 @@ function repoKey(repoRoot: string, path: string, os: Os): string {
 /**
  * Read every file under `dir` into `files`, keyed by `keyOf(path, relative)`,
  * where `relative` is the path from `dir` joined with forward slashes. A
- * symlink to a file is followed, as `[[ -f ]]` does; other entries are skipped.
+ * symlink to a file is followed when `followSymlinks` is set, as `[[ -f ]]`
+ * does; the repo read leaves links out, since nothing under `dotfiles/` may be
+ * one (contract "Path safety"). Other entries are skipped.
  */
 function readTree(
   dir: string,
   os: Os,
   files: Map<string, Uint8Array>,
   keyOf: (path: string, relative: string) => string,
+  followSymlinks: boolean,
   prefix = "",
 ): void {
   const entries = listDir(dir);
@@ -145,12 +156,21 @@ function readTree(
   for (const entry of entries) {
     const path = p.join(dir, entry.name);
     if (entry.isDirectory()) {
-      readTree(path, os, files, keyOf, `${prefix}${entry.name}/`);
+      readTree(
+        path,
+        os,
+        files,
+        keyOf,
+        followSymlinks,
+        `${prefix}${entry.name}/`,
+      );
       continue;
     }
     const isFile =
       entry.isFile() ||
-      (entry.isSymbolicLink() && statOrUndefined(path)?.isFile() === true);
+      (followSymlinks &&
+        entry.isSymbolicLink() &&
+        statOrUndefined(path)?.isFile() === true);
     if (!isFile) {
       continue;
     }
@@ -168,7 +188,7 @@ function readRepoTree(
   os: Os,
   files: Map<string, Uint8Array>,
 ): void {
-  readTree(dir, os, files, (path) => repoKey(repoRoot, path, os));
+  readTree(dir, os, files, (path) => repoKey(repoRoot, path, os), false);
 }
 
 /**
@@ -183,7 +203,76 @@ function readStateTree(
   os: Os,
   files: Map<string, Uint8Array>,
 ): void {
-  readTree(dir, os, files, (_path, relative) => `${prefix}${relative}`);
+  readTree(dir, os, files, (_path, relative) => `${prefix}${relative}`, true);
+}
+
+function unsafePathMessage(name: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${name} has an unsafe path.`;
+}
+
+/**
+ * The first symlink under `dir`, sorted by name, or undefined. The entries come
+ * from `readdirSync` with their own types, so a symlinked folder is named and
+ * never entered.
+ */
+function firstSymlink(dir: string): string | undefined {
+  const entries = listDir(dir);
+  if (entries === undefined) {
+    return undefined;
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      return path;
+    }
+    if (entry.isDirectory()) {
+      const found = firstSymlink(path);
+      if (found !== undefined) {
+        return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The name the unsafe path message gives a symlink: the repo path of the entry
+ * that owns it, or the symlink's own repo-relative path when none does
+ * (contract "Path safety").
+ */
+function symlinkName(link: string, config: ConfigV2): string {
+  for (const entry of config.entries) {
+    const file = entry.file;
+    if (link.endsWith(`/${file}`)) {
+      return link;
+    }
+    const folder = link.indexOf(`/${file}/`);
+    if (entry.merge === "dir" && folder !== -1) {
+      return link.slice(0, folder + file.length + 1);
+    }
+    const linked = link.indexOf(`/${file}.linked/`);
+    if (entry.merge !== "dir" && entry.merge !== "dconf" && linked !== -1) {
+      return link.slice(0, linked + file.length + 1);
+    }
+  }
+  return link;
+}
+
+/**
+ * Contract "Path safety": nothing under `dotfiles/` is a symlink. Returns the
+ * error naming the first one, sorted by name, so a run stops before it touches
+ * a file. A repo with no `dotfiles/` folder has none.
+ */
+export function findRepoSymlink(
+  repoRoot: string,
+  config: ConfigV2,
+): ConfigError | undefined {
+  const path = firstSymlink(join(repoRoot, DOTFILES_FOLDER));
+  if (path === undefined) {
+    return undefined;
+  }
+  const link = relative(repoRoot, path).split(sep).join("/");
+  return { message: unsafePathMessage(symlinkName(link, config)), code: 1 };
 }
 
 /**
