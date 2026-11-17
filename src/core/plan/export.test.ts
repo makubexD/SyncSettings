@@ -12,7 +12,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { readSnapshot } from "../../adapters/fs.ts";
+import { readSnapshot, runPlan } from "../../adapters/fs.ts";
+import type { RunContext } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { parseV2 } from "../config/v2.ts";
 import { convertV1 } from "../config/convert.ts";
@@ -488,6 +489,29 @@ function importEntry(extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
   };
 }
 
+/** A whole-file entry, the plain file merge type. */
+function wholeEntry(file: string, localPath: string): ConfigV2Entry {
+  return { file, module: "parity", merge: "whole", localPath };
+}
+
+/** A context for running a plan whose repo root is a temporary folder. */
+function runContextFor(repoRoot: string, root: string): RunContext {
+  const state = join(root, "state");
+  return {
+    repoRoot,
+    os: "linux",
+    stateFolder: join(state, "sync-settings"),
+    location: {
+      recordFile: join(state, "machine.json"),
+      profilesFolder: join(state, "profiles"),
+      privateFiles: true,
+    },
+    env: {},
+    now: () => new Date(0),
+    pid: 1,
+  };
+}
+
 interface ObservedPlan {
   readonly lines: readonly string[];
   readonly actions: readonly Action[];
@@ -866,6 +890,87 @@ describe("planExport", () => {
       action: { kind: "mkdir", path: "dotfiles/common/parity/dir" },
       failure: "cannot create parent folder",
     });
+  });
+
+  test("should report a failed write and still export the other files", () => {
+    // Arrange: the first file's repo target is a folder, so its write fails.
+    const root = mkdtempSync(join(tmpdir(), "mksync-export-error-"));
+    const repo = join(root, "repo");
+    try {
+      mkdirSync(join(repo, "dotfiles", "common", "parity", "plain.txt"), {
+        recursive: true,
+      });
+      const snapshot = layeredSnapshot("linux", {
+        entries: [
+          wholeEntry("parity/plain.txt", "~/.config/parity/plain.txt"),
+          wholeEntry("parity/tool.sh", "~/.config/parity/tool.sh"),
+          wholeEntry("parity/named.conf", "~/.config/parity/named.conf"),
+        ],
+        repo: {
+          "dotfiles/common/parity/plain.txt": "old\n",
+          "dotfiles/common/parity/named.conf": "old\n",
+        },
+        local: {
+          ".config/parity/plain.txt": "new\n",
+          ".config/parity/tool.sh": "new\n",
+          ".config/parity/named.conf": "new\n",
+        },
+      });
+      const plan = planExport(snapshot);
+
+      // Act
+      const outcome = runPlan(plan, runContextFor(repo, root));
+      const rendered = renderRun(plan, outcome);
+
+      // Assert
+      expect(statusLines(rendered.lines)).toEqual([
+        "ERROR dotfiles/common/parity/plain.txt",
+        "ADDED dotfiles/common/parity/tool.sh",
+        "MODIFIED dotfiles/common/parity/named.conf",
+      ]);
+      expect(rendered.code).toBe(0);
+      expect(
+        readFileSync(
+          join(repo, "dotfiles", "common", "parity", "tool.sh"),
+          "utf8",
+        ),
+      ).toBe("new\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("should keep the repo files when a dir holds only a symlink", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-export-empty-keeps-repo");
+    const localDir = `${HOME}/.config/fixture/dir`;
+    const localLink = `${localDir}/link.txt`;
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localLink, { kind: "symlink", path: localLink });
+    const localDirs = new Set(snapshot.localDirs);
+    localDirs.add(localDir);
+
+    // Act
+    const result = observe({ ...snapshot, localFiles, localDirs });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "SKIPPED dotfiles/common/dir/link.txt",
+      "SKIPPED dotfiles/common/dir/",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/dir/link.txt", "symlink"),
+    );
+    expect(result.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        "dotfiles/common/dir/",
+        "local folder is empty; repo files kept",
+      ),
+    );
+    expect(result.lines.some((line) => line.includes("REMOVED"))).toBe(false);
+    expect(result.actions).toEqual([]);
+    expect(result.code).toBe(0);
   });
 });
 
