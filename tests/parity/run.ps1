@@ -261,6 +261,24 @@ function Validate-Case {
         }
     }
 
+    $emptyDirsProp = $case.PSObject.Properties['emptyDirs']
+    if ($null -ne $emptyDirsProp) {
+        $emptyDirs = $emptyDirsProp.Value
+        if ($emptyDirs -isnot [System.Array]) {
+            Die 'emptyDirs must be a list of strings'
+        }
+        foreach ($d in $emptyDirs) {
+            if ($d -isnot [string]) {
+                Die 'emptyDirs must be a list of strings'
+            }
+        }
+        foreach ($d in $emptyDirs) {
+            if ($d -cmatch '^(/|[A-Za-z]:|\\)' -or (@($d -split '[/\\]') -contains '..')) {
+                Die 'emptyDirs must be relative paths under home'
+            }
+        }
+    }
+
     $stubsProp = $case.PSObject.Properties['stubs']
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
@@ -889,6 +907,14 @@ function Run-Case {
                 $homeFile.LastWriteTime = $now
             }
         }
+        # Git stores no empty folder, so a case names its empty folders in
+        # emptyDirs; each is created in the temp home before the first command.
+        $emptyDirsProp = $Case.PSObject.Properties['emptyDirs']
+        if ($null -ne $emptyDirsProp) {
+            foreach ($rel in @($emptyDirsProp.Value)) {
+                New-Item -ItemType Directory -Path (Join-Path $homeDir ([string]$rel)) -Force | Out-Null
+            }
+        }
 
         # Git: everything committed on master, and for `remote` also a bare
         # origin the repo was pushed to.
@@ -1428,6 +1454,18 @@ function Run-Case {
         $homeWantDir = $emptyDir
         if (Test-Path -LiteralPath $wantHome -PathType Container) {
             $homeWantDir = $wantHome
+        }
+        # Git stores no empty folder, so expect\home can't hold the ones
+        # emptyDirs makes; the compare sees a copy of it that has them.
+        $emptyDirsProp = $Case.PSObject.Properties['emptyDirs']
+        if ($null -ne $emptyDirsProp) {
+            $wantCopy = Join-Path $t 'expect\home'
+            New-Item -ItemType Directory -Path $wantCopy -Force | Out-Null
+            Copy-Tree $homeWantDir $wantCopy
+            foreach ($rel in @($emptyDirsProp.Value)) {
+                New-Item -ItemType Directory -Path (Join-Path $wantCopy ([string]$rel)) -Force | Out-Null
+            }
+            $homeWantDir = $wantCopy
         }
         Compare-Trees $homeWantDir $homeDir 'home'
 

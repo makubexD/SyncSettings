@@ -80,6 +80,7 @@ cases/<name>/
 | `config` / `configV2` | Exactly one of the two, never both nor neither. `config` is the whole `sync-config.json`, written into the repo before the run; `configV2` is written as `sync-config.v2.json` with no `sync-config.json`, and only the program can read it |
 | `values` | Optional. Written as `.user-values.json` in the repo; omit to have none |
 | `env` | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. A `configV2` case may set only `SYNC_PROFILE`, `SYNC_MACHINE`, `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`, `MKSYNC_VISIBILITY`, `SYNC_NOW`, `SYNC_LOAD`, `SYNC_MEM`, `SYNC_GIT`, `CONTEXT_CLEAR_AT` and `CTX_WINDOW_DIR`; any other key is a runner error. `CTX_WINDOW_DIR` is a path relative to the case's temp home (`.claude/state/ctx-window` reaches the command as `<home>/.claude/state/ctx-window`); an absolute path or one with a `..` segment is a runner error |
+| `emptyDirs` | Optional. Paths relative to the case's temp home of empty folders to create, with their parents, after `home/` is copied and before the first command; git can't store an empty folder, so this is how `home/` holds one. An absolute path or one with a `..` segment, a non-list, or an item that isn't a string is a runner error. The runner adds them to its copy of `expect/home/` before the tree compare, so that tree needs nothing for them |
 | `commands` | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": …, "stderr": true }`, the last two optional |
 | `git` | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it |
 | `syncPoint` | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error |
@@ -196,10 +197,11 @@ Each file is taken from `expect.<os>/` when it's there for the OS the runner is 
 ## What fits
 
 A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh`, `dconf` and
-`getent` (`stubs`) and a prompt answer (`stdin`) are covered. The package managers have no stub yet, so those cases stay
-in `tests/linux/engine.sh`, as does a dconf case that needs a real session bus rather than the stub. Text the
-status-line check drops (notes, `ERROR:` messages, summaries) goes in `expect/lines.txt`; a check of one function
-from the inside stays in that engine's own suite, or the program's unit tests. A write failure and a symlink in `home/` can't be set up yet; the program's unit tests cover those
+`getent` (`stubs`), a prompt answer (`stdin`) and an empty folder in `home/` (`emptyDirs`) are covered. The package
+managers have no stub yet, so those cases stay in `tests/linux/engine.sh`, as does a dconf case that needs a real
+session bus rather than the stub. Text the status-line check drops (notes, `ERROR:` messages, summaries) goes in
+`expect/lines.txt`; a check of one function from the inside stays in that engine's own suite, or the program's unit
+tests. A write failure and a symlink in `home/` can't be set up yet; the program's unit tests cover those
 ([design, "Open"](../../docs/design-layers.md#open)).
 
 ## Reading a failure

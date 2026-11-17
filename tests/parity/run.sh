@@ -167,6 +167,16 @@ validate_case() {
               else true end' "$json" > /dev/null 2>&1 \
             || die 'CTX_WINDOW_DIR must be a relative path under home'
     fi
+    jq -e 'if has("emptyDirs") then
+            (.emptyDirs | type) == "array" and all(.emptyDirs[]; type == "string")
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'emptyDirs must be a list of strings'
+    jq -e 'if has("emptyDirs") then
+            all(.emptyDirs[];
+                ((test("^(/|[A-Za-z]:|\\\\)")) | not)
+                and ((test("(^|[/\\\\])\\.\\.([/\\\\]|$)")) | not))
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'emptyDirs must be relative paths under home'
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
@@ -578,6 +588,11 @@ run_case() {
         # and git's stat cache then reports the changed repo file as clean.
         find "$t/home" -type f -exec touch {} + || die 'touching the case home/ failed'
     fi
+    # Git stores no empty folder, so a case names its empty folders in
+    # emptyDirs; each is created in the temp home before the first command.
+    while IFS= read -r rel; do
+        mkdir -p "$t/home/$rel" || die "creating the empty folder '$rel' failed"
+    done < <(jq -r '.emptyDirs // [] | .[]' "$dir/case.json")
 
     git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
     start_head=''
@@ -911,6 +926,19 @@ run_case() {
     check_lines "$dir" "$count"
 
     want_home=$(expected_path "$dir" home)
+    if [[ $(jq -r '(.emptyDirs // []) | length' "$dir/case.json") -gt 0 ]]; then
+        # Git stores no empty folder, so expect/home/ can't hold the ones
+        # emptyDirs makes; the compare sees a copy of it that has them.
+        mkdir -p "$t/expect/home" || die 'creating the expected home/ copy failed'
+        if [[ -d $want_home ]]; then
+            cp -a "$want_home/." "$t/expect/home/" || die 'copying the expected home/ failed'
+        fi
+        while IFS= read -r rel; do
+            mkdir -p "$t/expect/home/$rel" \
+                || die "creating the expected empty folder '$rel' failed"
+        done < <(jq -r '.emptyDirs // [] | .[]' "$dir/case.json")
+        want_home=$t/expect/home
+    fi
     if [[ -d $want_home ]]; then
         out=$(tree_diff "$want_home" "$t/home") || true
         [[ -z $out ]] || die "$out"
