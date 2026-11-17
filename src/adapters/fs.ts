@@ -849,16 +849,26 @@ function runAction(
 }
 
 /**
+ * What `runPlan` returns: the run's outcome plus the `finish` actions that
+ * failed. The import turns a failed `writeState` into the sync point warning
+ * (contract "Sync point"); the rest of the outcome is unchanged.
+ */
+export interface RunPlanOutcome extends RunOutcome {
+  readonly failedFinish: readonly Action[];
+}
+
+/**
  * Run a plan's steps in order (contract "Statuses", "Backups" and "Sync point").
  * A step stops at its first failed action, recording that action's failure; the
  * next step still runs. `finish` runs only when no step failed. After a run
  * that made a dated copy, `backups/` keeps its newest 20 run folders. Returns
- * the failures and warnings keyed by step index, and the run's folder when a
- * copy landed; it never throws.
+ * the failures and warnings keyed by step index, the `finish` actions that
+ * failed, and the run's folder when a copy landed; it never throws.
  */
-export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
+export function runPlan(plan: RunPlan, context: RunContext): RunPlanOutcome {
   const failed = new Map<number, string>();
   const warnings = new Map<number, readonly string[]>();
+  const failedFinish: Action[] = [];
   const dated: DatedBackups = { folder: undefined, made: false };
 
   // shortcut: a failed values save is not reported yet; the contract names no
@@ -886,7 +896,9 @@ export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
 
   if (failed.size === 0) {
     for (const action of plan.finish) {
-      runAction(action, context, dated);
+      if (!runAction(action, context, dated).ok) {
+        failedFinish.push(action);
+      }
     }
   }
 
@@ -894,7 +906,7 @@ export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
     pruneBackups(context);
   }
 
-  const outcome: RunOutcome = { failed, warnings };
+  const outcome: RunPlanOutcome = { failed, warnings, failedFinish };
   if (dated.made && dated.folder !== undefined) {
     return { ...outcome, backups: dated.folder };
   }

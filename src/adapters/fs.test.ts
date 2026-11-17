@@ -1186,6 +1186,44 @@ describe("runPlan", () => {
     expect(existsSync(stateFile)).toBe(false);
   });
 
+  test("should report a finish action that failed in its outcome", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const blocker = join(tempFolder(), "state");
+    writeFileSync(blocker, "not a folder\n");
+    const stateFile = join(blocker, "sync-settings", "last-sync");
+    const action: Action = {
+      kind: "writeState",
+      path: stateFile,
+      text: "0123456789abcdef\n",
+    };
+    const plan = planOf([], [action]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(outcome.failedFinish).toEqual([action]);
+  });
+
+  test("should report no failed finish actions when the write succeeds", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const stateFile = join(tempFolder(), "sync-settings", "last-sync");
+    const plan = planOf(
+      [],
+      [{ kind: "writeState", path: stateFile, text: "0123456789abcdef\n" }],
+    );
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failedFinish).toEqual([]);
+    expect(readFileSync(stateFile, "utf8")).toBe("0123456789abcdef\n");
+  });
+
   test("should keep a dated copy under the run folder with mode and times", () => {
     // Arrange
     const { home, repo } = fixture();

@@ -10,17 +10,48 @@ import type { RunCommand } from "../cli/parse.ts";
 import { planCheck } from "../core/plan/check.ts";
 import { planImport } from "../core/plan/import.ts";
 import { renderRun } from "../core/plan/run.ts";
-import type { RunPlan } from "../core/plan/types.ts";
+import type { Action, RunPlan } from "../core/plan/types.ts";
 import { renderStatic, writeLines } from "./export.ts";
 import type { AppliedPlan, Result } from "./export.ts";
 import { buildRun, endRun, startRun } from "./run.ts";
 import type { RunEnvironment } from "./run.ts";
 
+/** Contract "Sync point": a write that fails prints this warning, in the bash
+ * engine's form, and never changes the run's exit code. */
+function syncPointWarning(failedFinish: readonly Action[]): string | undefined {
+  for (const action of failedFinish) {
+    if (action.kind === "writeState") {
+      return `  WARNING: could not record the sync point in ${action.path}.`;
+    }
+  }
+  return undefined;
+}
+
+/** The plan to render when the sync point was not recorded: its warning joins
+ * the body, and the summary leaves out the `Sync point :` line. */
+function withSyncPointWarning(plan: RunPlan, warning: string): RunPlan {
+  return {
+    ...plan,
+    lines: [...plan.lines, warning],
+    summary:
+      plan.summary.kind === "import"
+        ? {
+            kind: "import",
+            onlyMatchedNothing: plan.summary.onlyMatchedNothing,
+          }
+        : plan.summary,
+  };
+}
+
 /** Apply a plan's steps and render what the run printed, keeping the run's
  * dated backup folder. */
 function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
   const outcome = runPlan(plan, context);
-  const rendered = renderRun(plan, outcome);
+  const warning = syncPointWarning(outcome.failedFinish);
+  const rendered = renderRun(
+    warning === undefined ? plan : withSyncPointWarning(plan, warning),
+    outcome,
+  );
   return {
     result: {
       code: rendered.code,
