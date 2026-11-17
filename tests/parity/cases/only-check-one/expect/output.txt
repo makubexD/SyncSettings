@@ -1,1 +1,1 @@
-UPDATE dotfiles/linux/plain.txt
+UPDATE dotfiles/common/plain.txt

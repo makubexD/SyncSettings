@@ -5,21 +5,21 @@
     "excludePatterns": ["*.bak"],
     "files": [
       {
-        "repoPath": "dotfiles/linux/plain.txt",
+        "repoPath": "dotfiles/common/plain.txt",
         "localPath": "~/.config/fixture/plain.txt",
-        "platform": "linux",
+        "platform": "common",
         "description": "Plain text fixture"
       },
       {
-        "repoPath": "dotfiles/linux/tool.sh",
+        "repoPath": "dotfiles/common/tool.sh",
         "localPath": "~/.config/fixture/tool.sh",
-        "platform": "linux",
+        "platform": "common",
         "description": "Shell script fixture"
       },
       {
-        "repoPath": "dotfiles/linux/other.txt",
+        "repoPath": "dotfiles/common/other.txt",
         "localPath": "~/.config/fixture/other.txt",
-        "platform": "linux",
+        "platform": "common",
         "description": "Unpicked fixture"
       },
       {
@@ -36,7 +36,7 @@
       "command": "import",
       "options": {
         "force": true,
-        "only": ["dotfiles/linux/plain.txt", "dotfiles/linux/tool.sh"]
+        "only": ["dotfiles/common/plain.txt", "dotfiles/common/tool.sh"]
       }
     }
   ]

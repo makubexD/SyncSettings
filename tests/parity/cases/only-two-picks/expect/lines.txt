@@ -1,2 +1,2 @@
-UPDATED dotfiles/linux/plain.txt backup saved as plain.txt.bak
-UPDATED dotfiles/linux/tool.sh backup saved as tool.sh.bak
+UPDATED dotfiles/common/plain.txt backup saved as plain.txt.bak
+UPDATED dotfiles/common/tool.sh backup saved as tool.sh.bak

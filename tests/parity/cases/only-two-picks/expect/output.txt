@@ -1,2 +1,2 @@
-UPDATED dotfiles/linux/plain.txt
-UPDATED dotfiles/linux/tool.sh
+UPDATED dotfiles/common/plain.txt
+UPDATED dotfiles/common/tool.sh

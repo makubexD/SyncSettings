@@ -1,1 +1,1 @@
-ERROR: dotfiles/linux/plain.txt.linked/x is not synced on this machine.
+ERROR: dotfiles/common/plain.txt.linked/x is not synced on this machine.

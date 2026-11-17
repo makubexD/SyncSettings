@@ -5,15 +5,15 @@
     "excludePatterns": ["*.bak"],
     "files": [
       {
-        "repoPath": "dotfiles/linux/plain.txt",
+        "repoPath": "dotfiles/common/plain.txt",
         "localPath": "~/.config/fixture/plain.txt",
-        "platform": "linux",
+        "platform": "common",
         "description": "Plain text fixture"
       },
       {
-        "repoPath": "dotfiles/linux/san.conf",
+        "repoPath": "dotfiles/common/san.conf",
         "localPath": "~/.config/fixture/san.conf",
-        "platform": "linux",
+        "platform": "common",
         "description": "Sanitized fixture",
         "sanitizeRules": [
           { "placeholder": "<MISSING>", "prompt": "Missing value" }
@@ -26,7 +26,7 @@
     {
       "command": "export",
       "options": {
-        "only": ["dotfiles/linux/plain.txt"]
+        "only": ["dotfiles/common/plain.txt"]
       }
     },
     {

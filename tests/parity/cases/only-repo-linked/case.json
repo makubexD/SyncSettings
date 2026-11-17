@@ -5,9 +5,9 @@
     "excludePatterns": ["*.bak"],
     "files": [
       {
-        "repoPath": "dotfiles/linux/plain.txt",
+        "repoPath": "dotfiles/common/plain.txt",
         "localPath": "~/.config/fixture/plain.txt",
-        "platform": "linux",
+        "platform": "common",
         "description": "Plain text fixture"
       }
     ]
@@ -16,7 +16,7 @@
     {
       "command": "export",
       "options": {
-        "only": ["dotfiles/linux/plain.txt.linked/x"]
+        "only": ["dotfiles/common/plain.txt.linked/x"]
       }
     }
   ]
