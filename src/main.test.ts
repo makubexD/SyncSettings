@@ -15,7 +15,7 @@ describe("mksync front", () => {
     expect(run(["frobnicate"])).toEqual({ code: 2, stdout: "", stderr: `${USAGE}\n` });
   });
 
-  test("an unknown option prints Unknown option and exits 1", () => {
-    expect(run(["--bogus"])).toEqual({ code: 1, stdout: "", stderr: "Unknown option: --bogus\n" });
+  test("an unknown option prints Unknown option and exits 2", () => {
+    expect(run(["--bogus"])).toEqual({ code: 2, stdout: "", stderr: "Unknown option: --bogus\n" });
   });
 });
