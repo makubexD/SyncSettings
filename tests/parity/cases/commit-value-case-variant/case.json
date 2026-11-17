@@ -1,0 +1,28 @@
+{
+  "description": "A cached value appears in another case, so commit still stops on it, exit 1, and never calls gh (Checks before pushing).",
+  "git": "remote",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      },
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Sanitized fixture",
+        "sanitizeRules": [
+          { "placeholder": "<NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "values": { "<NAME>": "Fixture User" },
+  "commands": [{ "command": "commit", "output": "all", "stderr": true }]
+}

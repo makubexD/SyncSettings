@@ -1,0 +1,19 @@
+{
+  "description": "A new file under packages/ is a sync path, so commit scans and commits it and opens the PR, exit 0 (Checks before pushing).",
+  "git": "remote",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": { "GIT_CONFIG_GLOBAL": "../home/gitconfig" },
+  "commands": [{ "command": "commit" }]
+}
