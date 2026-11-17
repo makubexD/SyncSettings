@@ -4171,6 +4171,40 @@ Describe 'Windows engine' {
                 $script:InstallOrigin = Join-Path $script:T 'origin.git'
                 $script:InstallDir = Join-Path $script:T 'install'
                 $script:InstallBin = Join-Path $script:T 'install-bin'
+                Initialize-InstallRelease
+            }
+
+            # A folder release the installer downloads from: latest holds
+            # v9.9.9, the x64 asset is a fake program that appends its
+            # arguments to a log and exits 0, and SHA256SUMS holds its digest.
+            function Initialize-InstallRelease {
+                $script:InstallRelease = Join-Path $script:T 'release'
+                $script:InstallTagDir = Join-Path $script:InstallRelease 'download\v9.9.9'
+                $script:InstallReleaseUrl = 'file:///' + $script:InstallRelease.Replace('\', '/')
+                $script:InstallProgram = Join-Path $script:InstallRelease 'fake-program.exe'
+                $script:InstallProgramLog = Join-Path $script:InstallRelease 'program.log'
+                $script:InstallAsset = 'mksync-windows-x64.exe'
+                $null = New-Item -ItemType Directory -Path $script:InstallTagDir -Force
+                # A name per build: Add-Type loads the type, and a second case
+                # must not clash with the type the last one defined.
+                $className = 'MksyncInstallFakeProgram_' + [Guid]::NewGuid().ToString('N')
+                $source = @"
+public class $className {
+    public static int Main(string[] args) {
+        System.IO.File.AppendAllText(@"$script:InstallProgramLog", string.Join(" ", args) + "\n");
+        return 0;
+    }
+}
+"@
+                Add-Type -TypeDefinition $source -OutputType ConsoleApplication -OutputAssembly $script:InstallProgram
+                $utf8 = New-Object System.Text.UTF8Encoding($false)
+                [IO.File]::WriteAllText((Join-Path $script:InstallRelease 'latest'), "v9.9.9`n", $utf8)
+                Copy-Item -LiteralPath $script:InstallProgram -Destination (Join-Path $script:InstallTagDir $script:InstallAsset)
+                $programHash = (Get-FileHash -LiteralPath $script:InstallProgram -Algorithm SHA256).Hash
+                [IO.File]::WriteAllText(
+                    (Join-Path $script:InstallTagDir 'SHA256SUMS'),
+                    $programHash.ToLowerInvariant() + '  ' + $script:InstallAsset + "`n",
+                    $utf8)
             }
 
             # Points every SYNCSETTINGS_* variable at the temp folders. A $null
@@ -4185,6 +4219,7 @@ Describe 'Windows engine' {
                     SYNCSETTINGS_BIN = $script:InstallBin
                     SYNCSETTINGS_YES = '1'
                     SYNCSETTINGS_NO_SETUP = '1'
+                    SYNCSETTINGS_RELEASE_URL = $script:InstallReleaseUrl
                 }
                 foreach ($name in @($Settings.Keys)) {
                     $config[$name] = $Settings[$name]
@@ -4235,9 +4270,13 @@ Describe 'Windows engine' {
             $script:SavedWingetLog = $env:WINGET_LOG
             $script:SavedInstallEnv = @{}
             foreach ($name in @('SYNCSETTINGS_REPO_URL', 'SYNCSETTINGS_DIR', 'SYNCSETTINGS_REF',
-                    'SYNCSETTINGS_BIN', 'SYNCSETTINGS_YES', 'SYNCSETTINGS_NO_SETUP')) {
+                    'SYNCSETTINGS_BIN', 'SYNCSETTINGS_YES', 'SYNCSETTINGS_NO_SETUP',
+                    'SYNCSETTINGS_RELEASE_URL', 'SYNCSETTINGS_RUNTIME', 'SYNC_ARCH')) {
                 $script:SavedInstallEnv[$name] = [Environment]::GetEnvironmentVariable($name)
             }
+            # The runtime and arch come from each case, never from the machine.
+            Remove-Item Env:\SYNCSETTINGS_RUNTIME -ErrorAction SilentlyContinue
+            Remove-Item Env:\SYNC_ARCH -ErrorAction SilentlyContinue
             $env:LOCALAPPDATA = Join-Path $script:T 'localappdata'
             $null = New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force
 
@@ -4286,11 +4325,10 @@ Describe 'Windows engine' {
             $script:InstallOut | Should -Match ([regex]::Escape('Cloned into'))
             $script:InstallOut | Should -Match ([regex]::Escape('Installed.'))
 
-            $launcher = Join-Path $script:InstallBin 'mksync.cmd'
-            $launcher | Should -Exist
-            $lines = [IO.File]::ReadAllLines($launcher)
-            $lines[0].Trim() | Should -Be '@echo off'
-            $lines[1].Trim() | Should -Be 'rem SyncSettings launcher'
+            $program = Join-Path $script:InstallBin 'mksync.exe'
+            $program | Should -Exist
+            (Get-FileHash -LiteralPath $program -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath $script:InstallProgram -Algorithm SHA256).Hash
 
             $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
             $userPath | Should -Match ([regex]::Escape($script:InstallBin))
@@ -4383,24 +4421,23 @@ Describe 'Windows engine' {
 
             $script:InstallExit | Should -Be 0
             $script:InstallDir | Should -Not -Exist
-            (Join-Path $script:InstallBin 'mksync.cmd') | Should -Not -Exist
+            (Join-Path $script:InstallBin 'mksync.exe') | Should -Not -Exist
         }
 
         It 'install runs setup' {
             Initialize-InstallRepo
 
-            # The temp profile has the fixture folder but not the file, so setup
-            # applies a CREATE. (Windows import skips a missing folder.)
-            $winConf = Join-Path $script:HomeDir '.config\fixture\win.conf'
-            $null = New-Item -ItemType Directory -Path (Split-Path $winConf -Parent) -Force
-            $winConf | Should -Not -Exist
+            # The installer runs the downloaded program's own setup, so the fake
+            # program's log is what says setup ran.
+            Remove-Item -LiteralPath $script:InstallProgramLog -Force -ErrorAction SilentlyContinue
 
             Invoke-Install -Settings @{ SYNCSETTINGS_YES = '1'; SYNCSETTINGS_NO_SETUP = $null }
 
             $script:InstallExit | Should -Be 0
-            $script:InstallOut | Should -Match ([regex]::Escape('Setup done.'))
             $script:InstallOut | Should -Match ([regex]::Escape('Installed.'))
-            $winConf | Should -Exist
+            $script:InstallProgramLog | Should -Exist
+            ([IO.File]::ReadAllText($script:InstallProgramLog)) |
+                Should -Match ([regex]::Escape('setup --yes'))
         }
     }
 }
