@@ -656,9 +656,14 @@ Files: the preview's app file (`src/app/export.ts`), its test, new case `tests/p
 
 The case first (`preview-shows-diff`, contract "Export preview"): `git: committed`, local `plain.txt` gains the line
 `preview change`; `preview`; exit 0; lines `dotfiles/linux/plain.txt | `, `+preview change`, then `Nothing was
-written. Run mksync push to send it.` Then the code: after the status lines and the leak scan, print step 30's stat
-and diff (sanitized text, as the plan holds it), and none when the scan hit or couldn't run. Remove the `shortcut:`
-comment in `src/core/plan/preview.ts`.
+written. Run mksync push to send it.` Also the two cases moved from step 16 (the program's preview ran no leak
+scan): `preview-leak-found` (local `plain.txt` is `/home/someone/x`; exit 1; lines `WARNING: the leak scan found the
+lines above. Fix them before committing.` and `! /home/someone`) and `preview-scan-missing`
+(`repo/scripts/ci/leak-scan.sh` absent; exit 1; lines `ERROR: leak scan could not run; nothing was committed.`; if
+the runner always copies it, a unit test in the app's test file instead). Then the code: after the status lines, run
+the leak scan on the exported temp repo through `src/adapters/leakscan.ts` (as `src/app/commit.ts` does), then print
+step 30's stat and diff (sanitized text, as the plan holds it), and none when the scan hit or couldn't run (exit 1).
+Remove the `shortcut:` comment in `src/core/plan/preview.ts`.
 
 Test: `bun test src/app/` and the shared-case command with filter `preview-`.
 
