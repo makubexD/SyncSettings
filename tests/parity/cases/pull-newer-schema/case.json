@@ -1,0 +1,15 @@
+{
+  "description": "A pull that fast-forwards to a v2 config with a schemaVersion above 2 prints the newer-mksync line after the pull, exit 2, and writes nothing (Front door, pull row; design, decision 6).",
+  "os": ["linux", "windows"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": []
+  },
+  "git": "remote",
+  "commands": [{ "command": "pull", "options": { "yes": true }, "stderr": true }]
+}

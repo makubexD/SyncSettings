@@ -163,9 +163,20 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
     return failure(INVALID_JSON_MESSAGE, 1);
   }
 
-  if (!Object.hasOwn(parsed, "schemaVersion") || parsed.schemaVersion !== 2) {
+  const schemaVersion = parsed.schemaVersion;
+  if (
+    Object.hasOwn(parsed, "schemaVersion") &&
+    typeof schemaVersion === "number" &&
+    schemaVersion > 2
+  ) {
+    return failure(
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
+  }
+  if (!Object.hasOwn(parsed, "schemaVersion") || schemaVersion !== 2) {
     const version = Object.hasOwn(parsed, "schemaVersion")
-      ? JSON.stringify(parsed.schemaVersion)
+      ? JSON.stringify(schemaVersion)
       : "none";
     return failure(`ERROR: ${CONFIG_FILE}: unsupported config schemaVersion ${version}.`, 2);
   }

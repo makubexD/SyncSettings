@@ -136,12 +136,36 @@ describe("parseV2", () => {
     expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion none.`, 2);
   });
 
-  test("a schemaVersion other than 2 stops with exit 2", () => {
+  test("a schemaVersion above 2 stops with the newer-mksync line", () => {
     // Arrange
     const text = configWith([], { schemaVersion: 3 });
 
     // Act / Assert
-    expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion 3.`, 2);
+    expectError(
+      text,
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
+  });
+
+  test("a far future schemaVersion stops with the newer-mksync line", () => {
+    // Arrange
+    const text = configWith([], { schemaVersion: 99 });
+
+    // Act / Assert
+    expectError(
+      text,
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
+  });
+
+  test("a schemaVersion below 2 stops with the unsupported line", () => {
+    // Arrange
+    const text = configWith([], { schemaVersion: 1 });
+
+    // Act / Assert
+    expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion 1.`, 2);
   });
 
   test("a string schemaVersion is shown as JSON", () => {
@@ -158,7 +182,11 @@ describe("parseV2", () => {
     const text = configWith([bad], { schemaVersion: 3 });
 
     // Act / Assert
-    expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion 3.`, 2);
+    expectError(
+      text,
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
   });
 
   test("an entry naming an unknown module stops with exit 1", () => {

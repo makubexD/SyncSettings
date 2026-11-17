@@ -1,0 +1,13 @@
+{
+  "description": "A v2 config with a schemaVersion above 2 stops with the newer-mksync line, exit 2, before any other field is read (Config v2; design, decision 6).",
+  "configV2": {
+    "schemaVersion": 3,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": []
+  },
+  "commands": [{ "command": "status", "stderr": true }]
+}

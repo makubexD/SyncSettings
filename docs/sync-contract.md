@@ -792,6 +792,9 @@ winget install --id Git.Git -e`, or `install Git for Windows from https://git-sc
 - **`pull`** doesn't re-run itself after the fast-forward: the program is the same before and after, so it reads the
   config again and goes on. Its check prints the grouped block of the [import check](#import-check). After the fetch it
   counts `HEAD..origin/master`: at 0 it runs no merge; at `n` it fast-forwards and prints `  Pulled <n> commit(s).`
+  A pulled config that needs a newer mksync stops the pull right after that line with
+  `ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync update.`, exit 2, writing nothing
+  ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 6).
 - **`push`** checks the clone first, before the export: a clone that isn't on `master` with an `origin` remote prints
   `ERROR: push needs the repo clone on master with an origin remote.` and exits 1, with nothing exported. A push whose
   [up-to-date check](#up-to-date-check) pulled stops there, exit 0, after `Pulled <n> commit(s); run the command
@@ -905,6 +908,14 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.
+- A config whose `schemaVersion` is a number above 2 stops before any other field is read, since the program is too
+  old for it ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 6). A number below 2, a
+  `schemaVersion` that isn't a number, or a missing one keeps the unsupported line, with `none` for the missing key:
+
+  ```text
+  ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync update.
+  ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.
+  ```
 - Run outside a clone, it stops with `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
 parents.`, and a config file it can't read with `ERROR: cannot read <file>.`, exit 1.
 - Flag errors, each exit 1 before anything runs: `ERROR: --only needs a path.`, `ERROR: --diff cannot be combined
