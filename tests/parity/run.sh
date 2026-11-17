@@ -167,6 +167,11 @@ validate_case() {
               else true end' "$json" > /dev/null 2>&1 \
             || die 'CTX_WINDOW_DIR must be a relative path under home'
     fi
+    jq -e 'if has("oldEngines") then
+            (.oldEngines | type) == "array" and (.oldEngines | length) > 0
+            and all(.oldEngines[]; . == "bash" or . == "powershell")
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'oldEngines must be a non-empty list of bash and powershell'
     jq -e 'if has("emptyDirs") then
             (.emptyDirs | type) == "array" and all(.emptyDirs[]; type == "string")
           else true end' "$json" > /dev/null 2>&1 \
@@ -1000,6 +1005,14 @@ for dir in "$CASES"/*/; do
     # A v2 case needs the program: the bash engine can't read config v2.
     if [[ -z $engine_path ]] && [[ $(jq -r 'has("configV2")' "$dir/case.json") == true ]]; then
         printf 'SKIP %s: v2 only\n' "$case_name"
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    # oldEngines names the frozen engines a case runs on; the program runs all.
+    if [[ -z $engine_path ]] \
+        && ! jq -e '(.oldEngines // ["bash"]) | index("bash")' "$dir/case.json" > /dev/null; then
+        printf 'SKIP %s: not on the bash engine\n' "$case_name"
         skipped=$((skipped + 1))
         continue
     fi

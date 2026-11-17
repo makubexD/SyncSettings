@@ -261,6 +261,19 @@ function Validate-Case {
         }
     }
 
+    $oldEnginesProp = $case.PSObject.Properties['oldEngines']
+    if ($null -ne $oldEnginesProp) {
+        $oldEngines = $oldEnginesProp.Value
+        if ($oldEngines -isnot [System.Array] -or $oldEngines.Count -eq 0) {
+            Die 'oldEngines must be a non-empty list of bash and powershell'
+        }
+        foreach ($e in $oldEngines) {
+            if ($e -isnot [string] -or ($e -cne 'bash' -and $e -cne 'powershell')) {
+                Die 'oldEngines must be a non-empty list of bash and powershell'
+            }
+        }
+    }
+
     $emptyDirsProp = $case.PSObject.Properties['emptyDirs']
     if ($null -ne $emptyDirsProp) {
         $emptyDirs = $emptyDirsProp.Value
@@ -1586,6 +1599,15 @@ foreach ($caseDir in $caseDirs) {
     # A v2 case needs the program: the PowerShell engine can't read config v2.
     if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $case.PSObject.Properties['configV2']) {
         Write-Output "SKIP ${caseName}: v2 only"
+        $skipped++
+        continue
+    }
+
+    # oldEngines names the frozen engines a case runs on; the program runs all.
+    $oldEnginesProp = $case.PSObject.Properties['oldEngines']
+    if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $oldEnginesProp -and
+        -not (@($oldEnginesProp.Value) -ccontains 'powershell')) {
+        Write-Output "SKIP ${caseName}: not on the PowerShell engine"
         $skipped++
         continue
     }

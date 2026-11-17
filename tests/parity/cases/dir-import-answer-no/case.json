@@ -1,5 +1,6 @@
 {
   "description": "Import of a dir entry with a no answer skips the changed file and leaves it alone: UNCHANGED, then SKIPPED with the user skipped note (Statuses, Import; Overwrite prompt; Directory entries). Ported from dir-import-prompt-reads-stdin.",
+  "oldEngines": ["bash"],
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak", "*.secret"],

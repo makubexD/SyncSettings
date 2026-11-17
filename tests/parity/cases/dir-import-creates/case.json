@@ -1,5 +1,6 @@
 {
   "description": "Import of a dir entry into an empty home creates every repo file: CREATED for both (Statuses, Import; Directory entries). Ported from dir-import-creates, Pester dir-import-creates.",
+  "oldEngines": ["bash"],
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak", "*.secret"],
