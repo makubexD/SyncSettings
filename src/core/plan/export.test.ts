@@ -673,7 +673,11 @@ describe("planExport", () => {
     );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([
-      { kind: "removeRepo", path: "dotfiles/common/parity/dir/b.txt" },
+      {
+        kind: "removeRepo",
+        path: "dotfiles/common/parity/dir/b.txt",
+        pruneUpTo: "dotfiles/common/parity/dir",
+      },
     ]);
     expect(result.lines).toContain(
       formatLine(

@@ -568,7 +568,7 @@ function planDir(state: State, selected: SelectedEntry): void {
       continue;
     }
     state.pending.push({
-      action: { kind: "removeRepo", path: repoName },
+      action: { kind: "removeRepo", path: repoName, pruneUpTo: repoPath },
       failure: REMOVE_REPO_FAILURE,
     });
     const line = pushStatus(state, "REMOVED", repoName, "no longer in source");

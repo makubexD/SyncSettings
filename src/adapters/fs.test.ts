@@ -741,6 +741,108 @@ describe("runPlan", () => {
     expect(existsSync(repoFile)).toBe(false);
   });
 
+  test("should prune every folder a removed repo file empties", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const repoDir = join(repo, "dotfiles", "common", "parity", "dir");
+    const repoFile = join(repoDir, "a", "b", "c.txt");
+    writeFixture(repoFile, "x\n");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "removeRepo",
+          path: "dotfiles/common/parity/dir/a/b/c.txt",
+          pruneUpTo: "dotfiles/common/parity/dir",
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(existsSync(repoFile)).toBe(false);
+    expect(existsSync(join(repoDir, "a", "b"))).toBe(false);
+    expect(existsSync(join(repoDir, "a"))).toBe(false);
+  });
+
+  test("should keep a pruned file's parent folder that still holds a file", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const repoDir = join(repo, "dotfiles", "common", "parity", "dir");
+    const repoFile = join(repoDir, "a", "b", "c.txt");
+    const keptFile = join(repoDir, "a", "keep.txt");
+    writeFixture(repoFile, "x\n");
+    writeFixture(keptFile, "y\n");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "removeRepo",
+          path: "dotfiles/common/parity/dir/a/b/c.txt",
+          pruneUpTo: "dotfiles/common/parity/dir",
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(existsSync(join(repoDir, "a", "b"))).toBe(false);
+    expect(existsSync(keptFile)).toBe(true);
+  });
+
+  test("should keep the entry's own folder when pruning leaves it empty", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const repoDir = join(repo, "dotfiles", "common", "parity", "dir");
+    const repoFile = join(repoDir, "c.txt");
+    writeFixture(repoFile, "x\n");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "removeRepo",
+          path: "dotfiles/common/parity/dir/c.txt",
+          pruneUpTo: "dotfiles/common/parity/dir",
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(existsSync(repoFile)).toBe(false);
+    expect(existsSync(repoDir)).toBe(true);
+  });
+
+  test("should remove only the file when no prune folder is set", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const repoDir = join(repo, "dotfiles", "common", "parity", "dir");
+    const repoFile = join(repoDir, "a", "b", "c.txt");
+    writeFixture(repoFile, "x\n");
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "removeRepo",
+          path: "dotfiles/common/parity/dir/a/b/c.txt",
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(existsSync(repoFile)).toBe(false);
+    expect(existsSync(join(repoDir, "a", "b"))).toBe(true);
+  });
+
   test("should write a local file named by an absolute path", () => {
     // Arrange
     const { home, repo } = fixture();

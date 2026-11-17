@@ -143,6 +143,12 @@ export interface WriteRepoAction {
 export interface RemoveRepoAction {
   readonly kind: "removeRepo";
   readonly path: string;
+  /**
+   * A repo path under which the folders this removal empties are pruned: each
+   * now-empty parent folder of `path` is removed, walking up and stopping
+   * before this folder, which is never removed. Absent leaves the folders.
+   */
+  readonly pruneUpTo?: string;
 }
 
 /** Write bytes to a local file (import). No `mode` keeps a target's mode. */

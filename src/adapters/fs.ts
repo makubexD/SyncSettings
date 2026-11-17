@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmdirSync,
   rmSync,
   statSync,
   utimesSync,
@@ -710,6 +711,40 @@ function pruneBackups(context: RunContext): void {
   }
 }
 
+/**
+ * Remove the folders a `REMOVED` file leaves empty, walking up from the file's
+ * folder and stopping before `stop`, which is never removed. A folder outside
+ * `stop`, a folder still holding an entry, and a folder that cannot be removed
+ * each end the walk silently, as bash's `find … -empty -delete` does.
+ */
+function pruneEmptyFolders(folder: string, stop: string, os: Os): void {
+  const p = pathFor(os);
+  const root = p.resolve(stop);
+  let current = p.resolve(folder);
+  for (;;) {
+    const relative = p.relative(root, current);
+    if (
+      relative === "" ||
+      relative === ".." ||
+      relative.startsWith(`..${p.sep}`) ||
+      p.isAbsolute(relative)
+    ) {
+      return;
+    }
+    const entries = listDir(current);
+    if (entries === undefined || entries.length > 0) {
+      return;
+    }
+    try {
+      rmdirSync(current);
+    } catch {
+      // A folder that cannot be removed is left, as bash ignores the failure.
+      return;
+    }
+    current = p.dirname(current);
+  }
+}
+
 /** Run one action, returning what it did; it never throws. */
 function runAction(
   action: Action,
@@ -731,6 +766,10 @@ function runAction(
       }
       case "removeRepo": {
         const path = absolutePath(action.path, context);
+        const pruneUpTo =
+          action.pruneUpTo === undefined
+            ? undefined
+            : absolutePath(action.pruneUpTo, context);
         const warning = datedBackupOfStateFile(
           path,
           action.path,
@@ -738,6 +777,13 @@ function runAction(
           dated,
         );
         rmSync(path, { force: true });
+        if (pruneUpTo !== undefined) {
+          pruneEmptyFolders(
+            pathFor(context.os).dirname(path),
+            pruneUpTo,
+            context.os,
+          );
+        }
         return { ok: true, warning };
       }
       case "writeLocal":
