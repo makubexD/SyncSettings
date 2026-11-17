@@ -35,6 +35,8 @@ const STATUS = { kind: "status" } as const;
 
 const DOCTOR = { kind: "doctor" } as const;
 
+const UPDATE = { kind: "update" } as const;
+
 const DIFF = { kind: "diff", paths: [] } as const;
 
 const CHECK = {
@@ -289,6 +291,18 @@ describe("parseArgs", () => {
 
   test("should refuse a stray argument after doctor", () => {
     expect(parseArgs(["doctor", "extra"])).toEqual(unknownOption("extra"));
+  });
+
+  test("should parse update", () => {
+    expect(parseArgs(["update"])).toEqual(UPDATE);
+  });
+
+  test("should refuse an option after update", () => {
+    expect(parseArgs(["update", "--x"])).toEqual(unknownOption("--x"));
+  });
+
+  test("should refuse a stray argument after update", () => {
+    expect(parseArgs(["update", "extra"])).toEqual(unknownOption("extra"));
   });
 
   test("should parse a bare diff", () => {
@@ -749,6 +763,10 @@ describe("parseArgs", () => {
     expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
   });
 
+  test("should name update in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync update")).toBe(true);
+  });
+
   test("should name commit in the usage line", () => {
     expect(USAGE_TEXT.includes("mksync commit [-m <msg>] [--partial]")).toBe(
       true,
@@ -806,13 +824,22 @@ describe("USAGE", () => {
       join(import.meta.dir, "../../docs/sync-contract.md"),
       "utf8",
     );
-    // The contract keeps the current line and the end-of-phase line side by
-    // side until step 30; USAGE is the last one written.
-    const usageLine = contract
+    // The contract shows the end-of-phase line; until steps 24 and 25 the
+    // program's line also lists export, import and commit after `preview`,
+    // and has no `--bootstrap`, as the contract's note under it says.
+    const target = contract
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line.startsWith("usage: mksync "))
-      .at(-1);
+      .find((line) => line.startsWith("usage: mksync "));
+    const usageLine = target
+      ?.replace(" [--bootstrap]", "")
+      .replace(
+        "mksync preview | ",
+        "mksync preview | " +
+          "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
+          "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
+          "mksync commit [-m <msg>] [--partial] | ",
+      );
 
     expect(usageLine).toBe(USAGE_TEXT);
   });

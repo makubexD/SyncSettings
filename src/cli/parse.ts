@@ -18,6 +18,7 @@ export const USAGE =
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
   "[--existing backup|keep|stop] [--yes] | " +
+  "mksync update | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
   "mksync profile retire <name> [--yes] | mksync statusline | " +
   "mksync --version";
@@ -133,6 +134,11 @@ export interface StatuslineCommand {
   readonly kind: "statusline";
 }
 
+/** `update`: download the latest release and replace the running program. */
+export interface UpdateCommand {
+  readonly kind: "update";
+}
+
 /** No command, or one that isn't a verb: print the usage line, exit 2. */
 export interface UsageCommand {
   readonly kind: "usage";
@@ -161,6 +167,7 @@ export type ParsedCommand =
   | SetupCommand
   | VersionCommand
   | StatuslineCommand
+  | UpdateCommand
   | UsageCommand
   | ParseError;
 
@@ -209,6 +216,8 @@ const PUSH_YES = "--yes";
 const MESSAGE_NEEDS_VALUE = "Missing value for -m";
 
 const STATUSLINE_COMMAND = "statusline";
+
+const UPDATE_COMMAND = "update";
 
 const SETUP_YES = "--yes";
 
@@ -665,6 +674,12 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     const extra = argv[1];
     return extra === undefined
       ? { kind: "statusline" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === UPDATE_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "update" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
   if (command === STATUS_COMMAND) {

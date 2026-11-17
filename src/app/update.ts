@@ -27,7 +27,7 @@ const NEW_SUFFIX = ".new";
 
 /** The name a running Windows program is moved to before the replacement,
  * because the OS will not overwrite a file that is running. */
-const OLD_PROGRAM_NAME = "mksync.old.exe";
+export const OLD_PROGRAM_NAME = "mksync.old.exe";
 
 /** An installed program is executable by everyone, as `~/.local/bin/mksync`
  * is. */

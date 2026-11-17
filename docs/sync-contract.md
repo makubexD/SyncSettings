@@ -903,7 +903,7 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
 
   Until phase 9's steps 24 and 25 the program prints the earlier line, which also lists
   `mksync export [--preview] [--diff] [--yes] [--only <path>...]`, `mksync import [--check] [--force] [--reset-values] [--only <path>...]`
-  and `mksync commit [-m <msg>] [--partial]`, and has no `--bootstrap` or `update`.
+  and `mksync commit [-m <msg>] [--partial]`, and has no `--bootstrap`.
 
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
@@ -916,6 +916,7 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
   ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync update.
   ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.
   ```
+
 - Run outside a clone, it stops with `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
 parents.`, and a config file it can't read with `ERROR: cannot read <file>.`, exit 1.
 - Flag errors, each exit 1 before anything runs: `ERROR: --only needs a path.`, `ERROR: --diff cannot be combined

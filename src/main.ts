@@ -1,3 +1,5 @@
+import { unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import {
   readAheadBehind,
@@ -34,6 +36,11 @@ import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
 import { executeShadow } from "./app/shadow.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
+import {
+  defaultUpdateDeps,
+  executeUpdate,
+  OLD_PROGRAM_NAME,
+} from "./app/update.ts";
 import { failure, runExport, setupTerminal, writeLines } from "./app/export.ts";
 import type { ExecuteOptions, Result } from "./app/export.ts";
 import type { RunEnvironment } from "./app/run.ts";
@@ -51,6 +58,7 @@ import type {
   ShadowCommand,
   StatusCommand,
   StatuslineCommand,
+  UpdateCommand,
 } from "./cli/parse.ts";
 import { trimAnswer } from "./core/answer.ts";
 import { pickOs } from "./core/layers/select.ts";
@@ -256,7 +264,8 @@ type Resolved =
   | RetireCommand
   | CommitCommand
   | SetupCommand
-  | StatuslineCommand;
+  | StatuslineCommand
+  | UpdateCommand;
 
 type ExecutableCommand =
   | RunCommand
@@ -272,11 +281,17 @@ type ExecutableCommand =
   | SetupCommand;
 
 function isResolvedCommand(value: Resolved): value is ExecutableCommand {
-  return "kind" in value && value.kind !== "statusline";
+  return (
+    "kind" in value && value.kind !== "statusline" && value.kind !== "update"
+  );
 }
 
 function isStatuslineCommand(value: Resolved): value is StatuslineCommand {
   return "kind" in value && value.kind === "statusline";
+}
+
+function isUpdateCommand(value: Resolved): value is UpdateCommand {
+  return "kind" in value && value.kind === "update";
 }
 
 /** `statusline`'s whole body: stdin in, one line out, 0 whatever fails. */
@@ -544,6 +559,8 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "statusline":
       return parsed;
+    case "update":
+      return parsed;
     case "machine-retire":
     case "profile-retire":
       return parsed;
@@ -560,12 +577,35 @@ export function run(argv: readonly string[]): Resolved {
   }
 }
 
+/**
+ * Delete the program an earlier Windows update moved aside, so a restart
+ * after an update leaves nothing behind. Only Windows has one; any error
+ * leaves the file, because a leftover is harmless.
+ */
+export function removeOldProgram(platform: string, execPath: string): void {
+  if (platform !== "win32") {
+    return;
+  }
+  try {
+    unlinkSync(join(dirname(execPath), OLD_PROGRAM_NAME));
+  } catch {
+    // A leftover is harmless: leave it, whatever the error (usually ENOENT).
+  }
+}
+
 /** The program: argv in, its output printed, its exit code out. */
 export async function main(argv: readonly string[]): Promise<number> {
+  removeOldProgram(process.platform, process.execPath);
   const resolved = run(argv);
   if (isStatuslineCommand(resolved)) {
     process.stdout.write(await statuslineOutput());
     return 0;
+  }
+  if (isUpdateCommand(resolved)) {
+    const result = await executeUpdate(defaultUpdateDeps(pkg.version));
+    process.stdout.write(result.stdout);
+    process.stderr.write(result.stderr);
+    return result.code;
   }
   const result = isResolvedCommand(resolved)
     ? await execute(resolved)
