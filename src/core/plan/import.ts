@@ -53,6 +53,8 @@ const EXTRA_NOTE = "not in repo; kept";
 
 const SYMLINK_NOTE = "symlink";
 
+const LOCAL_UNREADABLE = "cannot read local file";
+
 const DCONF_NOTE = "not supported yet";
 
 const DCONF_MISSING_NOTE = "dconf not installed";
@@ -229,6 +231,12 @@ function applyBytes(
   const local = state.snapshot.localFiles.get(localPath);
   if (local !== undefined && local.kind === "symlink") {
     const line = pushStatus(state, "SKIPPED", label, SYMLINK_NOTE);
+    recordStep(state, label, line, false);
+    return;
+  }
+  // The local file is there but can't be read: report it and write nothing.
+  if (local !== undefined && local.kind === "unreadable") {
+    const line = pushStatus(state, "ERROR", label, LOCAL_UNREADABLE);
     recordStep(state, label, line, false);
     return;
   }

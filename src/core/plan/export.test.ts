@@ -972,6 +972,38 @@ describe("planExport", () => {
     expect(result.actions).toEqual([]);
     expect(result.code).toBe(0);
   });
+
+  test("should report an unreadable dir file and keep its repo copy", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-import-extra");
+    const localFile = "/home/user/.config/parity/dir/a.txt";
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localFile, { kind: "unreadable", path: localFile });
+    const label = "dotfiles/common/parity/dir/a.txt";
+
+    // Act
+    const result = observe({ ...snapshot, localFiles });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `ERROR ${label}`,
+      "ADDED dotfiles/common/parity/dir/extra.txt",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("ERROR", label, "cannot read local file"),
+    );
+    expect(result.lines.some((line) => line.includes("REMOVED"))).toBe(false);
+    expect(
+      result.actions.some(
+        (action) =>
+          (action.kind === "writeRepo" ||
+            action.kind === "chmod" ||
+            action.kind === "removeRepo") &&
+          action.path === label,
+      ),
+    ).toBe(false);
+    expect(result.code).toBe(0);
+  });
 });
 
 describe("planExport values file", () => {

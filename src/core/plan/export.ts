@@ -76,6 +76,8 @@ const CREATE_PARENT_FOLDER_FAILURE = "cannot create parent folder";
 
 const SANITIZED_NOTE = "sanitized";
 
+const LOCAL_UNREADABLE = "cannot read local file";
+
 interface State {
   readonly snapshot: Snapshot;
   readonly values: Values;
@@ -335,6 +337,10 @@ function planFile(state: State, selected: SelectedEntry): void {
   }
 
   const local = state.snapshot.localFiles.get(localPath);
+  if (local !== undefined && local.kind === "unreadable") {
+    pushStatus(state, "ERROR", repoPath, LOCAL_UNREADABLE);
+    return;
+  }
   if (local === undefined || local.kind !== "file") {
     pushStatus(
       state,
@@ -363,11 +369,7 @@ function planFile(state: State, selected: SelectedEntry): void {
     sanitized
       ? sanitize(bytes, rules, state.values, { json: isJsonEntry(entry) })
       : bytes;
-  const compareWithRepo = compareOptions(
-    state.snapshot,
-    repoPath,
-    sanitized,
-  );
+  const compareWithRepo = compareOptions(state.snapshot, repoPath, sanitized);
   const context: SplitContext = {
     writeRepoPath: repoPath,
     // The split looks a key path up in this one file, so the entry's own
@@ -434,6 +436,10 @@ function planFile(state: State, selected: SelectedEntry): void {
   for (const side of result.sideFiles) {
     const sidePath = joinPath(folder, side.name, separator);
     const sideLocal = state.snapshot.localFiles.get(sidePath);
+    if (sideLocal !== undefined && sideLocal.kind === "unreadable") {
+      pushStatus(state, "ERROR", side.repoPath, LOCAL_UNREADABLE);
+      continue;
+    }
     if (sideLocal === undefined || sideLocal.kind !== "file") {
       // The snapshot reads an entry's own local path, not the layer files beside
       // it, so a side file it doesn't list has nothing to push: the layer file
@@ -508,6 +514,10 @@ function planDir(state: State, selected: SelectedEntry): void {
     if (!onlySelected(label, state.only)) {
       continue;
     }
+    if (local.kind === "unreadable") {
+      pushStatus(state, "ERROR", label, LOCAL_UNREADABLE);
+      continue;
+    }
     const repo = state.snapshot.repoFiles.get(label);
     if (repo === undefined) {
       mkdirParent(state, label, CREATE_PARENT_FOLDER_FAILURE);
@@ -557,9 +567,10 @@ function planDir(state: State, selected: SelectedEntry): void {
     const relative = repoName.slice(repoPrefix.length);
     const localPath = `${localDir}${separator}${relative.replaceAll("/", separator)}`;
     const local = state.snapshot.localFiles.get(localPath);
+    // A local file that exists keeps its repo copy, even when it can't be read.
     if (
       local !== undefined &&
-      local.kind === "file" &&
+      (local.kind === "file" || local.kind === "unreadable") &&
       !state.isExcluded(localPath)
     ) {
       continue;
@@ -790,8 +801,6 @@ export function planExport(
     lines: state.lines,
     summary,
     code: 0,
-    ...(state.newSettings.length > 0
-      ? { newSettings: state.newSettings }
-      : {}),
+    ...(state.newSettings.length > 0 ? { newSettings: state.newSettings } : {}),
   };
 }

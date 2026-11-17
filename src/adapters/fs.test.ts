@@ -39,6 +39,9 @@ const BACKUP_MODE = 0o640;
 
 const FOLDER_MODE = 0o755;
 
+/** A file mode the test can't read, for the unreadable kind (skipped as root). */
+const UNREADABLE_MODE = 0o000;
+
 /** A local time, so the dated backup's name is the same in every time zone. */
 const RUN_TIME = new Date(2026, 1, 3, 4, 5, 6);
 
@@ -424,6 +427,26 @@ describe("readSnapshot", () => {
     expect(snapshot.localFiles.has(localDir)).toBe(false);
     expect(snapshot.localDirs.has(localDir)).toBe(true);
   });
+
+  test.skipIf(process.getuid?.() === 0)(
+    "should record a local file it cannot read as the unreadable kind",
+    () => {
+      // Arrange
+      const { home, repo } = fixture();
+      writeFixture(join(repo, "dotfiles", "common", "git", "config"), "x\n");
+      const localFile = join(home, ".config", "git", "config");
+      writeFixture(localFile, "name = user\n", UNREADABLE_MODE);
+
+      // Act
+      const snapshot = snapshotOf(repo, home, [
+        localFileEntry("~/.config/git/config"),
+      ]);
+
+      // Assert
+      expect(snapshot.localFiles.get(localFile)?.kind).toBe("unreadable");
+      expect(snapshot.localDirs.has(dirname(localFile))).toBe(true);
+    },
+  );
 
   test("should leave a missing local file out", () => {
     // Arrange

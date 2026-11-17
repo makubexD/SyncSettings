@@ -782,6 +782,39 @@ describe("planImport file steps", () => {
     );
   });
 
+  test("reports a local file it cannot read and writes nothing for it", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-import-extra");
+    const localFile = "/home/user/.config/parity/dir/a.txt";
+    const label = "dotfiles/common/parity/dir/a.txt";
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localFile, { kind: "unreadable", path: localFile });
+
+    // Act
+    const plan = planImport({ ...snapshot, localFiles }, []);
+
+    // Assert
+    expect(plan.lines).toContain(
+      formatLine("ERROR", label, "cannot read local file"),
+    );
+    expect(plan.lines).toContain(
+      formatLine(
+        "EXTRA",
+        "dotfiles/common/parity/dir/extra.txt",
+        "not in repo; kept",
+      ),
+    );
+    expect(plan.steps.find((entry) => entry.label === label)).toBeUndefined();
+    expect(
+      plan.steps.some((entry) =>
+        entry.actions.some(
+          (item) =>
+            item.action.kind === "writeLocal" && item.action.path === localFile,
+        ),
+      ),
+    ).toBe(false);
+  });
+
   test("reports a dir file's copy failure as cannot copy from repo", () => {
     // Arrange
     const snapshot = validSnapshot("dir-import-extra");

@@ -101,11 +101,11 @@ function statOrUndefined(path: string): Stats | undefined {
   }
 }
 
+/** A file's bytes, or undefined when it cannot be read. */
 function readBytes(path: string): Uint8Array | undefined {
   try {
     return readFileSync(path);
   } catch {
-    // An unreadable file is left out of the snapshot, so a plan reports it missing.
     return undefined;
   }
 }
@@ -186,10 +186,15 @@ function readStateTree(
   readTree(dir, os, files, (_path, relative) => `${prefix}${relative}`);
 }
 
-function fileEntry(path: string, stats: Stats): LocalEntry | undefined {
+/**
+ * A local file's bytes and mode. A file that exists but cannot be read keeps
+ * its own kind, so a plan prints `ERROR <label> cannot read local file` rather
+ * than treating it as a changed or missing file.
+ */
+function fileEntry(path: string, stats: Stats): LocalEntry {
   const bytes = readBytes(path);
   if (bytes === undefined) {
-    return undefined;
+    return { kind: "unreadable", path };
   }
   return { kind: "file", path, bytes, mode: stats.mode & MODE_MASK };
 }
@@ -208,10 +213,7 @@ function addLocalEntry(
   if (stats === undefined || !stats.isFile()) {
     return;
   }
-  const entry = fileEntry(path, stats);
-  if (entry !== undefined) {
-    localFiles.set(path, entry);
-  }
+  localFiles.set(path, fileEntry(path, stats));
 }
 
 /** Contract "Directory entries": recurse, recording symlinks without following them. */
@@ -249,10 +251,7 @@ function addLocalDir(
     if (stats === undefined) {
       continue;
     }
-    const file = fileEntry(path, stats);
-    if (file !== undefined) {
-      localFiles.set(path, file);
-    }
+    localFiles.set(path, fileEntry(path, stats));
   }
 }
 
