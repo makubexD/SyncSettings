@@ -67,6 +67,8 @@ export interface RunOptions {
   readonly stderr?: StreamMode;
   /** Kills the child with SIGKILL after this many milliseconds. */
   readonly timeoutMs?: number;
+  /** Kills the child with SIGKILL when it fires; the run reports `timedOut`. */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -81,6 +83,8 @@ export interface RunResult {
   readonly stderr: Uint8Array;
   readonly missing?: true;
   readonly timedOut?: true;
+  /** The child never started: a missing command, or any other spawn error. */
+  readonly notStarted?: true;
 }
 
 function emptyBytes(): Uint8Array {
@@ -88,7 +92,12 @@ function emptyBytes(): Uint8Array {
 }
 
 function failedResult(): RunResult {
-  return { code: SPAWN_FAILED_CODE, stdout: emptyBytes(), stderr: emptyBytes() };
+  return {
+    code: SPAWN_FAILED_CODE,
+    stdout: emptyBytes(),
+    stderr: emptyBytes(),
+    notStarted: true,
+  };
 }
 
 function missingResult(): RunResult {
@@ -97,6 +106,7 @@ function missingResult(): RunResult {
     stdout: emptyBytes(),
     stderr: emptyBytes(),
     missing: true,
+    notStarted: true,
   };
 }
 
@@ -230,13 +240,28 @@ export async function run(
       if (timer !== undefined) {
         clearTimeout(timer);
       }
+      options.signal?.removeEventListener("abort", stop);
       resolve(result);
     };
-    if (options.timeoutMs !== undefined) {
-      timer = setTimeout(() => {
-        timedOut = true;
+    // A timeout or an abort settles at once with what was read so far: a
+    // process the child started may hold the pipes open, so waiting for
+    // "close" would bring back the hang the limit exists to stop.
+    const stop = (): void => {
+      timedOut = true;
+      if (child.exitCode === null && child.signalCode === null) {
         child.kill(KILL_SIGNAL);
-      }, options.timeoutMs);
+      }
+      settle(closedResult(null, null, true, stdoutChunks, stderrChunks));
+    };
+    if (options.timeoutMs !== undefined) {
+      timer = setTimeout(stop, options.timeoutMs);
+    }
+    if (options.signal !== undefined) {
+      if (options.signal.aborted) {
+        stop();
+      } else {
+        options.signal.addEventListener("abort", stop, { once: true });
+      }
     }
     child.on("error", (error: Error) => {
       settle(spawnErrorResult(error));
@@ -288,7 +313,7 @@ export function runSync(
     return { code: TIMEOUT_CODE, stdout, stderr, timedOut: true };
   }
   if (result.error !== undefined) {
-    return { code: SPAWN_FAILED_CODE, stdout, stderr };
+    return { code: SPAWN_FAILED_CODE, stdout, stderr, notStarted: true };
   }
   if (result.status !== null) {
     return { code: result.status, stdout, stderr };

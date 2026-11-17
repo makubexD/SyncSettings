@@ -91,7 +91,9 @@ describe("run", () => {
     const startedAt = Date.now();
 
     // Act
-    const result = await run(["sleep", SLEEP_SECONDS], { timeoutMs: TIMEOUT_MS });
+    const result = await run(["sleep", SLEEP_SECONDS], {
+      timeoutMs: TIMEOUT_MS,
+    });
     const elapsedMs = Date.now() - startedAt;
 
     // Assert
@@ -100,9 +102,52 @@ describe("run", () => {
     expect(elapsedMs).toBeLessThan(TIMEOUT_LIMIT_MS);
   });
 
+  test("should settle on timeout when a grandchild holds the pipes", async () => {
+    // Arrange
+    const startedAt = Date.now();
+    const holdPipes = `sleep ${SLEEP_SECONDS} & exit 0`;
+
+    // Act
+    const result = await run(["sh", "-c", holdPipes], {
+      timeoutMs: TIMEOUT_MS,
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    // Assert
+    expect(result.timedOut).toBe(true);
+    expect(elapsedMs).toBeLessThan(TIMEOUT_LIMIT_MS);
+  });
+
+  test("should kill the child and settle when the signal aborts", async () => {
+    // Arrange
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    // Act
+    const result = await run(["sleep", SLEEP_SECONDS], {
+      signal: controller.signal,
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    // Assert
+    expect(result.timedOut).toBe(true);
+    expect(elapsedMs).toBeLessThan(TIMEOUT_LIMIT_MS);
+  });
+
+  test("should mark a missing command as not started", async () => {
+    // Act
+    const result = await run(["no-such-cmd-xyz"]);
+
+    // Assert
+    expect(result.notStarted).toBe(true);
+  });
+
   test("should give empty stdout when stdout is ignored", async () => {
     // Act
-    const result = await run(["sh", "-c", PRINT_AND_FAIL], { stdout: "ignore" });
+    const result = await run(["sh", "-c", PRINT_AND_FAIL], {
+      stdout: "ignore",
+    });
 
     // Assert
     expect(result.stdout.length).toBe(0);
@@ -129,7 +174,9 @@ describe("run", () => {
     const result = await run(["pwd"], { cwd: folder });
 
     // Assert
-    expect(realpathSync(decode(result.stdout).trim())).toBe(realpathSync(folder));
+    expect(realpathSync(decode(result.stdout).trim())).toBe(
+      realpathSync(folder),
+    );
   });
 });
 

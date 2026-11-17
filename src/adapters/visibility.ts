@@ -8,6 +8,8 @@
  * ignored for `github.com` so it cannot switch the guard off on the real repo.
  */
 
+import { decode, run } from "./process.ts";
+
 /** Whether the repo can receive profiles, machine records and values. */
 export type RemoteVisibility = "public" | "private" | "unknown";
 
@@ -116,64 +118,16 @@ export async function runCommand(
   args: readonly string[],
   signal?: AbortSignal,
 ): Promise<CommandOutput> {
-  if (signal?.aborted === true) {
+  const result = await run([command, ...args], {
+    stdout: "pipe",
+    stderr: "ignore",
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (result.timedOut === true || result.notStarted === true) {
+    // A missing or hung `gh` is "gh cannot tell", so the API is asked.
     return { code: FAILED_TO_START, stdout: "" };
   }
-  try {
-    const child = Bun.spawn([command, ...args], {
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    let settleAbort: (() => void) | undefined;
-    const killChild = (): void => {
-      if (child.exitCode === null) {
-        child.kill("SIGKILL");
-      }
-      settleAbort?.();
-    };
-    const aborted = new Promise<number>((resolve) => {
-      settleAbort = () => {
-        resolve(FAILED_TO_START);
-      };
-      if (signal === undefined) {
-        return;
-      }
-      if (signal.aborted) {
-        killChild();
-        return;
-      }
-      signal.addEventListener("abort", killChild, { once: true });
-    });
-    try {
-      const stdoutPromise = new Response(child.stdout).text();
-      const code = await Promise.race([child.exited, aborted]);
-      if (code === FAILED_TO_START) {
-        // SIGKILL was sent; reap it so no `gh` is left running. Its output is
-        // dropped unread: a process `gh` started may still hold the pipe open,
-        // and waiting for it would bring back the hang the limit stops.
-        await child.exited;
-        void stdoutPromise.catch(() => "");
-        return { code: FAILED_TO_START, stdout: "" };
-      }
-      // `gh` has exited, but a process it started may still hold the pipe; the
-      // same limit bounds the read, and a cut read counts as "gh cannot tell".
-      const read = await Promise.race([
-        stdoutPromise.then((text) => ({ text })),
-        aborted.then(() => undefined),
-      ]);
-      if (read === undefined) {
-        void stdoutPromise.catch(() => "");
-        return { code: FAILED_TO_START, stdout: "" };
-      }
-      return { code, stdout: read.text };
-    } finally {
-      signal?.removeEventListener("abort", killChild);
-    }
-  } catch {
-    // A missing `gh` is reported as "gh cannot tell", so the API is asked.
-    return { code: FAILED_TO_START, stdout: "" };
-  }
+  return { code: result.code, stdout: decode(result.stdout) };
 }
 
 const DEFAULT_DEPS: VisibilityDeps = {

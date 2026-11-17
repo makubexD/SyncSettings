@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RepoFiles } from "../core/plan/types.ts";
+import { decode, run } from "./process.ts";
 import { originUrls } from "./visibility.ts";
 
 /** What one `git` run returned: its exit code and raw stdout bytes. */
@@ -30,21 +31,18 @@ async function runGit(
   input?: Uint8Array,
   env?: Readonly<Record<string, string>>,
 ): Promise<GitOutput | undefined> {
-  try {
-    const child = Bun.spawn(["git", ...args], {
-      cwd: repoRoot,
-      stdin: input === undefined ? "ignore" : input,
-      stdout: "pipe",
-      stderr: "ignore",
-      ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
-    });
-    const stdout = new Uint8Array(await new Response(child.stdout).arrayBuffer());
-    const code = await child.exited;
-    return { code, stdout };
-  } catch {
+  const result = await run(["git", ...args], {
+    cwd: repoRoot,
+    ...(input === undefined ? {} : { input }),
+    stdout: "pipe",
+    stderr: "ignore",
+    ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
+  });
+  if (result.notStarted === true) {
     // A missing git or an unreadable folder is reported as "cannot tell".
     return undefined;
   }
+  return { code: result.code, stdout: result.stdout };
 }
 
 function decodeText(bytes: Uint8Array): string {
@@ -78,24 +76,22 @@ export async function runGitResult(
   args: readonly string[],
   env?: Readonly<Record<string, string>>,
 ): Promise<GitResult> {
-  try {
-    const child = Bun.spawn(["git", ...args], {
-      cwd: repoRoot,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
-    });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    return { code, stdout, stderr, ok: code === 0 };
-  } catch {
+  const result = await run(["git", ...args], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+    ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
+  });
+  if (result.notStarted === true) {
     // A missing git or an unreadable folder is "git cannot tell".
     return { code: FAILED_TO_START, stdout: "", stderr: "", ok: false };
   }
+  return {
+    code: result.code,
+    stdout: decode(result.stdout),
+    stderr: decode(result.stderr),
+    ok: result.code === 0,
+  };
 }
 
 /**
@@ -339,7 +335,12 @@ export async function readCommitStamp(
     return undefined;
   }
   const [short, date] = output.stdout.trim().split("\u0000");
-  if (short === undefined || short === "" || date === undefined || date === "") {
+  if (
+    short === undefined ||
+    short === "" ||
+    date === undefined ||
+    date === ""
+  ) {
     return undefined;
   }
   return { short, date };
