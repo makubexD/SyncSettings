@@ -1290,7 +1290,13 @@ function Run-Case {
                 } elseif ($allOutput) {
                     $raw = $stdinText | & $launch @procArgs 2> $rawErr | Out-String
                 } else {
-                    $raw = $stdinText | & $launch @procArgs 2>&1 | Out-String
+                    # Each stderr line is cast to its own text: Out-String would
+                    # print an error record's `<exe> : ` prefix and `At …` lines.
+                    $merged = @($stdinText | & $launch @procArgs 2>&1)
+                    $raw = ''
+                    foreach ($item in $merged) {
+                        $raw += ([string]$item).TrimEnd("`r") + "`n"
+                    }
                 }
                 $rc = $LASTEXITCODE
             } finally {

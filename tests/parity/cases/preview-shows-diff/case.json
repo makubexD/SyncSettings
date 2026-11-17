@@ -6,12 +6,16 @@
     "excludePatterns": ["*.bak"],
     "files": [
       {
-        "repoPath": "dotfiles/linux/plain.txt",
+        "repoPath": "dotfiles/common/plain.txt",
         "localPath": "~/plain.txt",
-        "platform": "linux",
+        "platform": "common",
         "description": "Parity case file"
       }
     ]
   },
-  "commands": [{ "command": "preview" }]
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
 }

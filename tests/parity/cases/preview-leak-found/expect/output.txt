@@ -1,1 +1,1 @@
-MODIFIED dotfiles/linux/plain.txt
+MODIFIED dotfiles/common/plain.txt
