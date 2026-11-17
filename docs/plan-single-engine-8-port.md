@@ -20,7 +20,7 @@ can delete the old engines without losing a check.
 
 The inventory is a first pass. This plan overrides it where they differ: eleven `TWIN` rows whose twin skips the
 note or `ERROR:` text the old case checks (marked `gap:` in their spec) are ported here, and the setup and bootstrap
-rows wait for phase 9 (decision 6). Step 34 records the final verdict of every row.
+rows wait for phase 9 (decision 6). Step 37 records the final verdict of every row.
 
 ## Shared rules
 
@@ -42,7 +42,7 @@ rows wait for phase 9 (decision 6). Step 34 records the final verdict of every r
 - **Case names.** Each step names its new cases. The names share a prefix with their group (`only-`, `check-`,
   `dir-`, …), so the step's filter also reruns the group's existing cases.
 - **Description** of each case: one sentence and the contract section in brackets, plus `Ported from <old name>` (and
-  the Pester name when there is one). Step 34 builds the "Moved from" table from these.
+  the Pester name when there is one). Step 37 builds the "Moved from" table from these.
 - **Layout.** `src/core/` stays pure. Tests sit next to their file. No new dependencies.
 - Each worker step: about 3 files (a shared case folder counts as one file), one concern. The test commands run that
   step's cases and tests only; the full suite (`tests/all.sh`) runs once, in the finish.
@@ -77,33 +77,33 @@ the design and the runner README.
 3. **Gaps found by the inventory are fixed here, contract first.** The contract already states each rule; the
    program doesn't follow it:
    - a symlink under `dotfiles/` (contract "Paths": `Nothing under dotfiles/ is a symlink`): the program's
-     `readTree` follows it. It must stop with `ERROR: sync-config.json: entry <repoPath> has an unsafe path.` (step 24);
+     `readTree` follows it. It must stop with `ERROR: sync-config.json: entry <repoPath> has an unsafe path.` (step 27);
    - `--only` with a `dir` entry's own folder (contract "Only": `equal to a dir entry's folder gives its repoPath`):
      the program's `resolveOnly` refuses it (step 8);
    - Windows export of a shared file (contract "Line endings": `export writes it with LF line endings`): the program
-     writes the local CRLF bytes (step 26);
+     writes the local CRLF bytes (step 29);
    - the export preview's `--stat` summary and full diff (contract "Export preview"): the program prints neither
-     (steps 27 and 28);
-   - the macOS doctor's `brew` line (contract "Front door", `mksync doctor`): missing (step 29);
+     (steps 30 and 31);
+   - the macOS doctor's `brew` line (contract "Front door", `mksync doctor`): missing (step 32);
    - local state readable by the user only on Windows (design rule 6, "checked on the VM"): `writeValuesFile` skips
-     the ACL (step 30).
+     the ACL (step 33).
 4. **A local file that became a symlink in a `dir` entry.** The contract skips symlinks (`SKIPPED … symlink`) but
    doesn't say what happens to the repo copy. Bash removes it (`REMOVED … no longer in source`), since a symlink isn't
    a file of the folder; the program keeps it. Proposal: follow bash, and write the sentence into "Directory entries"
-   (step 25).
+   (step 28).
 5. **Push behind origin.** The bash front door checks before the export (`scripts/linux/front.sh`, `push`): after
    `git fetch -q origin master`, any commit in `HEAD..origin/master` stops it with
    `ERROR: origin has updates; run mksync pull first.`, exit 1, nothing exported, `gh` not called. A failed fetch
    skips the check. The contract doesn't say so, the PowerShell front door doesn't do it, and the program runs export
    (which only warns without a terminal) and lets commit stop with `ERROR: master is behind origin; pull first.`.
    Amended at step 1 (first draft had the program's order): the contract's push row states the bash check, the
-   program does the same on every OS (step 16), and the PowerShell front door's lack of it is a Known difference
+   program does the same on every OS (step 19), and the PowerShell front door's lack of it is a Known difference
    until cut-over (old engines frozen), so the case runs on Linux and macOS.
 6. **Config lint rules.** Fourteen `lint-*` cases test rules of `scripts/ci/check-config.sh` that neither v1 nor v2
    parsing has (an entry inside a `dir` entry, `dir` with sanitize rules, `dconf` with `localPath`, rules, linking or
    bad `keys`, `keys` on a file, an unknown type). The config check script dies at cut-over with the v1 config.
-   Proposal: step 31 decides, rule by rule, which have a v2 meaning (a file inside a `dir` entry's folder does; a
-   v1 field name doesn't), writes those as v2 refusals in the design, and step 32 adds them to `parseV2`. The rest
+   Proposal: step 34 decides, rule by rule, which have a v2 meaning (a file inside a `dir` entry's folder does; a
+   v1 field name doesn't), writes those as v2 refusals in the design, and step 35 adds them to `parseV2`. The rest
    are dropped with that reason.
 
 ## Step 1: The port's rules in the contract, design and roadmap `[inline: contract and design text, written from the decisions above]`
@@ -276,29 +276,74 @@ Test: the shared-case command with filter `check-`.
 Files: new folders under `tests/parity/cases/`. Contract "Directory entries". The `dir` entry `dotfiles/common/dir`
 ↔ `~/.config/fixture/dir`, `excludePatterns` with `*.bak` and `*.secret`.
 
-- `dir-export-adds-modes` (`dir-export-adds`): local `a/b.txt` mode 600, `c.txt` mode 755, no repo folder; `export`;
-  exit 0; `ADDED` both; repo modes 600 and 755 (`os: ["linux", "macos"]`, modes).
-- `dir-export-modify-remove` (`dir-export-modify-remove`): repo has `old/old.txt` too, local `c.txt` changed;
-  `export`; exit 0; `MODIFIED …/c.txt`, `REMOVED …/old/old.txt`, `UNCHANGED …/a/b.txt`; lines
-  `REMOVED dotfiles/common/dir/old/old.txt no longer in source`; repo `old/` gone.
+- `dir-export-adds-modes` (`dir-export-adds`): local `a/b.txt`, `c.txt` mode 755, no repo folder; `export`;
+  exit 0; `ADDED` both; repo `c.txt` mode 755 (`os: ["linux", "macos"]`, modes).
 - `dir-export-excluded` (`dir-export-excluded`): local `x.bak`; `export`; `SKIPPED dotfiles/common/dir/x.bak`; lines
   its note `matches exclude pattern`; not copied.
 - `dir-export-missing` (`dir-export-missing`): no local folder; `export`; exit 0; `SKIPPED dotfiles/common/dir/`;
   repo kept. (The note holds the home path, so no `lines.txt`.)
+
+A 600 fixture can't be set up (git stores only 644 and 755), so the mode check keeps the 755 file. The other cases
+moved: the empty-folder ones to step 12, `dir-export-modify-remove` and `dir-export-one-left` to step 13 (the program
+fails them).
+
+Test: the shared-case command with filter `dir-export`.
+
+## Step 11: The runner makes empty folders `[worker]`
+
+Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
+
+Git stores no empty folder, so `home/` can't hold one. New optional `case.json` field `emptyDirs`: a list of paths
+relative to the case's temp home, each created (with parents) after `home/` is copied and before the first command.
+An absolute path or one with a `..` segment is a runner error, as for `CTX_WINDOW_DIR`. A non-list or a non-string
+item is a runner error. The tree compare stays files only, so an `expect/` side needs nothing. README: the field in
+the `case.json` table and a line in "What fits" (an empty folder is now covered).
+
+Test: a temp copy of `only-no-file-import` with `"emptyDirs": [".config/fixture/empty"]` passes on both engines; one
+with `"emptyDirs": ["../x"]` and one with `"emptyDirs": "x"` fail with a runner error; delete the copies. Then the
+shared-case command with filter `only-no-file`.
+
+## Step 12: Shared cases for empty `dir` folders `[worker]`
+
+Files: new folders under `tests/parity/cases/`. Contract "Directory entries". Fixture as in step 10. An empty local
+folder is made with `emptyDirs` (step 11).
+
 - `dir-export-empty-keeps-repo` (`dir-export-empty-keeps-repo`): local folder empty; exit 0; `SKIPPED
 dotfiles/common/dir/`; lines `local folder is empty; repo files kept` and `! REMOVED`; repo kept.
 - `dir-export-only-excluded` (`dir-export-only-excluded`): local folder holds only `x.secret`; both `SKIPPED` lines;
   repo kept.
 - `dir-export-empty-both` (`dir-export-empty-both`): no repo folder, empty local folder; exit 0; no status line for
   the folder; repo folder not created.
-- `dir-export-one-left` (`dir-export-one-left`): local `a/b.txt` deleted; `REMOVED …/a/b.txt` with lines note
-  `no longer in source`, `UNCHANGED …/c.txt`; repo `a/` gone.
 - `dir-bracket-name` (Pester `dir-bracket-name`): local `[x].txt`; `export` twice then `import --force`; `ADDED`,
   then `UNCHANGED`, then `UNCHANGED`, each for `dotfiles/common/dir/[x].txt`; repo bytes equal.
 
 Test: the shared-case command with filter `dir-export`, then `dir-bracket`.
 
-## Step 11: Shared cases for `dir` entries on import `[worker]`
+## Step 13: Export removes the folders a `REMOVED` empties `[worker]`
+
+Files: `src/core/plan/types.ts`, `src/core/plan/export.ts`, `src/adapters/fs.ts` (and their tests), new cases.
+
+The gap: after `REMOVED dotfiles/common/dir/old/old.txt` the program leaves the empty `old/` folder in the repo;
+the contract ("Directory entries": "Export deletes repo files that are gone locally or are now excluded (`REMOVED`;
+git keeps the history), then removes empty folders under the entry's `repoPath`") and bash
+(`find "$repo_dir" -mindepth 1 -type d -empty -delete`) remove it. The fix: the `removeRepo` action gets an optional
+`pruneUpTo` (the `dir` entry's `repoPath`), set by the `dir` export; after the file is removed the adapter removes
+each parent folder that is now empty, walking up and stopping before `pruneUpTo` (never removing it). A folder that
+can't be removed is left, as bash does. Unit tests: nested `a/b/c.txt` removed leaves neither `a/b` nor `a`; a parent
+still holding a file stays; the entry's own folder stays even when empty; no `pruneUpTo` removes only the file.
+
+Cases (fixture as in step 10):
+
+- `dir-export-modify-remove` (`dir-export-modify-remove`): repo has `old/old.txt` too, local `c.txt` changed;
+  `export`; exit 0; `MODIFIED …/c.txt`, `REMOVED …/old/old.txt`, `UNCHANGED …/a/b.txt`; lines
+  `REMOVED dotfiles/common/dir/old/old.txt no longer in source`; repo `old/` gone.
+- `dir-export-one-left` (`dir-export-one-left`): local `a/b.txt` deleted; `REMOVED …/a/b.txt` with lines note
+  `no longer in source`, `UNCHANGED …/c.txt`; repo `a/` gone.
+
+Test: `bun test src/adapters/fs.test.ts src/core/plan/export.test.ts` and the shared-case command with filter
+`dir-export`.
+
+## Step 14: Shared cases for `dir` entries on import `[worker]`
 
 Files: new folders under `tests/parity/cases/`. Contract "Directory entries", "Import". Same entry as step 10.
 
@@ -313,7 +358,7 @@ Files: new folders under `tests/parity/cases/`. Contract "Directory entries", "I
 
 Test: the shared-case command with filter `dir-import`, then `dir-roundtrip`.
 
-## Step 12: Shared cases for excludes, orphans and notes `[worker]`
+## Step 15: Shared cases for excludes, orphans and notes `[worker]`
 
 Files: new folders under `tests/parity/cases/`. Contract "Exclude patterns", "Orphans", "Import".
 
@@ -337,7 +382,7 @@ dotfiles/stray.txt`, lines note `no entry in sync-config.json; git rm it or add 
 
 Test: the shared-case command with filters `excluded`, `orphan-`, `import-eof-backup`, `export-sanitized-note`.
 
-## Step 13: Shared cases for the export preview `[worker]`
+## Step 16: Shared cases for the export preview `[worker]`
 
 Files: new folders under `tests/parity/cases/`. Contract "Export preview". `git: committed`.
 
@@ -356,7 +401,7 @@ Files: new folders under `tests/parity/cases/`. Contract "Export preview". `git:
 
 Test: the shared-case command with filter `preview-`.
 
-## Step 14: Shared cases for commit `[worker]`
+## Step 17: Shared cases for commit `[worker]`
 
 Files: new folders under `tests/parity/cases/`. Contract "Checks before pushing". `git: remote`, `stubs: ["gh"]`,
 modeled on `commit-opens-pr`.
@@ -366,7 +411,7 @@ modeled on `commit-opens-pr`.
 - `commit-packages-leak` (`commit-packages-leak-blocked`): `apt.txt` holds a home path; exit 1; lines
   `ERROR: the leak scan found the lines above; nothing was committed.`, `packages/linux/apt.txt`, `home-path`;
   no `gh.log`.
-- `commit-scan-missing` (`commit-scan-missing`): as step 13's `preview-scan-missing`; exit 1; lines
+- `commit-scan-missing` (`commit-scan-missing`): as step 16's `preview-scan-missing`; exit 1; lines
   `ERROR: leak scan could not run; nothing was committed.`; no `gh.log`.
 - `commit-value-untracked` (`commit-value-untracked`): `values` `{"<NAME>": "Fixture User"}`, a sanitize rule for it,
   `unsent/dotfiles/linux/new/added.txt` holds `author = Fixture User`; exit 1; lines
@@ -382,7 +427,7 @@ modeled on `commit-opens-pr`.
 
 Test: the shared-case command with filter `commit-`.
 
-## Step 15: Shared cases for diff `[worker]`
+## Step 18: Shared cases for diff `[worker]`
 
 Files: new folders under `tests/parity/cases/`. Contract "Diff", "Sync point". `git: remote`.
 
@@ -403,7 +448,7 @@ Files: new folders under `tests/parity/cases/`. Contract "Diff", "Sync point". `
 
 Test: the shared-case command with filter `diff-`.
 
-## Step 16: Shared cases for pull and push, and push behind origin `[worker]`
+## Step 19: Shared cases for pull and push, and push behind origin `[worker]`
 
 Files: new folders under `tests/parity/cases/`, `src/app/push.ts`, `src/app/push.test.ts`. Contract "Front door" (as
 step 1 left it). `git: remote`.
@@ -425,7 +470,7 @@ the export and calls no commit; a failed fetch goes on; up to date goes on.
 Test: `bun test src/app/push.test.ts` and the shared-case command with filters `pull-only`,
 `pull-no-sync-point-force`, `push-behind`.
 
-## Step 17: dconf write failure and a real bus `[worker]`
+## Step 20: dconf write failure and a real bus `[worker]`
 
 Files: new case `tests/parity/cases/dconf-export-in-the-way/`, `src/adapters/dconf.test.ts`.
 
@@ -442,7 +487,7 @@ Files: new case `tests/parity/cases/dconf-export-in-the-way/`, `src/adapters/dco
 
 Test: `bun test src/adapters/dconf.test.ts` and the shared-case command with filter `dconf-export-in-the-way`.
 
-## Step 18: Values unit tests `[worker]`
+## Step 21: Values unit tests `[worker]`
 
 Files: `src/core/values/values.test.ts`, `src/core/compare.test.ts`, `src/core/plan/export.test.ts`.
 
@@ -463,7 +508,7 @@ Files: `src/core/values/values.test.ts`, `src/core/compare.test.ts`, `src/core/p
 
 Test: `bun test src/core/values/values.test.ts src/core/compare.test.ts src/core/plan/export.test.ts`.
 
-## Step 19: Entry selection unit tests `[worker]`
+## Step 22: Entry selection unit tests `[worker]`
 
 Files: `src/core/layers/select.test.ts` (or the file next to the selection code; the worker names it).
 
@@ -475,7 +520,7 @@ Files: `src/core/layers/select.test.ts` (or the file next to the selection code;
 
 Test: `bun test src/core/layers/select.test.ts`.
 
-## Step 20: Local path and pick unit tests `[worker]`
+## Step 23: Local path and pick unit tests `[worker]`
 
 Files: `src/core/plan/pick.test.ts`.
 
@@ -493,7 +538,7 @@ Files: `src/core/plan/pick.test.ts`.
 
 Test: `bun test src/core/plan/pick.test.ts`.
 
-## Step 21: Config unit tests `[worker]`
+## Step 24: Config unit tests `[worker]`
 
 Files: `src/core/config/v1.test.ts`, `src/core/config/convert.test.ts`, `src/core/plan/import.test.ts`.
 
@@ -511,7 +556,7 @@ alone`; `planExport` on the result has no `MODIFIED`, `ADDED`, `REMOVED` or `ORP
 
 Test: `bun test src/core/config/v1.test.ts src/core/config/convert.test.ts src/core/plan/import.test.ts`.
 
-## Step 22: Filesystem and git adapter tests `[worker]`
+## Step 25: Filesystem and git adapter tests `[worker]`
 
 Files: `src/adapters/fs.test.ts`, `src/adapters/git.test.ts`.
 
@@ -527,7 +572,7 @@ Files: `src/adapters/fs.test.ts`, `src/adapters/git.test.ts`.
 
 Test: `bun test src/adapters/fs.test.ts src/adapters/git.test.ts`.
 
-## Step 23: Failure unit tests `[worker]`
+## Step 26: Failure unit tests `[worker]`
 
 Files: `src/core/plan/export.test.ts`, `src/core/plan/check.test.ts`, `src/app/import.ts`'s test file (new
 `src/app/import.test.ts` if none).
@@ -543,7 +588,7 @@ repo files kept`, no `REMOVED` (`dir-export-only-symlink`).
 
 Test: `bun test src/core/plan/export.test.ts src/core/plan/check.test.ts src/app/import.test.ts`.
 
-## Step 24: A symlink under `dotfiles/` stops the run `[worker]`
+## Step 27: A symlink under `dotfiles/` stops the run `[worker]`
 
 Files: `src/adapters/fs.ts`, `src/adapters/fs.test.ts`.
 
@@ -555,7 +600,7 @@ refuse a symlink anywhere under `dotfiles/`. Local symlinks keep their contract 
 
 Test: `bun test src/adapters/fs.test.ts`.
 
-## Step 25: A local file that became a symlink in a `dir` entry `[worker]`
+## Step 28: A local file that became a symlink in a `dir` entry `[worker]`
 
 Files: `src/core/plan/export.ts`, `src/core/plan/export.test.ts`.
 
@@ -566,7 +611,7 @@ empty; repo files kept`) still wins when every local file is a symlink.
 
 Test: `bun test src/core/plan/export.test.ts`.
 
-## Step 26: Shared files exported with LF on Windows `[worker]`
+## Step 29: Shared files exported with LF on Windows `[worker]`
 
 Files: `src/core/plan/export.ts`, `src/core/plan/export.test.ts`, `src/core/compare.test.ts`.
 
@@ -585,7 +630,7 @@ LF. A sanitized shared file follows the same rule after sanitizing.
 
 Test: `bun test src/core/plan/export.test.ts src/core/compare.test.ts`.
 
-## Step 27: The preview's diff from git `[worker:high: reasoning: a stat and full diff of an in-memory tree against HEAD without touching the working tree, refs or the real index]`
+## Step 30: The preview's diff from git `[worker:high: reasoning: a stat and full diff of an in-memory tree against HEAD without touching the working tree, refs or the real index]`
 
 Files: `src/adapters/git.ts`, `src/adapters/git.test.ts`.
 
@@ -599,19 +644,19 @@ file give the three stat lines and diff headers; the working tree, `HEAD`, the r
 
 Test: `bun test src/adapters/git.test.ts`.
 
-## Step 28: The preview prints the stat and diff `[worker]`
+## Step 31: The preview prints the stat and diff `[worker]`
 
 Files: the preview's app file (`src/app/export.ts`), its test, new case `tests/parity/cases/preview-shows-diff/`.
 
 The case first (`preview-shows-diff`, contract "Export preview"): `git: committed`, local `plain.txt` gains the line
 `preview change`; `preview`; exit 0; lines `dotfiles/linux/plain.txt | `, `+preview change`, then `Nothing was
-written. Run mksync push to send it.` Then the code: after the status lines and the leak scan, print step 27's stat
+written. Run mksync push to send it.` Then the code: after the status lines and the leak scan, print step 30's stat
 and diff (sanitized text, as the plan holds it), and none when the scan hit or couldn't run. Remove the `shortcut:`
 comment in `src/core/plan/preview.ts`.
 
 Test: `bun test src/app/` and the shared-case command with filter `preview-`.
 
-## Step 29: The macOS doctor and label `[worker]`
+## Step 32: The macOS doctor and label `[worker]`
 
 Files: `src/core/front/doctor.ts`, `src/core/front/doctor.test.ts`, `src/adapters/osname.test.ts` (new).
 
@@ -623,7 +668,7 @@ Then the `brew` check.
 
 Test: `bun test src/core/front/doctor.test.ts src/adapters/osname.test.ts`.
 
-## Step 30: Local state readable by the user only on Windows `[worker]`
+## Step 33: Local state readable by the user only on Windows `[worker]`
 
 Files: `src/adapters/fs.ts`, `src/adapters/fs.test.ts`, `tests/parity/run.ps1`.
 
@@ -637,7 +682,7 @@ no inherited rule and one rule, the current user (Pester `values-private-new`, `
 Test: `bun test src/adapters/fs.test.ts`; the `run.ps1` check runs in the VM in the finish
 (`tests/windows-vm/vm.sh status` 0), or on CI.
 
-## Step 31: Config lint rules in v2 `[inline: deciding which v1 lint rules have a v2 meaning is design work]`
+## Step 34: Config lint rules in v2 `[inline: deciding which v1 lint rules have a v2 meaning is design work]`
 
 Files: `docs/design-layers.md`, `docs/port-inventory.tsv`.
 
@@ -650,16 +695,16 @@ refusals next to the other v2 lines in the design and the verdicts in the invent
 
 Test: `npx prettier --check docs/design-layers.md`.
 
-## Step 32: The v2 refusals `[worker]`
+## Step 35: The v2 refusals `[worker]`
 
 Files: `src/core/config/v2.ts`, `src/core/config/v2.test.ts`.
 
-The refusals step 31 wrote, one test each with its exact line, plus a valid config with the sibling-prefix shape
+The refusals step 34 wrote, one test each with its exact line, plus a valid config with the sibling-prefix shape
 (`dotfiles/common/dir` and `dotfiles/common/dir2`) still accepted.
 
 Test: `bun test src/core/config/v2.test.ts`.
 
-## Step 33: The pending inventory rows `[inline: reconciling the inventory with what the steps did]`
+## Step 36: The pending inventory rows `[inline: reconciling the inventory with what the steps did]`
 
 Files: `docs/port-inventory.tsv`.
 
@@ -669,7 +714,7 @@ verdict.
 
 Test: `awk -F'\t' 'NR>1 && $3=="PORT"' docs/port-inventory.tsv` prints nothing.
 
-## Step 34: Docs `[inline: docs summary of the port]`
+## Step 37: Docs `[inline: docs summary of the port]`
 
 Files: `docs/design-test-moves.md`, `tests/parity/README.md`, `docs/plan-single-engine.md`, `docs/sync-contract.md`.
 
