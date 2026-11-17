@@ -36,6 +36,9 @@ rows wait for phase 9 (decision 6). Step 34 records the final verdict of every r
   its summary. `/next` stops there. The plan gets a fix step through a plan edit.
 - **Public repo.** Fixtures use `example.com`, `/home/user`, `C:\Users\user`, profiles `work-1` and `personal`,
   machines `wk1-laptop` and `home-linux`. `leak-scan` stays green.
+- **Every OS a case claims.** CI runs the shared cases on Linux, macOS and Windows. A case with no `os` field picks,
+  changes and expects only `common` entries (`dotfiles/common/…`); a `linux` or `windows` entry in it is a bystander
+  that stays unchanged everywhere. A case that needs a `linux` entry synced sets `os: ["linux"]`.
 - **Case names.** Each step names its new cases. The names share a prefix with their group (`only-`, `check-`,
   `dir-`, …), so the step's filter also reruns the group's existing cases.
 - **Description** of each case: one sentence and the contract section in brackets, plus `Ported from <old name>` (and
