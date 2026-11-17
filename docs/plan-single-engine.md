@@ -227,6 +227,11 @@ the frozen PowerShell engine differs there and is deleted at cut-over.
 
 ### Phase 9: cut-over
 
+Two plans: [plan-single-engine-9.md](plan-single-engine-9.md) builds and tests on Linux everything below that needs no
+real machine (Node and Bun from the clone, release workflow, `mksync update`, installers, setup with doctor and the
+bootstrap question, the "before cut-over" fixes); `docs/plan-single-engine-9-cutover.md`, written when it finishes,
+tags the release, runs the real-Windows checklist and the Claude layout, and deletes the old engines.
+
 - A release workflow builds the programs with checksums and `gh attestation`.
 - The Claude layout goes live: `bun tools/claude-layout.ts <repo>` lists its writes, then `--cutover` writes the
   layers and drops the v1 Claude rows (a second run is refused), the synced
