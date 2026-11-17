@@ -12,7 +12,9 @@ import type {
   Result,
 } from "./types.ts";
 
-const MODULES = { unsorted: { description: "Entries converted from v1, not sorted yet." } };
+const MODULES = {
+  unsorted: { description: "Entries converted from v1, not sorted yet." },
+};
 
 interface Extra {
   readonly version?: number;
@@ -20,12 +22,19 @@ interface Extra {
   readonly excludePatterns?: readonly string[];
 }
 
-function configOf(files: readonly ConfigV1Entry[], extra: Extra = {}): ConfigV1 {
+function configOf(
+  files: readonly ConfigV1Entry[],
+  extra: Extra = {},
+): ConfigV1 {
   return {
     files,
     ...(extra.version !== undefined ? { version: extra.version } : {}),
-    ...(extra.defaultUser !== undefined ? { defaultUser: extra.defaultUser } : {}),
-    ...(extra.excludePatterns !== undefined ? { excludePatterns: extra.excludePatterns } : {}),
+    ...(extra.defaultUser !== undefined
+      ? { defaultUser: extra.defaultUser }
+      : {}),
+    ...(extra.excludePatterns !== undefined
+      ? { excludePatterns: extra.excludePatterns }
+      : {}),
   };
 }
 
@@ -36,7 +45,10 @@ function convert(
   return convertV1(configOf(files, extra));
 }
 
-function expected(entries: readonly ConfigV2Entry[], excludePatterns?: readonly string[]): ConfigV2 {
+function expected(
+  entries: readonly ConfigV2Entry[],
+  excludePatterns?: readonly string[],
+): ConfigV2 {
   return excludePatterns === undefined
     ? { schemaVersion: 2, modules: MODULES, entries }
     : { schemaVersion: 2, excludePatterns, modules: MODULES, entries };
@@ -45,7 +57,10 @@ function expected(entries: readonly ConfigV2Entry[], excludePatterns?: readonly 
 function noRootError(repoPath: string): { ok: false; error: ConfigError } {
   return {
     ok: false,
-    error: { message: `ERROR: ${repoPath}: no v2 layer root matches this path`, code: 1 },
+    error: {
+      message: `ERROR: ${repoPath}: no v2 layer root matches this path`,
+      code: 1,
+    },
   };
 }
 
@@ -172,7 +187,9 @@ describe("convertV1", () => {
       {
         repoPath: "dotfiles/common/vscode/settings.json",
         localPath: "~/.config/Code/User/settings.json",
-        localPaths: { macos: "~/Library/Application Support/Code/User/settings.json" },
+        localPaths: {
+          macos: "~/Library/Application Support/Code/User/settings.json",
+        },
         platform: ["linux", "macos"],
       },
     ];
@@ -189,7 +206,9 @@ describe("convertV1", () => {
           module: "unsorted",
           merge: "whole",
           localPath: "~/.config/Code/User/settings.json",
-          localPaths: { macos: "~/Library/Application Support/Code/User/settings.json" },
+          localPaths: {
+            macos: "~/Library/Application Support/Code/User/settings.json",
+          },
           os: ["linux", "macos"],
         },
       ]),
@@ -213,7 +232,12 @@ describe("convertV1", () => {
     expect(result).toEqual({
       ok: true,
       value: expected([
-        { file: "tmux/.tmux.conf", module: "unsorted", merge: "whole", localPath: "~/.tmux.conf" },
+        {
+          file: "tmux/.tmux.conf",
+          module: "unsorted",
+          merge: "whole",
+          localPath: "~/.tmux.conf",
+        },
       ]),
     });
   });
@@ -334,7 +358,11 @@ describe("convertV1", () => {
 
   test("sanitizeRules: the rules become sanitize unchanged", () => {
     // Arrange
-    const rule = { placeholder: "<HOME>", prompt: "Home directory", defaultEnv: "HOME" };
+    const rule = {
+      placeholder: "<HOME>",
+      prompt: "Home directory",
+      defaultEnv: "HOME",
+    };
     const files: readonly ConfigV1Entry[] = [
       {
         repoPath: "dotfiles/linux/gnome/bookmarks",
@@ -610,6 +638,20 @@ describe("convertV1", () => {
     expect(result).toEqual(noRootError(repoPath));
   });
 
+  test("should fail when a windows entry sits under the linux root (lint-windows-linux-prefix)", () => {
+    // Arrange
+    const repoPath = "dotfiles/linux/.bashrc";
+    const files: readonly ConfigV1Entry[] = [
+      { repoPath, localPath: "~\\.bashrc", platform: "windows" },
+    ];
+
+    // Act
+    const result = convert(files);
+
+    // Assert
+    expect(result).toEqual(noRootError(repoPath));
+  });
+
   test("a leading ~\\ and inner backslashes are rewritten", () => {
     // Arrange
     const files: readonly ConfigV1Entry[] = [
@@ -641,7 +683,10 @@ describe("convertV1", () => {
 
   test("the repo's own sync-config.json converts and passes parseV2", () => {
     // Arrange
-    const text = readFileSync(new URL("../../../sync-config.json", import.meta.url), "utf8");
+    const text = readFileSync(
+      new URL("../../../sync-config.json", import.meta.url),
+      "utf8",
+    );
     const parsed = parseV1(text);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) {
@@ -656,6 +701,9 @@ describe("convertV1", () => {
     if (!result.ok) {
       return;
     }
-    expect(parseV2(JSON.stringify(result.value))).toEqual({ ok: true, value: result.value });
+    expect(parseV2(JSON.stringify(result.value))).toEqual({
+      ok: true,
+      value: result.value,
+    });
   });
 });

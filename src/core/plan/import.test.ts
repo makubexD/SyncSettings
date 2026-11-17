@@ -25,6 +25,7 @@ import type {
 import { parseJson } from "../json/value.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
+import { planExport } from "./export.ts";
 import { planImport } from "./import.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
@@ -32,6 +33,7 @@ import type {
   Action,
   DconfDumpResult,
   LocalEntry,
+  RunPlan,
   Snapshot,
 } from "./types.ts";
 
@@ -195,10 +197,7 @@ interface Observed {
 }
 
 /** The plan's output and every action it would run, steps first then finish. */
-function runSnapshot(
-  snapshot: Snapshot,
-  answers: readonly string[],
-): Observed {
+function runSnapshot(snapshot: Snapshot, answers: readonly string[]): Observed {
   const plan = planImport(snapshot, answers);
   const rendered = renderRun(plan, NO_FAILURES);
   return {
@@ -278,7 +277,11 @@ interface ShownAction {
 function shownActions(actions: readonly Action[]): readonly ShownAction[] {
   return actions.map((action) => {
     if (action.kind === "writeValues") {
-      return { kind: action.kind, path: ".user-values.json", text: action.text };
+      return {
+        kind: action.kind,
+        path: ".user-values.json",
+        text: action.text,
+      };
     }
     if (action.kind === "writeMachineValues") {
       return { kind: action.kind, path: "machine.json" };
@@ -314,7 +317,9 @@ describe("planImport", () => {
     const result = runCase("import-answer-no");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("import-answer-no", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("import-answer-no", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
     expect(result.lines).toContain(
@@ -359,7 +364,11 @@ describe("planImport", () => {
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
     expect(result.lines).toContain(
-      formatLine("SKIPPED", "dotfiles/common/parity/a.conf", "not found in repo"),
+      formatLine(
+        "SKIPPED",
+        "dotfiles/common/parity/a.conf",
+        "not found in repo",
+      ),
     );
   });
 
@@ -394,7 +403,9 @@ describe("planImport", () => {
     const result = runCase("hydrate-creates");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("hydrate-creates", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("hydrate-creates", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(shownActions(result.actions)).toEqual([
       {
@@ -453,7 +464,9 @@ describe("planImport", () => {
     const result = runCase("infer-value");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("infer-value", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("infer-value", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
     expect(result.lines).toContain(
@@ -479,7 +492,9 @@ describe("planImport", () => {
     const result = runCase("only-one-file");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("only-one-file", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("only-one-file", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(shownActions(result.actions)).toEqual([
       { kind: "backup", path: "/home/user/.config/parity/a.conf" },
@@ -542,7 +557,9 @@ describe("planImport sync point", () => {
 
     // Assert
     expect(writeStateActions(result)).toEqual([]);
-    expect(result.lines).not.toContain(`  Sync point : ${SYNC_HEAD.slice(0, 7)}`);
+    expect(result.lines).not.toContain(
+      `  Sync point : ${SYNC_HEAD.slice(0, 7)}`,
+    );
   });
 
   test("skips HEAD when --only was given", () => {
@@ -554,19 +571,27 @@ describe("planImport sync point", () => {
 
     // Assert
     expect(writeStateActions(result)).toEqual([]);
-    expect(result.lines).not.toContain(`  Sync point : ${SYNC_HEAD.slice(0, 7)}`);
+    expect(result.lines).not.toContain(
+      `  Sync point : ${SYNC_HEAD.slice(0, 7)}`,
+    );
   });
 
   test("skips HEAD when it does not resolve", () => {
     // Arrange
-    const snapshot = withGit(validSnapshot("import-updated-backup"), undefined, "");
+    const snapshot = withGit(
+      validSnapshot("import-updated-backup"),
+      undefined,
+      "",
+    );
 
     // Act
     const result = runSnapshot(snapshot, []);
 
     // Assert
     expect(writeStateActions(result)).toEqual([]);
-    expect(result.lines.some((line) => line.includes("Sync point :"))).toBe(false);
+    expect(result.lines.some((line) => line.includes("Sync point :"))).toBe(
+      false,
+    );
   });
 
   test("skips HEAD on a dirty tree", () => {
@@ -582,7 +607,9 @@ describe("planImport sync point", () => {
 
     // Assert
     expect(writeStateActions(result)).toEqual([]);
-    expect(result.lines).not.toContain(`  Sync point : ${SYNC_HEAD.slice(0, 7)}`);
+    expect(result.lines).not.toContain(
+      `  Sync point : ${SYNC_HEAD.slice(0, 7)}`,
+    );
   });
 
   test("skips HEAD when git status is unavailable", () => {
@@ -614,7 +641,9 @@ describe("planImport sync point", () => {
     // Assert
     expect(result.code).toBe(1);
     expect(writeStateActions(result)).toEqual([]);
-    expect(result.lines).not.toContain(`  Sync point : ${SYNC_HEAD.slice(0, 7)}`);
+    expect(result.lines).not.toContain(
+      `  Sync point : ${SYNC_HEAD.slice(0, 7)}`,
+    );
   });
 });
 
@@ -1378,7 +1407,11 @@ describe("planImport values on a machine", () => {
         merge: "whole",
         localPath: "~/.config/parity/a.conf",
         sanitize: [
-          { placeholder: "<HOME>", prompt: "Home folder", default: "/home/user" },
+          {
+            placeholder: "<HOME>",
+            prompt: "Home folder",
+            default: "/home/user",
+          },
         ],
       },
       { "dotfiles/common/parity/a.conf": "home = <HOME>\n" },
@@ -1408,7 +1441,11 @@ describe("planImport values on a machine", () => {
         merge: "whole",
         localPath: "~/.config/parity/a.conf",
         sanitize: [
-          { placeholder: "<YOUR_NAME>", prompt: "Full name", default: "Parity User" },
+          {
+            placeholder: "<YOUR_NAME>",
+            prompt: "Full name",
+            default: "Parity User",
+          },
         ],
       },
       { "dotfiles/common/parity/a.conf": "name = <YOUR_NAME>\n" },
@@ -1438,7 +1475,11 @@ describe("planImport values on a machine", () => {
         merge: "whole",
         localPath: "~/.config/parity/a.conf",
         sanitize: [
-          { placeholder: "<HOME>", prompt: "Home folder", default: "/home/user" },
+          {
+            placeholder: "<HOME>",
+            prompt: "Home folder",
+            default: "/home/user",
+          },
         ],
       },
       { "dotfiles/common/parity/a.conf": "home = <HOME>\n" },
@@ -1613,15 +1654,15 @@ describe("planImport dconf", () => {
     const result = runSnapshot(snapshot, []);
 
     // Assert
-    expect(statusLines(result.lines)).toEqual([
-      `UNCHANGED ${DCONF_REPO_PATH}`,
-    ]);
+    expect(statusLines(result.lines)).toEqual([`UNCHANGED ${DCONF_REPO_PATH}`]);
     expect(result.actions).toEqual([]);
   });
 
   test("should back up the dump, then load, when a repo key differs", () => {
     // Arrange
-    const snapshot = dconfSnapshot({ dump: { kind: "ok", text: DCONF_OLD_DUMP } });
+    const snapshot = dconfSnapshot({
+      dump: { kind: "ok", text: DCONF_OLD_DUMP },
+    });
 
     // Act
     const result = runSnapshot(snapshot, []);
@@ -1629,11 +1670,7 @@ describe("planImport dconf", () => {
     // Assert
     expect(statusLines(result.lines)).toEqual([`UPDATED ${DCONF_REPO_PATH}`]);
     expect(result.lines).toContain(
-      formatLine(
-        "UPDATED",
-        DCONF_REPO_PATH,
-        "backup saved as dconf.ini.bak",
-      ),
+      formatLine("UPDATED", DCONF_REPO_PATH, "backup saved as dconf.ini.bak"),
     );
     expect(shownActions(result.actions)).toEqual([
       {
@@ -1651,7 +1688,9 @@ describe("planImport dconf", () => {
 
   test("should keep the backup in the dated folder under the repo path", () => {
     // Arrange
-    const snapshot = dconfSnapshot({ dump: { kind: "ok", text: DCONF_OLD_DUMP } });
+    const snapshot = dconfSnapshot({
+      dump: { kind: "ok", text: DCONF_OLD_DUMP },
+    });
 
     // Act
     const plan = planImport(snapshot, []);
@@ -1729,5 +1768,212 @@ describe("planImport dconf", () => {
       formatLine("SKIPPED", DCONF_COMMON_REPO_PATH, "not supported yet"),
     );
     expect(plan.steps).toEqual([]);
+  });
+});
+
+const REAL_CONFIG_URL = new URL("../../../sync-config.json", import.meta.url);
+
+const REAL_DOTFILES_URL = new URL("../../../dotfiles/", import.meta.url);
+
+const REAL_HOME = "/home/fixture";
+
+const REAL_LOGIN_HOME = "/home/fixture-login";
+
+function realConfig(): ConfigV2 {
+  const parsed = parseV1(readFileSync(REAL_CONFIG_URL, "utf8"));
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  const converted = convertV1(parsed.value);
+  if (!converted.ok) {
+    throw new Error(converted.error.message);
+  }
+  return converted.value;
+}
+
+function realRepoFiles(): Map<string, Uint8Array> {
+  const files = new Map<string, Uint8Array>();
+  for (const relative of listFiles(REAL_DOTFILES_URL)) {
+    files.set(
+      `dotfiles/${relative}`,
+      readFileSync(new URL(relative, REAL_DOTFILES_URL)),
+    );
+  }
+  return files;
+}
+
+/** A fixture value per placeholder, so no test reads a real value. */
+function fixtureValues(config: ConfigV2): Readonly<Record<string, string>> {
+  const placeholders = new Set<string>();
+  for (const entry of config.entries) {
+    for (const rule of entry.sanitize ?? []) {
+      placeholders.add(rule.placeholder);
+    }
+  }
+  return Object.fromEntries(
+    [...placeholders].map((placeholder) => [
+      placeholder,
+      `fixture-${placeholder.slice(1, -1).toLowerCase()}`,
+    ]),
+  );
+}
+
+function dconfEntries(config: ConfigV2): readonly ConfigV2Entry[] {
+  return config.entries.filter((entry) => entry.merge === "dconf");
+}
+
+function repoPathOf(entry: ConfigV2Entry): string {
+  const os = entry.os?.length === 1 ? entry.os[0] : undefined;
+  return `dotfiles/${os ?? "common"}/${entry.file}`;
+}
+
+/** One dump result for every dconf entry's folder. */
+function realDumps(
+  config: ConfigV2,
+  dump: DconfDumpResult,
+): Map<string, DconfDumpResult> {
+  const dumps = new Map<string, DconfDumpResult>();
+  for (const entry of dconfEntries(config)) {
+    if (entry.dconfPath !== undefined) {
+      dumps.set(entry.dconfPath, dump);
+    }
+  }
+  return dumps;
+}
+
+interface RealSnapshotOptions {
+  readonly loginHome?: string;
+  readonly dconfDumps?: ReadonlyMap<string, DconfDumpResult>;
+}
+
+function realSnapshot(
+  config: ConfigV2,
+  options: RealSnapshotOptions = {},
+): Snapshot {
+  return {
+    config,
+    os: "linux",
+    home: REAL_HOME,
+    cwd: REAL_HOME,
+    repoFiles: realRepoFiles(),
+    localFiles: new Map<string, LocalEntry>(),
+    localDirs: new Set<string>(),
+    values: fixtureValues(config),
+    env: {},
+    only: [],
+    force: true,
+    ...(options.loginHome !== undefined
+      ? { loginHome: options.loginHome }
+      : {}),
+    ...(options.dconfDumps !== undefined
+      ? { dconfDumps: options.dconfDumps }
+      : {}),
+  };
+}
+
+/** Adds every folder of `path` under `home` to `dirs`. */
+function addParentDirs(dirs: Set<string>, path: string, home: string): void {
+  let dir = path;
+  for (;;) {
+    const slash = dir.lastIndexOf("/");
+    if (slash <= 0) {
+      return;
+    }
+    dir = dir.slice(0, slash);
+    if (dir !== home && !dir.startsWith(`${home}/`)) {
+      return;
+    }
+    dirs.add(dir);
+  }
+}
+
+/** The snapshot an import plan would leave behind: its written local files. */
+function importedSnapshot(snapshot: Snapshot, plan: RunPlan): Snapshot {
+  const localFiles = new Map<string, LocalEntry>();
+  for (const step of plan.steps) {
+    for (const entry of step.actions) {
+      const action = entry.action;
+      if (action.kind !== "writeLocal") {
+        continue;
+      }
+      localFiles.set(action.path, {
+        kind: "file",
+        path: action.path,
+        bytes: action.bytes,
+        mode: MODE,
+      });
+    }
+  }
+  const localDirs = new Set<string>();
+  for (const path of localFiles.keys()) {
+    addParentDirs(localDirs, path, snapshot.home);
+  }
+  return { ...snapshot, localFiles, localDirs };
+}
+
+describe("planImport on the repo's own config", () => {
+  test("should round-trip the real config and dotfiles (real-config-roundtrip)", () => {
+    // Arrange
+    const config = realConfig();
+    const snapshot = realSnapshot(config, {
+      loginHome: REAL_LOGIN_HOME,
+      dconfDumps: realDumps(config, { kind: "ok", text: "" }),
+    });
+    expect(dconfEntries(config).length).toBeGreaterThan(0);
+
+    // Act
+    const imported = planImport(snapshot, []);
+
+    // Assert
+    expect(imported.lines.some((line) => line.includes("ERROR"))).toBe(false);
+    for (const entry of dconfEntries(config)) {
+      expect(imported.lines).toContain(
+        formatLine(
+          "SKIPPED",
+          repoPathOf(entry),
+          "HOME is not the login home; dconf left alone",
+        ),
+      );
+    }
+
+    // Act
+    const exported = planExport(importedSnapshot(snapshot, imported));
+
+    // Assert
+    expect(
+      statusLines(exported.lines).filter((line) =>
+        /^(MODIFIED|ADDED|REMOVED|ORPHAN) /.test(line),
+      ),
+    ).toEqual([]);
+  });
+
+  test("should create every dconf entry from its repo file (real-config-dconf-restore)", () => {
+    // Arrange
+    const config = realConfig();
+    const snapshot = realSnapshot(config, {
+      loginHome: REAL_HOME,
+      dconfDumps: realDumps(config, { kind: "ok", text: "" }),
+    });
+    expect(dconfEntries(config).length).toBeGreaterThan(0);
+
+    // Act
+    const plan = planImport(snapshot, []);
+
+    // Assert
+    for (const entry of dconfEntries(config)) {
+      const label = repoPathOf(entry);
+      const dconfPath = entry.dconfPath;
+      if (dconfPath === undefined) {
+        throw new Error(`${label} has no dconfPath`);
+      }
+      expect(plan.lines).toContain(formatLine("CREATED", label));
+      const step = plan.steps.find((item) => item.label === label);
+      expect(step?.actions).toHaveLength(1);
+      expect(step?.actions[0]?.action).toEqual({
+        kind: "dconfLoad",
+        path: dconfPath,
+        text: new TextDecoder().decode(snapshot.repoFiles.get(label)),
+      });
+    }
   });
 });

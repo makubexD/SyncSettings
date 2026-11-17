@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { parseV1, validateOnlyPath } from "./v1.ts";
 
 const CONFIG_FILE = "sync-config.json";
@@ -104,7 +105,10 @@ describe("parseV1", () => {
 
   test("the platform check runs before the path checks", () => {
     // Arrange
-    const bad = { repoPath: "dotfiles/common/../x.conf", localPath: "/tmp/x.conf" };
+    const bad = {
+      repoPath: "dotfiles/common/../x.conf",
+      localPath: "/tmp/x.conf",
+    };
 
     // Act / Assert
     expectConfigError([bad], platformError(bad.repoPath));
@@ -152,10 +156,16 @@ describe("parseV1", () => {
 
   test("localpaths-bad-key: an unknown localPaths key stops with exit 1", () => {
     // Arrange
-    const bad = { ...SAFE_ENTRY, localPaths: { freebsd: "~/.config/parity/ok.conf" } };
+    const bad = {
+      ...SAFE_ENTRY,
+      localPaths: { freebsd: "~/.config/parity/ok.conf" },
+    };
 
     // Act / Assert
-    expectConfigError([SAFE_ENTRY, bad], unknownKeyError(bad.repoPath, "freebsd"));
+    expectConfigError(
+      [SAFE_ENTRY, bad],
+      unknownKeyError(bad.repoPath, "freebsd"),
+    );
   });
 
   test("a localPaths value that is not a ~/ or ~\\ path stops with exit 1", () => {
@@ -238,7 +248,9 @@ describe("parseV1", () => {
     // Arrange
     const bad = {
       ...SAFE_ENTRY,
-      sanitizeRules: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", defaultEnv: "1BAD" }],
+      sanitizeRules: [
+        { placeholder: "<YOUR_NAME>", prompt: "Full name", defaultEnv: "1BAD" },
+      ],
     };
 
     // Act / Assert
@@ -249,7 +261,9 @@ describe("parseV1", () => {
     // Arrange
     const entry = {
       ...SAFE_ENTRY,
-      sanitizeRules: [{ placeholder: "<HOME>", prompt: "Home folder", defaultEnv: "HOME" }],
+      sanitizeRules: [
+        { placeholder: "<HOME>", prompt: "Home folder", defaultEnv: "HOME" },
+      ],
     };
 
     // Act
@@ -322,8 +336,38 @@ describe("parseV1", () => {
     // Assert
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.files.map((entry) => entry.type)).toEqual(["file", "dir", "dconf"]);
+      expect(result.value.files.map((entry) => entry.type)).toEqual([
+        "file",
+        "dir",
+        "dconf",
+      ]);
     }
+  });
+
+  test("should accept the repo's own sync-config.json (path-real-config)", () => {
+    // Arrange
+    const text = readFileSync(
+      new URL("../../../sync-config.json", import.meta.url),
+      "utf8",
+    );
+
+    // Act
+    const result = parseV1(text);
+
+    // Assert
+    expect(result.ok).toBe(true);
+  });
+
+  test("should reject a dconf entry without a path (dconf-path-missing)", () => {
+    // Arrange
+    const bad = {
+      repoPath: "dotfiles/linux/dconf/app.ini",
+      type: "dconf",
+      platform: "linux",
+    };
+
+    // Act / Assert
+    expectConfigError([SAFE_ENTRY, bad], dconfPathError(bad.repoPath));
   });
 });
 
@@ -338,7 +382,10 @@ describe("validateOnlyPath", () => {
     // Assert
     expect(result).toEqual({
       ok: false,
-      error: { message: `ERROR: ${path} is not synced on this machine.`, code: 1 },
+      error: {
+        message: `ERROR: ${path} is not synced on this machine.`,
+        code: 1,
+      },
     });
   });
 
