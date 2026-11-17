@@ -1,0 +1,10 @@
+SKIPPED dotfiles/common/creds/.git-credentials matches exclude pattern
+SKIPPED dotfiles/common/creds/.netrc matches exclude pattern
+SKIPPED dotfiles/common/creds/.npmrc matches exclude pattern
+SKIPPED dotfiles/common/creds/.pgpass matches exclude pattern
+SKIPPED dotfiles/common/creds/app.env matches exclude pattern
+SKIPPED dotfiles/common/creds/auth.json matches exclude pattern
+SKIPPED dotfiles/common/creds/hosts.yml matches exclude pattern
+SKIPPED dotfiles/common/creds/id_dsa matches exclude pattern
+SKIPPED dotfiles/common/creds/secrets.yaml matches exclude pattern
+SKIPPED dotfiles/common/creds/token matches exclude pattern

@@ -41,6 +41,9 @@ const MISSING_NEXT = "  Fix the MISSING items, then run mksync doctor again.";
 
 const READY = "  Ready.";
 
+/** Contract "Front door", macOS: the only place Homebrew comes from. */
+const BREW_MISSING = "brew: install from https://brew.sh";
+
 type CheckWord = "OK" | "WARN" | "MISSING";
 
 /** One check line, as bash `printf '  %-8s %s\n'` prints it. */
@@ -78,7 +81,7 @@ function hasWinget(f: DoctorFacts): boolean {
   return f.os === "windows" && f.packageManager === "winget";
 }
 
-/** Contract "Front door": the `git` line. Only this check can be MISSING. */
+/** Contract "Front door": the `git` line. */
 function gitLine(f: DoctorFacts): string {
   if (f.git) {
     return checkLine("OK", "git");
@@ -95,6 +98,18 @@ function gitLine(f: DoctorFacts): string {
     "MISSING",
     `git: install with ${installHint(f.os, f.packageManager, "git")}`,
   );
+}
+
+/** Contract "Front door", macOS: Homebrew itself, the install hint's tool. */
+function hasBrew(f: DoctorFacts): boolean {
+  return f.packageManager === "brew";
+}
+
+/** Contract "Front door", macOS: the `brew` line, MISSING without Homebrew. */
+function brewLine(f: DoctorFacts): string {
+  return hasBrew(f)
+    ? checkLine("OK", "brew")
+    : checkLine("MISSING", BREW_MISSING);
 }
 
 /** Contract "Front door": the `gh` line, signed in, signed out or missing. */
@@ -144,8 +159,11 @@ function valuesLine(unsetValues: number): string {
 
 /** Contract "Front door": the doctor lines in order, then the verdict line. */
 export function doctorLines(f: DoctorFacts): DoctorReport {
-  const lines: string[] = [
-    gitLine(f),
+  const lines: string[] = [gitLine(f)];
+  if (f.os === "macos") {
+    lines.push(brewLine(f));
+  }
+  lines.push(
     ghLine(f),
     f.origin
       ? checkLine("OK", "repo clone with origin")
@@ -155,13 +173,13 @@ export function doctorLines(f: DoctorFacts): DoctorReport {
       : checkLine("WARN", "no machine record; run mksync setup"),
     valuesLine(f.unsetValues),
     bashLine(f),
-  ];
+  );
   if (f.os === "linux" && f.drift !== undefined && f.drift > 0) {
     lines.push(
       checkLine("WARN", `drift: ${f.drift} package(s) differ; run mksync preview`),
     );
   }
-  if (!f.git) {
+  if (!f.git || (f.os === "macos" && !hasBrew(f))) {
     lines.push(MISSING_NEXT);
     return { lines, code: 1 };
   }

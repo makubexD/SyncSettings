@@ -16,6 +16,21 @@ This machine only
   --------------------------------------------------
 
   1 file(s) would change.
+  Leak scan: clean.
+ dotfiles/common/shell/bashrc | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+diff --git a/dotfiles/common/shell/bashrc b/dotfiles/common/shell/bashrc
+index f384549..e2b6352 100644
+--- a/dotfiles/common/shell/bashrc
++++ b/dotfiles/common/shell/bashrc
+@@ -1,4 +1,4 @@
+ one
+-two
+-three
+-four
++TWO
++THREE
++FOUR
   Nothing was written. Run mksync push to send it.
 
 held until the repo is private: 2 file(s)

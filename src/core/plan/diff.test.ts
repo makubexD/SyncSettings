@@ -34,6 +34,9 @@ const REPO_SHORT = "5d6e7f8";
 
 const DASHES = "  --------------------------------------------------";
 
+/** Contract "Picking files": the warning a label-less `--only` run prints. */
+const WARNING = "  WARNING: --only matched no file.";
+
 const HEADER: DiffHeader = {
   lastSync: { short: SHORT, date: DATE },
   repo: { ref: "origin/master", short: REPO_SHORT },
@@ -313,7 +316,7 @@ describe("diffText", () => {
     ];
 
     // Act
-    const result = diffText(labels, HEADER);
+    const result = diffText(labels, HEADER, false);
 
     // Assert
     expect(result.lines).toEqual([
@@ -334,7 +337,7 @@ describe("diffText", () => {
 
   test("should print the agree line when nothing differs", () => {
     // Act
-    const result = diffText([], HEADER);
+    const result = diffText([], HEADER, false);
 
     // Assert
     expect(result.lines).toEqual([
@@ -349,12 +352,49 @@ describe("diffText", () => {
     expect(result.exit).toBe(0);
   });
 
+  test("should warn before the summary when --only is given and no file is labeled", () => {
+    // Act
+    const result = diffText([], HEADER, true);
+
+    // Assert
+    expect(result.lines).toEqual([
+      `  Last sync  : ${SHORT} (${DATE})`,
+      `  Repo       : origin/master ${REPO_SHORT}`,
+      "",
+      WARNING,
+      DASHES,
+      "",
+      "  This machine and the repo agree.",
+      "",
+    ]);
+    expect(result.exit).toBe(0);
+  });
+
+  test("should not warn when --only is given and a file is labeled", () => {
+    // Arrange
+    const labels: readonly DiffLine[] = [{ label: "IN", path: GITCONFIG }];
+
+    // Act
+    const result = diffText(labels, HEADER, true);
+
+    // Assert
+    expect(result.lines).not.toContain(WARNING);
+  });
+
+  test("should not warn when --only is not given", () => {
+    // Act
+    const result = diffText([], HEADER, false);
+
+    // Assert
+    expect(result.lines).not.toContain(WARNING);
+  });
+
   test("should print the no-sync-point summary and the run hint", () => {
     // Arrange
     const labels: readonly DiffLine[] = [{ label: "?", path: BASHRC }];
 
     // Act
-    const result = diffText(labels, NO_SYNC_HEADER);
+    const result = diffText(labels, NO_SYNC_HEADER, false);
 
     // Assert
     expect(result.lines).toEqual([
@@ -377,7 +417,7 @@ describe("diffText", () => {
     const labels = diffLines("IN", "IN", "OUT", "BOTH");
 
     // Act
-    const result = diffText(labels, HEADER);
+    const result = diffText(labels, HEADER, false);
 
     // Assert
     expect(result.lines[result.lines.length - 3]).toBe(
@@ -416,7 +456,7 @@ describe("diffText", () => {
   for (const hintCase of HINT_CASES) {
     test(`should name only the labels present: ${hintCase.labels.join(", ")}`, () => {
       // Act
-      const result = diffText(diffLines(...hintCase.labels), HEADER);
+      const result = diffText(diffLines(...hintCase.labels), HEADER, false);
 
       // Assert
       expect(result.lines[result.lines.length - 2]).toBe(hintCase.hint);

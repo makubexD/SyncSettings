@@ -1,0 +1,18 @@
+{
+  "description": "Export of a dir entry skips a local file matching an exclude pattern and copies nothing (Exclude patterns; Directory entries). Ported from dir-export-excluded, Pester dir-export-excluded.",
+  "oldEngines": ["bash"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.secret"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

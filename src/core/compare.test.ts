@@ -22,7 +22,11 @@ const LINE_CASES: readonly LineCase[] = [
     plain: "  SKIPPED    parity",
     noted: "  SKIPPED    parity  (note)",
   },
-  { word: "ADDED", plain: "  ADDED      parity", noted: "  ADDED      parity  (note)" },
+  {
+    word: "ADDED",
+    plain: "  ADDED      parity",
+    noted: "  ADDED      parity  (note)",
+  },
   {
     word: "UNCHANGED",
     plain: "  UNCHANGED  parity",
@@ -38,7 +42,11 @@ const LINE_CASES: readonly LineCase[] = [
     plain: "  REMOVED    parity",
     noted: "  REMOVED    parity  (note)",
   },
-  { word: "ERROR", plain: "  ERROR      parity", noted: "  ERROR      parity  (note)" },
+  {
+    word: "ERROR",
+    plain: "  ERROR      parity",
+    noted: "  ERROR      parity  (note)",
+  },
   {
     word: "CREATED",
     plain: "  CREATED    parity",
@@ -49,13 +57,21 @@ const LINE_CASES: readonly LineCase[] = [
     plain: "  UPDATED    parity",
     noted: "  UPDATED    parity  (note)",
   },
-  { word: "EXTRA", plain: "  EXTRA      parity", noted: "  EXTRA      parity  (note)" },
+  {
+    word: "EXTRA",
+    plain: "  EXTRA      parity",
+    noted: "  EXTRA      parity  (note)",
+  },
   {
     word: "ORPHAN",
     plain: "  ORPHAN     parity",
     noted: "  ORPHAN     parity  (note)",
   },
-  { word: "DRIFT", plain: "  DRIFT      parity", noted: "  DRIFT      parity  (note)" },
+  {
+    word: "DRIFT",
+    plain: "  DRIFT      parity",
+    noted: "  DRIFT      parity  (note)",
+  },
 ];
 
 function caseBytes(name: string, relativePath: string): Uint8Array {
@@ -110,6 +126,22 @@ describe("same", () => {
     const result = same(repo, local, {
       os: "windows",
       shared: false,
+      sanitized: false,
+    });
+
+    // Assert
+    expect(result).toBe(false);
+  });
+
+  test("crlf-common-changed-line", () => {
+    // Arrange
+    const repo = encode("a\nb\n");
+    const local = encode("a\r\nc\r\n");
+
+    // Act
+    const result = same(repo, local, {
+      os: "windows",
+      shared: true,
       sanitized: false,
     });
 
@@ -187,6 +219,27 @@ describe("same", () => {
 
     // Assert
     expect(result).toBe(false);
+  });
+
+  test("should compare 1025 lines of 128 x quickly when only trailing blank lines differ", () => {
+    // Arrange
+    const line = "x".repeat(128);
+    const body = `${line}\n`.repeat(1025);
+    const repo = encode(body);
+    const local = encode(`${body}\n\n`);
+
+    // Act
+    const started = performance.now();
+    const result = same(repo, local, {
+      os: "linux",
+      shared: true,
+      sanitized: true,
+    });
+    const elapsedMs = performance.now() - started;
+
+    // Assert
+    expect(result).toBe(true);
+    expect(elapsedMs).toBeLessThan(1000);
   });
 
   test("should compare case-sensitively", () => {

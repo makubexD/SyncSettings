@@ -26,6 +26,8 @@ secrets.yaml
 token
 *.env
 id_dsa*
+# The exclude cases need dummy files with these names
+!tests/parity/cases/excluded-*/**
 
 # Backup files created by import
 *.bak

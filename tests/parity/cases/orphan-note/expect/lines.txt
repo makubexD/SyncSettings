@@ -1,0 +1,1 @@
+ORPHAN dotfiles/stray.txt no entry in sync-config.json; git rm it or add an entry

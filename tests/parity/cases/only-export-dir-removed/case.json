@@ -1,0 +1,30 @@
+{
+  "description": "Export with --only modifies the picked file of a directory entry and keeps a repo file gone locally when it isn't picked (Picking files, Directory entries). Ported from export-only-dir-removed, Pester export-only-dir-removed.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["dotfiles/common/dir/a/b.txt"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+SKIPPED dotfiles/common/dir/x.bak
+SKIPPED dotfiles/common/dir/

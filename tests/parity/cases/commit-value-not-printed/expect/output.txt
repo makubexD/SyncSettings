@@ -1,0 +1,6 @@
+
+  +==========================================+
+  |        SyncSettings -- COMMIT           |
+  +==========================================+
+
+ERROR: a cached value for <NAME> is in dotfiles/linux/plain.txt; nothing was committed.

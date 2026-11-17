@@ -136,6 +136,24 @@ describe("parseArgs", () => {
     );
   });
 
+  test("should refuse export --diff --preview (diff_flags)", () => {
+    expect(parseArgs(["export", "--diff", "--preview"])).toEqual(
+      usageError("ERROR: --diff cannot be combined with --preview or --yes."),
+    );
+  });
+
+  test("should refuse export --diff --yes (diff_flags)", () => {
+    expect(parseArgs(["export", "--diff", "--yes"])).toEqual(
+      usageError("ERROR: --diff cannot be combined with --preview or --yes."),
+    );
+  });
+
+  test("should refuse export --preview --reset-values", () => {
+    expect(parseArgs(["export", "--preview", "--reset-values"])).toEqual(
+      unknownOption("--reset-values"),
+    );
+  });
+
   test("should refuse import --yes", () => {
     expect(parseArgs(["import", "--yes"])).toEqual(unknownOption("--yes"));
   });

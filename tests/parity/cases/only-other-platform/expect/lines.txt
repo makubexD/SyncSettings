@@ -1,0 +1,1 @@
+ERROR: dotfiles/windows/win.conf is not synced on this machine.

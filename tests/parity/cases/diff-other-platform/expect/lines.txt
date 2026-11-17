@@ -1,0 +1,2 @@
+This machine and the repo agree.
+! dotfiles/windows/

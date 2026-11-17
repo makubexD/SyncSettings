@@ -1,0 +1,18 @@
+{
+  "description": "Export of a dir entry with no repo folder adds every local file and keeps their modes: ADDED for both (Statuses, Export; Directory entries). Ported from dir-export-adds, Pester dir-export-adds.",
+  "os": ["linux", "macos"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.secret"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

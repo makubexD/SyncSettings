@@ -26,7 +26,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-function containsNul(bytes: Uint8Array): boolean {
+export function containsNul(bytes: Uint8Array): boolean {
   for (const byte of bytes) {
     if (byte === NUL) {
       return true;

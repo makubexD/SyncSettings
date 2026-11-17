@@ -3,6 +3,7 @@
 
   Repo is up to date. No changes detected.
 
+  Leak scan: clean.
   Nothing would be sent: the repo matches HEAD.
   Nothing was written. Run mksync push to send it.
 

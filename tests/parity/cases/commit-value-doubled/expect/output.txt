@@ -1,0 +1,6 @@
+
+  +==========================================+
+  |        SyncSettings -- COMMIT           |
+  +==========================================+
+
+ERROR: a cached value for <WINPATH> is in dotfiles/linux/plain.txt; nothing was committed.

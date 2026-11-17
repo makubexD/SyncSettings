@@ -62,9 +62,9 @@ describe("doctorLines git line", () => {
   });
 
   test("MISSING on macos names brew", () => {
-    expect(line(facts({ os: "macos", git: false }), 0)).toBe(
-      "  MISSING  git: install with brew install git",
-    );
+    expect(
+      line(facts({ os: "macos", packageManager: "brew", git: false }), 0),
+    ).toBe("  MISSING  git: install with brew install git");
   });
 
   test("MISSING on windows with winget names the exact id", () => {
@@ -85,6 +85,46 @@ describe("doctorLines git line", () => {
     expect(
       line(facts({ os: "windows", packageManager: undefined, git: false }), 0),
     ).toBe("  MISSING  git: install it from https://git-scm.com");
+  });
+});
+
+describe("doctorLines brew line (front-macos-doctor-no-brew)", () => {
+  test("MISSING with no brew on PATH, right after git, exit 1", () => {
+    const report = doctorLines(
+      facts({ os: "macos", packageManager: undefined }),
+    );
+
+    expect(report.lines[0]).toBe("  OK       git");
+    expect(report.lines[1]).toBe(
+      "  MISSING  brew: install from https://brew.sh",
+    );
+    expect(report.lines.at(-1)).toBe(MISSING_NEXT);
+    expect(report.code).toBe(1);
+  });
+
+  test("OK with brew, right after git, Ready, exit 0", () => {
+    const report = doctorLines(facts({ os: "macos", packageManager: "brew" }));
+
+    expect(report.lines[0]).toBe("  OK       git");
+    expect(report.lines[1]).toBe("  OK       brew");
+    expect(report.lines.at(-1)).toBe(READY);
+    expect(report.code).toBe(0);
+  });
+
+  test("linux has no brew line", () => {
+    const report = doctorLines(facts({}));
+
+    expect(report.lines.some((value) => value.includes("brew"))).toBe(false);
+    expect(report.lines).toHaveLength(7);
+  });
+
+  test("windows has no brew line", () => {
+    const report = doctorLines(
+      facts({ os: "windows", packageManager: "winget" }),
+    );
+
+    expect(report.lines.some((value) => value.includes("brew"))).toBe(false);
+    expect(report.lines).toHaveLength(7);
   });
 });
 
@@ -174,7 +214,9 @@ describe("doctorLines bash line", () => {
   });
 
   test("WARN on macos names brew", () => {
-    expect(line(facts({ os: "macos", bash: false }), 5)).toBe(
+    expect(
+      line(facts({ os: "macos", packageManager: "brew", bash: false }), 6),
+    ).toBe(
       "  WARN     bash: needed by the leak scan; install with brew install bash",
     );
   });
@@ -229,7 +271,11 @@ describe("doctorLines drift line", () => {
   });
 
   test("macos with a report has no line", () => {
-    expect(doctorLines(facts({ os: "macos", drift: 2 })).lines).toHaveLength(7);
+    expect(
+      doctorLines(
+        facts({ os: "macos", packageManager: "brew", drift: 2 }),
+      ).lines,
+    ).toHaveLength(8);
   });
 });
 

@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { SanitizeRule } from "../config/types.ts";
-import {
-  askValues,
-  hydrate,
-  inferValues,
-  resolveValues,
-} from "./hydrate.ts";
+import { askValues, hydrate, inferValues, resolveValues } from "./hydrate.ts";
 import { parseValuesFile, valuesFileText } from "./file.ts";
 import { encodeUtf8, sanitize } from "./sanitize.ts";
 import type { Values } from "./sanitize.ts";
@@ -101,6 +96,48 @@ describe("sanitize", () => {
     // Assert
     expectBytes(sanitized, expectedRepo);
     expectHydrated(hydrated, expectedHome);
+  });
+
+  test("should sanitize the backslash-doubled form of a value", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      {
+        placeholder: "<WINPATH>",
+        prompt: "Windows path",
+        escapeBackslashes: true,
+      },
+    ];
+    const values: Values = { "<WINPATH>": "C:\\Tools\\gh.exe" };
+    const local = encodeUtf8("gh = C:\\\\Tools\\\\gh.exe\n");
+    const expected = encodeUtf8("gh = <WINPATH>\n");
+
+    // Act
+    const actual = sanitize(local, rules, values, { json: false });
+
+    // Assert
+    expectBytes(actual, expected);
+  });
+
+  test("should round-trip backslash-doubled text unchanged", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      {
+        placeholder: "<WINPATH>",
+        prompt: "Windows path",
+        escapeBackslashes: true,
+      },
+    ];
+    const values: Values = { "<WINPATH>": "C:\\Tools\\gh.exe" };
+    const repo = encodeUtf8("gh = <WINPATH>\n");
+    const local = encodeUtf8("gh = C:\\\\Tools\\\\gh.exe\n");
+
+    // Act
+    const hydrated = hydrate(repo, rules, values, { json: false });
+    const sanitized = sanitize(local, rules, values, { json: false });
+
+    // Assert
+    expectHydrated(hydrated, local);
+    expectBytes(sanitized, repo);
   });
 
   test("should not rescan a placeholder it inserted when a value appears inside it", () => {
@@ -340,6 +377,55 @@ describe("inferValues", () => {
     expect(inferred).toEqual(expected);
     expectHydrated(hydrated, local);
   });
+
+  test("should infer the plain value from its backslash-doubled form", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      {
+        placeholder: "<WINPATH>",
+        prompt: "Windows path",
+        escapeBackslashes: true,
+      },
+    ];
+    const local = encodeUtf8("gh = C:\\\\Tools\\\\gh.exe\n");
+    const repo = encodeUtf8("gh = <WINPATH>\n");
+
+    // Act
+    const inferred = inferValues(local, repo, rules);
+
+    // Assert
+    expect(inferred).toEqual({ "<WINPATH>": "C:\\Tools\\gh.exe" });
+  });
+
+  test("should infer nothing when the local file still holds the placeholder", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<NAME>", prompt: "Name" },
+    ];
+    const local = encodeUtf8("name = <NAME>\n");
+    const repo = encodeUtf8("name = <NAME>\n");
+
+    // Act
+    const inferred = inferValues(local, repo, rules);
+
+    // Assert
+    expect(inferred).toEqual({});
+  });
+
+  test("should infer nothing when the context around the placeholder overlaps", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<NAME>", prompt: "Name" },
+    ];
+    const local = encodeUtf8("abcba\n");
+    const repo = encodeUtf8("abc<NAME>cba\n");
+
+    // Act
+    const inferred = inferValues(local, repo, rules);
+
+    // Assert
+    expect(inferred).toEqual({});
+  });
 });
 
 describe("resolveValues", () => {
@@ -573,6 +659,28 @@ describe("askValues", () => {
         placeholder: "<HOME>",
       },
     });
+  });
+
+  test("should stop with the missing-value error when the answer is empty and there is no default", () => {
+    // Arrange
+    const rules: readonly SanitizeRule[] = [
+      { placeholder: "<NAME>", prompt: "Name" },
+    ];
+    const cached: Values = {};
+
+    // Act
+    const actual = askValues(rules, cached, {}, [""]);
+
+    // Assert
+    expect(actual).toEqual({
+      ok: false,
+      error: {
+        message: "missing value for <NAME>: add it to .user-values.json",
+        code: 1,
+        placeholder: "<NAME>",
+      },
+    });
+    expect(cached).toEqual({});
   });
 
   test("should ask a duplicate placeholder only once", () => {

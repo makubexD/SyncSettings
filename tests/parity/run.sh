@@ -167,6 +167,21 @@ validate_case() {
               else true end' "$json" > /dev/null 2>&1 \
             || die 'CTX_WINDOW_DIR must be a relative path under home'
     fi
+    jq -e 'if has("oldEngines") then
+            (.oldEngines | type) == "array" and (.oldEngines | length) > 0
+            and all(.oldEngines[]; . == "bash" or . == "powershell")
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'oldEngines must be a non-empty list of bash and powershell'
+    jq -e 'if has("emptyDirs") then
+            (.emptyDirs | type) == "array" and all(.emptyDirs[]; type == "string")
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'emptyDirs must be a list of strings'
+    jq -e 'if has("emptyDirs") then
+            all(.emptyDirs[];
+                ((test("^(/|[A-Za-z]:|\\\\)")) | not)
+                and ((test("(^|[/\\\\])\\.\\.([/\\\\]|$)")) | not))
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'emptyDirs must be relative paths under home'
     jq -e 'if has("git") then (.git == "none" or .git == "committed" or .git == "remote") else true end' "$json" > /dev/null 2>&1 \
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
@@ -269,6 +284,86 @@ whole_output() {
         sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" | sed "s/${CR}\$//"
     fi | while IFS= read -r line || [[ -n $line ]]; do
         printf '%s\n' "$line"
+    done
+}
+
+# One command's output for the expect/lines.txt check: ANSI color codes
+# removed, each line trimmed, and a status line in either engine's layout read
+# as `WORD label note` with single spaces between (see the README's "How the
+# runner checks it"). Notes and every other line stay as they are, trimmed.
+normalize_output() {
+    local line word label rest
+    sed "s/${ESC}\[[0-9;]*[A-Za-z]//g" "$1" \
+        | sed -E 's/^.*\? \[[Yy]\/[Nn]\][[:space:]]*//' \
+        | while IFS= read -r line || [[ -n $line ]]; do
+            line=${line#"${line%%[![:space:]]*}"}
+            line=${line%"${line##*[![:space:]]}"}
+            if [[ $line =~ ^\[[[:space:]]*($STATUS_WORDS)[[:space:]]*\][[:space:]]+([^[:space:]]+)(.*)$ ]]; then
+                word=${BASH_REMATCH[1]}
+                label=${BASH_REMATCH[2]}
+                rest=${BASH_REMATCH[3]}
+            elif [[ $line =~ ^($STATUS_WORDS)[[:space:]]+([^[:space:]]+)(.*)$ ]]; then
+                word=${BASH_REMATCH[1]}
+                label=${BASH_REMATCH[2]}
+                rest=${BASH_REMATCH[3]}
+            else
+                printf '%s\n' "$line"
+                continue
+            fi
+            if [[ $rest =~ ^[[:space:]]+\((.*)\)[[:space:]]*$ ]]; then
+                printf '%s %s %s\n' "$word" "$label" "${BASH_REMATCH[1]}"
+            else
+                printf '%s %s\n' "$word" "$label"
+            fi
+        done
+}
+
+# Check expect/lines.txt against the per-command normalized output. Lines
+# before any `# <n>` belong to command 1; `# <n>` starts command n's lines.
+# Each expected line must appear in that command's output, in the file's order,
+# other lines allowed between. `! <text>` means no line of that command's
+# output contains <text>. A failure names the first missing (or present `!`)
+# line and prints the command's normalized output.
+check_lines() {
+    local dir=$1 count=$2 want line cmd=1 idx text found
+    local -a want_lines=() got=() pos=()
+    want=$(expected_path "$dir" lines.txt)
+    [[ -f $want ]] || return 0
+    mapfile -t want_lines < "$want"
+    for ((idx = 1; idx <= count; idx++)); do
+        pos[idx]=0
+    done
+    for line in "${want_lines[@]}"; do
+        if [[ $line =~ ^#[[:space:]]+([0-9]+)$ ]]; then
+            cmd=${BASH_REMATCH[1]}
+            (( cmd >= 1 && cmd <= count )) || die "lines command $cmd: no such command"
+            continue
+        fi
+        mapfile -t got < "$t/cmd-$cmd.lines"
+        if [[ $line == '! '* ]]; then
+            text=${line#! }
+            for ((idx = 0; idx < ${#got[@]}; idx++)); do
+                if [[ ${got[idx]} == *"$text"* ]]; then
+                    die "lines command $cmd: \"$text\" must not appear
+output was:
+$(cat "$t/cmd-$cmd.lines")"
+                fi
+            done
+        else
+            found=false
+            for ((idx = pos[cmd]; idx < ${#got[@]}; idx++)); do
+                if [[ ${got[idx]} == "$line" ]]; then
+                    pos[cmd]=$((idx + 1))
+                    found=true
+                    break
+                fi
+            done
+            if [[ $found == false ]]; then
+                die "lines command $cmd: missing \"$line\"
+output was:
+$(cat "$t/cmd-$cmd.lines")"
+            fi
+        fi
     done
 }
 
@@ -498,6 +593,11 @@ run_case() {
         # and git's stat cache then reports the changed repo file as clean.
         find "$t/home" -type f -exec touch {} + || die 'touching the case home/ failed'
     fi
+    # Git stores no empty folder, so a case names its empty folders in
+    # emptyDirs; each is created in the temp home before the first command.
+    while IFS= read -r rel; do
+        mkdir -p "$t/home/$rel" || die "creating the empty folder '$rel' failed"
+    done < <(jq -r '.emptyDirs // [] | .[]' "$dir/case.json")
 
     git_mode=$(jq -r '.git // "none"' "$dir/case.json") || die 'case.json has no git'
     start_head=''
@@ -722,6 +822,12 @@ run_case() {
                     printf '%s\n' "$line"
                 done >> "$t/actual-output"
         fi
+        # The same command's whole output, normalized for expect/lines.txt.
+        # Stderr joins it only when the case asked for stderr, as for output.txt.
+        normalize_output "$t/raw" > "$t/cmd-$((i + 1)).lines"
+        if [[ $stderr_mode == true && -f $t/raw-err ]]; then
+            normalize_output "$t/raw-err" >> "$t/cmd-$((i + 1)).lines"
+        fi
     done
 
     # Each gh call is cut to its first two words, so branch names and titles
@@ -822,8 +928,22 @@ run_case() {
     want_output=$(expected_path "$dir" output.txt)
     first_line_diff exit "$want_exit" "$t/actual-exit"
     first_line_diff output "$want_output" "$t/actual-output"
+    check_lines "$dir" "$count"
 
     want_home=$(expected_path "$dir" home)
+    if [[ $(jq -r '(.emptyDirs // []) | length' "$dir/case.json") -gt 0 ]]; then
+        # Git stores no empty folder, so expect/home/ can't hold the ones
+        # emptyDirs makes; the compare sees a copy of it that has them.
+        mkdir -p "$t/expect/home" || die 'creating the expected home/ copy failed'
+        if [[ -d $want_home ]]; then
+            cp -a "$want_home/." "$t/expect/home/" || die 'copying the expected home/ failed'
+        fi
+        while IFS= read -r rel; do
+            mkdir -p "$t/expect/home/$rel" \
+                || die "creating the expected empty folder '$rel' failed"
+        done < <(jq -r '.emptyDirs // [] | .[]' "$dir/case.json")
+        want_home=$t/expect/home
+    fi
     if [[ -d $want_home ]]; then
         out=$(tree_diff "$want_home" "$t/home") || true
         [[ -z $out ]] || die "$out"
@@ -885,6 +1005,14 @@ for dir in "$CASES"/*/; do
     # A v2 case needs the program: the bash engine can't read config v2.
     if [[ -z $engine_path ]] && [[ $(jq -r 'has("configV2")' "$dir/case.json") == true ]]; then
         printf 'SKIP %s: v2 only\n' "$case_name"
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    # oldEngines names the frozen engines a case runs on; the program runs all.
+    if [[ -z $engine_path ]] \
+        && ! jq -e '(.oldEngines // ["bash"]) | index("bash")' "$dir/case.json" > /dev/null; then
+        printf 'SKIP %s: not on the bash engine\n' "$case_name"
         skipped=$((skipped + 1))
         continue
     fi

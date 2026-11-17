@@ -1,0 +1,28 @@
+{
+  "description": "A cached value is in a new sync file, so commit names the placeholder and the file, exit 1, and never calls gh (Checks before pushing).",
+  "git": "remote",
+  "stubs": ["gh"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      },
+      {
+        "repoPath": "dotfiles/linux/new/added.txt",
+        "localPath": "~/.config/fixture/added.txt",
+        "platform": "linux",
+        "description": "Sanitized fixture",
+        "sanitizeRules": [
+          { "placeholder": "<NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "values": { "<NAME>": "Fixture User" },
+  "commands": [{ "command": "commit", "output": "all", "stderr": true }]
+}

@@ -1,0 +1,31 @@
+{
+  "description": "Import with --only updates the picked file inside a directory entry, saves its backup and leaves the other folder file alone (Picking files, Directory entries, Backups). Ported from import-only-dir-file, Pester import-only-dir-file.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true,
+        "only": ["dotfiles/common/dir/c.txt"]
+      }
+    }
+  ]
+}

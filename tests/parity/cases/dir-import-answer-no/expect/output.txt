@@ -1,0 +1,2 @@
+UNCHANGED dotfiles/common/dir/a/b.txt
+SKIPPED dotfiles/common/dir/c.txt

@@ -208,7 +208,7 @@ export function resolveOnly(
         resolvedLocal(entry.entry, snapshot.os, snapshot.home),
         separator,
       );
-      if (entry.entry.merge !== "dir" && absolute === local) {
+      if (absolute === local) {
         repoPath = primaryRepoPath(entry);
         break;
       }

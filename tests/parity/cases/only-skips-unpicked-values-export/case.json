@@ -1,0 +1,36 @@
+{
+  "description": "Export with --only writes the picked file without asking for an unpicked entry's missing value, and the same run without --only stops with exit 1 and writes nothing (Picking files, Values). Ported from only-skips-unpicked-values-export.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "common",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/san.conf",
+        "localPath": "~/.config/fixture/san.conf",
+        "platform": "common",
+        "description": "Sanitized fixture",
+        "sanitizeRules": [
+          { "placeholder": "<MISSING>", "prompt": "Missing value" }
+        ]
+      }
+    ]
+  },
+  "values": {},
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["dotfiles/common/plain.txt"]
+      }
+    },
+    {
+      "command": "export"
+    }
+  ]
+}

@@ -18,6 +18,27 @@ This machine only
   --------------------------------------------------
 
   1 file(s) would change.
+  Leak scan: clean.
+ dotfiles/common/parity/settings.json | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+diff --git a/dotfiles/common/parity/settings.json b/dotfiles/common/parity/settings.json
+index 3d480aa..3dd2e75 100644
+--- a/dotfiles/common/parity/settings.json
++++ b/dotfiles/common/parity/settings.json
+@@ -1,6 +1,9 @@
+ {
+-  "alpha": 0,
+-  "charlie": "remove me",
+-  "delta": ["x"],
+-  "echo": "short"
++  "alpha": 1,
++  "delta": [
++    "x",
++    "added item"
++  ],
++  "echo": "the quick brown fox jumps over the lazy dog while the second fox naps",
++  "bravo": "new value"
+ }
   Nothing was written. Run mksync push to send it.
 
 held until the repo is private: 2 file(s)

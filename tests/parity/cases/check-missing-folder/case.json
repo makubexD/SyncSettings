@@ -1,0 +1,17 @@
+{
+  "description": "The import check reports a file in a missing local folder as CREATE, exits 3, and creates neither the folder nor the file (Import check; Known differences: Import check, target folder missing). Ported from import-check-missing-folder, Pester import check missing folder.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "common",
+        "description": "Missing together with its folder"
+      }
+    ]
+  },
+  "commands": [{ "command": "check" }],
+  "differences": ["Import check, target folder missing"]
+}

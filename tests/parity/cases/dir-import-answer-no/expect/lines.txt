@@ -1,0 +1,1 @@
+SKIPPED dotfiles/common/dir/c.txt user skipped

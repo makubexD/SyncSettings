@@ -12,7 +12,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { readSnapshot } from "../../adapters/fs.ts";
+import { readSnapshot, runPlan } from "../../adapters/fs.ts";
+import type { RunContext } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { parseV2 } from "../config/v2.ts";
 import { convertV1 } from "../config/convert.ts";
@@ -442,9 +443,7 @@ function layeredSnapshot(os: Os, options: LayerSnapshotOptions): Snapshot {
   };
 }
 
-function profileOf(
-  destinations: Readonly<Record<string, string>>,
-): Profile {
+function profileOf(destinations: Readonly<Record<string, string>>): Profile {
   return {
     name: "work-1",
     modules: ["parity"],
@@ -490,6 +489,40 @@ function importEntry(extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
   };
 }
 
+/** A whole-file entry, the plain file merge type. */
+function wholeEntry(file: string, localPath: string): ConfigV2Entry {
+  return { file, module: "parity", merge: "whole", localPath };
+}
+
+/** A dir entry on every OS, so it writes to `dotfiles/common/<file>`. */
+function dirEntry(extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
+  return {
+    file: "dir",
+    module: "parity",
+    merge: "dir",
+    localPath: "~/.config/parity/dir",
+    ...extra,
+  };
+}
+
+/** A context for running a plan whose repo root is a temporary folder. */
+function runContextFor(repoRoot: string, root: string): RunContext {
+  const state = join(root, "state");
+  return {
+    repoRoot,
+    os: "linux",
+    stateFolder: join(state, "sync-settings"),
+    location: {
+      recordFile: join(state, "machine.json"),
+      profilesFolder: join(state, "profiles"),
+      privateFiles: true,
+    },
+    env: {},
+    now: () => new Date(0),
+    pid: 1,
+  };
+}
+
 interface ObservedPlan {
   readonly lines: readonly string[];
   readonly actions: readonly Action[];
@@ -523,7 +556,9 @@ describe("planExport", () => {
     const result = runCase("export-adds");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-adds", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-adds", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(shownActions(result.actions)).toEqual([
       { kind: "mkdir", path: "dotfiles/common/parity" },
@@ -541,11 +576,17 @@ describe("planExport", () => {
     const result = runCase("export-excluded");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-excluded", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-excluded", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
     expect(result.lines).toContain(
-      formatLine("SKIPPED", "dotfiles/common/parity/x.log", "matches exclude pattern"),
+      formatLine(
+        "SKIPPED",
+        "dotfiles/common/parity/x.log",
+        "matches exclude pattern",
+      ),
     );
   });
 
@@ -568,12 +609,39 @@ describe("planExport", () => {
     );
   });
 
+  test("should stop with the missing-value message when no value is cached", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        jsonEntry({
+          sanitize: [{ placeholder: "<NAME>", prompt: "Full name" }],
+        }),
+      ],
+      repo: { "dotfiles/common/parity/settings.json": '{"name": "<NAME>"}' },
+      local: { ".config/parity/settings.json": '{"name": "Parity User"}' },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.lines).toEqual([
+      "missing value for <NAME>: add it to .user-values.json",
+    ]);
+    expect(result.actions.some((action) => action.kind === "writeRepo")).toBe(
+      false,
+    );
+  });
+
   test("export-modified", () => {
     // Act
     const result = runCase("export-modified");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-modified", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-modified", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(shownActions(result.actions)).toEqual([
       {
@@ -658,7 +726,9 @@ describe("planExport", () => {
     const result = runCase("export-unchanged");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("export-unchanged", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("export-unchanged", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
   });
@@ -673,7 +743,11 @@ describe("planExport", () => {
     );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([
-      { kind: "removeRepo", path: "dotfiles/common/parity/dir/b.txt" },
+      {
+        kind: "removeRepo",
+        path: "dotfiles/common/parity/dir/b.txt",
+        pruneUpTo: "dotfiles/common/parity/dir",
+      },
     ]);
     expect(result.lines).toContain(
       formatLine(
@@ -689,7 +763,9 @@ describe("planExport", () => {
     const result = runCase("orphan-reported");
 
     // Assert
-    expect(statusLines(result.lines)).toEqual(expectedOutput("orphan-reported", "linux"));
+    expect(statusLines(result.lines)).toEqual(
+      expectedOutput("orphan-reported", "linux"),
+    );
     expect(result.code).toBe(0);
     expect(result.actions).toEqual([]);
     expect(result.lines).toContain(
@@ -736,8 +812,14 @@ describe("planExport", () => {
 
   test("platform-picks-os", () => {
     const written: Readonly<Record<Os, readonly string[]>> = {
-      linux: ["dotfiles/linux/parity/lin.conf", "dotfiles/common/parity/com.conf"],
-      windows: ["dotfiles/windows/parity/win.conf", "dotfiles/common/parity/com.conf"],
+      linux: [
+        "dotfiles/linux/parity/lin.conf",
+        "dotfiles/common/parity/com.conf",
+      ],
+      windows: [
+        "dotfiles/windows/parity/win.conf",
+        "dotfiles/common/parity/com.conf",
+      ],
       macos: ["dotfiles/common/parity/com.conf"],
     };
 
@@ -746,7 +828,9 @@ describe("planExport", () => {
       const result = runCase("platform-picks-os", os);
 
       // Assert
-      expect(statusLines(result.lines)).toEqual(expectedOutput("platform-picks-os", os));
+      expect(statusLines(result.lines)).toEqual(
+        expectedOutput("platform-picks-os", os),
+      );
       expect(result.code).toBe(0);
       expect(
         shownActions(result.actions)
@@ -818,6 +902,339 @@ describe("planExport", () => {
       failure: "cannot create parent folder",
     });
   });
+
+  test("should report a failed write and still export the other files", () => {
+    // Arrange: the first file's repo target is a folder, so its write fails.
+    const root = mkdtempSync(join(tmpdir(), "mksync-export-error-"));
+    const repo = join(root, "repo");
+    try {
+      mkdirSync(join(repo, "dotfiles", "common", "parity", "plain.txt"), {
+        recursive: true,
+      });
+      const snapshot = layeredSnapshot("linux", {
+        entries: [
+          wholeEntry("parity/plain.txt", "~/.config/parity/plain.txt"),
+          wholeEntry("parity/tool.sh", "~/.config/parity/tool.sh"),
+          wholeEntry("parity/named.conf", "~/.config/parity/named.conf"),
+        ],
+        repo: {
+          "dotfiles/common/parity/plain.txt": "old\n",
+          "dotfiles/common/parity/named.conf": "old\n",
+        },
+        local: {
+          ".config/parity/plain.txt": "new\n",
+          ".config/parity/tool.sh": "new\n",
+          ".config/parity/named.conf": "new\n",
+        },
+      });
+      const plan = planExport(snapshot);
+
+      // Act
+      const outcome = runPlan(plan, runContextFor(repo, root));
+      const rendered = renderRun(plan, outcome);
+
+      // Assert
+      expect(statusLines(rendered.lines)).toEqual([
+        "ERROR dotfiles/common/parity/plain.txt",
+        "ADDED dotfiles/common/parity/tool.sh",
+        "MODIFIED dotfiles/common/parity/named.conf",
+      ]);
+      expect(rendered.code).toBe(0);
+      expect(
+        readFileSync(
+          join(repo, "dotfiles", "common", "parity", "tool.sh"),
+          "utf8",
+        ),
+      ).toBe("new\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("dir-symlink-removed", () => {
+    // Arrange: a.txt is local, c.txt is a local symlink the repo still holds.
+    const snapshot = layeredSnapshot("linux", {
+      entries: [dirEntry()],
+      repo: {
+        "dotfiles/common/dir/a.txt": "a\n",
+        "dotfiles/common/dir/c.txt": "c\n",
+      },
+      local: { ".config/parity/dir/a.txt": "a\n" },
+    });
+    const localLink = `${HOME}/.config/parity/dir/c.txt`;
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localLink, { kind: "symlink", path: localLink });
+
+    // Act
+    const result = observe({ ...snapshot, localFiles });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/dir/a.txt",
+      "SKIPPED dotfiles/common/dir/c.txt",
+      "REMOVED dotfiles/common/dir/c.txt",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/dir/c.txt", "symlink"),
+    );
+    expect(result.lines).toContain(
+      formatLine(
+        "REMOVED",
+        "dotfiles/common/dir/c.txt",
+        "no longer in source",
+      ),
+    );
+    expect(result.actions).toEqual([
+      {
+        kind: "removeRepo",
+        path: "dotfiles/common/dir/c.txt",
+        pruneUpTo: "dotfiles/common/dir",
+      },
+    ]);
+    expect(result.code).toBe(0);
+  });
+
+  test("dir-symlink-only keeps the folder-empty rule", () => {
+    // Arrange: the local folder holds only a symlink for the repo's one file.
+    const snapshot = layeredSnapshot("linux", {
+      entries: [dirEntry()],
+      repo: { "dotfiles/common/dir/c.txt": "c\n" },
+    });
+    const localDir = `${HOME}/.config/parity/dir`;
+    const localLink = `${localDir}/c.txt`;
+    const localDirs = new Set(snapshot.localDirs);
+    localDirs.add(localDir);
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localLink, { kind: "symlink", path: localLink });
+
+    // Act
+    const result = observe({ ...snapshot, localFiles, localDirs });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "SKIPPED dotfiles/common/dir/c.txt",
+      "SKIPPED dotfiles/common/dir/",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/dir/c.txt", "symlink"),
+    );
+    expect(result.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        "dotfiles/common/dir/",
+        "local folder is empty; repo files kept",
+      ),
+    );
+    expect(result.actions).toEqual([]);
+    expect(result.code).toBe(0);
+  });
+
+  test("should keep the repo files when a dir holds only a symlink", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-export-empty-keeps-repo");
+    const localDir = `${HOME}/.config/fixture/dir`;
+    const localLink = `${localDir}/link.txt`;
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localLink, { kind: "symlink", path: localLink });
+    const localDirs = new Set(snapshot.localDirs);
+    localDirs.add(localDir);
+
+    // Act
+    const result = observe({ ...snapshot, localFiles, localDirs });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "SKIPPED dotfiles/common/dir/link.txt",
+      "SKIPPED dotfiles/common/dir/",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/dir/link.txt", "symlink"),
+    );
+    expect(result.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        "dotfiles/common/dir/",
+        "local folder is empty; repo files kept",
+      ),
+    );
+    expect(result.lines.some((line) => line.includes("REMOVED"))).toBe(false);
+    expect(result.actions).toEqual([]);
+    expect(result.code).toBe(0);
+  });
+
+  test("should report an unreadable dir file and keep its repo copy", () => {
+    // Arrange
+    const snapshot = validSnapshot("dir-import-extra");
+    const localFile = "/home/user/.config/parity/dir/a.txt";
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localFile, { kind: "unreadable", path: localFile });
+    const label = "dotfiles/common/parity/dir/a.txt";
+
+    // Act
+    const result = observe({ ...snapshot, localFiles });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `ERROR ${label}`,
+      "ADDED dotfiles/common/parity/dir/extra.txt",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("ERROR", label, "cannot read local file"),
+    );
+    expect(result.lines.some((line) => line.includes("REMOVED"))).toBe(false);
+    expect(
+      result.actions.some(
+        (action) =>
+          (action.kind === "writeRepo" ||
+            action.kind === "chmod" ||
+            action.kind === "removeRepo") &&
+          action.path === label,
+      ),
+    ).toBe(false);
+    expect(result.code).toBe(0);
+  });
+
+  test("crlf-common-export-new", () => {
+    // Arrange: a shared file local to Windows arrives with CRLF.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [wholeEntry("parity/a.conf", "~/.config/parity/a.conf")],
+      repo: {},
+      local: { ".config/parity/a.conf": "a\r\nb\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ADDED dotfiles/common/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: "dotfiles/common/parity" },
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/a.conf",
+        text: "a\nb\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-common-export-modified", () => {
+    // Arrange: the repo holds LF; only the local file changed, with CRLF.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [wholeEntry("parity/a.conf", "~/.config/parity/a.conf")],
+      repo: { "dotfiles/common/parity/a.conf": "a\nb\n" },
+      local: { ".config/parity/a.conf": "a\r\nc\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/common/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/a.conf",
+        text: "a\nc\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-windows-export-keeps-crlf", () => {
+    // Arrange: a Windows-only file keeps the line endings this OS wrote.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [
+        {
+          ...wholeEntry("parity/a.conf", "~/.config/parity/a.conf"),
+          os: ["windows"],
+        },
+      ],
+      repo: { "dotfiles/windows/parity/a.conf": "x\n" },
+      local: { ".config/parity/a.conf": "a\r\nb\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/windows/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/windows/parity/a.conf",
+        text: "a\r\nb\r\n",
+      },
+      { kind: "chmod", path: "dotfiles/windows/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-common-binary-export", () => {
+    // Arrange: a NUL byte means the file is binary, so its bytes stay as they are.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [wholeEntry("parity/a.conf", "~/.config/parity/a.conf")],
+      repo: {},
+      local: { ".config/parity/a.conf": "" },
+    });
+    const localPath = `${WINDOWS_HOME}\\.config\\parity\\a.conf`;
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localPath, {
+      kind: "file",
+      path: localPath,
+      bytes: new Uint8Array([0x61, 0x00, 0x0d, 0x0a]),
+      mode: MODE,
+    });
+
+    // Act
+    const result = observe({ ...snapshot, localFiles });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ADDED dotfiles/common/parity/a.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: "dotfiles/common/parity" },
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/a.conf",
+        text: "a\u0000\r\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/a.conf", mode: MODE },
+    ]);
+  });
+
+  test("crlf-common-dir-export-new", () => {
+    // Arrange: a new file in a shared dir entry, written by Windows with CRLF.
+    const snapshot = layeredSnapshot("windows", {
+      entries: [dirEntry()],
+      repo: {},
+      local: { ".config/parity/dir/new.txt": "y\r\n" },
+    });
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "ADDED dotfiles/common/dir/new.txt",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "mkdir", path: "dotfiles/common/dir" },
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/dir/new.txt",
+        text: "y\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/dir/new.txt", mode: MODE },
+    ]);
+  });
+
 });
 
 describe("planExport values file", () => {
@@ -844,7 +1261,11 @@ describe("planExport values on a machine", () => {
         entries: [
           jsonEntry({
             sanitize: [
-              { placeholder: "<HOME>", prompt: "Home folder", default: "/home/user" },
+              {
+                placeholder: "<HOME>",
+                prompt: "Home folder",
+                default: "/home/user",
+              },
             ],
           }),
         ],
@@ -904,13 +1325,21 @@ describe("planExport layers", () => {
         path: "dotfiles/common/parity/settings.json",
         text: JSON_BASE_CHANGED_TEXT,
       },
-      { kind: "chmod", path: "dotfiles/common/parity/settings.json", mode: MODE },
+      {
+        kind: "chmod",
+        path: "dotfiles/common/parity/settings.json",
+        mode: MODE,
+      },
       {
         kind: "writeRepo",
         path: "dotfiles/linux/parity/settings.json",
         text: JSON_OS_CHANGED_TEXT,
       },
-      { kind: "chmod", path: "dotfiles/linux/parity/settings.json", mode: MODE },
+      {
+        kind: "chmod",
+        path: "dotfiles/linux/parity/settings.json",
+        mode: MODE,
+      },
     ]);
     expect(result.code).toBe(0);
   });
@@ -930,7 +1359,9 @@ describe("planExport layers", () => {
     const result = observe(snapshot);
 
     // Assert
-    expect(result.lines.some((line) => line.includes(UNUSED_PROFILE_FILE))).toBe(false);
+    expect(
+      result.lines.some((line) => line.includes(UNUSED_PROFILE_FILE)),
+    ).toBe(false);
   });
 
   test("should send a new json array item to the one layer a base-only file has", () => {
@@ -954,7 +1385,11 @@ describe("planExport layers", () => {
         path: "dotfiles/common/parity/settings.json",
         text: JSON_LIST_ADDED_TEXT,
       },
-      { kind: "chmod", path: "dotfiles/common/parity/settings.json", mode: MODE },
+      {
+        kind: "chmod",
+        path: "dotfiles/common/parity/settings.json",
+        mode: MODE,
+      },
     ]);
     expect(result.code).toBe(0);
   });
@@ -1139,7 +1574,11 @@ describe("planExport layers", () => {
       },
     ]);
     expect(result.lines).toContain(
-      formatLine("MODIFIED", "dotfiles/linux/parity/settings.json", "sanitized"),
+      formatLine(
+        "MODIFIED",
+        "dotfiles/linux/parity/settings.json",
+        "sanitized",
+      ),
     );
   });
 
@@ -1154,7 +1593,8 @@ describe("planExport layers", () => {
         }),
       ],
       repo: {
-        [`dotfiles/common/${EXTENSIONLESS_JSON_FILE}`]: EXTENSIONLESS_JSON_REPO_TEXT,
+        [`dotfiles/common/${EXTENSIONLESS_JSON_FILE}`]:
+          EXTENSIONLESS_JSON_REPO_TEXT,
       },
       local: {
         [EXTENSIONLESS_JSON_LOCAL]: JSON.stringify({
@@ -1194,7 +1634,8 @@ describe("planExport layers", () => {
         "dotfiles/linux/parity/settings.json": '{"osKey": 1}',
       },
       local: {
-        ".config/parity/settings.json": '{"paths":["/home/user/bin"],"osKey": 1}',
+        ".config/parity/settings.json":
+          '{"paths":["/home/user/bin"],"osKey": 1}',
       },
       values: { "<HOMEDIR>": "/home/user" },
     });
@@ -1529,14 +1970,10 @@ interface DconfSnapshotOptions {
 
 /** A Linux snapshot with one dconf entry and, when given, its dump result. */
 function dconfSnapshot(options: DconfSnapshotOptions): Snapshot {
-  const extra =
-    options.keys === undefined ? {} : { keys: options.keys };
+  const extra = options.keys === undefined ? {} : { keys: options.keys };
   return layeredSnapshot("linux", {
     entries: [dconfEntry(options.everyOs === true, extra)],
-    repo:
-      options.repo === undefined
-        ? {}
-        : { [DCONF_REPO_PATH]: options.repo },
+    repo: options.repo === undefined ? {} : { [DCONF_REPO_PATH]: options.repo },
     ...(options.dump === undefined
       ? {}
       : { dconfDumps: new Map([[DCONF_PATH, options.dump]]) }),
@@ -1660,9 +2097,7 @@ describe("planExport dconf", () => {
     const result = observe(snapshot);
 
     // Assert
-    expect(statusLines(result.lines)).toEqual([
-      `UNCHANGED ${DCONF_REPO_PATH}`,
-    ]);
+    expect(statusLines(result.lines)).toEqual([`UNCHANGED ${DCONF_REPO_PATH}`]);
     expect(result.actions).toEqual([]);
   });
 

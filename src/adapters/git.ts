@@ -1,4 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RepoFiles } from "../core/plan/types.ts";
 import { originUrls } from "./visibility.ts";
@@ -13,12 +21,14 @@ interface GitOutput {
  * Run git in the repo root with an argument array and no shell. `undefined`
  * means git could not start (no binary, unreadable folder), so callers treat
  * it as "git cannot tell" rather than an error. `input`, when given, is fed to
- * the process's stdin.
+ * the process's stdin; `env`, when given, overrides those variables on top of
+ * the caller's environment.
  */
 async function runGit(
   repoRoot: string,
   args: readonly string[],
   input?: Uint8Array,
+  env?: Readonly<Record<string, string>>,
 ): Promise<GitOutput | undefined> {
   try {
     const child = Bun.spawn(["git", ...args], {
@@ -26,6 +36,7 @@ async function runGit(
       stdin: input === undefined ? "ignore" : input,
       stdout: "pipe",
       stderr: "ignore",
+      ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
     });
     const stdout = new Uint8Array(await new Response(child.stdout).arrayBuffer());
     const code = await child.exited;
@@ -754,4 +765,226 @@ export async function readParentSha(repoRoot: string): Promise<GitShaResult> {
   }
   const sha = result.stdout.trim();
   return { ...result, sha: SYNC_POINT_PATTERN.test(sha) ? sha : undefined };
+}
+
+/** The repo path of the sync config, which the preview diffs like a dotfile. */
+const CONFIG_FILE = "sync-config.json";
+
+/** The pathspecs that scope the preview diff to the exported repo state. */
+const PREVIEW_PATHSPECS = [DOTFILES_FOLDER, CONFIG_FILE] as const;
+
+/** The temp folder prefix `previewDiff` makes, removed again on every path. */
+const PREVIEW_TMP_PREFIX = "mksync-preview-";
+
+/** The index file name inside the preview's temp folder. */
+const PREVIEW_INDEX_FILE = "index";
+
+/** The folder the preview writes each exported file's bytes into. */
+const PREVIEW_BLOBS_FOLDER = "blobs";
+
+/** What the preview's `git diff` run returned, as text. */
+export interface PreviewDiff {
+  readonly stat: string;
+  readonly diff: string;
+}
+
+/** One tracked path's mode and blob SHA, from `ls-files -s -z`. */
+interface IndexEntry {
+  readonly mode: string;
+  readonly sha: string;
+  readonly path: string;
+}
+
+/** `ls-files -s -z` records, `<mode> <sha> <stage>\t<path>` split by NULs. */
+function parseIndexEntries(output: Uint8Array): Map<string, IndexEntry> {
+  const entries = new Map<string, IndexEntry>();
+  for (const record of decodeText(output).split("\u0000")) {
+    if (record === "") {
+      continue;
+    }
+    const tab = record.indexOf("\t");
+    if (tab === -1) {
+      continue;
+    }
+    const fields = record.slice(0, tab).split(" ");
+    const mode = fields[0];
+    const sha = fields[1];
+    const path = record.slice(tab + 1);
+    if (mode === undefined || sha === undefined || path === "") {
+      continue;
+    }
+    entries.set(path, { mode, sha, path });
+  }
+  return entries;
+}
+
+/**
+ * Git's `--stat` and full diff of the exported tree in `files` against `HEAD`,
+ * for the preview. The tree is built in a throwaway index, so the working
+ * tree, any ref and the real index are never touched. `files` holds the
+ * exported repo state — paths under `dotfiles/` and `sync-config.json` (any
+ * other key is ignored); a tracked path missing from `files` is a deletion.
+ * Both halves are `""` when the tree matches `HEAD`; `undefined` when git
+ * cannot tell (no repo, no commit, or git missing).
+ */
+export async function previewDiff(
+  repoRoot: string,
+  files: ReadonlyMap<string, Uint8Array>,
+): Promise<PreviewDiff | undefined> {
+  const tmp = mkdtempSync(join(tmpdir(), PREVIEW_TMP_PREFIX));
+  const index = join(tmp, PREVIEW_INDEX_FILE);
+  const indexEnv: Readonly<Record<string, string>> = { GIT_INDEX_FILE: index };
+  try {
+    // Seed the throwaway index with HEAD's tree, so every index command below
+    // and the cached diff read it instead of the real index.
+    const seeded = await runGit(
+      repoRoot,
+      ["read-tree", "HEAD"],
+      undefined,
+      indexEnv,
+    );
+    if (seeded === undefined || seeded.code !== 0) {
+      return undefined;
+    }
+
+    const listing = await runGit(
+      repoRoot,
+      ["ls-files", "-s", "-z", "--", ...PREVIEW_PATHSPECS],
+      undefined,
+      indexEnv,
+    );
+    if (listing === undefined || listing.code !== 0) {
+      return undefined;
+    }
+    const tracked = parseIndexEntries(listing.stdout);
+
+    // Write each exported file's bytes to temp and hash them in one run, so no
+    // process starts per file and `--no-filters` keeps the bytes exact.
+    const blobsFolder = join(tmp, PREVIEW_BLOBS_FOLDER);
+    mkdirSync(blobsFolder);
+    const pending: { path: string; blobPath: string }[] = [];
+    for (const [path, bytes] of files) {
+      if (path !== CONFIG_FILE && !path.startsWith(`${DOTFILES_FOLDER}/`)) {
+        continue;
+      }
+      const blobPath = join(blobsFolder, String(pending.length));
+      writeFileSync(blobPath, bytes);
+      pending.push({ path, blobPath });
+    }
+    const shaByPath = new Map<string, string>();
+    if (pending.length > 0) {
+      const request = new TextEncoder().encode(
+        `${pending.map((item) => item.blobPath).join("\n")}\n`,
+      );
+      const hashed = await runGit(
+        repoRoot,
+        ["hash-object", "-w", "--no-filters", "--stdin-paths"],
+        request,
+      );
+      if (hashed === undefined || hashed.code !== 0) {
+        return undefined;
+      }
+      const shas = decodeText(hashed.stdout)
+        .split("\n")
+        .filter((line) => line !== "");
+      if (shas.length !== pending.length) {
+        return undefined;
+      }
+      for (let i = 0; i < pending.length; i++) {
+        const item = pending[i];
+        const sha = shas[i];
+        if (item === undefined || sha === undefined) {
+          return undefined;
+        }
+        shaByPath.set(item.path, sha);
+      }
+    }
+
+    // One `update-index --index-info` applies every add, change and removal to
+    // the throwaway index, reusing a tracked path's mode and 100644 for new.
+    const lines: string[] = [];
+    for (const [path, entry] of tracked) {
+      const bytes = files.get(path);
+      if (bytes === undefined) {
+        // The removal form takes an all-zero name as long as the repo's own
+        // (SHA-1 or SHA-256) object names.
+        lines.push(`0 ${"0".repeat(entry.sha.length)}\t${path}`);
+        continue;
+      }
+      const sha = shaByPath.get(path);
+      if (sha === undefined || sha === entry.sha) {
+        continue;
+      }
+      lines.push(`${entry.mode} ${sha}\t${path}`);
+    }
+    for (const { path } of pending) {
+      if (tracked.has(path)) {
+        continue;
+      }
+      const sha = shaByPath.get(path);
+      if (sha === undefined) {
+        continue;
+      }
+      lines.push(`100644 ${sha}\t${path}`);
+    }
+    if (lines.length > 0) {
+      const update = await runGit(
+        repoRoot,
+        ["update-index", "--index-info"],
+        new TextEncoder().encode(`${lines.join("\n")}\n`),
+        indexEnv,
+      );
+      if (update === undefined || update.code !== 0) {
+        return undefined;
+      }
+    }
+
+    const statResult = await runGit(
+      repoRoot,
+      [
+        "-c",
+        "core.quotepath=false",
+        "diff",
+        "--cached",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-renames",
+        "--stat",
+        "HEAD",
+        "--",
+        ...PREVIEW_PATHSPECS,
+      ],
+      undefined,
+      indexEnv,
+    );
+    if (statResult === undefined || statResult.code !== 0) {
+      return undefined;
+    }
+    const diffResult = await runGit(
+      repoRoot,
+      [
+        "-c",
+        "core.quotepath=false",
+        "diff",
+        "--cached",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-renames",
+        "HEAD",
+        "--",
+        ...PREVIEW_PATHSPECS,
+      ],
+      undefined,
+      indexEnv,
+    );
+    if (diffResult === undefined || diffResult.code !== 0) {
+      return undefined;
+    }
+    return {
+      stat: decodeText(statResult.stdout),
+      diff: decodeText(diffResult.stdout),
+    };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }

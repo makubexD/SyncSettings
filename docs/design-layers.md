@@ -730,6 +730,57 @@ doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Li
 - **The port has its own plan.** The old cases without a shared twin (`docs/design-test-moves.md`) are ported by
   `docs/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
 
+## Decided in phase 8, the port
+
+The port plan's decisions (`docs/plan-single-engine-8-port.md`), as rules. Its inventory, `docs/port-inventory.tsv`,
+gives every old case of `docs/design-test-moves.md` a verdict.
+
+- **Ported cases check the text the old case checked.** A shared case may add `expect/lines.txt`: lines that must
+  appear in each command's output, in order, other lines allowed between them; `! <text>` must not appear; `# <n>`
+  starts command `n`'s lines. Status lines read `WORD label note` with single spaces on every engine. Example:
+  `only-no-file-import` expects `WARNING: --only matched no file.`, a line the status-line check drops.
+- **What the runner can't set up stays a unit or adapter test:** a write failure, a symlink in `home/`, an
+  unreachable origin, a failing `gh`, a real dconf bus, the package managers. The runner doesn't grow for them.
+  Example: `error-continues` (a read-only repo file) is an `export.test.ts` case with a failing write action.
+- **Gaps are fixed contract first.** Where the program breaks a rule the contract already states, the port writes
+  the case, then the fix: a symlink under `dotfiles/`, `--only` with a `dir` entry's folder, LF for shared files
+  exported on Windows, the preview's `--stat` and diff, the macOS doctor's `brew` line, and the Windows ACL on local
+  state. Example: on work #1, a shared `.editorconfig` saved with CRLF is pushed with LF.
+- **A local file that became a symlink in a `dir` entry** loses its repo copy (`REMOVED … no longer in source`), as
+  bash does: a symlink isn't a file of the folder. Example: replacing `~/.config/fixture/dir/c.txt` with a link to
+  another file removes `dotfiles/common/dir/c.txt` on the next export.
+- **Push behind origin stops before the export,** as the bash front door does:
+  `ERROR: origin has updates; run mksync pull first.`, exit 1. The PowerShell front door doesn't check, a Known
+  difference until cut-over. Example: personal Linux pushes while work #1's PR was merged; nothing is exported until
+  `mksync pull`.
+- **Config lint rules move to v2 only where the rule has a v2 meaning.** The fourteen `lint-*` rules of
+  `scripts/ci/check-config.sh` were decided one by one (port step 36). None is dropped: each v1 field it checks has a
+  v2 field (`type` → `merge`, `path` → `dconfPath`, `sanitizeRules` → `sanitize`, `detectLinkedPaths` →
+  `scanLinks`), so each keeps its meaning. Four new refusals carry twelve of them ("Config v2 error lines" in
+  "Open"):
+  - `can not use <field> with merge <merge>`: `sanitize` or `scanLinks` on a `dir` entry, which copies files as they
+    are (`lint-dir-with-rules`); `localPath`, `sanitize` or `scanLinks` on a `dconf` entry, which loads the database
+    and has no file to hydrate or scan (`lint-dconf-localpath`, `lint-dconf-rules`, `lint-dconf-linked`);
+    `dconfPath` or `keys` on any other merge (`lint-keys-on-file`, `lint-path-on-dir`). The fields are checked in
+    that order and the first one present is named.
+  - `is inside dir entry <dir>`: an entry whose `file` starts with a `dir` entry's `file` plus `/`, whatever its
+    merge (`lint-file-in-dir`, `lint-typed-file-in-dir`, `lint-dir-in-dir`). Layer roots are shared, so the two
+    entries would own the same layer files. A sibling such as `d-old/x.txt` next to `d` is not inside it
+    (`lint-sibling-prefix`, a case that must not be refused).
+  - `has a trailing / in file`: v1 trimmed `dotfiles/linux/d/` before the inside-a-dir check
+    (`lint-dir-trailing-slash`); v2 refuses the slash instead, since `file` must match the parity check's layer
+    path exactly.
+  - `needs keys as a non-empty list of strings`: `keys` on a `dconf` entry that is empty or not a list of strings
+    (`lint-dconf-keys-empty`, `lint-dconf-keys-type`).
+  - `lint-type-unknown` is already `has an unknown merge <m>`.
+
+  Example: a config with `{"file": "vscode/snippets", "merge": "dir", "sanitize": [...]}` stops with
+  `ERROR: sync-config.v2.json: entry vscode/snippets can not use sanitize with merge dir.`, exit 1.
+
+- **Setup and bootstrap cases wait for phase 9,** with the bootstrap question, `--bootstrap` and doctor before
+  setup: `sync-setup-offers-bootstrap`, `sync-setup-doctor-fails`, `front-macos-setup-no-bootstrap`,
+  `front-macos-bootstrap-flag`.
+
 ## Linked folders
 
 Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
@@ -1237,8 +1288,9 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
   `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`, and (phase 8)
   `has linked other than true`, and (phase 8 review) `needs a dconfPath like /org/gnome/shell/.` for a `dconf` entry
-  whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule. They enter the
-  contract when v2 does.
+  whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule, and (port step
+  36, from the v1 lint rules) `can not use <field> with merge <merge>`, `is inside dir entry <dir>`,
+  `has a trailing / in file` and `needs keys as a non-empty list of strings`. They enter the contract when v2 does.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
@@ -1290,13 +1342,15 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   `tsc` only; the question moves to phase 9.
 - **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
-  re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case.
+  re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case. Settled by
+  the port: every case was re-read for `docs/port-inventory.tsv` (2026-11-16).
 - **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
   rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows": proposed no (step
   27).
 - **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
-  Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored.
+  Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored. The
+  sync-point half: the contract's "Sync point" now has the `WARNING`, and port step 20 tests it on import.
 - **Overwrite prompt on a terminal (phase 4, program).** `planImport` takes the answers as a list, so the program
   reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
   the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
@@ -1473,9 +1527,25 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     files.
   - **Typed answers and `read -r` (phase 9).** Bash `read -r` trims spaces and tabs at both ends and keeps a trailing
     `\r`; the program's `askValues` trims only the line end. Decide together with the PowerShell `Read-Host` rule.
+  - **The missing-value line's stream (case port, 2026-11-16).** With no terminal, bash still prints the value
+    prompt (` <prompt>:`) and then `missing value for <PLACEHOLDER>: add it to .user-values.json` on stderr, so the
+    merged output reads as one line; the program prints no prompt and the line on stdout. The contract names neither
+    the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
+    (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
   - **Atomic profile and record writes (phase 9).** `writePrivateFile` rewrites an existing 0644 file before
     tightening its mode, and a crash mid-write leaves a file that no longer parses: write a 0600 temp file and rename
     it.
+- **Left by the case port (`docs/plan-single-engine-8-port.md`, 2026-11-17).**
+  - **Drift in export and preview.** The contract ("Package drift", "Program") and "Drift stays in export and
+    preview" above say the program reports `DRIFT` after an export's or a preview's orphan report; the program
+    reports drift only in `mksync doctor` (`src/app/doctor.ts` is the only caller of `core/drift.ts`). No shared case
+    catches it, since the runners have no package-manager stub. Either the program adds the report (and skips it
+    under `--only`, as the contract's "Picking files" says), or the contract moves drift to doctor.
+  - **Windows ACL on an existing file with explicit grants.** Resolved in the case port's finish: a new file in a
+    folder with no inheritable rules (the CI runner's temp folder) gets the token's default DACL as explicit SYSTEM
+    and Administrators grants, which `icacls /inheritance:r /grant:r *<SID>:F` kept. `src/adapters/acl.ts` now runs
+    the PowerShell engine's calls (a fresh protected `FileSecurity` with one rule for the token's SID) through
+    `powershell.exe`, the path passed in an environment variable; `run.ps1`'s ACL check covers it.
 
 ### Confirm on Windows
 

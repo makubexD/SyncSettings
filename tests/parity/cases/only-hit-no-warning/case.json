@@ -1,0 +1,31 @@
+{
+  "description": "Import with --only matching a file updates it and prints no no-match warning (Picking files). Ported from only-hit-no-warning, Pester only-hit-no-warning.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "common",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true,
+        "only": ["dotfiles/common/plain.txt"]
+      }
+    }
+  ]
+}

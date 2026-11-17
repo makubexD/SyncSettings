@@ -1,0 +1,3 @@
+ERROR dotfiles/linux/dconf/app.ini
+UNCHANGED dotfiles/linux/plain.txt
+ORPHAN dotfiles/linux/dconf

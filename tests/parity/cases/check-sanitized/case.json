@@ -1,0 +1,23 @@
+{
+  "description": "An import puts the value back and the import check that follows finds the hydrated file unchanged, exit 0 (Import check). Ported from import-check-sanitized.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/named.conf",
+        "localPath": "~/.config/fixture/named.conf",
+        "platform": "common",
+        "description": "Sanitized fixture",
+        "sanitizeRules": [
+          { "placeholder": "<NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "values": { "<NAME>": "Someone" },
+  "commands": [
+    { "command": "import", "options": { "force": true } },
+    { "command": "check" }
+  ]
+}

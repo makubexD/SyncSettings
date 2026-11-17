@@ -1,0 +1,20 @@
+{
+  "description": "The import check treats a local sanitized file whose text differs from the hydrated repo as changed and lists it, exit 3 (Import check). Ported from import-check-sanitized.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/named.conf",
+        "localPath": "~/.config/fixture/named.conf",
+        "platform": "common",
+        "description": "Sanitized fixture",
+        "sanitizeRules": [
+          { "placeholder": "<NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "values": { "<NAME>": "Someone" },
+  "commands": [{ "command": "check" }]
+}

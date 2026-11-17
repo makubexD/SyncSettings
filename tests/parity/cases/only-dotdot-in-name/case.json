@@ -1,0 +1,24 @@
+{
+  "description": "Export accepts a --only dir path whose file name holds a .. and adds just that file (Picking files). Ported from only-repo-dotdot-name, Pester only-repo-dotdot-name.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["dotfiles/common/dir/foo..bar"]
+      }
+    }
+  ]
+}

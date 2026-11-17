@@ -261,6 +261,37 @@ function Validate-Case {
         }
     }
 
+    $oldEnginesProp = $case.PSObject.Properties['oldEngines']
+    if ($null -ne $oldEnginesProp) {
+        $oldEngines = $oldEnginesProp.Value
+        if ($oldEngines -isnot [System.Array] -or $oldEngines.Count -eq 0) {
+            Die 'oldEngines must be a non-empty list of bash and powershell'
+        }
+        foreach ($e in $oldEngines) {
+            if ($e -isnot [string] -or ($e -cne 'bash' -and $e -cne 'powershell')) {
+                Die 'oldEngines must be a non-empty list of bash and powershell'
+            }
+        }
+    }
+
+    $emptyDirsProp = $case.PSObject.Properties['emptyDirs']
+    if ($null -ne $emptyDirsProp) {
+        $emptyDirs = $emptyDirsProp.Value
+        if ($emptyDirs -isnot [System.Array]) {
+            Die 'emptyDirs must be a list of strings'
+        }
+        foreach ($d in $emptyDirs) {
+            if ($d -isnot [string]) {
+                Die 'emptyDirs must be a list of strings'
+            }
+        }
+        foreach ($d in $emptyDirs) {
+            if ($d -cmatch '^(/|[A-Za-z]:|\\)' -or (@($d -split '[/\\]') -contains '..')) {
+                Die 'emptyDirs must be relative paths under home'
+            }
+        }
+    }
+
     $stubsProp = $case.PSObject.Properties['stubs']
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
@@ -463,6 +494,104 @@ function Get-WholeOutput {
     return ,$result
 }
 
+# One command's output for the expect/lines.txt check: ANSI color codes
+# removed, each line trimmed, and a status line in either engine's layout read
+# as `WORD label note` with single spaces between (see the README's "How the
+# runner checks it"). Notes and every other line stay as they are, trimmed.
+function Get-NormalizedLines {
+    param([string]$Raw)
+    $text = $Raw -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
+    $text = $text -replace "`r`n", "`n"
+    $text = $text -replace "`r", "`n"
+    $result = @()
+    if ($text.Length -eq 0) {
+        return ,$result
+    }
+    if ($text.EndsWith("`n")) {
+        $text = $text.Substring(0, $text.Length - 1)
+    }
+    $patternPs = '^\[\s*(' + $StatusWords + ')\s*\]\s+(\S+)(.*)$'
+    $patternBash = '^(' + $StatusWords + ')\s+(\S+)(.*)$'
+    foreach ($line in ($text -split "`n")) {
+        # A prompt answered from a pipe ends with no newline, so its status line
+        # follows it on the same line: drop the `...? [Y/n]` prefix first.
+        $line = $line -creplace '^.*\? \[[Yy]/[Nn]\][ \t]*', ''
+        $line = $line.Trim()
+        if ($line -cmatch $patternPs) {
+            $word = $Matches[1]
+            $label = $Matches[2]
+            $rest = $Matches[3]
+        } elseif ($line -cmatch $patternBash) {
+            $word = $Matches[1]
+            $label = $Matches[2]
+            $rest = $Matches[3]
+        } else {
+            $result += $line
+            continue
+        }
+        $noteMatch = [regex]::Match($rest, '^\s+\((.*)\)\s*$')
+        if ($noteMatch.Success) {
+            $result += ($word + ' ' + $label + ' ' + $noteMatch.Groups[1].Value)
+        } else {
+            $result += ($word + ' ' + $label)
+        }
+    }
+    return ,$result
+}
+
+# Check expect/lines.txt against the per-command normalized output. Lines
+# before any `# <n>` belong to command 1; `# <n>` starts command n's lines.
+# Each expected line must appear in that command's output, in the file's order,
+# other lines allowed between. `! <text>` means no line of that command's
+# output contains <text>. A failure names the first missing (or present `!`)
+# line and prints the command's normalized output.
+function Compare-LineChecks {
+    param([string]$Dir, [object[]]$CommandLines, [int]$CommandCount)
+    $wantFile = Get-ExpectedPath $Dir 'lines.txt'
+    if (-not (Test-Path -LiteralPath $wantFile -PathType Leaf)) {
+        return
+    }
+    $positions = New-Object int[] $CommandCount
+    $cmd = 1
+    foreach ($line in (Read-Lines $wantFile)) {
+        if ($line -cmatch '^#\s+([0-9]+)$') {
+            $cmd = [int]$Matches[1]
+            if ($cmd -lt 1 -or $cmd -gt $CommandCount) {
+                Die "lines command $cmd`: no such command"
+            }
+            continue
+        }
+        $got = @()
+        if ($cmd -ge 1 -and $cmd -le $CommandLines.Count) {
+            $got = @($CommandLines[$cmd - 1])
+        }
+        $normalizedOutput = ''
+        if ($got.Count -gt 0) {
+            $normalizedOutput = ($got -join "`n")
+        }
+        if ($line.StartsWith('! ')) {
+            $text = $line.Substring(2)
+            foreach ($g in $got) {
+                if ($g.Contains($text)) {
+                    Die ("lines command {0}: `"{1}`" must not appear`noutput was:`n{2}" -f $cmd, $text, $normalizedOutput)
+                }
+            }
+        } else {
+            $found = $false
+            for ($j = $positions[$cmd - 1]; $j -lt $got.Count; $j++) {
+                if ($got[$j] -ceq $line) {
+                    $positions[$cmd - 1] = $j + 1
+                    $found = $true
+                    break
+                }
+            }
+            if (-not $found) {
+                Die ("lines command {0}: missing `"{1}`"`noutput was:`n{2}" -f $cmd, $line, $normalizedOutput)
+            }
+        }
+    }
+}
+
 # Compare two line lists, one line per command or per status line. $What is the
 # name `exit` or `output`; a missing wanted file means nothing was expected.
 function Compare-Lines {
@@ -620,12 +749,21 @@ function Copy-Tree {
 
 # Remove the engine files copied into the temp repo, so the repo comparison sees
 # only the case's own files. `scripts` goes too when nothing is left in it.
+# Windows can hold a just-run mksync.exe open for a moment after the process
+# exits (an antivirus scan, a handle not yet closed), so a delete is retried
+# for a few seconds before the case fails.
 function Remove-Engine {
     param([string]$RepoDir)
     foreach ($rel in @('sync.cmd', 'mksync.exe', 'sync-config.json', 'sync-config.v2.json', '.user-values.json', 'scripts\windows', 'scripts\ci')) {
         $path = Join-Path $RepoDir $rel
-        if (Test-Path -LiteralPath $path) {
+        for ($try = 1; (Test-Path -LiteralPath $path) -and $try -le 40; $try++) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $path) {
+                Start-Sleep -Milliseconds 250
+            }
+        }
+        if (Test-Path -LiteralPath $path) {
+            Die "engine file still locked after 10 s: $rel"
         }
     }
     $scriptsDir = Join-Path $RepoDir 'scripts'
@@ -725,6 +863,52 @@ function Write-GhStub {
     [IO.File]::WriteAllText((Join-Path $binDir 'gh.cmd'), $body, [System.Text.UTF8Encoding]::new($false))
 }
 
+# The local state the program writes must be readable by the user only on
+# Windows: no inherited access rules and exactly one rule, the current user.
+# This replaces the Pester cases values-private-new, values-private-tightened and
+# values-private-no-domain (tests/windows/Engine.Tests.ps1). Only files the
+# program wrote during the case are checked; a seeded file the program left
+# alone still carries the runner's own ACL, and the last sync point is no secret.
+function Test-PrivateFiles {
+    param([string]$RepoDir, [string]$LocalDir, [DateTime]$RunStartUtc)
+
+    $candidates = New-Object System.Collections.Generic.List[object]
+    $candidates.Add(@{ Path = (Join-Path $RepoDir '.user-values.json'); Name = '.user-values.json' })
+    $stateRoot = Join-Path $LocalDir 'SyncSettings'
+    $candidates.Add(@{ Path = (Join-Path $stateRoot 'machine.json'); Name = 'SyncSettings\machine.json' })
+    $profilesDir = Join-Path $stateRoot 'profiles'
+    if (Test-Path -LiteralPath $profilesDir -PathType Container) {
+        foreach ($profileFile in @(Get-ChildItem -LiteralPath $profilesDir -Filter '*.json' -File -Force | Sort-Object Name)) {
+            $candidates.Add(@{ Path = $profileFile.FullName; Name = ('SyncSettings\profiles\' + $profileFile.Name) })
+        }
+    }
+
+    $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    foreach ($candidate in $candidates) {
+        $file = $candidate.Path
+        $name = $candidate.Name
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            continue
+        }
+        if ((Get-Item -LiteralPath $file).LastWriteTimeUtc -lt $RunStartUtc) {
+            continue
+        }
+        $acl = Get-Acl -LiteralPath $file
+        if (-not $acl.AreAccessRulesProtected) {
+            Die "acl: $name inherits access"
+        }
+        $sids = @($acl.Access | ForEach-Object {
+            $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+        })
+        if ($sids.Count -ne 1 -or $sids[0] -cne $currentSid) {
+            $found = @($acl.Access | ForEach-Object {
+                '{0} {1} {2} inherited={3}' -f $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value, $_.AccessControlType, $_.FileSystemRights, $_.IsInherited
+            }) -join '; '
+            Die "acl: $name is not private to the current user ($currentSid); owner $($acl.Owner); rules: $found"
+        }
+    }
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, throwing the first difference.
@@ -789,6 +973,14 @@ function Run-Case {
             $now = Get-Date
             foreach ($homeFile in @(Get-ChildItem -LiteralPath $homeDir -Recurse -File -Force)) {
                 $homeFile.LastWriteTime = $now
+            }
+        }
+        # Git stores no empty folder, so a case names its empty folders in
+        # emptyDirs; each is created in the temp home before the first command.
+        $emptyDirsProp = $Case.PSObject.Properties['emptyDirs']
+        if ($null -ne $emptyDirsProp) {
+            foreach ($rel in @($emptyDirsProp.Value)) {
+                New-Item -ItemType Directory -Path (Join-Path $homeDir ([string]$rel)) -Force | Out-Null
             }
         }
 
@@ -876,10 +1068,15 @@ function Run-Case {
             }
         }
 
+        # Every file the program writes has a LastWriteTimeUtc at or after this
+        # point; the seeding above is older, so Test-PrivateFiles skips it.
+        $runStartUtc = [DateTime]::UtcNow
+
         # Commands
         $commands = $Case.commands
         $exitCodes = New-Object System.Collections.Generic.List[string]
         $statusOut = New-Object System.Collections.Generic.List[string]
+        $lineOutputs = New-Object System.Collections.Generic.List[object]
 
         for ($i = 0; $i -lt $commands.Count; $i++) {
             $cmdObj = $commands[$i]
@@ -1118,7 +1315,13 @@ function Run-Case {
                 } elseif ($allOutput) {
                     $raw = $stdinText | & $launch @procArgs 2> $rawErr | Out-String
                 } else {
-                    $raw = $stdinText | & $launch @procArgs 2>&1 | Out-String
+                    # Each stderr line is cast to its own text: Out-String would
+                    # print an error record's `<exe> : ` prefix and `At …` lines.
+                    $merged = @($stdinText | & $launch @procArgs 2>&1)
+                    $raw = ''
+                    foreach ($item in $merged) {
+                        $raw += ([string]$item).TrimEnd("`r") + "`n"
+                    }
                 }
                 $rc = $LASTEXITCODE
             } finally {
@@ -1172,22 +1375,34 @@ function Run-Case {
                         $statusOut.Add($line)
                     }
                 }
+                $rawErrText = ''
                 foreach ($item in $output) {
                     if ($item -isnot [System.Management.Automation.ErrorRecord]) {
                         continue
                     }
                     $line = ([string]$item) -creplace '\x1b\[[0-9;]*[A-Za-z]', ''
                     $statusOut.Add($line.TrimEnd("`r"))
+                    $rawErrText += $line + "`n"
                 }
+                # The same command's whole output, normalized for
+                # expect/lines.txt: stdout, then stderr as for output.txt.
+                $lineOutputs.Add((Get-NormalizedLines -Raw ($rawText + $rawErrText)))
             } elseif ($allOutput) {
                 foreach ($line in (Get-WholeOutput -Raw $raw -KeepAnsi:$keepAnsi)) {
                     $statusOut.Add($line)
                 }
+                $lineOutputs.Add((Get-NormalizedLines -Raw $raw))
             } else {
                 foreach ($line in (Get-StatusLines $raw)) {
                     $statusOut.Add($line)
                 }
+                $lineOutputs.Add((Get-NormalizedLines -Raw $raw))
             }
+        }
+
+        # Program cases only: the PowerShell engine's own ACL stays covered by Pester.
+        if (-not [string]::IsNullOrEmpty($EnginePath)) {
+            Test-PrivateFiles -RepoDir $repoDir -LocalDir $localDir -RunStartUtc $runStartUtc
         }
 
         # Each gh call is cut to its first two words, so branch names and titles
@@ -1304,6 +1519,7 @@ function Run-Case {
             $wantOutputLines = Read-Lines $wantOutput
         }
         Compare-Lines -What 'output' -Want $wantOutputLines -Got $statusOut.ToArray()
+        Compare-LineChecks -Dir $Dir -CommandLines $lineOutputs.ToArray() -CommandCount $commands.Count
 
         # powershell.exe started with a temp USERPROFILE leaves empty AppData
         # folders behind. Drop them only when no file is under them, so a file
@@ -1321,6 +1537,18 @@ function Run-Case {
         $homeWantDir = $emptyDir
         if (Test-Path -LiteralPath $wantHome -PathType Container) {
             $homeWantDir = $wantHome
+        }
+        # Git stores no empty folder, so expect\home can't hold the ones
+        # emptyDirs makes; the compare sees a copy of it that has them.
+        $emptyDirsProp = $Case.PSObject.Properties['emptyDirs']
+        if ($null -ne $emptyDirsProp) {
+            $wantCopy = Join-Path $t 'expect\home'
+            New-Item -ItemType Directory -Path $wantCopy -Force | Out-Null
+            Copy-Tree $homeWantDir $wantCopy
+            foreach ($rel in @($emptyDirsProp.Value)) {
+                New-Item -ItemType Directory -Path (Join-Path $wantCopy ([string]$rel)) -Force | Out-Null
+            }
+            $homeWantDir = $wantCopy
         }
         Compare-Trees $homeWantDir $homeDir 'home'
 
@@ -1383,6 +1611,15 @@ foreach ($caseDir in $caseDirs) {
     # A v2 case needs the program: the PowerShell engine can't read config v2.
     if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $case.PSObject.Properties['configV2']) {
         Write-Output "SKIP ${caseName}: v2 only"
+        $skipped++
+        continue
+    }
+
+    # oldEngines names the frozen engines a case runs on; the program runs all.
+    $oldEnginesProp = $case.PSObject.Properties['oldEngines']
+    if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $oldEnginesProp -and
+        -not (@($oldEnginesProp.Value) -ccontains 'powershell')) {
+        Write-Output "SKIP ${caseName}: not on the PowerShell engine"
         $skipped++
         continue
     }

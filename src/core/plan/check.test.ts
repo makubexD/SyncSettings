@@ -291,6 +291,35 @@ describe("planCheck", () => {
     expect(result.lines).not.toContain("All machines");
   });
 
+  test("should report an unreadable local file and not a match", () => {
+    // Arrange
+    const snapshot = snapshotFor(CHECK_CASE);
+    expect(snapshot).toBeDefined();
+    if (snapshot === undefined) {
+      return;
+    }
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(CHECK_LOCAL_FILE, {
+      kind: "unreadable",
+      path: CHECK_LOCAL_FILE,
+    });
+
+    // Act
+    const result = planCheck({ ...snapshot, localFiles });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      `ERROR ${CHECK_REPO_FILE}`,
+      "UNCHANGED dotfiles/common/parity/same.conf",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("ERROR", CHECK_REPO_FILE, "cannot read local file"),
+    );
+    expect(result.lines).toContain("  1 error(s); see the ERROR lines above.");
+    expect(result.code).toBe(1);
+    expect(result.lines).not.toContain(MATCHES_REPO);
+  });
+
   test("should flag a missing value when no record names a profile or machine", () => {
     // Act
     const result = runCase(MISSING_VALUE_CASE, planCheck);

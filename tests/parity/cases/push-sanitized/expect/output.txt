@@ -14,6 +14,18 @@ This machine only
   --------------------------------------------------
 
   1 file(s) would change.
+  Leak scan: clean.
+ dotfiles/common/parity/settings.json | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+diff --git a/dotfiles/common/parity/settings.json b/dotfiles/common/parity/settings.json
+index cfe6cd6..a9558e1 100644
+--- a/dotfiles/common/parity/settings.json
++++ b/dotfiles/common/parity/settings.json
+@@ -1,3 +1,3 @@
+ {
+-  "email": "old@example.com"
++  "email": "<YOUR_EMAIL>"
+ }
   Nothing was written. Run mksync push to send it.
 
 held until the repo is private: 2 file(s)

@@ -1,0 +1,24 @@
+{
+  "description": "Export refuses a --only path under a file entry's linked folder, exit 1, before touching any file (Picking files). Ported from only-repo-linked.",
+  "oldEngines": ["bash"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "common",
+        "description": "Plain text fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["dotfiles/common/plain.txt.linked/x"]
+      }
+    }
+  ]
+}

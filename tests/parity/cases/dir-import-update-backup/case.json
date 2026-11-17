@@ -1,0 +1,18 @@
+{
+  "description": "Import of a dir entry overwrites a changed local file and keeps the old one in a .bak: UNCHANGED, then UPDATED with its backup note (Statuses, Import; Backups; Directory entries). Ported from dir-import-update-backup, Pester dir-import-update-backup.",
+  "oldEngines": ["bash"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.secret"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "import", "options": { "force": true } }]
+}

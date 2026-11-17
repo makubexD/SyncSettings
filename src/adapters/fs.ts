@@ -1,18 +1,25 @@
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmdirSync,
   rmSync,
   statSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
-import { posix, win32 } from "node:path";
+import { join, posix, relative, sep, win32 } from "node:path";
 import type { Profile } from "../core/config/profile.ts";
-import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import type {
+  ConfigError,
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+} from "../core/config/types.ts";
 import {
   MACHINES_FOLDER,
   PROFILES_FOLDER,
@@ -31,6 +38,7 @@ import type {
   Snapshot,
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
+import { restrictToCurrentUser } from "./acl.ts";
 import { dconfLoad } from "./dconf.ts";
 import { expandHome } from "./paths.ts";
 import { writeStoreProfile, writeStoreRecord } from "./store.ts";
@@ -44,6 +52,9 @@ const REPO_PREFIX = "dotfiles/";
 const MODE_MASK = 0o7777;
 
 const DOTFILES_FOLDER = "dotfiles";
+
+/** The config file the contract's unsafe path message names, v1 or v2. */
+const CONFIG_FILE = "sync-config.json";
 
 /** Everything the snapshot adapter reads besides the disk itself. */
 export interface SnapshotInput {
@@ -100,11 +111,11 @@ function statOrUndefined(path: string): Stats | undefined {
   }
 }
 
+/** A file's bytes, or undefined when it cannot be read. */
 function readBytes(path: string): Uint8Array | undefined {
   try {
     return readFileSync(path);
   } catch {
-    // An unreadable file is left out of the snapshot, so a plan reports it missing.
     return undefined;
   }
 }
@@ -127,13 +138,16 @@ function repoKey(repoRoot: string, path: string, os: Os): string {
 /**
  * Read every file under `dir` into `files`, keyed by `keyOf(path, relative)`,
  * where `relative` is the path from `dir` joined with forward slashes. A
- * symlink to a file is followed, as `[[ -f ]]` does; other entries are skipped.
+ * symlink to a file is followed when `followSymlinks` is set, as `[[ -f ]]`
+ * does; the repo read leaves links out, since nothing under `dotfiles/` may be
+ * one (contract "Path safety"). Other entries are skipped.
  */
 function readTree(
   dir: string,
   os: Os,
   files: Map<string, Uint8Array>,
   keyOf: (path: string, relative: string) => string,
+  followSymlinks: boolean,
   prefix = "",
 ): void {
   const entries = listDir(dir);
@@ -144,12 +158,21 @@ function readTree(
   for (const entry of entries) {
     const path = p.join(dir, entry.name);
     if (entry.isDirectory()) {
-      readTree(path, os, files, keyOf, `${prefix}${entry.name}/`);
+      readTree(
+        path,
+        os,
+        files,
+        keyOf,
+        followSymlinks,
+        `${prefix}${entry.name}/`,
+      );
       continue;
     }
     const isFile =
       entry.isFile() ||
-      (entry.isSymbolicLink() && statOrUndefined(path)?.isFile() === true);
+      (followSymlinks &&
+        entry.isSymbolicLink() &&
+        statOrUndefined(path)?.isFile() === true);
     if (!isFile) {
       continue;
     }
@@ -167,7 +190,7 @@ function readRepoTree(
   os: Os,
   files: Map<string, Uint8Array>,
 ): void {
-  readTree(dir, os, files, (path) => repoKey(repoRoot, path, os));
+  readTree(dir, os, files, (path) => repoKey(repoRoot, path, os), false);
 }
 
 /**
@@ -182,13 +205,87 @@ function readStateTree(
   os: Os,
   files: Map<string, Uint8Array>,
 ): void {
-  readTree(dir, os, files, (_path, relative) => `${prefix}${relative}`);
+  readTree(dir, os, files, (_path, relative) => `${prefix}${relative}`, true);
 }
 
-function fileEntry(path: string, stats: Stats): LocalEntry | undefined {
+function unsafePathMessage(name: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${name} has an unsafe path.`;
+}
+
+/**
+ * The first symlink under `dir`, sorted by name, or undefined. The entries come
+ * from `readdirSync` with their own types, so a symlinked folder is named and
+ * never entered.
+ */
+function firstSymlink(dir: string): string | undefined {
+  const entries = listDir(dir);
+  if (entries === undefined) {
+    return undefined;
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      return path;
+    }
+    if (entry.isDirectory()) {
+      const found = firstSymlink(path);
+      if (found !== undefined) {
+        return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The name the unsafe path message gives a symlink: the repo path of the entry
+ * that owns it, or the symlink's own repo-relative path when none does
+ * (contract "Path safety").
+ */
+function symlinkName(link: string, config: ConfigV2): string {
+  for (const entry of config.entries) {
+    const file = entry.file;
+    if (link.endsWith(`/${file}`)) {
+      return link;
+    }
+    const folder = link.indexOf(`/${file}/`);
+    if (entry.merge === "dir" && folder !== -1) {
+      return link.slice(0, folder + file.length + 1);
+    }
+    const linked = link.indexOf(`/${file}.linked/`);
+    if (entry.merge !== "dir" && entry.merge !== "dconf" && linked !== -1) {
+      return link.slice(0, linked + file.length + 1);
+    }
+  }
+  return link;
+}
+
+/**
+ * Contract "Path safety": nothing under `dotfiles/` is a symlink. Returns the
+ * error naming the first one, sorted by name, so a run stops before it touches
+ * a file. A repo with no `dotfiles/` folder has none.
+ */
+export function findRepoSymlink(
+  repoRoot: string,
+  config: ConfigV2,
+): ConfigError | undefined {
+  const path = firstSymlink(join(repoRoot, DOTFILES_FOLDER));
+  if (path === undefined) {
+    return undefined;
+  }
+  const link = relative(repoRoot, path).split(sep).join("/");
+  return { message: unsafePathMessage(symlinkName(link, config)), code: 1 };
+}
+
+/**
+ * A local file's bytes and mode. A file that exists but cannot be read keeps
+ * its own kind, so a plan prints `ERROR <label> cannot read local file` rather
+ * than treating it as a changed or missing file.
+ */
+function fileEntry(path: string, stats: Stats): LocalEntry {
   const bytes = readBytes(path);
   if (bytes === undefined) {
-    return undefined;
+    return { kind: "unreadable", path };
   }
   return { kind: "file", path, bytes, mode: stats.mode & MODE_MASK };
 }
@@ -207,10 +304,7 @@ function addLocalEntry(
   if (stats === undefined || !stats.isFile()) {
     return;
   }
-  const entry = fileEntry(path, stats);
-  if (entry !== undefined) {
-    localFiles.set(path, entry);
-  }
+  localFiles.set(path, fileEntry(path, stats));
 }
 
 /** Contract "Directory entries": recurse, recording symlinks without following them. */
@@ -248,10 +342,7 @@ function addLocalDir(
     if (stats === undefined) {
       continue;
     }
-    const file = fileEntry(path, stats);
-    if (file !== undefined) {
-      localFiles.set(path, file);
-    }
+    localFiles.set(path, fileEntry(path, stats));
   }
 }
 
@@ -548,8 +639,10 @@ const PRIVATE_MODE = 0o600;
 function writeValuesFile(text: string, context: RunContext): void {
   const path = pathFor(context.os).join(context.repoRoot, VALUES_FILE);
   if (context.os === "windows") {
-    // shortcut: the Windows ACL (no inherited access) comes with the Windows
-    // adapter; see the design's "Confirm on Windows".
+    if (!existsSync(path)) {
+      writeFileSync(path, "");
+    }
+    restrictToCurrentUser(path);
     writeFileSync(path, text);
     return;
   }
@@ -710,6 +803,40 @@ function pruneBackups(context: RunContext): void {
   }
 }
 
+/**
+ * Remove the folders a `REMOVED` file leaves empty, walking up from the file's
+ * folder and stopping before `stop`, which is never removed. A folder outside
+ * `stop`, a folder still holding an entry, and a folder that cannot be removed
+ * each end the walk silently, as bash's `find … -empty -delete` does.
+ */
+function pruneEmptyFolders(folder: string, stop: string, os: Os): void {
+  const p = pathFor(os);
+  const root = p.resolve(stop);
+  let current = p.resolve(folder);
+  for (;;) {
+    const relative = p.relative(root, current);
+    if (
+      relative === "" ||
+      relative === ".." ||
+      relative.startsWith(`..${p.sep}`) ||
+      p.isAbsolute(relative)
+    ) {
+      return;
+    }
+    const entries = listDir(current);
+    if (entries === undefined || entries.length > 0) {
+      return;
+    }
+    try {
+      rmdirSync(current);
+    } catch {
+      // A folder that cannot be removed is left, as bash ignores the failure.
+      return;
+    }
+    current = p.dirname(current);
+  }
+}
+
 /** Run one action, returning what it did; it never throws. */
 function runAction(
   action: Action,
@@ -731,6 +858,10 @@ function runAction(
       }
       case "removeRepo": {
         const path = absolutePath(action.path, context);
+        const pruneUpTo =
+          action.pruneUpTo === undefined
+            ? undefined
+            : absolutePath(action.pruneUpTo, context);
         const warning = datedBackupOfStateFile(
           path,
           action.path,
@@ -738,6 +869,13 @@ function runAction(
           dated,
         );
         rmSync(path, { force: true });
+        if (pruneUpTo !== undefined) {
+          pruneEmptyFolders(
+            pathFor(context.os).dirname(path),
+            pruneUpTo,
+            context.os,
+          );
+        }
         return { ok: true, warning };
       }
       case "writeLocal":
@@ -804,16 +942,26 @@ function runAction(
 }
 
 /**
+ * What `runPlan` returns: the run's outcome plus the `finish` actions that
+ * failed. The import turns a failed `writeState` into the sync point warning
+ * (contract "Sync point"); the rest of the outcome is unchanged.
+ */
+export interface RunPlanOutcome extends RunOutcome {
+  readonly failedFinish: readonly Action[];
+}
+
+/**
  * Run a plan's steps in order (contract "Statuses", "Backups" and "Sync point").
  * A step stops at its first failed action, recording that action's failure; the
  * next step still runs. `finish` runs only when no step failed. After a run
  * that made a dated copy, `backups/` keeps its newest 20 run folders. Returns
- * the failures and warnings keyed by step index, and the run's folder when a
- * copy landed; it never throws.
+ * the failures and warnings keyed by step index, the `finish` actions that
+ * failed, and the run's folder when a copy landed; it never throws.
  */
-export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
+export function runPlan(plan: RunPlan, context: RunContext): RunPlanOutcome {
   const failed = new Map<number, string>();
   const warnings = new Map<number, readonly string[]>();
+  const failedFinish: Action[] = [];
   const dated: DatedBackups = { folder: undefined, made: false };
 
   // shortcut: a failed values save is not reported yet; the contract names no
@@ -841,7 +989,9 @@ export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
 
   if (failed.size === 0) {
     for (const action of plan.finish) {
-      runAction(action, context, dated);
+      if (!runAction(action, context, dated).ok) {
+        failedFinish.push(action);
+      }
     }
   }
 
@@ -849,7 +999,7 @@ export function runPlan(plan: RunPlan, context: RunContext): RunOutcome {
     pruneBackups(context);
   }
 
-  const outcome: RunOutcome = { failed, warnings };
+  const outcome: RunPlanOutcome = { failed, warnings, failedFinish };
   if (dated.made && dated.folder !== undefined) {
     return { ...outcome, backups: dated.folder };
   }

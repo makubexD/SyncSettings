@@ -1,0 +1,26 @@
+{
+  "description": "Pull --force with no sync point applies the repo's file, keeping the old text in plain.txt.bak, and records origin's head as the sync point, exit 0 (Front door, pull guard without a sync point; Sync point).",
+  "os": ["linux"],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true,
+        "force": true
+      }
+    }
+  ]
+}

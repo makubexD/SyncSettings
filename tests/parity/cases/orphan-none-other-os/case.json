@@ -1,0 +1,17 @@
+{
+  "description": "Export on Linux reports no ORPHAN for a repo file a windows entry owns, since entries for all platforms count (Orphan report; Entry selection).",
+  "os": ["linux", "macos"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/windows/win.conf",
+        "localPath": "~\\.config\\fixture\\win.conf",
+        "platform": "windows",
+        "description": "Windows fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

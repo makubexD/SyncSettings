@@ -1,0 +1,19 @@
+{
+  "description": "mksync diff fetches origin and labels a file only origin changed as IN, exit 3 (Front door, Diff). Ported from sync-diff-fetches.",
+  "os": ["linux", "macos"],
+  "git": "remote",
+  "syncPoint": true,
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/.config/parity/plain.txt",
+        "platform": "common",
+        "description": "Plain text fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "front-diff" }]
+}

@@ -1,0 +1,3 @@
+ADDED dotfiles/common/parity/dir/added.txt
+MODIFIED dotfiles/common/parity/dir/modified.txt
+REMOVED dotfiles/common/parity/dir/removed.txt

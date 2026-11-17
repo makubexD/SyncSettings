@@ -1,0 +1,32 @@
+{
+  "description": "The import check reports one file it would overwrite and one it would create, exits 3, and writes nothing: trees and values stay as they were (Import check). Ported from import-check-writes-nothing.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "common",
+        "description": "Differs from the repo"
+      },
+      {
+        "repoPath": "dotfiles/common/no-trailing.txt",
+        "localPath": "~/.config/fixture/no-trailing.txt",
+        "platform": "common",
+        "description": "Missing locally"
+      },
+      {
+        "repoPath": "dotfiles/common/named.conf",
+        "localPath": "~/.config/fixture/named.conf",
+        "platform": "common",
+        "description": "Sanitized fixture",
+        "sanitizeRules": [
+          { "placeholder": "<NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "values": { "<NAME>": "Fixture User" },
+  "commands": [{ "command": "check" }]
+}

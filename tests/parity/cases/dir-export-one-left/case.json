@@ -1,0 +1,17 @@
+{
+  "description": "Export of a dir entry whose local subfolder is gone reports the repo file REMOVED with its note and the other file UNCHANGED, then removes the empty folder (Statuses, Export; Directory entries). Ported from dir-export-one-left, Pester dir-export-one-left.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.secret"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

@@ -1,0 +1,9 @@
+
+  +==========================================+
+  |        SyncSettings -- COMMIT           |
+  +==========================================+
+
+packages/linux/apt.txt:1: home-path
+
+  fix home-path: write $HOME or ~ instead of the full path, or add a <HOME> sanitize rule (defaultEnv HOME) to the file's entry.
+ERROR: the leak scan found the lines above; nothing was committed.

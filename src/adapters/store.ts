@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -43,6 +44,7 @@ import {
   recordText,
 } from "../core/machine/record.ts";
 import { expandHome } from "../core/paths.ts";
+import { restrictToCurrentUser } from "./acl.ts";
 
 /** The state folder's record file; contract "The record". */
 const MACHINE_FILE = "machine.json";
@@ -864,6 +866,14 @@ function profileText(profile: Profile): string {
  * only (contract "The record"). */
 function writePrivateFile(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
+  if (process.platform === "win32") {
+    if (!existsSync(path)) {
+      writeFileSync(path, "");
+    }
+    restrictToCurrentUser(path);
+    writeFileSync(path, text);
+    return;
+  }
   writeFileSync(path, text, { mode: PRIVATE_MODE });
   // `mode` at creation is masked by the umask; the contract wants 0600.
   chmodSync(path, PRIVATE_MODE);

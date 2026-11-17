@@ -1,0 +1,1 @@
+ERROR: dotfiles\common\dir\..\x is not synced on this machine.

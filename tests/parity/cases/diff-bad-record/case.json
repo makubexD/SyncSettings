@@ -1,0 +1,18 @@
+{
+  "description": "Diff with a sync point that is not a commit labels the changed file ? and says the newer side is unknown, exit 3 (Diff, Sync point). Ported from diff-bad-record.",
+  "git": "remote",
+  "syncPoint": true,
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "diff" }]
+}

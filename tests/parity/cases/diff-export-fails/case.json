@@ -1,0 +1,21 @@
+{
+  "description": "Diff whose preview export has no value for a sanitized placeholder prints the export log and the diff ERROR line, exit 1 (Diff, Sanitize and hydrate). Ported from diff-export-fails.",
+  "git": "remote",
+  "syncPoint": true,
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/named.conf",
+        "localPath": "~/.config/fixture/named.conf",
+        "platform": "common",
+        "description": "Sanitized fixture without a value",
+        "sanitizeRules": [
+          { "placeholder": "<NAME>", "prompt": "Full name" }
+        ]
+      }
+    ]
+  },
+  "commands": [{ "command": "diff" }]
+}

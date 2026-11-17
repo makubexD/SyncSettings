@@ -1,0 +1,17 @@
+{
+  "description": "Export of a dir entry whose local folder is missing skips it with the folder path in the note and keeps the repo files (Statuses, Export; Directory entries). Ported from dir-export-missing, Pester dir-export-missing.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak", "*.secret"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

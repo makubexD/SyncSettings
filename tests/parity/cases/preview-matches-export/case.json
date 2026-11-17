@@ -1,0 +1,17 @@
+{
+  "description": "The preview's status lines equal the export's for one change, and nothing is written until the export runs (Export preview). Ported from preview-matches-export, Pester preview-matches-export.",
+  "git": "committed",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [{ "command": "preview" }, { "command": "export" }]
+}

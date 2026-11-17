@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -41,7 +43,7 @@ const CONFIG: ConfigV2 = { schemaVersion: 2, modules: {}, entries: [] };
 const COMMAND: CommitCommand = { kind: "commit", partial: false };
 
 /** A changed file under `dotfiles/`, so commit has something to push. */
-const DOTFILE = "dotfiles/linux/tool/config";
+const DOTFILE = "dotfiles/linux/plain.txt";
 
 const DOTFILE_TEXT = "setting = value\n";
 
@@ -55,11 +57,30 @@ const GH_ENV = "GH";
 
 const GH_STUB = "gh-stub";
 
-const STUB_SCRIPT = "#!/bin/sh\nexit 0\n";
+const GH_LOG = "gh.log";
 
 const EXECUTABLE_MODE = 0o755;
 
+/** The sync point file under the state folder (contract "Sync point"). */
+const SYNC_POINT_FILE = "last-sync";
+
 const MASTER = "master";
+
+/** What a fixture varies: whether the leak scan is there, what gh answers and
+ * whether the clone has an origin to push to. */
+interface FixtureOptions {
+  /** Copy the real leak scan into the clone; false leaves it unable to run. */
+  readonly leakScan?: boolean;
+  /** The exit code gh answers with. */
+  readonly ghExitCode?: number;
+  /** Give the clone an origin, a bare repo beside it, to push to. */
+  readonly remote?: boolean;
+}
+
+/** The gh stub: log each call, then exit with the fixture's code. */
+function ghStubScript(log: string, exitCode: number): string {
+  return `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexit ${exitCode}\n`;
+}
 
 /** The remote-tracking ref the guard's unpushed-history read needs, created
  * without a remote so the fetch then fails the way the case wants. */
@@ -116,13 +137,15 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.toString();
 }
 
-/** A clone on `master` with one commit, no remote, a changed dotfile and the
- * real leak scan; returns where the run's state and gh stub live. */
-function fixture(): {
+/** A clone on `master` with one commit, a changed dotfile and the gh stub;
+ * returns where the run's state and gh stub live. */
+function fixture(options: FixtureOptions = {}): {
   repoRoot: string;
   state: string;
   ghStub: string;
+  ghLog: string;
 } {
+  const { leakScan = true, ghExitCode = 0, remote = false } = options;
   const folder = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   tempFolders.push(folder);
 
@@ -134,24 +157,36 @@ function fixture(): {
   git(repoRoot, ["config", MACHINE_ALIAS_KEY, MACHINE_ALIAS]);
 
   writeFileSync(join(repoRoot, CONFIG_FILE), "{}\n");
-  mkdirSync(join(repoRoot, "scripts", "ci"), { recursive: true });
-  copyFileSync(LEAK_SCAN_SOURCE, join(repoRoot, LEAK_SCAN));
+  if (leakScan) {
+    mkdirSync(join(repoRoot, "scripts", "ci"), { recursive: true });
+    copyFileSync(LEAK_SCAN_SOURCE, join(repoRoot, LEAK_SCAN));
+  }
   git(repoRoot, ["add", "-A"]);
   git(repoRoot, ["commit", "-q", "-m", "initial"]);
 
-  // The guard reads origin/master..HEAD; the ref makes that range readable
-  // while no remote exists, so the run reaches its fetch and fails there.
-  git(repoRoot, ["update-ref", ORIGIN_MASTER_REF, "HEAD"]);
+  if (remote) {
+    const originRoot = join(folder, "origin.git");
+    git(folder, ["init", "-q", "--bare", "-b", MASTER, originRoot]);
+    git(repoRoot, ["remote", "add", "origin", originRoot]);
+    git(repoRoot, ["push", "-q", "-u", "origin", MASTER]);
+  } else {
+    // The guard reads origin/master..HEAD; the ref makes that range readable
+    // while no remote exists, so the run reaches its fetch and fails there.
+    git(repoRoot, ["update-ref", ORIGIN_MASTER_REF, "HEAD"]);
+  }
 
-  mkdirSync(join(repoRoot, "dotfiles", "linux", "tool"), { recursive: true });
+  mkdirSync(join(repoRoot, "dotfiles", "linux"), { recursive: true });
   writeFileSync(join(repoRoot, DOTFILE), DOTFILE_TEXT);
 
+  const ghLog = join(folder, GH_LOG);
   const ghStub = join(folder, GH_STUB);
-  writeFileSync(ghStub, STUB_SCRIPT, { mode: EXECUTABLE_MODE });
+  writeFileSync(ghStub, ghStubScript(ghLog, ghExitCode), {
+    mode: EXECUTABLE_MODE,
+  });
   chmodSync(ghStub, EXECUTABLE_MODE);
   process.env[GH_ENV] = ghStub;
 
-  return { repoRoot, state: join(folder, "state"), ghStub };
+  return { repoRoot, state: join(folder, "state"), ghStub, ghLog };
 }
 
 function stateLocation(state: string): StoreLocation {
@@ -184,5 +219,56 @@ describe("executeCommit", () => {
     expect(git(repoRoot, ["branch", "--format=%(refname:short)"]).trim()).toBe(
       MASTER,
     );
+  });
+
+  test("should refuse to commit when the leak scan cannot run (commit-scan-missing)", async () => {
+    // Arrange
+    const { repoRoot, state, ghLog } = fixture({ leakScan: false });
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location: stateLocation(state),
+      command: COMMAND,
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      "ERROR: leak scan could not run; nothing was committed.\n",
+    );
+    expect(existsSync(ghLog)).toBe(false);
+    expect(git(repoRoot, ["branch", "--format=%(refname:short)"]).trim()).toBe(
+      MASTER,
+    );
+  });
+
+  test("should report the failed PR and write no sync point (sync_point_commit_pr_fails)", async () => {
+    // Arrange
+    const { repoRoot, state, ghLog } = fixture({
+      ghExitCode: 1,
+      remote: true,
+    });
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location: stateLocation(state),
+      command: COMMAND,
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr.startsWith("ERROR: PR creation failed; branch ")).toBe(
+      true,
+    );
+    expect(readFileSync(ghLog, "utf8").startsWith("pr create")).toBe(true);
+    expect(existsSync(join(state, SYNC_POINT_FILE))).toBe(false);
   });
 });

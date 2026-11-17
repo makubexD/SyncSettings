@@ -1,6 +1,7 @@
 import type { EntryType } from "../config/types.ts";
 import { formatLine } from "../status.ts";
 import type { DiffWord } from "../status.ts";
+import { ONLY_WARNING } from "./run.ts";
 import type { RepoFiles } from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
@@ -233,11 +234,14 @@ function summaryLine(counts: Readonly<Record<DiffLabel, number>>): string {
 
 /**
  * Contract "Diff": the lines after the title and the exit code (0 when nothing
- * differs, 3 when something does). The caller prints the title itself.
+ * differs, 3 when something does). The caller prints the title itself. With
+ * `onlyGiven`, a label-less diff warns that `--only` reached nothing before the
+ * summary; the exit code and counts don't change (contract "Picking files").
  */
 export function diffText(
   labels: readonly DiffLine[],
   header: DiffHeader,
+  onlyGiven: boolean,
 ): DiffText {
   const lines: string[] = [];
   lines.push(
@@ -252,6 +256,9 @@ export function diffText(
   }
   if (labels.length > 0) {
     lines.push("");
+  }
+  if (onlyGiven && labels.length === 0) {
+    lines.push(ONLY_WARNING);
   }
   lines.push(DASHES, "");
   if (labels.length === 0) {

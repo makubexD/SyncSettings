@@ -199,10 +199,14 @@ the phase 7 finish review").
 
 ### Phase 8: the rest
 
-**In progress.** [plan-single-engine-8.md](plan-single-engine-8.md) and its review fixes
-([plan-single-engine-8-fixes.md](plan-single-engine-8-fixes.md)) done 2026-11-16 on `engine/front-door`: the Claude
-layout tool, linked folders, move a change, `mksync check`, `preview` and `diff`, and the 14 Required fixes. The
-program passes 222 shared cases. Left: the case port, `docs/plan-single-engine-8-port.md`.
+**Done** 2026-11-17. [plan-single-engine-8.md](plan-single-engine-8.md) and its review fixes
+([plan-single-engine-8-fixes.md](plan-single-engine-8-fixes.md)) on `engine/front-door`: the Claude layout tool, linked
+folders, move a change, `mksync check`, `preview` and `diff`, and the 14 Required fixes. Then the case port,
+[plan-single-engine-8-port.md](plan-single-engine-8-port.md) on `engine/case-port`: every old case has a final verdict
+in [port-inventory.tsv](port-inventory.tsv) (133 ported, 383 twins, 20 dropped, 4 for phase 9), the program's six
+gaps against the contract are fixed, and the program passes 292 shared cases. The finish review fixed the preview's
+Windows leak-hit paths and run.ps1's stderr lines; nine `dir` and `--only` cases carry `oldEngines: ["bash"]`, since
+the frozen PowerShell engine differs there and is deleted at cut-over.
 
 - **First, carried from phase 7: the Windows survey and the Claude layout tool.** Phase 7 closed (2026-11-14) before
   the survey ran on work machine #1 (`docs/windows-survey.md`). When the redacted answer is in, it settles the
@@ -229,6 +233,9 @@ program passes 222 shared cases. Left: the case port, `docs/plan-single-engine-8
   `statusLine` runs `mksync statusline`, and `statusline.sh` is retired.
 - `install.sh` and `install.ps1` download the program. The tool updates itself with `mksync update`, checking the
   config's `schemaVersion`.
+- `mksync setup` gains doctor first, the Ubuntu bootstrap question and `--bootstrap`, with the four old cases the port
+  left for them: `sync-setup-offers-bootstrap`, `sync-setup-doctor-fails`, `front-macos-setup-no-bootstrap`,
+  `front-macos-bootstrap-flag`.
 - The `.linked/` trees are converted. Tag `two-engines-final`, then delete the bash and PowerShell engines and their
   suites. `bootstrap/linux.sh` stays bash.
 - The user runs the real-Windows checklist: what the VM couldn't run, plus a smoke run (install, first run, pull,

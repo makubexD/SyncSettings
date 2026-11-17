@@ -1,0 +1,2 @@
+UNCHANGED dotfiles/common/dir/c.txt
+REMOVED dotfiles/common/dir/a/b.txt

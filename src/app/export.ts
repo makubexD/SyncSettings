@@ -1,7 +1,12 @@
-import { join } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { backupStateFile, runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
-import { readOrigin, readTrackedPaths } from "../adapters/git.ts";
+import { previewDiff, readOrigin, readTrackedPaths } from "../adapters/git.ts";
+import type { PreviewDiff } from "../adapters/git.ts";
+import { runLeakScan } from "../adapters/leakscan.ts";
+import type { LeakScanResult } from "../adapters/leakscan.ts";
 import { previewWorkingTree } from "../adapters/snapshot.ts";
 import {
   firstBackupFiles,
@@ -36,7 +41,12 @@ import {
   withoutNewSettings,
 } from "../core/plan/groups.ts";
 import { applyMove } from "../core/plan/move.ts";
-import { planPreview } from "../core/plan/preview.ts";
+import {
+  MATCHES_HEAD,
+  NOTHING_WRITTEN,
+  planPreview,
+} from "../core/plan/preview.ts";
+import type { PreviewPlan } from "../core/plan/preview.ts";
 import {
   answersOf,
   newSettingChoices,
@@ -55,6 +65,7 @@ import type {
   ChangeLine,
   NewSettingLine,
   Plan,
+  RepoFiles,
   RunPlan,
   Snapshot,
 } from "../core/plan/types.ts";
@@ -87,6 +98,173 @@ export function failure(message: string, code = 1): Result {
 /** Print a plan that writes nothing: the import check and the export preview. */
 export function renderStatic(plan: Plan): Result {
   return { code: plan.code, stdout: writeLines(plan.lines), stderr: "" };
+}
+
+/** The temp folder prefix `previewTail` makes, removed again on every path. */
+const PREVIEW_TAIL_PREFIX = "mksync-preview-tail-";
+
+/** The repo path of the sync config, which the preview scans like a dotfile. */
+const PREVIEW_CONFIG_FILE = "sync-config.json";
+
+/** The folder the preview scans: every exported file lives under it. */
+const PREVIEW_DOTFILES = "dotfiles";
+
+/** Contract "Export preview": the scan line a clean scan prints. */
+const LEAK_CLEAN = "  Leak scan: clean.";
+
+/** Contract "Export preview": a hit leaves the diff out, so the leaked text
+ * stays off the screen. */
+const LEAK_HIT_WARNING =
+  "  WARNING: the leak scan found the lines above. Fix them before committing.";
+
+/** Contract "Export preview": a scan that could not run stops the preview. */
+const LEAK_CANNOT_RUN =
+  "ERROR: leak scan could not run; nothing was committed.";
+
+/** Contract "Export preview": a failed comparison stops the preview. */
+const DIFF_FAILED = "ERROR: git diff failed.";
+
+/** The scan and the diff `previewTail` runs, as the app wires them; a test
+ * passes stubs so it needs neither git nor bash. */
+export interface PreviewTailDeps {
+  readonly scan: (
+    repoRoot: string,
+    paths: readonly string[],
+  ) => Promise<LeakScanResult>;
+  readonly diff: (
+    repoRoot: string,
+    files: RepoFiles,
+  ) => Promise<PreviewDiff | undefined>;
+}
+
+const PREVIEW_TAIL_DEPS: PreviewTailDeps = {
+  scan: runLeakScan,
+  diff: previewDiff,
+};
+
+/** Text split into lines, the trailing newline's empty piece dropped. */
+function textLines(text: string): readonly string[] {
+  const lines = text.split("\n");
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+/** Where the scan, stat and diff go: before MATCHES_HEAD when the preview
+ * printed it, else before NOTHING_WRITTEN, as bash does. `-1` when neither is
+ * there, which appends. */
+function insertionPoint(lines: readonly string[]): number {
+  const matches = lines.indexOf(MATCHES_HEAD);
+  return matches === -1 ? lines.indexOf(NOTHING_WRITTEN) : matches;
+}
+
+/** The preview's lines with `inserted` before its insertion point. */
+function withInserted(
+  lines: readonly string[],
+  inserted: readonly string[],
+): readonly string[] {
+  const index = insertionPoint(lines);
+  if (index === -1) {
+    return [...lines, ...inserted];
+  }
+  return [...lines.slice(0, index), ...inserted, ...lines.slice(index)];
+}
+
+/** The lines before the insertion point: all a failed scan or diff prints. */
+function beforeInsertion(lines: readonly string[]): readonly string[] {
+  const index = insertionPoint(lines);
+  return index === -1 ? [...lines] : lines.slice(0, index);
+}
+
+/**
+ * Write the tree's repo files under `tmp`, the way the temp clone holds them:
+ * `dotfiles/` and `sync-config.json`, the two paths the preview compares and
+ * scans. Gives back the scan's paths, each only when something was written
+ * there, so the scan never reads the real repo.
+ */
+async function writePreviewTree(
+  tmp: string,
+  tree: RepoFiles,
+): Promise<readonly string[]> {
+  const dotfiles = join(tmp, PREVIEW_DOTFILES);
+  await mkdir(dotfiles, { recursive: true });
+  const config = join(tmp, PREVIEW_CONFIG_FILE);
+  let configWritten = false;
+  for (const [path, bytes] of tree) {
+    const inDotfiles = path.startsWith(`${PREVIEW_DOTFILES}/`);
+    if (path !== PREVIEW_CONFIG_FILE && !inDotfiles) {
+      continue;
+    }
+    const target = join(tmp, path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, bytes);
+    if (path === PREVIEW_CONFIG_FILE) {
+      configWritten = true;
+    }
+  }
+  return configWritten ? [dotfiles, config] : [dotfiles];
+}
+
+/**
+ * Contract "Export preview": the tail a preview prints before its end, from
+ * the repo tree a real export would leave. The leak scan runs first and on a
+ * temp copy, so a hit keeps the leaked text off the screen and the diff never
+ * runs; a clean scan is followed by git's stat and diff of `tree`. The temp
+ * folder is removed on every path.
+ */
+export async function previewTail(
+  repoRoot: string,
+  preview: PreviewPlan,
+  deps: PreviewTailDeps = PREVIEW_TAIL_DEPS,
+): Promise<Result> {
+  const tree = preview.tree;
+  if (tree === undefined) {
+    return renderStatic(preview);
+  }
+  const tmp = await mkdtemp(join(tmpdir(), PREVIEW_TAIL_PREFIX));
+  try {
+    const paths = await writePreviewTree(tmp, tree);
+    const scan = await deps.scan(repoRoot, paths);
+    if (scan.kind === "could-not-run") {
+      return {
+        code: 1,
+        stdout: writeLines(beforeInsertion(preview.lines)),
+        stderr: `${LEAK_CANNOT_RUN}\n`,
+      };
+    }
+    if (scan.kind === "hits") {
+      // grep echoes each scanned path as given, so on Windows a hit starts
+      // with the temp folder and a backslash; both forms are stripped.
+      const hits = textLines(scan.stdout).map((line) =>
+        line.replaceAll(`${tmp}/`, "").replaceAll(`${tmp}\\`, ""),
+      );
+      return renderStatic({
+        actions: [],
+        lines: withInserted(preview.lines, [...hits, LEAK_HIT_WARNING]),
+        code: 1,
+      });
+    }
+    const diff = await deps.diff(repoRoot, tree);
+    if (diff === undefined) {
+      return {
+        code: 1,
+        stdout: writeLines(beforeInsertion(preview.lines)),
+        stderr: `${DIFF_FAILED}\n`,
+      };
+    }
+    return renderStatic({
+      actions: [],
+      lines: withInserted(preview.lines, [
+        LEAK_CLEAN,
+        ...textLines(diff.stat),
+        ...textLines(diff.diff),
+      ]),
+      code: 0,
+    });
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
 }
 
 /** What a child run adds to its command: the push turns the "Move a change"
@@ -943,13 +1121,15 @@ export async function runExport(
       backupSides === undefined
         ? undefined
         : planFirstBackup(backupSides.local, backupSides.repo).paths;
-    result = renderStatic(
-      planPreview(
-        snapshot,
-        previewWorkingTree(env.repoRoot, snapshot.repoFiles),
-        firstBackup,
-      ),
+    const preview = planPreview(
+      snapshot,
+      previewWorkingTree(env.repoRoot, snapshot.repoFiles),
+      firstBackup,
     );
+    result =
+      preview.code === 0 && preview.tree !== undefined
+        ? await previewTail(env.repoRoot, preview)
+        : renderStatic(preview);
   } else {
     const firstBackup: FirstBackupRun | undefined =
       backupSides === undefined

@@ -1,0 +1,21 @@
+{
+  "description": "Preview of a file holding a home path prints the leak scan hits, the WARNING and no diff, writes nothing and exits 1 (Export preview).",
+  "git": "committed",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/plain.txt",
+        "localPath": "~/plain.txt",
+        "platform": "common",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
+}

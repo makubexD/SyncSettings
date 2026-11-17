@@ -1,0 +1,25 @@
+{
+  "description": "Export with --only the folder of a dir entry writes both files in it (Picking files, Directory entries). Ported from only-dir-root, Pester only-dir-root.",
+  "oldEngines": ["bash"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["~/.config/fixture/dir"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+OUT dotfiles/common/dir/c.txt

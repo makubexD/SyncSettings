@@ -1,0 +1,24 @@
+{
+  "description": "mksync diff with an unreachable origin prints the Offline line and compares with the last fetch (Front door, Diff). Ported from sync-diff-offline.",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "env": {
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "url.file:///nonexistent/origin.git.insteadOf",
+    "GIT_CONFIG_VALUE_0": ""
+  },
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/parity/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "front-diff" }]
+}

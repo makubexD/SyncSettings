@@ -56,7 +56,17 @@ export interface LocalSymlink {
   readonly path: string;
 }
 
-export type LocalEntry = LocalFile | LocalSymlink;
+/**
+ * A local file the snapshot found but could not read. No bytes are held, so a
+ * plan reports `ERROR <label> cannot read local file` and writes nothing for it
+ * (contract "Statuses"); it is not treated as a missing file.
+ */
+export interface LocalUnreadable {
+  readonly kind: "unreadable";
+  readonly path: string;
+}
+
+export type LocalEntry = LocalFile | LocalSymlink | LocalUnreadable;
 
 /**
  * What `dconf dump` returned for an entry's path: the dump text, no `dconf` on
@@ -143,6 +153,12 @@ export interface WriteRepoAction {
 export interface RemoveRepoAction {
   readonly kind: "removeRepo";
   readonly path: string;
+  /**
+   * A repo path under which the folders this removal empties are pruned: each
+   * now-empty parent folder of `path` is removed, walking up and stopping
+   * before this folder, which is never removed. Absent leaves the folders.
+   */
+  readonly pruneUpTo?: string;
 }
 
 /** Write bytes to a local file (import). No `mode` keeps a target's mode. */

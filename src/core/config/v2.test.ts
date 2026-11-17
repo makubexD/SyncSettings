@@ -97,6 +97,22 @@ function moduleOsError(module: string): string {
   return `ERROR: ${CONFIG_FILE}: module ${module} has an os that is not a list of linux, macos or windows.`;
 }
 
+function canNotUseError(file: string, field: string, merge: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} can not use ${field} with merge ${merge}.`;
+}
+
+function insideDirError(file: string, dir: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} is inside dir entry ${dir}.`;
+}
+
+function trailingSlashError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has a trailing / in file.`;
+}
+
+function keysError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} needs keys as a non-empty list of strings.`;
+}
+
 describe("parseV2", () => {
   test("invalid JSON is rejected with exit 1", () => {
     // Act / Assert
@@ -377,6 +393,161 @@ describe("parseV2", () => {
       entry({ file: "claude/CLAUDE.md", merge: "import", importName: "CLAUDE.{layer}.md" }),
       dconfEntry({ dconfPath: "/org/gnome/shell/" }),
       entry({ file: "vscode/snippets", merge: "dir" }),
+    ]);
+
+    // Act
+    const result = parseV2(text);
+
+    // Assert
+    expect(result.ok).toBe(true);
+  });
+
+  test("sanitize on a dir entry stops with exit 1", () => {
+    // Arrange
+    const bad = entry({
+      file: "vscode/snippets",
+      merge: "dir",
+      sanitize: [{ placeholder: "<X>", prompt: "X" }],
+    });
+
+    // Act / Assert
+    expectError(
+      configWith([bad]),
+      canNotUseError("vscode/snippets", "sanitize", "dir"),
+      1,
+    );
+  });
+
+  test("scanLinks on a dir entry stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "vscode/snippets", merge: "dir", scanLinks: true });
+
+    // Act / Assert
+    expectError(
+      configWith([bad]),
+      canNotUseError("vscode/snippets", "scanLinks", "dir"),
+      1,
+    );
+  });
+
+  test("localPath on a dconf entry stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry({
+      dconfPath: "/org/gnome/shell/",
+      localPath: "~/.config/dconf/user",
+    });
+
+    // Act / Assert
+    expectError(
+      configWith([bad]),
+      canNotUseError(bad.file as string, "localPath", "dconf"),
+      1,
+    );
+  });
+
+  test("sanitize on a dconf entry stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry({
+      dconfPath: "/org/gnome/shell/",
+      sanitize: [{ placeholder: "<X>", prompt: "X" }],
+    });
+
+    // Act / Assert
+    expectError(
+      configWith([bad]),
+      canNotUseError(bad.file as string, "sanitize", "dconf"),
+      1,
+    );
+  });
+
+  test("scanLinks on a dconf entry stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry({ dconfPath: "/org/gnome/shell/", scanLinks: true });
+
+    // Act / Assert
+    expectError(
+      configWith([bad]),
+      canNotUseError(bad.file as string, "scanLinks", "dconf"),
+      1,
+    );
+  });
+
+  test("keys on a whole entry stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ keys: ["font-name"] });
+
+    // Act / Assert
+    expectError(configWith([bad]), canNotUseError(bad.file as string, "keys", "whole"), 1);
+  });
+
+  test("dconfPath on a dir entry stops with exit 1", () => {
+    // Arrange
+    const bad = entry({
+      file: "vscode/snippets",
+      merge: "dir",
+      dconfPath: "/org/gnome/shell/",
+    });
+
+    // Act / Assert
+    expectError(
+      configWith([bad]),
+      canNotUseError("vscode/snippets", "dconfPath", "dir"),
+      1,
+    );
+  });
+
+  test("an entry file inside a dir entry stops with exit 1", () => {
+    // Arrange
+    const text = configWith([
+      entry({ file: "d", merge: "dir" }),
+      entry({ file: "d/x.txt" }),
+    ]);
+
+    // Act / Assert
+    expectError(text, insideDirError("d/x.txt", "d"), 1);
+  });
+
+  test("a dir entry inside another dir entry stops with exit 1", () => {
+    // Arrange
+    const text = configWith([
+      entry({ file: "d", merge: "dir" }),
+      entry({ file: "d/e", merge: "dir" }),
+    ]);
+
+    // Act / Assert
+    expectError(text, insideDirError("d/e", "d"), 1);
+  });
+
+  test("a file with a trailing slash stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "d/" });
+
+    // Act / Assert
+    expectError(configWith([bad]), trailingSlashError("d/"), 1);
+  });
+
+  test("a dconf entry with an empty keys list stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry({ dconfPath: "/org/gnome/shell/", keys: [] });
+
+    // Act / Assert
+    expectError(configWith([bad]), keysError(bad.file as string), 1);
+  });
+
+  test("a dconf entry with keys that are not a list stops with exit 1", () => {
+    // Arrange
+    const bad = dconfEntry({ dconfPath: "/org/gnome/shell/", keys: "font-name" });
+
+    // Act / Assert
+    expectError(configWith([bad]), keysError(bad.file as string), 1);
+  });
+
+  test("sibling files that share a dir prefix are accepted", () => {
+    // Arrange
+    const text = configWith([
+      entry({ file: "d", merge: "dir" }),
+      entry({ file: "dir2", merge: "dir" }),
+      entry({ file: "d-old/x.txt" }),
     ]);
 
     // Act
