@@ -8,81 +8,73 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { icaclsArgs, parseWhoamiSid, restrictToCurrentUser } from "./acl.ts";
+import {
+  ownerOnlyCommand,
+  PATH_VARIABLE,
+  restrictToCurrentUser,
+} from "./acl.ts";
 
-const VALUES_PATH = "C:\\r\\.user-values.json";
-const SID = "S-1-5-21-1-2-3-1001";
-const NO_INHERITANCE = "/inheritance:r";
-const REPLACE_GRANT = "/grant:r";
-const GRANT_INDEX = 3;
+/** A path with a quote, `$` and `;`, which must never reach the script text. */
+const HOSTILE_PATH = "C:\\r\\it's $(x); .user-values.json";
 const FILE_MODE = 0o640;
 const MODE_MASK = 0o777;
 
-function icaclsArgsFor(sid: string): readonly string[] {
-  return icaclsArgs(VALUES_PATH, sid);
+function script(): string {
+  const args = ownerOnlyCommand(HOSTILE_PATH).args;
+  return args[args.length - 1] ?? "";
 }
 
-describe("icaclsArgs", () => {
-  test("should build the owner-only grant for a SID (values-private-new)", () => {
+describe("ownerOnlyCommand", () => {
+  test("should pass the path only through the environment", () => {
     // Act
-    const args = icaclsArgsFor(SID);
+    const command = ownerOnlyCommand(HOSTILE_PATH);
 
     // Assert
-    expect(args).toEqual([
-      VALUES_PATH,
-      NO_INHERITANCE,
-      REPLACE_GRANT,
-      `*${SID}:F`,
-    ]);
+    expect(command.env).toEqual({ [PATH_VARIABLE]: HOSTILE_PATH });
+    expect(command.args.join(" ")).not.toContain(HOSTILE_PATH);
   });
 
-  test("should grant by SID with no name or domain (values-private-no-domain)", () => {
+  test("should replace the whole list, protected from inheritance (values-private-tightened)", () => {
     // Act
-    const args = icaclsArgsFor(SID);
+    const text = script();
 
     // Assert
-    expect(args).not.toContain("/grant");
-    expect(args[GRANT_INDEX]).toStartWith("*S-1-");
-    expect(args[GRANT_INDEX]).not.toContain("\\");
-    expect(args).not.toContain("domain");
-  });
-
-  test("should remove inherited access before granting (values-private-tightened)", () => {
-    // Act
-    const args = icaclsArgsFor(SID);
-
-    // Assert
-    expect(args.indexOf(NO_INHERITANCE)).toBeLessThan(
-      args.indexOf(REPLACE_GRANT),
+    expect(text).toContain(
+      "New-Object System.Security.AccessControl.FileSecurity",
     );
-    expect(args).toContain(REPLACE_GRANT);
-    expect(args).not.toContain("/grant");
+    expect(text).toContain("SetAccessRuleProtection($true, $false)");
+    expect(text).toContain("[IO.File]::SetAccessControl($path, $acl)");
   });
 
-  test("should throw a RangeError when the SID is a name", () => {
-    expect(() => icaclsArgsFor("DOMAIN\\me")).toThrow(RangeError);
-  });
-
-  test("should throw a RangeError when the SID is empty", () => {
-    expect(() => icaclsArgsFor("")).toThrow(RangeError);
-  });
-});
-
-describe("parseWhoamiSid", () => {
-  test("should return the SID from a CRLF whoami line", () => {
+  test("should grant the token's SID, with no name or domain (values-private-no-domain)", () => {
     // Act
-    const sid = parseWhoamiSid(`"desktop\\me","${SID}"\r\n`);
+    const text = script();
 
     // Assert
-    expect(sid).toBe(SID);
+    expect(text).toContain(
+      "[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
+    );
+    expect(text).not.toContain("Set-Acl");
+    expect(text).not.toContain("NTAccount");
   });
 
-  test("should return undefined when whoami prints no SID", () => {
-    expect(parseWhoamiSid("garbage")).toBeUndefined();
+  test("should exit 1 when the script fails", () => {
+    // Act
+    const text = script();
+
+    // Assert
+    expect(text).toContain("$ErrorActionPreference = 'Stop'");
+    expect(text).toContain("exit 1");
   });
 
-  test("should return undefined for empty output", () => {
-    expect(parseWhoamiSid("")).toBeUndefined();
+  test("should run Windows PowerShell with no profile or prompt", () => {
+    // Act
+    const command = ownerOnlyCommand(HOSTILE_PATH);
+
+    // Assert
+    expect(command.file).toBe("powershell.exe");
+    expect(command.args).toContain("-NoProfile");
+    expect(command.args).toContain("-NonInteractive");
   });
 });
 

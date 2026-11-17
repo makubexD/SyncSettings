@@ -1,57 +1,85 @@
 import { spawnSync } from "node:child_process";
 
-/** A Windows security identifier; never a name, so no domain lookup happens. */
-const SID_PATTERN = /^S-1-[0-9-]+$/;
-
-/** A private file drops every inherited grant and grants its owner only. */
-const NO_INHERITANCE = "/inheritance:r";
-
-const REPLACE_GRANT = "/grant:r";
-
-const FULL_CONTROL = ":F";
+/** The variable that hands the script its path, so no text is interpolated. */
+export const PATH_VARIABLE = "MKSYNC_PRIVATE_PATH";
 
 /**
- * The `icacls` arguments that make `path` readable by the owner `sid` only:
- * inherited access is removed and existing grants are replaced, not added to.
+ * Windows PowerShell 5.1, which every Windows ships, run with no profile and
+ * no prompt.
  */
-export function icaclsArgs(path: string, sid: string): readonly string[] {
-  if (!SID_PATTERN.test(sid)) {
-    throw new RangeError(`not a security identifier: ${sid}`);
-  }
-  return [path, NO_INHERITANCE, REPLACE_GRANT, `*${sid}${FULL_CONTROL}`];
-}
+const POWERSHELL = "powershell.exe";
 
-/** The SID from `whoami /user /fo csv /nh`, or undefined when it prints none. */
-export function parseWhoamiSid(stdout: string): string | undefined {
-  const fields = [...stdout.matchAll(/"([^"]*)"/g)].map((match) => match[1]);
-  const last = fields.at(-1);
-  return last !== undefined && SID_PATTERN.test(last) ? last : undefined;
-}
+/**
+ * Replace the file's whole access list with one rule, FullControl for the
+ * current user's SID, and protect it from inheritance. A fresh `FileSecurity`
+ * holds no other rule, so explicit grants already on the file (SYSTEM and
+ * Administrators from a token's default DACL) are dropped too, which
+ * `icacls /grant:r` would keep. The SID comes from the token, so no domain is
+ * asked; `[IO.File]::SetAccessControl` sets no owner, unlike `Set-Acl`. Same
+ * calls as the PowerShell engine's `Save-UserValues`.
+ */
+const OWNER_ONLY_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "try {",
+  `  $path = $env:${PATH_VARIABLE}`,
+  "  $acl = New-Object System.Security.AccessControl.FileSecurity",
+  "  $acl.SetAccessRuleProtection($true, $false)",
+  "  $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User",
+  "  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($user, 'FullControl', 'Allow')",
+  "  $acl.AddAccessRule($rule)",
+  "  [IO.File]::SetAccessControl($path, $acl)",
+  "} catch {",
+  "  [Console]::Error.WriteLine($_.Exception.Message)",
+  "  exit 1",
+  "}",
+].join("\n");
 
-function runChecked(file: string, args: readonly string[]): string {
-  const result = spawnSync(file, args, { encoding: "utf8" });
-  if (result.error !== undefined) {
-    throw new Error(`${file} could not run`, { cause: result.error });
-  }
-  if (result.status !== 0) {
-    throw new Error(`${file} exited with status ${String(result.status)}`);
-  }
-  return result.stdout;
+/** One process run: the program, its arguments and the variables it adds. */
+export interface OwnerOnlyCommand {
+  readonly file: string;
+  readonly args: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
 }
 
 /**
- * Make `path` readable by the current user only, by SID. POSIX modes are set by
- * the caller, so this does nothing outside Windows.
+ * The PowerShell run that makes `path` readable by the current user only. The
+ * script is fixed text; `path` reaches it only through `PATH_VARIABLE`.
+ */
+export function ownerOnlyCommand(path: string): OwnerOnlyCommand {
+  return {
+    file: POWERSHELL,
+    args: [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      OWNER_ONLY_SCRIPT,
+    ],
+    env: { [PATH_VARIABLE]: path },
+  };
+}
+
+/**
+ * Make `path` readable by the current user only, by SID, dropping every other
+ * rule. POSIX modes are set by the caller, so this does nothing outside
+ * Windows. Throws when PowerShell can't run or fails.
  */
 export function restrictToCurrentUser(path: string): void {
   if (process.platform !== "win32") {
     return;
   }
-  const sid = parseWhoamiSid(
-    runChecked("whoami", ["/user", "/fo", "csv", "/nh"]),
-  );
-  if (sid === undefined) {
-    throw new Error("whoami printed no security identifier");
+  const command = ownerOnlyCommand(path);
+  const result = spawnSync(command.file, command.args, {
+    encoding: "utf8",
+    env: { ...process.env, ...command.env },
+  });
+  if (result.error !== undefined) {
+    throw new Error(`${command.file} could not run`, { cause: result.error });
   }
-  runChecked("icacls", icaclsArgs(path, sid));
+  if (result.status !== 0) {
+    throw new Error(
+      `${command.file} could not restrict ${path}: ${result.stderr.trim()}`,
+    );
+  }
 }

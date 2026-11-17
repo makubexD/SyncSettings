@@ -1541,10 +1541,11 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     reports drift only in `mksync doctor` (`src/app/doctor.ts` is the only caller of `core/drift.ts`). No shared case
     catches it, since the runners have no package-manager stub. Either the program adds the report (and skips it
     under `--only`, as the contract's "Picking files" says), or the contract moves drift to doctor.
-  - **Windows ACL on an existing file with explicit grants.** `icacls /inheritance:r /grant:r *<SID>:F` removes
-    inherited rules and replaces the user's own grant, but an explicit rule for another account stays. The values
-    file and the state files are only ever created by the program, so none has one; `run.ps1`'s check would catch
-    one.
+  - **Windows ACL on an existing file with explicit grants.** Resolved in the case port's finish: a new file in a
+    folder with no inheritable rules (the CI runner's temp folder) gets the token's default DACL as explicit SYSTEM
+    and Administrators grants, which `icacls /inheritance:r /grant:r *<SID>:F` kept. `src/adapters/acl.ts` now runs
+    the PowerShell engine's calls (a fresh protected `FileSecurity` with one rule for the token's SID) through
+    `powershell.exe`, the path passed in an environment variable; `run.ps1`'s ACL check covers it.
 
 ### Confirm on Windows
 
