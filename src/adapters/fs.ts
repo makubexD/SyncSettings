@@ -586,8 +586,10 @@ function existingMode(path: string): number | undefined {
 }
 
 /**
- * Write bytes, keeping an existing target's mode (`chmod --reference`) when the
- * action names none. Modes are skipped on Windows.
+ * Write bytes to a local file, keeping an existing target's mode
+ * (`chmod --reference`) when the action names none. A local path is written in
+ * place, following a symlink, as people link their dotfiles. Modes are skipped
+ * on Windows.
  */
 function writeBytes(
   path: string,
@@ -623,6 +625,23 @@ function backupFile(path: string, os: Os): void {
 
 /** A new file's mode before the umask, as a plain write creates it. */
 const NEW_FILE_MODE = 0o666;
+
+/**
+ * Write a repo file atomically: the bytes go to a temp file in the same folder
+ * and are renamed over the target, so a crash leaves the old file whole. The
+ * mode is the action's, else the replaced file's, else the umask's for a new
+ * file, as the old engines and the shared cases have it. A symlinked path is
+ * refused rather than followed (contract "Where records are kept").
+ */
+function writeRepoFile(
+  path: string,
+  bytes: Uint8Array,
+  mode: number | undefined,
+): void {
+  const target =
+    mode ?? existingMode(path) ?? NEW_FILE_MODE & ~process.umask();
+  writeAtomic(path, bytes, target);
+}
 
 /**
  * Write a state file (the sync point, a dconf backup) atomically. These hold
@@ -854,7 +873,7 @@ function runAction(
           context,
           dated,
         );
-        writeBytes(path, action.bytes, action.mode, context.os);
+        writeRepoFile(path, action.bytes, action.mode);
         return { ok: true, warning };
       }
       case "removeRepo": {
