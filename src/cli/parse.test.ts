@@ -67,12 +67,21 @@ const SETUP = { kind: "setup" } as const;
 
 const COMMIT = { kind: "commit", partial: false } as const;
 
-function unknownOption(arg: string): { kind: "error"; message: string } {
-  return { kind: "error", message: `Unknown option: ${arg}` };
+function unknownOption(arg: string): {
+  kind: "error";
+  message: string;
+  code: number;
+} {
+  return usageError(`Unknown option: ${arg}`);
 }
 
-function usageError(message: string): { kind: "error"; message: string } {
-  return { kind: "error", message };
+/** Every usage error exits 2 (decision 7). */
+function usageError(message: string): {
+  kind: "error";
+  message: string;
+  code: number;
+} {
+  return { kind: "error", message, code: 2 };
 }
 
 describe("parseArgs", () => {
@@ -247,17 +256,15 @@ describe("parseArgs", () => {
   });
 
   test("should refuse --only with no path", () => {
-    expect(parseArgs(["import", "--only"])).toEqual({
-      kind: "error",
-      message: "ERROR: --only needs a path.",
-    });
+    expect(parseArgs(["import", "--only"])).toEqual(
+      usageError("ERROR: --only needs a path."),
+    );
   });
 
   test("should refuse --only followed by another option", () => {
-    expect(parseArgs(["import", "--only", "--force"])).toEqual({
-      kind: "error",
-      message: "ERROR: --only needs a path.",
-    });
+    expect(parseArgs(["import", "--only", "--force"])).toEqual(
+      usageError("ERROR: --only needs a path."),
+    );
   });
 
   test("should parse status", () => {
@@ -762,6 +769,34 @@ describe("parseArgs", () => {
         "mksync import [--check] [--force] [--reset-values] [--only <path>...]",
       ),
     ).toBe(true);
+  });
+});
+
+describe("usage errors exit 2", () => {
+  test("should exit 2 on an unknown option", () => {
+    expect(parseArgs(["export", "--bogus"])).toEqual(unknownOption("--bogus"));
+  });
+
+  test("should exit 2 when the preview verb is given --only", () => {
+    expect(parseArgs(["preview", "--only", "dotfiles/a"])).toEqual(
+      unknownOption("--only"),
+    );
+  });
+
+  test("should exit 2 on clashing --preview --yes", () => {
+    expect(parseArgs(["export", "--preview", "--yes"])).toEqual(
+      usageError("ERROR: --preview and --yes can't be used together."),
+    );
+  });
+
+  test("should exit 2 on a repeated --profile", () => {
+    expect(
+      parseArgs(["setup", "--profile", "work-1", "--profile", "personal"]),
+    ).toEqual(usageError("ERROR: --profile is repeated."));
+  });
+
+  test("should exit 2 on an unknown verb in a group", () => {
+    expect(parseArgs(["machine", "list"])).toEqual(unknownOption("list"));
   });
 });
 

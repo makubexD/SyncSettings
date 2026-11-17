@@ -1,5 +1,6 @@
 {
-  "description": "Export rejects --force as an unknown option: exit 1, no status lines, nothing written (The program, Front door).",
+  "description": "Export rejects --force as an unknown option: exit 2, no status lines, nothing written (The program, Front door). Exit 2 since phase 9 decision 7.",
+  "oldEngines": ["none"],
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak"],

@@ -756,7 +756,7 @@ On Windows the guard recognises the same labels in the `[OUT      ]` status-line
 Linux. The status's OS name comes from `SYNC_OS_NAME` if set, else the Windows caption. `--yes` answers the `[Y/n]` questions. It never
 answers the bootstrap question, because bootstrap uses `sudo`; `--bootstrap` does.
 On both front doors, `pull`, `push` and `diff` stop on an unknown option (a remaining argument that starts with `-`) with
-`Unknown option: <arg>` on stderr and exit 1, before any fetch or child step.
+`Unknown option: <arg>` on stderr and exit 2 (the old engines exit 1), before any fetch or child step.
 
 Status lines and the next command, in this order of precedence:
 
@@ -1181,7 +1181,7 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
   runs `import --force`; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
   import's or export's code.
 
-A flag that can't be read stops before the scan, exit 1, like an unknown option: `ERROR: <flag> needs a value.`,
+A flag that can't be read stops before the scan, exit 2, like an unknown option: `ERROR: <flag> needs a value.`,
 `ERROR: <flag> is repeated.`, `ERROR: <flag> must be one of <a>, <b>, <c>.` (the choices in the usage line's order).
 
 Two answers are refused before anything is written, exit 1. A retired profile, named by `--profile` or typed at the

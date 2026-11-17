@@ -138,10 +138,12 @@ export interface UsageCommand {
   readonly kind: "usage";
 }
 
-/** An unknown option or a bad `--only`: print the message on stderr, exit 1. */
+/** A usage error: an unknown option or a bad `--only`, a clash or a repeated
+ * flag. Print the message on stderr, exit 2 (decision 7). */
 export interface ParseError {
   readonly kind: "error";
   readonly message: string;
+  readonly code: number;
 }
 
 export type ParsedCommand =
@@ -259,8 +261,9 @@ function isCommandName(value: string): value is CommandName {
   return value === "export" || value === "import";
 }
 
+/** Every parse error is a usage error, so it exits 2 (decision 7). */
 function error(message: string): ParseError {
-  return { kind: "error", message };
+  return { kind: "error", message, code: 2 };
 }
 
 function isOption(arg: string): boolean {

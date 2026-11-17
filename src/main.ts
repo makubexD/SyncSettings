@@ -551,7 +551,7 @@ export function run(argv: readonly string[]): Resolved {
     case "usage":
       return { code: 2, stdout: "", stderr: `${USAGE}\n` };
     case "error":
-      return { code: 1, stdout: "", stderr: `${parsed.message}\n` };
+      return { code: parsed.code, stdout: "", stderr: `${parsed.message}\n` };
     default: {
       const unhandled: never = parsed;
       throw new Error(`unhandled command: ${String(unhandled)}`);

@@ -265,11 +265,14 @@ function Validate-Case {
     if ($null -ne $oldEnginesProp) {
         $oldEngines = $oldEnginesProp.Value
         if ($oldEngines -isnot [System.Array] -or $oldEngines.Count -eq 0) {
-            Die 'oldEngines must be a non-empty list of bash and powershell'
+            Die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
         }
-        foreach ($e in $oldEngines) {
-            if ($e -isnot [string] -or ($e -cne 'bash' -and $e -cne 'powershell')) {
-                Die 'oldEngines must be a non-empty list of bash and powershell'
+        $onlyNone = $oldEngines.Count -eq 1 -and $oldEngines[0] -is [string] -and $oldEngines[0] -ceq 'none'
+        if (-not $onlyNone) {
+            foreach ($e in $oldEngines) {
+                if ($e -isnot [string] -or ($e -cne 'bash' -and $e -cne 'powershell')) {
+                    Die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
+                }
             }
         }
     }
@@ -1615,7 +1618,8 @@ foreach ($caseDir in $caseDirs) {
         continue
     }
 
-    # oldEngines names the frozen engines a case runs on; the program runs all.
+    # oldEngines names the frozen engines a case runs on; ["none"] names no old
+    # engine, and the program runs every case.
     $oldEnginesProp = $case.PSObject.Properties['oldEngines']
     if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $oldEnginesProp -and
         -not (@($oldEnginesProp.Value) -ccontains 'powershell')) {

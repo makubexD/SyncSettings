@@ -168,10 +168,12 @@ validate_case() {
             || die 'CTX_WINDOW_DIR must be a relative path under home'
     fi
     jq -e 'if has("oldEngines") then
-            (.oldEngines | type) == "array" and (.oldEngines | length) > 0
-            and all(.oldEngines[]; . == "bash" or . == "powershell")
+            (.oldEngines | type) == "array"
+            and ((.oldEngines == ["none"])
+                or ((.oldEngines | length) > 0
+                    and all(.oldEngines[]; . == "bash" or . == "powershell")))
           else true end' "$json" > /dev/null 2>&1 \
-        || die 'oldEngines must be a non-empty list of bash and powershell'
+        || die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
     jq -e 'if has("emptyDirs") then
             (.emptyDirs | type) == "array" and all(.emptyDirs[]; type == "string")
           else true end' "$json" > /dev/null 2>&1 \
@@ -1018,7 +1020,8 @@ for dir in "$CASES"/*/; do
         continue
     fi
 
-    # oldEngines names the frozen engines a case runs on; the program runs all.
+    # oldEngines names the frozen engines a case runs on; ["none"] names no old
+    # engine, and the program runs every case.
     if [[ -z $engine_path ]] \
         && ! jq -e '(.oldEngines // ["bash"]) | index("bash")' "$dir/case.json" > /dev/null; then
         printf 'SKIP %s: not on the bash engine\n' "$case_name"
