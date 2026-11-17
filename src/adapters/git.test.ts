@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -13,6 +16,7 @@ import {
   commitExists,
   commitStaged,
   deleteBranch,
+  previewDiff,
   pushBranch,
   readAheadBehind,
   readHead,
@@ -84,6 +88,17 @@ const SPACED_PROFILE_FILE = "profiles/with space.json";
 
 /** A path whose only unpushed change is a deletion. */
 const DELETED_PROFILE_FILE = "profiles/deleted.json";
+
+/** The preview diff's three dotfiles under `dotfiles/linux/`. */
+const PREVIEW_A = "dotfiles/linux/a.txt";
+const PREVIEW_B = "dotfiles/linux/b.txt";
+const PREVIEW_C = "dotfiles/linux/c.txt";
+
+/** A file sync never exports, so the preview's diff must ignore it. */
+const PREVIEW_OTHER = "other.txt";
+
+/** The prefix of the temp folder `previewDiff` makes and must remove again. */
+const PREVIEW_TMP_PREFIX = "mksync-preview-";
 
 const tempFolders: string[] = [];
 
@@ -968,5 +983,130 @@ describe("readParentSha", () => {
     // Assert
     expect(result.ok).toBe(false);
     expect(result.sha).toBeUndefined();
+  });
+});
+
+/** A repo whose one commit holds the config, two dotfiles and a file sync never
+ * exports, for the preview-diff cases. */
+function previewRepo(): string {
+  const root = emptyRepo();
+  writeFileSync(join(root, CONFIG_PATH), "{}\n");
+  mkdirSync(join(root, "dotfiles", "linux"), { recursive: true });
+  writeFileSync(join(root, PREVIEW_A), "a\n");
+  writeFileSync(join(root, PREVIEW_B), "b\n");
+  writeFileSync(join(root, PREVIEW_OTHER), "other\n");
+  git(root, ["add", "-A"]);
+  git(root, [...IDENTITY, "commit", "-q", "-m", "preview"]);
+  return root;
+}
+
+/** How many `mksync-preview-*` temp folders are left in the system tmpdir. */
+function countPreviewFolders(): number {
+  return readdirSync(tmpdir()).filter((name) =>
+    name.startsWith(PREVIEW_TMP_PREFIX),
+  ).length;
+}
+
+/** The bytes `text` encodes to, for building a preview's exported tree. */
+function encodeText(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+describe("previewDiff", () => {
+  test("should stat and diff a change, an add and a removal", async () => {
+    // Arrange
+    const root = previewRepo();
+    const files = new Map<string, Uint8Array>([
+      [CONFIG_PATH, encodeText("{}\n")],
+      [PREVIEW_A, encodeText("a modified\n")],
+      [PREVIEW_C, encodeText("c\n")],
+    ]);
+
+    // Act
+    const result = await previewDiff(root, files);
+
+    // Assert
+    expect(result).toBeDefined();
+    expect(result?.stat).toContain(PREVIEW_A);
+    expect(result?.stat).toContain(PREVIEW_B);
+    expect(result?.stat).toContain(PREVIEW_C);
+    expect(result?.stat).toContain("3 files changed");
+    expect(result?.diff).toContain(`diff --git a/${PREVIEW_A} b/${PREVIEW_A}`);
+    expect(result?.diff).toContain("new file mode 100644");
+    expect(result?.diff).toContain("deleted file mode 100644");
+    expect(result?.diff).toContain("+a modified");
+  });
+
+  test("should leave HEAD, the index, the file and tmpdir untouched", async () => {
+    // Arrange
+    const root = previewRepo();
+    const headBefore = git(root, ["rev-parse", "HEAD"]).trim();
+    const indexBefore = readFileSync(join(root, ".git", "index"));
+    const aBefore = readFileSync(join(root, PREVIEW_A));
+    const foldersBefore = countPreviewFolders();
+    const files = new Map<string, Uint8Array>([
+      [CONFIG_PATH, encodeText("{}\n")],
+      [PREVIEW_A, encodeText("a modified\n")],
+    ]);
+
+    // Act
+    await previewDiff(root, files);
+
+    // Assert
+    expect(git(root, ["rev-parse", "HEAD"]).trim()).toBe(headBefore);
+    expect(git(root, ["status", "--porcelain"])).toBe("");
+    expect(readFileSync(join(root, ".git", "index"))).toEqual(indexBefore);
+    expect(readFileSync(join(root, PREVIEW_A))).toEqual(aBefore);
+    expect(countPreviewFolders()).toBe(foldersBefore);
+  });
+
+  test("should report no change for a tree equal to HEAD", async () => {
+    // Arrange
+    const root = previewRepo();
+    const files = new Map<string, Uint8Array>([
+      [CONFIG_PATH, encodeText("{}\n")],
+      [PREVIEW_A, encodeText("a\n")],
+      [PREVIEW_B, encodeText("b\n")],
+    ]);
+
+    // Act
+    const result = await previewDiff(root, files);
+
+    // Assert
+    expect(result).toEqual({ stat: "", diff: "" });
+  });
+
+  test("should keep an executable file's mode when its bytes change", async () => {
+    // Arrange
+    const root = emptyRepo();
+    mkdirSync(join(root, "dotfiles", "linux"), { recursive: true });
+    writeFileSync(join(root, PREVIEW_A), "#!/bin/sh\necho hi\n");
+    chmodSync(join(root, PREVIEW_A), 0o755);
+    git(root, ["add", "-A"]);
+    git(root, [...IDENTITY, "commit", "-q", "-m", "exec"]);
+    const files = new Map<string, Uint8Array>([
+      [PREVIEW_A, encodeText("#!/bin/sh\necho hi changed\n")],
+    ]);
+
+    // Act
+    const result = await previewDiff(root, files);
+
+    // Assert
+    expect(result).toBeDefined();
+    expect(result?.diff).toContain(`diff --git a/${PREVIEW_A} b/${PREVIEW_A}`);
+    expect(result?.diff).not.toContain("old mode");
+    expect(result?.diff).not.toContain("new mode");
+  });
+
+  test("should report no preview in a repo with no commit", async () => {
+    // Arrange
+    const root = emptyRepo();
+    const files = new Map<string, Uint8Array>([[PREVIEW_A, encodeText("a\n")]]);
+
+    // Act
+    const result = await previewDiff(root, files);
+
+    // Assert
+    expect(result).toBeUndefined();
   });
 });
