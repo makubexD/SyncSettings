@@ -1061,6 +1061,8 @@ writes it in this key order in the layout of `json` entries ([Layers](#layers-pr
 item per line (the example's one-line `modules` and `values` are input the program reads, not what it writes), `{}` and
 `[]` when empty, LF and a trailing newline, readable by the current
 user only (as `.user-values.json`, [Sanitize and hydrate](#sanitize-and-hydrate)); the profile file the same way. A
+state file is written atomically — a temp file in the same folder and a rename — and a state path that is a symlink
+stops the run with `ERROR: <path> is a symlink.`, exit 1. A
 bad record stops every command with exit 2 before any file is touched, on stderr:
 
 ```text

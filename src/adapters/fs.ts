@@ -1,7 +1,6 @@
 import {
   chmodSync,
   copyFileSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -38,7 +37,7 @@ import type {
   Snapshot,
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
-import { restrictToCurrentUser } from "./acl.ts";
+import { writeAtomic } from "./atomic.ts";
 import { dconfLoad } from "./dconf.ts";
 import { expandHome } from "./paths.ts";
 import { writeStoreProfile, writeStoreRecord } from "./store.ts";
@@ -622,9 +621,11 @@ function backupFile(path: string, os: Os): void {
   copyPreserving(path, `${path}.bak`, os);
 }
 
+/** Write a state file atomically, for the current user only. A symlinked path
+ * is refused rather than followed (contract "Where records are kept"). */
 function writeStateFile(path: string, text: string, os: Os): void {
   mkdirSync(pathFor(os).dirname(path), { recursive: true });
-  writeFileSync(path, text);
+  writeAtomic(path, text, PRIVATE_MODE);
 }
 
 const VALUES_FILE = ".user-values.json";
@@ -633,24 +634,13 @@ const VALUES_FILE = ".user-values.json";
 const PRIVATE_MODE = 0o600;
 
 /**
- * Save `.user-values.json` in the repo. An existing file is tightened before
- * the write, so new values never sit in a readable file.
+ * Save `.user-values.json` in the repo atomically and for the current user
+ * only, so new values never sit in a readable file and a crash leaves the old
+ * one whole. A symlinked path is refused rather than followed.
  */
 function writeValuesFile(text: string, context: RunContext): void {
   const path = pathFor(context.os).join(context.repoRoot, VALUES_FILE);
-  if (context.os === "windows") {
-    if (!existsSync(path)) {
-      writeFileSync(path, "");
-    }
-    restrictToCurrentUser(path);
-    writeFileSync(path, text);
-    return;
-  }
-  if (existingMode(path) !== undefined) {
-    chmodSync(path, PRIVATE_MODE);
-  }
-  writeFileSync(path, text, { mode: PRIVATE_MODE });
-  chmodSync(path, PRIVATE_MODE);
+  writeAtomic(path, text, PRIVATE_MODE);
 }
 
 const UNHANDLED_ACTION = "unhandled action";
