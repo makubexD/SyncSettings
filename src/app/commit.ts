@@ -37,6 +37,7 @@ import {
   switchToNewBranch,
 } from "../adapters/git.ts";
 import { runLeakScan } from "../adapters/leakscan.ts";
+import { which } from "../adapters/process.ts";
 import { readText } from "../adapters/store.ts";
 import type { StoreLocation } from "../adapters/store.ts";
 import type { CommitCommand } from "../cli/parse.ts";
@@ -356,10 +357,10 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   });
   const fail = (message: string): Result => done(1, `${message}\n`);
 
-  if (Bun.which("git") === null) {
+  if (which("git") === null) {
     return fail(GIT_MISSING);
   }
-  if (Bun.which(ghBinary()) === null) {
+  if (which(ghBinary()) === null) {
     return fail(GH_MISSING);
   }
 

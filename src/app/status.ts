@@ -8,6 +8,7 @@
 
 import { readSyncPoint, runGitResult } from "../adapters/git.ts";
 import { readOsName } from "../adapters/osname.ts";
+import { run } from "../adapters/process.ts";
 import { buildSnapshot } from "../adapters/snapshot.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import { readLinkedFolders } from "../adapters/store.ts";
@@ -98,45 +99,18 @@ export async function fetchOrigin(
   if (seconds === undefined) {
     return false;
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline =
-    seconds === 0
-      ? undefined
-      : new Promise<"timeout">((resolve) => {
-          timer = setTimeout(
-            () => resolve("timeout"),
-            seconds * MILLISECONDS_PER_SECOND,
-          );
-        });
-  try {
-    const child = Bun.spawn(["git", "fetch", "-q", "origin", "master"], {
-      cwd: repoRoot,
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "ignore",
-      env: { ...process.env, ...GIT_ENV },
-    });
-    const outcome =
-      deadline === undefined
-        ? await child.exited
-        : await Promise.race([child.exited, deadline]);
-    if (outcome === "timeout") {
-      // Kill and reap it; its own pipes are ignored, so nothing waits on them.
-      if (child.exitCode === null) {
-        child.kill("SIGKILL");
-      }
-      await child.exited;
-      return false;
-    }
-    return outcome === 0;
-  } catch {
-    // A missing git or an unreadable folder is a failed fetch.
+  const result = await run(["git", "fetch", "-q", "origin", "master"], {
+    cwd: repoRoot,
+    stdout: "ignore",
+    stderr: "ignore",
+    env: { ...process.env, ...GIT_ENV },
+    ...(seconds === 0 ? {} : { timeoutMs: seconds * MILLISECONDS_PER_SECOND }),
+  });
+  // A timed-out fetch, a missing git or an unreadable folder is a failed fetch.
+  if (result.timedOut === true || result.notStarted === true) {
     return false;
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
   }
+  return result.code === 0;
 }
 
 function countUpdate(text: string): number {

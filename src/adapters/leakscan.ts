@@ -6,6 +6,7 @@
 
 import { existsSync } from "node:fs";
 import { join, win32 } from "node:path";
+import { decode, run, which } from "./process.ts";
 
 /** The repo-relative scan script, run through `bash` (never executed). Forward
  * slashes, so Git for Windows' bash reads the same path. */
@@ -80,7 +81,7 @@ export async function runLeakScan(
       stderr: "",
     };
   }
-  const bash = findBash(process.platform, Bun.which("git"), existsSync);
+  const bash = findBash(process.platform, which("git"), existsSync);
   if (bash === undefined) {
     return {
       kind: "could-not-run",
@@ -89,20 +90,12 @@ export async function runLeakScan(
       stderr: "",
     };
   }
-  try {
-    const child = Bun.spawn([bash, SCAN_SCRIPT, ...paths], {
-      cwd: repoRoot,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    return { kind: kindOf(code), code, stdout, stderr };
-  } catch {
+  const result = await run([bash, SCAN_SCRIPT, ...paths], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.notStarted === true) {
     // A bash that would not start is "could not run".
     return {
       kind: "could-not-run",
@@ -111,4 +104,10 @@ export async function runLeakScan(
       stderr: "",
     };
   }
+  return {
+    kind: kindOf(result.code),
+    code: result.code,
+    stdout: decode(result.stdout),
+    stderr: decode(result.stderr),
+  };
 }

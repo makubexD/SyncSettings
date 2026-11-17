@@ -14,6 +14,7 @@ import {
   readInstalled,
   readPackageLists,
 } from "../adapters/packages.ts";
+import { run, which } from "../adapters/process.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import { readText } from "../adapters/store.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
@@ -64,7 +65,7 @@ const MILLISECONDS_PER_SECOND = 1000;
 
 /** Whether `command` is runnable as the bash doctor's `command -v` finds it. */
 function onPath(command: string): boolean {
-  return Bun.which(command) !== null;
+  return which(command) !== null;
 }
 
 /** Contract "Front door": the first package manager this OS has, if any. */
@@ -98,37 +99,16 @@ async function ghFact(
   if (!onPath(binary)) {
     return "missing";
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(
-      () => resolve("timeout"),
-      GH_TIMEOUT_SECONDS * MILLISECONDS_PER_SECOND,
-    );
+  const result = await run([binary, ...GH_STATUS_ARGUMENTS], {
+    stdout: "ignore",
+    stderr: "ignore",
+    timeoutMs: GH_TIMEOUT_SECONDS * MILLISECONDS_PER_SECOND,
   });
-  try {
-    const child = Bun.spawn([binary, ...GH_STATUS_ARGUMENTS], {
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    const outcome = await Promise.race([child.exited, deadline]);
-    if (outcome === "timeout") {
-      // Kill and reap it; its own pipes are ignored, so nothing waits on them.
-      if (child.exitCode === null) {
-        child.kill("SIGKILL");
-      }
-      await child.exited;
-      return "signed-out";
-    }
-    return outcome === 0 ? "signed-in" : "signed-out";
-  } catch {
-    // A binary that cannot start is not signed in.
+  // A binary that cannot start or a run past the limit is not signed in.
+  if (result.timedOut === true || result.notStarted === true) {
     return "signed-out";
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
   }
+  return result.code === 0 ? "signed-in" : "signed-out";
 }
 
 /** The repo has an `origin` remote, as `git remote get-url origin` answers. */

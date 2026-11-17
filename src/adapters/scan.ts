@@ -10,6 +10,7 @@ import type { ConfigV2, Os } from "../core/config/types.ts";
 import { effectiveOs } from "../core/layers/select.ts";
 import type { MachineIdentity } from "../core/machine/check.ts";
 import { resolvedLocal } from "../core/plan/pick.ts";
+import { decode, run } from "./process.ts";
 
 /** The Windows domain `USERDNSDOMAIN` holds, lowercased, or `null` when it is
  * missing or empty. */
@@ -89,26 +90,17 @@ export interface Scan {
 async function readGitEmail(
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<string | null> {
-  try {
-    const child = Bun.spawn(["git", "config", "--global", "user.email"], {
-      env,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const stdout = new Uint8Array(
-      await new Response(child.stdout).arrayBuffer(),
-    );
-    const code = await child.exited;
-    if (code !== 0) {
-      return null;
-    }
-    const email = new TextDecoder().decode(stdout).trim();
-    return email === "" ? null : email;
-  } catch {
-    // A missing git binary is "no email", not a failure of the scan.
+  const result = await run(["git", "config", "--global", "user.email"], {
+    env: { ...env },
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  // A missing git binary is "no email", not a failure of the scan.
+  if (result.notStarted === true || result.code !== 0) {
     return null;
   }
+  const email = decode(result.stdout).trim();
+  return email === "" ? null : email;
 }
 
 /** Whether `path` is a regular file this OS would run. */
