@@ -136,6 +136,12 @@ describe("parseArgs", () => {
     );
   });
 
+  test("should refuse export --preview --reset-values", () => {
+    expect(parseArgs(["export", "--preview", "--reset-values"])).toEqual(
+      unknownOption("--reset-values"),
+    );
+  });
+
   test("should refuse import --yes", () => {
     expect(parseArgs(["import", "--yes"])).toEqual(unknownOption("--yes"));
   });
