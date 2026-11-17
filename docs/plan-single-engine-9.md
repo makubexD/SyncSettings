@@ -424,15 +424,48 @@ Test: `tests/linux/engine.sh install`.
 
 ## Step 22: install.ps1 downloads the program `[worker]`
 
-Files: `install.ps1`, `tests/windows-vm/install-check.ps1`.
+Files: `install.ps1`, `tests/windows-vm/install-check.ps1` (new), `tests/windows/Engine.Tests.ps1` (its install.ps1
+`Describe` only). Sent as two parts: the installer with `install-check.ps1`, then the Pester cases.
 
-Decision 3, Windows; PowerShell 5.1 rules (no `??`, no ternary). As step 21 with `Get-FileHash -Algorithm SHA256`,
-`%LOCALAPPDATA%\mksync\mksync.exe` added to the user `Path` once, and `-Runtime bun|node` writing a `mksync.cmd` shim
-there that calls the clone's `mksync.cmd`. `install-check.ps1` runs the same four checks as step 21 against a folder
-release and prints `install-check: ok`.
+Decision 3, Windows; PowerShell 5.1 rules (no `??`, no ternary). As step 21, with these Windows forms:
+
+- Settings stay environment variables (iex passes no parameters): `SYNCSETTINGS_RELEASE_URL` (default as step 20),
+  `SYNCSETTINGS_RUNTIME` (`bun` or `node`; anything else → `ERROR: SYNCSETTINGS_RUNTIME must be bun or node.`), and
+  `SYNC_ARCH` overriding `$env:PROCESSOR_ARCHITECTURE`. `SYNCSETTINGS_BIN` defaults to `%LOCALAPPDATA%\mksync`.
+- The asset: `AMD64` → `mksync-windows-x64.exe`; anything else → `ERROR: no mksync program for windows <arch>.`
+- The tag: under `file://`, the `latest` file; over https, the `ResponseUri` of a `[Net.WebRequest]` to
+  `<base>/latest` (TLS 1.2 added to `[Net.ServicePointManager]::SecurityProtocol`). Files: a `file://` URL is copied
+  from its `LocalPath`; https uses `Invoke-WebRequest -UseBasicParsing -OutFile`. A failure → `ERROR: could not
+download <url>.`
+- The check: `Get-FileHash -Algorithm SHA256` against `SHA256SUMS`; a missing or different digest → `ERROR: <asset>:
+checksum does not match SHA256SUMS.`; the attestation as step 21 (`gh auth status`, then `gh attestation verify`),
+  a failure → `ERROR: <asset>: attestation check failed.` Nothing is written to the bin folder before both pass.
+- The install: `<bin>\mksync.exe` through a temp file in `<bin>` then moved over. An existing `mksync.exe` that is
+  byte-identical is left as is; any other → `ERROR: <path> already exists; remove it and run this again.` A
+  `mksync.cmd` in `<bin>` with today's marker lines (`@echo off`, `rem SyncSettings launcher`) is deleted; one without
+  them is the same conflict error. The old default launcher `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`, when it
+  carries the marker and isn't in `<bin>`, is deleted with `  Removed the old launcher <path>.` `<bin>` joins the user
+  `Path` once, as today.
+- `SYNCSETTINGS_RUNTIME`: no download; `<bin>\mksync.cmd` with the marker lines calling `"<clone>\mksync.cmd" %*`,
+  same conflict rule; a `mksync.exe` already in `<bin>` → the conflict error.
+- Setup runs `& <bin>\mksync.exe setup [--yes]` (or the `.cmd` shim) piped to `Out-Host`, as today.
+
+`install-check.ps1` (run in the VM, from the repo copy): builds a bare origin from the working tree as the Pester
+`Describe` does, a fake program compiled with `Add-Type -OutputType ConsoleApplication` that appends its arguments to
+a log file and exits 0, a folder release (`latest` = `v9.9.9`, the program as `download\v9.9.9\mksync-windows-x64.exe`,
+a matching `SHA256SUMS`), a throwaway `LOCALAPPDATA`/bin, and runs `install.ps1` with `-File` per check, never
+touching the real user `Path` (it saves and restores the user `Path` around each run). Checks: install →
+`mksync.exe` is the fake program and its log has `setup --yes`; a wrong `SHA256SUMS` → its line, exit 1, no
+`mksync.exe`; `SYNCSETTINGS_RUNTIME=node` → the shim calls the clone's `mksync.cmd`, no download; `SYNC_ARCH=x86` →
+`ERROR: no mksync program for windows x86.`, exit 1; a second install → exit 0, file unchanged. Prints
+`install-check: ok` and exits 0, or the failed check and exit 1.
+
+The Pester part: the existing install cases point `SYNCSETTINGS_RELEASE_URL` at the same kind of folder release, and
+those that checked the `mksync.cmd` launcher check `mksync.exe` instead; the setup case checks the fake program's log.
 
 Test: `tests/windows-vm/vm.sh status && tests/windows-vm/vm.sh run 'powershell -NoProfile -ExecutionPolicy Bypass
--File tests/windows-vm/install-check.ps1' || echo "VM down: run in the finish"`.
+-File tests/windows-vm/install-check.ps1' || echo "VM down: run in the finish"`; for the Pester part also
+`tests/windows-vm/vm.sh run 'Invoke-Pester tests/windows/Engine.Tests.ps1 -FullNameFilter "*install*" -Output Detailed'`.
 
 ## Step 23: Setup cases: doctor first and the bootstrap question `[worker]`
 
