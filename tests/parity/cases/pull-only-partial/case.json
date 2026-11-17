@@ -1,0 +1,33 @@
+{
+  "description": "Pull --force with picked paths and no sync point fast-forwards and applies only the picked file, records no sync point, and leaves the unpicked file as it was, exit 0 (Front door, pull row; Sync point).",
+  "os": ["linux"],
+  "git": "remote",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "First parity case file"
+      },
+      {
+        "repoPath": "dotfiles/linux/no-trailing.txt",
+        "localPath": "~/.config/fixture/no-trailing.txt",
+        "platform": "linux",
+        "description": "Second parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true,
+        "force": true,
+        "paths": ["dotfiles/linux/plain.txt"]
+      }
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import pkg from "../package.json" with { type: "json" };
 import {
   readAheadBehind,
   readSyncPoint,
+  readUpstreamFacts,
   runGitResult,
   statusPorcelain,
 } from "./adapters/git.ts";
@@ -379,6 +380,7 @@ async function execute(
             runCommit: (partial, message) =>
               execute(pushCommitCommand(partial, message)),
             cloneReady: () => cloneReady(repoRoot),
+            originState: () => readUpstreamFacts(repoRoot),
           },
         );
       } finally {

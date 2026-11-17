@@ -6,8 +6,8 @@
  *
  * The pull-only refusal, the "Move a change" questions and the export's other
  * questions come from the export the flow runs; this module only orders it
- * with the PR question and the commit. Every effect is a dependency, so the
- * flow is testable without git, a terminal or a repo.
+ * with the behind-origin check, the PR question and the commit. Every effect
+ * is a dependency, so the flow is testable without git, a terminal or a repo.
  */
 
 import type { Result as CoreResult } from "../core/config/types.ts";
@@ -42,6 +42,15 @@ export interface MoveSession {
   move(line: number, group: 1 | 2 | 3 | 4): CoreResult<string, string>;
 }
 
+/** What the behind-origin check reads after `git fetch -q origin master`. */
+export interface OriginState {
+  /** The fetch succeeded; false skips the behind check, as the contract
+   * says. */
+  readonly fetchOk: boolean;
+  /** The commits `HEAD` lacks from `origin/master`. */
+  readonly behind: number;
+}
+
 /** What a push runs; `only` is the push's picked paths. */
 export interface PushDeps {
   /** `export` with the picked paths; `--yes` takes the new settings'
@@ -64,11 +73,16 @@ export interface PushDeps {
   ) => Promise<Result>;
   /** The clone is on `master` with an `origin` remote. */
   readonly cloneReady: () => Promise<boolean>;
+  /** `git fetch -q origin master` and the commits `HEAD` lacks. */
+  readonly originState: () => Promise<OriginState>;
 }
 
 /** `front_require_clone push`. */
 const CLONE_ERROR =
   "ERROR: push needs the repo clone on master with an origin remote.\n";
+
+/** Contract "Front door": a push behind origin stops before the export. */
+const BEHIND_ORIGIN = "ERROR: origin has updates; run mksync pull first.\n";
 
 /** `front_push`'s line when the export left the repo as it was. */
 const NOTHING_TO_SEND = "  Nothing to send: the repo matches this machine.\n";
@@ -84,7 +98,8 @@ const PR_QUESTION = "  Open a PR with these changes? [Y/n] ";
 const STATUS_FAILED = "ERROR: git status failed.\n";
 
 /** The "Move a change" question; the answer is a line number or Enter. */
-const MOVE_QUESTION = "Move a change? Type its number, or press Enter to go on: ";
+const MOVE_QUESTION =
+  "Move a change? Type its number, or press Enter to go on: ";
 
 /** The target groups, in the order "Move it to?" lists them. */
 const GROUPS = [1, 2, 3, 4] as const;
@@ -196,6 +211,13 @@ export async function executePush(
   const only = input.paths;
   if (!(await deps.cloneReady())) {
     return { code: 1, stdout: "", stderr: CLONE_ERROR };
+  }
+
+  // Contract "Front door": a repo behind origin would make the export offer
+  // its own pull and stop, so stop first. A failed fetch skips the check.
+  const origin = await deps.originState();
+  if (origin.fetchOk && origin.behind > 0) {
+    return { code: 1, stdout: "", stderr: BEHIND_ORIGIN };
   }
 
   const exported = await deps.runExport(only, input.yes);

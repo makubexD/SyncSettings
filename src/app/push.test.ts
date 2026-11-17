@@ -10,6 +10,9 @@ const TARGETS =
 const EXPORTED = { code: 0, stdout: "  the block\n", stderr: "" };
 const STATUS = " M dotfiles/linux/tool/config\n";
 const NOTHING_TO_SEND = "  Nothing to send: the repo matches this machine.\n";
+const BEHIND_ORIGIN = "ERROR: origin has updates; run mksync pull first.\n";
+const UP_TO_DATE = { fetchOk: true, behind: 0 };
+const BEHIND = { fetchOk: true, behind: 1 };
 
 /** A session with three changes, all in group 1 unless overridden. */
 function fakeSession(overrides: Partial<MoveSession> = {}): MoveSession {
@@ -59,6 +62,7 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     print: () => {},
     runCommit: async () => ({ code: 0, stdout: "committed\n", stderr: "" }),
     cloneReady: async () => true,
+    originState: async () => UP_TO_DATE,
     ...overrides,
   };
 }
@@ -103,11 +107,7 @@ describe("askMoves", () => {
 
     await askMoves(fakeSession({ lineCount: 3 }), reader.read, out.write);
 
-    expect(out.texts).toEqual([
-      MOVE_QUESTION,
-      "Pick 1 to 3.\n",
-      MOVE_QUESTION,
-    ]);
+    expect(out.texts).toEqual([MOVE_QUESTION, "Pick 1 to 3.\n", MOVE_QUESTION]);
     expect(reader.questions).toEqual([MOVE_QUESTION, MOVE_QUESTION]);
   });
 
@@ -139,10 +139,7 @@ describe("askMoves", () => {
     const result = await askMoves(fakeSession(), reader.read, out.write);
 
     expect(result).toEqual({ ok: true, value: undefined });
-    expect(out.texts).toEqual([
-      MOVE_QUESTION,
-      `Move it to? ${TARGETS} [1] `,
-    ]);
+    expect(out.texts).toEqual([MOVE_QUESTION, `Move it to? ${TARGETS} [1] `]);
   });
 
   test("a move error is returned and ends the loop", async () => {
@@ -156,10 +153,7 @@ describe("askMoves", () => {
     );
 
     expect(result).toEqual({ ok: false, error: "no layer machine" });
-    expect(out.texts).toEqual([
-      MOVE_QUESTION,
-      `Move it to? ${TARGETS} [1] `,
-    ]);
+    expect(out.texts).toEqual([MOVE_QUESTION, `Move it to? ${TARGETS} [1] `]);
   });
 });
 
@@ -197,6 +191,60 @@ describe("executePush", () => {
         "ERROR: push needs the repo clone on master with an origin remote.\n",
     });
     expect(exported).toBe(false);
+  });
+
+  test("a repo behind origin stops before the export and commits nothing", async () => {
+    let exported = false;
+    let committed = false;
+    const deps = baseDeps({
+      originState: async () => BEHIND,
+      runExport: async () => {
+        exported = true;
+        return EXPORTED;
+      },
+      runCommit: async () => {
+        committed = true;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await executePush({ yes: true, paths: [] }, deps);
+
+    expect(result).toEqual({ code: 1, stdout: "", stderr: BEHIND_ORIGIN });
+    expect(exported).toBe(false);
+    expect(committed).toBe(false);
+  });
+
+  test("a failed fetch skips the behind check and the export runs", async () => {
+    let exported = false;
+    const deps = baseDeps({
+      originState: async () => ({ fetchOk: false, behind: 1 }),
+      runExport: async () => {
+        exported = true;
+        return EXPORTED;
+      },
+    });
+
+    const result = await executePush({ yes: true, paths: [] }, deps);
+
+    expect(result.code).toBe(0);
+    expect(exported).toBe(true);
+  });
+
+  test("an up-to-date repo goes on to the export", async () => {
+    let exported = false;
+    const deps = baseDeps({
+      originState: async () => UP_TO_DATE,
+      runExport: async () => {
+        exported = true;
+        return EXPORTED;
+      },
+    });
+
+    const result = await executePush({ yes: true, paths: [] }, deps);
+
+    expect(result.code).toBe(0);
+    expect(exported).toBe(true);
   });
 
   test("an export stopped by the up-to-date pull is returned as it is", async () => {
