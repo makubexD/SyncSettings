@@ -250,12 +250,12 @@ Files: `src/core/plan/import.ts`, `src/app/import.ts`, `src/app/import.test.ts`.
 
 Decision 9. The core plan returns the files that need an answer, in order, before any write; the app asks each one
 with `stdinLines()` (step 3), printing `Overwrite <file>? [Y/n] ` then reading one line, and passes the answers back
-to finish the plan. EOF answers the rest as the contract already says (no). Every shared `import-` and `pull-` case
+to finish the plan. EOF answers the rest as the contract already says (yes, as an empty answer). Every shared `import-` and `pull-` case
 passes unchanged.
 
 Unit test with a fake line source: three files needing answers; the question for file 2 is printed only after the
 answer for file 1 was read (record the interleaving of prints and reads); answers `n`, `y`, EOF give skip, write,
-skip.
+write.
 
 Test: `bun test src/app/import.test.ts src/core/plan && bun run build && tests/parity/run.sh --engine dist/mksync
 import- && tests/parity/run.sh --engine dist/mksync pull-`.
