@@ -1,0 +1,32 @@
+{
+  "description": "Diff with --only matching no file warns and leaves both trees unchanged, exit 0 (Picking files). Ported from only-no-file-diff, Pester only-no-file-diff.",
+  "git": "remote",
+  "syncPoint": true,
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      },
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "diff",
+      "options": {
+        "only": ["~/.config/fixture/dir/missing.txt"]
+      }
+    }
+  ]
+}

@@ -9,7 +9,8 @@ import type {
 
 const DASHES = "  --------------------------------------------------";
 
-const ONLY_WARNING = "  WARNING: --only matched no file.";
+/** Contract "Picking files": the warning a run prints when `--only` reached nothing. */
+export const ONLY_WARNING = "  WARNING: --only matched no file.";
 
 /** The sync point shows only its first seven characters, as bash does. */
 const SYNC_POINT_SHOWN = 7;

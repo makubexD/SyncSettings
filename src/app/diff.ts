@@ -189,7 +189,11 @@ export async function diffExport(
     mine,
     hasSyncPoint: syncPoint !== undefined,
   });
-  const text = diffText(labels, headerOf(repoRef, repoStamp.short, lastSync));
+  const text = diffText(
+    labels,
+    headerOf(repoRef, repoStamp.short, lastSync),
+    snapshot.only.length > 0,
+  );
   return {
     code: text.exit,
     stdout: `${title(snapshot.os)}${writeLines(text.lines)}`,
