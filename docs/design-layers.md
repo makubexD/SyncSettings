@@ -1506,6 +1506,11 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     files.
   - **Typed answers and `read -r` (phase 9).** Bash `read -r` trims spaces and tabs at both ends and keeps a trailing
     `\r`; the program's `askValues` trims only the line end. Decide together with the PowerShell `Read-Host` rule.
+  - **The missing-value line's stream (case port, 2026-11-16).** With no terminal, bash still prints the value
+    prompt (` <prompt>:`) and then `missing value for <PLACEHOLDER>: add it to .user-values.json` on stderr, so the
+    merged output reads as one line; the program prints no prompt and the line on stdout. The contract names neither
+    the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
+    (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
   - **Atomic profile and record writes (phase 9).** `writePrivateFile` rewrites an existing 0644 file before
     tightening its mode, and a crash mid-write leaves a file that no longer parses: write a 0600 temp file and rename
     it.
