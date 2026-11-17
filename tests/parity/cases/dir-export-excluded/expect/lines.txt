@@ -1,0 +1,1 @@
+SKIPPED dotfiles/common/dir/x.bak matches exclude pattern

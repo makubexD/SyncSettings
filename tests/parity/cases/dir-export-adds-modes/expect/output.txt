@@ -1,0 +1,2 @@
+ADDED dotfiles/common/dir/a/b.txt
+ADDED dotfiles/common/dir/c.txt
