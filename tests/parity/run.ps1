@@ -749,12 +749,21 @@ function Copy-Tree {
 
 # Remove the engine files copied into the temp repo, so the repo comparison sees
 # only the case's own files. `scripts` goes too when nothing is left in it.
+# Windows can hold a just-run mksync.exe open for a moment after the process
+# exits (an antivirus scan, a handle not yet closed), so a delete is retried
+# for a few seconds before the case fails.
 function Remove-Engine {
     param([string]$RepoDir)
     foreach ($rel in @('sync.cmd', 'mksync.exe', 'sync-config.json', 'sync-config.v2.json', '.user-values.json', 'scripts\windows', 'scripts\ci')) {
         $path = Join-Path $RepoDir $rel
-        if (Test-Path -LiteralPath $path) {
+        for ($try = 1; (Test-Path -LiteralPath $path) -and $try -le 40; $try++) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $path) {
+                Start-Sleep -Milliseconds 250
+            }
+        }
+        if (Test-Path -LiteralPath $path) {
+            Die "engine file still locked after 10 s: $rel"
         }
     }
     $scriptsDir = Join-Path $RepoDir 'scripts'
