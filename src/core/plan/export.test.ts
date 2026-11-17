@@ -494,6 +494,17 @@ function wholeEntry(file: string, localPath: string): ConfigV2Entry {
   return { file, module: "parity", merge: "whole", localPath };
 }
 
+/** A dir entry on every OS, so it writes to `dotfiles/common/<file>`. */
+function dirEntry(extra: Partial<ConfigV2Entry> = {}): ConfigV2Entry {
+  return {
+    file: "dir",
+    module: "parity",
+    merge: "dir",
+    localPath: "~/.config/parity/dir",
+    ...extra,
+  };
+}
+
 /** A context for running a plan whose repo root is a temporary folder. */
 function runContextFor(repoRoot: string, root: string): RunContext {
   const state = join(root, "state");
@@ -938,6 +949,84 @@ describe("planExport", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("dir-symlink-removed", () => {
+    // Arrange: a.txt is local, c.txt is a local symlink the repo still holds.
+    const snapshot = layeredSnapshot("linux", {
+      entries: [dirEntry()],
+      repo: {
+        "dotfiles/common/dir/a.txt": "a\n",
+        "dotfiles/common/dir/c.txt": "c\n",
+      },
+      local: { ".config/parity/dir/a.txt": "a\n" },
+    });
+    const localLink = `${HOME}/.config/parity/dir/c.txt`;
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localLink, { kind: "symlink", path: localLink });
+
+    // Act
+    const result = observe({ ...snapshot, localFiles });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/dir/a.txt",
+      "SKIPPED dotfiles/common/dir/c.txt",
+      "REMOVED dotfiles/common/dir/c.txt",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/dir/c.txt", "symlink"),
+    );
+    expect(result.lines).toContain(
+      formatLine(
+        "REMOVED",
+        "dotfiles/common/dir/c.txt",
+        "no longer in source",
+      ),
+    );
+    expect(result.actions).toEqual([
+      {
+        kind: "removeRepo",
+        path: "dotfiles/common/dir/c.txt",
+        pruneUpTo: "dotfiles/common/dir",
+      },
+    ]);
+    expect(result.code).toBe(0);
+  });
+
+  test("dir-symlink-only keeps the folder-empty rule", () => {
+    // Arrange: the local folder holds only a symlink for the repo's one file.
+    const snapshot = layeredSnapshot("linux", {
+      entries: [dirEntry()],
+      repo: { "dotfiles/common/dir/c.txt": "c\n" },
+    });
+    const localDir = `${HOME}/.config/parity/dir`;
+    const localLink = `${localDir}/c.txt`;
+    const localDirs = new Set(snapshot.localDirs);
+    localDirs.add(localDir);
+    const localFiles = new Map(snapshot.localFiles);
+    localFiles.set(localLink, { kind: "symlink", path: localLink });
+
+    // Act
+    const result = observe({ ...snapshot, localFiles, localDirs });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "SKIPPED dotfiles/common/dir/c.txt",
+      "SKIPPED dotfiles/common/dir/",
+    ]);
+    expect(result.lines).toContain(
+      formatLine("SKIPPED", "dotfiles/common/dir/c.txt", "symlink"),
+    );
+    expect(result.lines).toContain(
+      formatLine(
+        "SKIPPED",
+        "dotfiles/common/dir/",
+        "local folder is empty; repo files kept",
+      ),
+    );
+    expect(result.actions).toEqual([]);
+    expect(result.code).toBe(0);
   });
 
   test("should keep the repo files when a dir holds only a symlink", () => {
