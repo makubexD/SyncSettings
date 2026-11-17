@@ -271,6 +271,82 @@ describe("selectEntries", () => {
     }
   });
 
+  test("should select a linux and macos entry on Linux and macOS but not Windows", () => {
+    // Arrange
+    const config = configOf([
+      entryOf({
+        repoPath: "dotfiles/common/m.txt",
+        platform: ["linux", "macos"],
+      }),
+    ]);
+
+    // Act
+    const onLinux = selected(config, { os: "linux" });
+    const onMacos = selected(config, { os: "macos" });
+    const onWindows = selected(config, { os: "windows" });
+
+    // Assert
+    expect(onLinux.map((entry) => entry.entry.file)).toEqual(["m.txt"]);
+    expect(onMacos.map((entry) => entry.entry.file)).toEqual(["m.txt"]);
+    expect(onWindows).toEqual([]);
+  });
+
+  test("should skip a windows-only entry on Linux and select it on Windows", () => {
+    // Arrange
+    const config = configOf([
+      entryOf({
+        repoPath: "dotfiles/windows/m.txt",
+        platform: ["windows"],
+      }),
+    ]);
+
+    // Act
+    const onLinux = selected(config, { os: "linux" });
+    const onWindows = selected(config, { os: "windows" });
+
+    // Assert
+    expect(onLinux).toEqual([]);
+    expect(onWindows.map((entry) => entry.entry.file)).toEqual(["m.txt"]);
+    expect(onWindows[0]?.writeRoot).toBe("dotfiles/windows/");
+  });
+
+  test("should select a windows and macos entry on Windows", () => {
+    // Arrange
+    const config = configOf([
+      entryOf({
+        repoPath: "dotfiles/common/m.txt",
+        platform: ["windows", "macos"],
+      }),
+    ]);
+
+    // Act
+    const onWindows = selected(config, { os: "windows" });
+
+    // Assert
+    expect(onWindows.map((entry) => entry.entry.file)).toEqual(["m.txt"]);
+    expect(onWindows[0]?.writeRoot).toBe("dotfiles/common/");
+  });
+
+  test("should ignore a dconf entry on Windows with no line and no error", () => {
+    // Arrange
+    const config = configOf([
+      {
+        file: "dconf/app.ini",
+        module: "git",
+        merge: "dconf",
+        dconfPath: "/test/app/",
+        os: ["linux"],
+      },
+    ]);
+    const files = new Set(["dotfiles/linux/dconf/app.ini"]);
+
+    // Act
+    const result = selectEntries(config, { os: "windows" }, files);
+
+    // Assert
+    expect(result).toEqual({ ok: true, value: [] });
+  });
+
   test("module os limits the entry", () => {
     const config = configOf([
       { file: "gnome/settings.ini", module: "gnome", merge: "whole" },
@@ -623,7 +699,11 @@ describe("selectEntries with linked folders", () => {
       { os: "linux", profile: profileOf("work-1", ["git"]) },
       files,
     );
-    const entries = selected(config, { os: "linux", profile: withLinked }, files);
+    const entries = selected(
+      config,
+      { os: "linux", profile: withLinked },
+      files,
+    );
 
     // Assert
     expect(entries[0]).toEqual(expected[0]);
