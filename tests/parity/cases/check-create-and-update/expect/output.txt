@@ -1,0 +1,3 @@
+UPDATE dotfiles/common/plain.txt
+CREATE dotfiles/common/no-trailing.txt
+UNCHANGED dotfiles/common/named.conf

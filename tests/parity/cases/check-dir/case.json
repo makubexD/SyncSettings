@@ -1,0 +1,17 @@
+{
+  "description": "The import check reports a changed file inside a dir entry and the local extra file it would keep, exits 3, and writes nothing (Import check, Directory entries). Ported from import-check-dir.",
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/dir",
+        "localPath": "~/.config/fixture/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Directory fixture"
+      }
+    ]
+  },
+  "commands": [{ "command": "check" }]
+}

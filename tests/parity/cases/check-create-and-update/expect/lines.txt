@@ -1,0 +1,2 @@
+2 file(s) would change. mksync pull overwrites them (each keeps a .bak).
+If you changed them on this machine, run mksync push first.
