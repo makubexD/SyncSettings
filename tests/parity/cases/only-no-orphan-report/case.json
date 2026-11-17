@@ -1,0 +1,24 @@
+{
+  "description": "Export with --only reports only the picked file and prints no ORPHAN line for a stray repo file (Picking files, Orphan report). The old case's package DRIFT half is left out: drift is a doctor line, not an export one. Ported from export-only-no-reports, Pester export-only-no-reports.",
+  "os": ["linux"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/linux/plain.txt",
+        "localPath": "~/.config/fixture/plain.txt",
+        "platform": "linux",
+        "description": "Plain text fixture"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "only": ["dotfiles/linux/plain.txt"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+Offline: comparing with the last fetch.
+SyncSettings -- DIFF (linux)
+This machine and the repo agree.
