@@ -10,6 +10,8 @@ const PRINT_AND_FAIL = "printf out; printf err >&2; exit 3";
 
 const EXIT_CODE_THREE = 3;
 
+const EXIT_CODE_FOUR = 4;
+
 const STDIN_TEXT = "a\nb\n";
 
 const STDIN_BYTES = new TextEncoder().encode(STDIN_TEXT);
@@ -164,6 +166,16 @@ describe("run", () => {
     // Assert
     expect(result.code).toBe(0);
     expect(decode(result.stdout)).toBe("bar");
+  });
+
+  test("should report the exit code with no captured streams when inherit is set", async () => {
+    // Act
+    const result = await run(["sh", "-c", "exit 4"], { inherit: true });
+
+    // Assert
+    expect(result.code).toBe(EXIT_CODE_FOUR);
+    expect(result.stdout.length).toBe(0);
+    expect(result.stderr.length).toBe(0);
   });
 
   test("should run in the given cwd when cwd is set", async () => {

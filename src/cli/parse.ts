@@ -122,6 +122,8 @@ export interface CommitCommand {
 /** `setup`: the first-run flow's flags, parsed but not validated. */
 export interface SetupCommand extends SetupFlags {
   readonly kind: "setup";
+  /** `--bootstrap`: run the Ubuntu bootstrap without asking. */
+  readonly bootstrap?: boolean;
 }
 
 /** `--version`: print the program's version, exit 0. */
@@ -220,6 +222,8 @@ const STATUSLINE_COMMAND = "statusline";
 const UPDATE_COMMAND = "update";
 
 const SETUP_YES = "--yes";
+
+const SETUP_BOOTSTRAP = "--bootstrap";
 
 const ONLY_OPTION = "--only";
 
@@ -526,6 +530,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
   let mode: SetupMode | undefined;
   let existing: ExistingAction | undefined;
   let yes = false;
+  let bootstrap = false;
 
   let index = 1;
   while (index < argv.length) {
@@ -538,6 +543,14 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         return repeatedFlag(arg);
       }
       yes = true;
+      index++;
+      continue;
+    }
+    if (arg === SETUP_BOOTSTRAP) {
+      if (bootstrap) {
+        return repeatedFlag(arg);
+      }
+      bootstrap = true;
       index++;
       continue;
     }
@@ -607,6 +620,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     ...(mode === undefined ? {} : { mode }),
     ...(existing === undefined ? {} : { existing }),
     ...(yes ? { yes: true } : {}),
+    ...(bootstrap ? { bootstrap: true } : {}),
   };
 }
 

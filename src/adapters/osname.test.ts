@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { statusLines } from "../core/front/status.ts";
 import type { StatusFacts } from "../core/front/status.ts";
-import { readOsName } from "./osname.ts";
+import { readOsId, readOsName } from "./osname.ts";
 
 /** The `sw_vers -productVersion` answer the stub prints. */
 const MACOS_VERSION = "26.7.2";
@@ -149,5 +149,25 @@ describe("readOsName Linux label (sync-status-os-name)", () => {
     const path = join(tempFolder(), "missing-os-release");
 
     expect(readOsName("linux", { SYNC_OS_RELEASE: path })).toBe(UNKNOWN);
+  });
+});
+
+describe("readOsId (setup-bootstrap-ubuntu)", () => {
+  test("should read ID without its quotes when the file sets one", () => {
+    const path = writeOsRelease(`PRETTY_NAME="${PRETTY_NAME}"\nID="ubuntu"\n`);
+
+    expect(readOsId({ SYNC_OS_RELEASE: path })).toBe("ubuntu");
+  });
+
+  test("should take the last ID when the file sets it twice", () => {
+    const path = writeOsRelease("ID=debian\nID=ubuntu\n");
+
+    expect(readOsId({ SYNC_OS_RELEASE: path })).toBe("ubuntu");
+  });
+
+  test("should answer unknown when the file is missing", () => {
+    const path = join(tempFolder(), "missing-os-release");
+
+    expect(readOsId({ SYNC_OS_RELEASE: path })).toBe(UNKNOWN);
   });
 });

@@ -572,6 +572,7 @@ describe("parseArgs", () => {
         "pull-only",
         "--existing",
         "keep",
+        "--bootstrap",
         "--yes",
       ]),
     ).toEqual({
@@ -582,8 +583,22 @@ describe("parseArgs", () => {
       claude: "claude",
       mode: "pull-only",
       existing: "keep",
+      bootstrap: true,
       yes: true,
     });
+  });
+
+  test("should parse setup --bootstrap", () => {
+    expect(parseArgs(["setup", "--bootstrap"])).toEqual({
+      kind: "setup",
+      bootstrap: true,
+    });
+  });
+
+  test("should refuse --bootstrap given twice", () => {
+    expect(parseArgs(["setup", "--bootstrap", "--bootstrap"])).toEqual(
+      usageError("ERROR: --bootstrap is repeated."),
+    );
   });
 
   test("should accept every --claude value", () => {

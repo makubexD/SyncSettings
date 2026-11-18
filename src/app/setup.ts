@@ -3,12 +3,23 @@
  * flow, move `.user-values.json`, write the record and profile, then act on
  * the fourth answer (decision 9). The export and import the flow ends with run
  * through the caller's `execute`, so this module never imports `main.ts`.
+ * A repository still on the version-1 config takes the old front door's flow
+ * instead: doctor, the import check, the Ubuntu bootstrap and the apply.
  */
 
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 import { SymlinkRefusal } from "../adapters/atomic.ts";
 import { readOrigin } from "../adapters/git.ts";
+import { readOsId } from "../adapters/osname.ts";
+import { run } from "../adapters/process.ts";
 import { readScan } from "../adapters/scan.ts";
+import { loadLayers, V2_CONFIG } from "../adapters/snapshot.ts";
 import {
   readLinkedFolders,
   readRepoStore,
@@ -18,8 +29,10 @@ import {
   writeRecord,
 } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
+import { trimAnswer } from "../core/answer.ts";
+import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
-import type { Result } from "./export.ts";
+import type { Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
@@ -33,6 +46,30 @@ import { runSetup } from "../wizard/setup.ts";
 import type { SetupFlags, SetupIo } from "../wizard/setup.ts";
 
 const VALUES_FILE = ".user-values.json";
+
+/** The os-release ID whose machines offer the Ubuntu bootstrap. */
+const UBUNTU = "ubuntu";
+
+/** `bootstrap/linux.sh`, under the repo root. */
+const BOOTSTRAP_SCRIPT = ["bootstrap", "linux.sh"] as const;
+
+/** `setup --bootstrap` on macOS, before doctor runs. */
+const BOOTSTRAP_ONLY_MACOS = "ERROR: --bootstrap is Ubuntu only.";
+
+/** The bootstrap question, exactly as `front_setup` prints it. */
+const BOOTSTRAP_QUESTION =
+  "  Also restore apps and packages from packages/linux (uses sudo)? [y/N] ";
+
+/** The apply question, exactly as `front_setup` prints it. */
+const APPLY_QUESTION = "  Apply these changes? [Y/n] ";
+
+const NOTHING_APPLIED = "  Nothing applied.\n";
+
+const SETUP_DONE =
+  "  Setup done. Run mksync any time to see where this machine stands.\n";
+
+/** The import check's "changes found" code, the other one setup goes on with. */
+const CHECK_DIFFERS = 3;
 
 /** Today as `YYYY-MM-DD` in the machine's own time zone. */
 function localDate(now: Date): string {
@@ -106,6 +143,148 @@ function isBadRecord(message: string): boolean {
   return message.startsWith(RECORD_ERROR_PREFIX);
 }
 
+/** `[[ -x path ]]` on a regular file, as the bash front door tests the script. */
+function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) {
+      return false;
+    }
+    accessSync(path, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The import the version-1 setup runs: the read-only check, or the apply. */
+function v1ImportCommand(check: boolean): RunCommand {
+  return {
+    kind: "run",
+    command: "import",
+    force: !check,
+    preview: false,
+    check,
+    resetValues: false,
+    yes: false,
+    only: [],
+  };
+}
+
+/** True for an answer bash's `[Yy]*` matches. */
+function isYes(answer: string): boolean {
+  return answer.startsWith("y") || answer.startsWith("Y");
+}
+
+/**
+ * Contract "Front door": on Ubuntu with an executable `bootstrap/linux.sh`,
+ * `--bootstrap` runs it; otherwise setup asks and runs it for an answer
+ * starting with y or Y. The script owns the terminal (it may prompt for sudo),
+ * so our answer reader is closed first and setup ends with its exit code.
+ * `undefined` when no script runs.
+ */
+async function runBootstrap(
+  repoRoot: string,
+  os: Os,
+  command: SetupCommand,
+  terminal: SetupTerminal,
+): Promise<Result | undefined> {
+  if (os !== "linux" || readOsId(process.env) !== UBUNTU) {
+    return undefined;
+  }
+  const script = join(repoRoot, ...BOOTSTRAP_SCRIPT);
+  if (!isExecutableFile(script)) {
+    return undefined;
+  }
+  if (command.bootstrap !== true) {
+    terminal.io.write(BOOTSTRAP_QUESTION);
+    const answer = trimAnswer((await terminal.io.readLine()) ?? "");
+    if (!isYes(answer)) {
+      return undefined;
+    }
+  }
+  terminal.close();
+  const bootstrapped = await run([script], { inherit: true });
+  return { code: bootstrapped.code, stdout: "", stderr: "" };
+}
+
+/**
+ * The version-1 first run, `front_setup` ported: doctor first, a MISSING line
+ * stops setup before the import check or any question; then the read-only
+ * import check; then the Ubuntu bootstrap question; then the apply, unless
+ * declined. Each part goes to stdout as it is produced, because a question and
+ * the bootstrap script share this terminal.
+ */
+async function executeV1Setup(
+  repoRoot: string,
+  config: ConfigV2,
+  os: Os,
+  home: string,
+  state: string,
+  command: SetupCommand,
+  execute: (command: RunCommand) => Promise<Result>,
+): Promise<Result> {
+  if (command.bootstrap === true && os === "macos") {
+    return failure(BOOTSTRAP_ONLY_MACOS);
+  }
+  const layers = loadLayers(state, repoRoot, config);
+  if (!layers.ok) {
+    return failure(layers.error.message, layers.error.code);
+  }
+  const doctor = await executeDoctor({
+    repoRoot,
+    config,
+    os,
+    home,
+    layers: layers.value,
+  });
+  process.stdout.write(doctor.stdout);
+  process.stderr.write(doctor.stderr);
+  if (doctor.code !== 0) {
+    return { code: 1, stdout: "", stderr: "" };
+  }
+
+  const check = await execute(v1ImportCommand(true));
+  process.stdout.write(check.stdout);
+  process.stderr.write(check.stderr);
+  if (check.code !== 0 && check.code !== CHECK_DIFFERS) {
+    return { code: 1, stdout: "", stderr: "" };
+  }
+
+  const terminal = setupTerminal();
+  let applied: Result | undefined;
+  try {
+    const bootstrapped = await runBootstrap(repoRoot, os, command, terminal);
+    if (bootstrapped !== undefined) {
+      return bootstrapped;
+    }
+    if (check.code === CHECK_DIFFERS) {
+      let apply = true;
+      if (command.yes !== true) {
+        terminal.io.write(APPLY_QUESTION);
+        const answer = trimAnswer((await terminal.io.readLine()) ?? "");
+        if (answer !== "" && !isYes(answer)) {
+          terminal.io.write(NOTHING_APPLIED);
+          apply = false;
+        }
+      }
+      if (apply) {
+        applied = await execute(v1ImportCommand(false));
+      }
+    }
+  } finally {
+    terminal.close();
+  }
+  if (applied !== undefined) {
+    process.stdout.write(applied.stdout);
+    process.stderr.write(applied.stderr);
+    if (applied.code !== 0) {
+      return { code: applied.code, stdout: "", stderr: "" };
+    }
+  }
+  process.stdout.write(SETUP_DONE);
+  return { code: 0, stdout: "", stderr: "" };
+}
+
 /**
  * Run `mksync setup` end to end: read the store and the scan, run the flow,
  * move `.user-values.json`, write the record and profile, then act on the
@@ -120,6 +299,12 @@ export async function executeSetup(
   command: SetupCommand,
   execute: (command: RunCommand) => Promise<Result>,
 ): Promise<Result> {
+  // `loadConfig` reads `sync-config.v2.json` when it is there and converts the
+  // version-1 file otherwise, so its absence means this repo is still v1 and
+  // setup follows the old engine's rules.
+  if (!existsSync(join(repoRoot, V2_CONFIG))) {
+    return executeV1Setup(repoRoot, config, os, home, state, command, execute);
+  }
   const store = readStore(state, repoRoot, config);
   let own: MachineRecord | undefined;
   let localProfiles: readonly Profile[];

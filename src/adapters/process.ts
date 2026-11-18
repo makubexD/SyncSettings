@@ -69,6 +69,13 @@ export interface RunOptions {
   readonly timeoutMs?: number;
   /** Kills the child with SIGKILL when it fires; the run reports `timedOut`. */
   readonly signal?: AbortSignal;
+  /**
+   * Runs the child on this process's own terminal (`stdio: "inherit"`), so it
+   * can prompt with `sudo`: our stdout is flushed first and nothing is
+   * captured. `run` honours this option; `runSync` has no asynchronous flush to
+   * wait on and leaves it alone.
+   */
+  readonly inherit?: true;
 }
 
 /**
@@ -193,6 +200,18 @@ function toBytes(value: Uint8Array | string | null): Uint8Array {
 }
 
 /**
+ * Resolve once every byte written to our stdout so far has left the process,
+ * so a child given the same terminal does not print before our own lines.
+ */
+function flushStdout(): Promise<void> {
+  return new Promise((resolve) => {
+    process.stdout.write("", () => {
+      resolve();
+    });
+  });
+}
+
+/**
  * Run one command with an argument array and no shell. Never rejects: a
  * missing command is `missing: true` with code 127, any other start failure
  * is code 126, and a `timeoutMs` overrun kills the child and reports 124 with
@@ -206,9 +225,15 @@ export async function run(
   if (file === undefined) {
     return failedResult();
   }
+  if (options.inherit === true) {
+    await flushStdout();
+  }
   const stdinMode: StreamMode = options.input === undefined ? "ignore" : "pipe";
   const spawnOptions: SpawnOptions = {
-    stdio: [stdinMode, options.stdout ?? "pipe", options.stderr ?? "pipe"],
+    stdio:
+      options.inherit === true
+        ? "inherit"
+        : [stdinMode, options.stdout ?? "pipe", options.stderr ?? "pipe"],
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.env === undefined ? {} : { env: { ...options.env } }),
   };
