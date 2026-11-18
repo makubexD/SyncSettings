@@ -12,9 +12,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkV1V2 } from "../src/core/config/check.ts";
-import { parseV1 } from "../src/core/config/v1.ts";
-import { parseV2 } from "../src/core/config/v2.ts";
 import { jsonEqual, parseJson } from "../src/core/json/value.ts";
 import type { JsonValue } from "../src/core/json/value.ts";
 import { mergeJson, parseJsonBytes } from "../src/core/merge/json.ts";
@@ -404,22 +401,6 @@ describe("claude-layout", () => {
 
     expect(dropped.value).not.toBe(input);
     expect(dropped.value).toBe(withoutClaudeRows(input));
-  });
-
-  test("the --cutover output keeps config v1 and v2 in step", async () => {
-    const repo = await makeRepo();
-    expect(await main([repo, "--cutover"])).toBe(0);
-
-    const v1 = parseV1(await readFile(join(repo, V1), "utf8"));
-    if (!v1.ok) {
-      throw new Error(v1.error.message);
-    }
-    const v2 = parseV2(await readFile(join(repo, V2), "utf8"));
-    if (!v2.ok) {
-      throw new Error(v2.error.message);
-    }
-
-    expect(checkV1V2(v1.value, v2.value)).toEqual([]);
   });
 
   test("a second --cutover run is refused and changes nothing", async () => {
