@@ -224,25 +224,28 @@ setup_case() {
     cp -a "$REPO/scripts" "$t/repo/"
     mkdir -p "$t/repo/packages"
     cp -a "$REPO/packages/linux" "$t/repo/packages/"
-    # Entry points used by later steps: log their arguments, then print
-    # $t/stub/import.out and exit with $t/stub/import.rc (sync exits with
-    # $t/stub/sync.rc), so a case can make one fail or report a file in ERROR.
-    cat > "$t/repo/import.sh" <<EOF
+    # The engine the restore steps run: a stub on the test PATH that logs its
+    # arguments, prints $t/stub/import.out and exits with $t/stub/import.rc for
+    # import, and exits with $t/stub/sync.rc for preview. A case can make one
+    # fail or report a file in ERROR.
+    cat > "$t/bin/mksync" <<EOF
 #!/bin/sh
-printf 'import' >> "$t/calls"
-for a in "\$@"; do printf ' %s' "\$a" >> "$t/calls"; done
-printf '\n' >> "$t/calls"
-cat "$t/stub/import.out" 2>/dev/null
-rc=\$(cat "$t/stub/import.rc" 2>/dev/null || echo 0)
-[ "\$rc" -eq 0 ] || exit "\$rc"
+case \$1 in
+    import)
+        printf 'import\n' >> "$t/calls"
+        cat "$t/stub/import.out" 2>/dev/null
+        rc=\$(cat "$t/stub/import.rc" 2>/dev/null || echo 0)
+        [ "\$rc" -eq 0 ] || exit "\$rc"
+        ;;
+    preview)
+        printf 'sync %s\n' "\$*" >> "$t/calls"
+        rc=\$(cat "$t/stub/sync.rc" 2>/dev/null || echo 0)
+        [ "\$rc" -eq 0 ] || exit "\$rc"
+        ;;
+esac
+exit 0
 EOF
-    cat > "$t/repo/sync" <<EOF
-#!/bin/sh
-printf 'sync %s\n' "\$*" >> "$t/calls"
-rc=\$(cat "$t/stub/sync.rc" 2>/dev/null || echo 0)
-[ "\$rc" -eq 0 ] || exit "\$rc"
-EOF
-    chmod +x "$t/repo/import.sh" "$t/repo/sync"
+    chmod +x "$t/bin/mksync"
     printf 'ID=ubuntu\nVERSION_ID=26.04\n' > "$t/root/etc/os-release"
     printf '1000\n' > "$t/stub/id.out"
     printf 'x86_64\n' > "$t/stub/uname.out"
