@@ -1,29 +1,51 @@
 {
   "description": "Export picks only the entries for the running OS, plus common (Entry selection).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/linux/parity/lin.conf",
+        "file": "parity/lin.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/lin.conf",
-        "platform": "linux",
+        "os": [
+          "linux"
+        ],
         "description": "Linux parity file"
       },
       {
-        "repoPath": "dotfiles/windows/parity/win.conf",
+        "file": "parity/win.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/win.conf",
-        "platform": "windows",
+        "os": [
+          "windows"
+        ],
         "description": "Windows parity file"
       },
       {
-        "repoPath": "dotfiles/common/parity/com.conf",
+        "file": "parity/com.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/com.conf",
-        "platform": "common",
         "description": "Shared parity file"
       }
     ]
   },
-  "commands": [{ "command": "export" }],
-  "differences": ["Entry selection"]
+  "commands": [
+    {
+      "command": "export"
+    }
+  ],
+  "differences": [
+    "Entry selection"
+  ]
 }

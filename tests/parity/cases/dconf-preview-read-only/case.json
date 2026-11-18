@@ -1,20 +1,39 @@
 {
   "description": "export --preview reports a changed dconf key as MODIFIED and writes neither the repo nor the machine (Export preview; dconf entries).",
-  "os": ["linux"],
-  "stubs": ["dconf", "getent"],
+  "os": [
+    "linux"
+  ],
+  "stubs": [
+    "dconf",
+    "getent"
+  ],
   "git": "committed",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/linux/dconf/app.ini",
-        "type": "dconf",
-        "platform": "linux",
-        "path": "/test/app/",
+        "file": "dconf/app.ini",
+        "module": "unsorted",
+        "merge": "dconf",
+        "os": [
+          "linux"
+        ],
+        "dconfPath": "/test/app/",
         "description": "Parity case dconf entry"
       }
     ]
   },
-  "commands": [{ "command": "preview" }]
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
 }

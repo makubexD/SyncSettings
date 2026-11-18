@@ -1,21 +1,31 @@
 {
   "description": "Import --reset-values asks for <GIT_EMAIL> and the piped answer with spaces, a tab and a carriage return around it hydrates as the bare value, saved back to .user-values.json (Sanitize and hydrate). Trimmed since phase 9 decision 8.",
-  "os": ["linux"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
-        "description": "Sanitized parity file",
-        "sanitizeRules": [
+        "sanitize": [
           {
             "placeholder": "<GIT_EMAIL>",
             "prompt": "Git email"
           }
-        ]
+        ],
+        "description": "Sanitized parity file"
       }
     ]
   },

@@ -1,17 +1,22 @@
 {
   "description": "Import into a home whose folder holds another file writes the repo file with the values put back: CREATED (Sanitize and hydrate).",
-  "config": {
-    "version": 1,
+  "configV2": {
+    "schemaVersion": 2,
     "excludePatterns": [
       "*.bak"
     ],
-    "files": [
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/git.conf",
+        "file": "parity/git.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/git.conf",
-        "platform": "common",
-        "description": "Sanitized parity file",
-        "sanitizeRules": [
+        "sanitize": [
           {
             "placeholder": "<YOUR_NAME>",
             "prompt": "Full name"
@@ -20,7 +25,8 @@
             "placeholder": "<YOUR_EMAIL>",
             "prompt": "Email"
           }
-        ]
+        ],
+        "description": "Sanitized parity file"
       }
     ]
   },

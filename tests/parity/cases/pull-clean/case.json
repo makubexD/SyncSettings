@@ -1,19 +1,37 @@
 {
   "description": "Pull with a sync point and origin one commit ahead fast-forwards, applies the repo's file with a .bak, and records the sync point, exit 0 (Front door, pull row).",
-  "os": ["linux", "windows"],
+  "os": [
+    "linux",
+    "windows"
+  ],
   "git": "remote",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
         "description": "Parity case file"
       }
     ]
   },
-  "commands": [{ "command": "pull", "options": { "yes": true } }],
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true
+      }
+    }
+  ],
   "syncPoint": true
 }

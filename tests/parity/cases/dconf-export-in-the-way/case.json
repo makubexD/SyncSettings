@@ -1,25 +1,48 @@
 {
   "description": "A dconf entry whose repo folder cannot be created is ERROR, and export keeps going so a later entry is still UNCHANGED (Statuses, Export; dconf entries). Ported from dconf-export-write-fails.",
-  "os": ["linux"],
-  "stubs": ["dconf", "getent"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "os": [
+    "linux"
+  ],
+  "stubs": [
+    "dconf",
+    "getent"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/linux/dconf/app.ini",
-        "type": "dconf",
-        "platform": "linux",
-        "path": "/test/app/",
+        "file": "dconf/app.ini",
+        "module": "unsorted",
+        "merge": "dconf",
+        "os": [
+          "linux"
+        ],
+        "dconfPath": "/test/app/",
         "description": "Parity case dconf entry"
       },
       {
-        "repoPath": "dotfiles/linux/plain.txt",
+        "file": "plain.txt",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/fixture/plain.txt",
-        "platform": "linux",
+        "os": [
+          "linux"
+        ],
         "description": "Later fixture entry"
       }
     ]
   },
-  "commands": [{ "command": "export" }]
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

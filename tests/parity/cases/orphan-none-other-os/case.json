@@ -1,17 +1,35 @@
 {
   "description": "Export on Linux reports no ORPHAN for a repo file a windows entry owns, since entries for all platforms count (Orphan report; Entry selection).",
-  "os": ["linux", "macos"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "os": [
+    "linux",
+    "macos"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/windows/win.conf",
-        "localPath": "~\\.config\\fixture\\win.conf",
-        "platform": "windows",
+        "file": "win.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/fixture/win.conf",
+        "os": [
+          "windows"
+        ],
         "description": "Windows fixture"
       }
     ]
   },
-  "commands": [{ "command": "export" }]
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

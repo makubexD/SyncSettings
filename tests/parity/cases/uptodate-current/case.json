@@ -1,16 +1,22 @@
 {
   "description": "Export with origin/master in step exits 0 (Up-to-date check). The line itself is not a status line; uptodate.test.ts pins its text.",
   "git": "remote",
-  "config": {
-    "version": 1,
+  "configV2": {
+    "schemaVersion": 2,
     "excludePatterns": [
       "*.bak"
     ],
-    "files": [
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
         "description": "Parity case file"
       }
     ]

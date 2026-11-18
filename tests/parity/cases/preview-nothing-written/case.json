@@ -1,18 +1,29 @@
 {
   "description": "Preview of a modified, an added and a removed file writes nothing to the repo or the machine and ends with the push line (Export preview). Ported from preview-writes-nothing, Pester preview-writes-nothing.",
   "git": "committed",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/dir",
+        "file": "parity/dir",
+        "module": "unsorted",
+        "merge": "dir",
         "localPath": "~/.config/parity/dir",
-        "type": "dir",
-        "platform": "common",
         "description": "Parity case folder"
       }
     ]
   },
-  "commands": [{ "command": "preview" }]
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
 }

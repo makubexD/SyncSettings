@@ -1,21 +1,42 @@
 {
   "description": "Export replaces the longest value first, so a value holding a shorter one becomes one placeholder (Sanitize and hydrate).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
-        "description": "Sanitized parity file",
-        "sanitizeRules": [
-          { "placeholder": "<A>", "prompt": "Short value" },
-          { "placeholder": "<B>", "prompt": "Long value" }
-        ]
+        "sanitize": [
+          {
+            "placeholder": "<A>",
+            "prompt": "Short value"
+          },
+          {
+            "placeholder": "<B>",
+            "prompt": "Long value"
+          }
+        ],
+        "description": "Sanitized parity file"
       }
     ]
   },
-  "values": { "<A>": "ab", "<B>": "abc" },
-  "commands": [{ "command": "export" }]
+  "values": {
+    "<A>": "ab",
+    "<B>": "abc"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }
