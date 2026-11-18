@@ -10,7 +10,7 @@ then the bash and PowerShell engines deleted and `v1.0.0`.
 - **Two parts, two branches.** Part 1 (steps 1 to 3) on `engine/cutover-config`, merged in step 4 (PR #81) so the
   `v0.9.0` tag sits on `master`. `master` is protected, so step 4's record and steps 5 to 8 (the real machines; they
   change no repo file except their records) are committed on `engine/cutover`, where part 2 (steps 9 to 28) follows,
-  one PR in the finish. Part 2 changes `.github/workflows/`, so its PR waits for the
+  one PR in the finish (step 8a, a fix found by step 8, comes first in part 2). Part 2 changes `.github/workflows/`, so its PR waits for the
   user's `reviewed` label (CLAUDE.md, "Claude auto-approval").
 - **Stops for the user:** step 5 (the tag is a publish: Claude asks for the GO, then tags), step 8 (the work-machine
   answers), and any failure step 6 or 8 finds. A failure gets a fix step inserted before step 9 (a plan edit, committed),
@@ -178,6 +178,31 @@ older than the launcher's check. Every failed item gets a fix step before step 9
 
 Test: `npx prettier --check docs/design-layers.md && scripts/ci/leak-scan.sh`; `tests/linux/launcher.sh` if the
 launcher changed.
+
+## Step 8a: A Git Bash launcher next to the Windows shim `[worker]`
+
+Work #1 and the VM found that Git Bash, where Claude Code runs hooks and the `statusLine` command, doesn't find
+`mksync` on a run-from-clone install: only `mksync.cmd` is on the `Path` (design, "Open", settled 2026-11-18).
+
+Files: `install.ps1`, `tests/windows-vm/install-check.ps1`, `docs/sync-contract.md` ("Install", the `install.ps1`
+list).
+
+- `install.ps1`, runtime branch (`SYNCSETTINGS_RUNTIME=bun|node`): after `mksync.cmd`, also write `mksync` (no
+  extension) in the bin folder, ASCII, LF line endings, no BOM, exactly three lines: `#!/bin/sh`,
+  `# SyncSettings launcher`, and `exec "<clone>/mksync" "$@"` with the clone path in forward slashes
+  (`C:/Users/user/SyncSettings`). An existing `mksync` whose second line isn't the marker stops it with the same
+  `ERROR: <path> already exists; remove it and run this again.`, checked before anything is written. The program
+  route (no runtime) removes our `mksync` script, as it removes our `mksync.cmd`.
+- `install-check.ps1`, after the `runtime` case's shim checks: `mksync` exists, its bytes are exactly the three lines
+  above with `\n` endings and this run's clone path. New case `runtime-foreign`: a `mksync` file with other content
+  in the bin folder stops the runtime install with exit 1 and that `ERROR` line, and leaves the file as it was. New
+  check in the program case: a `mksync` script left by a runtime install is gone afterwards.
+- Contract: the runtime bullet names both files and the marker for each.
+
+Test: `tests/windows-vm/vm.sh run 'powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-vm/install-check.ps1'`
+prints `install-check: ok`; `npx prettier --check docs/sync-contract.md`. Then, on work #1, the run sheet's line again:
+section 3 shows `mksync --version` from Git Bash printing `mksync 0.9.0` (asked of the user at the next stop; it
+doesn't block step 9).
 
 ## Step 9: The Claude layout goes live `[inline: writes real repo data after a reviewed dry run]`
 
