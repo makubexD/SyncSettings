@@ -407,7 +407,8 @@
       "merge": "json",
       "localPath": "~/.claude/settings.json",
       "os": [
-        "linux"
+        "linux",
+        "windows"
       ],
       "sanitize": [
         {
@@ -421,16 +422,6 @@
         }
       ],
       "description": "Claude Code user settings (hooks, plugins, permissions)"
-    },
-    {
-      "file": "claude/statusline.sh",
-      "module": "claude",
-      "merge": "whole",
-      "localPath": "~/.claude/statusline.sh",
-      "os": [
-        "linux"
-      ],
-      "description": "Claude Code status line script"
     },
     {
       "file": "claude/sampleGrok.md",

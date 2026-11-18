@@ -231,29 +231,6 @@
       "description": "RTK command-output notes (imported by CLAUDE.md)"
     },
     {
-      "repoPath": "dotfiles/linux/claude/settings.json",
-      "localPath": "~/.claude/settings.json",
-      "platform": "linux",
-      "description": "Claude Code user settings (hooks, plugins, permissions)",
-      "sanitizeRules": [
-        {
-          "placeholder": "<HOME>",
-          "prompt": "Home directory",
-          "defaultEnv": "HOME"
-        },
-        {
-          "placeholder": "<YOUR_GH_USERNAME>",
-          "prompt": "GitHub username"
-        }
-      ]
-    },
-    {
-      "repoPath": "dotfiles/linux/claude/statusline.sh",
-      "localPath": "~/.claude/statusline.sh",
-      "platform": "linux",
-      "description": "Claude Code status line script"
-    },
-    {
       "repoPath": "dotfiles/common/claude/sampleGrok.md",
       "localPath": "~/.claude/sampleGrok.md",
       "platform": ["linux", "macos"],
