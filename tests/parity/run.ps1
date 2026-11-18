@@ -254,8 +254,9 @@ function Validate-Case {
                     $p.Name -cne 'SYNC_TOOLS' -and $p.Name -cne 'MKSYNC_VISIBILITY' -and
                     $p.Name -cne 'SYNC_NOW' -and $p.Name -cne 'SYNC_LOAD' -and
                     $p.Name -cne 'SYNC_MEM' -and $p.Name -cne 'SYNC_GIT' -and
-                    $p.Name -cne 'CONTEXT_CLEAR_AT' -and $p.Name -cne 'CTX_WINDOW_DIR') {
-                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT and CTX_WINDOW_DIR in env'
+                    $p.Name -cne 'CONTEXT_CLEAR_AT' -and $p.Name -cne 'CTX_WINDOW_DIR' -and
+                    $p.Name -cne 'SYNC_OS_RELEASE') {
+                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT, CTX_WINDOW_DIR and SYNC_OS_RELEASE in env'
                 }
             }
             $ctxProp = $envProp.Value.PSObject.Properties['CTX_WINDOW_DIR']

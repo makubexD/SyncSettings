@@ -159,9 +159,10 @@ validate_case() {
         jq -e '(.env // {}) | all(keys[];
                 . == "SYNC_PROFILE" or . == "SYNC_MACHINE" or . == "SYNC_HOSTNAME" or . == "SYNC_DOMAIN"
                 or . == "SYNC_TOOLS" or . == "MKSYNC_VISIBILITY" or . == "SYNC_NOW" or . == "SYNC_LOAD"
-                or . == "SYNC_MEM" or . == "SYNC_GIT" or . == "CONTEXT_CLEAR_AT" or . == "CTX_WINDOW_DIR")' \
+                or . == "SYNC_MEM" or . == "SYNC_GIT" or . == "CONTEXT_CLEAR_AT" or . == "CTX_WINDOW_DIR"
+                or . == "SYNC_OS_RELEASE")' \
             "$json" > /dev/null 2>&1 \
-            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT and CTX_WINDOW_DIR in env'
+            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT, CTX_WINDOW_DIR and SYNC_OS_RELEASE in env'
         jq -e '(.env // {}) as $e
             | if ($e | has("CTX_WINDOW_DIR")) and $e.CTX_WINDOW_DIR != null then
                   if ($e.CTX_WINDOW_DIR | type) == "string" then
