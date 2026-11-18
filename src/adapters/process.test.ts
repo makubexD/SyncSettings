@@ -25,6 +25,9 @@ const STDIN_BYTES = new TextEncoder().encode(STDIN_TEXT);
 
 const MISSING_COMMAND = "no-such-cmd-xyz";
 
+/** The byte order mark PowerShell may pipe before its text. */
+const BOM = "\uFEFF";
+
 const MISSING_CODE = 127;
 
 const TIMEOUT_CODE = 124;
@@ -289,6 +292,21 @@ describe("stdinLines", () => {
 
     // Assert
     expect(lines).toEqual(["x", "y", "z"]);
+  });
+
+  test("should drop a byte order mark before the first line only when PowerShell pipes one", async () => {
+    // Arrange
+    const stream = new PassThrough();
+    stream.end(`${BOM}\r\n${BOM}y\n`);
+
+    // Act
+    const lines: string[] = [];
+    for await (const line of stdinLines(stream)) {
+      lines.push(line);
+    }
+
+    // Assert
+    expect(lines).toEqual(["", `${BOM}y`]);
   });
 
   test("should wait for the next line when the previous one has been yielded and no more has arrived", async () => {

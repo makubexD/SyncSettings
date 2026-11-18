@@ -49,6 +49,16 @@ const WINDOWS_SUFFIXES: readonly string[] = [".com", ".exe"];
  * ignores case. */
 const IS_WINDOWS = process.platform === "win32";
 
+/** The byte order mark Windows PowerShell puts before text it pipes to a
+ * program when `$OutputEncoding` is UTF-8 with a BOM, as on GitHub's Windows
+ * runners. It is never part of an answer. */
+const BYTE_ORDER_MARK = "\uFEFF";
+
+/** `text` without a leading byte order mark. */
+function withoutBom(text: string): string {
+  return text.startsWith(BYTE_ORDER_MARK) ? text.slice(1) : text;
+}
+
 /** Whether a stream is captured or dropped. */
 type StreamMode = "pipe" | "ignore";
 
@@ -471,7 +481,7 @@ export function readAllStdin(): Promise<string> {
     });
     process.stdin.on("end", () => {
       parts.push(decoder.decode());
-      resolve(parts.join(""));
+      resolve(withoutBom(parts.join("")));
     });
     process.stdin.on("error", (error: Error) => {
       reject(new Error("stdin could not be read", { cause: error }));
@@ -484,7 +494,7 @@ export function readAllStdin(): Promise<string> {
  * consumed until the previous one has been asked for, so a per-file prompt on
  * a terminal sees its question before the next answer arrives. The last line
  * without a newline is yielded at EOF, then the iterator ends. `\r\n` counts
- * as one line ending.
+ * as one line ending. A byte order mark before the first line is dropped.
  */
 export async function* stdinLines(
   input: NodeJS.ReadableStream = process.stdin,
@@ -494,8 +504,10 @@ export async function* stdinLines(
     crlfDelay: Number.POSITIVE_INFINITY,
   });
   try {
+    let first = true;
     for await (const line of reader) {
-      yield line;
+      yield first ? withoutBom(line) : line;
+      first = false;
     }
   } finally {
     reader.close();

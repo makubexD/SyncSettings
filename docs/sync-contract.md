@@ -832,6 +832,9 @@ ERROR: <asset>: checksum does not match SHA256SUMS.
 ERROR: <asset>: attestation check failed.
 ```
 
+A latest link that names no `v<x.y.z>` tag (GitHub's `/releases` page while no release exists) is `could not find the
+latest release`.
+
 The run-from-clone fallback, for a machine that blocks the program: `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on
 Windows) skips the download and puts the clone's launcher on `PATH` instead ([The program](#the-program)).
 
@@ -1268,7 +1271,9 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
   the suggestion in brackets. `--yes` takes every suggestion without asking. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints
   `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below). Answers are trimmed of
-  spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (program; phase 9 decision 8).
+  spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (program; phase 9 decision 8). A
+  byte order mark before the first line of input is dropped too: Windows PowerShell pipes one when `$OutputEncoding` is
+  UTF-8 with a BOM.
 - **Suggestions.** The profile: the one whose non-retired record has exactly this hostname, with the `This looks like`
   line; two or more such records, or none, give no suggestion and no line (always none while public). Claude: `2` when
   the scan found `claude`, else `1`. Mode: `1`. Existing files: `1`.
