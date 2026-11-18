@@ -238,19 +238,6 @@ async function askTerminalQuestion(
   return pullAnswer(await io.readLine(), defaultYes);
 }
 
-/** A pull question: the prompt goes out before its answer is read. */
-async function askPullQuestion(
-  question: string,
-  defaultYes: boolean,
-): Promise<boolean> {
-  const terminal = setupTerminal();
-  try {
-    return await askTerminalQuestion(terminal.io, question, defaultYes);
-  } finally {
-    terminal.close();
-  }
-}
-
 type Resolved =
   | Result
   | RunCommand
@@ -346,27 +333,37 @@ async function execute(
 
   const state = stateFolder(os.value, home, process.env);
   switch (command.kind) {
-    case "pull":
+    case "pull": {
       // Decision 7: each child reads the config again, so a fast-forward's new
-      // config and code are the ones this pull goes on with.
-      return executePull(
-        { yes: command.yes, force: command.force, paths: command.paths },
-        {
-          runCheck: (only) => execute(pullImportCommand(true, false, only)),
-          runDiff: (only) => execute(diffCommand(only)),
-          runImport: (only) => execute(pullImportCommand(false, true, only)),
-          unsent: async () => (await unsentCount(repoRoot)) ?? 0,
-          fetchAndFastForward: () => fetchAndFastForward(repoRoot),
-          hasSyncPoint: async () =>
-            (await readSyncPoint(repoRoot, state)) !== undefined,
-          ask: askPullQuestion,
-          print: (shown) => {
-            process.stdout.write(shown.stdout);
-            process.stderr.write(shown.stderr);
+      // config and code are the ones this pull goes on with. One reader serves
+      // the pull's questions and the import's value questions, so piped
+      // answers left after a pull question still reach the import.
+      const terminal = setupTerminal();
+      try {
+        return await executePull(
+          { yes: command.yes, force: command.force, paths: command.paths },
+          {
+            runCheck: (only) => execute(pullImportCommand(true, false, only)),
+            runDiff: (only) => execute(diffCommand(only)),
+            runImport: (only) =>
+              execute(pullImportCommand(false, true, only), { terminal }),
+            unsent: async () => (await unsentCount(repoRoot)) ?? 0,
+            fetchAndFastForward: () => fetchAndFastForward(repoRoot),
+            hasSyncPoint: async () =>
+              (await readSyncPoint(repoRoot, state)) !== undefined,
+            ask: (question, defaultYes) =>
+              askTerminalQuestion(terminal.io, question, defaultYes),
+            print: (shown) => {
+              process.stdout.write(shown.stdout);
+              process.stderr.write(shown.stderr);
+            },
+            cloneReady: () => cloneReady(repoRoot),
           },
-          cloneReady: () => cloneReady(repoRoot),
-        },
-      );
+        );
+      } finally {
+        terminal.close();
+      }
+    }
     case "push": {
       // One terminal for the whole push: the export's questions and the PR
       // question share it, so an answer piped ahead isn't lost when the export
@@ -521,7 +518,7 @@ async function execute(
       }
       return command.command === "export"
         ? runExport(environment, command)
-        : runImport(environment, command);
+        : runImport(environment, command, options?.terminal?.io);
     }
     default: {
       const unhandled: never = command;

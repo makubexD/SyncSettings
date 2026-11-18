@@ -35,7 +35,7 @@ import { readVisibility } from "../adapters/visibility.ts";
 import { trimAnswer } from "../core/answer.ts";
 import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
-import type { Result, SetupTerminal } from "./export.ts";
+import type { ExecuteOptions, Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
@@ -46,7 +46,7 @@ import type { ValuePlace } from "../core/machine/values.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { runSetup } from "../wizard/setup.ts";
-import type { SetupFlags, SetupIo } from "../wizard/setup.ts";
+import type { ExistingAction, SetupFlags, SetupIo } from "../wizard/setup.ts";
 
 const VALUES_FILE = ".user-values.json";
 
@@ -253,7 +253,7 @@ async function executeV1Setup(
   home: string,
   state: string,
   command: SetupCommand,
-  execute: (command: RunCommand) => Promise<Result>,
+  execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
 ): Promise<Result> {
   const layers = loadLayers(state, repoRoot, config);
   if (!layers.ok) {
@@ -289,7 +289,7 @@ async function executeV1Setup(
         }
       }
       if (apply) {
-        applied = await execute(v1ImportCommand(false));
+        applied = await execute(v1ImportCommand(false), { terminal });
       }
     }
   } finally {
@@ -318,7 +318,7 @@ export async function executeSetup(
   home: string,
   state: string,
   command: SetupCommand,
-  execute: (command: RunCommand) => Promise<Result>,
+  execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
 ): Promise<Result> {
   // Contract "mksync setup": `--bootstrap` is Ubuntu only, refused before the
   // doctor asks or prints anything on any repo version.
@@ -424,9 +424,9 @@ export async function executeSetup(
     terminal.io,
   );
   // The record and the profile are written first, then the bootstrap question
-  // is asked on the same reader: it stays open so a piped answer still reaches
-  // it, and `runBootstrap` closes it before the script gets the terminal.
-  let bootstrapped: Result | undefined;
+  // and the import's value questions are asked on the same reader: it stays
+  // open so a piped answer still reaches them, and `runBootstrap` closes it
+  // before the script gets the terminal.
   try {
     const moved = moveUserValues(values, answers);
     const record: MachineRecord = {
@@ -465,13 +465,27 @@ export async function executeSetup(
         stderr: "",
       };
     }
-    bootstrapped = await runBootstrap(repoRoot, os, command, terminal);
+    const bootstrapped = await runBootstrap(repoRoot, os, command, terminal);
+    if (bootstrapped !== undefined) {
+      return bootstrapped;
+    }
+    return await importAfterSetup(outcome.action, execute, { terminal });
   } finally {
     terminal.close();
   }
-  if (bootstrapped !== undefined) {
-    return bootstrapped;
-  }
+}
+
+/**
+ * Decision 9's last move: `backup` imports at once; `keep` exports the local
+ * files into the repo folder first, then imports. The import reads its value
+ * answers from setup's own reader (`options.terminal`), so piped answers left
+ * after the four questions still reach it.
+ */
+async function importAfterSetup(
+  action: Exclude<ExistingAction, "stop">,
+  execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
+  options: ExecuteOptions,
+): Promise<Result> {
   const importCommand: RunCommand = {
     kind: "run",
     command: "import",
@@ -482,8 +496,8 @@ export async function executeSetup(
     yes: false,
     only: [],
   };
-  if (outcome.action === "backup") {
-    return execute(importCommand);
+  if (action === "backup") {
+    return execute(importCommand, options);
   }
   const exportCommand: RunCommand = {
     kind: "run",
@@ -495,12 +509,12 @@ export async function executeSetup(
     yes: false,
     only: [],
   };
-  const exported = await execute(exportCommand);
+  const exported = await execute(exportCommand, options);
   if (exported.code !== 0) {
     // The local files weren't saved, so importing now would overwrite them.
     return exported;
   }
-  const imported = await execute(importCommand);
+  const imported = await execute(importCommand, options);
   return {
     code: imported.code,
     stdout:
