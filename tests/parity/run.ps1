@@ -237,6 +237,15 @@ function Validate-Case {
         Die 'case.json has no config'
     }
 
+    # configName picks the file the config is written to; absent, the rule above.
+    $configNameProp = $case.PSObject.Properties['configName']
+    if ($null -ne $configNameProp) {
+        $configName = $configNameProp.Value
+        if (-not ($configName -is [string] -and ($configName -ceq 'sync-config.json' -or $configName -ceq 'sync-config.v2.json'))) {
+            Die 'configName must be sync-config.json or sync-config.v2.json'
+        }
+    }
+
     $envProp = $case.PSObject.Properties['env']
     if ($null -ne $envProp) {
         if ($envProp.Value -isnot [pscustomobject]) {
@@ -992,15 +1001,20 @@ function Run-Case {
         $configV2Prop = $Case.PSObject.Properties['configV2']
         if ($null -ne $configV2Prop) {
             $configJson = $configV2Prop.Value | ConvertTo-Json -Depth 32 -Compress
-            [IO.File]::WriteAllText((Join-Path $repoDir 'sync-config.v2.json'), $configJson, [System.Text.UTF8Encoding]::new($false))
+            $configName = 'sync-config.v2.json'
         } else {
             $configProp = $Case.PSObject.Properties['config']
             if ($null -eq $configProp) {
                 Die 'case.json has no config'
             }
             $configJson = $configProp.Value | ConvertTo-Json -Depth 32 -Compress
-            [IO.File]::WriteAllText((Join-Path $repoDir 'sync-config.json'), $configJson, [System.Text.UTF8Encoding]::new($false))
+            $configName = 'sync-config.json'
         }
+        $configNameProp = $Case.PSObject.Properties['configName']
+        if ($null -ne $configNameProp) {
+            $configName = [string]$configNameProp.Value
+        }
+        [IO.File]::WriteAllText((Join-Path $repoDir $configName), $configJson, [System.Text.UTF8Encoding]::new($false))
 
         $valuesProp = $Case.PSObject.Properties['values']
         if ($null -ne $valuesProp) {
