@@ -304,11 +304,6 @@ export interface RunPlan {
   readonly lines: readonly string[];
   readonly summary: Summary;
   readonly code: number;
-  /**
-   * Raw text printed on stdout before the plan lines: the value prompts of an
-   * import with `--reset-values`.
-   */
-  readonly prompt?: string;
   /** The placeholder whose missing value stopped the plan. */
   readonly missing?: string;
   /**

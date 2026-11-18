@@ -928,7 +928,6 @@ describe("planImport reset values", () => {
     const plan = planImport(reset, ["New Name", "y"]);
 
     // Assert
-    expect(plan.prompt).toBeUndefined();
     expect(plan.prepare).toEqual([
       { kind: "writeValues", text: expectedValues },
     ]);

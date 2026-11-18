@@ -858,15 +858,12 @@ function resetValueQuestions(
   return questions;
 }
 
-/**
- * The values an import resolved, and the value prompt text. The `prompt` is
- * never set: the app prints the questions itself, before reading each answer.
- */
+/** The values an import resolved, or the plan that stopped it. The app prints
+ * the value questions itself, before reading each answer. */
 export type ImportValuesResult =
   | {
       readonly ok: true;
       readonly values: Values;
-      readonly prompt: string | undefined;
     }
   | { readonly ok: false; readonly plan: RunPlan };
 
@@ -950,11 +947,7 @@ export function resolveImportValues(
         },
       };
     }
-    return {
-      ok: true,
-      values: asked.value.values,
-      prompt: undefined,
-    };
+    return { ok: true, values: asked.value };
   }
 
   const rules = prepared.gathered.rules;
@@ -990,7 +983,7 @@ export function resolveImportValues(
       },
     };
   }
-  return { ok: true, values: resolved.value, prompt: undefined };
+  return { ok: true, values: resolved.value };
 }
 
 /**
@@ -1001,7 +994,6 @@ export function resolveImportValues(
 function buildImportPlan(
   prepared: PreparedImport,
   values: Values,
-  prompt: string | undefined,
   askOverwrite: (name: string) => boolean,
 ): RunPlan {
   const snapshot = prepared.snapshot;
@@ -1062,13 +1054,16 @@ function buildImportPlan(
   };
   return {
     // Bash saves every value whenever an entry has rules, before any file.
-    prepare: valuesPrepare(snapshot, prepared.gathered.rules.length > 0, values),
+    prepare: valuesPrepare(
+      snapshot,
+      prepared.gathered.rules.length > 0,
+      values,
+    ),
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,
     summary,
     code: 0,
-    ...(prompt !== undefined ? { prompt } : {}),
   };
 }
 
@@ -1086,7 +1081,7 @@ export function importOverwriteQuestions(
     return [];
   }
   const names: string[] = [];
-  buildImportPlan(prepared, values, undefined, (name) => {
+  buildImportPlan(prepared, values, (name) => {
     names.push(name);
     return true;
   });
@@ -1101,7 +1096,6 @@ export function importOverwriteQuestions(
 export function importPlan(
   snapshot: Snapshot,
   values: Values,
-  prompt: string | undefined,
   overwriteAnswers: readonly (string | undefined)[],
 ): RunPlan {
   const prepared = prepareImport(snapshot);
@@ -1121,7 +1115,7 @@ export function importPlan(
     }
     return /^[Yy]/.test(trimmed);
   };
-  return buildImportPlan(prepared, values, prompt, askOverwrite);
+  return buildImportPlan(prepared, values, askOverwrite);
 }
 
 /**
@@ -1145,10 +1139,5 @@ export function planImport(
   if (!resolved.ok) {
     return resolved.plan;
   }
-  return importPlan(
-    snapshot,
-    resolved.values,
-    resolved.prompt,
-    answers.slice(questions.length),
-  );
+  return importPlan(snapshot, resolved.values, answers.slice(questions.length));
 }

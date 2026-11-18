@@ -239,15 +239,9 @@ export function missingPlaceholders(
   return missing;
 }
 
-/** What `askValues` prompts with before the first question. */
+/** What an import prints before its first value question. */
 export const ASK_HEADER =
   "\n  Enter values to fill the placeholders in the config files:\n\n";
-
-export interface AskedValues {
-  readonly values: Values;
-  readonly text: string;
-  readonly consumed: number;
-}
 
 /**
  * The interactive path of the bash engine's `request_values` with reset on and
@@ -256,7 +250,8 @@ export interface AskedValues {
  * an exhausted list answers with "". A missing answer falls back to the first
  * non-empty of the cached value, the rule's `default` and the environment
  * variable `defaultEnv` names, and stops with the `resolveValues` error when
- * that is empty too. The returned text is what the prompts would print.
+ * that is empty too. The questions themselves are printed by the caller
+ * (`importValueQuestions`).
  */
 export function askValues(
   rules: readonly SanitizeRule[],
@@ -264,12 +259,10 @@ export function askValues(
   env: Readonly<Record<string, string | undefined>>,
   answers: readonly string[],
   owner?: ValueOwner,
-): Result<AskedValues, ConfigError> {
+): Result<Values, ConfigError> {
   const values = new Map<string, string>(Object.entries(cached));
   const seen = new Set<string>();
-  let text = "";
-  let prompted = false;
-  let consumed = 0;
+  let index = 0;
 
   for (const rule of rules) {
     const placeholder = rule.placeholder;
@@ -277,11 +270,6 @@ export function askValues(
       continue;
     }
     seen.add(placeholder);
-
-    if (!prompted) {
-      text += ASK_HEADER;
-      prompted = true;
-    }
 
     const fromEnv =
       rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
@@ -292,16 +280,9 @@ export function askValues(
         : hasValue(fromEnv)
           ? fromEnv
           : "";
-    const prompt = rule.prompt ?? "";
-    text +=
-      fallback.length > 0
-        ? `  ${prompt} [${fallback}]: `
-        : `  ${prompt}: `;
 
-    const raw = consumed < answers.length ? answers[consumed] : undefined;
-    if (raw !== undefined) {
-      consumed++;
-    }
+    const raw = index < answers.length ? answers[index] : undefined;
+    index++;
     const answer = trimAnswer(raw ?? "");
     const chosen = answer.length > 0 ? answer : fallback;
     if (chosen.length === 0) {
@@ -310,13 +291,7 @@ export function askValues(
     values.set(placeholder, chosen);
   }
 
-  if (prompted) {
-    text += "\n";
-  }
-  return {
-    ok: true,
-    value: { values: Object.fromEntries(values), text, consumed },
-  };
+  return { ok: true, value: Object.fromEntries(values) };
 }
 
 function firstMissingInContent(

@@ -58,9 +58,7 @@ function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
   const outcome = runPlan(plan, context);
   const refused = outcome.refused;
   const warning =
-    refused === undefined
-      ? syncPointWarning(outcome.failedFinish)
-      : undefined;
+    refused === undefined ? syncPointWarning(outcome.failedFinish) : undefined;
   const rendered = renderRun(
     warning === undefined ? plan : withSyncPointWarning(plan, warning),
     outcome,
@@ -75,7 +73,7 @@ function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
   return {
     result: {
       code: refused === undefined ? rendered.code : 1,
-      stdout: missing ? "" : (plan.prompt ?? "") + writeLines(rendered.lines),
+      stdout: missing ? "" : writeLines(rendered.lines),
       stderr,
     },
     backups: outcome.backups,
@@ -155,12 +153,7 @@ async function planWithAnswers(
     io.write(overwritePrompt(name));
     overwriteAnswers.push(await io.readLine());
   }
-  return importPlan(
-    snapshot,
-    resolved.values,
-    resolved.prompt,
-    overwriteAnswers,
-  );
+  return importPlan(snapshot, resolved.values, overwriteAnswers);
 }
 
 /** Run `mksync import` end to end: the checks, the answers, then the check's
