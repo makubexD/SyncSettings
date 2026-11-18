@@ -74,8 +74,7 @@
       "repoPath": "dotfiles/windows/shell/.bashrc",
       "localPath": "~\\.bashrc",
       "platform": "windows",
-      "description": "Bash run commands",
-      "detectLinkedPaths": true
+      "description": "Bash run commands"
     },
     {
       "repoPath": "dotfiles/windows/shell/.bash_profile",
