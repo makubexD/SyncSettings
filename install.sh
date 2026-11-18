@@ -223,7 +223,7 @@ install_repo() {
         printf '  Cloned into %s\n' "$dir"
     fi
 
-    if [[ ! -f $dir/sync || ! -f $dir/sync-config.json ]]; then
+    if [[ ! -f $dir/mksync || ! -f $dir/sync-config.json ]]; then
         printf "ERROR: %s doesn't look like SyncSettings.\n" "$dir" >&2
         exit 1
     fi
@@ -301,6 +301,18 @@ link_into_clone() {
         "$dir"/*) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Remove the old ~/.local/bin/sync link earlier installers made into the clone.
+# Any other file at that path is left alone, with nothing printed.
+remove_old_sync_link() {
+    local dir=$1 link=$HOME/.local/bin/sync
+    [[ -L $link ]] || return 0
+    dir=$(cd "$dir" && pwd -P) || return 0
+    if link_into_clone "$link" "$dir"; then
+        rm -f "$link"
+        printf 'removed the old sync link\n'
+    fi
 }
 
 # True when $bin/mksync may be written: it is absent, a symlink into the clone,
@@ -446,6 +458,7 @@ main() {
         ensure_tools "$yes" "$tty"
     fi
     install_repo "$dir" "$url" "$ref"
+    remove_old_sync_link "$dir"
     install_program "$dir" "$bin" "$os" "$runtime"
 
     if (( ! no_setup )); then

@@ -301,7 +301,7 @@ function Install-SyncSettings {
             Write-Host "  Cloned into $dir"
         }
 
-        if (-not (Test-Path -LiteralPath (Join-Path $dir 'sync.cmd')) -or
+        if (-not (Test-Path -LiteralPath (Join-Path $dir 'mksync.cmd')) -or
             -not (Test-Path -LiteralPath (Join-Path $dir 'sync-config.json'))) {
             throw "$dir doesn't look like SyncSettings."
         }
