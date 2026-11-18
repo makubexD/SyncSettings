@@ -135,6 +135,13 @@ function stop(message: string, code: 1 | 2): SetupOutcome {
   return { ok: false, message, code };
 }
 
+/** The hostname up to its first dot: the name `setup` suggests, since macOS
+ * reports `<name>.local` and a name holds no dot. */
+function shortHostname(hostname: string): string {
+  const dot = hostname.indexOf(".");
+  return dot === -1 ? hostname : hostname.slice(0, dot);
+}
+
 function isName(value: string): boolean {
   return LAYER_NAME.test(value) && !RESERVED_LAYER_NAMES.includes(value);
 }
@@ -372,7 +379,7 @@ export async function runSetup(
       );
     }
   }
-  const name = flags.name ?? scan.hostname;
+  const name = flags.name ?? shortHostname(scan.hostname);
   if (replacing === undefined && !isName(name)) {
     return stop(
       `ERROR: ${name} isn't a valid machine name; use --name <machine>.`,

@@ -1279,7 +1279,8 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
   the scan found `claude`, else `1`. Mode: `1`. Existing files: `1`.
 - **No suggestion.** End of input on a question with no suggestion, or `--yes` without its flag, stops with
   `ERROR: missing --<flag>`, exit 2, before anything is written.
-- **Name.** `--name`, else the hostname. A name that isn't valid stops with
+- **Name.** `--name`, else the hostname up to its first dot (macOS reports `<name>.local`; the record keeps the
+  whole hostname). A name that isn't valid stops with
   `ERROR: <value> isn't a valid machine name; use --name <machine>.`, exit 2; a profile name likewise with
   `--profile <name>`. `--name` with `--replace` stops with `ERROR: --name and --replace can't be used together.`,
   exit 1. A machine name equal to the chosen profile (from the hostname, `--name`, or a profile typed or picked at
