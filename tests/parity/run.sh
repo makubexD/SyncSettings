@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Shared parity cases: run every case in tests/parity/cases/ against the bash
-# engine in a throwaway HOME and repo, then compare exit codes, status lines
-# and both trees with expect/. The case format is tests/parity/README.md.
+# Shared parity cases: run every case in tests/parity/cases/ against the
+# compiled program in a throwaway HOME and repo, then compare exit codes, status
+# lines and both trees with expect/. The case format is tests/parity/README.md.
 # Usage: tests/parity/run.sh [--engine <path>] [case-name-filter]
 
 set -euo pipefail
@@ -11,20 +11,20 @@ REPO=$(cd "$SOURCE_DIR/../.." && pwd)
 CASES=${PARITY_CASES:-$REPO/tests/parity/cases}
 
 filter=''
-engine_path=''
+engine_path=$REPO/dist/mksync
 passed=0
 failed_cases=0
-skipped=0
 case_name=''
 t=''
 
 # The OS a case runs for, resolved exactly as the engine does.
+# shellcheck disable=SC1091  # os.sh is not followed without shellcheck -x
 # shellcheck source-path=SCRIPTDIR source=../../scripts/linux/os.sh
 source "$REPO/scripts/linux/os.sh"
 HARNESS_OS=$(sync_os)
 readonly HARNESS_OS
 
-# Status words the engines print. Longer words first so CREATED and UPDATED win
+# Status words the program prints. Longer words first so CREATED and UPDATED win
 # over CREATE and UPDATE in the alternation. IN, OUT, BOTH and ? are diff labels.
 STATUS_WORDS='ADDED|UNCHANGED|MODIFIED|SKIPPED|REMOVED|ERROR|CREATED|UPDATED|EXTRA|ORPHAN|DRIFT|CREATE|UPDATE|IN|OUT|BOTH|\?'
 ESC=$(printf '\033')
@@ -37,8 +37,8 @@ die() {
     exit 1
 }
 
-# --engine <path> hands the cases to that one program instead of the bash
-# engine; without it the runner is unchanged. The rest is the case filter.
+# --engine <path> picks the program to run, default dist/mksync. The rest is
+# the case filter.
 while (( $# > 0 )); do
     case $1 in
         --engine)
@@ -58,10 +58,8 @@ while (( $# > 0 )); do
     esac
 done
 
-if [[ -n $engine_path ]]; then
-    [[ -f $engine_path ]] || die "--engine: $engine_path is not a file"
-    engine_path=$(cd "$(dirname "$engine_path")" && pwd)/$(basename "$engine_path")
-fi
+[[ -f $engine_path ]] || die "--engine: $engine_path is not a file"
+engine_path=$(cd "$(dirname "$engine_path")" && pwd)/$(basename "$engine_path")
 
 # Check case.json before anything is copied or run. Dies with a short reason;
 # the caller runs this in a subshell so only that case FAILs.
@@ -172,13 +170,6 @@ validate_case() {
               else true end' "$json" > /dev/null 2>&1 \
             || die 'CTX_WINDOW_DIR must be a relative path under home'
     fi
-    jq -e 'if has("oldEngines") then
-            (.oldEngines | type) == "array"
-            and ((.oldEngines == ["none"])
-                or ((.oldEngines | length) > 0
-                    and all(.oldEngines[]; . == "bash" or . == "powershell")))
-          else true end' "$json" > /dev/null 2>&1 \
-        || die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
     jq -e 'if has("emptyDirs") then
             (.emptyDirs | type) == "array" and all(.emptyDirs[]; type == "string")
           else true end' "$json" > /dev/null 2>&1 \
@@ -250,11 +241,10 @@ validate_case() {
         || die 'packages/ needs the drift stubs from phase 2'
 }
 
-# With --engine, expect.<os>/ only applies to a case whose differences name a
-# row the program keeps per OS; every other case uses expect/ on every OS.
+# expect.<os>/ only applies to a case whose differences name a row the program
+# keeps per OS; every other case uses expect/ on every OS.
 expected_os_folder() {
     local dir=$1
-    [[ -z $engine_path ]] && return 0
     jq -e '(.differences // []) | any(
         . == "Entry selection" or . == "Shared files without rules" or . == "Exclude patterns")' \
         "$dir/case.json" > /dev/null 2>&1
@@ -426,13 +416,12 @@ tree_diff() {
     printf '%s\n' "$line" | sed "s|$case_root/||g; s|$temp_root/||g"
 }
 
-# Remove the engine files copied into the temp repo, so the repo comparison
+# Remove the program files copied into the temp repo, so the repo comparison
 # sees only the case's own files. `scripts` goes too when nothing is left in it.
 strip_engine() {
     local repo=$1
-    rm -f "$repo/export.sh" "$repo/import.sh" "$repo/commit.sh" "$repo/sync" \
-        "$repo/mksync" "$repo/sync-config.json" "$repo/sync-config.v2.json" "$repo/.user-values.json"
-    rm -rf "$repo/scripts/linux" "$repo/scripts/ci"
+    rm -f "$repo/mksync" "$repo/sync-config.json" "$repo/sync-config.v2.json" "$repo/.user-values.json"
+    rm -rf "$repo/scripts/ci"
     rmdir "$repo/scripts" 2> /dev/null || true
 }
 
@@ -598,25 +587,17 @@ run_case() {
     count=$(jq -r '.commands | length' "$dir/case.json") || die 'case.json has no commands list'
 
     mkdir -p "$t/repo" "$t/home" "$t/empty"
-    if [[ -n $engine_path ]]; then
-        if [[ $engine_path == "$REPO/mksync" ]]; then
-            # The clone launcher runs src/main.ts next to itself, so a copy
-            # would look for the sources in the temp repo. A link keeps it in
-            # the clone while the cases still run ./mksync.
-            ln -s "$engine_path" "$t/repo/mksync" || die 'linking the launcher failed'
-        else
-            cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
-        fi
-        # The program runs the leak scan from the repo, as commit.sh does.
-        mkdir -p "$t/repo/scripts"
-        cp -a "$REPO/scripts/ci" "$t/repo/scripts/" || die 'copying scripts/ci failed'
+    if [[ $engine_path == "$REPO/mksync" ]]; then
+        # The clone launcher runs src/main.ts next to itself, so a copy
+        # would look for the sources in the temp repo. A link keeps it in
+        # the clone while the cases still run ./mksync.
+        ln -s "$engine_path" "$t/repo/mksync" || die 'linking the launcher failed'
     else
-        mkdir -p "$t/repo/scripts"
-        cp -a "$REPO/export.sh" "$REPO/import.sh" "$REPO/commit.sh" "$REPO/sync" "$t/repo/" \
-            || die 'copying the engine failed'
-        cp -a "$REPO/scripts/linux" "$REPO/scripts/ci" "$t/repo/scripts/" \
-            || die 'copying scripts/ failed'
+        cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
     fi
+    # The program runs the leak scan from the repo.
+    mkdir -p "$t/repo/scripts"
+    cp -a "$REPO/scripts/ci" "$t/repo/scripts/" || die 'copying scripts/ci failed'
     printf '%s\n' "$config_json" > "$t/repo/$config_file"
     if [[ $(jq -r 'has("values")' "$dir/case.json") == true ]]; then
         jq -c '.values' "$dir/case.json" > "$t/repo/.user-values.json" \
@@ -735,52 +716,33 @@ run_case() {
     for ((i = 0; i < count; i++)); do
         cmd=$(jq -r ".commands[$i].command // empty" "$dir/case.json")
         args=()
-        if [[ -n $engine_path ]]; then
-            case $cmd in
-                export) args=(./mksync export) ;;
-                import) args=(./mksync import) ;;
-                check) args=(./mksync import --check) ;;
-                preview) args=(./mksync export --preview) ;;
-                diff) args=(./mksync export --diff) ;;
-                commit) args=(./mksync commit) ;;
-                setup) args=(./mksync setup) ;;
-                statusline) args=(./mksync statusline) ;;
-                status) args=(./mksync status) ;;
-                doctor) args=(./mksync doctor) ;;
-                pull) args=(./mksync pull) ;;
-                push) args=(./mksync push) ;;
-                front-diff) args=(./mksync diff) ;;
-                front-check) args=(./mksync check) ;;
-                front-preview) args=(./mksync preview) ;;
-                machine-show) args=(./mksync machine show) ;;
-                machine-retire)
-                    target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
-                    args=(./mksync machine retire "$target")
-                    ;;
-                profile-retire)
-                    target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
-                    args=(./mksync profile retire "$target")
-                    ;;
-                *) die "unknown command '$cmd' in command $((i + 1))" ;;
-            esac
-        else
-            case $cmd in
-                export) args=(./export.sh) ;;
-                import) args=(./import.sh) ;;
-                check) args=(./import.sh --check) ;;
-                preview) args=(./export.sh --preview) ;;
-                diff) args=(./export.sh --diff) ;;
-                commit) args=(./commit.sh) ;;
-                status) args=(./sync status) ;;
-                doctor) args=(./sync doctor) ;;
-                pull) args=(./sync pull) ;;
-                push) args=(./sync push) ;;
-                front-diff) args=(./sync diff) ;;
-                front-check) args=(./sync check) ;;
-                front-preview) args=(./sync preview) ;;
-                *) die "unknown command '$cmd' in command $((i + 1))" ;;
-            esac
-        fi
+        case $cmd in
+            export) args=(./mksync export) ;;
+            import) args=(./mksync import) ;;
+            check) args=(./mksync import --check) ;;
+            preview) args=(./mksync export --preview) ;;
+            diff) args=(./mksync export --diff) ;;
+            commit) args=(./mksync commit) ;;
+            setup) args=(./mksync setup) ;;
+            statusline) args=(./mksync statusline) ;;
+            status) args=(./mksync status) ;;
+            doctor) args=(./mksync doctor) ;;
+            pull) args=(./mksync pull) ;;
+            push) args=(./mksync push) ;;
+            front-diff) args=(./mksync diff) ;;
+            front-check) args=(./mksync check) ;;
+            front-preview) args=(./mksync preview) ;;
+            machine-show) args=(./mksync machine show) ;;
+            machine-retire)
+                target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
+                args=(./mksync machine retire "$target")
+                ;;
+            profile-retire)
+                target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
+                args=(./mksync profile retire "$target")
+                ;;
+            *) die "unknown command '$cmd' in command $((i + 1))" ;;
+        esac
         while IFS= read -r key; do
             case $key in
                 force|only|name|profile|replace|claude|mode|existing|yes|bootstrap|target|partial|message|paths|resetValues) ;;
@@ -837,7 +799,7 @@ run_case() {
             statusline) all_output=true; keep_ansi=true ;;
         esac
         rc=0
-        # GH overrides the gh binary in commit.sh; a caller's GH must never reach a case.
+        # GH overrides the gh binary; a caller's GH must never reach a case.
         # A caller's git repo, bus and tokens stay out too; the case's own env is
         # applied after the unsets, so a case may still set them deliberately. The
         # ceiling always holds, so git cannot climb above the case folder.
@@ -1049,38 +1011,8 @@ for dir in "$CASES"/*/; do
         continue
     fi
 
-    # setup, machine show, the retire commands and statusline are the program's
-    # alone: the old engines don't know them, so the case is skipped, not failed.
-    if [[ -z $engine_path ]]; then
-        program_only=$(jq -r '[.commands[].command
-            | select(. == "setup" or . == "statusline" or . == "machine-show"
-                or . == "machine-retire" or . == "profile-retire")]
-            | first // empty' "$dir/case.json" 2> /dev/null) || true
-        if [[ -n $program_only ]]; then
-            printf 'SKIP %s: %s is program only\n' "$case_name" "$program_only"
-            skipped=$((skipped + 1))
-            continue
-        fi
-    fi
-
-    # A v2 case needs the program: the bash engine can't read config v2.
-    if [[ -z $engine_path ]] && [[ $(jq -r 'has("configV2")' "$dir/case.json") == true ]]; then
-        printf 'SKIP %s: v2 only\n' "$case_name"
-        skipped=$((skipped + 1))
-        continue
-    fi
-
-    # oldEngines names the frozen engines a case runs on; ["none"] names no old
-    # engine, and the program runs every case.
-    if [[ -z $engine_path ]] \
-        && ! jq -e '(.oldEngines // ["bash"]) | index("bash")' "$dir/case.json" > /dev/null; then
-        printf 'SKIP %s: not on the bash engine\n' "$case_name"
-        skipped=$((skipped + 1))
-        continue
-    fi
-
-    # With --engine, import-eof-no-force counts as yes on every OS.
-    if [[ -z $engine_path || $case_name != import-eof-no-force ]]; then
+    # import-eof-no-force counts as yes on every OS.
+    if [[ $case_name != import-eof-no-force ]]; then
         if [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
             # shellcheck disable=SC2016  # $os is a jq argument, not a shell variable
             if ! jq -e --arg os "$HARNESS_OS" 'any(.os[]; . == $os)' "$dir/case.json" > /dev/null; then
@@ -1104,10 +1036,6 @@ if [[ -n $filter && $matched -eq 0 ]]; then
     exit 1
 fi
 
-if (( skipped > 0 )); then
-    printf '%d passed, %d failed, %d skipped\n' "$passed" "$failed_cases" "$skipped"
-else
-    printf '%d passed, %d failed\n' "$passed" "$failed_cases"
-fi
+printf '%d passed, %d failed\n' "$passed" "$failed_cases"
 
 [[ $failed_cases -eq 0 ]]

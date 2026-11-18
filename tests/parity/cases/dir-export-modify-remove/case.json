@@ -1,6 +1,5 @@
 {
   "description": "Export of a dir entry updates a changed file, removes a repo file gone locally and prunes the folder it emptied: MODIFIED, REMOVED with its note, UNCHANGED (Statuses, Export; Directory entries). Ported from dir-export-modify-remove, Pester dir-export-modify-remove.",
-  "oldEngines": ["bash"],
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak", "*.secret"],

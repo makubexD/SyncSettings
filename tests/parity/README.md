@@ -1,41 +1,30 @@
 # Shared cases
 
-Cases that test the [contract](../../docs/sync-contract.md) through the command line only, so one case runs against
-any engine: bash, PowerShell, or a future compiled one. `run.sh` runs them against the bash engine (Linux, and macOS
-under Homebrew's bash); `run.ps1` runs them against the PowerShell engine on Windows PowerShell 5.1. CI runs them in
-`engine-linux`, `engine-macos` and `engine-windows`, each next to that engine's own suite.
+Cases that test the [contract](../../docs/sync-contract.md) through the command line only, so a case runs against
+the compiled program: `dist/mksync` on Linux and macOS, `dist\mksync.exe` on Windows. `run.sh` runs them on Linux and
+macOS; `run.ps1` runs them on Windows PowerShell 5.1. CI runs them in `engine-linux`, `engine-macos` and
+`engine-windows`, each next to that OS's unit and engine tests.
 
 ```bash
-tests/parity/run.sh                                          # every case
+tests/parity/run.sh                                          # every case, against dist/mksync
 tests/parity/run.sh only-                                    # cases whose name contains "only-"
-tests/parity/run.sh --engine dist/mksync export-unchanged    # the new program
+tests/parity/run.sh --engine dist/mksync export-unchanged    # another build
 ```
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engine <path>] [case-name-filter]
 ```
 
-## Running another engine
+## Running a build
 
-`--engine <path>` (`-Engine <path>`) runs the cases against one program instead of the OS's engine: it is copied into
-the temp repo as `mksync` (`mksync.exe`) in place of the engine scripts, the commands are spelled
-`./mksync export …` with the same options (and `./mksync status …`, `diff`, `check` and `preview` for `front-diff`,
-`front-check` and `front-preview`), and it is stripped before the repo is compared. With a program:
+`--engine <path>` (`-Engine <path>`) picks the program; the default is `dist/mksync` (`dist\mksync.exe`). It is
+copied into the temp repo as `mksync` (`mksync.exe`), the commands are spelled `./mksync export …` with the same
+options (and `./mksync status …`, `diff`, `check` and `preview` for `front-diff`, `front-check` and
+`front-preview`), and it is stripped before the repo is compared. `expect.<os>/` is used only when the case's
+`differences` name `Entry selection`, `Shared files without rules` or `Exclude patterns`; every other case uses
+`expect/` on every OS. `import-eof-no-force` runs on every OS.
 
-- a case with a `setup`, `machine-show`, `machine-retire`, `profile-retire` or `statusline` command prints
-  `SKIP <case>: <command> is program only` against an engine other than the program, and counts as skipped;
-- a case whose `oldEngines` leaves out this OS's old engine, or is exactly `["none"]`, runs only with the option,
-  the program;
-- a `configV2` case prints `SKIP <case>: v2 only` against an engine other than the program and counts as skipped, not
-  passed or failed; the summary shows the skipped count only when it is non-zero
-  (`41 passed, 0 failed, 1 skipped`);
-- `expect.<os>/` is used only when the case's `differences` name `Entry selection`, `Shared files without rules` or
-  `Exclude patterns`; every other case uses `expect/` on every OS;
-- `import-eof-no-force` runs on every OS.
-
-Without the option the runner is unchanged.
-
-### Engines
+### The clone launcher
 
 `--engine ./mksync` runs the clone's launcher, which is linked into the temp repo rather than copied so it still finds
 `src/main.ts` next to itself. `MKSYNC_RUNTIME=bun` or `MKSYNC_RUNTIME=node` from the caller's environment picks the
@@ -45,10 +34,10 @@ runtime; unset, the launcher takes the first installed of Bun then Node.
 
 1. Find the rule in the contract. A behavior the contract doesn't state yet goes into the contract first.
 2. Copy the closest case under `cases/`, rename it, and write `description` with the contract section in brackets.
-3. Write `expect/` from the contract text, not from what the engine prints. If the engine disagrees, the engine or the
-   contract is wrong; don't record the engine's output.
-4. Run the case on bash. Push and read the three engine jobs for macOS and Windows.
-5. An engine that differs on purpose gets an `expect.<os>/` folder, but only for a row of the contract's
+3. Write `expect/` from the contract text, not from what the program prints. If the program disagrees, the program or
+   the contract is wrong; don't record the program's output.
+4. Run the case on Linux. Push and read the macOS and Windows jobs.
+5. A case that differs on purpose per OS gets an `expect.<os>/` folder, but only for a row of the contract's
    [Known differences](../../docs/sync-contract.md#known-differences) (see [Per-OS expectations](#per-os-expectations)).
    When the difference is not the point of the case, change the case's input to avoid it instead, as
    `hydrate-escape-backslashes` does by giving its target folder a file.
@@ -85,12 +74,11 @@ cases/<name>/
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `description`         | One sentence: the behavior and the contract section it checks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `os`                  | Where it runs: a list of `linux`, `macos`, `windows`. Omit for all three                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `config` / `configV2` | Exactly one of the two, never both nor neither. `config` is the whole `sync-config.json`, written into the repo before the run; `configV2` is written as `sync-config.v2.json` with no `sync-config.json`, and only the program can read it                                                                                                                                                                                                                                                                                                                                                                                     |
+| `config` / `configV2` | Exactly one of the two, never both nor neither. `config` is the whole `sync-config.json`, written into the repo before the run; `configV2` is written as `sync-config.v2.json` with no `sync-config.json`, and the program reads it                                                                                                                                                                                                                                                                                                                                                                                     |
 | `configName`          | Optional. The file the case's config is written to in the temp repo: `sync-config.json` or `sync-config.v2.json`; absent, today's rule above (`config` → `sync-config.json`, `configV2` → `sync-config.v2.json`). Any other value is a runner error.                                                                                                                                                                                                                                                                                                                                                                            |
 | `values`              | Optional. Written as `.user-values.json` in the repo; omit to have none                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `env`                 | Optional. Variables set for every command: a string sets it, `null` unsets it. Applied after `HOME`/`USERPROFILE`, so `{"HOME": null}` unsets it. A `configV2` case may set only `SYNC_PROFILE`, `SYNC_MACHINE`, `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`, `MKSYNC_VISIBILITY`, `SYNC_NOW`, `SYNC_LOAD`, `SYNC_MEM`, `SYNC_GIT`, `CONTEXT_CLEAR_AT`, `CTX_WINDOW_DIR` and `SYNC_OS_RELEASE`; any other key is a runner error. `CTX_WINDOW_DIR` is a path relative to the case's temp home (`.claude/state/ctx-window` reaches the command as `<home>/.claude/state/ctx-window`); an absolute path or one with a `..` segment is a runner error |
 | `emptyDirs`           | Optional. Paths relative to the case's temp home of empty folders to create, with their parents, after `home/` is copied and before the first command; git can't store an empty folder, so this is how `home/` holds one. An absolute path or one with a `..` segment, a non-list, or an item that isn't a string is a runner error. The runner adds them to its copy of `expect/home/` before the tree compare, so that tree needs nothing for them                                                                                                                                                                            |
-| `oldEngines`          | Optional. The frozen engines the case runs on: a non-empty list of `bash` and `powershell`, or exactly `["none"]` for a case no old engine runs (`none` can't be mixed with the others); absent means both. Without `--engine` (`-Engine`) a runner whose engine isn't listed prints `SKIP <case>: not on the bash engine` (`… the PowerShell engine`) and counts it as skipped; the program runs every case. For a difference of an old engine that is deleted at cut-over and not fixed                                                                                                                                             |
 | `commands`            | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": …, "stderr": true }`, the last two optional                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `git`                 | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `syncPoint`           | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error                                                                                                                                                                                                                                                                                         |
@@ -105,24 +93,20 @@ Windows), so a case can start from a recorded sync point; its files are compared
 record (`machine.json`) and profiles (`profiles/*.json`) go in with mode 600, as the program writes them, and the
 bash runner wants 600 for them in `expect/state/`, since git can't store that mode.
 
-`command` is one of `export`, `import`, `check` (`import --check`, `-Check`), `preview` (`export --preview`,
-`-Preview`), `diff` (`export --diff`, `-Diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`,
-`front-check` and `front-preview`, plus the program-only `setup`, `statusline`, `machine-show` (`machine show`),
-`machine-retire` (`machine retire <target>`) and `profile-retire` (`profile retire <target>`). A front door command
-runs `./sync <cmd>` on the bash engine, `.\sync.cmd <cmd>` on the PowerShell engine and `./mksync <cmd>` on the
-program, with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview` in each. The runner
-copies the front door with the engine: `sync` and `scripts/linux/front.sh` for bash, `sync.cmd` and
-`scripts/windows/Front.ps1` for PowerShell.
-`options` uses neutral names that the runner spells for each engine: `force: true` is `--force` or `-Force`,
-`only: [paths]` is `--only` or `-Only`, and `resetValues`, a boolean, is `--reset-values` (`-ResetValues` on the
-PowerShell engine), allowed on `import` and `check` only. For the program, `name`, `profile`, `replace`, `claude`,
-`mode` and `existing` are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes`
-on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`, `pull`, `push` and
-`front-diff`; `bootstrap: true` adds `--bootstrap` on `setup` only; and `target`, a string, is the name argument of `machine-retire` and `profile-retire`, required there
-and refused elsewhere. On `commit` only, `partial: true` adds `--partial` (`-Partial` on the PowerShell engine);
-`message`, a string, adds `-m <msg>` (`-Message <msg>`) on `commit` and `push`. On the six front door commands
-(`status`, `doctor`, `pull`, `push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each path
-as a positional argument after the options. Every command runs with no terminal, as CI does, and with stdin empty unless the command has `stdin`: a
+`command` is one of `export`, `import`, `check` (`import --check`), `preview` (`export --preview`), `diff`
+(`export --diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`, `front-check` and
+`front-preview`, plus `setup`, `statusline`, `machine-show` (`machine show`), `machine-retire`
+(`machine retire <target>`) and `profile-retire` (`profile retire <target>`). Every command runs `./mksync <cmd>`,
+with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview`.
+`options` uses neutral names that the runner spells for the program: `force: true` is `--force`, `only: [paths]` is
+`--only`, and `resetValues`, a boolean, is `--reset-values`, allowed on `import` and `check` only. `name`, `profile`,
+`replace`, `claude`, `mode` and `existing` are strings spelled `--<key> <value>` and allowed on `setup` only;
+`yes: true` adds `--yes` on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`,
+`pull`, `push` and `front-diff`; `bootstrap: true` adds `--bootstrap` on `setup` only; and `target`, a string, is the
+name argument of `machine-retire` and `profile-retire`, required there and refused elsewhere. On `commit` only,
+`partial: true` adds `--partial`; `message`, a string, adds `-m <msg>` on `commit` and `push`. On the six front door
+commands (`status`, `doctor`, `pull`, `push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each
+path as a positional argument after the options. Every command runs with no terminal, as CI does, and with stdin empty unless the command has `stdin`: a
 string sent as its stdin, such as `"n\n"` for a prompt answer. Its
 stderr is merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status
 lines in `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below)
@@ -164,7 +148,7 @@ at the stubs, and fails one that would run on Windows with them.
 
 ## How the runner checks it
 
-1. Copy the engine into a temp repo, write `config` or `configV2` and `values`, copy `repo/`, `home/` and `state/`.
+1. Copy the program into a temp repo, write `config` or `configV2` and `values`, copy `repo/`, `home/` and `state/`.
 2. Run each command with the home folder as `HOME` (Linux, macOS) or `USERPROFILE` (Windows). `GH`,
    `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `VIRTUAL_ENV` and `CONDA_DEFAULT_ENV` are cleared first, so the caller's
    shell can't change a case's output (a Python env would otherwise add a statusline section). So are
@@ -182,7 +166,7 @@ at the stubs, and fails one that would run on Windows with them.
      keeps every line of its stdout instead, in order, with color codes and a trailing `\r` removed and a final line
      without a newline kept; `statusline` keeps its color codes. An empty stdout adds no line, and a whole-stdout
      command's stderr is left out unless `stderr: true`. The result must equal `expect/output.txt`, line for line.
-   - **Trees**, byte for byte, file list and content. The runner leaves out what an engine keeps for itself:
+   - **Trees**, byte for byte, file list and content. The runner leaves out what the program keeps for itself:
      `.user-values.json`, the state folder (`~/.local/state/sync-settings`, `%LOCALAPPDATA%\SyncSettings`), and `.git`
      (the bare `origin` lives outside the repo). File modes are compared only where the file system keeps them.
    - **Values**, when `expect/values.json` exists: the repo's `.user-values.json` after the run, as JSON with key
@@ -262,8 +246,8 @@ Only the first difference prints. Fix it and run the case again with its name as
 - **`gh: want no call, got "pr create"`.** The case has no `expect/gh.log`, which means gh must not be called. A case
   with a `commit` command must stub gh (`"stubs": ["gh"]`); the runners clear any `GH` variable the caller set, so
   no case can reach a real `gh`.
-- **`SKIPPED` on Windows where bash says `CREATED`.** The target folder is missing: Windows skips, bash creates it (a
-  known difference). Put a file in the folder under `home/` unless the missing folder is the point of the case.
+- **`SKIPPED` on Windows where Linux says `CREATED`.** The target folder is missing: Windows skips, Linux creates it
+  (a known difference). Put a file in the folder under `home/` unless the missing folder is the point of the case.
 - **A diff label never shows in `output.txt`.** The runners read `IN`, `OUT`, `BOTH` and `?` as status words. A new
   status word goes into `STATUS_WORDS` in `run.sh` and `$StatusWords` in `run.ps1` together.
 

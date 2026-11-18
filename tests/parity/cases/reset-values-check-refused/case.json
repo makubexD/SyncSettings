@@ -1,6 +1,5 @@
 {
   "description": "The import check refuses --reset-values before touching anything: the contract's ERROR line, exit 2, no file changed (Import check). Exit 2 since phase 9 decision 7.",
-  "oldEngines": ["none"],
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak"],

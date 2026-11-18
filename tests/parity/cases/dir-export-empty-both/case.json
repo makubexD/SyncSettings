@@ -1,6 +1,5 @@
 {
   "description": "Export of a dir entry whose local folder and repo folder are both empty prints no line for the entry and creates no repo folder (Directory entries). Ported from dir-export-empty-both, Pester dir-export-empty-both.",
-  "oldEngines": ["bash"],
   "config": {
     "version": 1,
     "excludePatterns": ["*.bak", "*.secret"],

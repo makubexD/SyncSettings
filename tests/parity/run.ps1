@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # Shared parity cases: run every case in tests/parity/cases/ against the
-# PowerShell engine in a throwaway USERPROFILE, LOCALAPPDATA and repo, then
+# compiled program in a throwaway USERPROFILE, LOCALAPPDATA and repo, then
 # compare exit codes, status lines and both trees with expect/. The case format
 # is tests/parity/README.md.
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engine <path>] [case-name-filter]
@@ -14,9 +14,9 @@ if ([string]::IsNullOrEmpty($Cases)) {
     $Cases = Join-Path $Repo 'tests\parity\cases'
 }
 
-# -Engine <path> hands the cases to that one program instead of the PowerShell
-# engine; without it the runner is unchanged. The rest is the case filter.
-$EnginePath = ''
+# -Engine <path> picks the program to run, default dist\mksync.exe. The rest is
+# the case filter.
+$EnginePath = Join-Path $Repo 'dist\mksync.exe'
 $Filter = ''
 $argIndex = 0
 while ($argIndex -lt $args.Count) {
@@ -34,20 +34,17 @@ while ($argIndex -lt $args.Count) {
     $argIndex++
 }
 
-if (-not [string]::IsNullOrEmpty($EnginePath)) {
-    if (-not (Test-Path -LiteralPath $EnginePath -PathType Leaf)) {
-        Write-Output "-Engine: $EnginePath is not a file"
-        exit 1
-    }
-    $EnginePath = (Resolve-Path -LiteralPath $EnginePath).Path
+if (-not (Test-Path -LiteralPath $EnginePath -PathType Leaf)) {
+    Write-Output "-Engine: $EnginePath is not a file"
+    exit 1
 }
+$EnginePath = (Resolve-Path -LiteralPath $EnginePath).Path
 
 $passed = 0
 $failed = 0
-$skipped = 0
 $matched = 0
 
-# The runner is Windows-only: every case runs for the PowerShell engine.
+# The runner is Windows-only: every case runs for the program.
 $HarnessOs = 'windows'
 
 # Status words the engines print. Longer words first so CREATED and UPDATED win
@@ -278,22 +275,6 @@ function Validate-Case {
         }
     }
 
-    $oldEnginesProp = $case.PSObject.Properties['oldEngines']
-    if ($null -ne $oldEnginesProp) {
-        $oldEngines = $oldEnginesProp.Value
-        if ($oldEngines -isnot [System.Array] -or $oldEngines.Count -eq 0) {
-            Die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
-        }
-        $onlyNone = $oldEngines.Count -eq 1 -and $oldEngines[0] -is [string] -and $oldEngines[0] -ceq 'none'
-        if (-not $onlyNone) {
-            foreach ($e in $oldEngines) {
-                if ($e -isnot [string] -or ($e -cne 'bash' -and $e -cne 'powershell')) {
-                    Die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
-                }
-            }
-        }
-    }
-
     $emptyDirsProp = $case.PSObject.Properties['emptyDirs']
     if ($null -ne $emptyDirsProp) {
         $emptyDirs = $emptyDirsProp.Value
@@ -410,13 +391,10 @@ function Validate-Case {
     return $case
 }
 
-# With -Engine, expect.<os>\ only applies to a case whose differences name a
-# row the program keeps per OS; every other case uses expect\ on every OS.
+# expect.<os>\ only applies to a case whose differences name a row the program
+# keeps per OS; every other case uses expect\ on every OS.
 function Test-ExpectedOsFolder {
     param([string]$Dir)
-    if ([string]::IsNullOrEmpty($EnginePath)) {
-        return $true
-    }
     $case = $null
     try {
         $case = [IO.File]::ReadAllText((Join-Path $Dir 'case.json'), [System.Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -774,7 +752,7 @@ function Copy-Tree {
 # for a few seconds before the case fails.
 function Remove-Engine {
     param([string]$RepoDir)
-    foreach ($rel in @('sync.cmd', 'mksync.exe', 'sync-config.json', 'sync-config.v2.json', '.user-values.json', 'scripts\windows', 'scripts\ci')) {
+    foreach ($rel in @('mksync.exe', 'sync-config.json', 'sync-config.v2.json', '.user-values.json', 'scripts\ci')) {
         $path = Join-Path $RepoDir $rel
         for ($try = 1; (Test-Path -LiteralPath $path) -and $try -le 40; $try++) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
@@ -875,8 +853,8 @@ function Setup-Git {
 # The gh stub as a program: it appends its arguments joined by spaces, one call
 # per line, to gh.log one folder above its own, prints nothing and exits 0.
 # The program runs only .com and .exe commands on Windows (contract "The
-# program"), so it needs this one; the old engine keeps gh.cmd. Built once per
-# run with the C# compiler Windows PowerShell already carries.
+# program"), so it needs this one. Built once per run with the C# compiler
+# Windows PowerShell already carries.
 $ghExeTemplate = ''
 $ghStubSource = @'
 using System;
@@ -895,19 +873,12 @@ public static class GhStub
 }
 '@
 
-# Write the gh stub into <temp>\bin: a gh.cmd for the old engine and, for
-# -Engine, a gh.exe; each appends a call's arguments, one call per line, to
-# <temp>\gh.log, prints nothing and exits 0.
+# Write the gh stub into <temp>\bin: a gh.exe that appends a call's arguments,
+# one call per line, to <temp>\gh.log, prints nothing and exits 0.
 function Write-GhStub {
     param([string]$TempDir)
     $binDir = Join-Path $TempDir 'bin'
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
-    $logPath = Join-Path $TempDir 'gh.log'
-    $body = "@echo off`r`n>>`"$logPath`" echo(%*`r`n"
-    [IO.File]::WriteAllText((Join-Path $binDir 'gh.cmd'), $body, [System.Text.UTF8Encoding]::new($false))
-    if ([string]::IsNullOrEmpty($EnginePath)) {
-        return
-    }
     if ($script:ghExeTemplate -eq '') {
         $folder = Join-Path ([IO.Path]::GetTempPath()) ('mksync-ghstub-' + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
@@ -984,18 +955,11 @@ function Run-Case {
         New-Item -ItemType Directory -Path $localDir -Force | Out-Null
         New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
 
-        # Engine files (scripts\ci too: later cases need leak-scan).
-        if (-not [string]::IsNullOrEmpty($EnginePath)) {
-            Copy-Item -LiteralPath $EnginePath -Destination (Join-Path $repoDir 'mksync.exe') -Force
-            # The program runs the leak scan from the repo, as run.sh copies it.
-            New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
-            Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
-        } else {
-            Copy-Item -LiteralPath (Join-Path $Repo 'sync.cmd') -Destination $repoDir -Force
-            New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
-            Copy-Item -LiteralPath (Join-Path $Repo 'scripts\windows') -Destination (Join-Path $repoDir 'scripts\windows') -Recurse -Force
-            Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
-        }
+        # Program files (scripts\ci too: later cases need leak-scan).
+        Copy-Item -LiteralPath $EnginePath -Destination (Join-Path $repoDir 'mksync.exe') -Force
+        # The program runs the leak scan from the repo, as run.sh copies it.
+        New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
 
         # Config and values
         $configV2Prop = $Case.PSObject.Properties['configV2']
@@ -1142,62 +1106,41 @@ function Run-Case {
             $cmdObj = $commands[$i]
             $cmd = [string]$cmdObj.command
 
-            $scriptPath = $null
+            $scriptPath = Join-Path $repoDir 'mksync.exe'
             $extraArgs = @()
-            $frontDoor = $false
-            if (-not [string]::IsNullOrEmpty($EnginePath)) {
-                $scriptPath = Join-Path $repoDir 'mksync.exe'
-                $targetProp = $null
-                $cmdOptsProp = $cmdObj.PSObject.Properties['options']
-                if ($null -ne $cmdOptsProp -and $null -ne $cmdOptsProp.Value) {
-                    $targetProp = $cmdOptsProp.Value.PSObject.Properties['target']
+            $targetProp = $null
+            $cmdOptsProp = $cmdObj.PSObject.Properties['options']
+            if ($null -ne $cmdOptsProp -and $null -ne $cmdOptsProp.Value) {
+                $targetProp = $cmdOptsProp.Value.PSObject.Properties['target']
+            }
+            switch -CaseSensitive ($cmd) {
+                'export'  { $extraArgs += 'export' }
+                'import'  { $extraArgs += 'import' }
+                'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
+                'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
+                'diff'    { $extraArgs += 'export'; $extraArgs += '--diff' }
+                'commit'  { $extraArgs += 'commit' }
+                'setup'   { $extraArgs += 'setup' }
+                'statusline' { $extraArgs += 'statusline' }
+                'status'  { $extraArgs += 'status' }
+                'doctor'  { $extraArgs += 'doctor' }
+                'pull'    { $extraArgs += 'pull' }
+                'push'    { $extraArgs += 'push' }
+                'front-diff' { $extraArgs += 'diff' }
+                'front-check' { $extraArgs += 'check' }
+                'front-preview' { $extraArgs += 'preview' }
+                'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
+                'machine-retire' {
+                    $extraArgs += 'machine'
+                    $extraArgs += 'retire'
+                    $extraArgs += [string]$targetProp.Value
                 }
-                switch -CaseSensitive ($cmd) {
-                    'export'  { $extraArgs += 'export' }
-                    'import'  { $extraArgs += 'import' }
-                    'check'   { $extraArgs += 'import'; $extraArgs += '--check' }
-                    'preview' { $extraArgs += 'export'; $extraArgs += '--preview' }
-                    'diff'    { $extraArgs += 'export'; $extraArgs += '--diff' }
-                    'commit'  { $extraArgs += 'commit' }
-                    'setup'   { $extraArgs += 'setup' }
-                    'statusline' { $extraArgs += 'statusline' }
-                    'status'  { $extraArgs += 'status' }
-                    'doctor'  { $extraArgs += 'doctor' }
-                    'pull'    { $extraArgs += 'pull' }
-                    'push'    { $extraArgs += 'push' }
-                    'front-diff' { $extraArgs += 'diff' }
-                    'front-check' { $extraArgs += 'check' }
-                    'front-preview' { $extraArgs += 'preview' }
-                    'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
-                    'machine-retire' {
-                        $extraArgs += 'machine'
-                        $extraArgs += 'retire'
-                        $extraArgs += [string]$targetProp.Value
-                    }
-                    'profile-retire' {
-                        $extraArgs += 'profile'
-                        $extraArgs += 'retire'
-                        $extraArgs += [string]$targetProp.Value
-                    }
-                    default   { Die "unknown command '$cmd' in command $($i + 1)" }
+                'profile-retire' {
+                    $extraArgs += 'profile'
+                    $extraArgs += 'retire'
+                    $extraArgs += [string]$targetProp.Value
                 }
-            } else {
-                switch -CaseSensitive ($cmd) {
-                    'export'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1' }
-                    'import'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1' }
-                    'check'   { $scriptPath = Join-Path $repoDir 'scripts\windows\Import-Settings.ps1'; $extraArgs += '-Check' }
-                    'preview' { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Preview' }
-                    'diff'    { $scriptPath = Join-Path $repoDir 'scripts\windows\Export-Settings.ps1'; $extraArgs += '-Diff' }
-                    'commit'  { $scriptPath = Join-Path $repoDir 'scripts\windows\Commit-Settings.ps1' }
-                    'status'  { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'status'; $frontDoor = $true }
-                    'doctor'  { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'doctor'; $frontDoor = $true }
-                    'pull'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'pull'; $frontDoor = $true }
-                    'push'    { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'push'; $frontDoor = $true }
-                    'front-diff' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'diff'; $frontDoor = $true }
-                    'front-check' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'check'; $frontDoor = $true }
-                    'front-preview' { $scriptPath = Join-Path $repoDir 'sync.cmd'; $extraArgs += 'preview'; $frontDoor = $true }
-                    default   { Die "unknown command '$cmd' in command $($i + 1)" }
-                }
+                default   { Die "unknown command '$cmd' in command $($i + 1)" }
             }
 
             $optsProp = $cmdObj.PSObject.Properties['options']
@@ -1215,24 +1158,15 @@ function Run-Case {
                 }
                 $forceProp = $opts.PSObject.Properties['force']
                 if ($null -ne $forceProp -and $forceProp.Value -eq $true) {
-                    if ([string]::IsNullOrEmpty($EnginePath)) {
-                        $extraArgs += '-Force'
-                    } else {
-                        $extraArgs += '--force'
-                    }
+                    $extraArgs += '--force'
                 }
                 $onlyProp = $opts.PSObject.Properties['only']
                 if ($null -ne $onlyProp) {
                     $onlyPaths = @($onlyProp.Value)
                     if ($onlyPaths.Count -gt 0) {
-                        if ([string]::IsNullOrEmpty($EnginePath)) {
-                            $extraArgs += '-Only'
-                            $extraArgs += ($onlyPaths -join '|')
-                        } else {
-                            foreach ($p in $onlyPaths) {
-                                $extraArgs += '--only'
-                                $extraArgs += $p
-                            }
+                        foreach ($p in $onlyPaths) {
+                            $extraArgs += '--only'
+                            $extraArgs += $p
                         }
                     }
                 }
@@ -1253,28 +1187,16 @@ function Run-Case {
                 }
                 $partialProp = $opts.PSObject.Properties['partial']
                 if ($null -ne $partialProp -and $partialProp.Value -eq $true) {
-                    if ([string]::IsNullOrEmpty($EnginePath)) {
-                        $extraArgs += '-Partial'
-                    } else {
-                        $extraArgs += '--partial'
-                    }
+                    $extraArgs += '--partial'
                 }
                 $messageProp = $opts.PSObject.Properties['message']
                 if ($null -ne $messageProp) {
-                    if ([string]::IsNullOrEmpty($EnginePath)) {
-                        $extraArgs += '-Message'
-                    } else {
-                        $extraArgs += '-m'
-                    }
+                    $extraArgs += '-m'
                     $extraArgs += [string]$messageProp.Value
                 }
                 $resetProp = $opts.PSObject.Properties['resetValues']
                 if ($null -ne $resetProp -and $resetProp.Value -eq $true) {
-                    if ([string]::IsNullOrEmpty($EnginePath)) {
-                        $extraArgs += '-ResetValues'
-                    } else {
-                        $extraArgs += '--reset-values'
-                    }
+                    $extraArgs += '--reset-values'
                 }
                 $pathsProp = $opts.PSObject.Properties['paths']
                 if ($null -ne $pathsProp) {
@@ -1308,15 +1230,8 @@ function Run-Case {
             }
             $rawErr = Join-Path $t 'raw-err'
 
-            # The front door is a batch file: it runs on its own, everything else
-            # of the old engine runs through powershell.exe -File.
             $launch = $scriptPath
-            if ([string]::IsNullOrEmpty($EnginePath) -and -not $frontDoor) {
-                $procArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $scriptPath) + $extraArgs
-                $launch = 'powershell.exe'
-            } else {
-                $procArgs = $extraArgs
-            }
+            $procArgs = $extraArgs
 
             $oldProfile = $env:USERPROFILE
             $oldHome = $env:HOME
@@ -1343,8 +1258,8 @@ function Run-Case {
                 $env:USERPROFILE = $homeDir
                 $env:HOME = $homeDir
                 $env:LOCALAPPDATA = $localDir
-                # GH overrides the gh binary in Commit-Settings.ps1; a caller's GH
-                # must never reach a case. VIRTUAL_ENV and CONDA_DEFAULT_ENV would
+                # GH overrides the gh binary; a caller's GH must never reach a
+                # case. VIRTUAL_ENV and CONDA_DEFAULT_ENV would
                 # otherwise add a statusline section. A caller's git repo, bus and
                 # tokens stay out too, and git may not climb above the case folder;
                 # the case's env is applied after, so it may still set them.
@@ -1360,11 +1275,7 @@ function Run-Case {
                 $env:GIT_CEILING_DIRECTORIES = $t
                 if ($ghStub) {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
-                    if ([string]::IsNullOrEmpty($EnginePath)) {
-                        $env:GH = Join-Path $t 'bin\gh.cmd'
-                    } else {
-                        $env:GH = Join-Path $t 'bin\gh.exe'
-                    }
+                    $env:GH = Join-Path $t 'bin\gh.exe'
                 }
                 # The case's env, applied after HOME/USERPROFILE is set.
                 for ($e = 0; $e -lt $envNames.Count; $e++) {
@@ -1469,10 +1380,7 @@ function Run-Case {
             }
         }
 
-        # Program cases only: the PowerShell engine's own ACL stays covered by Pester.
-        if (-not [string]::IsNullOrEmpty($EnginePath)) {
-            Test-PrivateFiles -RepoDir $repoDir -LocalDir $localDir -RunStartUtc $runStartUtc
-        }
+        Test-PrivateFiles -RepoDir $repoDir -LocalDir $localDir -RunStartUtc $runStartUtc
 
         # Each gh call is cut to its first two words, so branch names and titles
         # don't matter. No expected file means gh must not be called.
@@ -1662,40 +1570,8 @@ foreach ($caseDir in $caseDirs) {
         continue
     }
 
-    # setup, machine show, the retire commands and statusline are the program's
-    # alone: the old engines don't know them, so the case is skipped, not failed.
-    if ([string]::IsNullOrEmpty($EnginePath)) {
-        $programOnly = @($case.commands | Where-Object {
-            $_.command -ceq 'setup' -or $_.command -ceq 'statusline' -or
-            $_.command -ceq 'machine-show' -or $_.command -ceq 'machine-retire' -or
-            $_.command -ceq 'profile-retire'
-        })[0]
-        if ($null -ne $programOnly) {
-            Write-Output "SKIP ${caseName}: $($programOnly.command) is program only"
-            $skipped++
-            continue
-        }
-    }
-
-    # A v2 case needs the program: the PowerShell engine can't read config v2.
-    if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $case.PSObject.Properties['configV2']) {
-        Write-Output "SKIP ${caseName}: v2 only"
-        $skipped++
-        continue
-    }
-
-    # oldEngines names the frozen engines a case runs on; ["none"] names no old
-    # engine, and the program runs every case.
-    $oldEnginesProp = $case.PSObject.Properties['oldEngines']
-    if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $oldEnginesProp -and
-        -not (@($oldEnginesProp.Value) -ccontains 'powershell')) {
-        Write-Output "SKIP ${caseName}: not on the PowerShell engine"
-        $skipped++
-        continue
-    }
-
-    # With -Engine, import-eof-no-force counts as yes on every OS.
-    if ([string]::IsNullOrEmpty($EnginePath) -or $caseName -cne 'import-eof-no-force') {
+    # import-eof-no-force counts as yes on every OS.
+    if ($caseName -cne 'import-eof-no-force') {
         $osProp = $case.PSObject.Properties['os']
         if ($null -ne $osProp) {
             if (-not (@($osProp.Value) -ccontains 'windows')) {
@@ -1744,11 +1620,7 @@ if ($Filter -ne '' -and $matched -eq 0) {
     exit 1
 }
 
-if ($skipped -gt 0) {
-    Write-Output "$passed passed, $failed failed, $skipped skipped"
-} else {
-    Write-Output "$passed passed, $failed failed"
-}
+Write-Output "$passed passed, $failed failed"
 
 if ($ghExeTemplate -ne '') {
     Remove-Item -LiteralPath (Split-Path -Parent $ghExeTemplate) -Recurse -Force -ErrorAction SilentlyContinue
