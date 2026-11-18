@@ -301,11 +301,16 @@ Files: `src/app/shadow.ts`, `src/core/shadow.ts` (+ test), `src/adapters/engine.
 
 Test: `bun run lint && bun test src/cli src/app && bun run build && tests/parity/run.sh --engine dist/mksync usage`.
 
-## Step 20: Linked-folder detection removed `[worker]`
+## Step 20: Linked-folder detection removed `[inline: tiny edit, two config rows]`
 
-Files: `src/core/machine/linked.ts` (+ test) deleted; its callers (find them with `grep -rn detectLinkedPaths src`)
-and `scanLinks` in `sync-config.v2.json`'s Windows `.bashrc` entry. `parseV2` keeps accepting `scanLinks` as an
-ignored key only if a shared case still uses it; otherwise it goes from the allowed keys too.
+Amended at run time: `src/core/machine/linked.ts` is the v2 linked-folder scan (contract "Linked folders", cases
+`setup-linked-*` and `status-linked`), not `detectLinkedPaths`, so it stays. `scanLinks` is the converted
+`detectLinkedPaths`; the program only uses it to exempt `<file>.linked/` from ORPHAN, and the v1 case
+`orphan-linked-ok` still reaches it, so its code goes with v1 reading in step 26.
+
+Files: `sync-config.v2.json`'s Windows `.bashrc` entry trades `scanLinks` for `"linked": true` (the scan the old
+`detectLinkedPaths` stood for); `sync-config.json` drops `detectLinkedPaths` from the same entry if the v1/v2 check
+asks for it.
 
 Test: `bun run lint && bun test src && bun run tools/check-config.ts`.
 
@@ -388,6 +393,8 @@ Files: `src/core/config/v1.ts` (+ test), `src/core/config/convert.ts` (+ test), 
   7), nothing written.
 - `loadConfig`: `sync-config.v2.json` when present, else `sync-config.json`; either is parsed with `parseV2`, except a
   `sync-config.json` whose JSON object has no `schemaVersion`, which gets decision 7's line, exit 2.
+- `scanLinks` goes from `types.ts`, `v2.ts`'s field lists and `export.ts`'s `.linked/` ORPHAN exemption (step 20),
+  with `orphan-linked-ok` if step 25 kept it.
 - Remove every other import of `v1.ts` and `convert.ts` (`grep -rn "config/v1\|config/convert" src tools`).
 
 Test: `bun run lint && bun test src && bun run build && tests/parity/run.sh --engine dist/mksync config-`.
