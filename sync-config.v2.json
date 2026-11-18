@@ -180,6 +180,16 @@
       "description": "Bash run commands"
     },
     {
+      "file": "shell/MakuCustomAlias",
+      "module": "shell",
+      "merge": "dir",
+      "localPath": "C:/MakuCustomAlias",
+      "os": [
+        "windows"
+      ],
+      "description": "Folder the Windows .bashrc puts on PATH"
+    },
+    {
       "file": "shell/.bash_profile",
       "module": "shell",
       "merge": "whole",
