@@ -57,11 +57,27 @@ function readBytes(path: string): Uint8Array | undefined {
   }
 }
 
+/** True when `text` is JSON giving a plain object that has a `schemaVersion` key. */
+function hasSchemaVersion(text: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  return (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    !Array.isArray(parsed) &&
+    Object.hasOwn(parsed, "schemaVersion")
+  );
+}
+
 /**
- * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`
- * converted in memory by the same converter that writes the v2 file. Contract
- * "Path safety": a symlink under `dotfiles/` stops the run before it touches a
- * file.
+ * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`,
+ * parsed as v2 when it carries a `schemaVersion` or converted in memory by the
+ * same converter that writes the v2 file. Contract "Path safety": a symlink
+ * under `dotfiles/` stops the run before it touches a file.
  */
 export function loadConfig(
   repoRoot: string,
@@ -81,8 +97,12 @@ export function loadConfig(
     if (text === undefined) {
       return unreadable(V1_CONFIG);
     }
-    const v1 = parseV1(text);
-    loaded = v1.ok ? convertV1(v1.value) : v1;
+    if (hasSchemaVersion(text)) {
+      loaded = parseV2(text, V1_CONFIG);
+    } else {
+      const v1 = parseV1(text);
+      loaded = v1.ok ? convertV1(v1.value) : v1;
+    }
   }
   if (!loaded.ok) {
     return loaded;

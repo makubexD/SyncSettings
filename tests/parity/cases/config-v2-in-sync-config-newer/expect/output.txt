@@ -1,0 +1,1 @@
+ERROR: sync-config.json: this config needs a newer mksync: run mksync update.

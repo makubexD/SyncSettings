@@ -27,6 +27,19 @@ const WINDOWS = "windows";
 /** Top-level keys the Linux overlay keeps whatever their value holds. */
 const LINUX_ONLY_KEYS: readonly string[] = ["hooks"];
 
+/**
+ * Personal-only keys the Linux overlay holds until phase 10 moves them to
+ * `profiles/personal/`, so a work machine keeps its own plugins, marketplaces
+ * and permissions.
+ */
+export const LINUX_OVERLAY_KEYS: readonly string[] = [
+  "enabledPlugins",
+  "extraKnownMarketplaces",
+  "permissions",
+  "autoMode",
+  "skipDangerousModePermissionPrompt",
+];
+
 const HOME_MARKER = "<HOME>";
 const SHELL_SUFFIX = ".sh";
 
@@ -40,6 +53,8 @@ export const WINDOWS_OVERLAY_KEYS: readonly string[] = [];
 
 export interface LayoutOptions {
   readonly cutover?: boolean;
+  /** The Linux overlay's extra keys; LINUX_OVERLAY_KEYS when absent. */
+  readonly linuxOverlayKeys?: readonly string[];
   /** The Windows overlay's keys; WINDOWS_OVERLAY_KEYS when absent. */
   readonly windowsOverlayKeys?: readonly string[];
 }
@@ -102,15 +117,17 @@ export function holdsMachinePath(value: JsonValue): boolean {
 
 /**
  * Splits one machine-independent `settings.json` into the base layer (every
- * key but the Linux-only ones, its `statusLine` set to `mksync statusline`), the
- * Linux overlay (`hooks` and the machine-path keys) and, when `windowsOverlayKeys`
- * is not empty, the Windows overlay holding those keys as the source has them.
- * Source key order is kept; `statusLine` keeps its place, or ends the base when
- * the source has none.
+ * key but the Linux-only and personal-only ones, its `statusLine` set to
+ * `mksync statusline`), the Linux overlay (`hooks`, `linuxOverlayKeys` and the
+ * machine-path keys) and, when `windowsOverlayKeys` is not empty, the Windows
+ * overlay holding those keys as the source has them. Source key order is
+ * kept; `statusLine` keeps its place, or ends the base when the source has
+ * none. An overlay key the source lacks is skipped.
  */
 export function splitClaudeSettings(
   source: JsonValue,
   windowsOverlayKeys: readonly string[],
+  linuxOverlayKeys: readonly string[] = LINUX_OVERLAY_KEYS,
 ): Result<ClaudeLayout, string> {
   if (source.kind !== "object") {
     return err(`${LINUX_SETTINGS_FILE} is not a JSON object`);
@@ -122,7 +139,11 @@ export function splitClaudeSettings(
     if (key === STATUS_LINE_KEY) {
       baseEntries.set(key, statusLineValue());
       hasStatusLine = true;
-    } else if (LINUX_ONLY_KEYS.includes(key) || holdsMachinePath(value)) {
+    } else if (
+      LINUX_ONLY_KEYS.includes(key) ||
+      linuxOverlayKeys.includes(key) ||
+      holdsMachinePath(value)
+    ) {
       linuxEntries.set(key, value);
     } else {
       baseEntries.set(key, value);
@@ -435,6 +456,7 @@ export async function runLayout(
   const split = splitClaudeSettings(
     source.value,
     options.windowsOverlayKeys ?? WINDOWS_OVERLAY_KEYS,
+    options.linuxOverlayKeys ?? LINUX_OVERLAY_KEYS,
   );
   if (!split.ok) {
     return split;

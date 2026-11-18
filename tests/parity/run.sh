@@ -219,6 +219,10 @@ validate_case() {
     fi
     jq -e 'if has("config") then (.config | type) == "object" else (.configV2 | type) == "object" end' \
         "$json" > /dev/null 2>&1 || die 'config must be an object'
+    jq -e 'if has("configName") then
+            .configName == "sync-config.json" or .configName == "sync-config.v2.json"
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'configName must be sync-config.json or sync-config.v2.json'
     # commit reaches gh; only the stub may answer, never a real gh.
     jq -e '(any(.commands[]; .command == "commit") | not) or ((.stubs // []) | any(. == "gh"))' \
         "$json" > /dev/null 2>&1 || die 'a commit command needs "stubs": ["gh"]'
@@ -587,6 +591,9 @@ run_case() {
     else
         config_json=$(jq -c '.config' "$dir/case.json") || die 'case.json has no config'
         config_file=sync-config.json
+    fi
+    if [[ $(jq -r 'has("configName")' "$dir/case.json") == true ]]; then
+        config_file=$(jq -r '.configName' "$dir/case.json") || die 'case.json has no configName'
     fi
     count=$(jq -r '.commands | length' "$dir/case.json") || die 'case.json has no commands list'
 

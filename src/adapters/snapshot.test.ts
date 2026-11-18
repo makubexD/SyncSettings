@@ -31,6 +31,16 @@ const V1_TEXT = '{"files":[]}\n';
 const V2_TEXT =
   '{"schemaVersion":2,"modules":{"base":{"description":"Base"}},"entries":[]}\n';
 
+const V2_NEWER_TEXT =
+  '{"schemaVersion":3,"modules":{"base":{"description":"Base"}},"entries":[]}\n';
+
+/** What `{"files":[]}` converts to through `convertV1`. */
+const V1_CONVERTED: ConfigV2 = {
+  schemaVersion: 2,
+  modules: { unsorted: { description: "Entries converted from v1, not sorted yet." } },
+  entries: [],
+};
+
 const REPO_FILE = "dotfiles/common/parity/a.conf";
 
 const CONFIG_BYTES = Uint8Array.from([0x7b, 0x7d, 0x0a]);
@@ -155,6 +165,49 @@ describe("loadConfig", () => {
 
     // Assert
     expect(loaded).toEqual({ ok: true, value: JSON.parse(V2_TEXT) });
+  });
+
+  test("should load a v2 config stored as sync-config.json", () => {
+    // Arrange
+    const root = tempFolder();
+    writeFixture(join(root, V1_CONFIG), V2_TEXT);
+
+    // Act
+    const loaded = loadConfig(root);
+
+    // Assert
+    expect(loaded).toEqual({ ok: true, value: JSON.parse(V2_TEXT) });
+  });
+
+  test("should convert sync-config.json to v2 when it has no schemaVersion", () => {
+    // Arrange
+    const root = tempFolder();
+    writeFixture(join(root, V1_CONFIG), V1_TEXT);
+
+    // Act
+    const loaded = loadConfig(root);
+
+    // Assert
+    expect(loaded).toEqual({ ok: true, value: V1_CONVERTED });
+  });
+
+  test("should stop a sync-config.json that needs a newer mksync with exit 2", () => {
+    // Arrange
+    const root = tempFolder();
+    writeFixture(join(root, V1_CONFIG), V2_NEWER_TEXT);
+
+    // Act
+    const loaded = loadConfig(root);
+
+    // Assert
+    expect(loaded).toEqual({
+      ok: false,
+      error: {
+        message:
+          "ERROR: sync-config.json: this config needs a newer mksync: run mksync update.",
+        code: 2,
+      },
+    });
   });
 
   test("should report cannot read sync-config.json when neither config exists", () => {

@@ -13,8 +13,6 @@ const BACKSLASH = "\\";
 
 const DRIVE_LETTER_RE = /^[A-Za-z]:/;
 
-const INVALID_JSON_MESSAGE = `ERROR: ${CONFIG_FILE}: invalid JSON.`;
-
 // Fields a merge can not use, in the order the first present one is named.
 const DISALLOWED_FIELDS: Readonly<Record<MergeType, readonly string[]>> = {
   dir: ["sanitize", "scanLinks", "dconfPath", "keys"],
@@ -58,72 +56,59 @@ function hasEscapeBackslashes(sanitize: unknown): boolean {
   );
 }
 
-function unsafePathMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} has an unsafe path.`;
+interface ConfigMessages {
+  readonly invalidJson: string;
+  readonly newerMksync: string;
+  readonly unsupportedVersion: (version: string) => string;
+  readonly unsafePath: (file: string) => string;
+  readonly unknownModule: (file: string, module: string) => string;
+  readonly unknownMerge: (file: string, merge: string) => string;
+  readonly escapeBackslashes: (file: string) => string;
+  readonly elevate: (file: string) => string;
+  readonly linked: (file: string) => string;
+  readonly importName: (file: string) => string;
+  readonly dconfPath: (file: string) => string;
+  readonly backslash: (file: string) => string;
+  readonly os: (file: string, os: string, module: string) => string;
+  readonly entryShape: (file: string) => string;
+  readonly entryOs: (file: string) => string;
+  readonly moduleOs: (module: string) => string;
+  readonly canNotUse: (file: string, field: string, merge: MergeType) => string;
+  readonly insideDir: (file: string, dir: string) => string;
+  readonly trailingSlash: (file: string) => string;
+  readonly keys: (file: string) => string;
 }
 
-function unknownModuleMessage(file: string, module: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} names unknown module ${module}.`;
-}
-
-function unknownMergeMessage(file: string, merge: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} has an unknown merge ${merge}.`;
-}
-
-function escapeBackslashesMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} can not use escapeBackslashes with merge json.`;
-}
-
-function elevateMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} has elevate other than false.`;
-}
-
-function linkedMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} has linked other than true.`;
-}
-
-function importNameMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} needs {layer} in importName.`;
-}
-
-function dconfPathMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} needs a dconfPath like /org/gnome/shell/.`;
-}
-
-function backslashMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} has a backslash in localPath.`;
-}
-
-function osMessage(file: string, os: string, module: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} lists os ${os} outside module ${module}.`;
-}
-
-function entryShapeMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} needs file and localPath as strings.`;
-}
-
-function entryOsMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} has an os that is not a list of linux, macos or windows.`;
-}
-
-function moduleOsMessage(module: string): string {
-  return `ERROR: ${CONFIG_FILE}: module ${module} has an os that is not a list of linux, macos or windows.`;
-}
-
-function canNotUseMessage(file: string, field: string, merge: MergeType): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} can not use ${field} with merge ${merge}.`;
-}
-
-function insideDirMessage(file: string, dir: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} is inside dir entry ${dir}.`;
-}
-
-function trailingSlashMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} has a trailing / in file.`;
-}
-
-function keysMessage(file: string): string {
-  return `ERROR: ${CONFIG_FILE}: entry ${file} needs keys as a non-empty list of strings.`;
+/** Every error line names the config file the text came from. */
+function configMessages(configFile: string): ConfigMessages {
+  const prefix = `ERROR: ${configFile}`;
+  return {
+    invalidJson: `${prefix}: invalid JSON.`,
+    newerMksync: `${prefix}: this config needs a newer mksync: run mksync update.`,
+    unsupportedVersion: (version) => `${prefix}: unsupported config schemaVersion ${version}.`,
+    unsafePath: (file) => `${prefix}: entry ${file} has an unsafe path.`,
+    unknownModule: (file, module) => `${prefix}: entry ${file} names unknown module ${module}.`,
+    unknownMerge: (file, merge) => `${prefix}: entry ${file} has an unknown merge ${merge}.`,
+    escapeBackslashes: (file) =>
+      `${prefix}: entry ${file} can not use escapeBackslashes with merge json.`,
+    elevate: (file) => `${prefix}: entry ${file} has elevate other than false.`,
+    linked: (file) => `${prefix}: entry ${file} has linked other than true.`,
+    importName: (file) => `${prefix}: entry ${file} needs {layer} in importName.`,
+    dconfPath: (file) => `${prefix}: entry ${file} needs a dconfPath like /org/gnome/shell/.`,
+    backslash: (file) => `${prefix}: entry ${file} has a backslash in localPath.`,
+    os: (file, os, module) =>
+      `${prefix}: entry ${file} lists os ${os} outside module ${module}.`,
+    entryShape: (file) => `${prefix}: entry ${file} needs file and localPath as strings.`,
+    entryOs: (file) =>
+      `${prefix}: entry ${file} has an os that is not a list of linux, macos or windows.`,
+    moduleOs: (module) =>
+      `${prefix}: module ${module} has an os that is not a list of linux, macos or windows.`,
+    canNotUse: (file, field, merge) =>
+      `${prefix}: entry ${file} can not use ${field} with merge ${merge}.`,
+    insideDir: (file, dir) => `${prefix}: entry ${file} is inside dir entry ${dir}.`,
+    trailingSlash: (file) => `${prefix}: entry ${file} has a trailing / in file.`,
+    keys: (file) => `${prefix}: entry ${file} needs keys as a non-empty list of strings.`,
+  };
 }
 
 function disallowedField(record: Record<string, unknown>, merge: MergeType): string | undefined {
@@ -152,15 +137,19 @@ function failure(message: string, code: 1 | 2): Result<ConfigV2, ConfigError> {
   return { ok: false, error: { message, code } };
 }
 
-export function parseV2(text: string): Result<ConfigV2, ConfigError> {
+export function parseV2(
+  text: string,
+  file: string = CONFIG_FILE,
+): Result<ConfigV2, ConfigError> {
+  const messages = configMessages(file);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return failure(INVALID_JSON_MESSAGE, 1);
+    return failure(messages.invalidJson, 1);
   }
   if (!isRecord(parsed)) {
-    return failure(INVALID_JSON_MESSAGE, 1);
+    return failure(messages.invalidJson, 1);
   }
 
   const schemaVersion = parsed.schemaVersion;
@@ -169,27 +158,24 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
     typeof schemaVersion === "number" &&
     schemaVersion > 2
   ) {
-    return failure(
-      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
-      2,
-    );
+    return failure(messages.newerMksync, 2);
   }
   if (!Object.hasOwn(parsed, "schemaVersion") || schemaVersion !== 2) {
     const version = Object.hasOwn(parsed, "schemaVersion")
       ? JSON.stringify(schemaVersion)
       : "none";
-    return failure(`ERROR: ${CONFIG_FILE}: unsupported config schemaVersion ${version}.`, 2);
+    return failure(messages.unsupportedVersion(version), 2);
   }
 
   if (!isRecord(parsed.modules) || !Array.isArray(parsed.entries)) {
-    return failure(INVALID_JSON_MESSAGE, 1);
+    return failure(messages.invalidJson, 1);
   }
   const modules = parsed.modules;
   const entries: readonly unknown[] = parsed.entries;
 
   for (const [name, definition] of Object.entries(modules)) {
     if (isRecord(definition) && Object.hasOwn(definition, "os") && !isOsList(definition.os)) {
-      return failure(moduleOsMessage(name), 1);
+      return failure(messages.moduleOs(name), 1);
     }
   }
 
@@ -205,57 +191,57 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
           ? "none"
           : shown(entryValue);
     if (!isRecord(entry) || typeof record.file !== "string") {
-      return failure(entryShapeMessage(file), 1);
+      return failure(messages.entryShape(file), 1);
     }
 
     if (isUnsafeFile(file)) {
-      return failure(unsafePathMessage(file), 1);
+      return failure(messages.unsafePath(file), 1);
     }
 
     const moduleName = record.module;
     if (typeof moduleName !== "string" || !Object.hasOwn(modules, moduleName)) {
-      return failure(unknownModuleMessage(file, shown(moduleName)), 1);
+      return failure(messages.unknownModule(file, shown(moduleName)), 1);
     }
 
     const merge = record.merge;
     if (!isMergeType(merge)) {
-      return failure(unknownMergeMessage(file, shown(merge)), 1);
+      return failure(messages.unknownMerge(file, shown(merge)), 1);
     }
 
     if (merge === "dconf" && (typeof record.dconfPath !== "string" || !isValidDconfPath(record.dconfPath))) {
-      return failure(dconfPathMessage(file), 1);
+      return failure(messages.dconfPath(file), 1);
     }
 
     // A dconf entry has no local path: the dconf folder is its destination.
     if (merge !== "dconf" && typeof record.localPath !== "string") {
-      return failure(entryShapeMessage(file), 1);
+      return failure(messages.entryShape(file), 1);
     }
 
     if (Object.hasOwn(record, "os") && !isOsList(record.os)) {
-      return failure(entryOsMessage(file), 1);
+      return failure(messages.entryOs(file), 1);
     }
 
     if (merge === "json" && hasEscapeBackslashes(record.sanitize)) {
-      return failure(escapeBackslashesMessage(file), 1);
+      return failure(messages.escapeBackslashes(file), 1);
     }
 
     if (Object.hasOwn(record, "elevate") && record.elevate !== false) {
-      return failure(elevateMessage(file), 1);
+      return failure(messages.elevate(file), 1);
     }
 
     if (Object.hasOwn(record, "linked") && record.linked !== true) {
-      return failure(linkedMessage(file), 1);
+      return failure(messages.linked(file), 1);
     }
 
     if (
       merge === "import" &&
       (typeof record.importName !== "string" || !record.importName.includes(LAYER_PLACEHOLDER))
     ) {
-      return failure(importNameMessage(file), 1);
+      return failure(messages.importName(file), 1);
     }
 
     if (hasBackslash(record.localPath) || localPathsHaveBackslash(record.localPaths)) {
-      return failure(backslashMessage(file), 1);
+      return failure(messages.backslash(file), 1);
     }
 
     const moduleDef = modules[moduleName];
@@ -263,21 +249,21 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
     if (Array.isArray(moduleOs) && Array.isArray(record.os)) {
       const outside = record.os.find((os) => !moduleOs.includes(os));
       if (outside !== undefined) {
-        return failure(osMessage(file, shown(outside), moduleName), 1);
+        return failure(messages.os(file, shown(outside), moduleName), 1);
       }
     }
 
     const field = disallowedField(record, merge);
     if (field !== undefined) {
-      return failure(canNotUseMessage(file, field, merge), 1);
+      return failure(messages.canNotUse(file, field, merge), 1);
     }
 
     if (file.endsWith("/")) {
-      return failure(trailingSlashMessage(file), 1);
+      return failure(messages.trailingSlash(file), 1);
     }
 
     if (merge === "dconf" && Object.hasOwn(record, "keys") && !isKeyList(record.keys)) {
-      return failure(keysMessage(file), 1);
+      return failure(messages.keys(file), 1);
     }
 
     parsedEntries.push({ file, merge });
@@ -289,7 +275,7 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
   for (const entry of parsedEntries) {
     const dir = dirFiles.find((candidate) => entry.file.startsWith(`${candidate}/`));
     if (dir !== undefined) {
-      return failure(insideDirMessage(entry.file, dir), 1);
+      return failure(messages.insideDir(entry.file, dir), 1);
     }
   }
 

@@ -1,0 +1,31 @@
+{
+  "description": "A v2 config named sync-config.json with a schemaVersion above 2 stops with the newer-mksync line naming that file, exit 2, before any file is written (decision 8 of docs/plan-single-engine-9-cutover.md; Config v2).",
+  "configV2": {
+    "schemaVersion": 3,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "os": ["linux", "macos", "windows"],
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "configName": "sync-config.json",
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      },
+      "stderr": true
+    }
+  ]
+}

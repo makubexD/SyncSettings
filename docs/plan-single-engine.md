@@ -237,8 +237,13 @@ process adapter on `node:child_process`, clone launchers for Bun and Node, usage
 writes that refuse symlinks, release workflow with `SHA256SUMS` and attestation, `mksync update`, installers that
 download the checked program, and setup with doctor first and the Ubuntu bootstrap. Its PR also carries
 [plan-single-engine-9-values.md](plan-single-engine-9-values.md) (done 2026-11-18): on a fresh machine the program asks for a value
-nothing else fills, during setup and pull, from the same input as their own questions. Next:
-`docs/plan-single-engine-9-cutover.md`.
+nothing else fills, during setup and pull, from the same input as their own questions.
+
+**Cut-over plan in progress** ([plan-single-engine-9-cutover.md](plan-single-engine-9-cutover.md), reviewed
+2026-11-18): part 1 on `engine/cutover-config` (config picked by `schemaVersion`, the layout tool's personal keys,
+then `v0.9.0` and the real-machine checks), part 2 on `engine/cutover` (layout, deletion, v1 configs dropped). The
+research probe and its workflow stay (they run only on demand). Claude tags `v0.9.0` and `v1.0.0` after the user's
+GO.
 
 - A release workflow builds the programs with checksums and `gh attestation`.
 - The Claude layout goes live: `bun tools/claude-layout.ts <repo>` lists its writes, then `--cutover` writes the
