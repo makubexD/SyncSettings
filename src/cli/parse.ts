@@ -41,14 +41,6 @@ export interface RunCommand {
   readonly only: readonly string[];
 }
 
-/**
- * `shadow`: compare the program and the old engine next to the clone. Hidden:
- * it is not in `USAGE` (the design's "Open" keeps the name under review).
- */
-export interface ShadowCommand {
-  readonly kind: "shadow";
-}
-
 /** `status`: print where this machine stands, exit 0. */
 export interface StatusCommand {
   readonly kind: "status";
@@ -153,7 +145,6 @@ export interface ParseError {
 
 export type ParsedCommand =
   | RunCommand
-  | ShadowCommand
   | StatusCommand
   | DoctorCommand
   | DiffCommand
@@ -171,8 +162,6 @@ export type ParsedCommand =
   | ParseError;
 
 const VERSION_OPTION = "--version";
-
-const SHADOW_COMMAND = "shadow";
 
 const MACHINE_COMMAND = "machine";
 
@@ -674,12 +663,6 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   }
   if (command === VERSION_OPTION) {
     return { kind: "version" };
-  }
-  if (command === SHADOW_COMMAND) {
-    const extra = argv[1];
-    return extra === undefined
-      ? { kind: "shadow" }
-      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
   if (command === STATUSLINE_COMMAND) {
     const extra = argv[1];

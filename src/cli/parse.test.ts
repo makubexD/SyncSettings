@@ -720,14 +720,14 @@ describe("parseArgs", () => {
     expect(parseArgs(["commit", "work-1"])).toEqual(unknownOption("work-1"));
   });
 
-  test("should keep export, import, commit and shadow out of the usage line", () => {
-    for (const hidden of ["export", "import", "commit", "shadow"]) {
+  test("should keep export, import and commit out of the usage line", () => {
+    for (const hidden of ["export", "import", "commit"]) {
       expect(USAGE_TEXT.includes(`mksync ${hidden}`)).toBe(false);
     }
   });
 
-  test("should keep shadow out of the usage line", () => {
-    expect(USAGE_TEXT.includes("shadow")).toBe(false);
+  test("should treat shadow as an unknown command", () => {
+    expect(parseArgs(["shadow"])).toEqual(parseArgs(["frobnicate"]));
   });
 
   test("should name status in the usage line", () => {
