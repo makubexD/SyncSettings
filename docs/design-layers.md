@@ -1668,6 +1668,11 @@ doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push 
   **User's call, 2026-11-18:** work machines don't get the downloaded program and IT isn't asked; they run from the
   clone with Node (`SYNCSETTINGS_RUNTIME=node`), whose `mksync.cmd` shim is on the user `Path`.
   `docs/windows-cutover-run.md` checks that route. Step 8 of the cut-over plan settles this item with its answer.
+- **`mksync` from Git Bash on a run-from-clone machine (open).** The Node install puts only `mksync.cmd` on the
+  `Path`. Git Bash doesn't run a `.cmd` without its extension, so `mksync --version` there is `command not found` (127)
+  while `mksync.cmd --version` works (local Windows VM, 2026-11-18). Claude Code runs hooks and the `statusLine`
+  command through Git Bash, so part 2's synced `mksync statusline` would fail there. Either the Windows overlay calls
+  `mksync.cmd`, or the installer also writes an extensionless `mksync` shell script next to the shim.
 - **mksync as an npm package (open, idea).** `npm install -g` would put `mksync` on `PATH` on any machine with Node,
   with `npm update -g` for updates. Against it, for now: it publishes to the public npm registry (a release decision),
   `package.json` is `private`, and an install from npm is as visible on a work machine as the clone's `mksync.cmd`

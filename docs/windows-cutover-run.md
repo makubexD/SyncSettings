@@ -4,82 +4,71 @@ Part 1 of `docs/plan-single-engine-9-cutover.md` ends with one run on a real Win
 the design's real-Windows checklist (`docs/design-layers.md`, "Tests") for work machines. It runs on work #1 first;
 work #2 and #3 run the same sheet when you're at them.
 
-**Work machines run `mksync` from the clone,** never the downloaded `mksync.exe`: nothing new is downloaded or
-installed, IT isn't asked, and no unsigned program lands on a work machine. The clone's launcher runs the same
-TypeScript source as the release program with the Node already there, and the installer puts a small `mksync.cmd` on
-the user `Path`, so `mksync` works from any terminal as the program would. The only differences: start-up is slower,
-and `mksync update` says to use `git pull` instead.
+**Work machines run `mksync` from the clone,** never the downloaded `mksync.exe`: no program is downloaded, IT isn't
+asked, and no unsigned `.exe` lands on a work machine. The clone's launcher runs the same TypeScript source as the
+release program with the Node already there, and the installer puts a small `mksync.cmd` on the user `Path`, so
+`mksync` works from any PowerShell or cmd window. The only differences: start-up is slower, and `mksync update` says
+to use `git pull` instead.
 
-## Before you start
+## What it changes on the machine
 
-1. **Keep the clone you have.** The run updates `%USERPROFILE%\SyncSettings` with `git pull` (through the installer)
-   and changes nothing else in it. Nothing is pulled into your settings or pushed: `mksync check` is the only sync
-   command it runs, and it writes nothing.
-2. Open Claude Code in an empty folder, for example `%USERPROFILE%\Downloads\mksync-run\`, and paste the prompt below.
-3. Read the answer before it leaves the machine. It should hold versions, yes/no and short messages only. Replace any
-   employer, product, person or host name still in it with `work-tool-1`, `work-tool-2`… Then paste it into the
-   cut-over session (plan step 8).
+- `%USERPROFILE%\SyncSettings`: `git pull` (the clone must be on `master` with no changed files; the check stops and
+  says so otherwise).
+- `%LOCALAPPDATA%\mksync\mksync.cmd`: a 4-line file that calls the clone's launcher, and that folder added to the user
+  `Path`. The old launcher `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd` is removed if it's there.
+- `Downloads\mksync-check.txt`: the report.
 
-## The prompt
+Nothing else. It never runs `mksync pull`, `push`, `setup` or `export`, installs nothing, and changes no setting.
 
-```text
-Run a checklist for a settings-sync tool on this Windows machine and report the results.
+## Steps
 
-Rules for everything you print:
-- Never print a file's contents, a setting's value, a token, an email, a host name or a user name.
-- Write my Windows user name as USER, and any company, product or person name as work-tool-1, work-tool-2...
-- Paths: C:\Users\USER\... at most; shorten anything else to its file name.
-- Change nothing outside what each item says. Never run `mksync pull`, `mksync push`, `mksync setup` or
-  `mksync export`, and never download or install anything except through item 1.
-- If an item can't run, write "unknown: <why>" for it and go on. Never retry another way than written.
-- PowerShell commands run as `powershell -NoProfile -Command "..."` unless the item says otherwise.
+1. On work #1, open **Windows PowerShell** from the Start menu (a normal window, not as administrator).
+2. Paste this line and press Enter:
 
-Items:
-1. Install from the clone: `node --version`. Then, in one PowerShell session with SYNCSETTINGS_RUNTIME=node and
-   SYNCSETTINGS_NO_SETUP=1 set, run
-   `irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex`. Report its last 3 lines.
-   Then, in a new PowerShell window (ask me to open it if you can't), `mksync --version`: the line it printed or the
-   exact error.
-2. Install location: is %LOCALAPPDATA%\mksync\mksync.cmd there (yes/no), is there no mksync.exe in that folder
-   (yes/no), is %LOCALAPPDATA%\mksync on the user Path (`[Environment]::GetEnvironmentVariable('Path','User')`,
-   yes/no only), and is %LOCALAPPDATA%\SyncSettings\bin\mksync.cmd gone (yes/no)?
-3. Shells: which shell runs your Bash tool, and which shell Claude Code uses for hooks and the statusLine command
-   (show how you know). Does `mksync --version` also work from your Bash tool (yes/no, or the error)?
-4. Home in commands: through your Bash tool, `echo ~` and `echo $HOME`; through PowerShell, `echo ~` and
-   `echo $HOME`. For each, does it name C:\Users\USER (yes/no)? Is it the same folder for both shells?
-5. Tools: `git --version`; where Git Bash is (path shortened); `jq --version`, or "not on PATH".
-6. Statusline: `Get-Content "$env:USERPROFILE\SyncSettings\tools\statusline-payloads\full.json" -Raw |
-   mksync statusline`. Report: exit code, number of lines printed, the text with the color codes removed and the
-   folder shortened to its last name.
-7. Local state: `icacls "$env:USERPROFILE\SyncSettings\.user-values.json"`. Report each grant as <who>:<rights>, with
-   my account written as USER. Is USER the only account with access (yes/no)? If the file doesn't exist, say so.
-8. Status: in %USERPROFILE%\SyncSettings, `mksync status`, `mksync doctor` and `mksync check`. Report each command's
-   exit code and every line, redacted.
-9. Shadow: in %USERPROFILE%\SyncSettings, `mksync shadow`. Report the exit code and every line it printed, redacted.
-   It writes nothing in the repo or home.
-10. Update: `mksync update`. Report the line it printed and the exit code.
-11. Bun: `bun --version`, or "not installed". If installed, in %USERPROFILE%\SyncSettings with MKSYNC_RUNTIME=bun set,
-    `.\mksync.cmd --version`: the line it printed or the exact error.
+   ```powershell
+   irm https://raw.githubusercontent.com/makubexD/SyncSettings/engine/cutover/tools/windows-cutover-check.ps1 | iex
+   ```
 
-Answer in one fenced block with exactly these headings, in this order, nothing outside the block:
-## 1 install
-## 2 location
-## 3 shells
-## 4 home
-## 5 tools
-## 6 statusline
-## 7 local state
-## 8 status
-## 9 shadow
-## 10 update
-## 11 bun
-```
+3. If it prints **STOP**, do what the **Fix** line under it says, then paste the same line again. The checks before
+   anything changes: PowerShell 5.1, `git`, Node 22.18 or newer, the clone at `%USERPROFILE%\SyncSettings` (a git
+   clone of `makubexD/SyncSettings`, on `master`, no changed files), and no `mksync.exe` in `%LOCALAPPDATA%\mksync`.
+4. If it says the installer will ask `Install gh with winget? [Y/n]`, type `n` and press Enter when it asks. That is
+   the only question.
+5. Wait for **Done.** (about a minute; `mksync shadow` is the slowest part).
+6. Open `Downloads\mksync-check.txt` (it is also on the clipboard). User, host, domain and email are already replaced
+   with `USER`, `HOST`, `DOMAIN` and `<email>`. Replace any company, product or person name still in it with
+   `work-tool-1`, `work-tool-2`…
+7. Back here, run `/next` and paste the report.
+
+Afterwards `mksync` works from any **new** PowerShell or cmd window.
+
+## What the report holds
+
+| Section            | What it shows                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `## 0 before`      | PowerShell, language mode, git, Node, the clone's branch, whether `gh` is there                       |
+| `## 1 install`     | the installer's result and `mksync --version`                                                         |
+| `## 2 location`    | `mksync.cmd` in `%LOCALAPPDATA%\mksync`, no `mksync.exe`, the folder on the user `Path`, old one gone |
+| `## 3 git bash`    | `$HOME` and `~` in Git Bash (the shell Claude Code uses for hooks), and `mksync` from Git Bash        |
+| `## 4 home`        | `~` and `$HOME` in PowerShell, `jq`                                                                   |
+| `## 5 statusline`  | `mksync statusline` on a sample payload                                                               |
+| `## 6 local state` | who can read `.user-values.json`                                                                      |
+| `## 7 status`      | `mksync status`, `doctor` and `check` (check exits 3 when the repo has changes to pull: expected)     |
+| `## 8 shadow`      | `mksync shadow`: the program against the old engine                                                   |
+| `## 9 update`      | `mksync update`: from the clone it says to use `git pull`, exit 2 (expected)                          |
+| `## 10 bun`        | Bun's version and the launcher with `MKSYNC_RUNTIME=bun`, if Bun is installed                         |
+
+## Tried in the local Windows VM
+
+2026-11-18, on a fresh clone with Node 22.18 and a dummy `gh`: every section ran. As expected, `check` exited 3 and
+`update` exited 2. `mksync` is not found from Git Bash, only `mksync.cmd` is (design, "Open"). The VM's shadow lines
+come from a machine that was never set up, so only work #1's count.
 
 ## What it doesn't cover
 
 - **The downloaded program** (checklist items 1, 8 and 9 for `mksync.exe`): work machines don't run it. The release
   program is checked on personal Linux, in CI on Windows and macOS, and in the local Windows VM.
-- **The synced statusline.** `settings.json` still calls `statusline.sh` until part 2, so item 6 runs the launcher by
-  hand with a sample payload.
+- **The synced statusline.** `settings.json` still calls `statusline.sh` until part 2, so section 5 runs the launcher
+  by hand with a sample payload.
 
 ## Answer
