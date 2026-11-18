@@ -1411,6 +1411,10 @@ Enterprise. Every section ran:
   whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule, and (port step
   36, from the v1 lint rules) `can not use <field> with merge <merge>`, `is inside dir entry <dir>`,
   `has a trailing / in file` and `needs keys as a non-empty list of strings`. They enter the contract when v2 does.
+- **Lines that name the deleted engine (found in phase 9 step 17).** The program still prints `run ./import.sh --check
+to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  first` (`src/core/plan/run.ts`) and
+  `ERROR: run commit.sh from master` (`src/app/commit.ts`). Those files are gone. Proposed: `mksync check`,
+  `mksync import` and `mksync commit`, each with its shared case changed first (rule 2). No plan step covers it yet.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
