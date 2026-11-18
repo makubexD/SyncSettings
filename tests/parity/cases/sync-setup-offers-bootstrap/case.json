@@ -1,31 +1,53 @@
 {
-  "description": "Ubuntu setup asks the bootstrap question, runs bootstrap/linux.sh when the answer is y, and does not run it on an empty answer; exit 0 both (Front door, setup; ported from sync_setup_offers_bootstrap).",
-  "os": ["linux"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "description": "On Ubuntu with an executable bootstrap/linux.sh, the v2 setup asks the bootstrap question after writing the record and the profile; an empty answer skips the script and setup goes on with the first pull, exit 0 (Machines (program only), mksync setup, bootstrap). The y answer is setup-bootstrap-question.",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/plain.txt",
-        "localPath": "~/.config/parity/plain.txt",
-        "platform": "common",
-        "description": "Matches the repo"
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
       }
     ]
   },
   "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude",
     "SYNC_OS_RELEASE": "../home/os-release"
   },
-  "stubs": ["bootstrap", "gh"],
+  "stubs": [
+    "bootstrap",
+    "gh"
+  ],
   "commands": [
     {
       "command": "setup",
-      "options": { "yes": true },
-      "stdin": "y\n"
-    },
-    {
-      "command": "setup",
-      "options": { "yes": true }
+      "options": {
+        "profile": "work-1",
+        "yes": true
+      },
+      "stdin": "\n"
     }
   ]
 }

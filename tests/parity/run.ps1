@@ -224,14 +224,13 @@ function Validate-Case {
         }
     }
 
-    # Exactly one of config or configV2; checked before env, which v2 restricts.
-    $configProp = $case.PSObject.Properties['config']
-    $configV2Prop = $case.PSObject.Properties['configV2']
-    if ($null -ne $configProp -and $null -ne $configV2Prop) {
-        Die 'case.json has both config and configV2'
+    # Only configV2: the v1 config went at cut-over.
+    if ($null -ne $case.PSObject.Properties['config']) {
+        Die 'case.json has a v1 config'
     }
-    if ($null -eq $configProp -and $null -eq $configV2Prop) {
-        Die 'case.json has no config'
+    $configV2Prop = $case.PSObject.Properties['configV2']
+    if ($null -eq $configV2Prop) {
+        Die 'case.json has no configV2'
     }
 
     # configName picks the file the config is written to; absent, the rule above.
@@ -254,17 +253,6 @@ function Validate-Case {
             }
         }
         if ($null -ne $configV2Prop) {
-            foreach ($p in $envProp.Value.PSObject.Properties) {
-                if ($p.Name -cne 'SYNC_PROFILE' -and $p.Name -cne 'SYNC_MACHINE' -and
-                    $p.Name -cne 'SYNC_HOSTNAME' -and $p.Name -cne 'SYNC_DOMAIN' -and
-                    $p.Name -cne 'SYNC_TOOLS' -and $p.Name -cne 'MKSYNC_VISIBILITY' -and
-                    $p.Name -cne 'SYNC_NOW' -and $p.Name -cne 'SYNC_LOAD' -and
-                    $p.Name -cne 'SYNC_MEM' -and $p.Name -cne 'SYNC_GIT' -and
-                    $p.Name -cne 'CONTEXT_CLEAR_AT' -and $p.Name -cne 'CTX_WINDOW_DIR' -and
-                    $p.Name -cne 'SYNC_OS_RELEASE') {
-                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT, CTX_WINDOW_DIR and SYNC_OS_RELEASE in env'
-                }
-            }
             $ctxProp = $envProp.Value.PSObject.Properties['CTX_WINDOW_DIR']
             if ($null -ne $ctxProp -and $null -ne $ctxProp.Value) {
                 $ctx = [string]$ctxProp.Value
@@ -329,14 +317,8 @@ function Validate-Case {
         }
     }
 
-    $configValue = $null
-    if ($null -ne $configProp) {
-        $configValue = $configProp.Value
-    } else {
-        $configValue = $configV2Prop.Value
-    }
-    if ($configValue -isnot [pscustomobject]) {
-        Die 'config must be an object'
+    if ($configV2Prop.Value -isnot [pscustomobject]) {
+        Die 'configV2 must be an object'
     }
     # commit reaches gh; only the stub may answer, never a real gh.
     $hasCommit = @($case.commands | Where-Object { $_.command -ceq 'commit' }).Count -gt 0
@@ -962,18 +944,8 @@ function Run-Case {
         Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
 
         # Config and values
-        $configV2Prop = $Case.PSObject.Properties['configV2']
-        if ($null -ne $configV2Prop) {
-            $configJson = $configV2Prop.Value | ConvertTo-Json -Depth 32 -Compress
-            $configName = 'sync-config.json'
-        } else {
-            $configProp = $Case.PSObject.Properties['config']
-            if ($null -eq $configProp) {
-                Die 'case.json has no config'
-            }
-            $configJson = $configProp.Value | ConvertTo-Json -Depth 32 -Compress
-            $configName = 'sync-config.json'
-        }
+        $configJson = $Case.configV2 | ConvertTo-Json -Depth 32 -Compress
+        $configName = 'sync-config.json'
         $configNameProp = $Case.PSObject.Properties['configName']
         if ($null -ne $configNameProp) {
             $configName = [string]$configNameProp.Value

@@ -150,6 +150,10 @@ with `/` or a drive letter (`C:`), holds a `..` segment, or holds a `\` stops wi
 ERROR: sync-config.v2.json: entry <file> has an unsafe path.
 ```
 
+The v2 config keeps two of the rules above, with the entry's `file` in the line: a `localPaths` key other than
+`linux`, `macos` or `windows`, and a `defaultEnv` that isn't a variable name (below), each stop with exit 1. Its
+`localPath` may be absolute, such as `C:/MakuCustomAlias` ([cut-over decision 4](plan-single-engine-9-cutover.md)).
+
 A dconf entry has no `localPath`. Instead its `platform` must be the string `linux` (a list, even `["linux"]`, stops
 both engines), and its `path` must start and end with `/`, hold
 at least one segment of letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody
@@ -175,8 +179,8 @@ ERROR: sync-config.json: entry <repoPath> has an invalid defaultEnv.
 
 `~` is the user's home: `$HOME` on Linux, the profile folder on Windows (`$env:USERPROFILE`, or the target user's
 profile with `-User`). A `common` entry, and any entry the bash engine runs (`linux`, `macos` or a list holding them), must
-use the `~/` form. Every `localPath` must use one of these two forms: an absolute path stops the run
-([Path safety](#path-safety)). With no home folder set (`HOME`, or `USERPROFILE` on Windows) the run stops with exit
+use the `~/` form. Every `localPath` in a v1 config must use one of these two forms: an absolute path stops the run
+([Path safety](#path-safety)); a v2 config may name an absolute folder. With no home folder set (`HOME`, or `USERPROFILE` on Windows) the run stops with exit
 code 1 before touching a file; the program prints `ERROR: the home folder is not set (HOME).` (`(USERPROFILE).` on
 Windows).
 

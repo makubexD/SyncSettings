@@ -176,13 +176,6 @@ validate_case() {
           else true end' "$json" > /dev/null 2>&1 \
         || die 'env must be an object of strings or null'
     if jq -e 'has("configV2")' "$json" > /dev/null 2>&1; then
-        jq -e '(.env // {}) | all(keys[];
-                . == "SYNC_PROFILE" or . == "SYNC_MACHINE" or . == "SYNC_HOSTNAME" or . == "SYNC_DOMAIN"
-                or . == "SYNC_TOOLS" or . == "MKSYNC_VISIBILITY" or . == "SYNC_NOW" or . == "SYNC_LOAD"
-                or . == "SYNC_MEM" or . == "SYNC_GIT" or . == "CONTEXT_CLEAR_AT" or . == "CTX_WINDOW_DIR"
-                or . == "SYNC_OS_RELEASE")' \
-            "$json" > /dev/null 2>&1 \
-            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT, CTX_WINDOW_DIR and SYNC_OS_RELEASE in env'
         jq -e '(.env // {}) as $e
             | if ($e | has("CTX_WINDOW_DIR")) and $e.CTX_WINDOW_DIR != null then
                   if ($e.CTX_WINDOW_DIR | type) == "string" then
@@ -224,14 +217,13 @@ validate_case() {
         jq -e '.git == "committed" or .git == "remote"' "$json" > /dev/null 2>&1 \
             || die 'unsent/ needs git committed or remote'
     fi
-    if jq -e 'has("config") and has("configV2")' "$json" > /dev/null 2>&1; then
-        die 'case.json has both config and configV2'
+    if jq -e 'has("config")' "$json" > /dev/null 2>&1; then
+        die 'case.json has a v1 config'
     fi
-    if ! jq -e 'has("config") or has("configV2")' "$json" > /dev/null 2>&1; then
-        die 'case.json has no config'
+    if ! jq -e 'has("configV2")' "$json" > /dev/null 2>&1; then
+        die 'case.json has no configV2'
     fi
-    jq -e 'if has("config") then (.config | type) == "object" else (.configV2 | type) == "object" end' \
-        "$json" > /dev/null 2>&1 || die 'config must be an object'
+    jq -e '(.configV2 | type) == "object"' "$json" > /dev/null 2>&1 || die 'configV2 must be an object'
     jq -e 'if has("configName") then
             .configName == "sync-config.json" or .configName == "sync-config.v2.json"
           else true end' "$json" > /dev/null 2>&1 \
@@ -596,13 +588,8 @@ run_case() {
     t=$(mktemp -d)
     trap 'rm -rf "$t"' EXIT
 
-    if [[ $(jq -r 'has("configV2")' "$dir/case.json") == true ]]; then
-        config_json=$(jq -c '.configV2' "$dir/case.json") || die 'case.json has no configV2'
-        config_file=sync-config.json
-    else
-        config_json=$(jq -c '.config' "$dir/case.json") || die 'case.json has no config'
-        config_file=sync-config.json
-    fi
+    config_json=$(jq -c '.configV2' "$dir/case.json") || die 'case.json has no configV2'
+    config_file=sync-config.json
     if [[ $(jq -r 'has("configName")' "$dir/case.json") == true ]]; then
         config_file=$(jq -r '.configName' "$dir/case.json") || die 'case.json has no configName'
     fi

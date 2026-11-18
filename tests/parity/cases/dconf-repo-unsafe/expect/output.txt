@@ -1,1 +1,0 @@
-ERROR: sync-config.json: entry dotfiles/../app.ini has an unsafe path.

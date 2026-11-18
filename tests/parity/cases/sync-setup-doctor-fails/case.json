@@ -1,19 +1,33 @@
 {
-  "description": "A doctor MISSING line (brew, on a macos platform) stops setup before the import check and any question; exit 1 (Front door, setup; ported from sync_setup_doctor_fails).",
-  "os": ["linux"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": []
+  "description": "A doctor MISSING line (brew, with SYNC_OS macos) stops setup before the import check and any question; exit 1 (Front door, setup; ported from sync_setup_doctor_fails).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": []
   },
   "env": {
     "SYNC_OS": "macos"
   },
-  "stubs": ["bootstrap", "gh"],
+  "stubs": [
+    "bootstrap",
+    "gh"
+  ],
   "commands": [
     {
       "command": "setup",
-      "options": { "yes": true }
+      "options": {
+        "yes": true
+      }
     }
   ]
 }

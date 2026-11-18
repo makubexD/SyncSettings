@@ -1,7 +1,7 @@
 {
   "description": "Export of a dir entry skips every credential the shipped excludePatterns name and copies only the ordinary file (Exclude patterns; Statuses, Export; Directory entries).",
-  "config": {
-    "version": 1,
+  "configV2": {
+    "schemaVersion": 2,
     "excludePatterns": [
       "*.pem",
       "*.key",
@@ -29,16 +29,27 @@
       "*.env",
       "id_dsa*"
     ],
-    "files": [
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/creds",
+        "file": "creds",
+        "module": "unsorted",
+        "merge": "dir",
         "localPath": "~/.config/fixture/creds",
-        "type": "dir",
-        "platform": "common",
         "description": "Excluded credentials fixture"
       }
     ]
   },
-  "env": { "LC_ALL": "C" },
-  "commands": [{ "command": "export" }]
+  "env": {
+    "LC_ALL": "C"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

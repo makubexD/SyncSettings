@@ -1,29 +1,54 @@
 {
   "description": "A sync file holding only the placeholder passes the cached-value check, so commit opens the PR, exit 0 (Checks before pushing).",
   "git": "remote",
-  "stubs": ["gh"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "stubs": [
+    "gh"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
         "description": "Parity case file"
       },
       {
-        "repoPath": "dotfiles/linux/plain.txt",
+        "file": "plain.txt",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/fixture/plain.txt",
-        "platform": "linux",
-        "description": "Sanitized fixture",
-        "sanitizeRules": [
-          { "placeholder": "<NAME>", "prompt": "Full name" }
-        ]
+        "os": [
+          "linux"
+        ],
+        "sanitize": [
+          {
+            "placeholder": "<NAME>",
+            "prompt": "Full name"
+          }
+        ],
+        "description": "Sanitized fixture"
       }
     ]
   },
-  "values": { "<NAME>": "Fixture User" },
-  "env": { "GIT_CONFIG_GLOBAL": "../home/gitconfig" },
-  "commands": [{ "command": "commit" }]
+  "values": {
+    "<NAME>": "Fixture User"
+  },
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "commands": [
+    {
+      "command": "commit"
+    }
+  ]
 }

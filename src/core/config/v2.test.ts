@@ -85,6 +85,14 @@ function backslashError(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} has a backslash in localPath.`;
 }
 
+function localPathsKeyError(file: string, key: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an unknown localPaths key ${key}.`;
+}
+
+function defaultEnvError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an invalid defaultEnv.`;
+}
+
 function osError(file: string, os: string, module: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} lists os ${os} outside module ${module}.`;
 }
@@ -284,6 +292,36 @@ describe("parseV2", () => {
 
     // Act / Assert
     expectError(configWith([bad]), backslashError(bad.file as string), 1);
+  });
+
+  test("a localPaths key that is not an OS name stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ localPaths: { freebsd: "~/.config/x.conf" } });
+
+    // Act / Assert
+    expectError(configWith([bad]), localPathsKeyError(bad.file as string, "freebsd"), 1);
+  });
+
+  test("a sanitize rule whose defaultEnv is not a variable name stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", defaultEnv: "1BAD" }] });
+
+    // Act / Assert
+    expectError(configWith([bad]), defaultEnvError(bad.file as string), 1);
+  });
+
+  test("a sanitize rule with a valid defaultEnv and OS-named localPaths are accepted", () => {
+    // Arrange
+    const good = entry({
+      localPaths: { macos: "~/Library/x.conf" },
+      sanitize: [{ placeholder: "<HOME>", prompt: "Home", defaultEnv: "HOME" }],
+    });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok).toBe(true);
   });
 
   test("an entry os outside its module os stops with exit 1", () => {
