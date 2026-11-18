@@ -1,7 +1,7 @@
 import { hasDotDotSegment, isValidDconfPath } from "./dconf-path.ts";
 import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
 
-const CONFIG_FILE = "sync-config.v2.json";
+const CONFIG_FILE = "sync-config.json";
 
 const MERGE_TYPES: readonly MergeType[] = ["whole", "json", "import", "dconf", "dir"];
 

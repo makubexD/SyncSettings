@@ -58,7 +58,7 @@ function readBytes(path: string): Uint8Array | undefined {
 }
 
 /** True when `text` is JSON giving a plain object that has a `schemaVersion` key. */
-function hasSchemaVersion(text: string): boolean {
+export function hasSchemaVersion(text: string): boolean {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -74,10 +74,11 @@ function hasSchemaVersion(text: string): boolean {
 }
 
 /**
- * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`,
- * parsed as v2 when it carries a `schemaVersion` or converted in memory by the
- * same converter that writes the v2 file. Contract "Path safety": a symlink
- * under `dotfiles/` stops the run before it touches a file.
+ * Decision 8: the old clone's `sync-config.v2.json` when it exists, else
+ * `sync-config.json`, parsed as v2 when it carries a `schemaVersion` or
+ * converted in memory by the same converter that wrote the old v2 file.
+ * Contract "Path safety": a symlink under `dotfiles/` stops the run before it
+ * touches a file.
  */
 export function loadConfig(
   repoRoot: string,
@@ -91,7 +92,7 @@ export function loadConfig(
   const v2Path = join(repoRoot, V2_CONFIG);
   if (existsSync(v2Path)) {
     const text = readText(v2Path);
-    loaded = text === undefined ? unreadable(V2_CONFIG) : parseV2(text);
+    loaded = text === undefined ? unreadable(V2_CONFIG) : parseV2(text, V2_CONFIG);
   } else {
     const text = readText(join(repoRoot, V1_CONFIG));
     if (text === undefined) {

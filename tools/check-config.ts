@@ -1,9 +1,9 @@
-// Dev-only: checks sync-config.v2.json against the files in the repo. Never compiled into the program.
+// Dev-only: checks sync-config.json against the files in the repo. Never compiled into the program.
 import { existsSync, readdirSync } from "node:fs";
 import type { ConfigV2, ConfigV2Entry, Os } from "../src/core/config/types.ts";
 import { parseV2 } from "../src/core/config/v2.ts";
 
-const CONFIG_SOURCE = "sync-config.v2.json";
+const CONFIG_SOURCE = "sync-config.json";
 
 const DOTFILES = "dotfiles";
 

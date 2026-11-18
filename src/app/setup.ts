@@ -20,7 +20,12 @@ import { readOrigin } from "../adapters/git.ts";
 import { readOsId } from "../adapters/osname.ts";
 import { run } from "../adapters/process.ts";
 import { readScan } from "../adapters/scan.ts";
-import { loadLayers, V2_CONFIG } from "../adapters/snapshot.ts";
+import {
+  hasSchemaVersion,
+  loadLayers,
+  V1_CONFIG,
+  V2_CONFIG,
+} from "../adapters/snapshot.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import {
   readLinkedFolders,
@@ -325,10 +330,14 @@ export async function executeSetup(
   if (command.bootstrap === true && os === "macos") {
     return failure(BOOTSTRAP_ONLY_MACOS);
   }
-  // `loadConfig` reads `sync-config.v2.json` when it is there and converts the
-  // version-1 file otherwise, so its absence means this repo is still v1 and
+  // `loadConfig` reads an old clone's `sync-config.v2.json` when it is there,
+  // else `sync-config.json`; one without a `schemaVersion` is still v1, so
   // setup follows the old engine's rules.
-  if (!existsSync(join(repoRoot, V2_CONFIG))) {
+  const ownConfig = readText(join(repoRoot, V1_CONFIG));
+  if (
+    !existsSync(join(repoRoot, V2_CONFIG)) &&
+    (ownConfig === undefined || !hasSchemaVersion(ownConfig))
+  ) {
     return executeV1Setup(repoRoot, config, os, home, state, command, execute);
   }
   const store = readStore(state, repoRoot, config);

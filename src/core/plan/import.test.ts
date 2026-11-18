@@ -1928,7 +1928,7 @@ describe("planImport dconf", () => {
   });
 });
 
-const REAL_CONFIG_URL = new URL("../../../sync-config.v2.json", import.meta.url);
+const REAL_CONFIG_URL = new URL("../../../sync-config.json", import.meta.url);
 
 const REAL_DOTFILES_URL = new URL("../../../dotfiles/", import.meta.url);
 

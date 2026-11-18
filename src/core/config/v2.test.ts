@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseV2 } from "./v2.ts";
 
-const CONFIG_FILE = "sync-config.v2.json";
+const CONFIG_FILE = "sync-config.json";
 
 const MODULES = {
   git: { description: "Git settings" },

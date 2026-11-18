@@ -344,20 +344,6 @@ describe("parseV1", () => {
     }
   });
 
-  test("should accept the repo's own sync-config.json (path-real-config)", () => {
-    // Arrange
-    const text = readFileSync(
-      new URL("../../../sync-config.json", import.meta.url),
-      "utf8",
-    );
-
-    // Act
-    const result = parseV1(text);
-
-    // Assert
-    expect(result.ok).toBe(true);
-  });
-
   test("should reject a dconf entry without a path (dconf-path-missing)", () => {
     // Arrange
     const bad = {

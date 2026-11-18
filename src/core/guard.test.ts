@@ -32,7 +32,7 @@ const NO_LOCAL_RECORDS: LocalRecords = { profiles: [] };
 
 const TRACKED_PATHS: readonly string[] = [
   "dotfiles/common/git/.gitconfig",
-  "sync-config.v2.json",
+  "sync-config.json",
   PROFILE_PATH,
   RECORD_PATH,
   NESTED_PROFILE_PATH,

@@ -680,30 +680,4 @@ describe("convertV1", () => {
       ]),
     });
   });
-
-  test("the repo's own sync-config.json converts and passes parseV2", () => {
-    // Arrange
-    const text = readFileSync(
-      new URL("../../../sync-config.json", import.meta.url),
-      "utf8",
-    );
-    const parsed = parseV1(text);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) {
-      return;
-    }
-
-    // Act
-    const result = convertV1(parsed.value);
-
-    // Assert
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-    expect(parseV2(JSON.stringify(result.value))).toEqual({
-      ok: true,
-      value: result.value,
-    });
-  });
 });
