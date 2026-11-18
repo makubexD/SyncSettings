@@ -1,1 +1,1 @@
-ERROR: sync-config.v2.json: entry claude/CLAUDE.md needs {layer} in importName.
+ERROR: sync-config.json: entry claude/CLAUDE.md needs {layer} in importName.

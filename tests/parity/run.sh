@@ -598,7 +598,7 @@ run_case() {
 
     if [[ $(jq -r 'has("configV2")' "$dir/case.json") == true ]]; then
         config_json=$(jq -c '.configV2' "$dir/case.json") || die 'case.json has no configV2'
-        config_file=sync-config.v2.json
+        config_file=sync-config.json
     else
         config_json=$(jq -c '.config' "$dir/case.json") || die 'case.json has no config'
         config_file=sync-config.json

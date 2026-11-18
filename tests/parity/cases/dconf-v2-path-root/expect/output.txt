@@ -1,1 +1,1 @@
-ERROR: sync-config.v2.json: entry dconf/app.ini needs a dconfPath like /org/gnome/shell/.
+ERROR: sync-config.json: entry dconf/app.ini needs a dconfPath like /org/gnome/shell/.

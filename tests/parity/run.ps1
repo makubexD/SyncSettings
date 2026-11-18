@@ -965,7 +965,7 @@ function Run-Case {
         $configV2Prop = $Case.PSObject.Properties['configV2']
         if ($null -ne $configV2Prop) {
             $configJson = $configV2Prop.Value | ConvertTo-Json -Depth 32 -Compress
-            $configName = 'sync-config.v2.json'
+            $configName = 'sync-config.json'
         } else {
             $configProp = $Case.PSObject.Properties['config']
             if ($null -eq $configProp) {

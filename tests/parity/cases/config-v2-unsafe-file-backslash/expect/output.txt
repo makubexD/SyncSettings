@@ -1,1 +1,1 @@
-ERROR: sync-config.v2.json: entry a\b has an unsafe path.
+ERROR: sync-config.json: entry a\b has an unsafe path.
