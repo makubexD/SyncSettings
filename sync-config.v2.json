@@ -434,17 +434,6 @@
       "description": "Claude Code user settings (hooks, plugins, permissions)"
     },
     {
-      "file": "claude/sampleGrok.md",
-      "module": "claude",
-      "merge": "whole",
-      "localPath": "~/.claude/sampleGrok.md",
-      "os": [
-        "linux",
-        "macos"
-      ],
-      "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
-    },
-    {
       "file": "claude/hooks",
       "module": "claude",
       "merge": "dir",

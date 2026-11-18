@@ -231,12 +231,6 @@
       "description": "RTK command-output notes (imported by CLAUDE.md)"
     },
     {
-      "repoPath": "dotfiles/common/claude/sampleGrok.md",
-      "localPath": "~/.claude/sampleGrok.md",
-      "platform": ["linux", "macos"],
-      "description": "Old Windows CLAUDE.md for the Grok setup (reference)"
-    },
-    {
       "repoPath": "dotfiles/linux/claude/hooks",
       "localPath": "~/.claude/hooks",
       "platform": "linux",
