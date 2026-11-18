@@ -18,7 +18,12 @@ import { parseV2 } from "../src/core/config/v2.ts";
 import { jsonEqual, parseJson } from "../src/core/json/value.ts";
 import type { JsonValue } from "../src/core/json/value.ts";
 import { mergeJson, parseJsonBytes } from "../src/core/merge/json.ts";
-import { dropClaudeConfigRows, main, runLayout } from "./claude-layout.ts";
+import {
+  dropClaudeConfigRows,
+  main,
+  runLayout,
+  splitClaudeSettings,
+} from "./claude-layout.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures/claude-layout");
 
@@ -31,6 +36,14 @@ const V2 = "sync-config.v2.json";
 const CLAUDE_SETTINGS_ENTRY = "claude/settings.json";
 const CLAUDE_ROW_PATTERN =
   /^dotfiles\/[^/]+\/claude\/(?:settings\.json|statusline\.sh)$/;
+
+const PERSONAL_ONLY_KEYS = [
+  "enabledPlugins",
+  "extraKnownMarketplaces",
+  "permissions",
+  "autoMode",
+  "skipDangerousModePermissionPrompt",
+];
 
 const STATUS_LINE: JsonValue = {
   kind: "object",
@@ -221,6 +234,56 @@ describe("claude-layout", () => {
     const base = objectEntries(await readJson(repo, BASE));
     expect(linux.has("hooks")).toBe(true);
     expect(base.has("hooks")).toBe(false);
+  });
+
+  test("the personal-only keys are in the Linux overlay only", async () => {
+    const repo = await makeRepo();
+    expect((await runLayout(repo, { cutover: true })).ok).toBe(true);
+
+    const source = objectEntries(await readJson(FIXTURES, LINUX));
+    const linux = objectEntries(await readJson(repo, LINUX));
+    const base = objectEntries(await readJson(repo, BASE));
+    for (const key of PERSONAL_ONLY_KEYS) {
+      expect(source.has(key)).toBe(true);
+      expect(linux.has(key)).toBe(true);
+      expect(base.has(key)).toBe(false);
+    }
+  });
+
+  test("a source without the personal-only keys splits as before", async () => {
+    const source = new Map(objectEntries(await readJson(FIXTURES, LINUX)));
+    for (const key of PERSONAL_ONLY_KEYS) {
+      source.delete(key);
+    }
+
+    const split = splitClaudeSettings({ kind: "object", entries: source }, []);
+
+    if (!split.ok) {
+      throw new Error(split.error);
+    }
+    const expectedBase = new Map(source);
+    expectedBase.delete("hooks");
+    expectedBase.set("statusLine", STATUS_LINE);
+    expect(
+      jsonEqual(split.value.base, { kind: "object", entries: expectedBase }),
+    ).toBe(true);
+    expect([...objectEntries(split.value.linux).keys()]).toEqual(["hooks"]);
+    expect(split.value.windows).toBeUndefined();
+  });
+
+  test("an empty Linux key list keeps the personal-only keys in the base", async () => {
+    const repo = await makeRepo();
+    expect(
+      (await runLayout(repo, { cutover: true, linuxOverlayKeys: [] })).ok,
+    ).toBe(true);
+
+    const linux = objectEntries(await readJson(repo, LINUX));
+    const base = objectEntries(await readJson(repo, BASE));
+    for (const key of PERSONAL_ONLY_KEYS) {
+      expect(base.has(key)).toBe(true);
+      expect(linux.has(key)).toBe(false);
+    }
+    expect([...linux.keys()]).toEqual(["hooks"]);
   });
 
   test("no Windows overlay while the key list is empty", async () => {
