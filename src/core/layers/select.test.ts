@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { parseV1 } from "../config/v1.ts";
+import { parseV2 } from "../config/v2.ts";
 import type {
   ConfigError,
   ConfigV2,
@@ -37,7 +37,7 @@ interface CaseEntry {
 }
 
 interface ParityCase {
-  readonly config: { readonly files: readonly CaseEntry[] };
+  readonly configV2: ConfigV2;
 }
 
 function unsupportedOs(value: string): Result<Os, ConfigError> {
@@ -90,11 +90,11 @@ function entryOf(file: CaseEntry): ConfigV2Entry {
 }
 
 function caseV2(name: string): ConfigV2 {
-  return {
-    schemaVersion: 2,
-    modules: { [PARITY_MODULE]: { description: "Parity case" } },
-    entries: parityCase(name).config.files.map(entryOf),
-  };
+  const parsed = parseV2(JSON.stringify(parityCase(name).configV2));
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
 }
 
 function configOf(
@@ -241,33 +241,6 @@ describe("selectEntries", () => {
       expect(entries.map((selected) => selected.source)).toEqual(
         expected[os].map(() => undefined),
       );
-    }
-  });
-
-  test("platform-list-common", () => {
-    const files = parityCase("platform-list-common").config.files;
-    const bad = { files };
-
-    // v1 refuses the list holding common before any entry is selected.
-    expect(parseV1(JSON.stringify(bad))).toEqual({
-      ok: false,
-      error: {
-        message:
-          'ERROR: sync-config.json: entry dotfiles/common/parity/bad.conf needs "platform": "common", "windows", "linux", "macos" or a list of the last three.',
-        code: 1,
-      },
-    });
-
-    // The common entry that is legal applies on every system.
-    const [common] = files;
-    if (common === undefined) {
-      throw new Error("platform-list-common has no files");
-    }
-    const config = configOf([entryOf(common)]);
-    for (const os of OSES) {
-      expect(
-        selected(config, { os }).map((selected) => selected.entry.file),
-      ).toEqual(["parity/ok.conf"]);
     }
   });
 

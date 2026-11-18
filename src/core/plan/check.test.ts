@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { parseV1 } from "../config/v1.ts";
-import { convertV1 } from "../config/convert.ts";
+import { parseV2 } from "../config/v2.ts";
 import type { ConfigError, ConfigV2, Os, Result } from "../config/types.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
@@ -62,7 +61,7 @@ interface CaseCommand {
 }
 
 interface ParityCase {
-  readonly config: unknown;
+  readonly configV2: unknown;
   readonly values?: Readonly<Record<string, string>>;
   readonly commands: readonly CaseCommand[];
   readonly git?: string;
@@ -75,11 +74,7 @@ function parityCase(name: string): ParityCase {
 }
 
 function configOf(name: string): Result<ConfigV2, ConfigError> {
-  const v1 = parseV1(JSON.stringify(parityCase(name).config));
-  if (!v1.ok) {
-    return v1;
-  }
-  return convertV1(v1.value);
+  return parseV2(JSON.stringify(parityCase(name).configV2));
 }
 
 /** Every file under `root`, as paths relative to it with forward slashes. */
