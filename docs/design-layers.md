@@ -1665,3 +1665,10 @@ doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push 
   work machine without asking IT first. Work #1 has Node 26.13, npm 11.20, Bun 1.3.14 and winget 1.29, so the
   run-from-clone fallback ("Open", Bun or Node) needs no install there. Bun 1.3.14 is older than the repo's 1.4.4:
   the real-Windows checklist (items 8, 10 and 11) asks IT or tries the program, then the Node and Bun fallbacks.
+  **User's call, 2026-11-18:** work machines don't get the downloaded program and IT isn't asked; they run from the
+  clone with Node (`SYNCSETTINGS_RUNTIME=node`), whose `mksync.cmd` shim is on the user `Path`.
+  `docs/windows-cutover-run.md` checks that route. Step 8 of the cut-over plan settles this item with its answer.
+- **mksync as an npm package (open, idea).** `npm install -g` would put `mksync` on `PATH` on any machine with Node,
+  with `npm update -g` for updates. Against it, for now: it publishes to the public npm registry (a release decision),
+  `package.json` is `private`, and an install from npm is as visible on a work machine as the clone's `mksync.cmd`
+  shim, which needs no registry. Revisit after v1.0.0.
