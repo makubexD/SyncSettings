@@ -1,4 +1,4 @@
-import { isValidDconfPath } from "./dconf-path.ts";
+import { hasDotDotSegment, isValidDconfPath } from "./dconf-path.ts";
 import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
 
 const CONFIG_FILE = "sync-config.v2.json";
@@ -10,6 +10,8 @@ const OSES: readonly Os[] = ["windows", "linux", "macos"];
 const LAYER_PLACEHOLDER = "{layer}";
 
 const BACKSLASH = "\\";
+
+const DRIVE_LETTER_RE = /^[A-Za-z]:/;
 
 const INVALID_JSON_MESSAGE = `ERROR: ${CONFIG_FILE}: invalid JSON.`;
 
@@ -54,6 +56,10 @@ function hasEscapeBackslashes(sanitize: unknown): boolean {
     Array.isArray(sanitize) &&
     sanitize.some((rule) => isRecord(rule) && rule.escapeBackslashes === true)
   );
+}
+
+function unsafePathMessage(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an unsafe path.`;
 }
 
 function unknownModuleMessage(file: string, module: string): string {
@@ -124,6 +130,16 @@ function disallowedField(record: Record<string, unknown>, merge: MergeType): str
   return DISALLOWED_FIELDS[merge].find((field) => Object.hasOwn(record, field));
 }
 
+function isUnsafeFile(file: string): boolean {
+  return (
+    file === "" ||
+    file.startsWith("/") ||
+    DRIVE_LETTER_RE.test(file) ||
+    hasDotDotSegment(file) ||
+    file.includes(BACKSLASH)
+  );
+}
+
 function isKeyList(value: unknown): value is readonly string[] {
   return (
     Array.isArray(value) &&
@@ -147,9 +163,20 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
     return failure(INVALID_JSON_MESSAGE, 1);
   }
 
-  if (!Object.hasOwn(parsed, "schemaVersion") || parsed.schemaVersion !== 2) {
+  const schemaVersion = parsed.schemaVersion;
+  if (
+    Object.hasOwn(parsed, "schemaVersion") &&
+    typeof schemaVersion === "number" &&
+    schemaVersion > 2
+  ) {
+    return failure(
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
+  }
+  if (!Object.hasOwn(parsed, "schemaVersion") || schemaVersion !== 2) {
     const version = Object.hasOwn(parsed, "schemaVersion")
-      ? JSON.stringify(parsed.schemaVersion)
+      ? JSON.stringify(schemaVersion)
       : "none";
     return failure(`ERROR: ${CONFIG_FILE}: unsupported config schemaVersion ${version}.`, 2);
   }
@@ -179,6 +206,10 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
           : shown(entryValue);
     if (!isRecord(entry) || typeof record.file !== "string") {
       return failure(entryShapeMessage(file), 1);
+    }
+
+    if (isUnsafeFile(file)) {
+      return failure(unsafePathMessage(file), 1);
     }
 
     const moduleName = record.module;
@@ -218,7 +249,6 @@ export function parseV2(text: string): Result<ConfigV2, ConfigError> {
 
     if (
       merge === "import" &&
-      Object.hasOwn(record, "importName") &&
       (typeof record.importName !== "string" || !record.importName.includes(LAYER_PLACEHOLDER))
     ) {
       return failure(importNameMessage(file), 1);

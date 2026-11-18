@@ -5,6 +5,7 @@
  */
 
 import { join } from "node:path";
+import { SymlinkRefusal } from "../adapters/atomic.ts";
 import {
   readStore,
   writeStoreProfile,
@@ -56,6 +57,9 @@ async function askRetire<T>(
   try {
     write(retired.value);
   } catch (error) {
+    if (error instanceof SymlinkRefusal) {
+      return failure(error.message);
+    }
     const message = error instanceof Error ? error.message : String(error);
     const noun = command.kind === "machine-retire" ? "record" : "profile";
     return failure(`ERROR: cannot write the retired ${noun}: ${message}`);

@@ -18,6 +18,7 @@ import type {
   PackageListTexts,
   SkippedTool,
 } from "../core/drift.ts";
+import { decode, runSync } from "./process.ts";
 
 /** One tool run: its stdout when it exited 0, or why it did not succeed. */
 export type RunResult =
@@ -35,9 +36,6 @@ export interface InstalledInput {
   readonly root: string;
   readonly run?: Run;
 }
-
-/** A command that is not on `PATH`; Bun reports it as this spawn error. */
-const NOT_FOUND = "ENOENT";
 
 /** `dpkg-query`'s format: the package's status, a space, then its name. */
 const DPKG_FORMAT = '-f=${db:Status-Status} ${Package}\\n';
@@ -86,37 +84,23 @@ const NVM_VERSIONS = [".nvm", "versions", "node"] as const;
 
 const encoder = new TextEncoder();
 
-/** The `code` of a Bun spawn error, when it has one. */
-function spawnErrorCode(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return undefined;
-  }
-  const code: unknown = (error as { readonly code?: unknown }).code;
-  return typeof code === "string" ? code : undefined;
-}
-
 /**
  * The real runner: `cmd` with an argument array and no shell, like the dconf
  * adapter. A missing command is `missing`, a non-zero exit or any other spawn
  * error is `failed`.
  */
 export function runCommand(cmd: string, args: readonly string[]): RunResult {
-  try {
-    const result = Bun.spawnSync({
-      cmd: [cmd, ...args],
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (result.exitCode !== 0) {
-      return { kind: "failed" };
-    }
-    return { kind: "ok", stdout: new TextDecoder().decode(result.stdout) };
-  } catch (error) {
-    return spawnErrorCode(error) === NOT_FOUND
-      ? { kind: "missing" }
-      : { kind: "failed" };
+  const result = runSync([cmd, ...args], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (result.missing === true) {
+    return { kind: "missing" };
   }
+  if (result.notStarted === true || result.code !== 0) {
+    return { kind: "failed" };
+  }
+  return { kind: "ok", stdout: decode(result.stdout) };
 }
 
 /**

@@ -20,25 +20,40 @@ irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 |
 
 Each one asks before installing a missing tool (`git`, `jq` and `diffutils` on Linux, `bash` and `jq` on macOS, Git
 and the GitHub CLI on Windows), clones the repo to `~/SyncSettings`
-(`%USERPROFILE%\SyncSettings`), puts the `mksync` command on your `PATH`, and runs `mksync setup`. On Windows, open a
-new window afterwards so it finds `mksync`.
+(`%USERPROFILE%\SyncSettings`), downloads the `mksync` program for your system from the latest
+[release](https://github.com/makubexD/SyncSettings/releases), checks that it's the file the release published, puts it
+on your `PATH`, and runs `mksync setup`. On Windows, open a new window afterwards so it finds `mksync`.
 
-Run the same line again to update. `SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR` and the other `SYNCSETTINGS_*` variables
-change the defaults, for example for a fork; the [front door section](docs/sync-contract.md#front-door) lists them all.
+To update the program later, run `mksync update`. Your settings come with `mksync pull`. Running the install line again
+also works: it updates the clone and the program.
 
-A compiled `mksync` program that will replace both engines is being built in `src/`. Built from the clone
-(`bun run build`), `dist/mksync` already runs every front-door command; the installers don't install it until phase 9.
+If your machine won't run a downloaded program (a work policy, for example), install it to run from the clone instead.
+That needs [Bun](https://bun.sh) or [Node](https://nodejs.org) 22.18 or newer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash -s -- --runtime node
+```
+
+```powershell
+$env:SYNCSETTINGS_RUNTIME = 'node'; irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
+```
+
+Use `bun` instead of `node` for Bun. Installed this way, `mksync update` says to use `git pull` in the clone instead.
+
+`SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR` and the other `SYNCSETTINGS_*` variables change the defaults, for example
+for a fork; the [install section](docs/sync-contract.md#install) lists them all.
 
 ## Every day
 
-| Command | Does |
-|---|---|
-| `mksync` | Shows where this machine stands: updates waiting, changes not sent, files that differ, and what to run next |
-| `mksync pull` | Gets the latest repo, shows what changes here, and applies it after you say yes |
-| `mksync push` | Copies this machine's changes into the repo, shows them, and opens a pull request after you say yes |
-| `mksync setup` | First run on a machine. On Ubuntu it also offers to restore your apps and packages |
-| `mksync doctor` | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing |
-| `mksync pull <path>`, `mksync push <path>` | Takes or sends only the files you name, such as `mksync pull ~/.bashrc` |
+| Command                                    | Does                                                                                                        |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `mksync`                                   | Shows where this machine stands: updates waiting, changes not sent, files that differ, and what to run next |
+| `mksync pull`                              | Gets the latest repo, shows what changes here, and applies it after you say yes                             |
+| `mksync push`                              | Copies this machine's changes into the repo, shows them, and opens a pull request after you say yes         |
+| `mksync setup`                             | First run on a machine. On Ubuntu it also offers to restore your apps and packages                          |
+| `mksync doctor`                            | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing                      |
+| `mksync update`                            | Replaces the `mksync` program with the latest release, if it's newer                                        |
+| `mksync pull <path>`, `mksync push <path>` | Takes or sends only the files you name, such as `mksync pull ~/.bashrc`                                     |
 
 The commands, their wording and their exit codes are the same on every system. `--yes` answers the questions for you,
 and `mksync push` needs `gh auth login` once.
@@ -69,12 +84,12 @@ In `doctor`, `WARN` is worth fixing and `MISSING` stops `setup`; each line says 
 
 ## See before you change anything
 
-| Command | Shows | Direction |
-|---|---|---|
-| `mksync` | How many updates, unsent changes and differing files there are | both |
-| `mksync check` | Every file the clone would change on this machine. It doesn't fetch: if `mksync` shows updates waiting, a pull changes more | repo → machine |
-| `mksync preview` | Exactly what a push would send, as a diff | machine → repo |
-| `mksync diff` | Which side changed each file since this machine last synced, after a fetch | both |
+| Command          | Shows                                                                                                                       | Direction      |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `mksync`         | How many updates, unsent changes and differing files there are                                                              | both           |
+| `mksync check`   | Every file the clone would change on this machine. It doesn't fetch: if `mksync` shows updates waiting, a pull changes more | repo → machine |
+| `mksync preview` | Exactly what a push would send, as a diff                                                                                   | machine → repo |
+| `mksync diff`    | Which side changed each file since this machine last synced, after a fetch                                                  | both           |
 
 All four write nothing. In the check, `CREATE` is a file this machine doesn't have yet, `UPDATE` one the pull would
 overwrite (keeping a `.bak`), and `EXTRA` a local file the repo doesn't have, which is kept. In the preview, `ADDED`,
@@ -92,8 +107,11 @@ Without the installer:
 ```bash
 git clone https://github.com/makubexD/SyncSettings.git
 cd SyncSettings
-./sync setup
+./mksync setup
 ```
+
+`./mksync` runs the program from the clone with Bun or Node 22.18 or newer (`mksync.cmd` on Windows). The old engines'
+`./sync setup` (`sync.cmd` on Windows) still works until they are removed.
 
 On Windows, run `.\sync setup` in PowerShell or `sync setup` in cmd. `./sync <command>` takes every `mksync` command,
 plus the single steps `export`, `commit` and `import`; options pass through (`./sync import --force`, `-Force` on
@@ -104,20 +122,20 @@ Contributors run both engines' tests: `tests/linux/engine.sh [case-name-filter]`
 
 ## What gets synced
 
-| What | Systems |
-|---|---|
-| Git: `~/.gitconfig`, the global ignore, and `~/.gitconfig.local` for each system's credentials | all |
-| `~/.claude/RTK.md` and the workflow guide page in `~/.claude/docs/` | all |
-| Git Bash: `~/.bashrc`, `~/.bash_profile`, and the folders `.bashrc` puts on `PATH` | Windows |
-| Windows Terminal settings | Windows |
-| tmux, Starship, WezTerm, htop and GitHub CLI settings | Linux, macOS |
-| VS Code's default profile: `settings.json` and `snippets/` (home path sanitized) | Linux, macOS |
-| `~/.claude/CLAUDE.md` | Linux, macOS |
-| Zsh: `~/.zshrc`, `~/.zprofile` | macOS |
-| Bash: `~/.bashrc`, `~/.profile`, and the WezTerm XWayland launcher | Linux |
-| RTK settings, default apps, Files bookmarks and desktop launchers | Linux |
-| GNOME settings through dconf: theme, keyboard, shortcuts, dock, power, Ptyxis, Files ([which keys](docs/layout.md#which-dconf-settings-are-synced)) | Linux |
-| The rest of the Claude Code setup: settings, status line, skills, hooks, the `mk-exec` worker scripts and its config | Linux |
+| What                                                                                                                                                | Systems      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Git: `~/.gitconfig`, the global ignore, and `~/.gitconfig.local` for each system's credentials                                                      | all          |
+| `~/.claude/RTK.md` and the workflow guide page in `~/.claude/docs/`                                                                                 | all          |
+| Git Bash: `~/.bashrc`, `~/.bash_profile`, and the folders `.bashrc` puts on `PATH`                                                                  | Windows      |
+| Windows Terminal settings                                                                                                                           | Windows      |
+| tmux, Starship, WezTerm, htop and GitHub CLI settings                                                                                               | Linux, macOS |
+| VS Code's default profile: `settings.json` and `snippets/` (home path sanitized)                                                                    | Linux, macOS |
+| `~/.claude/CLAUDE.md`                                                                                                                               | Linux, macOS |
+| Zsh: `~/.zshrc`, `~/.zprofile`                                                                                                                      | macOS        |
+| Bash: `~/.bashrc`, `~/.profile`, and the WezTerm XWayland launcher                                                                                  | Linux        |
+| RTK settings, default apps, Files bookmarks and desktop launchers                                                                                   | Linux        |
+| GNOME settings through dconf: theme, keyboard, shortcuts, dock, power, Ptyxis, Files ([which keys](docs/layout.md#which-dconf-settings-are-synced)) | Linux        |
+| The rest of the Claude Code setup: settings, status line, skills, hooks, the `mk-exec` worker scripts and its config                                | Linux        |
 
 Never synced: the DeepSeek key, `.credentials.json`, Claude history, transcripts, memory and plans, plugin install
 state, caches, the GitHub CLI's `hosts.yml`, VS Code's named profiles, and GNOME location, window sizes and history.

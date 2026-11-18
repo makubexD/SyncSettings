@@ -12,12 +12,10 @@ export const USAGE =
   "mksync pull [--yes] [--force] [<path>...] | " +
   "mksync push [--yes] [-m <msg>] [<path>...] | " +
   "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
-  "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
-  "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
-  "mksync commit [-m <msg>] [--partial] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
-  "[--existing backup|keep|stop] [--yes] | " +
+  "[--existing backup|keep|stop] [--bootstrap] [--yes] | " +
+  "mksync update | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
   "mksync profile retire <name> [--yes] | mksync statusline | " +
   "mksync --version";
@@ -121,6 +119,8 @@ export interface CommitCommand {
 /** `setup`: the first-run flow's flags, parsed but not validated. */
 export interface SetupCommand extends SetupFlags {
   readonly kind: "setup";
+  /** `--bootstrap`: run the Ubuntu bootstrap without asking. */
+  readonly bootstrap?: boolean;
 }
 
 /** `--version`: print the program's version, exit 0. */
@@ -133,15 +133,22 @@ export interface StatuslineCommand {
   readonly kind: "statusline";
 }
 
+/** `update`: download the latest release and replace the running program. */
+export interface UpdateCommand {
+  readonly kind: "update";
+}
+
 /** No command, or one that isn't a verb: print the usage line, exit 2. */
 export interface UsageCommand {
   readonly kind: "usage";
 }
 
-/** An unknown option or a bad `--only`: print the message on stderr, exit 1. */
+/** A usage error: an unknown option or a bad `--only`, a clash or a repeated
+ * flag. Print the message on stderr, exit 2 (decision 7). */
 export interface ParseError {
   readonly kind: "error";
   readonly message: string;
+  readonly code: number;
 }
 
 export type ParsedCommand =
@@ -159,6 +166,7 @@ export type ParsedCommand =
   | SetupCommand
   | VersionCommand
   | StatuslineCommand
+  | UpdateCommand
   | UsageCommand
   | ParseError;
 
@@ -208,7 +216,11 @@ const MESSAGE_NEEDS_VALUE = "Missing value for -m";
 
 const STATUSLINE_COMMAND = "statusline";
 
+const UPDATE_COMMAND = "update";
+
 const SETUP_YES = "--yes";
+
+const SETUP_BOOTSTRAP = "--bootstrap";
 
 const ONLY_OPTION = "--only";
 
@@ -259,8 +271,9 @@ function isCommandName(value: string): value is CommandName {
   return value === "export" || value === "import";
 }
 
+/** Every parse error is a usage error, so it exits 2 (decision 7). */
 function error(message: string): ParseError {
-  return { kind: "error", message };
+  return { kind: "error", message, code: 2 };
 }
 
 function isOption(arg: string): boolean {
@@ -514,6 +527,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
   let mode: SetupMode | undefined;
   let existing: ExistingAction | undefined;
   let yes = false;
+  let bootstrap = false;
 
   let index = 1;
   while (index < argv.length) {
@@ -526,6 +540,14 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         return repeatedFlag(arg);
       }
       yes = true;
+      index++;
+      continue;
+    }
+    if (arg === SETUP_BOOTSTRAP) {
+      if (bootstrap) {
+        return repeatedFlag(arg);
+      }
+      bootstrap = true;
       index++;
       continue;
     }
@@ -595,6 +617,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     ...(mode === undefined ? {} : { mode }),
     ...(existing === undefined ? {} : { existing }),
     ...(yes ? { yes: true } : {}),
+    ...(bootstrap ? { bootstrap: true } : {}),
   };
 }
 
@@ -662,6 +685,12 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     const extra = argv[1];
     return extra === undefined
       ? { kind: "statusline" }
+      : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+  }
+  if (command === UPDATE_COMMAND) {
+    const extra = argv[1];
+    return extra === undefined
+      ? { kind: "update" }
       : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
   }
   if (command === STATUS_COMMAND) {

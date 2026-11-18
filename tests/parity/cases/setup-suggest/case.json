@@ -35,6 +35,7 @@
     "SYNC_TOOLS": "git,gh,claude",
     "MKSYNC_VISIBILITY": "private"
   },
+  "stubs": ["gh"],
   "commands": [
     {
       "command": "setup",

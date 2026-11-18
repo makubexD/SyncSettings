@@ -1,0 +1,4 @@
+MISSING  brew: install from https://brew.sh
+Fix the MISSING items, then run mksync doctor again.
+! IMPORT CHECK
+! Setup done.

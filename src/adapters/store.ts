@@ -1,6 +1,4 @@
 import {
-  chmodSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -44,7 +42,7 @@ import {
   recordText,
 } from "../core/machine/record.ts";
 import { expandHome } from "../core/paths.ts";
-import { restrictToCurrentUser } from "./acl.ts";
+import { writeAtomic } from "./atomic.ts";
 
 /** The state folder's record file; contract "The record". */
 const MACHINE_FILE = "machine.json";
@@ -101,7 +99,7 @@ export interface RepoStore {
 }
 
 /** The local store's paths, under the state folder. */
-function stateLocation(stateFolder: string): StoreLocation {
+export function stateLocation(stateFolder: string): StoreLocation {
   return {
     recordFile: join(stateFolder, MACHINE_FILE),
     profilesFolder: join(stateFolder, PROFILES_FOLDER),
@@ -863,20 +861,11 @@ function profileText(profile: Profile): string {
 }
 
 /** Write a record or profile file, creating its folder, for the current user
- * only (contract "The record"). */
+ * only (contract "The record"). The write is atomic and refuses a symlinked
+ * path (contract "Where records are kept"). */
 function writePrivateFile(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  if (process.platform === "win32") {
-    if (!existsSync(path)) {
-      writeFileSync(path, "");
-    }
-    restrictToCurrentUser(path);
-    writeFileSync(path, text);
-    return;
-  }
-  writeFileSync(path, text, { mode: PRIVATE_MODE });
-  // `mode` at creation is masked by the umask; the contract wants 0600.
-  chmodSync(path, PRIVATE_MODE);
+  writeAtomic(path, text, PRIVATE_MODE);
 }
 
 /** Write a store's file: private in the state folder, unchanged in the repo. */

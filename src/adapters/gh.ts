@@ -4,6 +4,8 @@
  * result, never an exception.
  */
 
+import { decode, run } from "./process.ts";
+
 /** How long `gh pr create` may take before it is killed. */
 const PR_TIMEOUT_MS = 60_000;
 
@@ -42,8 +44,8 @@ function ghBinary(): string {
 
 /**
  * Run gh in `repoRoot` with an argument array and no shell, killing it once
- * `timeoutMs` passes. Never throws: a missing gh, a timeout, or output still
- * held open when the limit passes is `code: -1`.
+ * `timeoutMs` passes. Never throws: a missing gh, a gh that could not start or
+ * a run past the limit is `code: -1`.
  *
  * `adapters/visibility.ts` has the same runner for its own gh call, but its
  * result is stdout-only and its abort handling is tied to `VisibilityDeps`;
@@ -55,52 +57,19 @@ async function runGh(
   args: readonly string[],
   timeoutMs: number,
 ): Promise<GhResult> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+  const result = await run([ghBinary(), ...args], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeoutMs,
   });
-  try {
-    const child = Bun.spawn([ghBinary(), ...args], {
-      cwd: repoRoot,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const stdoutPromise = new Response(child.stdout).text();
-    const stderrPromise = new Response(child.stderr).text();
-    const outcome = await Promise.race([child.exited, deadline]);
-    if (outcome === "timeout") {
-      // Kill and reap it, but don't wait on its pipes: a process gh started
-      // may still hold them open, which is the hang the limit exists for.
-      if (child.exitCode === null) {
-        child.kill("SIGKILL");
-      }
-      await child.exited;
-      void stdoutPromise.catch(() => "");
-      void stderrPromise.catch(() => "");
-      return { code: FAILED_TO_START, stdout: "", stderr: "", ok: false };
-    }
-    // gh exited, but a process it started may still hold the pipes: the same
-    // limit bounds the read.
-    const read = await Promise.race([
-      Promise.all([stdoutPromise, stderrPromise]),
-      deadline.then(() => undefined),
-    ]);
-    if (read === undefined) {
-      void stdoutPromise.catch(() => "");
-      void stderrPromise.catch(() => "");
-      return { code: FAILED_TO_START, stdout: "", stderr: "", ok: false };
-    }
-    const [stdout, stderr] = read;
-    return { code: outcome, stdout, stderr, ok: outcome === 0 };
-  } catch {
+  if (result.timedOut === true || result.notStarted === true) {
     // A missing gh is a failure result, so the caller reports it and stops.
     return { code: FAILED_TO_START, stdout: "", stderr: "", ok: false };
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
   }
+  const stdout = decode(result.stdout);
+  const stderr = decode(result.stderr);
+  return { code: result.code, stdout, stderr, ok: result.code === 0 };
 }
 
 /**

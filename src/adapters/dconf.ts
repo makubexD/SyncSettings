@@ -8,6 +8,7 @@
  */
 
 import { isValidDconfPath } from "../core/config/dconf-path.ts";
+import { decode, run, runSync } from "./process.ts";
 
 /** The mode a dconf entry needs for its command: `dump` reads, `load` writes. */
 const DUMP_COMMAND = "dump";
@@ -19,9 +20,6 @@ const PASSWD_DATABASE = "passwd";
 
 /** The passwd line's sixth field, after user, password, uid, gid and gecos. */
 const HOME_FIELD = 5;
-
-/** A command that is not on `PATH`; Bun reports it as this spawn error. */
-const NOT_FOUND = "ENOENT";
 
 /** What `dconf dump` returned: the dump text, no `dconf`, or a failed dump. */
 export type DumpResult =
@@ -41,15 +39,6 @@ type RunResult =
   | { readonly kind: "missing" }
   | { readonly kind: "failed" };
 
-/** The `code` of a Bun spawn error, when it has one. */
-function spawnErrorCode(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return undefined;
-  }
-  const code: unknown = (error as { readonly code?: unknown }).code;
-  return typeof code === "string" ? code : undefined;
-}
-
 /**
  * Run `command` with an argument array and no shell, in the environment the
  * caller passes, so a test can point `PATH` at a temp folder. `input`, when
@@ -62,25 +51,21 @@ async function runTool(
   env: Readonly<Record<string, string | undefined>>,
   input?: string,
 ): Promise<RunResult> {
-  try {
-    const child = Bun.spawn([command, ...args], {
-      env: { ...env },
-      stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    // Drain stderr as well, so a chatty tool cannot block on a full pipe.
-    const [code, stdout] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-    return code === 0 ? { kind: "ok", text: stdout } : { kind: "failed" };
-  } catch (error) {
-    return spawnErrorCode(error) === NOT_FOUND
-      ? { kind: "missing" }
-      : { kind: "failed" };
+  const result = await run([command, ...args], {
+    env: { ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+    ...(input === undefined ? {} : { input }),
+  });
+  if (result.missing === true) {
+    return { kind: "missing" };
   }
+  if (result.notStarted === true) {
+    return { kind: "failed" };
+  }
+  return result.code === 0
+    ? { kind: "ok", text: decode(result.stdout) }
+    : { kind: "failed" };
 }
 
 /**
@@ -122,20 +107,19 @@ export function dconfLoad(
   if (!isValidDconfPath(path)) {
     return { kind: "failed" };
   }
-  try {
-    const result = Bun.spawnSync({
-      cmd: ["dconf", LOAD_COMMAND, path],
-      env: { ...env },
-      stdin: new TextEncoder().encode(text),
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    return result.exitCode === 0 ? { kind: "ok" } : { kind: "failed" };
-  } catch (error) {
-    return spawnErrorCode(error) === NOT_FOUND
-      ? { kind: "missing" }
-      : { kind: "failed" };
+  const result = runSync(["dconf", LOAD_COMMAND, path], {
+    env: { ...env },
+    input: text,
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  if (result.missing === true) {
+    return { kind: "missing" };
   }
+  if (result.notStarted === true) {
+    return { kind: "failed" };
+  }
+  return result.code === 0 ? { kind: "ok" } : { kind: "failed" };
 }
 
 /**

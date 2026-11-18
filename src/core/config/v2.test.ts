@@ -49,6 +49,10 @@ function expectError(text: string, message: string, code: 1 | 2): void {
   expect(result).toEqual({ ok: false, error: { message, code } });
 }
 
+function unsafePathError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an unsafe path.`;
+}
+
 function unknownModuleError(file: string, module: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} names unknown module ${module}.`;
 }
@@ -132,12 +136,36 @@ describe("parseV2", () => {
     expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion none.`, 2);
   });
 
-  test("a schemaVersion other than 2 stops with exit 2", () => {
+  test("a schemaVersion above 2 stops with the newer-mksync line", () => {
     // Arrange
     const text = configWith([], { schemaVersion: 3 });
 
     // Act / Assert
-    expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion 3.`, 2);
+    expectError(
+      text,
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
+  });
+
+  test("a far future schemaVersion stops with the newer-mksync line", () => {
+    // Arrange
+    const text = configWith([], { schemaVersion: 99 });
+
+    // Act / Assert
+    expectError(
+      text,
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
+  });
+
+  test("a schemaVersion below 2 stops with the unsupported line", () => {
+    // Arrange
+    const text = configWith([], { schemaVersion: 1 });
+
+    // Act / Assert
+    expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion 1.`, 2);
   });
 
   test("a string schemaVersion is shown as JSON", () => {
@@ -154,7 +182,11 @@ describe("parseV2", () => {
     const text = configWith([bad], { schemaVersion: 3 });
 
     // Act / Assert
-    expectError(text, `ERROR: ${CONFIG_FILE}: unsupported config schemaVersion 3.`, 2);
+    expectError(
+      text,
+      `ERROR: ${CONFIG_FILE}: this config needs a newer mksync: run mksync update.`,
+      2,
+    );
   });
 
   test("an entry naming an unknown module stops with exit 1", () => {
@@ -214,6 +246,14 @@ describe("parseV2", () => {
   test("an import entry whose importName has no {layer} stops with exit 1", () => {
     // Arrange
     const bad = entry({ merge: "import", importName: "CLAUDE.md" });
+
+    // Act / Assert
+    expectError(configWith([bad]), importNameError(bad.file as string), 1);
+  });
+
+  test("an import entry with no importName stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ merge: "import" });
 
     // Act / Assert
     expectError(configWith([bad]), importNameError(bad.file as string), 1);
@@ -287,6 +327,57 @@ describe("parseV2", () => {
 
     // Act / Assert
     expectError(configWith([bad]), entryShapeError("7"), 1);
+  });
+
+  test("an entry file with a .. segment stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "../x" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("../x"), 1);
+  });
+
+  test("an absolute entry file stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "/etc/x" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("/etc/x"), 1);
+  });
+
+  test("an entry file starting with a drive letter stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "C:/x" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("C:/x"), 1);
+  });
+
+  test("an entry file with a backslash stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "a\\b" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError("a\\b"), 1);
+  });
+
+  test("an empty entry file stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ file: "" });
+
+    // Act / Assert
+    expectError(configWith([bad]), unsafePathError(""), 1);
+  });
+
+  test("an entry file with a folder is accepted", () => {
+    // Arrange
+    const good = entry({ file: "a/b.json" });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok).toBe(true);
   });
 
   test("a non-dconf entry with no localPath stops with exit 1", () => {

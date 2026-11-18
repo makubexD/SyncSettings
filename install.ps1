@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Install SyncSettings on Windows: clone the repo (or update the clone),
-    write the mksync launcher, then run setup.
+    install the mksync program, then run setup.
 .DESCRIPTION
     Runs as
     irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
@@ -15,7 +15,9 @@
 
     Settings come from the environment, not parameters, since iex cannot pass
     any: SYNCSETTINGS_REPO_URL, SYNCSETTINGS_DIR, SYNCSETTINGS_REF,
-    SYNCSETTINGS_BIN, SYNCSETTINGS_YES and SYNCSETTINGS_NO_SETUP.
+    SYNCSETTINGS_BIN, SYNCSETTINGS_YES, SYNCSETTINGS_NO_SETUP,
+    SYNCSETTINGS_RELEASE_URL, SYNCSETTINGS_RUNTIME and SYNC_ARCH (which
+    overrides PROCESSOR_ARCHITECTURE).
 #>
 
 function Install-SyncSettings {
@@ -42,6 +44,14 @@ function Install-SyncSettings {
         param([string[]]$Arguments)
         $ErrorActionPreference = 'Continue'
         & git @Arguments 2>$null | Out-Null
+        return $LASTEXITCODE
+    }
+
+    # Run gh without letting its output throw; returns its exit code.
+    function Invoke-Gh {
+        param([string[]]$Arguments)
+        $ErrorActionPreference = 'Continue'
+        & gh @Arguments *> $null
         return $LASTEXITCODE
     }
 
@@ -89,6 +99,109 @@ function Install-SyncSettings {
         return $false
     }
 
+    # True when the file is a launcher this installer wrote: its first two
+    # lines are the marker.
+    function Test-OursCmd {
+        param([string]$Path)
+        try {
+            $lines = [IO.File]::ReadAllLines($Path)
+            return ($lines.Count -ge 2 -and $lines[0].Trim() -eq '@echo off' -and
+                $lines[1].Trim() -eq 'rem SyncSettings launcher')
+        } catch {
+            return $false
+        }
+    }
+
+    # True when the two files hold the same bytes.
+    function Test-SameFile {
+        param([string]$Path1, [string]$Path2)
+        $first = Get-FileHash -LiteralPath $Path1 -Algorithm SHA256
+        $second = Get-FileHash -LiteralPath $Path2 -Algorithm SHA256
+        return ($first.Hash -ieq $second.Hash)
+    }
+
+    # The local path a file:// URL names, or $null for any other URL.
+    function Get-FileUrlPath {
+        param([string]$Url)
+        if (-not $Url.StartsWith('file://', [StringComparison]::OrdinalIgnoreCase)) {
+            return $null
+        }
+        return ([Uri]$Url).LocalPath
+    }
+
+    # The latest release tag: under file:// the <base>/latest file holds it;
+    # over https it is the last part of the URL the <base>/latest redirect ends
+    # at.
+    function Get-ReleaseTag {
+        param([string]$Base)
+        $url = "$Base/latest"
+        $local = Get-FileUrlPath $url
+        if ($null -ne $local) {
+            try {
+                return ([IO.File]::ReadAllText($local)).Trim()
+            } catch {
+                throw "could not download $url."
+            }
+        }
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        try {
+            $request = [Net.WebRequest]::Create($url)
+            $response = $request.GetResponse()
+            try {
+                $final = $response.ResponseUri.AbsoluteUri
+            } finally {
+                $response.Close()
+            }
+        } catch {
+            throw "could not download $url."
+        }
+        return $final.Substring($final.LastIndexOf('/') + 1)
+    }
+
+    # Download a release URL to a file, or throw with the URL that failed.
+    function Get-ReleaseFile {
+        param([string]$Url, [string]$OutFile)
+        $local = Get-FileUrlPath $Url
+        if ($null -ne $local) {
+            if (-not (Test-Path -LiteralPath $local -PathType Leaf)) {
+                throw "could not download $Url."
+            }
+            Copy-Item -LiteralPath $local -Destination $OutFile -Force
+            return
+        }
+        try {
+            Invoke-WebRequest -Uri $Url -UseBasicParsing -OutFile $OutFile
+        } catch {
+            throw "could not download $Url."
+        }
+    }
+
+    # The digest SHA256SUMS holds for $Name, or '' when it has no line for it.
+    function Get-SumFor {
+        param([string]$SumsFile, [string]$Name)
+        foreach ($line in [IO.File]::ReadAllLines($SumsFile)) {
+            $text = $line.Trim()
+            if (-not $text.EndsWith(' ' + $Name)) {
+                continue
+            }
+            $rest = $text.Substring(0, $text.Length - $Name.Length - 1).Trim()
+            return $rest.Split(' ')[0]
+        }
+        return ''
+    }
+
+    # The release asset for this CPU, or stops when there is no program for it.
+    # SYNC_ARCH overrides PROCESSOR_ARCHITECTURE for the tests.
+    function Get-ProgramAsset {
+        $arch = Get-Setting 'SYNC_ARCH' $env:PROCESSOR_ARCHITECTURE
+        if ($arch -eq 'AMD64') {
+            return 'mksync-windows-x64.exe'
+        }
+        throw "no mksync program for windows $arch."
+    }
+
+    $downloadDir = $null
     try {
         # 1. This installer is for Windows, and needs PowerShell 5.1.
         if ($env:OS -ne 'Windows_NT') {
@@ -101,9 +214,13 @@ function Install-SyncSettings {
         $url = Get-Setting 'SYNCSETTINGS_REPO_URL' 'https://github.com/makubexD/SyncSettings.git'
         $dir = Get-Setting 'SYNCSETTINGS_DIR' (Join-Path $env:USERPROFILE 'SyncSettings')
         $ref = Get-Setting 'SYNCSETTINGS_REF' 'master'
-        $bin = Get-Setting 'SYNCSETTINGS_BIN' (Join-Path $env:LOCALAPPDATA 'SyncSettings\bin')
+        $bin = Get-Setting 'SYNCSETTINGS_BIN' (Join-Path $env:LOCALAPPDATA 'mksync')
         $yes = ($env:SYNCSETTINGS_YES -eq '1')
         $noSetup = ($env:SYNCSETTINGS_NO_SETUP -eq '1')
+        $runtime = Get-Setting 'SYNCSETTINGS_RUNTIME' ''
+        if ($runtime -ne '' -and $runtime -ne 'bun' -and $runtime -ne 'node') {
+            throw 'SYNCSETTINGS_RUNTIME must be bun or node.'
+        }
 
         # 2. Tools: git is required, gh only opens pull requests.
         $winget = Get-ToolCommand 'winget'
@@ -177,32 +294,85 @@ function Install-SyncSettings {
             throw "$dir doesn't look like SyncSettings."
         }
 
-        # 4. The mksync launcher in the bin folder.
-        $launcher = Join-Path $bin 'mksync.cmd'
-        if (Test-Path -LiteralPath $launcher) {
-            $isOurs = $false
-            try {
-                $lines = [IO.File]::ReadAllLines($launcher)
-                if ($lines.Count -ge 2 -and $lines[0].Trim() -eq '@echo off' -and
-                    $lines[1].Trim() -eq 'rem SyncSettings launcher') {
-                    $isOurs = $true
-                }
-            } catch {
-                $isOurs = $false
+        # 4. The mksync program in the bin folder: the latest release's
+        #    mksync.exe, or with a runtime, a shim to the clone's launcher.
+        $shim = Join-Path $bin 'mksync.cmd'
+        $target = Join-Path $bin 'mksync.exe'
+
+        if ($runtime -ne '') {
+            if (Test-Path -LiteralPath $target) {
+                throw "$target already exists; remove it and run this again."
             }
-            if (-not $isOurs) {
-                throw "$launcher already exists; remove it and run this again."
+            if ((Test-Path -LiteralPath $shim) -and -not (Test-OursCmd $shim)) {
+                throw "$shim already exists; remove it and run this again."
             }
-        } else {
             $null = New-Item -ItemType Directory -Path $bin -Force
+            $content = "@echo off`r`n" +
+                "rem SyncSettings launcher`r`n" +
+                "call `"$dir\mksync.cmd`" %*`r`n" +
+                "exit /b %ERRORLEVEL%`r`n"
+            [IO.File]::WriteAllText($shim, $content, [Text.Encoding]::ASCII)
+        } else {
+            $asset = Get-ProgramAsset
+            $base = Get-Setting 'SYNCSETTINGS_RELEASE_URL' 'https://github.com/makubexD/SyncSettings/releases'
+            $downloadDir = Join-Path ([IO.Path]::GetTempPath()) ('mksync-' + [Guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path $downloadDir -Force
+            $tag = Get-ReleaseTag $base
+            if ([string]::IsNullOrEmpty($tag)) {
+                throw "could not find the latest release at $base."
+            }
+            Get-ReleaseFile "$base/download/$tag/$asset" (Join-Path $downloadDir $asset)
+            Get-ReleaseFile "$base/download/$tag/SHA256SUMS" (Join-Path $downloadDir 'SHA256SUMS')
+
+            $sum = Get-SumFor (Join-Path $downloadDir 'SHA256SUMS') $asset
+            $hash = (Get-FileHash -LiteralPath (Join-Path $downloadDir $asset) -Algorithm SHA256).Hash
+            if ([string]::IsNullOrEmpty($sum) -or $hash -ine $sum) {
+                throw "$asset`: checksum does not match SHA256SUMS."
+            }
+
+            if ($null -ne (Get-ToolCommand 'gh')) {
+                if ((Invoke-Gh @('auth', 'status')) -eq 0) {
+                    $verify = @('attestation', 'verify', (Join-Path $downloadDir $asset), '--repo', 'makubexD/SyncSettings')
+                    if ((Invoke-Gh $verify) -ne 0) {
+                        throw "$asset`: attestation check failed."
+                    }
+                }
+            }
+
+            # Nothing is written to the bin folder before both checks pass.
+            if (Test-Path -LiteralPath $shim) {
+                if (-not (Test-OursCmd $shim)) {
+                    throw "$shim already exists; remove it and run this again."
+                }
+                Remove-Item -LiteralPath $shim -Force
+            }
+            $write = $true
+            if (Test-Path -LiteralPath $target) {
+                if (Test-SameFile $target (Join-Path $downloadDir $asset)) {
+                    $write = $false
+                } else {
+                    throw "$target already exists; remove it and run this again."
+                }
+            }
+            if ($write) {
+                $null = New-Item -ItemType Directory -Path $bin -Force
+                $temp = Join-Path $bin ('.mksync-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+                Copy-Item -LiteralPath (Join-Path $downloadDir $asset) -Destination $temp
+                Move-Item -LiteralPath $temp -Destination $target
+            }
         }
 
-        $content = "@echo off`r`n" +
-            "rem SyncSettings launcher`r`n" +
-            "call `"$dir\sync.cmd`" %*`r`n" +
-            "exit /b %ERRORLEVEL%`r`n"
-        [IO.File]::WriteAllText($launcher, $content, [Text.Encoding]::ASCII)
+        # The old default launcher from earlier installers, when it is ours and
+        # not the one this bin folder has.
+        $oldLauncher = Join-Path $env:LOCALAPPDATA 'SyncSettings\bin\mksync.cmd'
+        if ((Test-Path -LiteralPath $oldLauncher -PathType Leaf) -and
+            ($oldLauncher.TrimEnd('\') -ine $shim.TrimEnd('\')) -and
+            (Test-OursCmd $oldLauncher)) {
+            Remove-Item -LiteralPath $oldLauncher -Force
+            Write-Host "  Removed the old launcher $oldLauncher."
+        }
 
+        # 5. The bin folder on the user Path, once.
         if (-not (Test-PathInUserPath $bin)) {
             $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
             $newUserPath = $bin
@@ -218,27 +388,35 @@ function Install-SyncSettings {
             Write-Host "  Added $bin to your PATH. New windows will find mksync."
         }
 
-        # 5. Setup, unless the caller skipped it.
+        # 6. Setup, unless the caller skipped it.
         if (-not $noSetup) {
+            $program = $target
+            if ($runtime -ne '') {
+                $program = $shim
+            }
             $setupArgs = @('setup')
             if ($yes) {
-                $setupArgs += '-Yes'
+                $setupArgs += '--yes'
             }
             # Out-Host streams setup's output (and its prompts) as it runs, and
             # keeps it out of this function's return value.
-            & (Join-Path $dir 'sync.cmd') @setupArgs | Out-Host
+            & $program @setupArgs | Out-Host
             $setupCode = $LASTEXITCODE
             if ($setupCode -ne 0) {
                 throw 'setup failed; run mksync setup to see why.'
             }
         }
 
-        # 6. Done.
+        # 7. Done.
         Write-Host '  Installed. Run mksync any time.'
         return 0
     } catch {
         Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
         return 1
+    } finally {
+        if (-not [string]::IsNullOrEmpty($downloadDir)) {
+            Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

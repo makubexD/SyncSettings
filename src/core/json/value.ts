@@ -77,8 +77,11 @@ function error(message: string): Result<never, string> {
 class Parser {
   private index = 0;
   private depth = 0;
+  private readonly text: string;
 
-  constructor(private readonly text: string) {}
+  constructor(text: string) {
+    this.text = text;
+  }
 
   parse(): Result<JsonValue, string> {
     this.skipByteOrderMark();

@@ -504,6 +504,8 @@ describe("readStore", () => {
 
 const PRIVATE_MODE = 0o600;
 
+const READABLE_MODE = 0o644;
+
 const RECORD_VALUES = { "<HOME>": "C:\\Users\\user" };
 
 const PROFILE_VALUES = { "<YOUR_EMAIL>": "work@example.com" };
@@ -586,6 +588,42 @@ describe("writeRecord and writeProfile", () => {
     // Assert
     expect(recordMode & 0o777).toBe(PRIVATE_MODE);
     expect(profileMode & 0o777).toBe(PRIVATE_MODE);
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "should tighten an existing readable record file when it writes it",
+    () => {
+      // Arrange
+      const fixture = storeFixture();
+      const path = join(fixture.state, "machine.json");
+      writeFixture(path, "old\n");
+      chmodSync(path, READABLE_MODE);
+
+      // Act
+      writeRecord(fixture.state, recordOf());
+
+      // Assert
+      expect(statSync(path).mode & 0o777).toBe(PRIVATE_MODE);
+    },
+  );
+
+  test("should refuse a record file that is a symlink and leave its target unchanged", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const target = join(tempFolder(), "record.json");
+    writeFixture(target, "old\n");
+    const link = join(fixture.state, "machine.json");
+    symlinkSync(target, link);
+
+    // Act
+    const refusal = (): void => {
+      writeRecord(fixture.state, recordOf());
+    };
+
+    // Assert
+    expect(refusal).toThrow(`ERROR: ${link} is a symlink.`);
+    expect(readFileSync(target, "utf8")).toBe("old\n");
+    expect(readdirSync(fixture.state)).toEqual(["machine.json"]);
   });
 });
 

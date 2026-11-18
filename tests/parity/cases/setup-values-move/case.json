@@ -37,6 +37,7 @@
     "SYNC_DOMAIN": "",
     "SYNC_TOOLS": "git,gh,claude"
   },
+  "stubs": ["gh"],
   "commands": [
     {
       "command": "setup",

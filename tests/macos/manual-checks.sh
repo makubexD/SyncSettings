@@ -142,7 +142,7 @@ else
     # -- M2 ----------------------------------------------------------------------
     header 'M2: mksync status and import --check'
     m2_fail=''
-    run_logged status "$MKSYNC"
+    run_logged status "$MKSYNC" status
     if ! grep -qF "SyncSettings  macos ($MACOS_VERSION)" "$WORK/status.log"; then
         m2_fail="${m2_fail}status doesn't show 'macos ($MACOS_VERSION)'; "
     fi

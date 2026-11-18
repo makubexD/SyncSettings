@@ -1,3 +1,4 @@
+import { trimAnswer } from "../answer.ts";
 import { same } from "../compare.ts";
 import type { SanitizeRule } from "../config/types.ts";
 import { jsonEqual } from "../json/value.ts";
@@ -11,11 +12,14 @@ import type { LayerFile } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
 import {
+  ASK_HEADER,
   askValues,
   hydrate,
   inferValues,
+  missingPlaceholders,
   resolveValues,
 } from "../values/hydrate.ts";
+import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
@@ -82,13 +86,12 @@ interface State {
   readonly values: Values;
   readonly only: readonly string[];
   readonly isExcluded: (path: string) => boolean;
-  readonly answers: readonly string[];
+  readonly askOverwrite: (name: string) => boolean;
   readonly force: boolean;
   readonly steps: FileStep[];
   readonly finish: Action[];
   readonly lines: string[];
   pending: StepAction[];
-  answerIndex: number;
   skipped: number;
   errors: number;
   userSkips: number;
@@ -161,21 +164,14 @@ function ensureParentDir(state: State, path: string): void {
   });
 }
 
-/** Contract "Overwrite prompt": an empty answer and end of input both mean yes. */
-function overwriteAccepted(state: State): boolean {
+/** Contract "Overwrite prompt": an empty answer and end of input both mean yes.
+ * `name` is what the prompt prints: the local file for an entry, the entry's
+ * `path` for a dconf entry. */
+function overwriteAccepted(state: State, name: string): boolean {
   if (state.force) {
     return true;
   }
-  const answer = state.answers[state.answerIndex];
-  state.answerIndex++;
-  if (answer === undefined) {
-    return true;
-  }
-  const trimmed = answer.trim();
-  if (trimmed === "") {
-    return true;
-  }
-  return /^[Yy]/.test(trimmed);
+  return state.askOverwrite(name);
 }
 
 function writeCreated(
@@ -253,7 +249,7 @@ function applyBytes(
       recordStep(state, label, line, false);
       return;
     }
-    if (!overwriteAccepted(state)) {
+    if (!overwriteAccepted(state, localPath)) {
       const line = pushStatus(state, "SKIPPED", label, USER_SKIPPED_NOTE);
       state.skipped++;
       recordStep(state, label, line, false);
@@ -644,7 +640,7 @@ function planDconf(state: State, selected: SelectedEntry): void {
     return;
   }
 
-  if (!overwriteAccepted(state)) {
+  if (!overwriteAccepted(state, dconfPath)) {
     const line = pushStatus(state, "SKIPPED", repoPath, USER_SKIPPED_NOTE);
     state.skipped++;
     recordStep(state, repoPath, line, false);
@@ -766,14 +762,23 @@ function collectRules(
   return { rules, inferred: Object.fromEntries(inferred) };
 }
 
+/** What `prepareImport` resolved before any answer is read. */
+interface PreparedImport {
+  readonly snapshot: Snapshot;
+  readonly selected: readonly SelectedEntry[];
+  readonly only: readonly string[];
+  readonly gathered: {
+    readonly rules: readonly SanitizeRule[];
+    readonly inferred: Values;
+  };
+  readonly owner: ValueOwner | undefined;
+}
+
 /**
- * The import plan: every status line, action and the exit code the contract
- * gives import, from a snapshot, the `--force` flag and the prompt answers.
+ * The entries, `--only` paths, sanitize rules and value owner an import reads
+ * from its snapshot, or the plan of an early error (config or `--only`).
  */
-export function planImport(
-  snapshot: Snapshot,
-  answers: readonly string[],
-): RunPlan {
+function prepareImport(snapshot: Snapshot): PreparedImport | RunPlan {
   const selected = selectEntries(
     snapshot.config,
     scopeFor(snapshot),
@@ -788,63 +793,224 @@ export function planImport(
     return only.plan;
   }
 
-  const gathered = collectRules(snapshot, selected.value, only.paths);
-  const owner = valueOwner(snapshot);
-  let values: Values;
-  let prompt: string | undefined;
-  let answerIndex = 0;
+  return {
+    snapshot,
+    selected: selected.value,
+    only: only.paths,
+    gathered: collectRules(snapshot, selected.value, only.paths),
+    owner: valueOwner(snapshot),
+  };
+}
+
+function isPrepared(value: PreparedImport | RunPlan): value is PreparedImport {
+  return "selected" in value;
+}
+
+/** The default a value prompt shows in brackets: the cached value, the rule's
+ * `default`, then the environment variable `defaultEnv` names. */
+function promptFallback(
+  rule: SanitizeRule,
+  cached: Values,
+  env: Readonly<Record<string, string | undefined>>,
+): string {
+  const cachedValue = cached[rule.placeholder];
+  if (cachedValue !== undefined && cachedValue.length > 0) {
+    return cachedValue;
+  }
+  if (rule.default !== undefined && rule.default.length > 0) {
+    return rule.default;
+  }
+  const fromEnv =
+    rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
+  return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : "";
+}
+
+/** One value question an import prints, and whether its answer may be empty:
+ * a `--reset-values` question that shows a default in brackets takes the
+ * default, while every other question stops the run on an empty answer. */
+export interface ImportValueQuestion {
+  readonly text: string;
+  readonly hasDefault: boolean;
+}
+
+/** The `--reset-values` questions, one per placeholder, as `askValues` prints
+ * them: its header first, then each default in brackets. */
+function resetValueQuestions(
+  snapshot: Snapshot,
+  rules: readonly SanitizeRule[],
+): ImportValueQuestion[] {
+  const questions: ImportValueQuestion[] = [];
+  const seen = new Set<string>();
+  for (const rule of rules) {
+    const placeholder = rule.placeholder;
+    if (placeholder.length === 0 || seen.has(placeholder)) {
+      continue;
+    }
+    seen.add(placeholder);
+    const fallback = promptFallback(rule, snapshot.values, snapshot.env);
+    const prompt = rule.prompt ?? "";
+    const hasDefault = fallback.length > 0;
+    questions.push({
+      text: hasDefault ? `  ${prompt} [${fallback}]: ` : `  ${prompt}: `,
+      hasDefault,
+    });
+  }
+  return questions;
+}
+
+/** The values an import resolved, or the plan that stopped it. The app prints
+ * the value questions itself, before reading each answer. */
+export type ImportValuesResult =
+  | {
+      readonly ok: true;
+      readonly values: Values;
+    }
+  | { readonly ok: false; readonly plan: RunPlan };
+
+/**
+ * The questions an import asks, each with the text printed before its answer:
+ * under `--reset-values` one per placeholder as `askValues` prints it, with
+ * its default in brackets and `hasDefault` set; otherwise one per
+ * `missingPlaceholders` rule, which is what nothing else fills. The first
+ * question carries the header. The check path never asks. An early-error plan
+ * comes back when the config or `--only` cannot be read.
+ */
+export function importValueQuestions(
+  snapshot: Snapshot,
+): readonly ImportValueQuestion[] | RunPlan {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return prepared;
+  }
+  const rules = prepared.gathered.rules;
+  const questions: ImportValueQuestion[] =
+    snapshot.resetValues === true
+      ? resetValueQuestions(snapshot, rules)
+      : missingPlaceholders(
+          rules,
+          snapshot.values,
+          prepared.gathered.inferred,
+          snapshot.env,
+        ).map((rule) => ({
+          text: `  ${rule.prompt ?? ""}: `,
+          hasDefault: false,
+        }));
+  const first = questions[0];
+  if (first !== undefined) {
+    questions[0] = {
+      text: `${ASK_HEADER}${first.text}`,
+      hasDefault: first.hasDefault,
+    };
+  }
+  return questions;
+}
+
+/** Whether `importValueQuestions` returned questions rather than an early-error plan. */
+export function isQuestionList(
+  value: readonly ImportValueQuestion[] | RunPlan,
+): value is readonly ImportValueQuestion[] {
+  return Array.isArray(value);
+}
+
+/**
+ * Resolve the import's values: `--reset-values` asks each placeholder again
+ * from `valueAnswers`; otherwise the placeholders nothing else fills take one
+ * answer each, and an empty or absent answer leaves its value missing. The
+ * answers join the resolved values, so they are saved like `--reset-values`
+ * saves them.
+ */
+export function resolveImportValues(
+  snapshot: Snapshot,
+  valueAnswers: readonly string[],
+): ImportValuesResult {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return { ok: false, plan: prepared };
+  }
+
   if (snapshot.resetValues === true) {
     // `--reset-values` asks again for every placeholder and skips inference.
     const asked = askValues(
-      gathered.rules,
+      prepared.gathered.rules,
       snapshot.values,
       snapshot.env,
-      answers,
-      owner,
+      valueAnswers,
+      prepared.owner,
     );
     if (!asked.ok) {
       const placeholder = asked.error.placeholder;
       return {
-        ...errorPlan(asked.error.message, 1),
-        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+        ok: false,
+        plan: {
+          ...errorPlan(asked.error.message, 1),
+          ...(placeholder !== undefined ? { missing: placeholder } : {}),
+        },
       };
     }
-    values = asked.value.values;
-    prompt = asked.value.text;
-    answerIndex = asked.value.consumed;
-  } else {
-    const resolved = resolveValues(
-      gathered.rules,
-      snapshot.values,
-      gathered.inferred,
-      snapshot.env,
-      owner,
-    );
-    if (!resolved.ok) {
-      const placeholder = resolved.error.placeholder;
-      return {
-        ...errorPlan(resolved.error.message, 1),
-        ...(placeholder !== undefined ? { missing: placeholder } : {}),
-      };
-    }
-    values = resolved.value;
+    return { ok: true, values: asked.value };
   }
 
+  const rules = prepared.gathered.rules;
+  const missing = missingPlaceholders(
+    rules,
+    snapshot.values,
+    prepared.gathered.inferred,
+    snapshot.env,
+  );
+  const answered = new Map<string, string>(Object.entries(snapshot.values));
+  for (const [index, rule] of missing.entries()) {
+    const raw = index < valueAnswers.length ? valueAnswers[index] : undefined;
+    const answer = trimAnswer(raw ?? "");
+    if (answer.length > 0) {
+      answered.set(rule.placeholder, answer);
+    }
+  }
+
+  const resolved = resolveValues(
+    rules,
+    Object.fromEntries(answered),
+    prepared.gathered.inferred,
+    snapshot.env,
+    prepared.owner,
+  );
+  if (!resolved.ok) {
+    const placeholder = resolved.error.placeholder;
+    return {
+      ok: false,
+      plan: {
+        ...errorPlan(resolved.error.message, 1),
+        ...(placeholder !== undefined ? { missing: placeholder } : {}),
+      },
+    };
+  }
+  return { ok: true, values: resolved.value };
+}
+
+/**
+ * The plan body once the values are resolved: every status line, action and
+ * the exit code the contract gives import, with `askOverwrite` deciding each
+ * differing file (its `name` is what the prompt prints).
+ */
+function buildImportPlan(
+  prepared: PreparedImport,
+  values: Values,
+  askOverwrite: (name: string) => boolean,
+): RunPlan {
+  const snapshot = prepared.snapshot;
   const state: State = {
     snapshot,
     values,
-    only: only.paths,
+    only: prepared.only,
     isExcluded: compileExcludes(
       snapshot.config.excludePatterns ?? [],
       snapshot.os,
     ),
-    answers,
+    askOverwrite,
     force: snapshot.force === true,
     steps: [],
     finish: [],
     lines: [],
     pending: [],
-    answerIndex,
     skipped: 0,
     errors: 0,
     userSkips: 0,
@@ -852,8 +1018,8 @@ export function planImport(
     createdDirs: new Set<string>(),
   };
 
-  for (const entry of selected.value) {
-    if (!entrySelected(entry, only.paths)) {
+  for (const entry of prepared.selected) {
+    if (!entrySelected(entry, prepared.only)) {
       continue;
     }
     switch (entry.entry.merge) {
@@ -888,12 +1054,90 @@ export function planImport(
   };
   return {
     // Bash saves every value whenever an entry has rules, before any file.
-    prepare: valuesPrepare(snapshot, gathered.rules.length > 0, values),
+    prepare: valuesPrepare(
+      snapshot,
+      prepared.gathered.rules.length > 0,
+      values,
+    ),
     steps: state.steps,
     finish: state.finish,
     lines: state.lines,
     summary,
     code: 0,
-    ...(prompt !== undefined ? { prompt } : {}),
   };
+}
+
+/**
+ * The ordered overwrite questions an import asks once its values are resolved:
+ * each differing file's prompt name, before any write. With `--force` there are
+ * none.
+ */
+export function importOverwriteQuestions(
+  snapshot: Snapshot,
+  values: Values,
+): readonly string[] {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return [];
+  }
+  const names: string[] = [];
+  buildImportPlan(prepared, values, (name) => {
+    names.push(name);
+    return true;
+  });
+  return names;
+}
+
+/**
+ * The import plan given resolved values and the overwrite answers, in the
+ * order `importOverwriteQuestions` asked them. An exhausted list answers the
+ * rest as yes, as the contract's empty answer and end of input do.
+ */
+export function importPlan(
+  snapshot: Snapshot,
+  values: Values,
+  overwriteAnswers: readonly (string | undefined)[],
+): RunPlan {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return prepared;
+  }
+  let index = 0;
+  const askOverwrite = (): boolean => {
+    const answer = overwriteAnswers[index];
+    index++;
+    if (answer === undefined) {
+      return true;
+    }
+    const trimmed = trimAnswer(answer);
+    if (trimmed === "") {
+      return true;
+    }
+    return /^[Yy]/.test(trimmed);
+  };
+  return buildImportPlan(prepared, values, askOverwrite);
+}
+
+/**
+ * The import plan from one list of answers: the value answers first, one per
+ * `importValueQuestions`, then the overwrite answers. Callers that ask each
+ * question as it comes use `resolveImportValues`, `importOverwriteQuestions`
+ * and `importPlan` instead.
+ */
+export function planImport(
+  snapshot: Snapshot,
+  answers: readonly string[],
+): RunPlan {
+  const questions = importValueQuestions(snapshot);
+  if (!isQuestionList(questions)) {
+    return questions;
+  }
+  const resolved = resolveImportValues(
+    snapshot,
+    answers.slice(0, questions.length),
+  );
+  if (!resolved.ok) {
+    return resolved.plan;
+  }
+  return importPlan(snapshot, resolved.values, answers.slice(questions.length));
 }

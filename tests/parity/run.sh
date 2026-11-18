@@ -98,6 +98,9 @@ validate_case() {
         | if ($o | has("yes")) then ($o.yes | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.yes must be a boolean'
     jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("bootstrap")) then ($o.bootstrap | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.bootstrap must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("partial")) then ($o.partial | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.partial must be a boolean'
     jq -e 'all(.commands[]; (.options // {}) as $o
@@ -121,6 +124,7 @@ validate_case() {
                   or $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
                   or $cmd == "push" or $cmd == "front-diff"
                else true end)
+          and (if ($o | has("bootstrap")) then $cmd == "setup" else true end)
           and (if ($o | has("partial")) then $cmd == "commit" else true end)
           and (if ($o | has("message")) then $cmd == "commit" or $cmd == "push" else true end)
           and (if ($o | has("paths")) then
@@ -128,7 +132,7 @@ validate_case() {
                   or $cmd == "push" or $cmd == "front-diff" or $cmd == "front-check"
                else true end)
           and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        || die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -155,9 +159,10 @@ validate_case() {
         jq -e '(.env // {}) | all(keys[];
                 . == "SYNC_PROFILE" or . == "SYNC_MACHINE" or . == "SYNC_HOSTNAME" or . == "SYNC_DOMAIN"
                 or . == "SYNC_TOOLS" or . == "MKSYNC_VISIBILITY" or . == "SYNC_NOW" or . == "SYNC_LOAD"
-                or . == "SYNC_MEM" or . == "SYNC_GIT" or . == "CONTEXT_CLEAR_AT" or . == "CTX_WINDOW_DIR")' \
+                or . == "SYNC_MEM" or . == "SYNC_GIT" or . == "CONTEXT_CLEAR_AT" or . == "CTX_WINDOW_DIR"
+                or . == "SYNC_OS_RELEASE")' \
             "$json" > /dev/null 2>&1 \
-            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT and CTX_WINDOW_DIR in env'
+            || die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT, CTX_WINDOW_DIR and SYNC_OS_RELEASE in env'
         jq -e '(.env // {}) as $e
             | if ($e | has("CTX_WINDOW_DIR")) and $e.CTX_WINDOW_DIR != null then
                   if ($e.CTX_WINDOW_DIR | type) == "string" then
@@ -168,10 +173,12 @@ validate_case() {
             || die 'CTX_WINDOW_DIR must be a relative path under home'
     fi
     jq -e 'if has("oldEngines") then
-            (.oldEngines | type) == "array" and (.oldEngines | length) > 0
-            and all(.oldEngines[]; . == "bash" or . == "powershell")
+            (.oldEngines | type) == "array"
+            and ((.oldEngines == ["none"])
+                or ((.oldEngines | length) > 0
+                    and all(.oldEngines[]; . == "bash" or . == "powershell")))
           else true end' "$json" > /dev/null 2>&1 \
-        || die 'oldEngines must be a non-empty list of bash and powershell'
+        || die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
     jq -e 'if has("emptyDirs") then
             (.emptyDirs | type) == "array" and all(.emptyDirs[]; type == "string")
           else true end' "$json" > /dev/null 2>&1 \
@@ -186,9 +193,9 @@ validate_case() {
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
             (.stubs | type) == "array"
-            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent")
+            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent" or . == "bootstrap")
           else true end' "$json" > /dev/null 2>&1 \
-        || die 'stubs may only hold gh, dconf or getent'
+        || die 'stubs may only hold gh, dconf, getent or bootstrap'
     jq -e '((.stubs // []) | any(. == "getent") | not)
         or ((.stubs // []) | any(. == "dconf"))' "$json" > /dev/null 2>&1 \
         || die 'the getent stub needs the dconf stub'
@@ -539,6 +546,23 @@ write_getent_stub() {
     chmod +x "$temp/bin/getent" || die 'making the getent stub executable failed'
 }
 
+# Write the bootstrap stub into the case's repo: `bootstrap/linux.sh` appends
+# `ran` to $temp/bootstrap.log and prints BOOTSTRAP RAN, then exits 0. The front
+# door runs the repo's own file, so this is the one stub inside a compared tree;
+# its log stays outside both trees. `$0` is the repo's absolute path, or the
+# relative one the caller ran from the repo root, so its two parents are $temp.
+write_bootstrap_stub() {
+    local temp=$1
+    mkdir -p "$temp/repo/bootstrap" || die 'creating the bootstrap stub folder failed'
+    # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
+    printf '%s\n' \
+        '#!/bin/sh' \
+        "printf 'ran\\n' >> \"\${0%/*}/../../bootstrap.log\"" \
+        "printf 'BOOTSTRAP RAN\\n'" \
+        'exit 0' > "$temp/repo/bootstrap/linux.sh" || die 'writing the bootstrap stub failed'
+    chmod +x "$temp/repo/bootstrap/linux.sh" || die 'making the bootstrap stub executable failed'
+}
+
 # -- One case ------------------------------------------------------------------
 
 # Runs one case in a fresh throwaway folder, prints the first difference and
@@ -547,9 +571,10 @@ write_getent_stub() {
 run_case() {
     local dir=$1
     local config_json config_file count i cmd rc only_path out stdin_file git_mode gh_stub=false
-    local stubs dconf_stub=false
+    local stubs dconf_stub=false bootstrap_stub=false
     local stderr_mode all_output keep_ansi target value
     local want_exit want_output want_home want_repo want_values want_state want_gh want_dconf calls first_load
+    local want_bootstrap first_run
     local file rel got want_mode got_mode start_head state_want clone positional
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
@@ -567,7 +592,14 @@ run_case() {
 
     mkdir -p "$t/repo" "$t/home" "$t/empty"
     if [[ -n $engine_path ]]; then
-        cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+        if [[ $engine_path == "$REPO/mksync" ]]; then
+            # The clone launcher runs src/main.ts next to itself, so a copy
+            # would look for the sources in the temp repo. A link keeps it in
+            # the clone while the cases still run ./mksync.
+            ln -s "$engine_path" "$t/repo/mksync" || die 'linking the launcher failed'
+        else
+            cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+        fi
         # The program runs the leak scan from the repo, as commit.sh does.
         mkdir -p "$t/repo/scripts"
         cp -a "$REPO/scripts/ci" "$t/repo/scripts/" || die 'copying scripts/ci failed'
@@ -671,6 +703,10 @@ run_case() {
     if [[ " $stubs " == *' getent '* ]]; then
         write_getent_stub "$t" "$t/home"
     fi
+    if [[ " $stubs " == *' bootstrap '* ]]; then
+        bootstrap_stub=true
+        write_bootstrap_stub "$t"
+    fi
 
     # Optional case env: a string sets the variable, null unsets it. Applied by
     # `env` after HOME is set, so a case can unset HOME or USERPROFILE too.
@@ -740,7 +776,7 @@ run_case() {
         fi
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message|paths|resetValues) ;;
+                force|only|name|profile|replace|claude|mode|existing|yes|bootstrap|target|partial|message|paths|resetValues) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -757,6 +793,9 @@ run_case() {
         done
         if [[ $(jq -r ".commands[$i].options.yes // false" "$dir/case.json") == true ]]; then
             args+=(--yes)
+        fi
+        if [[ $(jq -r ".commands[$i].options.bootstrap // false" "$dir/case.json") == true ]]; then
+            args+=(--bootstrap)
         fi
         if [[ $(jq -r ".commands[$i].options.partial // false" "$dir/case.json") == true ]]; then
             args+=(--partial)
@@ -795,19 +834,21 @@ run_case() {
         # A caller's git repo, bus and tokens stay out too; the case's own env is
         # applied after the unsets, so a case may still set them deliberately. The
         # ceiling always holds, so git cannot climb above the case folder.
+        # Bun's transpile cache would otherwise land in the case's home; keep it
+        # outside both compared trees.
         if [[ $stderr_mode == true || $all_output == true ]]; then
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
                 -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
                 -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
-                GIT_CEILING_DIRECTORIES="$t" \
+                XDG_CACHE_HOME="$t/xdg-cache" GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
         else
             (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
                 -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
                 -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
-                GIT_CEILING_DIRECTORIES="$t" \
+                XDG_CACHE_HOME="$t/xdg-cache" GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         fi
         printf '%s\n' "$rc" >> "$t/actual-exit"
@@ -861,6 +902,19 @@ run_case() {
         else
             first_load=$(head -n 1 "$t/dconf.log" 2> /dev/null) || true
             [[ -z $first_load ]] || die "dconf: want no load, got \"$first_load\""
+        fi
+    fi
+
+    # The bootstrap stub appends `ran` to its log; the log must equal
+    # expect/bootstrap.log byte for byte, or no run when the file is absent.
+    if $bootstrap_stub; then
+        want_bootstrap=$(expected_path "$dir" bootstrap.log)
+        if [[ -f $want_bootstrap ]]; then
+            [[ -f $t/bootstrap.log ]] || die 'bootstrap: want a run, got nothing'
+            cmp -s "$want_bootstrap" "$t/bootstrap.log" || die 'bootstrap.log: differs from expect'
+        else
+            first_run=$(head -n 1 "$t/bootstrap.log" 2> /dev/null) || true
+            [[ -z $first_run ]] || die "bootstrap: want no run, got \"$first_run\""
         fi
     fi
 
@@ -1009,7 +1063,8 @@ for dir in "$CASES"/*/; do
         continue
     fi
 
-    # oldEngines names the frozen engines a case runs on; the program runs all.
+    # oldEngines names the frozen engines a case runs on; ["none"] names no old
+    # engine, and the program runs every case.
     if [[ -z $engine_path ]] \
         && ! jq -e '(.oldEngines // ["bash"]) | index("bash")' "$dir/case.json" > /dev/null; then
         printf 'SKIP %s: not on the bash engine\n' "$case_name"

@@ -1,0 +1,23 @@
+{
+  "description": "macOS setup asks no bootstrap question and never runs bootstrap/linux.sh, even with the script present; exit 0 (Front door, setup; ported from front_macos_setup_no_bootstrap).",
+  "os": ["macos"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/plain.txt",
+        "localPath": "~/.config/parity/plain.txt",
+        "platform": "common",
+        "description": "Matches the repo"
+      }
+    ]
+  },
+  "stubs": ["bootstrap", "gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": { "yes": true }
+    }
+  ]
+}

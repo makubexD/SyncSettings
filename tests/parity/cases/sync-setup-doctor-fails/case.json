@@ -1,0 +1,19 @@
+{
+  "description": "A doctor MISSING line (brew, on a macos platform) stops setup before the import check and any question; exit 1 (Front door, setup; ported from sync_setup_doctor_fails).",
+  "os": ["linux"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": []
+  },
+  "env": {
+    "SYNC_OS": "macos"
+  },
+  "stubs": ["bootstrap", "gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": { "yes": true }
+    }
+  ]
+}

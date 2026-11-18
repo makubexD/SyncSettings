@@ -1,0 +1,21 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      0 of 2 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+Machine wk1-laptop: profile work-1, Claude only, push with a preview.
+Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup
+  Also restore apps and packages from packages/linux (uses sudo)? [y/N] BOOTSTRAP RAN

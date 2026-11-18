@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { decode, runSync } from "./process.ts";
 
 /** The variable that hands the script its path, so no text is interpolated. */
 export const PATH_VARIABLE = "MKSYNC_PRIVATE_PATH";
@@ -70,16 +70,15 @@ export function restrictToCurrentUser(path: string): void {
     return;
   }
   const command = ownerOnlyCommand(path);
-  const result = spawnSync(command.file, command.args, {
-    encoding: "utf8",
+  const result = runSync([command.file, ...command.args], {
     env: { ...process.env, ...command.env },
   });
-  if (result.error !== undefined) {
-    throw new Error(`${command.file} could not run`, { cause: result.error });
+  if (result.notStarted) {
+    throw new Error(`${command.file} could not run`);
   }
-  if (result.status !== 0) {
+  if (result.code !== 0) {
     throw new Error(
-      `${command.file} could not restrict ${path}: ${result.stderr.trim()}`,
+      `${command.file} could not restrict ${path}: ${decode(result.stderr).trim()}`,
     );
   }
 }

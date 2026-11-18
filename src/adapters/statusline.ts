@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { parsePayload, statusLine } from "../core/statusline/format.ts";
+import { decode, runSync } from "./process.ts";
 import type {
   GitFacts,
   StatusFacts,
@@ -288,25 +289,19 @@ function runGit(
   args: readonly string[],
   env: Readonly<Record<string, string | undefined>>,
 ): GitRun | undefined {
-  try {
-    const result = Bun.spawnSync({
-      cmd: ["git", GIT_FLAGS, "-C", cwd, ...args],
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "ignore",
-      env: spawnEnv(env),
-    });
-    if (result.exitCode === null) {
-      return undefined;
-    }
-    return {
-      code: result.exitCode,
-      stdout: new TextDecoder().decode(result.stdout),
-    };
-  } catch {
+  const result = runSync(["git", GIT_FLAGS, "-C", cwd, ...args], {
+    stdout: "pipe",
+    stderr: "ignore",
+    env: spawnEnv(env),
+  });
+  if (result.notStarted === true) {
     // No git binary: the git sections are left out.
     return undefined;
   }
+  return {
+    code: result.code,
+    stdout: decode(result.stdout),
+  };
 }
 
 /** The process's variables with the injected ones over them, so a test's

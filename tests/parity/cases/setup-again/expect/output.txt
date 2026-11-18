@@ -1,1 +1,8 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  OK       machine record
+  OK       values
+  OK       bash
+  Ready.
 ERROR: this machine is already wk1-laptop; use --replace to take over another record.

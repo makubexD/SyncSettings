@@ -1,0 +1,10 @@
+{
+  "modules": [
+    "parity"
+  ],
+  "values": {
+    "<YOUR_NAME>": "Jane Doe"
+  },
+  "destinations": {},
+  "retired": false
+}

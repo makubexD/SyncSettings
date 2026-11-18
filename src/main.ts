@@ -1,3 +1,5 @@
+import { unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import {
   readAheadBehind,
@@ -7,6 +9,7 @@ import {
   statusPorcelain,
 } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
+import { readAllStdin } from "./adapters/process.ts";
 import { readIdentity } from "./adapters/scan.ts";
 import {
   buildSnapshot,
@@ -33,6 +36,11 @@ import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
 import { executeShadow } from "./app/shadow.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
+import {
+  defaultUpdateDeps,
+  executeUpdate,
+  OLD_PROGRAM_NAME,
+} from "./app/update.ts";
 import { failure, runExport, setupTerminal, writeLines } from "./app/export.ts";
 import type { ExecuteOptions, Result } from "./app/export.ts";
 import type { RunEnvironment } from "./app/run.ts";
@@ -50,7 +58,9 @@ import type {
   ShadowCommand,
   StatusCommand,
   StatuslineCommand,
+  UpdateCommand,
 } from "./cli/parse.ts";
+import { trimAnswer } from "./core/answer.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import { machineScope } from "./core/machine/scope.ts";
@@ -210,7 +220,7 @@ async function fetchOriginForDiff(
 
 /** Bash's `read` trims; an empty answer or end of input takes the default. */
 function pullAnswer(answer: string | undefined, defaultYes: boolean): boolean {
-  const given = answer?.trim() ?? "";
+  const given = answer === undefined ? "" : trimAnswer(answer);
   if (given === "") {
     return defaultYes;
   }
@@ -228,19 +238,6 @@ async function askTerminalQuestion(
   return pullAnswer(await io.readLine(), defaultYes);
 }
 
-/** A pull question: the prompt goes out before its answer is read. */
-async function askPullQuestion(
-  question: string,
-  defaultYes: boolean,
-): Promise<boolean> {
-  const terminal = setupTerminal();
-  try {
-    return await askTerminalQuestion(terminal.io, question, defaultYes);
-  } finally {
-    terminal.close();
-  }
-}
-
 type Resolved =
   | Result
   | RunCommand
@@ -254,7 +251,8 @@ type Resolved =
   | RetireCommand
   | CommitCommand
   | SetupCommand
-  | StatuslineCommand;
+  | StatuslineCommand
+  | UpdateCommand;
 
 type ExecutableCommand =
   | RunCommand
@@ -270,17 +268,23 @@ type ExecutableCommand =
   | SetupCommand;
 
 function isResolvedCommand(value: Resolved): value is ExecutableCommand {
-  return "kind" in value && value.kind !== "statusline";
+  return (
+    "kind" in value && value.kind !== "statusline" && value.kind !== "update"
+  );
 }
 
 function isStatuslineCommand(value: Resolved): value is StatuslineCommand {
   return "kind" in value && value.kind === "statusline";
 }
 
+function isUpdateCommand(value: Resolved): value is UpdateCommand {
+  return "kind" in value && value.kind === "update";
+}
+
 /** `statusline`'s whole body: stdin in, one line out, 0 whatever fails. */
 async function statuslineOutput(): Promise<string> {
   try {
-    return renderStatusline(await Bun.stdin.text());
+    return renderStatusline(await readAllStdin());
   } catch {
     // Contract: the command prints one line and exits 0 whatever fails.
     return STATUSLINE_UNAVAILABLE;
@@ -329,27 +333,37 @@ async function execute(
 
   const state = stateFolder(os.value, home, process.env);
   switch (command.kind) {
-    case "pull":
+    case "pull": {
       // Decision 7: each child reads the config again, so a fast-forward's new
-      // config and code are the ones this pull goes on with.
-      return executePull(
-        { yes: command.yes, force: command.force, paths: command.paths },
-        {
-          runCheck: (only) => execute(pullImportCommand(true, false, only)),
-          runDiff: (only) => execute(diffCommand(only)),
-          runImport: (only) => execute(pullImportCommand(false, true, only)),
-          unsent: async () => (await unsentCount(repoRoot)) ?? 0,
-          fetchAndFastForward: () => fetchAndFastForward(repoRoot),
-          hasSyncPoint: async () =>
-            (await readSyncPoint(repoRoot, state)) !== undefined,
-          ask: askPullQuestion,
-          print: (shown) => {
-            process.stdout.write(shown.stdout);
-            process.stderr.write(shown.stderr);
+      // config and code are the ones this pull goes on with. One reader serves
+      // the pull's questions and the import's value questions, so piped
+      // answers left after a pull question still reach the import.
+      const terminal = setupTerminal();
+      try {
+        return await executePull(
+          { yes: command.yes, force: command.force, paths: command.paths },
+          {
+            runCheck: (only) => execute(pullImportCommand(true, false, only)),
+            runDiff: (only) => execute(diffCommand(only)),
+            runImport: (only) =>
+              execute(pullImportCommand(false, true, only), { terminal }),
+            unsent: async () => (await unsentCount(repoRoot)) ?? 0,
+            fetchAndFastForward: () => fetchAndFastForward(repoRoot),
+            hasSyncPoint: async () =>
+              (await readSyncPoint(repoRoot, state)) !== undefined,
+            ask: (question, defaultYes) =>
+              askTerminalQuestion(terminal.io, question, defaultYes),
+            print: (shown) => {
+              process.stdout.write(shown.stdout);
+              process.stderr.write(shown.stderr);
+            },
+            cloneReady: () => cloneReady(repoRoot),
           },
-          cloneReady: () => cloneReady(repoRoot),
-        },
-      );
+        );
+      } finally {
+        terminal.close();
+      }
+    }
     case "push": {
       // One terminal for the whole push: the export's questions and the PR
       // question share it, so an answer piped ahead isn't lost when the export
@@ -504,7 +518,7 @@ async function execute(
       }
       return command.command === "export"
         ? runExport(environment, command)
-        : runImport(environment, command);
+        : runImport(environment, command, options?.terminal?.io);
     }
     default: {
       const unhandled: never = command;
@@ -542,6 +556,8 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "statusline":
       return parsed;
+    case "update":
+      return parsed;
     case "machine-retire":
     case "profile-retire":
       return parsed;
@@ -550,7 +566,7 @@ export function run(argv: readonly string[]): Resolved {
     case "usage":
       return { code: 2, stdout: "", stderr: `${USAGE}\n` };
     case "error":
-      return { code: 1, stdout: "", stderr: `${parsed.message}\n` };
+      return { code: parsed.code, stdout: "", stderr: `${parsed.message}\n` };
     default: {
       const unhandled: never = parsed;
       throw new Error(`unhandled command: ${String(unhandled)}`);
@@ -558,12 +574,35 @@ export function run(argv: readonly string[]): Resolved {
   }
 }
 
+/**
+ * Delete the program an earlier Windows update moved aside, so a restart
+ * after an update leaves nothing behind. Only Windows has one; any error
+ * leaves the file, because a leftover is harmless.
+ */
+export function removeOldProgram(platform: string, execPath: string): void {
+  if (platform !== "win32") {
+    return;
+  }
+  try {
+    unlinkSync(join(dirname(execPath), OLD_PROGRAM_NAME));
+  } catch {
+    // A leftover is harmless: leave it, whatever the error (usually ENOENT).
+  }
+}
+
 /** The program: argv in, its output printed, its exit code out. */
 export async function main(argv: readonly string[]): Promise<number> {
+  removeOldProgram(process.platform, process.execPath);
   const resolved = run(argv);
   if (isStatuslineCommand(resolved)) {
     process.stdout.write(await statuslineOutput());
     return 0;
+  }
+  if (isUpdateCommand(resolved)) {
+    const result = await executeUpdate(defaultUpdateDeps(pkg.version));
+    process.stdout.write(result.stdout);
+    process.stderr.write(result.stderr);
+    return result.code;
   }
   const result = isResolvedCommand(resolved)
     ? await execute(resolved)

@@ -1,0 +1,21 @@
+{
+  "description": "A v2 entry file with a backslash is refused when the config is read, exit 1 before anything is written (Path safety; Config v2).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "a\\b",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig",
+        "description": "Parity case entry with a backslash in file"
+      }
+    ]
+  },
+  "commands": [{ "command": "status", "stderr": true }]
+}

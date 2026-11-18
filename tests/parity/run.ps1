@@ -136,6 +136,10 @@ function Validate-Case {
             if ($null -ne $yesProp -and $yesProp.Value -isnot [bool]) {
                 Die 'options.yes must be a boolean'
             }
+            $bootstrapProp = $opts.PSObject.Properties['bootstrap']
+            if ($null -ne $bootstrapProp -and $bootstrapProp.Value -isnot [bool]) {
+                Die 'options.bootstrap must be a boolean'
+            }
             $partialProp = $opts.PSObject.Properties['partial']
             if ($null -ne $partialProp -and $partialProp.Value -isnot [bool]) {
                 Die 'options.partial must be a boolean'
@@ -156,7 +160,7 @@ function Validate-Case {
         }
         foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing')) {
             if ($optNames -ccontains $key -and $cmd.command -cne 'setup') {
-                Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire or profile-retire'
+                Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire or profile-retire'
             }
         }
         $frontDoor = $cmd.command -ceq 'status' -or $cmd.command -ceq 'doctor' -or
@@ -164,19 +168,22 @@ function Validate-Case {
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
             $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and
             $cmd.command -cne 'profile-retire' -and -not $frontDoor) {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        }
+        if ($optNames -ccontains 'bootstrap' -and $cmd.command -cne 'setup') {
+            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'partial' -and $cmd.command -cne 'commit') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'message' -and $cmd.command -cne 'commit' -and $cmd.command -cne 'push') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'paths' -and -not $frontDoor -and $cmd.command -cne 'front-check') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'resetValues' -and $cmd.command -cne 'import' -and $cmd.command -cne 'check') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -247,8 +254,9 @@ function Validate-Case {
                     $p.Name -cne 'SYNC_TOOLS' -and $p.Name -cne 'MKSYNC_VISIBILITY' -and
                     $p.Name -cne 'SYNC_NOW' -and $p.Name -cne 'SYNC_LOAD' -and
                     $p.Name -cne 'SYNC_MEM' -and $p.Name -cne 'SYNC_GIT' -and
-                    $p.Name -cne 'CONTEXT_CLEAR_AT' -and $p.Name -cne 'CTX_WINDOW_DIR') {
-                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT and CTX_WINDOW_DIR in env'
+                    $p.Name -cne 'CONTEXT_CLEAR_AT' -and $p.Name -cne 'CTX_WINDOW_DIR' -and
+                    $p.Name -cne 'SYNC_OS_RELEASE') {
+                    Die 'a configV2 case may set only SYNC_PROFILE, SYNC_MACHINE, SYNC_HOSTNAME, SYNC_DOMAIN, SYNC_TOOLS, MKSYNC_VISIBILITY, SYNC_NOW, SYNC_LOAD, SYNC_MEM, SYNC_GIT, CONTEXT_CLEAR_AT, CTX_WINDOW_DIR and SYNC_OS_RELEASE in env'
                 }
             }
             $ctxProp = $envProp.Value.PSObject.Properties['CTX_WINDOW_DIR']
@@ -265,11 +273,14 @@ function Validate-Case {
     if ($null -ne $oldEnginesProp) {
         $oldEngines = $oldEnginesProp.Value
         if ($oldEngines -isnot [System.Array] -or $oldEngines.Count -eq 0) {
-            Die 'oldEngines must be a non-empty list of bash and powershell'
+            Die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
         }
-        foreach ($e in $oldEngines) {
-            if ($e -isnot [string] -or ($e -cne 'bash' -and $e -cne 'powershell')) {
-                Die 'oldEngines must be a non-empty list of bash and powershell'
+        $onlyNone = $oldEngines.Count -eq 1 -and $oldEngines[0] -is [string] -and $oldEngines[0] -ceq 'none'
+        if (-not $onlyNone) {
+            foreach ($e in $oldEngines) {
+                if ($e -isnot [string] -or ($e -cne 'bash' -and $e -cne 'powershell')) {
+                    Die 'oldEngines must be ["none"] or a non-empty list of bash and powershell'
+                }
             }
         }
     }
@@ -296,11 +307,11 @@ function Validate-Case {
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
         if ($stubs -isnot [System.Array]) {
-            Die 'stubs may only hold gh; dconf and getent are Linux only'
+            Die 'stubs may only hold gh; dconf, getent and bootstrap are Linux only'
         }
         foreach ($s in $stubs) {
-            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent'))) {
-                Die 'stubs may only hold gh; dconf and getent are Linux only'
+            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap'))) {
+                Die 'stubs may only hold gh; dconf, getent and bootstrap are Linux only'
             }
         }
     }
@@ -852,8 +863,32 @@ function Setup-Git {
     }
 }
 
-# Write the gh stub into <temp>\bin: a gh.cmd that appends each call's arguments,
-# one call per line, to <temp>\gh.log, prints nothing and exits 0.
+# The gh stub as a program: it appends its arguments joined by spaces, one call
+# per line, to gh.log one folder above its own, prints nothing and exits 0.
+# The program runs only .com and .exe commands on Windows (contract "The
+# program"), so it needs this one; the old engine keeps gh.cmd. Built once per
+# run with the C# compiler Windows PowerShell already carries.
+$ghExeTemplate = ''
+$ghStubSource = @'
+using System;
+using System.IO;
+using System.Reflection;
+
+public static class GhStub
+{
+    public static int Main(string[] args)
+    {
+        string bin = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        string log = Path.Combine(Path.GetDirectoryName(bin), "gh.log");
+        File.AppendAllText(log, string.Join(" ", args) + "\r\n");
+        return 0;
+    }
+}
+'@
+
+# Write the gh stub into <temp>\bin: a gh.cmd for the old engine and, for
+# -Engine, a gh.exe; each appends a call's arguments, one call per line, to
+# <temp>\gh.log, prints nothing and exits 0.
 function Write-GhStub {
     param([string]$TempDir)
     $binDir = Join-Path $TempDir 'bin'
@@ -861,6 +896,17 @@ function Write-GhStub {
     $logPath = Join-Path $TempDir 'gh.log'
     $body = "@echo off`r`n>>`"$logPath`" echo(%*`r`n"
     [IO.File]::WriteAllText((Join-Path $binDir 'gh.cmd'), $body, [System.Text.UTF8Encoding]::new($false))
+    if ([string]::IsNullOrEmpty($EnginePath)) {
+        return
+    }
+    if ($script:ghExeTemplate -eq '') {
+        $folder = Join-Path ([IO.Path]::GetTempPath()) ('mksync-ghstub-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        $exe = Join-Path $folder 'gh.exe'
+        Add-Type -TypeDefinition $ghStubSource -OutputAssembly $exe -OutputType ConsoleApplication
+        $script:ghExeTemplate = $exe
+    }
+    Copy-Item -LiteralPath $script:ghExeTemplate -Destination (Join-Path $binDir 'gh.exe')
 }
 
 # The local state the program writes must be readable by the user only on
@@ -1147,6 +1193,7 @@ function Run-Case {
                     if ($key -cne 'force' -and $key -cne 'only' -and $key -cne 'name' -and
                         $key -cne 'profile' -and $key -cne 'replace' -and $key -cne 'claude' -and
                         $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'yes' -and
+                        $key -cne 'bootstrap' -and
                         $key -cne 'target' -and $key -cne 'partial' -and $key -cne 'message' -and
                         $key -cne 'paths' -and $key -cne 'resetValues') {
                         Die "unknown option '$key' in command $($i + 1)"
@@ -1185,6 +1232,10 @@ function Run-Case {
                 $yesProp = $opts.PSObject.Properties['yes']
                 if ($null -ne $yesProp -and $yesProp.Value -eq $true) {
                     $extraArgs += '--yes'
+                }
+                $bootstrapProp = $opts.PSObject.Properties['bootstrap']
+                if ($null -ne $bootstrapProp -and $bootstrapProp.Value -eq $true) {
+                    $extraArgs += '--bootstrap'
                 }
                 $partialProp = $opts.PSObject.Properties['partial']
                 if ($null -ne $partialProp -and $partialProp.Value -eq $true) {
@@ -1295,7 +1346,11 @@ function Run-Case {
                 $env:GIT_CEILING_DIRECTORIES = $t
                 if ($ghStub) {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
-                    $env:GH = Join-Path $t 'bin\gh.cmd'
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $env:GH = Join-Path $t 'bin\gh.cmd'
+                    } else {
+                        $env:GH = Join-Path $t 'bin\gh.exe'
+                    }
                 }
                 # The case's env, applied after HOME/USERPROFILE is set.
                 for ($e = 0; $e -lt $envNames.Count; $e++) {
@@ -1615,7 +1670,8 @@ foreach ($caseDir in $caseDirs) {
         continue
     }
 
-    # oldEngines names the frozen engines a case runs on; the program runs all.
+    # oldEngines names the frozen engines a case runs on; ["none"] names no old
+    # engine, and the program runs every case.
     $oldEnginesProp = $case.PSObject.Properties['oldEngines']
     if ([string]::IsNullOrEmpty($EnginePath) -and $null -ne $oldEnginesProp -and
         -not (@($oldEnginesProp.Value) -ccontains 'powershell')) {
@@ -1635,13 +1691,13 @@ foreach ($caseDir in $caseDirs) {
         }
     }
 
-    # dconf and getent are Linux stubs: a case whose os list still reaches
+    # dconf, getent and bootstrap are Linux stubs: a case whose os list still reaches
     # Windows with one is invalid, not skipped.
     $linuxStub = $null
     $stubsProp = $case.PSObject.Properties['stubs']
     if ($null -ne $stubsProp) {
         foreach ($s in @($stubsProp.Value)) {
-            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent')) {
+            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap')) {
                 $linuxStub = $s
                 break
             }
@@ -1678,6 +1734,10 @@ if ($skipped -gt 0) {
     Write-Output "$passed passed, $failed failed, $skipped skipped"
 } else {
     Write-Output "$passed passed, $failed failed"
+}
+
+if ($ghExeTemplate -ne '') {
+    Remove-Item -LiteralPath (Split-Path -Parent $ghExeTemplate) -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if ($failed -gt 0) {

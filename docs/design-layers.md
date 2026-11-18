@@ -241,7 +241,9 @@ anything about this one computer goes on the machine. If a placeholder ends up i
 profile or to the machine by the table above. A placeholder that isn't in the table is asked about once,
 `<OTHER>: kept on 1) this profile 2) this machine [1]`, and `--yes` or end of input keeps it on the profile. The old
 file is left as it is, so the old engine still works until cut-over, and is deleted then. With a record the program reads
-values only from the machine, then the profile; a value asked for during a pull is saved by the same rule.
+values only from the machine, then the profile; a value asked for during a pull or setup is saved by the same rule.
+The program asks only for a value that nothing else fills: no record or profile value, no inferred value, no rule
+`default` and no `defaultEnv`.
 
 Example: personal Linux has `{"<YOUR_EMAIL>": "jane@example.com", "<HOME>": "/home/jane"}`. After the first run, the
 `personal` profile holds the email and the machine record holds `/home/jane`. On work #1, the same move puts the work
@@ -781,6 +783,44 @@ gives every old case of `docs/design-test-moves.md` a verdict.
   setup: `sync-setup-offers-bootstrap`, `sync-setup-doctor-fails`, `front-macos-setup-no-bootstrap`,
   `front-macos-bootstrap-flag`.
 
+## Decided in phase 9
+
+Confirmed in the review of [plan-single-engine-9.md](plan-single-engine-9.md) (2026-11-17), which holds each one's
+full text and the steps that build it.
+
+1. **Node runs the source, not a build.** `erasableSyntaxOnly` in `tsconfig.json`, every `Bun.*` call behind one process
+   adapter on `node:child_process`, and `node src/main.ts` (Node 22.18 or newer, which strips types without a flag)
+   runs the program from the clone with no build and no `npm install`; Bun runs `bun src/main.ts`. No
+   `dist/mksync.mjs`. The oldest Bun to accept is checked on work #1 (Bun 1.3.14) in the cut-over plan.
+2. **Launchers.** `mksync` and `mksync.cmd` at the repo root pick Bun or Node (`MKSYNC_RUNTIME=bun|node`; unset, Bun
+   first) and stop with `ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.`, exit 2, when neither
+   fits.
+3. **Installers download the program; the clone stays.** SHA256 against `SHA256SUMS` always, `gh attestation verify`
+   when `gh` is signed in; `~/.local/bin/mksync`, or `%LOCALAPPDATA%\mksync\mksync.exe` on the user `Path`.
+   `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on Windows, since `iex` passes no parameters) links the clone's
+   launcher instead.
+4. **Releases.** A tag `v<x.y.z>` equal to `package.json`'s `version` releases the four programs, `SHA256SUMS` and a
+   provenance attestation. First `v0.9.0`, tagged by the user; `v1.0.0` after the old engines are deleted.
+5. **`mksync update`** replaces the program only with a newer release, checked as the installers check; on Windows
+   through `mksync.old.exe`, deleted on the next start. Run from the clone it refuses (`git pull` updates it). No
+   `--check`.
+6. **A newer `schemaVersion`** stops with `ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync
+update.`, exit 2, before anything else; also after a pull that fast-forwards to one.
+7. **Usage errors exit 2** in the program: unknown option, clashing flags, a repeated flag, an unknown verb in a
+   group. The old engines keep 1 until they are deleted.
+8. **Typed answers** are trimmed of spaces, tabs and `\r` at both ends; only spaces is empty.
+9. **The overwrite prompt** is asked per file as import reaches it, one line read at a time.
+10. **Links and atomic writes.** State and repo writes go through a temp file and a rename (0600 for state); a state
+    or repo path that is a symlink is refused with `ERROR: <path> is a symlink.`, exit 1. Home writes keep following
+    links; a link inside a `dir` entry's folder is `SKIPPED <path> (symlink)`. 0600 means values, records, profiles
+    and `machine.json`; the sync point and dconf backups keep their mode, as the shared cases pin it (step 14).
+11. **Config paths checked on read.** An empty, absolute, `..` or `\` entry `file` is
+    `ERROR: sync-config.v2.json: entry <file> has an unsafe path.`; an `import` entry without `{layer}` in
+    `importName` is `ERROR: sync-config.v2.json: entry <file> needs {layer} in importName.`; both exit 1.
+12. **Front door.** `export`, `import` and `commit` still run but leave the usage line; `update` joins it; `shadow`
+    stays hidden and goes with the old engines.
+13. **No ESLint.** `tsc --noEmit` with `strict` and `erasableSyntaxOnly` is the lint.
+
 ## Linked folders
 
 Some shell files point at folders of their own, such as a `scripts` folder that `.bashrc` sources. Today the
@@ -1113,6 +1153,26 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
 newer mksync: run mksync update` (exit 2), before reading anything else. A pull that fast-forwards to such a config
   says the same.
 
+As built in phase 9:
+
+- **Release files.** `scripts/ci/release-files.sh <tag> <folder>` refuses a tag that isn't `v` plus `package.json`'s
+  `version`, cross-compiles `mksync-linux-x64`, `mksync-linux-arm64`, `mksync-darwin-arm64` and
+  `mksync-windows-x64.exe`, and writes `SHA256SUMS` (sorted by name, `sha256sum -c` format). The `release` workflow runs
+  it on a pushed `v*` tag, attests the four programs with `actions/attest-build-provenance`, and publishes the release
+  with the annotated tag's message as its notes. Every action is pinned by commit SHA.
+- **Where the files come from.** The installers read `SYNCSETTINGS_RELEASE_URL`, the program `MKSYNC_RELEASE_URL`;
+  both default to `https://github.com/makubexD/SyncSettings/releases`. The latest tag is where `<base>/latest`
+  redirects; a `file://` base holds it in a `latest` file instead, which is how the tests serve a folder release.
+  Files are `<base>/download/<tag>/<name>`.
+- **The attestation rule.** Checked only when `gh auth status` succeeds, as
+  `gh attestation verify <file> --repo makubexD/SyncSettings`; a failed check stops the install or the update and
+  writes nothing. Without `gh`, or signed out, the SHA256 is the only check.
+- **Install paths.** `~/.local/bin/mksync` on Linux and macOS (`SYNCSETTINGS_BIN`); `%LOCALAPPDATA%\mksync\mksync.exe`
+  on Windows, added to the user `Path`. The earlier Windows launcher, `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`,
+  is removed when it is ours. Intel Macs have no program; `--runtime` is their way in.
+- **Update.** `mksync update` downloads the new program next to itself as `<program>.new`, checks it, then renames it
+  over (contract "Update").
+
 Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update; the attestation is
 checked when `gh` is there. The checksum stops a broken download; the attestation proves the file came from this
 repo's workflow, not just from someone who could change `SHA256SUMS` next to it.
@@ -1172,6 +1232,15 @@ all 219; bash passes 115 and skips 104 (`v2 only` and the program-only commands)
 The runner touches the copied `home/` files, so a home file and its repo twin never share an mtime that git's stat
 cache would take for "unchanged".
 
+Phase 9 (2026-11-17) adds three layers. `parity-node` runs the shared cases through the clone's launcher on Node
+(`MKSYNC_RUNTIME=node`, `--engine ./mksync`), after `parity-program`, and is skipped with a line when Node 22.18 isn't
+on `PATH` (nvm keeps it off non-login shells). Two stub suites outside `tests/all.sh`: `tests/linux/launcher.sh` (the
+launcher's runtime choice and errors, with `bun` and `node` as stubs) and `tests/linux/release-files.sh` (the release
+script, with `bun` as a stub); `install.sh`'s cases in `tests/linux/engine.sh` and
+`install.ps1`'s in Pester (`tests/windows/Engine.Tests.ps1`) install from a folder release
+(`SYNCSETTINGS_RELEASE_URL=file://…`), and `tests/windows-vm/install-check.ps1` runs `install.ps1` in the VM. The runners gained the `bootstrap` stub (the
+repo's own `bootstrap/linux.sh`, logging each run to `bootstrap.log`) and the `bootstrap` option for `setup`. There are 307 shared cases at the end of phase 9; on Linux, bash passes 184 and skips 123.
+
 **Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
 without writing anything and compares them with the old engine's check and preview: the same files, the same
 placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
@@ -1218,20 +1287,23 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 5. The run-from-clone fallback, if step 1 was blocked.
 6. Local state readable by the user only (the `Save-UserValues` ACL rule, now in the Windows adapter).
 7. `mksync shadow` in the clone: `shadow: same`, or each difference explained and recorded here, redacted.
+8. The installer on a work machine: `irm … | iex` puts `mksync.exe` in `%LOCALAPPDATA%\mksync`, on the user `Path`,
+   with no SmartScreen, Defender or policy block; else the IT answer, recorded redacted.
+9. `mksync update`: `mksync <version> is up to date.` on the latest release, and after an older program is put back,
+   `mksync updated: <old> -> <new>.`, with no `mksync.old.exe` left after the next start.
+10. The fallback with `SYNCSETTINGS_RUNTIME=node` on work #1's Node 26.13: install, `mksync`, `mksync pull`.
+11. The clone's launcher with `MKSYNC_RUNTIME=bun` on work #1's Bun 1.3.14 (the repo pins 1.4.4): it runs, or the
+    oldest Bun to accept is written into the launcher.
 
 ## Open
 
 ### Design
 
-- **Run from the clone on Bun or Node (asked by the user 2026-11-16, phase 9).** Two layers: the program first, with
-  nothing to install; then the clone, on the runtime the user picks, Bun and Node as equal choices rather than a
-  fallback order. `MKSYNC_RUNTIME=bun|node` picks one; unset, the launcher (`mksync.cmd`, and a `mksync` script on
-  Linux and macOS) takes whichever is installed, Bun first. The code calls Bun only to start programs and read input
-  (`Bun.spawn`, `Bun.spawnSync`, `Bun.stdin`, `Bun.which`: 18 calls in 13 files). Plan: move those behind one process
-  adapter built on `node:child_process`, so the same code runs on both; build `dist/mksync.mjs` with
-  `bun build --target node`, one JavaScript file that `node mksync.mjs` runs with no `npm install`; and run the shared
-  cases against the program, Bun from the clone and Node. The Node version to require (20 or 22) and whether the
-  installers offer the Node file are open.
+- **Setup's bootstrap edges (phase 9 step 24, to confirm).** The v2 setup offers the Ubuntu bootstrap after the
+  record and profile are written and skips it when the fourth answer is `stop`, since `stop` changes no file; the
+  contract doesn't say either way. `--bootstrap` on Windows is accepted and ignored, while the contract says Windows
+  has no `--bootstrap`: it should likely stop as an unknown option, exit 1 (check what `sync.cmd setup --bootstrap`
+  does today).
 - **Pull-only status (decided in phase 8 step 20, to confirm).** The contract only said status "never suggests
   `mksync push`" on a pull-only machine. The program skips the unsent rule there, and a differing machine's next line
   is `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
@@ -1299,12 +1371,6 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **JSON with comments (JSONC).** VS Code's `settings.json` may hold comments and trailing commas; Claude's may not.
   Phase 5 refuses both (`not valid JSON`), since no synced file has them today. If one needs them, the parser keeps
   comments attached to the next key, or the entry stays `whole`.
-- **Exit code for usage errors.** The front door exits 1 on an unknown option or clashing flags and 2 only on a
-  missing command or a missing answer; the `cli` skill's contract uses 2 for every usage error (its review in phase 6,
-  step 1, which settled the new command names: `mksync whoami` became `mksync machine show`, `--push`/`--pull-only`
-  became `--mode`). Moving `Unknown option` to exit 2 changes `pull`, `push` and `diff`, so it waits for the cut-over
-  (phase 9) with a shared case, or stays as is. Phase 7's review (step 2) kept the same rule for its additions:
-  `export --preview --yes` exits 1, as `--preview --only` does.
 - **Phase 7 command names (settled by the `cli` review, step 2).** `mksync statusline` stays a top-level command with
   no options, and `mksync export --yes` means what `setup --yes` means. The new-setting question is
   `Where does it go? 1) all machines  2) <Os> machines  3) profile <p>  4) this machine [<s>]`; the first-backup
@@ -1332,15 +1398,6 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
-- **`mksync export` and `mksync import`.** Phase 4 gives the program the old entry points' verbs, so the shared cases
-  drive it unchanged (contract, "The program"). Whether they stay public after cut-over, next to `push` and `pull`,
-  or become hidden, is the `cli` skill's review before phase 8. Phase 8 keeps them and adds `commit` beside them
-  ("Decided in phase 8"); the review moves to phase 9, before cut-over.
-- **ESLint.** Phase 4 lints with `tsc --noEmit` under `strict` only. The project's TypeScript rules assume an ESLint
-  flat config; adding it (and which rule set) is decided when the code is big enough to need it, at the latest in
-  phase 8. Phase 8's plan leaves it to the user: it needs a new dependency (`ts-add-package`). Phase 8 ended with
-  `tsc` only; the question moves to phase 9.
-- **`mksync shadow`.** The name, and whether it's a hidden command removed at cut-over or stays as a check.
 - **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
   re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case. Settled by
   the port: every case was re-read for `docs/port-inventory.tsv` (2026-11-16).
@@ -1351,9 +1408,6 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
   Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored. The
   sync-point half: the contract's "Sync point" now has the `WARNING`, and port step 20 tests it on import.
-- **Overwrite prompt on a terminal (phase 4, program).** `planImport` takes the answers as a list, so the program
-  reads stdin to the end before planning, and a terminal user never sees `Overwrite <file>? [Y/n]`. Piped input, as in
-  the shared cases, works. Needs the plan to ask per file (a callback or a two-pass plan) before cut-over.
 - **Program-only errors (phase 4).** `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
 parents.` and `ERROR: cannot read <file>.` have no contract text: the entry points always run from the repo.
   Settled in phase 8's docs step: both are in the contract's "The program".
@@ -1370,16 +1424,10 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - An `import` entry whose base layer has no file but a later one does: export passes the present layers only, so
     the first present layer is taken as the base. Pull reports `no layer holds the file`, so it can't arise from a
     pull; a shared case should pin what export does.
-  - An `import` entry without `importName` gets `ERROR` with `needs {layer} in importName` at run time; `parseV2`
-    should reject it, so the error comes before any file.
 - **Security review, phase 4 (before cut-over).** Fixed: sanitize and hydrate rescanning their own output. Left, each
   needing a shared case first where it shows in files or statuses:
-  - `file` in a v2 entry isn't checked when the config is read. Since phase 5 step 28 the adapter fails a repo or
-    state write that resolves outside `dotfiles/`, `profiles/` or `machines/`; left: reject absolute, `..`, `\` and
-    empty in `parseV2` so the error comes first, and check the resolved dated-backup path.
-  - Writes follow symlinks (a committed link under `dotfiles/`, a linked `.user-values.json`, a linked folder inside a
-    dir entry), and `readRepoTree` counts a repo link as a file. Refuse links, and write through a temp file and a
-    rename, which also makes writes atomic (today a crash can empty `.user-values.json` or the sync point).
+  - The resolved dated-backup path isn't checked against the state folder (the rest of this item, unsafe entry paths
+    and links, was settled in phase 9, decisions 10 and 11).
   - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
     that stops an export holding any known value, in every form, would catch both; bash behaves the same today.
   - JSON escapes (`é`, `\/`) aren't matched on export; a value inferred from a JSON file is escaped twice on
@@ -1401,7 +1449,8 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - Mutants no test kills: inference keeping the last match, sanitize's doubled-form order (a value ending in `\`),
     the placeholder tie-break order, `EXTRA` ignoring excludes, `\r` kept in inference, `paths.ts` `~\` on Linux and
     its trailing-separator branch, `elevate !== false`.
-  - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag.
+  - `ci.yml` pins `setup-bun` by SHA but `upload-artifact` and `download-artifact` by tag. `release.yml` (phase 9)
+    pins every action by SHA.
 - **Finish review, phase 5.** Fixed in steps 19 to 31. Left:
   - A removed key leaves every layer that sets it (contract, "Layers"), so a machine can't drop a key the base sets
     without dropping it for every machine. A later layer that masks a key (a tombstone value) would allow it; it needs
@@ -1525,16 +1574,11 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     `LINKED_DESTINATION_PREFIX`, `sameBytes`, `hasKeyPath`, the `RunCommand` literals, and `diff.ts`'s `byCodeUnit`,
     which should be `drift.ts`'s byte-order `compareC`. `core/plan/move.ts` splits into JSON path, slot and plan
     files.
-  - **Typed answers and `read -r` (phase 9).** Bash `read -r` trims spaces and tabs at both ends and keeps a trailing
-    `\r`; the program's `askValues` trims only the line end. Decide together with the PowerShell `Read-Host` rule.
   - **The missing-value line's stream (case port, 2026-11-16).** With no terminal, bash still prints the value
     prompt (` <prompt>:`) and then `missing value for <PLACEHOLDER>: add it to .user-values.json` on stderr, so the
     merged output reads as one line; the program prints no prompt and the line on stdout. The contract names neither
     the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
     (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
-  - **Atomic profile and record writes (phase 9).** `writePrivateFile` rewrites an existing 0644 file before
-    tightening its mode, and a crash mid-write leaves a file that no longer parses: write a 0600 temp file and rename
-    it.
 - **Left by the case port (`docs/plan-single-engine-8-port.md`, 2026-11-17).**
   - **Drift in export and preview.** The contract ("Package drift", "Program") and "Drift stays in export and
     preview" above say the program reports `DRIFT` after an export's or a preview's orphan report; the program
@@ -1591,5 +1635,4 @@ doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push 
 - **The unsigned program (open).** The survey didn't download it: the user chose not to put an unknown `.exe` on a
   work machine without asking IT first. Work #1 has Node 26.13, npm 11.20, Bun 1.3.14 and winget 1.29, so the
   run-from-clone fallback ("Open", Bun or Node) needs no install there. Bun 1.3.14 is older than the repo's 1.4.4:
-  whether the program's source runs on it, or the Node build is the fallback there, is checked in phase 9. The phase 9
-  checklist asks IT, or tries the program, at the latest.
+  the real-Windows checklist (items 8, 10 and 11) asks IT or tries the program, then the Node and Bun fallbacks.

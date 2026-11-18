@@ -10,6 +10,7 @@
  * is a dependency, so the flow is testable without git, a terminal or a repo.
  */
 
+import { trimAnswer } from "../core/answer.ts";
 import type { Result as CoreResult } from "../core/config/types.ts";
 import type { Result } from "./export.ts";
 
@@ -142,7 +143,7 @@ async function askNumber<T>(
     if (answer === undefined) {
       return { kind: "end" };
     }
-    const text = answer.trim();
+    const text = trimAnswer(answer);
     if (text === "") {
       return { kind: "empty" };
     }

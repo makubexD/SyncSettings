@@ -91,10 +91,34 @@ jobs:
       SYNCSETTINGS_REF: ${{ github.head_ref || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      # The installer downloads the program from a release. This branch's
+      # program goes in a file:// release folder, laid out as GitHub serves
+      # one, so M1 installs what this branch builds and never a published one.
+      - name: Build a release folder from this branch
+        run: |
+          bun install --frozen-lockfile
+          release="$RUNNER_TEMP/release"
+          tag="v$(jq -r .version package.json)"
+          mkdir -p "$release/download/$tag"
+          bun build --compile --target bun-darwin-arm64 src/main.ts --outfile "$release/download/$tag/mksync-darwin-arm64"
+          (cd "$release/download/$tag" && shasum -a 256 mksync-darwin-arm64 > SHA256SUMS)
+          printf '%s\n' "$tag" > "$release/latest"
+          echo "SYNCSETTINGS_RELEASE_URL=file://$release" >> "$GITHUB_ENV"
       - name: Remove Homebrew bash and jq, so the installer asks for them
         run: brew uninstall --ignore-dependencies bash jq || true
-      - name: Answer yes to every question
-        run: for i in $(seq 50); do echo y; done > "$RUNNER_TEMP/answers.txt"
+      # The installer reopens the file for each yes/no question, so it always
+      # reads line 1 (y); setup then reads the file from the top: line 1 is a
+      # new profile named y, then Claude none, push with a preview, the
+      # suggested backup for existing files, and y for every value the
+      # program asks for (each placeholder nothing else fills) and any later
+      # question.
+      - name: Answer the installer and setup
+        run: |
+          { printf 'y\n1\n1\n\n'; for i in $(seq 50); do echo y; done; } > "$RUNNER_TEMP/answers.txt"
       - name: Run the macOS checks under the stock bash 3.2
         run: |
           export SYNCSETTINGS_DIR="$RUNNER_TEMP/SyncSettings" SYNCSETTINGS_TTY="$RUNNER_TEMP/answers.txt"

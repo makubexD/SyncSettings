@@ -35,6 +35,8 @@ const STATUS = { kind: "status" } as const;
 
 const DOCTOR = { kind: "doctor" } as const;
 
+const UPDATE = { kind: "update" } as const;
+
 const DIFF = { kind: "diff", paths: [] } as const;
 
 const CHECK = {
@@ -67,12 +69,21 @@ const SETUP = { kind: "setup" } as const;
 
 const COMMIT = { kind: "commit", partial: false } as const;
 
-function unknownOption(arg: string): { kind: "error"; message: string } {
-  return { kind: "error", message: `Unknown option: ${arg}` };
+function unknownOption(arg: string): {
+  kind: "error";
+  message: string;
+  code: number;
+} {
+  return usageError(`Unknown option: ${arg}`);
 }
 
-function usageError(message: string): { kind: "error"; message: string } {
-  return { kind: "error", message };
+/** Every usage error exits 2 (decision 7). */
+function usageError(message: string): {
+  kind: "error";
+  message: string;
+  code: number;
+} {
+  return { kind: "error", message, code: 2 };
 }
 
 describe("parseArgs", () => {
@@ -247,17 +258,15 @@ describe("parseArgs", () => {
   });
 
   test("should refuse --only with no path", () => {
-    expect(parseArgs(["import", "--only"])).toEqual({
-      kind: "error",
-      message: "ERROR: --only needs a path.",
-    });
+    expect(parseArgs(["import", "--only"])).toEqual(
+      usageError("ERROR: --only needs a path."),
+    );
   });
 
   test("should refuse --only followed by another option", () => {
-    expect(parseArgs(["import", "--only", "--force"])).toEqual({
-      kind: "error",
-      message: "ERROR: --only needs a path.",
-    });
+    expect(parseArgs(["import", "--only", "--force"])).toEqual(
+      usageError("ERROR: --only needs a path."),
+    );
   });
 
   test("should parse status", () => {
@@ -282,6 +291,18 @@ describe("parseArgs", () => {
 
   test("should refuse a stray argument after doctor", () => {
     expect(parseArgs(["doctor", "extra"])).toEqual(unknownOption("extra"));
+  });
+
+  test("should parse update", () => {
+    expect(parseArgs(["update"])).toEqual(UPDATE);
+  });
+
+  test("should refuse an option after update", () => {
+    expect(parseArgs(["update", "--x"])).toEqual(unknownOption("--x"));
+  });
+
+  test("should refuse a stray argument after update", () => {
+    expect(parseArgs(["update", "extra"])).toEqual(unknownOption("extra"));
   });
 
   test("should parse a bare diff", () => {
@@ -551,6 +572,7 @@ describe("parseArgs", () => {
         "pull-only",
         "--existing",
         "keep",
+        "--bootstrap",
         "--yes",
       ]),
     ).toEqual({
@@ -561,8 +583,22 @@ describe("parseArgs", () => {
       claude: "claude",
       mode: "pull-only",
       existing: "keep",
+      bootstrap: true,
       yes: true,
     });
+  });
+
+  test("should parse setup --bootstrap", () => {
+    expect(parseArgs(["setup", "--bootstrap"])).toEqual({
+      kind: "setup",
+      bootstrap: true,
+    });
+  });
+
+  test("should refuse --bootstrap given twice", () => {
+    expect(parseArgs(["setup", "--bootstrap", "--bootstrap"])).toEqual(
+      usageError("ERROR: --bootstrap is repeated."),
+    );
   });
 
   test("should accept every --claude value", () => {
@@ -684,6 +720,12 @@ describe("parseArgs", () => {
     expect(parseArgs(["commit", "work-1"])).toEqual(unknownOption("work-1"));
   });
 
+  test("should keep export, import, commit and shadow out of the usage line", () => {
+    for (const hidden of ["export", "import", "commit", "shadow"]) {
+      expect(USAGE_TEXT.includes(`mksync ${hidden}`)).toBe(false);
+    }
+  });
+
   test("should keep shadow out of the usage line", () => {
     expect(USAGE_TEXT.includes("shadow")).toBe(false);
   });
@@ -742,26 +784,36 @@ describe("parseArgs", () => {
     expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
   });
 
-  test("should name commit in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync commit [-m <msg>] [--partial]")).toBe(
-      true,
+  test("should name update in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync update")).toBe(true);
+  });
+});
+
+describe("usage errors exit 2", () => {
+  test("should exit 2 on an unknown option", () => {
+    expect(parseArgs(["export", "--bogus"])).toEqual(unknownOption("--bogus"));
+  });
+
+  test("should exit 2 when the preview verb is given --only", () => {
+    expect(parseArgs(["preview", "--only", "dotfiles/a"])).toEqual(
+      unknownOption("--only"),
     );
   });
 
-  test("should name export --yes in the usage line", () => {
-    expect(
-      USAGE_TEXT.includes(
-        "mksync export [--preview] [--diff] [--yes] [--only <path>...]",
-      ),
-    ).toBe(true);
+  test("should exit 2 on clashing --preview --yes", () => {
+    expect(parseArgs(["export", "--preview", "--yes"])).toEqual(
+      usageError("ERROR: --preview and --yes can't be used together."),
+    );
   });
 
-  test("should name import --reset-values in the usage line", () => {
+  test("should exit 2 on a repeated --profile", () => {
     expect(
-      USAGE_TEXT.includes(
-        "mksync import [--check] [--force] [--reset-values] [--only <path>...]",
-      ),
-    ).toBe(true);
+      parseArgs(["setup", "--profile", "work-1", "--profile", "personal"]),
+    ).toEqual(usageError("ERROR: --profile is repeated."));
+  });
+
+  test("should exit 2 on an unknown verb in a group", () => {
+    expect(parseArgs(["machine", "list"])).toEqual(unknownOption("list"));
   });
 });
 
@@ -771,13 +823,10 @@ describe("USAGE", () => {
       join(import.meta.dir, "../../docs/sync-contract.md"),
       "utf8",
     );
-    // The contract keeps the current line and the end-of-phase line side by
-    // side until step 30; USAGE is the last one written.
     const usageLine = contract
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line.startsWith("usage: mksync "))
-      .at(-1);
+      .find((line) => line.startsWith("usage: mksync "));
 
     expect(usageLine).toBe(USAGE_TEXT);
   });

@@ -1147,7 +1147,7 @@ describe("runPlan", () => {
     // Arrange
     const { home, repo } = fixture();
     const repoFile = join(repo, "dotfiles", "common", "git", "config");
-    writeFixture(repoFile, "old\n", PRIVATE_MODE);
+    writeFixture(repoFile, "old\n", BACKUP_MODE);
     const plan = planOf([
       stepOf([
         actionOf({
@@ -1164,7 +1164,58 @@ describe("runPlan", () => {
     // Assert
     expect(outcome.failed.size).toBe(0);
     expect(readFileSync(repoFile, "utf8")).toBe("new\n");
-    expect(statSync(repoFile).mode & 0o7777).toBe(PRIVATE_MODE);
+    expect(statSync(repoFile).mode & 0o7777).toBe(BACKUP_MODE);
+  });
+
+  test("should give a new repo file the umask's mode", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const repoFile = join(repo, "dotfiles", "common", "git", "config");
+    mkdirSync(dirname(repoFile), { recursive: true });
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "writeRepo",
+          path: "dotfiles/common/git/config",
+          bytes: bytesOf("new\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.failed.size).toBe(0);
+    expect(readFileSync(repoFile, "utf8")).toBe("new\n");
+    expect(statSync(repoFile).mode & 0o7777).toBe(0o666 & ~process.umask());
+  });
+
+  test("should refuse a symlinked repo file and leave its target unchanged", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const target = join(repo, "target.txt");
+    writeFixture(target, "old\n");
+    const repoFile = join(repo, "dotfiles", "common", "git", "config");
+    mkdirSync(dirname(repoFile), { recursive: true });
+    symlinkSync(target, repoFile);
+    const plan = planOf([
+      stepOf([
+        actionOf({
+          kind: "writeRepo",
+          path: "dotfiles/common/git/config",
+          bytes: bytesOf("new\n"),
+        }),
+      ]),
+    ]);
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.refused).toBe(`ERROR: ${repoFile} is a symlink.`);
+    expect(readFileSync(target, "utf8")).toBe("old\n");
+    expect(lstatSync(repoFile).isSymbolicLink()).toBe(true);
   });
 
   test("should copy a backup with its mode and times, replacing an older one", () => {
@@ -1387,6 +1438,64 @@ describe("runPlan", () => {
     // Assert
     expect(outcome.failedFinish).toEqual([]);
     expect(readFileSync(stateFile, "utf8")).toBe("0123456789abcdef\n");
+  });
+
+  test("should refuse a symlinked values file and leave its target unchanged", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const valuesLink = join(repo, ".user-values.json");
+    const target = join(home, "values-target.json");
+    writeFixture(target, '{"name": "old"}\n');
+    symlinkSync(target, valuesLink);
+    const stepFile = join(repo, "dotfiles", "linux", "x.txt");
+    const plan: RunPlan = {
+      prepare: [{ kind: "writeValues", text: '{"name": "new"}\n' }],
+      steps: [
+        stepOf([
+          actionOf({
+            kind: "writeRepo",
+            path: "dotfiles/linux/x.txt",
+            bytes: bytesOf("x\n"),
+          }),
+        ]),
+      ],
+      finish: [],
+      lines: [],
+      summary: { kind: "none" },
+      code: 0,
+    };
+
+    // Act
+    const outcome = runPlan(plan, runContext(home, repo));
+
+    // Assert
+    expect(outcome.refused).toBe(`ERROR: ${valuesLink} is a symlink.`);
+    expect(readFileSync(target, "utf8")).toBe('{"name": "old"}\n');
+    expect(lstatSync(valuesLink).isSymbolicLink()).toBe(true);
+    expect(existsSync(stepFile)).toBe(false);
+  });
+
+  test("should refuse a symlinked sync point and leave its target unchanged", () => {
+    // Arrange
+    const { home, repo } = fixture();
+    const context = runContext(home, repo);
+    const syncPoint = join(context.stateFolder, "last-sync");
+    mkdirSync(context.stateFolder, { recursive: true });
+    const target = join(home, "sync-point-target");
+    writeFixture(target, "0123456789abcdef\n");
+    symlinkSync(target, syncPoint);
+    const plan = planOf(
+      [],
+      [{ kind: "writeState", path: syncPoint, text: "fedcba9876543210\n" }],
+    );
+
+    // Act
+    const outcome = runPlan(plan, context);
+
+    // Assert
+    expect(outcome.refused).toBe(`ERROR: ${syncPoint} is a symlink.`);
+    expect(readFileSync(target, "utf8")).toBe("0123456789abcdef\n");
+    expect(lstatSync(syncPoint).isSymbolicLink()).toBe(true);
   });
 
   test("should keep a dated copy under the run folder with mode and times", () => {

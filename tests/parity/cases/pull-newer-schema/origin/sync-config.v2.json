@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 3,
+  "modules": {
+    "parity": {
+      "description": "Parity case files"
+    }
+  },
+  "entries": []
+}

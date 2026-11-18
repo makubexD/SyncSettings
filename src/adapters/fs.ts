@@ -1,7 +1,6 @@
 import {
   chmodSync,
   copyFileSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -38,7 +37,7 @@ import type {
   Snapshot,
 } from "../core/plan/types.ts";
 import type { Values } from "../core/values/sanitize.ts";
-import { restrictToCurrentUser } from "./acl.ts";
+import { SymlinkRefusal, writeAtomic } from "./atomic.ts";
 import { dconfLoad } from "./dconf.ts";
 import { expandHome } from "./paths.ts";
 import { writeStoreProfile, writeStoreRecord } from "./store.ts";
@@ -587,8 +586,10 @@ function existingMode(path: string): number | undefined {
 }
 
 /**
- * Write bytes, keeping an existing target's mode (`chmod --reference`) when the
- * action names none. Modes are skipped on Windows.
+ * Write bytes to a local file, keeping an existing target's mode
+ * (`chmod --reference`) when the action names none. A local path is written in
+ * place, following a symlink, as people link their dotfiles. Modes are skipped
+ * on Windows.
  */
 function writeBytes(
   path: string,
@@ -622,9 +623,37 @@ function backupFile(path: string, os: Os): void {
   copyPreserving(path, `${path}.bak`, os);
 }
 
+/** A new file's mode before the umask, as a plain write creates it. */
+const NEW_FILE_MODE = 0o666;
+
+/**
+ * Write a repo file atomically: the bytes go to a temp file in the same folder
+ * and are renamed over the target, so a crash leaves the old file whole. The
+ * mode is the action's, else the replaced file's, else the umask's for a new
+ * file, as the old engines and the shared cases have it. A symlinked path is
+ * refused rather than followed (contract "Where records are kept").
+ */
+function writeRepoFile(
+  path: string,
+  bytes: Uint8Array,
+  mode: number | undefined,
+): void {
+  const target =
+    mode ?? existingMode(path) ?? NEW_FILE_MODE & ~process.umask();
+  writeAtomic(path, bytes, target);
+}
+
+/**
+ * Write a state file (the sync point, a dconf backup) atomically. These hold
+ * no secrets, so the file keeps its mode, or a new one gets the umask's, as the
+ * old engines and the shared cases have it; values, records and profiles are
+ * the 0600 files. A symlinked path is refused rather than followed (contract
+ * "Where records are kept").
+ */
 function writeStateFile(path: string, text: string, os: Os): void {
   mkdirSync(pathFor(os).dirname(path), { recursive: true });
-  writeFileSync(path, text);
+  const mode = existingMode(path) ?? NEW_FILE_MODE & ~process.umask();
+  writeAtomic(path, text, mode);
 }
 
 const VALUES_FILE = ".user-values.json";
@@ -633,24 +662,13 @@ const VALUES_FILE = ".user-values.json";
 const PRIVATE_MODE = 0o600;
 
 /**
- * Save `.user-values.json` in the repo. An existing file is tightened before
- * the write, so new values never sit in a readable file.
+ * Save `.user-values.json` in the repo atomically and for the current user
+ * only, so new values never sit in a readable file and a crash leaves the old
+ * one whole. A symlinked path is refused rather than followed.
  */
 function writeValuesFile(text: string, context: RunContext): void {
   const path = pathFor(context.os).join(context.repoRoot, VALUES_FILE);
-  if (context.os === "windows") {
-    if (!existsSync(path)) {
-      writeFileSync(path, "");
-    }
-    restrictToCurrentUser(path);
-    writeFileSync(path, text);
-    return;
-  }
-  if (existingMode(path) !== undefined) {
-    chmodSync(path, PRIVATE_MODE);
-  }
-  writeFileSync(path, text, { mode: PRIVATE_MODE });
-  chmodSync(path, PRIVATE_MODE);
+  writeAtomic(path, text, PRIVATE_MODE);
 }
 
 const UNHANDLED_ACTION = "unhandled action";
@@ -668,10 +686,12 @@ interface DatedBackups {
   made: boolean;
 }
 
-/** What one action did: whether it worked, and the warning it printed when it only warned. */
+/** What one action did: whether it worked, the warning it printed when it only
+ * warned, and the contract line a refused symlink stopped it with. */
 interface ActionRun {
   readonly ok: boolean;
   readonly warning: string | undefined;
+  readonly refusal?: string;
 }
 
 const ACTION_OK: ActionRun = { ok: true, warning: undefined };
@@ -853,7 +873,7 @@ function runAction(
           context,
           dated,
         );
-        writeBytes(path, action.bytes, action.mode, context.os);
+        writeRepoFile(path, action.bytes, action.mode);
         return { ok: true, warning };
       }
       case "removeRepo": {
@@ -935,7 +955,12 @@ function runAction(
         throw new Error(`${UNHANDLED_ACTION}: ${String(unhandled)}`);
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof SymlinkRefusal) {
+      // A symlinked state or repo path is refused, not followed (contract
+      // "Where records are kept"); its own line is the run's error.
+      return { ok: false, warning: undefined, refusal: error.message };
+    }
     // The plan gives each action the contract's reason, so only success matters here.
     return { ok: false, warning: undefined };
   }
@@ -943,53 +968,72 @@ function runAction(
 
 /**
  * What `runPlan` returns: the run's outcome plus the `finish` actions that
- * failed. The import turns a failed `writeState` into the sync point warning
- * (contract "Sync point"); the rest of the outcome is unchanged.
+ * failed and the line a refused symlink stopped the run with. The import turns
+ * a failed `writeState` into the sync point warning (contract "Sync point");
+ * the rest of the outcome is unchanged.
  */
 export interface RunPlanOutcome extends RunOutcome {
   readonly failedFinish: readonly Action[];
+  readonly refused: string | undefined;
 }
 
 /**
  * Run a plan's steps in order (contract "Statuses", "Backups" and "Sync point").
  * A step stops at its first failed action, recording that action's failure; the
- * next step still runs. `finish` runs only when no step failed. After a run
- * that made a dated copy, `backups/` keeps its newest 20 run folders. Returns
- * the failures and warnings keyed by step index, the `finish` actions that
- * failed, and the run's folder when a copy landed; it never throws.
+ * next step still runs. A refusal (`SymlinkRefusal`) stops the whole run where
+ * it happens, in a `prepare`, step or `finish` action, and no further action
+ * runs. `finish` runs only when no step failed. After a run that made a dated
+ * copy, `backups/` keeps its newest 20 run folders. Returns the failures and
+ * warnings keyed by step index, the `finish` actions that failed, the run's
+ * folder when a copy landed, and the refusal line when a symlink stopped it; it
+ * never throws.
  */
 export function runPlan(plan: RunPlan, context: RunContext): RunPlanOutcome {
   const failed = new Map<number, string>();
   const warnings = new Map<number, readonly string[]>();
   const failedFinish: Action[] = [];
   const dated: DatedBackups = { folder: undefined, made: false };
+  let refused: string | undefined;
 
-  // shortcut: a failed values save is not reported yet; the contract names no
-  // status for it, so it goes in the design's "Open" list.
   for (const action of plan.prepare ?? []) {
-    runAction(action, context, dated);
+    const result = runAction(action, context, dated);
+    if (result.refusal !== undefined) {
+      refused = result.refusal;
+      break;
+    }
   }
 
-  plan.steps.forEach((step, index) => {
-    const stepWarnings: string[] = [];
-    for (const stepAction of step.actions) {
-      const result = runAction(stepAction.action, context, dated);
-      if (result.warning !== undefined) {
-        stepWarnings.push(result.warning);
+  if (refused === undefined) {
+    steps: for (const [index, step] of plan.steps.entries()) {
+      const stepWarnings: string[] = [];
+      for (const stepAction of step.actions) {
+        const result = runAction(stepAction.action, context, dated);
+        if (result.warning !== undefined) {
+          stepWarnings.push(result.warning);
+        }
+        if (!result.ok) {
+          if (result.refusal !== undefined) {
+            refused = result.refusal;
+            break steps;
+          }
+          failed.set(index, stepAction.failure);
+          break;
+        }
       }
-      if (!result.ok) {
-        failed.set(index, stepAction.failure);
+      if (stepWarnings.length > 0) {
+        warnings.set(index, stepWarnings);
+      }
+    }
+  }
+
+  if (failed.size === 0 && refused === undefined) {
+    for (const action of plan.finish) {
+      const result = runAction(action, context, dated);
+      if (result.refusal !== undefined) {
+        refused = result.refusal;
         break;
       }
-    }
-    if (stepWarnings.length > 0) {
-      warnings.set(index, stepWarnings);
-    }
-  });
-
-  if (failed.size === 0) {
-    for (const action of plan.finish) {
-      if (!runAction(action, context, dated).ok) {
+      if (!result.ok) {
         failedFinish.push(action);
       }
     }
@@ -999,7 +1043,7 @@ export function runPlan(plan: RunPlan, context: RunContext): RunPlanOutcome {
     pruneBackups(context);
   }
 
-  const outcome: RunPlanOutcome = { failed, warnings, failedFinish };
+  const outcome: RunPlanOutcome = { failed, warnings, failedFinish, refused };
   if (dated.made && dated.folder !== undefined) {
     return { ...outcome, backups: dated.folder };
   }

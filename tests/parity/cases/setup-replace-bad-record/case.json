@@ -23,6 +23,7 @@
     "SYNC_DOMAIN": "",
     "SYNC_TOOLS": "git"
   },
+  "stubs": ["gh"],
   "commands": [
     {
       "command": "setup",

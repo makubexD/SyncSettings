@@ -1,0 +1,2 @@
+Setup done. Run mksync any time to see where this machine stands.
+! BOOTSTRAP RAN

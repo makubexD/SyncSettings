@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { SymlinkRefusal } from "../adapters/atomic.ts";
 import { backupStateFile, runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
 import { previewDiff, readOrigin, readTrackedPaths } from "../adapters/git.ts";
@@ -430,6 +431,15 @@ function storeItemDestinations(
   try {
     writeStoreProfile(context.location, updated);
   } catch (error) {
+    if (error instanceof SymlinkRefusal) {
+      return {
+        result: {
+          ...result,
+          code: 1,
+          stderr: `${result.stderr}${error.message}\n`,
+        },
+      };
+    }
     const message = error instanceof Error ? error.message : String(error);
     return {
       result: {
@@ -857,14 +867,16 @@ function applyExportPlan(
 ): ExportRun {
   const outcome = runPlan(plan, context);
   // A failed write fails the export: nothing more is stored or backed up.
-  const runCode = renderRun(plan, outcome).code;
+  const refused = outcome.refused;
+  const runCode = refused === undefined ? renderRun(plan, outcome).code : 1;
   const stored = storeItemDestinations(snapshot, context, settings, choices, {
     result: { code: runCode, stdout: "", stderr: "" },
     backups: outcome.backups,
   });
   let prepared: FirstBackupPrepared | undefined;
   let code = stored.result.code;
-  let stderr = stored.result.stderr;
+  let stderr =
+    refused === undefined ? stored.result.stderr : `${refused}\n`;
   if (backup !== undefined && answers !== undefined && code === 0) {
     const sides = readBackupSides(
       backup.stateFolder,

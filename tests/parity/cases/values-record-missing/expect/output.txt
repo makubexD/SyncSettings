@@ -1,1 +1,5 @@
+
+  Enter values to fill the placeholders in the config files:
+
+  Full name: 
 missing value for <YOUR_NAME>: add it to profile work-1 or machine wk1-laptop

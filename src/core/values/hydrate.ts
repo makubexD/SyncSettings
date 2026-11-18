@@ -1,3 +1,4 @@
+import { trimAnswer } from "../answer.ts";
 import type { ConfigError, Result, SanitizeRule } from "../config/types.ts";
 import {
   encodeUtf8,
@@ -203,20 +204,44 @@ export function resolveValues(
   return { ok: true, value: Object.fromEntries(resolved) };
 }
 
-/** What `askValues` prompts with before the first question. */
-const ASK_HEADER =
+/**
+ * The first rule of each placeholder `resolveValues` would stop on: nothing
+ * cached, inferred, given as the rule's `default` or as the environment
+ * variable `defaultEnv` names. In rule order.
+ */
+export function missingPlaceholders(
+  rules: readonly SanitizeRule[],
+  cached: Values,
+  inferred: Values,
+  env: Readonly<Record<string, string | undefined>>,
+): readonly SanitizeRule[] {
+  const missing: SanitizeRule[] = [];
+  const seen = new Set<string>();
+  for (const rule of rules) {
+    const placeholder = rule.placeholder;
+    if (placeholder.length === 0 || seen.has(placeholder)) {
+      continue;
+    }
+    seen.add(placeholder);
+    if (hasValue(cached[placeholder]) || hasValue(inferred[placeholder])) {
+      continue;
+    }
+    if (hasValue(rule.default)) {
+      continue;
+    }
+    const fromEnv =
+      rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
+    if (hasValue(fromEnv)) {
+      continue;
+    }
+    missing.push(rule);
+  }
+  return missing;
+}
+
+/** What an import prints before its first value question. */
+export const ASK_HEADER =
   "\n  Enter values to fill the placeholders in the config files:\n\n";
-
-export interface AskedValues {
-  readonly values: Values;
-  readonly text: string;
-  readonly consumed: number;
-}
-
-/** A prompt answer as bash `read -r` leaves it: a trailing `\r` dropped. */
-function stripAnswerCarriageReturn(answer: string): string {
-  return answer.endsWith("\r") ? answer.slice(0, -1) : answer;
-}
 
 /**
  * The interactive path of the bash engine's `request_values` with reset on and
@@ -225,7 +250,8 @@ function stripAnswerCarriageReturn(answer: string): string {
  * an exhausted list answers with "". A missing answer falls back to the first
  * non-empty of the cached value, the rule's `default` and the environment
  * variable `defaultEnv` names, and stops with the `resolveValues` error when
- * that is empty too. The returned text is what the prompts would print.
+ * that is empty too. The questions themselves are printed by the caller
+ * (`importValueQuestions`).
  */
 export function askValues(
   rules: readonly SanitizeRule[],
@@ -233,12 +259,10 @@ export function askValues(
   env: Readonly<Record<string, string | undefined>>,
   answers: readonly string[],
   owner?: ValueOwner,
-): Result<AskedValues, ConfigError> {
+): Result<Values, ConfigError> {
   const values = new Map<string, string>(Object.entries(cached));
   const seen = new Set<string>();
-  let text = "";
-  let prompted = false;
-  let consumed = 0;
+  let index = 0;
 
   for (const rule of rules) {
     const placeholder = rule.placeholder;
@@ -246,11 +270,6 @@ export function askValues(
       continue;
     }
     seen.add(placeholder);
-
-    if (!prompted) {
-      text += ASK_HEADER;
-      prompted = true;
-    }
 
     const fromEnv =
       rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
@@ -261,17 +280,10 @@ export function askValues(
         : hasValue(fromEnv)
           ? fromEnv
           : "";
-    const prompt = rule.prompt ?? "";
-    text +=
-      fallback.length > 0
-        ? `  ${prompt} [${fallback}]: `
-        : `  ${prompt}: `;
 
-    const raw = consumed < answers.length ? answers[consumed] : undefined;
-    if (raw !== undefined) {
-      consumed++;
-    }
-    const answer = stripAnswerCarriageReturn(raw ?? "");
+    const raw = index < answers.length ? answers[index] : undefined;
+    index++;
+    const answer = trimAnswer(raw ?? "");
     const chosen = answer.length > 0 ? answer : fallback;
     if (chosen.length === 0) {
       return missingValue(placeholder, owner);
@@ -279,13 +291,7 @@ export function askValues(
     values.set(placeholder, chosen);
   }
 
-  if (prompted) {
-    text += "\n";
-  }
-  return {
-    ok: true,
-    value: { values: Object.fromEntries(values), text, consumed },
-  };
+  return { ok: true, value: Object.fromEntries(values) };
 }
 
 function firstMissingInContent(

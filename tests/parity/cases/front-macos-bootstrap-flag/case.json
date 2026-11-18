@@ -1,0 +1,17 @@
+{
+  "description": "`setup --bootstrap` on macOS is refused before doctor, exit 1 (Front door, setup; ported from front_macos_bootstrap_flag).",
+  "os": ["macos"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": []
+  },
+  "commands": [
+    {
+      "command": "setup",
+      "options": { "bootstrap": true },
+      "stderr": true
+    }
+  ],
+  "stubs": ["gh"]
+}

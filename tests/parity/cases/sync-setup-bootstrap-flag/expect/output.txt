@@ -1,0 +1,19 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+
+  SyncSettings -- IMPORT CHECK (linux)
+
+  UNCHANGED  dotfiles/common/parity/plain.txt
+
+  --------------------------------------------------
+
+  This machine matches the repo.
+
+  --------------------------------------------------
+
+BOOTSTRAP RAN

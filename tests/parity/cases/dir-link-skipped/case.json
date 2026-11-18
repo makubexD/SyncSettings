@@ -1,0 +1,19 @@
+{
+  "description": "Export of a dir entry skips a symlinked local file and exports its target: ADDED then SKIPPED with the note symlink (Directory entries).",
+  "os": ["linux"],
+  "oldEngines": ["none"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/dir",
+        "localPath": "~/.config/parity/dir",
+        "type": "dir",
+        "platform": "common",
+        "description": "Parity case folder"
+      }
+    ]
+  },
+  "commands": [{ "command": "export" }]
+}

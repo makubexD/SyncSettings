@@ -1,0 +1,11 @@
+{
+  "modules": [
+    "shell",
+    "git"
+  ],
+  "values": {
+    "<YOUR_NAME>": "Jane Doe"
+  },
+  "destinations": {},
+  "retired": false
+}

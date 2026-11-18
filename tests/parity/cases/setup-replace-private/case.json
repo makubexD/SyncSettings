@@ -35,6 +35,7 @@
     "MKSYNC_VISIBILITY": "private"
   },
   "git": "committed",
+  "stubs": ["gh"],
   "commands": [
     {
       "command": "setup",
