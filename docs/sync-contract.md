@@ -726,9 +726,12 @@ diff failed; see above.`, exit 1. `--diff` with `--preview` or `--yes` is an err
 
 ## Front door
 
-On Linux, `mksync` is a link on `PATH` to the repo's `sync`, which resolves the link to find the repo. It's named
-`mksync` so it doesn't hide coreutils `sync`. On Windows, `mksync` is `mksync.cmd` in the installer's bin folder, a
-four-line launcher that calls the clone's `sync.cmd`; its second line, `rem SyncSettings launcher`, marks it as ours.
+From phase 9, `mksync` on `PATH` is [the program](#the-program), which the installers download
+([Install](#install)): `~/.local/bin/mksync` on Linux and macOS, `%LOCALAPPDATA%\mksync\mksync.exe` on Windows. The
+old engines' front door stays in the clone until cut-over: on Linux and macOS `sync` (earlier installers linked it on
+`PATH` as `mksync`, a name that doesn't hide coreutils `sync`), on Windows `sync.cmd` (earlier installers wrote a
+four-line `mksync.cmd` launcher for it; its second line, `rem SyncSettings launcher`, marks it as ours). This section
+is the contract of both.
 Every `[Y/n]` prompt takes an empty answer or end of input as yes, every `[y/N]` prompt as no. Commands, wording and exit
 codes are the same on both systems, except where this section says otherwise.
 
@@ -741,6 +744,7 @@ codes are the same on both systems, except where this section says otherwise.
 | `mksync diff [path…]`                             | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing                                                                                                                                                                                                                                                             | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview`                  | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 0, 3 from a check that found changes, or 1 on an error          |
 | `mksync setup [--yes] [--bootstrap]`              | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the import check; on Ubuntu with an executable `bootstrap/linux.sh`, `Also restore apps and packages … [y/N]`: `y` runs it and setup ends, and `--bootstrap` runs it without asking. Then it applies like `pull`. macOS never asks and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1. Windows has no bootstrap question and no `--bootstrap`                                                                                                                                                                    | 0, or 1 on an error                                             |
+| `mksync update`                                   | Program only: replaces the installed program with a newer release, checked as the installers check ([Update](#update))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 0, 1 on a failed download or check, 2 run from the clone        |
 | `dist/mksync setup …`, `dist/mksync machine show` | Program only until phase 9, when the installers hand them over: the first run that writes the machine record, and the record ([Machines](#machines-program-only))                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | as there                                                        |
 
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
@@ -811,7 +815,28 @@ Run mksync push again, or git restore dotfiles to drop them.` after a declined P
 git repo with a commit.`, and a tree git can't read with `ERROR: cannot read <ref> from git.`, exit 1.
 - `mksync check` and `mksync preview` are `mksync import --check` and `mksync export --preview`.
 
-`install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`:
+### Install
+
+The installers clone the repo, since the program reads its config there, then install the program from the latest
+GitHub release ([design, "Release and update"](design-layers.md#release-and-update)). A release holds four programs,
+`mksync-linux-x64`, `mksync-linux-arm64`, `mksync-darwin-arm64` and `mksync-windows-x64.exe`, and `SHA256SUMS`. The
+installer picks the one for this OS and CPU, checks its SHA256 against `SHA256SUMS`, and, when `gh auth status`
+succeeds, runs `gh attestation verify <file> --repo makubexD/SyncSettings`. Nothing is written to the bin folder before
+both checks pass. Its errors, each exit 1:
+
+```text
+ERROR: no mksync program for <os> <arch>.
+ERROR: could not find the latest release at <base>.
+ERROR: could not download <url>.
+ERROR: <asset>: checksum does not match SHA256SUMS.
+ERROR: <asset>: attestation check failed.
+```
+
+The run-from-clone fallback, for a machine that blocks the program: `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on
+Windows) skips the download and puts the clone's launcher on `PATH` instead ([The program](#the-program)).
+
+`install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`
+(flags after `bash -s --`):
 
 - Linux and macOS ([macOS](#macos) has its own rules); Windows shells and other systems stop with a message, exit 1.
 - Missing `git`, `jq` or `cmp`: offers `sudo apt-get install` where `apt-get` exists. Otherwise it names the packages
@@ -819,7 +844,12 @@ git repo with a commit.`, and a tree git can't read with `ERROR: cannot read <re
   installs nothing and exits 1.
 - Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone, or a
   `mksync` that isn't its link, stops it without touching either.
-- Links `mksync`, prints the `PATH` line if needed, then runs `mksync setup` unless `--no-setup`.
+- Installs the program as `$SYNCSETTINGS_BIN/mksync` (a temp file and a rename, mode 0755), or with
+  `--runtime bun|node` links the clone's `mksync` launcher there. An existing `mksync` that is neither a link into the
+  clone nor the same bytes stops it with `ERROR: <bin>/mksync already exists; remove it and run this again.`, exit 1;
+  the same bytes are left as they are. Prints the `PATH` line if needed, then runs `mksync setup` (`--yes` passed on)
+  unless `--no-setup`, and ends with `  Installed. Run mksync any time.`
+- `usage: install.sh [--yes] [--no-setup] [--runtime bun|node]` on stderr, exit 1, for any other argument.
 - The script is functions with `main "$@"` as its last line, so a cut-off download runs nothing.
 - Answers come from the terminal (`/dev/tty`) when stdin is the piped script.
 
@@ -829,7 +859,9 @@ git repo with a commit.`, and a tree git can't read with `ERROR: cannot read <re
 | `SYNCSETTINGS_DIR`                | `$HOME/SyncSettings`                                                    |
 | `SYNCSETTINGS_REF`                | `master`                                                                |
 | `SYNCSETTINGS_BIN`                | `$HOME/.local/bin`                                                      |
+| `SYNCSETTINGS_RELEASE_URL`        | `https://github.com/makubexD/SyncSettings/releases`                     |
 | `SYNCSETTINGS_TTY`                | stdin if it's a terminal, else `/dev/tty` if readable, else `/dev/null` |
+| `SYNC_ARCH`                       | `uname -m`                                                              |
 | `SYNC_OS_RELEASE` (status, setup) | `/etc/os-release`                                                       |
 
 `install.ps1`, run in PowerShell as
@@ -839,28 +871,74 @@ git repo with a commit.`, and a tree git can't read with `ERROR: cannot read <re
   at the top, so `iex` never closes the user's window.
 - Missing `git` (required) or `gh` (for push): offers `winget install --id Git.Git` / `GitHub.cli` where `winget` exists,
   then reloads `Path` for the session. Git still missing stops it; gh missing is a warning.
-- Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone, or a
-  `mksync.cmd` without the launcher marker, stops it without touching either.
-- Writes `mksync.cmd`, adds the bin folder to the user `Path` if missing (new windows pick it up), then runs
-  `mksync setup` unless `SYNCSETTINGS_NO_SETUP=1`.
+- Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone stops
+  it without touching it.
+- Installs the program as `mksync.exe` in the bin folder (a temp file and a move). With `SYNCSETTINGS_RUNTIME=bun|node`
+  it writes `mksync.cmd` there instead, a launcher marked `rem SyncSettings launcher` that calls the clone's
+  `mksync.cmd`. A `mksync.exe` with other bytes, or a `mksync.cmd` without the marker, stops it with
+  `ERROR: <path> already exists; remove it and run this again.`; installing the program removes its own `mksync.cmd`.
+  It also removes the old default launcher, `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`, when it is ours.
+- Adds the bin folder to the user `Path` if missing (new windows pick it up), then runs `mksync setup` unless
+  `SYNCSETTINGS_NO_SETUP=1`; a failed setup stops it with `ERROR: setup failed; run mksync setup to see why.`
 - The script is one function called on its last line, so a cut-off download runs nothing. It takes no parameters, since
   `iex` can't pass any; settings come from the environment.
 
-| Variable                | Default                                        |
-| ----------------------- | ---------------------------------------------- |
-| `SYNCSETTINGS_REPO_URL` | `https://github.com/makubexD/SyncSettings.git` |
-| `SYNCSETTINGS_DIR`      | `%USERPROFILE%\SyncSettings`                   |
-| `SYNCSETTINGS_REF`      | `master`                                       |
-| `SYNCSETTINGS_BIN`      | `%LOCALAPPDATA%\SyncSettings\bin`              |
-| `SYNCSETTINGS_YES`      | unset; `1` answers the `[Y/n]` questions       |
-| `SYNCSETTINGS_NO_SETUP` | unset; `1` skips `mksync setup`                |
-| `SYNC_OS_NAME` (status) | the Windows caption                            |
+| Variable                   | Default                                             |
+| -------------------------- | --------------------------------------------------- |
+| `SYNCSETTINGS_REPO_URL`    | `https://github.com/makubexD/SyncSettings.git`      |
+| `SYNCSETTINGS_DIR`         | `%USERPROFILE%\SyncSettings`                        |
+| `SYNCSETTINGS_REF`         | `master`                                            |
+| `SYNCSETTINGS_BIN`         | `%LOCALAPPDATA%\mksync`                             |
+| `SYNCSETTINGS_YES`         | unset; `1` answers the `[Y/n]` questions            |
+| `SYNCSETTINGS_NO_SETUP`    | unset; `1` skips `mksync setup`                     |
+| `SYNCSETTINGS_RELEASE_URL` | `https://github.com/makubexD/SyncSettings/releases` |
+| `SYNCSETTINGS_RUNTIME`     | unset; `bun` or `node` installs the launcher        |
+| `SYNC_ARCH`                | `PROCESSOR_ARCHITECTURE`                            |
+| `SYNC_OS_NAME` (status)    | the Windows caption                                 |
+
+### Update
+
+`mksync update` replaces the installed program with the latest release
+([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 5). It reads the latest tag at
+`MKSYNC_RELEASE_URL` (default `https://github.com/makubexD/SyncSettings/releases`) and compares it with its own
+version (`mksync --version`):
+
+- Not newer: `mksync <version> is up to date.`, exit 0, nothing downloaded but the tag.
+- Newer: it downloads `SHA256SUMS` and the program for this OS and CPU, checks the SHA256, writes it next to itself
+  as `<program>.new`, runs the attestation check as the installers do (only when `gh auth status` succeeds), and renames
+  it over itself: `mksync updated: <old> -> <new>.`, exit 0. On Windows the running program first moves to
+  `mksync.old.exe`, and every start of the program deletes a leftover `mksync.old.exe` next to it.
+- Any failure changes nothing, exit 1:
+
+  ```text
+  ERROR: no mksync release for <platform>-<arch>.
+  ERROR: cannot get the mksync release: <reason>.
+  ERROR: SHA256SUMS: <reason>.
+  ERROR: <asset>: checksum does not match SHA256SUMS; nothing changed.
+  ERROR: <asset>: attestation check failed; nothing changed.
+  ERROR: cannot replace <program>: <reason>; nothing changed.
+  ```
+
+- Run through the clone's launcher, it refuses with `ERROR: mksync runs from the clone here; update it with git pull.`,
+  exit 2.
 
 ## The program
 
 One TypeScript engine, compiled to one `mksync` program per OS (`mksync.exe` on Windows), is replacing the bash and
-PowerShell engines ([design](design-layers.md)). Until cut-over the front door above still calls the old engines, and
-the program is run as `dist/mksync` from the clone, by its tests and by shadow mode.
+PowerShell engines ([design](design-layers.md)). From phase 9 the installers put it on `PATH` ([Install](#install));
+the old engines stay in the clone, behind `sync` and `sync.cmd`, until cut-over.
+
+The clone can also run the program from its source, with no build and no `npm install`: `mksync` (sh) and `mksync.cmd`
+at the repo root run `bun src/main.ts` or `node src/main.ts` with the arguments
+([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decisions 1 and 2). `MKSYNC_RUNTIME=bun|node`
+picks the runtime; unset, the first installed of Bun, then Node. Node must be 22.18 or newer, the first that runs
+TypeScript without a flag. The launchers set `MKSYNC_LAUNCHER=1`, which is how `mksync update` knows to refuse. Their
+errors, each exit 2:
+
+```text
+ERROR: MKSYNC_RUNTIME must be bun or node.
+ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.
+```
 
 It takes the old entry points' verbs and flags unchanged:
 
@@ -920,7 +998,7 @@ with --preview or --yes.`, `ERROR: --check cannot be combined with --reset-value
   `-m` with nothing after it (`commit`, `push`).
 - Since phase 8 the program runs every command of the old engines and the front door: `export --diff`,
   `import --reset-values`, `commit`, dconf, package drift, and `status`, `doctor`, `pull`, `push`, `diff`, `check`
-  and `preview`. The installers still link the old front door; phase 9 switches them to the program.
+  and `preview`. Phase 9 adds `update` and gives `setup` the doctor and the Ubuntu bootstrap of the front door's.
 
 ### Layers (program only)
 
