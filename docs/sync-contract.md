@@ -1275,6 +1275,9 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
 - **Layout.** The scan block, the profile list, the questions and the summary are separated by one blank line; each
   question is printed with one space after it and no newline, so answers piped on stdin leave the questions on one
   line. A question a flag answers isn't printed.
+- **Values after the answers.** The import setup runs reads from the same input as setup's questions, so answers
+  piped after the four (and any value or bootstrap answers) reach the import's value questions
+  ([Sanitize and hydrate](#sanitize-and-hydrate)). `mksync pull` shares its input with its import the same way.
 - **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
   the suggestion in brackets. `--yes` takes every suggestion without asking. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints

@@ -235,7 +235,9 @@ tags the release, runs the real-Windows checklist and the Claude layout, and del
 **First plan done 2026-11-17** ([plan-single-engine-9.md](plan-single-engine-9.md), branch `engine/cutover-prep`):
 process adapter on `node:child_process`, clone launchers for Bun and Node, usage errors exit 2, atomic state and repo
 writes that refuse symlinks, release workflow with `SHA256SUMS` and attestation, `mksync update`, installers that
-download the checked program, and setup with doctor first and the Ubuntu bootstrap. Next:
+download the checked program, and setup with doctor first and the Ubuntu bootstrap. Its PR also carries
+[plan-single-engine-9-values.md](plan-single-engine-9-values.md): on a fresh machine the program asks for a value
+nothing else fills, during setup and pull, from the same input as their own questions. Next:
 `docs/plan-single-engine-9-cutover.md`.
 
 - A release workflow builds the programs with checksums and `gh attestation`.

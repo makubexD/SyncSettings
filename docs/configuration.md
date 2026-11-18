@@ -127,7 +127,7 @@ value in the file, and import puts it back, so pick values specific enough not t
 | Rule field | Required | Meaning |
 |---|---|---|
 | `placeholder` | yes | The text stored in the repo, such as `<YOUR_NAME>` |
-| `prompt` | yes | The question shown when the value is needed |
+| `prompt` | yes | The question shown when the value is needed; the mksync program asks only when nothing else (cached, inferred, `default`, `defaultEnv`) gives a value ([contract, Known differences](sync-contract.md#known-differences)) |
 | `default` | no | The value offered at the prompt |
 | `defaultEnv` | no | Name of an environment variable to offer instead, used when `default` is not set |
 | `escapeBackslashes` | no | `true` if the file stores the value with doubled backslashes (`C:\\Tools`), as `.gitconfig` does |
