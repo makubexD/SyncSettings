@@ -863,8 +863,32 @@ function Setup-Git {
     }
 }
 
-# Write the gh stub into <temp>\bin: a gh.cmd that appends each call's arguments,
-# one call per line, to <temp>\gh.log, prints nothing and exits 0.
+# The gh stub as a program: it appends its arguments joined by spaces, one call
+# per line, to gh.log one folder above its own, prints nothing and exits 0.
+# The program runs only .com and .exe commands on Windows (contract "The
+# program"), so it needs this one; the old engine keeps gh.cmd. Built once per
+# run with the C# compiler Windows PowerShell already carries.
+$ghExeTemplate = ''
+$ghStubSource = @'
+using System;
+using System.IO;
+using System.Reflection;
+
+public static class GhStub
+{
+    public static int Main(string[] args)
+    {
+        string bin = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        string log = Path.Combine(Path.GetDirectoryName(bin), "gh.log");
+        File.AppendAllText(log, string.Join(" ", args) + "\r\n");
+        return 0;
+    }
+}
+'@
+
+# Write the gh stub into <temp>\bin: a gh.cmd for the old engine and, for
+# -Engine, a gh.exe; each appends a call's arguments, one call per line, to
+# <temp>\gh.log, prints nothing and exits 0.
 function Write-GhStub {
     param([string]$TempDir)
     $binDir = Join-Path $TempDir 'bin'
@@ -872,6 +896,17 @@ function Write-GhStub {
     $logPath = Join-Path $TempDir 'gh.log'
     $body = "@echo off`r`n>>`"$logPath`" echo(%*`r`n"
     [IO.File]::WriteAllText((Join-Path $binDir 'gh.cmd'), $body, [System.Text.UTF8Encoding]::new($false))
+    if ([string]::IsNullOrEmpty($EnginePath)) {
+        return
+    }
+    if ($script:ghExeTemplate -eq '') {
+        $folder = Join-Path ([IO.Path]::GetTempPath()) ('mksync-ghstub-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        $exe = Join-Path $folder 'gh.exe'
+        Add-Type -TypeDefinition $ghStubSource -OutputAssembly $exe -OutputType ConsoleApplication
+        $script:ghExeTemplate = $exe
+    }
+    Copy-Item -LiteralPath $script:ghExeTemplate -Destination (Join-Path $binDir 'gh.exe')
 }
 
 # The local state the program writes must be readable by the user only on
@@ -1311,7 +1346,11 @@ function Run-Case {
                 $env:GIT_CEILING_DIRECTORIES = $t
                 if ($ghStub) {
                     $env:PATH = (Join-Path $t 'bin') + ';' + $env:PATH
-                    $env:GH = Join-Path $t 'bin\gh.cmd'
+                    if ([string]::IsNullOrEmpty($EnginePath)) {
+                        $env:GH = Join-Path $t 'bin\gh.cmd'
+                    } else {
+                        $env:GH = Join-Path $t 'bin\gh.exe'
+                    }
                 }
                 # The case's env, applied after HOME/USERPROFILE is set.
                 for ($e = 0; $e -lt $envNames.Count; $e++) {
@@ -1695,6 +1734,10 @@ if ($skipped -gt 0) {
     Write-Output "$passed passed, $failed failed, $skipped skipped"
 } else {
     Write-Output "$passed passed, $failed failed"
+}
+
+if ($ghExeTemplate -ne '') {
+    Remove-Item -LiteralPath (Split-Path -Parent $ghExeTemplate) -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if ($failed -gt 0) {

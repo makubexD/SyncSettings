@@ -3,7 +3,14 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
-import { decode, run, runSync, stdinLines, which } from "./process.ts";
+import {
+  decode,
+  isSpawnable,
+  run,
+  runSync,
+  stdinLines,
+  which,
+} from "./process.ts";
 
 /** One command that writes to both streams and fails, so a run shows all three. */
 const PRINT_AND_FAIL = "printf out; printf err >&2; exit 3";
@@ -240,6 +247,31 @@ describe("which", () => {
 
     // Assert
     expect(found).toBeNull();
+  });
+});
+
+describe("isSpawnable", () => {
+  test.each([
+    ["C:\\bin\\gh.exe", true],
+    ["C:\\bin\\GH.EXE", true],
+    ["C:\\bin\\tool.com", true],
+    ["C:\\bin\\gh.cmd", false],
+    ["C:\\bin\\gh.BAT", false],
+    ["C:\\bin\\gh", false],
+  ])("should answer %s as %p on Windows", (file, expected) => {
+    // Act
+    const spawnable = isSpawnable(file, true);
+
+    // Assert
+    expect(spawnable).toBe(expected);
+  });
+
+  test("should accept any file when not on Windows", () => {
+    // Act
+    const spawnable = isSpawnable("/usr/local/bin/gh.cmd", false);
+
+    // Assert
+    expect(spawnable).toBe(true);
   });
 });
 

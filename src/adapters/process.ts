@@ -39,8 +39,11 @@ const TIMED_OUT = "ETIMEDOUT";
 /** How a timed-out child is stopped; SIGTERM lets it ignore the deadline. */
 const KILL_SIGNAL = "SIGKILL";
 
-/** The extensions Windows tries when a name carries none of its own. */
-const DEFAULT_PATHEXT = ".EXE;.CMD;.BAT;.COM";
+/** The suffixes `spawn` starts by itself on Windows, in the order libuv tries
+ * them. A `.cmd` or `.bat` needs cmd.exe, whose quoting is unsafe for free
+ * text such as a PR body, so the program never runs one (contract "The
+ * program"): neither counts as found. */
+const WINDOWS_SUFFIXES: readonly string[] = [".com", ".exe"];
 
 /** Decided once: on Windows a command may be `name.EXE`, and suffix matching
  * ignores case. */
@@ -397,26 +400,19 @@ function isExecutableFile(file: string): boolean {
   }
 }
 
-/** The PATHEXT suffixes worth trying for `name`, leading dot added, skipping
- * one the name already carries (case-insensitively). */
-function executableSuffixes(
-  env: Readonly<Record<string, string | undefined>>,
-  name: string,
-): readonly string[] {
-  const pathext = envEntry(env, "PATHEXT") ?? DEFAULT_PATHEXT;
-  const lowerName = name.toLowerCase();
-  const suffixes: string[] = [];
-  for (const entry of pathext.split(";")) {
-    const trimmed = entry.trim();
-    if (trimmed === "") {
-      continue;
-    }
-    const suffix = trimmed.startsWith(".") ? trimmed : `.${trimmed}`;
-    if (!lowerName.endsWith(suffix.toLowerCase())) {
-      suffixes.push(suffix);
-    }
+/**
+ * Whether `spawn` can start `file` without a shell: anything on Linux and
+ * macOS, only a `.com` or `.exe` on Windows (ignoring case).
+ */
+export function isSpawnable(
+  file: string,
+  windows: boolean = IS_WINDOWS,
+): boolean {
+  if (!windows) {
+    return true;
   }
-  return suffixes;
+  const lower = file.toLowerCase();
+  return WINDOWS_SUFFIXES.some((suffix) => lower.endsWith(suffix));
 }
 
 /** The PATH entries to search, split on the platform's delimiter. */
@@ -432,26 +428,27 @@ function searchFolders(
 
 /**
  * The full path of the first `name` on `PATH` that is an executable file, or
- * `null`. On Windows each PATHEXT suffix is tried too, ignoring case. A name
- * holding a path separator is taken as a path: returned as-is when it exists,
- * otherwise `null`.
+ * `null`. On Windows only a `.com` or `.exe` counts, the name as given or with
+ * either suffix added, as `spawn` finds it; a `.cmd` or `.bat` is not found. A
+ * name holding a path separator is taken as a path: returned as-is when it
+ * exists and `spawn` can start it, otherwise `null`.
  */
 export function which(
   name: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string | null {
   if (hasPathSeparator(name)) {
-    return isFile(name) ? name : null;
+    return isFile(name) && isSpawnable(name) ? name : null;
   }
   for (const folder of searchFolders(env)) {
     const candidate = join(folder, name);
-    if (isExecutableFile(candidate)) {
+    if (isSpawnable(candidate) && isExecutableFile(candidate)) {
       return candidate;
     }
     if (!IS_WINDOWS) {
       continue;
     }
-    for (const suffix of executableSuffixes(env, name)) {
+    for (const suffix of WINDOWS_SUFFIXES) {
       const extended = `${candidate}${suffix}`;
       if (isExecutableFile(extended)) {
         return extended;
