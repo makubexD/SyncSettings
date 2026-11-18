@@ -885,10 +885,13 @@ Windows) skips the download and puts the clone's launcher on `PATH` instead ([Th
 - Clones the repo, or fast-forwards an existing clone, so running it again updates. A folder that isn't a clone stops
   it without touching it.
 - Installs the program as `mksync.exe` in the bin folder (a temp file and a move). With `SYNCSETTINGS_RUNTIME=bun|node`
-  it writes `mksync.cmd` there instead, a launcher marked `rem SyncSettings launcher` that calls the clone's
-  `mksync.cmd`. A `mksync.exe` with other bytes, or a `mksync.cmd` without the marker, stops it with
-  `ERROR: <path> already exists; remove it and run this again.`; installing the program removes its own `mksync.cmd`.
-  It also removes the old default launcher, `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`, when it is ours.
+  it writes two launchers there instead: `mksync.cmd`, marked `rem SyncSettings launcher` on its second line, which
+  calls the clone's `mksync.cmd`; and `mksync` (no extension, ASCII, LF), marked `# SyncSettings launcher` on its
+  second line, which Git Bash runs as `exec "<clone>/mksync" "$@"` with the clone path in forward slashes. A
+  `mksync.exe` with other bytes, or a `mksync.cmd` or `mksync` without its marker, stops it with
+  `ERROR: <path> already exists; remove it and run this again.`; installing the program removes its own `mksync.cmd`
+  and `mksync`. It also removes the old default launcher, `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`, when it is
+  ours.
 - Adds the bin folder to the user `Path` if missing (new windows pick it up), then runs `mksync setup` unless
   `SYNCSETTINGS_NO_SETUP=1`; a failed setup stops it with `ERROR: setup failed; run mksync setup to see why.`
 - The script is one function called on its last line, so a cut-off download runs nothing. It takes no parameters, since

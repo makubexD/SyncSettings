@@ -223,6 +223,57 @@ $want = 'call "' + (Join-Path $InstallDir 'mksync.cmd') + '" %*'
 if ($lines.Count -lt 3 -or $lines[2].Trim() -ne $want) {
     Stop-Check "runtime: the shim does not call the clone's mksync.cmd`n$($lines -join "`n")"
 }
+$sh = Join-Path $Bin 'mksync'
+if (-not (Test-Path -LiteralPath $sh -PathType Leaf)) {
+    Stop-Check "runtime: no $sh`n$($run.Out)"
+}
+$wantSh = "#!/bin/sh`n# SyncSettings launcher`n" +
+    'exec "' + $InstallDir.Replace('\', '/') + '/mksync" "$@"' + "`n"
+$shText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($sh))
+if ($shText -ne $wantSh) {
+    Stop-Check "runtime: $sh is not the launcher`n$shText"
+}
+
+# program: installing the program removes both runtime launchers.
+$run = Invoke-Install -Settings @{ SYNCSETTINGS_NO_SETUP = '1' }
+if ($run.Exit -ne 0) {
+    Stop-Check "program after runtime: exit $($run.Exit)`n$($run.Out)"
+}
+if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+    Stop-Check "program after runtime: no $exe`n$($run.Out)"
+}
+if (Test-Path -LiteralPath $shim) {
+    Stop-Check "program after runtime: $shim exists"
+}
+if (Test-Path -LiteralPath $sh) {
+    Stop-Check "program after runtime: $sh exists"
+}
+
+# runtime-foreign: a mksync without the marker stops the runtime install,
+# exit 1, and is left as it was.
+Reset-Bin
+$null = New-Item -ItemType Directory -Path $Bin -Force
+$sh = Join-Path $Bin 'mksync'
+$foreign = "#!/bin/sh`necho mine`n"
+[IO.File]::WriteAllText($sh, $foreign, [Text.Encoding]::ASCII)
+$run = Invoke-Install -Settings @{
+    SYNCSETTINGS_RUNTIME = 'node'
+    SYNCSETTINGS_NO_SETUP = '1'
+    SYNCSETTINGS_RELEASE_URL = ('file:///' + (Join-Path $T 'no-release').Replace('\', '/'))
+}
+if ($run.Exit -ne 1) {
+    Stop-Check "runtime-foreign: exit $($run.Exit)`n$($run.Out)"
+}
+if ($run.Out -notmatch [regex]::Escape("ERROR: $sh already exists; remove it and run this again.")) {
+    Stop-Check "runtime-foreign: wrong line`n$($run.Out)"
+}
+$shText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($sh))
+if ($shText -ne $foreign) {
+    Stop-Check "runtime-foreign: $sh changed`n$shText"
+}
+if (Test-Path -LiteralPath $shim) {
+    Stop-Check "runtime-foreign: $shim was written"
+}
 
 # arch: an arch with no program gives its line and exit 1.
 Reset-Bin
