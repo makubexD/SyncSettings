@@ -236,7 +236,7 @@ tags the release, runs the real-Windows checklist and the Claude layout, and del
 process adapter on `node:child_process`, clone launchers for Bun and Node, usage errors exit 2, atomic state and repo
 writes that refuse symlinks, release workflow with `SHA256SUMS` and attestation, `mksync update`, installers that
 download the checked program, and setup with doctor first and the Ubuntu bootstrap. Its PR also carries
-[plan-single-engine-9-values.md](plan-single-engine-9-values.md): on a fresh machine the program asks for a value
+[plan-single-engine-9-values.md](plan-single-engine-9-values.md) (done 2026-11-18): on a fresh machine the program asks for a value
 nothing else fills, during setup and pull, from the same input as their own questions. Next:
 `docs/plan-single-engine-9-cutover.md`.
 
