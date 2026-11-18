@@ -1308,6 +1308,20 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 11. The clone's launcher with `MKSYNC_RUNTIME=bun` on work #1's Bun 1.3.14 (the repo pins 1.4.4): it runs, or the
     oldest Bun to accept is written into the launcher.
 
+### Real-machine results
+
+**Personal Linux, 2026-11-18, release v0.9.0.** The README install line with `--no-setup` (and `SYNCSETTINGS_DIR` set
+to the existing clone) put the release program in `~/.local/bin`: `mksync --version` prints `mksync 0.9.0`,
+`mksync status` and `mksync doctor` exit 0, and `mksync update` prints `mksync 0.9.0 is up to date.` (the contract's
+"Not newer" line). Nothing was pulled or pushed. `mksync shadow` exits 3 with 28 lines, all explained:
+
+- 25 package and extension `DRIFT` lines in the old engine's export (17 apt, 2 npm, 2 pipx, 1 GNOME extension, 3 apt
+  sources); the program prints none there. This is the open item "Drift in export and preview": the program reports
+  drift only in `mksync doctor`, whose `WARN drift: 25 package(s) differ` matches.
+- 3 lines for the Claude worker's `settings.json` (import `UPDATE`, export `MODIFIED`, and `only in engine`): the repo
+  and local files hold the same JSON and differ only in layout. The program compares `json` entries parsed
+  (`UNCHANGED`, as the contract says); the old engine compares bytes.
+
 ## Open
 
 ### Design
