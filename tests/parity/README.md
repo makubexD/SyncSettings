@@ -117,7 +117,7 @@ copies the front door with the engine: `sync` and `scripts/linux/front.sh` for b
 PowerShell engine), allowed on `import` and `check` only. For the program, `name`, `profile`, `replace`, `claude`,
 `mode` and `existing` are strings spelled `--<key> <value>` and allowed on `setup` only; `yes: true` adds `--yes`
 on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`, `pull`, `push` and
-`front-diff`; and `target`, a string, is the name argument of `machine-retire` and `profile-retire`, required there
+`front-diff`; `bootstrap: true` adds `--bootstrap` on `setup` only; and `target`, a string, is the name argument of `machine-retire` and `profile-retire`, required there
 and refused elsewhere. On `commit` only, `partial: true` adds `--partial` (`-Partial` on the PowerShell engine);
 `message`, a string, adds `-m <msg>` (`-Message <msg>`) on `commit` and `push`. On the six front door commands
 (`status`, `doctor`, `pull`, `push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each path

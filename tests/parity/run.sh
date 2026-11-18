@@ -98,6 +98,9 @@ validate_case() {
         | if ($o | has("yes")) then ($o.yes | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.yes must be a boolean'
     jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("bootstrap")) then ($o.bootstrap | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.bootstrap must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("partial")) then ($o.partial | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.partial must be a boolean'
     jq -e 'all(.commands[]; (.options // {}) as $o
@@ -121,6 +124,7 @@ validate_case() {
                   or $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
                   or $cmd == "push" or $cmd == "front-diff"
                else true end)
+          and (if ($o | has("bootstrap")) then $cmd == "setup" else true end)
           and (if ($o | has("partial")) then $cmd == "commit" else true end)
           and (if ($o | has("message")) then $cmd == "commit" or $cmd == "push" else true end)
           and (if ($o | has("paths")) then
@@ -128,7 +132,7 @@ validate_case() {
                   or $cmd == "push" or $cmd == "front-diff" or $cmd == "front-check"
                else true end)
           and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        || die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -771,7 +775,7 @@ run_case() {
         fi
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|yes|target|partial|message|paths|resetValues) ;;
+                force|only|name|profile|replace|claude|mode|existing|yes|bootstrap|target|partial|message|paths|resetValues) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -788,6 +792,9 @@ run_case() {
         done
         if [[ $(jq -r ".commands[$i].options.yes // false" "$dir/case.json") == true ]]; then
             args+=(--yes)
+        fi
+        if [[ $(jq -r ".commands[$i].options.bootstrap // false" "$dir/case.json") == true ]]; then
+            args+=(--bootstrap)
         fi
         if [[ $(jq -r ".commands[$i].options.partial // false" "$dir/case.json") == true ]]; then
             args+=(--partial)

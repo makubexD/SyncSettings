@@ -1,0 +1,26 @@
+{
+  "description": "Ubuntu `setup --bootstrap` runs bootstrap/linux.sh after doctor and the import check without asking the question, and setup ends with its exit code; exit 0 (Front door, setup).",
+  "os": ["linux"],
+  "config": {
+    "version": 1,
+    "excludePatterns": ["*.bak"],
+    "files": [
+      {
+        "repoPath": "dotfiles/common/parity/plain.txt",
+        "localPath": "~/.config/parity/plain.txt",
+        "platform": "common",
+        "description": "Matches the repo"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_OS_RELEASE": "../home/os-release"
+  },
+  "stubs": ["bootstrap", "gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": { "bootstrap": true }
+    }
+  ]
+}
