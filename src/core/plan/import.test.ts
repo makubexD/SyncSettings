@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { readSnapshot } from "../../adapters/fs.ts";
 import { parseV1 } from "../config/v1.ts";
 import { convertV1 } from "../config/convert.ts";
+import { parseV2 } from "../config/v2.ts";
 import type { Profile } from "../config/profile.ts";
 import type {
   ConfigError,
@@ -1927,7 +1928,7 @@ describe("planImport dconf", () => {
   });
 });
 
-const REAL_CONFIG_URL = new URL("../../../sync-config.json", import.meta.url);
+const REAL_CONFIG_URL = new URL("../../../sync-config.v2.json", import.meta.url);
 
 const REAL_DOTFILES_URL = new URL("../../../dotfiles/", import.meta.url);
 
@@ -1936,15 +1937,11 @@ const REAL_HOME = "/home/fixture";
 const REAL_LOGIN_HOME = "/home/fixture-login";
 
 function realConfig(): ConfigV2 {
-  const parsed = parseV1(readFileSync(REAL_CONFIG_URL, "utf8"));
+  const parsed = parseV2(readFileSync(REAL_CONFIG_URL, "utf8"));
   if (!parsed.ok) {
     throw new Error(parsed.error.message);
   }
-  const converted = convertV1(parsed.value);
-  if (!converted.ok) {
-    throw new Error(converted.error.message);
-  }
-  return converted.value;
+  return parsed.value;
 }
 
 function realRepoFiles(): Map<string, Uint8Array> {
@@ -1978,8 +1975,9 @@ function dconfEntries(config: ConfigV2): readonly ConfigV2Entry[] {
   return config.entries.filter((entry) => entry.merge === "dconf");
 }
 
-function repoPathOf(entry: ConfigV2Entry): string {
-  const os = entry.os?.length === 1 ? entry.os[0] : undefined;
+function repoPathOf(config: ConfigV2, entry: ConfigV2Entry): string {
+  const systems = entry.os ?? config.modules[entry.module]?.os;
+  const os = systems?.length === 1 ? systems[0] : undefined;
   return `dotfiles/${os ?? "common"}/${entry.file}`;
 }
 
@@ -2086,7 +2084,7 @@ describe("planImport on the repo's own config", () => {
       expect(imported.lines).toContain(
         formatLine(
           "SKIPPED",
-          repoPathOf(entry),
+          repoPathOf(config, entry),
           "HOME is not the login home; dconf left alone",
         ),
       );
@@ -2117,7 +2115,7 @@ describe("planImport on the repo's own config", () => {
 
     // Assert
     for (const entry of dconfEntries(config)) {
-      const label = repoPathOf(entry);
+      const label = repoPathOf(config, entry);
       const dconfPath = entry.dconfPath;
       if (dconfPath === undefined) {
         throw new Error(`${label} has no dconfPath`);
