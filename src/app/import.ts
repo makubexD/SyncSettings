@@ -8,6 +8,7 @@ import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
 import { stdinLines } from "../adapters/process.ts";
 import type { RunCommand } from "../cli/parse.ts";
+import { trimAnswer } from "../core/answer.ts";
 import { planCheck } from "../core/plan/check.ts";
 import {
   importOverwriteQuestions,
@@ -51,7 +52,8 @@ function withSyncPointWarning(plan: RunPlan, warning: string): RunPlan {
 }
 
 /** Apply a plan's steps and render what the run printed, keeping the run's
- * dated backup folder. */
+ * dated backup folder. A plan stopped by a missing value prints its line on
+ * stderr, where the shell engines print it (contract "Sanitize and hydrate"). */
 function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
   const outcome = runPlan(plan, context);
   const refused = outcome.refused;
@@ -63,11 +65,18 @@ function applyPlanAndBackup(plan: RunPlan, context: RunContext): AppliedPlan {
     warning === undefined ? plan : withSyncPointWarning(plan, warning),
     outcome,
   );
+  const missing = plan.missing !== undefined;
+  let stderr = "";
+  if (refused !== undefined) {
+    stderr = `${refused}\n`;
+  } else if (missing) {
+    stderr = writeLines(rendered.lines);
+  }
   return {
     result: {
       code: refused === undefined ? rendered.code : 1,
-      stdout: (plan.prompt ?? "") + writeLines(rendered.lines),
-      stderr: refused === undefined ? "" : `${refused}\n`,
+      stdout: missing ? "" : (plan.prompt ?? "") + writeLines(rendered.lines),
+      stderr,
     },
     backups: outcome.backups,
   };
@@ -108,9 +117,11 @@ function overwritePrompt(name: string): string {
 }
 
 /**
- * Read the answers one prompt at a time and plan the run: the value answers
- * first, then one per differing file, printing each overwrite prompt before its
- * answer is read. End of input answers the rest as yes.
+ * Read the answers one prompt at a time and plan the run: the value questions
+ * first, then one overwrite question per differing file, printing each prompt
+ * before its answer is read. An empty or absent answer to a value question with
+ * no default stops the run there: the remaining questions are not printed and
+ * no closing newline follows. End of input answers the rest as yes.
  */
 async function planWithAnswers(
   snapshot: Snapshot,
@@ -121,8 +132,18 @@ async function planWithAnswers(
     return questions;
   }
   const valueAnswers: string[] = [];
-  for (let i = 0; i < questions.length; i++) {
-    valueAnswers.push((await io.readLine()) ?? "");
+  let stopped = false;
+  for (const question of questions) {
+    io.write(question.text);
+    const answer = (await io.readLine()) ?? "";
+    valueAnswers.push(answer);
+    if (!question.hasDefault && trimAnswer(answer) === "") {
+      stopped = true;
+      break;
+    }
+  }
+  if (!stopped && questions.length > 0) {
+    io.write("\n");
   }
   const resolved = resolveImportValues(snapshot, valueAnswers);
   if (!resolved.ok) {

@@ -62,6 +62,55 @@ const COMMAND: RunCommand = {
 /** `mksync import` without `--force`, so differing files ask to overwrite. */
 const ASK_COMMAND: RunCommand = { ...COMMAND, force: false };
 
+/** The repo file a value question hydrates, and its local copy. */
+const VALUE_REPO_PATH = "parity/values.conf";
+
+const VALUE_DOTFILE = join("dotfiles", "linux", "parity", "values.conf");
+
+const VALUE_LOCAL_FOLDER = "parity";
+
+const VALUE_REPO_TEXT = "name = <YOUR_NAME>\n";
+
+/** A local copy that differs from the repo but infers no value: its first line
+ * holds the placeholder too (contract "Inference on import"). */
+const VALUE_LOCAL_TEXT = "name = <YOUR_NAME>\nextra = local\n";
+
+/** Two placeholders, so a stopped answer leaves the second question unasked. */
+const TWO_VALUE_REPO_TEXT = "name = <YOUR_NAME>\nhome = <HOME>\n";
+
+/** One whole-file entry whose repo file holds a value placeholder. */
+const VALUE_CONFIG: ConfigV2 = {
+  schemaVersion: 2,
+  modules: { parity: { description: "Parity fixture" } },
+  entries: [
+    {
+      file: VALUE_REPO_PATH,
+      module: "parity",
+      merge: "whole",
+      localPath: "~/.config/parity/values.conf",
+      sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name" }],
+    },
+  ],
+};
+
+/** The same entry with a second placeholder and its prompt. */
+const TWO_VALUE_CONFIG: ConfigV2 = {
+  ...VALUE_CONFIG,
+  entries: VALUE_CONFIG.entries.map((entry) => ({
+    ...entry,
+    sanitize: [
+      { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+      { placeholder: "<HOME>", prompt: "Home folder" },
+    ],
+  })),
+};
+
+/** `mksync import --reset-values --force`, which asks every placeholder. */
+const RESET_COMMAND: RunCommand = {
+  ...COMMAND,
+  resetValues: true,
+};
+
 /** Three whole-file entries whose local files all differ from the repo, so an
  * import asks one overwrite question per file. */
 const THREE_NAMES = ["one.txt", "two.txt", "three.txt"] as const;
@@ -164,6 +213,40 @@ function threeFileFixture(): Fixture {
   for (const name of THREE_NAMES) {
     writeFileSync(join(repo, "dotfiles", "linux", "parity", name), `repo ${name}\n`);
     writeFileSync(join(local, name), `local ${name}\n`);
+  }
+  git(repo, ["init", "-q"]);
+  git(repo, ["add", "--", "dotfiles"]);
+  git(repo, [
+    "-c",
+    "user.name=Parity",
+    "-c",
+    "user.email=parity@example.test",
+    "commit",
+    "-q",
+    "-m",
+    "fixture",
+  ]);
+  return { root, home, repo };
+}
+
+/** A throwaway home and clone whose one repo file holds value placeholders.
+ * `localText` adds a differing local copy, so the import asks to overwrite it. */
+function valueFixture(
+  localText?: string,
+  repoText: string = VALUE_REPO_TEXT,
+): Fixture {
+  const root = tempFolder();
+  const home = join(root, "home", "user");
+  const repo = join(root, "repo");
+  mkdirSync(home, { recursive: true });
+  mkdirSync(join(repo, "dotfiles", "linux", "parity"), { recursive: true });
+  writeFileSync(join(repo, VALUE_DOTFILE), repoText);
+  if (localText !== undefined) {
+    mkdirSync(join(home, ".config", VALUE_LOCAL_FOLDER), { recursive: true });
+    writeFileSync(
+      join(home, ".config", VALUE_LOCAL_FOLDER, "values.conf"),
+      localText,
+    );
   }
   git(repo, ["init", "-q"]);
   git(repo, ["add", "--", "dotfiles"]);
@@ -298,5 +381,127 @@ describe("runImport overwrite prompt", () => {
     expect(result.stdout).toMatch(/SKIPPED\s+dotfiles\/linux\/parity\/one\.txt/);
     expect(result.stdout).toMatch(/UPDATED\s+dotfiles\/linux\/parity\/two\.txt/);
     expect(result.stdout).toMatch(/UPDATED\s+dotfiles\/linux\/parity\/three\.txt/);
+  });
+});
+
+describe("runImport value questions", () => {
+  /** The header `importValueQuestions` puts before its first question. */
+  const ASK_HEADER =
+    "\n  Enter values to fill the placeholders in the config files:\n\n";
+
+  const NAME_QUESTION = `${ASK_HEADER}  Full name: `;
+
+  const HOME_QUESTION = "  Home folder: ";
+
+  /** The missing-value line for the fixture's first placeholder, no record. */
+  const NAME_MISSING =
+    "missing value for <YOUR_NAME>: add it to .user-values.json\n";
+
+  /** A state folder for this fixture, so the sync point never reaches the
+   * real one. */
+  function stateFolder(setup: Fixture): string {
+    const state = join(setup.root, "state");
+    mkdirSync(state);
+    process.env[XDG_STATE_HOME_ENV] = state;
+    return state;
+  }
+
+  test("should print each question before its answer, then the closing newline", async () => {
+    // Arrange
+    const setup = valueFixture(VALUE_LOCAL_TEXT);
+    const state = stateFolder(setup);
+    const fake = fakeImportIo(["Jane Doe", "y"]);
+    const localFile = join(
+      setup.home,
+      ".config",
+      VALUE_LOCAL_FOLDER,
+      "values.conf",
+    );
+
+    // Act
+    const result = await runImport(
+      runEnvironment(setup, state, VALUE_CONFIG),
+      ASK_COMMAND,
+      fake.io,
+    );
+
+    // Assert
+    expect(fake.events).toEqual([
+      { kind: "write", text: NAME_QUESTION },
+      { kind: "read" },
+      { kind: "write", text: "\n" },
+      { kind: "write", text: `  Overwrite ${localFile}? [Y/n] ` },
+      { kind: "read" },
+    ]);
+    expect(result.code).toBe(0);
+    expect(readFileSync(localFile, "utf8")).toBe("name = Jane Doe\n");
+  });
+
+  test("should stop at end of input without a closing newline", async () => {
+    // Arrange
+    const setup = valueFixture();
+    const state = stateFolder(setup);
+    const fake = fakeImportIo([undefined]);
+
+    // Act
+    const result = await runImport(
+      runEnvironment(setup, state, VALUE_CONFIG),
+      COMMAND,
+      fake.io,
+    );
+
+    // Assert
+    expect(fake.events).toEqual([
+      { kind: "write", text: NAME_QUESTION },
+      { kind: "read" },
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(NAME_MISSING);
+  });
+
+  test("should print every --reset-values question before reading its answer", async () => {
+    // Arrange
+    const setup = valueFixture(undefined, TWO_VALUE_REPO_TEXT);
+    const state = stateFolder(setup);
+    const fake = fakeImportIo(["Jane Doe", "Jane's home"]);
+
+    // Act
+    const result = await runImport(
+      runEnvironment(setup, state, TWO_VALUE_CONFIG),
+      RESET_COMMAND,
+      fake.io,
+    );
+
+    // Assert
+    expect(fake.events).toEqual([
+      { kind: "write", text: NAME_QUESTION },
+      { kind: "read" },
+      { kind: "write", text: HOME_QUESTION },
+      { kind: "read" },
+      { kind: "write", text: "\n" },
+    ]);
+    expect(result.code).toBe(0);
+  });
+
+  test("should stop at the first empty answer and ask no later question", async () => {
+    // Arrange
+    const setup = valueFixture(undefined, TWO_VALUE_REPO_TEXT);
+    const state = stateFolder(setup);
+    const fake = fakeImportIo([""]);
+
+    // Act
+    const result = await runImport(
+      runEnvironment(setup, state, TWO_VALUE_CONFIG),
+      COMMAND,
+      fake.io,
+    );
+
+    // Assert
+    expect(fake.events).toEqual([
+      { kind: "write", text: NAME_QUESTION },
+      { kind: "read" },
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(NAME_MISSING);
   });
 });

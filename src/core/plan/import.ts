@@ -825,13 +825,21 @@ function promptFallback(
   return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : "";
 }
 
+/** One value question an import prints, and whether its answer may be empty:
+ * a `--reset-values` question that shows a default in brackets takes the
+ * default, while every other question stops the run on an empty answer. */
+export interface ImportValueQuestion {
+  readonly text: string;
+  readonly hasDefault: boolean;
+}
+
 /** The `--reset-values` questions, one per placeholder, as `askValues` prints
  * them: its header first, then each default in brackets. */
 function resetValueQuestions(
   snapshot: Snapshot,
   rules: readonly SanitizeRule[],
-): string[] {
-  const questions: string[] = [];
+): ImportValueQuestion[] {
+  const questions: ImportValueQuestion[] = [];
   const seen = new Set<string>();
   for (const rule of rules) {
     const placeholder = rule.placeholder;
@@ -841,9 +849,11 @@ function resetValueQuestions(
     seen.add(placeholder);
     const fallback = promptFallback(rule, snapshot.values, snapshot.env);
     const prompt = rule.prompt ?? "";
-    questions.push(
-      fallback.length > 0 ? `  ${prompt} [${fallback}]: ` : `  ${prompt}: `,
-    );
+    const hasDefault = fallback.length > 0;
+    questions.push({
+      text: hasDefault ? `  ${prompt} [${fallback}]: ` : `  ${prompt}: `,
+      hasDefault,
+    });
   }
   return questions;
 }
@@ -861,21 +871,22 @@ export type ImportValuesResult =
   | { readonly ok: false; readonly plan: RunPlan };
 
 /**
- * The text printed before each value answer: under `--reset-values` one per
- * placeholder as `askValues` prints it, with its default in brackets; otherwise
- * one per `missingPlaceholders` rule, which is what nothing else fills. The
- * first question carries the header. The check path never asks. An early-error
- * plan comes back when the config or `--only` cannot be read.
+ * The questions an import asks, each with the text printed before its answer:
+ * under `--reset-values` one per placeholder as `askValues` prints it, with
+ * its default in brackets and `hasDefault` set; otherwise one per
+ * `missingPlaceholders` rule, which is what nothing else fills. The first
+ * question carries the header. The check path never asks. An early-error plan
+ * comes back when the config or `--only` cannot be read.
  */
 export function importValueQuestions(
   snapshot: Snapshot,
-): readonly string[] | RunPlan {
+): readonly ImportValueQuestion[] | RunPlan {
   const prepared = prepareImport(snapshot);
   if (!isPrepared(prepared)) {
     return prepared;
   }
   const rules = prepared.gathered.rules;
-  const questions =
+  const questions: ImportValueQuestion[] =
     snapshot.resetValues === true
       ? resetValueQuestions(snapshot, rules)
       : missingPlaceholders(
@@ -883,18 +894,24 @@ export function importValueQuestions(
           snapshot.values,
           prepared.gathered.inferred,
           snapshot.env,
-        ).map((rule) => `  ${rule.prompt ?? ""}: `);
+        ).map((rule) => ({
+          text: `  ${rule.prompt ?? ""}: `,
+          hasDefault: false,
+        }));
   const first = questions[0];
   if (first !== undefined) {
-    questions[0] = `${ASK_HEADER}${first}`;
+    questions[0] = {
+      text: `${ASK_HEADER}${first.text}`,
+      hasDefault: first.hasDefault,
+    };
   }
   return questions;
 }
 
 /** Whether `importValueQuestions` returned questions rather than an early-error plan. */
 export function isQuestionList(
-  value: readonly string[] | RunPlan,
-): value is readonly string[] {
+  value: readonly ImportValueQuestion[] | RunPlan,
+): value is readonly ImportValueQuestion[] {
   return Array.isArray(value);
 }
 

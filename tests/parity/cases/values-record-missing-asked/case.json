@@ -35,8 +35,7 @@
       "options": {
         "force": true
       },
-      "stdin": "Jane Doe\n",
-      "output": "all"
+      "stdin": "Jane Doe\n"
     }
   ]
 }

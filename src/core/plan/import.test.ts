@@ -977,7 +977,9 @@ describe("import value questions", () => {
     const plan = planImport(snapshot, ["Jane Doe"]);
 
     // Assert
-    expect(questions).toEqual([`${ASK_HEADER}  Full name: `]);
+    expect(questions).toEqual([
+      { text: `${ASK_HEADER}  Full name: `, hasDefault: false },
+    ]);
     expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
     expect(
       shownActions(
@@ -1021,7 +1023,9 @@ describe("import value questions", () => {
     const plan = planImport(snapshot, ["Jane Doe"]);
 
     // Assert
-    expect(questions).toEqual([`${ASK_HEADER}  Full name: `]);
+    expect(questions).toEqual([
+      { text: `${ASK_HEADER}  Full name: `, hasDefault: false },
+    ]);
     expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
   });
 
@@ -1048,8 +1052,8 @@ describe("import value questions", () => {
 
     // Assert
     expect(questions).toEqual([
-      `${ASK_HEADER}  Full name [Old Name]: `,
-      "  Home folder: ",
+      { text: `${ASK_HEADER}  Full name [Old Name]: `, hasDefault: true },
+      { text: "  Home folder: ", hasDefault: false },
     ]);
   });
 
