@@ -211,7 +211,10 @@ function threeFileFixture(): Fixture {
   mkdirSync(local, { recursive: true });
   mkdirSync(join(repo, "dotfiles", "linux", "parity"), { recursive: true });
   for (const name of THREE_NAMES) {
-    writeFileSync(join(repo, "dotfiles", "linux", "parity", name), `repo ${name}\n`);
+    writeFileSync(
+      join(repo, "dotfiles", "linux", "parity", name),
+      `repo ${name}\n`,
+    );
     writeFileSync(join(local, name), `local ${name}\n`);
   }
   git(repo, ["init", "-q"]);
@@ -289,12 +292,14 @@ function runEnvironment(
 }
 
 /** One thing the fake import io did, in the order it did it. */
-type IoEvent = { readonly kind: "write"; readonly text: string } | { readonly kind: "read" };
+type IoEvent =
+  { readonly kind: "write"; readonly text: string } | { readonly kind: "read" };
 
 /** An import io that answers from `answers` and records every write and read. */
-function fakeImportIo(
-  answers: readonly (string | undefined)[],
-): { readonly io: ImportIo; readonly events: IoEvent[] } {
+function fakeImportIo(answers: readonly (string | undefined)[]): {
+  readonly io: ImportIo;
+  readonly events: IoEvent[];
+} {
   const events: IoEvent[] = [];
   const queue = [...answers];
   return {
@@ -378,9 +383,15 @@ describe("runImport overwrite prompt", () => {
       { kind: "write", text: promptFor("three.txt") },
       { kind: "read" },
     ]);
-    expect(result.stdout).toMatch(/SKIPPED\s+dotfiles\/linux\/parity\/one\.txt/);
-    expect(result.stdout).toMatch(/UPDATED\s+dotfiles\/linux\/parity\/two\.txt/);
-    expect(result.stdout).toMatch(/UPDATED\s+dotfiles\/linux\/parity\/three\.txt/);
+    expect(result.stdout).toMatch(
+      /SKIPPED\s+dotfiles\/linux\/parity\/one\.txt/,
+    );
+    expect(result.stdout).toMatch(
+      /UPDATED\s+dotfiles\/linux\/parity\/two\.txt/,
+    );
+    expect(result.stdout).toMatch(
+      /UPDATED\s+dotfiles\/linux\/parity\/three\.txt/,
+    );
   });
 });
 
@@ -481,6 +492,39 @@ describe("runImport value questions", () => {
       { kind: "write", text: "\n" },
     ]);
     expect(result.code).toBe(0);
+  });
+
+  test("should take a --reset-values default on an empty answer and ask the next question", async () => {
+    // Arrange
+    const setup = valueFixture(undefined, TWO_VALUE_REPO_TEXT);
+    const state = stateFolder(setup);
+    const valuesFile = join(setup.repo, ".user-values.json");
+    writeFileSync(
+      valuesFile,
+      `${JSON.stringify({ "<HOME>": "/old", "<YOUR_NAME>": "Old Name" })}\n`,
+    );
+    const fake = fakeImportIo(["", "/new"]);
+
+    // Act
+    const result = await runImport(
+      runEnvironment(setup, state, TWO_VALUE_CONFIG),
+      RESET_COMMAND,
+      fake.io,
+    );
+
+    // Assert
+    expect(fake.events).toEqual([
+      { kind: "write", text: `${ASK_HEADER}  Full name [Old Name]: ` },
+      { kind: "read" },
+      { kind: "write", text: "  Home folder [/old]: " },
+      { kind: "read" },
+      { kind: "write", text: "\n" },
+    ]);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(readFileSync(valuesFile, "utf8"))).toEqual({
+      "<HOME>": "/new",
+      "<YOUR_NAME>": "Old Name",
+    });
   });
 
   test("should stop at the first empty answer and ask no later question", async () => {
