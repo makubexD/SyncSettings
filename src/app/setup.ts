@@ -1,10 +1,11 @@
 /**
- * `mksync setup` (contract "First run"): read the store and the scan, run the
- * flow, move `.user-values.json`, write the record and profile, then act on
- * the fourth answer (decision 9). The export and import the flow ends with run
- * through the caller's `execute`, so this module never imports `main.ts`.
- * A repository still on the version-1 config takes the old front door's flow
- * instead: doctor, the import check, the Ubuntu bootstrap and the apply.
+ * `mksync setup` (contract "First run"): run the doctor, read the store and the
+ * scan, run the flow, move `.user-values.json`, write the record and profile,
+ * offer the Ubuntu bootstrap, then act on the fourth answer (decision 9). The
+ * export and import the flow ends with run through the caller's `execute`, so
+ * this module never imports `main.ts`. A repository still on the version-1
+ * config takes the old front door's flow instead: doctor, the import check, the
+ * Ubuntu bootstrap and the apply.
  */
 
 import {
@@ -20,6 +21,7 @@ import { readOsId } from "../adapters/osname.ts";
 import { run } from "../adapters/process.ts";
 import { readScan } from "../adapters/scan.ts";
 import { loadLayers, V2_CONFIG } from "../adapters/snapshot.ts";
+import type { Layers } from "../adapters/snapshot.ts";
 import {
   readLinkedFolders,
   readRepoStore,
@@ -27,6 +29,7 @@ import {
   readText,
   writeProfile,
   writeRecord,
+  stateLocation,
 } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
 import { trimAnswer } from "../core/answer.ts";
@@ -208,6 +211,35 @@ async function runBootstrap(
 }
 
 /**
+ * Contract "mksync setup": both first runs start with the doctor. Its output
+ * goes straight to the terminal so it comes before the scan and the questions,
+ * and a non-zero code stops setup before anything is asked or written.
+ * `undefined` when the doctor is green.
+ */
+async function doctorFirst(
+  repoRoot: string,
+  config: ConfigV2,
+  os: Os,
+  home: string,
+  layers: Layers,
+): Promise<Result | undefined> {
+  const doctor = await executeDoctor({ repoRoot, config, os, home, layers });
+  process.stdout.write(doctor.stdout);
+  process.stderr.write(doctor.stderr);
+  return doctor.code === 0 ? undefined : { code: 1, stdout: "", stderr: "" };
+}
+
+/**
+ * The layers the doctor reads when `setup --replace` reads past a bad local
+ * record: no record, so it reports `no machine record` as the flow goes on as
+ * if this machine had none. The store's location is for its writes and the
+ * doctor never reads it.
+ */
+function noRecordLayers(state: string): Layers {
+  return { location: stateLocation(state) };
+}
+
+/**
  * The version-1 first run, `front_setup` ported: doctor first, a MISSING line
  * stops setup before the import check or any question; then the read-only
  * import check; then the Ubuntu bootstrap question; then the apply, unless
@@ -223,24 +255,13 @@ async function executeV1Setup(
   command: SetupCommand,
   execute: (command: RunCommand) => Promise<Result>,
 ): Promise<Result> {
-  if (command.bootstrap === true && os === "macos") {
-    return failure(BOOTSTRAP_ONLY_MACOS);
-  }
   const layers = loadLayers(state, repoRoot, config);
   if (!layers.ok) {
     return failure(layers.error.message, layers.error.code);
   }
-  const doctor = await executeDoctor({
-    repoRoot,
-    config,
-    os,
-    home,
-    layers: layers.value,
-  });
-  process.stdout.write(doctor.stdout);
-  process.stderr.write(doctor.stderr);
-  if (doctor.code !== 0) {
-    return { code: 1, stdout: "", stderr: "" };
+  const stopped = await doctorFirst(repoRoot, config, os, home, layers.value);
+  if (stopped !== undefined) {
+    return stopped;
   }
 
   const check = await execute(v1ImportCommand(true));
@@ -286,9 +307,9 @@ async function executeV1Setup(
 }
 
 /**
- * Run `mksync setup` end to end: read the store and the scan, run the flow,
- * move `.user-values.json`, write the record and profile, then act on the
- * fourth answer (decision 9).
+ * Run `mksync setup` end to end: run the doctor, read the store and the scan,
+ * run the flow, move `.user-values.json`, write the record and profile, offer
+ * the Ubuntu bootstrap, then act on the fourth answer (decision 9).
  */
 export async function executeSetup(
   repoRoot: string,
@@ -299,6 +320,11 @@ export async function executeSetup(
   command: SetupCommand,
   execute: (command: RunCommand) => Promise<Result>,
 ): Promise<Result> {
+  // Contract "mksync setup": `--bootstrap` is Ubuntu only, refused before the
+  // doctor asks or prints anything on any repo version.
+  if (command.bootstrap === true && os === "macos") {
+    return failure(BOOTSTRAP_ONLY_MACOS);
+  }
   // `loadConfig` reads `sync-config.v2.json` when it is there and converts the
   // version-1 file otherwise, so its absence means this repo is still v1 and
   // setup follows the old engine's rules.
@@ -326,6 +352,25 @@ export async function executeSetup(
     localProfiles = local.value.profiles;
   } else {
     return failure(store.error.message, store.error.code);
+  }
+  // Contract "mksync setup": the doctor runs after the store is read and
+  // before the scan and any question. `--replace` reads past a bad record and
+  // goes on as if there were none, so the doctor sees no record either.
+  const layers = loadLayers(state, repoRoot, config);
+  let doctorLayers: Layers;
+  if (layers.ok) {
+    doctorLayers = layers.value;
+  } else if (
+    command.replace !== undefined &&
+    isBadRecord(layers.error.message)
+  ) {
+    doctorLayers = noRecordLayers(state);
+  } else {
+    return failure(layers.error.message, layers.error.code);
+  }
+  const stopped = await doctorFirst(repoRoot, config, os, home, doctorLayers);
+  if (stopped !== undefined) {
+    return stopped;
   }
   const origins = await readOrigin(repoRoot);
   const isPrivate = (await readVisibility(origins, process.env)) === "private";
@@ -378,43 +423,54 @@ export async function executeSetup(
     command,
     terminal.io,
   );
-  terminal.close();
-  const moved = moveUserValues(values, answers);
-  const record: MachineRecord = {
-    ...outcome.record,
-    values: { ...moved.machine, ...machineValues },
-  };
-  const profile: Profile = {
-    ...outcome.profile,
-    values: { ...moved.profile, ...outcome.profile.values },
-  };
+  // The record and the profile are written first, then the bootstrap question
+  // is asked on the same reader: it stays open so a piped answer still reaches
+  // it, and `runBootstrap` closes it before the script gets the terminal.
+  let bootstrapped: Result | undefined;
   try {
-    writeProfile(state, profile);
-  } catch (error) {
-    if (error instanceof SymlinkRefusal) {
-      return failure(error.message);
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    return failure(
-      `ERROR: cannot write the profile ${profile.name}: ${message}`,
-    );
-  }
-  try {
-    writeRecord(state, record);
-  } catch (error) {
-    if (error instanceof SymlinkRefusal) {
-      return failure(error.message);
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    return failure(`ERROR: cannot write the machine record: ${message}`);
-  }
-
-  if (outcome.action === "stop") {
-    return {
-      code: 0,
-      stdout: "Stopped: the record is written, no file was changed.\n",
-      stderr: "",
+    const moved = moveUserValues(values, answers);
+    const record: MachineRecord = {
+      ...outcome.record,
+      values: { ...moved.machine, ...machineValues },
     };
+    const profile: Profile = {
+      ...outcome.profile,
+      values: { ...moved.profile, ...outcome.profile.values },
+    };
+    try {
+      writeProfile(state, profile);
+    } catch (error) {
+      if (error instanceof SymlinkRefusal) {
+        return failure(error.message);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return failure(
+        `ERROR: cannot write the profile ${profile.name}: ${message}`,
+      );
+    }
+    try {
+      writeRecord(state, record);
+    } catch (error) {
+      if (error instanceof SymlinkRefusal) {
+        return failure(error.message);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return failure(`ERROR: cannot write the machine record: ${message}`);
+    }
+
+    if (outcome.action === "stop") {
+      return {
+        code: 0,
+        stdout: "Stopped: the record is written, no file was changed.\n",
+        stderr: "",
+      };
+    }
+    bootstrapped = await runBootstrap(repoRoot, os, command, terminal);
+  } finally {
+    terminal.close();
+  }
+  if (bootstrapped !== undefined) {
+    return bootstrapped;
   }
   const importCommand: RunCommand = {
     kind: "run",

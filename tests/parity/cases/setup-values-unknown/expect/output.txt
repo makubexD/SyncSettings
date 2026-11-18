@@ -1,3 +1,10 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
 Scanning this machine...
   OS         linux
   Hostname   wk1-laptop

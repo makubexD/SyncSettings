@@ -1,1 +1,8 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
 ERROR: no machine wk1-laptop here; records are shared once the repo is private.

@@ -99,7 +99,7 @@ export interface RepoStore {
 }
 
 /** The local store's paths, under the state folder. */
-function stateLocation(stateFolder: string): StoreLocation {
+export function stateLocation(stateFolder: string): StoreLocation {
   return {
     recordFile: join(stateFolder, MACHINE_FILE),
     profilesFolder: join(stateFolder, PROFILES_FOLDER),
