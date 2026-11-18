@@ -901,10 +901,6 @@ them with a timestamp to `shadow.log` in the state folder, and exits 3. It write
   usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--bootstrap] [--yes] | mksync update | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 
-  Until phase 9's steps 24 and 25 the program prints the earlier line, which also lists
-  `mksync export [--preview] [--diff] [--yes] [--only <path>...]`, `mksync import [--check] [--force] [--reset-values] [--only <path>...]`
-  and `mksync commit [-m <msg>] [--partial]`, and has no `--bootstrap`.
-
 - It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
   ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
   ([Sync point](#sync-point)) are the old engines'.

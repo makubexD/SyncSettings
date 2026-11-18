@@ -12,12 +12,9 @@ export const USAGE =
   "mksync pull [--yes] [--force] [<path>...] | " +
   "mksync push [--yes] [-m <msg>] [<path>...] | " +
   "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
-  "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
-  "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
-  "mksync commit [-m <msg>] [--partial] | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
-  "[--existing backup|keep|stop] [--yes] | " +
+  "[--existing backup|keep|stop] [--bootstrap] [--yes] | " +
   "mksync update | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
   "mksync profile retire <name> [--yes] | mksync statusline | " +

@@ -720,6 +720,12 @@ describe("parseArgs", () => {
     expect(parseArgs(["commit", "work-1"])).toEqual(unknownOption("work-1"));
   });
 
+  test("should keep export, import, commit and shadow out of the usage line", () => {
+    for (const hidden of ["export", "import", "commit", "shadow"]) {
+      expect(USAGE_TEXT.includes(`mksync ${hidden}`)).toBe(false);
+    }
+  });
+
   test("should keep shadow out of the usage line", () => {
     expect(USAGE_TEXT.includes("shadow")).toBe(false);
   });
@@ -781,28 +787,6 @@ describe("parseArgs", () => {
   test("should name update in the usage line", () => {
     expect(USAGE_TEXT.includes("mksync update")).toBe(true);
   });
-
-  test("should name commit in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync commit [-m <msg>] [--partial]")).toBe(
-      true,
-    );
-  });
-
-  test("should name export --yes in the usage line", () => {
-    expect(
-      USAGE_TEXT.includes(
-        "mksync export [--preview] [--diff] [--yes] [--only <path>...]",
-      ),
-    ).toBe(true);
-  });
-
-  test("should name import --reset-values in the usage line", () => {
-    expect(
-      USAGE_TEXT.includes(
-        "mksync import [--check] [--force] [--reset-values] [--only <path>...]",
-      ),
-    ).toBe(true);
-  });
 });
 
 describe("usage errors exit 2", () => {
@@ -839,22 +823,10 @@ describe("USAGE", () => {
       join(import.meta.dir, "../../docs/sync-contract.md"),
       "utf8",
     );
-    // The contract shows the end-of-phase line; until steps 24 and 25 the
-    // program's line also lists export, import and commit after `preview`,
-    // and has no `--bootstrap`, as the contract's note under it says.
-    const target = contract
+    const usageLine = contract
       .split("\n")
       .map((line) => line.trim())
       .find((line) => line.startsWith("usage: mksync "));
-    const usageLine = target
-      ?.replace(" [--bootstrap]", "")
-      .replace(
-        "mksync preview | ",
-        "mksync preview | " +
-          "mksync export [--preview] [--diff] [--yes] [--only <path>...] | " +
-          "mksync import [--check] [--force] [--reset-values] [--only <path>...] | " +
-          "mksync commit [-m <msg>] [--partial] | ",
-      );
 
     expect(usageLine).toBe(USAGE_TEXT);
   });
