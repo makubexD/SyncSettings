@@ -18,9 +18,31 @@ case_name=''
 t=''
 
 # The OS a case runs for, resolved exactly as the engine does.
-# shellcheck disable=SC1091  # os.sh is not followed without shellcheck -x
-# shellcheck source-path=SCRIPTDIR source=../../scripts/linux/os.sh
-source "$REPO/scripts/linux/os.sh"
+# Copied from the old bash engine's scripts/linux/os.sh.
+sync_os() {
+    local os=${SYNC_OS:-} uname_s
+    if [[ -n $os ]]; then
+        case $os in
+            linux|macos)
+                printf '%s' "$os"
+                return 0
+                ;;
+            *)
+                printf 'ERROR: SyncSettings runs on Linux, macOS and Windows; this is %s.\n' "$os" >&2
+                return 1
+                ;;
+        esac
+    fi
+    uname_s=$(uname -s 2>/dev/null) || uname_s='unknown'
+    case $uname_s in
+        Linux) printf 'linux' ;;
+        Darwin) printf 'macos' ;;
+        *)
+            printf 'ERROR: SyncSettings runs on Linux, macOS and Windows; this is %s.\n' "$uname_s" >&2
+            return 1
+            ;;
+    esac
+}
 HARNESS_OS=$(sync_os)
 readonly HARNESS_OS
 
