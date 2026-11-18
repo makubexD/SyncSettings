@@ -1,0 +1,393 @@
+#!/usr/bin/env -S python3 -I
+"""plan-next [--body] [plan path] | plan-next --check <plan path>: print the
+next step of a plan, found from git.
+
+The plan is the newest commit that either carries a `Plan-Step: <path>#<n>` or
+`Plan-Done: <path>` trailer, or adds step heading lines (`## Step N`,
+`### Step N`, `## N.`, `### N.`) to a docs/plan-*.md file. The next step is the
+highest committed number for that plan, plus one.
+
+Output is one JSON object with the keys state, plan, step, tag, title and gaps.
+gaps lists the step numbers below the next one that have a heading in the plan
+but no Plan-Step trailer. state is "finished" when the plan carries a
+`Plan-Done: <path>` trailer or its file is gone, and "done" when the next
+number has no heading.
+
+With --body the object also carries body: the lines under the next step
+heading up to the following step heading, leading and trailing blank lines
+stripped, joined with newlines; null when the state is not "next".
+
+Exit status is 0 for every normal result, 2 for bad usage or a missing plan
+path argument.
+
+With --check <path>, the plan file at path (relative to the current
+directory) is validated instead: exit 0 after printing `ok` when its steps
+are 1..n, contiguous, unique and every one is tagged; exit 1 with each
+problem on its own stderr line otherwise; exit 2 when the file cannot be
+read. `high` tags follow the effort gate: a high step must be tagged
+`[worker:high: reasoning: <text>]`, and a plan may hold at most one high
+step.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+NONE = {
+    "state": "none",
+    "plan": None,
+    "step": None,
+    "tag": None,
+    "title": None,
+    "gaps": [],
+}
+
+HEADING_RE = re.compile(r"^#{2,3} (?:Step (\d+)(?=[: `]|$)|(\d+)\.)(.*)$")
+USAGE = "usage: plan-next [--body] [plan path] | plan-next --check <plan path>"
+TAG_RE = re.compile(r"`\[([^\]]*)\]`")
+HIGH_REASON_RE = re.compile(r"worker:high:\s*reasoning:\s*\S.*")
+PLAN_PATH_RE = re.compile(r"^docs/plan-[^/]*\.md$")
+
+
+def git(*args):
+    """Run git in the current directory; None if it cannot be started."""
+    try:
+        return subprocess.run(
+            ["git", *args], capture_output=True, text=True, errors="replace"
+        )
+    except OSError:
+        return None
+
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+
+
+def repo_root():
+    """The worktree root, or None outside a git repository."""
+    result = git("rev-parse", "--show-toplevel")
+    if result is None or result.returncode != 0:
+        return None
+    root = result.stdout.strip()
+    return root or None
+
+
+def normalize(path):
+    return os.path.normpath(path).replace(os.sep, "/")
+
+
+def parse_trailer(value):
+    """'docs/plan-x.md#3' -> ('docs/plan-x.md', 3); None if malformed."""
+    path, sep, number = value.rpartition("#")
+    if not sep or not number.isdigit():
+        return None
+    path = normalize(path.strip())
+    return (path, int(number)) if path else None
+
+
+def read_log():
+    """[(commit hash, [Plan-Step values], [Plan-Done paths])], newest first."""
+    result = git(
+        "log",
+        "--format=%H%x00"
+        "%(trailers:key=Plan-Step,valueonly,separator=%x1f)%x00"
+        "%(trailers:key=Plan-Done,valueonly,separator=%x1f)%x1e",
+    )
+    if result is None or result.returncode != 0:
+        return []
+    entries = []
+    for record in result.stdout.split("\x1e"):
+        record = record.strip("\n")
+        if not record:
+            continue
+        commit, _, rest = record.partition("\x00")
+        steps, _, dones = rest.partition("\x00")
+        values = [value.strip() for value in steps.split("\x1f") if value.strip()]
+        finished = [
+            normalize(value.strip()) for value in dones.split("\x1f") if value.strip()
+        ]
+        entries.append((commit.strip(), values, finished))
+    return entries
+
+
+def heading_plans():
+    """{commit hash: docs/plan-*.md path} for commits that add a step heading."""
+    result = git(
+        "log", "-p", "--unified=0", "--format=%x1e%H", "--", "docs/plan-*.md"
+    )
+    if result is None or result.returncode != 0:
+        return {}
+    plans = {}
+    commit = None
+    current = None
+    for line in result.stdout.split("\n"):
+        if line.startswith("\x1e"):
+            commit = line[1:].strip() or None
+            current = None
+            continue
+        if commit is None:
+            continue
+        if line.startswith("diff --git "):
+            _, _, after = line.partition(" b/")
+            current = normalize(after) if after else None
+            continue
+        if commit in plans:
+            continue
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        if current and PLAN_PATH_RE.match(current) and HEADING_RE.match(line[1:]):
+            plans[commit] = current
+    return plans
+
+
+def choose_plan(entries, headings):
+    """The plan of the newest commit that matches any rule, or None."""
+    for commit, values, dones in entries:
+        for value in values:
+            parsed = parse_trailer(value)
+            if parsed:
+                return parsed[0]
+        if dones:
+            return dones[0]
+        if commit in headings:
+            return headings[commit]
+    return None
+
+
+def committed_numbers(entries, plan):
+    """{step numbers} recorded by Plan-Step trailers for plan."""
+    numbers = set()
+    for _, values, _ in entries:
+        for value in values:
+            parsed = parse_trailer(value)
+            if parsed and parsed[0] == plan:
+                numbers.add(parsed[1])
+    return numbers
+
+
+def next_number(entries, plan):
+    """Highest Plan-Step number recorded for plan, plus one; 1 if none."""
+    numbers = committed_numbers(entries, plan)
+    return max(numbers) + 1 if numbers else 1
+
+
+def plan_done(entries, plan):
+    """True when a commit carries a Plan-Done trailer for plan."""
+    return any(plan in dones for _, _, dones in entries)
+
+
+def plan_mentioned(entries, plan):
+    """True when plan appears in a Plan-Step or Plan-Done trailer."""
+    return bool(committed_numbers(entries, plan)) or plan_done(entries, plan)
+
+
+def step_headings(text):
+    """Step numbers from the headings, in file order, duplicates kept."""
+    numbers = []
+    for line in text.split("\n"):
+        match = HEADING_RE.match(line.rstrip("\r"))
+        if match:
+            numbers.append(int(match.group(1) or match.group(2)))
+    return numbers
+
+
+def parse_steps(text):
+    """{step number: (tag or None, title)} from the step headings."""
+    steps = {}
+    for line in text.split("\n"):
+        match = HEADING_RE.match(line.rstrip("\r"))
+        if not match:
+            continue
+        number = int(match.group(1) or match.group(2))
+        rest = match.group(3)
+        tag = None
+        tagged = TAG_RE.search(rest)
+        if tagged:
+            tag = tagged.group(1)
+            rest = rest[: tagged.start()] + rest[tagged.end() :]
+        rest = rest.strip()
+        if rest.startswith(":"):
+            rest = rest[1:].strip()
+        if number not in steps:
+            steps[number] = (tag, rest)
+    return steps
+
+
+def step_body(text, number):
+    """Lines under step number's heading up to the next step heading, or None."""
+    lines = text.split("\n")
+    start = None
+    for index, line in enumerate(lines):
+        match = HEADING_RE.match(line.rstrip("\r"))
+        if match and int(match.group(1) or match.group(2)) == number:
+            start = index + 1
+            break
+    if start is None:
+        return None
+    body = []
+    for line in lines[start:]:
+        if HEADING_RE.match(line.rstrip("\r")):
+            break
+        body.append(line.rstrip("\r"))
+    while body and not body[0].strip():
+        body.pop(0)
+    while body and not body[-1].strip():
+        body.pop()
+    return "\n".join(body)
+
+
+def check(plan_path):
+    """Validate a plan file; print each problem, then return the exit status."""
+    try:
+        with open(plan_path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        sys.stderr.write("plan-next: %s cannot be read\n" % plan_path)
+        return 2
+
+    numbers = step_headings(text)
+    if not numbers:
+        sys.stderr.write("no step headings\n")
+        return 1
+
+    problems = []
+    for number in range(1, max(numbers) + 1):
+        if number not in numbers:
+            problems.append("missing step %d" % number)
+    duplicates = []
+    for number in numbers:
+        if numbers.count(number) > 1 and number not in duplicates:
+            duplicates.append(number)
+    for number in duplicates:
+        problems.append("duplicate step %d" % number)
+    high_steps = []
+    for number, (tag, _) in sorted(parse_steps(text).items()):
+        if tag is None:
+            problems.append("step %d has no tag" % number)
+            continue
+        stripped = tag.strip()
+        if stripped == "worker:high" or stripped.startswith("worker:high:"):
+            high_steps.append(number)
+            if not HIGH_REASON_RE.fullmatch(stripped):
+                problems.append(
+                    'step %d: high needs "reasoning: <what the spec can\'t hold>"; '
+                    "escalation happens at run time, not in the plan" % number
+                )
+    if len(high_steps) > 1:
+        problems.append(
+            "only one high step per plan (steps %s)"
+            % ", ".join(str(number) for number in high_steps)
+        )
+
+    if problems:
+        for problem in problems:
+            sys.stderr.write(problem + "\n")
+        return 1
+    sys.stdout.write("ok\n")
+    return 0
+
+
+def done(plan, gaps):
+    return {
+        "state": "done",
+        "plan": plan,
+        "step": None,
+        "tag": None,
+        "title": None,
+        "gaps": gaps,
+    }
+
+
+def finished(plan):
+    return {
+        "state": "finished",
+        "plan": plan,
+        "step": None,
+        "tag": None,
+        "title": None,
+        "gaps": [],
+    }
+
+
+def main(argv):
+    if argv and argv[0] == "--check":
+        if len(argv) != 2:
+            sys.stderr.write(USAGE + "\n")
+            return 2
+        return check(argv[1])
+
+    want_body = False
+    positional = []
+    for arg in argv:
+        if arg == "--body":
+            want_body = True
+        elif arg == "--check":
+            sys.stderr.write(USAGE + "\n")
+            return 2
+        else:
+            positional.append(arg)
+    if len(positional) > 1:
+        sys.stderr.write(USAGE + "\n")
+        return 2
+
+    def output(obj, body=None):
+        if want_body:
+            obj["body"] = body
+        emit(obj)
+        return 0
+
+    root = repo_root()
+    if root is None:
+        return output(dict(NONE))
+
+    entries = read_log()
+
+    if positional:
+        target = os.path.abspath(os.path.join(os.getcwd(), positional[0]))
+        plan = normalize(os.path.relpath(target, root))
+        exists = os.path.isfile(target)
+        if not exists and not plan_mentioned(entries, plan):
+            if plan not in heading_plans().values():
+                sys.stderr.write("plan-next: %s not found\n" % plan)
+                return 2
+    else:
+        plan = choose_plan(entries, heading_plans())
+        if plan is None:
+            return output(dict(NONE))
+        exists = os.path.isfile(os.path.join(root, plan))
+
+    if plan_done(entries, plan) or not exists:
+        return output(finished(plan))
+
+    path = os.path.join(root, plan)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        text = ""
+    steps = parse_steps(text)
+    step = next_number(entries, plan)
+    committed = committed_numbers(entries, plan)
+    gaps = [n for n in range(1, step) if n in steps and n not in committed]
+
+    if step not in steps:
+        return output(done(plan, gaps))
+
+    tag, title = steps[step]
+    return output(
+        {
+            "state": "next",
+            "plan": plan,
+            "step": step,
+            "tag": tag,
+            "title": title,
+            "gaps": gaps,
+        },
+        step_body(text, step),
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

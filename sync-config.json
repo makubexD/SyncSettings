@@ -74,7 +74,7 @@
       "description": "Claude Code config"
     },
     "claude-worker": {
-      "description": "The mk-exec DeepSeek worker and its tools"
+      "description": "The plan workflow (/next) and the mk-exec DeepSeek worker"
     }
   },
   "entries": [
@@ -434,14 +434,54 @@
       "description": "Claude Code user settings (hooks, plugins, permissions)"
     },
     {
-      "file": "claude/hooks",
+      "file": "claude/hooks/context-mode-cache-heal.mjs",
       "module": "claude",
-      "merge": "dir",
-      "localPath": "~/.claude/hooks",
+      "merge": "whole",
+      "localPath": "~/.claude/hooks/context-mode-cache-heal.mjs",
       "os": [
         "linux"
       ],
-      "description": "Claude Code hook scripts"
+      "description": "Hook: heals the context-mode plugin cache"
+    },
+    {
+      "file": "claude/hooks/node.sh",
+      "module": "claude",
+      "merge": "whole",
+      "localPath": "~/.claude/hooks/node.sh",
+      "os": [
+        "linux"
+      ],
+      "description": "Hook helper: finds node for hook scripts without nvm"
+    },
+    {
+      "file": "claude/hooks/context-gate.sh",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/hooks/context-gate.sh",
+      "os": [
+        "linux"
+      ],
+      "description": "Hook: clears context before it fills the window"
+    },
+    {
+      "file": "claude/hooks/metrics-capture.sh",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/hooks/metrics-capture.sh",
+      "os": [
+        "linux"
+      ],
+      "description": "Hook: appends one JSON line per session event to the metrics ledger"
+    },
+    {
+      "file": "claude/hooks/worker-mode-guard.sh",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/hooks/worker-mode-guard.sh",
+      "os": [
+        "linux"
+      ],
+      "description": "Hook: denies edits outside plan files while worker mode is on"
     },
     {
       "file": "claude/skills/mk-delegate",
@@ -464,8 +504,18 @@
       "description": "/mk-check slash command"
     },
     {
+      "file": "claude/skills/next",
+      "module": "claude-worker",
+      "merge": "dir",
+      "localPath": "~/.claude/skills/next",
+      "os": [
+        "linux"
+      ],
+      "description": "/next plan workflow"
+    },
+    {
       "file": "claude/docs/token-routing-map.html",
-      "module": "claude",
+      "module": "claude-worker",
       "merge": "whole",
       "localPath": "~/.claude/docs/token-routing-map.html",
       "description": "Workflow guide page source"
@@ -491,8 +541,28 @@
       "description": "Read-only report of delegated vs inline steps and worker runs for a repo"
     },
     {
+      "file": "claude/bin/plan-next",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/bin/plan-next",
+      "os": [
+        "linux"
+      ],
+      "description": "Checks and advances a plan file for /next"
+    },
+    {
+      "file": "claude/bin/pr-ready",
+      "module": "claude-worker",
+      "merge": "whole",
+      "localPath": "~/.claude/bin/pr-ready",
+      "os": [
+        "linux"
+      ],
+      "description": "Checks whether a PR is ready to merge without asking"
+    },
+    {
       "file": "claude/bin/metrics-archive",
-      "module": "claude",
+      "module": "claude-worker",
       "merge": "whole",
       "localPath": "~/.claude/bin/metrics-archive",
       "os": [
