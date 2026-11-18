@@ -357,7 +357,9 @@ install_program() {
     work_tmp=$tmp
     trap 'if [[ -n $work_tmp ]]; then rm -rf "$work_tmp"; fi' EXIT
 
-    if ! tag=$(release_tag "$base") || [[ -z $tag ]]; then
+    # GitHub's latest link lands on /releases while no release exists, so a
+    # tag that isn't v<x.y.z> means there is none.
+    if ! tag=$(release_tag "$base") || [[ ! $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         printf 'ERROR: could not find the latest release at %s.\n' "$base" >&2
         exit 1
     fi
