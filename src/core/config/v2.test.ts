@@ -123,6 +123,17 @@ describe("parseV2", () => {
     expectError("{ not json", `ERROR: ${CONFIG_FILE}: invalid JSON.`, 1);
   });
 
+  test("an error names the config file it is given", () => {
+    // Act
+    const result = parseV2("{ not json", "sync-config.json");
+
+    // Assert
+    expect(result).toEqual({
+      ok: false,
+      error: { message: "ERROR: sync-config.json: invalid JSON.", code: 1 },
+    });
+  });
+
   test("a config that is not an object is rejected with exit 1", () => {
     // Act / Assert
     expectError("[]", `ERROR: ${CONFIG_FILE}: invalid JSON.`, 1);
