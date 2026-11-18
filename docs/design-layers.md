@@ -1260,6 +1260,11 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 
 ### Design
 
+- **Setup's bootstrap edges (phase 9 step 24, to confirm).** The v2 setup offers the Ubuntu bootstrap after the
+  record and profile are written and skips it when the fourth answer is `stop`, since `stop` changes no file; the
+  contract doesn't say either way. `--bootstrap` on Windows is accepted and ignored, while the contract says Windows
+  has no `--bootstrap`: it should likely stop as an unknown option, exit 1 (check what `sync.cmd setup --bootstrap`
+  does today).
 - **Run from the clone on Bun or Node (asked by the user 2026-11-16, phase 9).** Settled in phase 9, decision 1. Two layers: the program first, with
   nothing to install; then the clone, on the runtime the user picks, Bun and Node as equal choices rather than a
   fallback order. `MKSYNC_RUNTIME=bun|node` picks one; unset, the launcher (`mksync.cmd`, and a `mksync` script on
