@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { assetName } from "../core/update/update.ts";
 import { executeUpdate } from "./update.ts";
@@ -24,6 +24,12 @@ const CURRENT_OLDER = "0.9.0";
 const OLD_PROGRAM = "#!/bin/sh\necho old mksync\n";
 
 const NEW_PROGRAM = "#!/bin/sh\necho new mksync\n";
+
+/** A runtime that runs the source, as `process.execPath` names it then. */
+const RUNTIME_NAME = "bun";
+
+/** The runtime's bytes, which an update must leave alone. */
+const RUNTIME_BYTES = "#!/bin/sh\necho bun\n";
 
 const WRONG_DIGEST = "f".repeat(64);
 
@@ -171,6 +177,21 @@ describe("executeUpdate", () => {
       stderr: LAUNCHER_ERROR,
     });
     expect(readFileSync(fixture.execPath, "utf8")).toBe(OLD_PROGRAM);
+  });
+
+  test("should refuse when the runtime runs the source, before reading the release", async () => {
+    // Arrange
+    const fixture = makeFixture({ current: CURRENT_OLDER });
+    const runtimePath = join(dirname(fixture.execPath), RUNTIME_NAME);
+    writeFileSync(runtimePath, RUNTIME_BYTES, { mode: 0o755 });
+    const deps = { ...fixture.deps, execPath: runtimePath };
+
+    // Act
+    const result = await executeUpdate(deps);
+
+    // Assert
+    expect(result).toEqual({ code: 2, stdout: "", stderr: LAUNCHER_ERROR });
+    expect(readFileSync(runtimePath, "utf8")).toBe(RUNTIME_BYTES);
   });
 
   test("should refuse a failed attestation and leave the program alone", async () => {

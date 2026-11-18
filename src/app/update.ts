@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { decode, run } from "../adapters/process.ts";
 import { download, latestTag, releaseBase } from "../adapters/release.ts";
 import {
@@ -46,6 +46,16 @@ const GH_TIMEOUT_MS = 60_000;
  * copy, and downloading over it would fight the clone. */
 const LAUNCHER_ERROR =
   "ERROR: mksync runs from the clone here; update it with git pull.";
+
+/** The program's own file names; any other `execPath` is a runtime (`bun`,
+ * `node`) running the source, which an update must never overwrite. */
+const PROGRAM_NAMES: readonly string[] = ["mksync", "mksync.exe"];
+
+/** Whether `execPath` is the compiled program rather than the runtime that
+ * runs the source. */
+function isInstalledProgram(execPath: string): boolean {
+  return PROGRAM_NAMES.includes(basename(execPath).toLowerCase());
+}
 
 /** The release has no asset for this platform and CPU. */
 function noAssetError(platform: string, arch: string): string {
@@ -189,7 +199,7 @@ export function defaultUpdateDeps(version: string): UpdateDeps {
  * written before every check passes; a failure leaves the program as it was.
  */
 export async function executeUpdate(deps: UpdateDeps): Promise<Result> {
-  if (deps.env.MKSYNC_LAUNCHER === "1") {
+  if (deps.env.MKSYNC_LAUNCHER === "1" || !isInstalledProgram(deps.execPath)) {
     return failure(LAUNCHER_ERROR, 2);
   }
   const asset = assetName(deps.platform, deps.arch);

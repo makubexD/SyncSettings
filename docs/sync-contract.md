@@ -919,8 +919,9 @@ version (`mksync --version`):
   ERROR: cannot replace <program>: <reason>; nothing changed.
   ```
 
-- Run through the clone's launcher, it refuses with `ERROR: mksync runs from the clone here; update it with git pull.`,
-  exit 2.
+- Run through the clone's launcher, or by any runtime running the source (a program not named `mksync` or
+  `mksync.exe`, so `bun src/main.ts update` never overwrites `bun`), it refuses with
+  `ERROR: mksync runs from the clone here; update it with git pull.`, exit 2.
 
 ## The program
 
