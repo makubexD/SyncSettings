@@ -9,13 +9,13 @@ then the bash and PowerShell engines deleted and `v1.0.0`.
 
 - **Two parts, two branches.** Part 1 (steps 1 to 3) on `engine/cutover-config`, merged in step 4 (PR #81) so the
   `v0.9.0` tag sits on `master`. `master` is protected, so step 4's record and steps 5 to 8 (the real machines; they
-  change no repo file except their records) are committed on `engine/cutover`, where part 2 (steps 9 to 28) follows,
-  one PR in the finish (step 8a, a fix found by step 8, comes first in part 2). Part 2 changes `.github/workflows/`, so its PR waits for the
+  change no repo file except their records) are committed on `engine/cutover`, where part 2 (steps 9 to 29) follows,
+  one PR in the finish (step 9, a fix found by step 8, comes first in part 2). Part 2 changes `.github/workflows/`, so its PR waits for the
   user's `reviewed` label (CLAUDE.md, "Claude auto-approval").
 - **Stops for the user:** step 5 (the tag is a publish: Claude asks for the GO, then tags), step 8 (the work-machine
-  answers), and any failure step 6 or 8 finds. A failure gets a fix step inserted before step 9 (a plan edit, committed),
+  answers), and any failure step 6 or 8 finds. A failure gets a fix step inserted before step 10 (a plan edit, committed),
   with a shared case first as usual.
-- **Old engines frozen until step 12's tag**, as in `docs/plan-single-engine-9.md`. After the tag they are deleted,
+- **Old engines frozen until step 13's tag**, as in `docs/plan-single-engine-9.md`. After the tag they are deleted,
   not changed.
 - **Contract first** (CLAUDE.md rule 2) for every rule visible in exit codes, status lines or files.
 - **Public repo.** Fixtures use `example.com`, `/home/user`, `C:\Users\user`, profiles `work-1` and `personal`,
@@ -56,17 +56,17 @@ this plan found, settled in the plan review on 2026-11-18. Step 1 writes them in
    `mksync` is on `PATH`).
 7. **v1 configs are dropped.** The 195 shared cases that hold a v1 `config` get the `configV2` that `convertV1`
    makes from it (the program already runs exactly that conversion in memory, so each case keeps testing the same
-   behavior); cases that test v1 parsing itself are dropped or rewritten (step 24). Then `v1.ts`, `convert.ts`, the
+   behavior); cases that test v1 parsing itself are dropped or rewritten (step 25). Then `v1.ts`, `convert.ts`, the
    converter tool and `loadConfig`'s v1 branch go. A `sync-config.json` with no `schemaVersion` stops with
    `ERROR: sync-config.json: needs schemaVersion 2; this is an old config.`, exit 2.
 8. **The rename ships before the tag.** `v0.9.0`'s `loadConfig` reads `sync-config.v2.json` when present, else parses
-   `sync-config.json` as v1. After step 21 renames v2 to `sync-config.json`, a `v0.9.0` program would fail. So step 2
+   `sync-config.json` as v1. After step 22 renames v2 to `sync-config.json`, a `v0.9.0` program would fail. So step 2
    (pick by `schemaVersion`, error lines name the file read) is in `v0.9.0`, and every machine that installs it reads
    both layouts. `v1.0.0` keeps reading `sync-config.v2.json` when present, so a machine that updates before it pulls
    (decision 9) still loads its old clone's config and can pull.
 9. **Machines move before they pull the deletion.** Each machine installs `mksync` (or runs `mksync update`) before
-   its first pull past `v1.0.0`; a machine that pulls first runs the install line again. README says so in step 28;
-   the installers drop a leftover `~/.local/bin/sync` link into the clone (step 14).
+   its first pull past `v1.0.0`; a machine that pulls first runs the install line again. README says so in step 29;
+   the installers drop a leftover `~/.local/bin/sync` link into the clone (step 15).
 10. **The research probe stays.** `probe/` and `.github/workflows/single-engine-probe.yml` run only on
     `workflow_dispatch` and the `research/single-engine` branch, so they cost no CI minutes. Untouched by this plan.
 11. **Claude tags the releases after the user's GO.** For `v0.9.0` (step 5) and `v1.0.0` ("After this plan"), the
@@ -75,7 +75,7 @@ this plan found, settled in the plan review on 2026-11-18. Step 1 writes them in
     OS). A tool only some profiles should have is a module that only those profiles list: the plan workflow (`/next`,
     `plan-next`, `pr-ready`, the context gate, metrics) and the DeepSeek worker (`mk-exec`, `mk-delegate`,
     `mk-check`, `worker-mode`) are `claude-worker`, listed by `personal` only, so a work profile never gets them on
-    any OS (step 22). One module for both, since `/next` sends its steps to the worker; split it only when a profile
+    any OS (step 23). One module for both, since `/next` sends its steps to the worker; split it only when a profile
     needs one without the other. Its entries stay `os: ["linux"]` until a personal Windows or macOS machine exists:
     the scripts are bash, and porting them is work for then ("Open"). Keys inside a shared file (`settings.json`'s
     `hooks` wiring, `CLAUDE.md`'s workflow text) vary by layer: the Linux overlay now, the `personal` profile layer in
@@ -99,7 +99,7 @@ Test: `npx prettier --check docs/design-layers.md docs/plan-single-engine.md`.
 Files: `tests/parity/cases/config-v2-in-sync-config/`, `tests/parity/cases/config-v2-in-sync-config-newer/`,
 `src/adapters/snapshot.ts` (+ `snapshot.test.ts`), `src/core/config/v2.ts`.
 
-Contract first: `docs/sync-contract.md` is changed in step 28; the cases follow decision 8 and the existing
+Contract first: `docs/sync-contract.md` is changed in step 29; the cases follow decision 8 and the existing
 `schemaVersion` rule ("A config newer than the program").
 
 - `config-v2-in-sync-config` (`oldEngines: ["none"]`, description names decision 8 of this plan): the repo has only
@@ -173,13 +173,13 @@ user runs it on work #1.
 
 When the user brings the answer block: show it redacted, record it in the design's "Real-machine results", settle
 "The unsigned program" in "Open", and write into `mksync` (the launcher) the oldest Bun that ran (item 11) if it is
-older than the launcher's check. Every failed item gets a fix step before step 9 (plan edit, committed). Work #2 and
+older than the launcher's check. Every failed item gets a fix step before step 10 (plan edit, committed). Work #2 and
 #3 run the same sheet when the user is at them; their answers don't block part 2.
 
 Test: `npx prettier --check docs/design-layers.md && scripts/ci/leak-scan.sh`; `tests/linux/launcher.sh` if the
 launcher changed.
 
-## Step 8a: A Git Bash launcher next to the Windows shim `[worker]`
+## Step 9: A Git Bash launcher next to the Windows shim `[worker]`
 
 Work #1 and the VM found that Git Bash, where Claude Code runs hooks and the `statusLine` command, doesn't find
 `mksync` on a run-from-clone install: only `mksync.cmd` is on the `Path` (design, "Open", settled 2026-11-18).
@@ -202,9 +202,9 @@ list).
 Test: `tests/windows-vm/vm.sh run 'powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-vm/install-check.ps1'`
 prints `install-check: ok`; `npx prettier --check docs/sync-contract.md`. Then, on work #1, the run sheet's line again:
 section 3 shows `mksync --version` from Git Bash printing `mksync 0.9.0` (asked of the user at the next stop; it
-doesn't block step 9).
+doesn't block step 10).
 
-## Step 9: The Claude layout goes live `[inline: writes real repo data after a reviewed dry run]`
+## Step 10: The Claude layout goes live `[inline: writes real repo data after a reviewed dry run]`
 
 On `engine/cutover`, from `master`. Run `bun tools/claude-layout.ts .`, show the user the `would write` lines and the
 key split, then `bun tools/claude-layout.ts . --cutover`. Check: `dotfiles/common/claude/settings.json` (base) and
@@ -216,28 +216,28 @@ and its rows in both configs are removed with `git rm`. Then on a temp home, `HO
 
 Test: `bun run tools/check-config.ts && bun run build && tests/parity/run.sh --engine dist/mksync claude && scripts/ci/leak-scan.sh`.
 
-## Step 10: The linked tree as a dir entry `[worker]`
+## Step 11: The linked tree as a dir entry `[worker]`
 
 Files: `dotfiles/windows/shell/.bashrc.linked/MakuCustomAlias/` → `dotfiles/windows/shell/MakuCustomAlias/` with
 `git mv`, `sync-config.v2.json` (decision 4's entry, after the Windows `.bashrc` entry). The v1 config is unchanged
-(its engines are deleted in steps 16 and 17, the file in step 21). If `parseV2` refuses `C:/MakuCustomAlias`, stop and report the error line.
+(its engines are deleted in steps 17 and 18, the file in step 22). If `parseV2` refuses `C:/MakuCustomAlias`, stop and report the error line.
 
 Test: `bun run tools/check-config.ts && bun test src/core/config`.
 
-## Step 11: sampleGrok.md dropped `[worker:low]`
+## Step 12: sampleGrok.md dropped `[worker:low]`
 
 Files: `git rm dotfiles/common/claude/sampleGrok.md`; its entries in `sync-config.json` and `sync-config.v2.json`.
 
 Test: `bun run tools/check-config.ts && jq empty sync-config.json`.
 
-## Step 12: Tag two-engines-final `[inline: a rollback tag on the shared remote]`
+## Step 13: Tag two-engines-final `[inline: a rollback tag on the shared remote]`
 
-`git tag two-engines-final` on the step 11 commit and `git push origin two-engines-final` (roadmap "Rollback"). The
+`git tag two-engines-final` on the step 12 commit and `git push origin two-engines-final` (roadmap "Rollback"). The
 release workflow runs only on `v*` tags, so nothing is released.
 
 Test: `git ls-remote --tags origin two-engines-final` prints one line.
 
-## Step 13: The bootstrap runs the program `[worker:high: reasoning: bootstrap/linux.sh sources the bash engine's internals; which helpers it needs and how its stubs reach the program can't be listed without reading 850 lines]`
+## Step 14: The bootstrap runs the program `[worker:high: reasoning: bootstrap/linux.sh sources the bash engine's internals; which helpers it needs and how its stubs reach the program can't be listed without reading 850 lines]`
 
 Files: `bootstrap/linux.sh`, `tests/linux/bootstrap.sh`, `scripts/ci/bootstrap-check.sh` if it calls the engine.
 
@@ -250,7 +250,7 @@ test `PATH` stands in where the tests stubbed the engine. Nothing may reach the 
 
 Test: `tests/linux/bootstrap.sh && shellcheck -x bootstrap/linux.sh`.
 
-## Step 14: The installers no longer look for the old engines `[worker]`
+## Step 15: The installers no longer look for the old engines `[worker]`
 
 Files: `install.sh`, `install.ps1`, `tests/windows-vm/install-check.ps1` if it checks the marker.
 
@@ -263,7 +263,7 @@ Files: `install.sh`, `install.ps1`, `tests/windows-vm/install-check.ps1` if it c
 Test: `bash -n install.sh && shellcheck install.sh && tests/linux/launcher.sh && tests/linux/release-files.sh`, plus
 the installer tests that exist for the changed lines (find them with `grep -rln "install.sh" tests`).
 
-## Step 15: The shared-case runners run the program only `[worker]`
+## Step 16: The shared-case runners run the program only `[worker]`
 
 Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
 
@@ -273,27 +273,27 @@ calls and the `oldEngines` field go. The same step removes the field from the 17
 
 Test: `bun run build && tests/parity/run.sh && grep -rl oldEngines tests/parity/cases | wc -l` prints 0.
 
-## Step 16: The bash engine deleted `[worker:low]`
+## Step 17: The bash engine deleted `[worker:low]`
 
 `git rm export.sh import.sh commit.sh sync scripts/linux/ tests/linux/engine.sh tests/fixtures/` (the fixtures only
 `engine.sh` reads: check with `grep -rl tests/fixtures` first and keep any other user). `scripts/ci/` stays.
 
-Test: `bun run build && tests/parity/run.sh && tests/linux/bootstrap.sh`; `grep -rn "scripts/linux\|export\.sh\|import\.sh\|commit\.sh" --include=*.sh --include=*.ts --include=*.ps1 . | grep -v tests/parity/cases` lists only lines steps 20, 25, 26 or 27 change.
+Test: `bun run build && tests/parity/run.sh && tests/linux/bootstrap.sh`; `grep -rn "scripts/linux\|export\.sh\|import\.sh\|commit\.sh" --include=*.sh --include=*.ts --include=*.ps1 . | grep -v tests/parity/cases` lists only lines steps 21, 26, 27 or 28 change.
 
-## Step 17: The PowerShell engine deleted `[worker:low]`
+## Step 18: The PowerShell engine deleted `[worker:low]`
 
 `git rm sync.cmd scripts/windows/ tests/windows/`. `tests/windows-vm/` stays (it runs `run.ps1 -Engine`).
 
-Test: `grep -rn "scripts\\\\windows\|scripts/windows\|sync\.cmd\|Engine.Tests" --include=*.ps1 --include=*.sh --include=*.ts --include=*.md . | grep -v "docs/plan-"` lists only lines steps 26, 27 or 28 change.
+Test: `grep -rn "scripts\\\\windows\|scripts/windows\|sync\.cmd\|Engine.Tests" --include=*.ps1 --include=*.sh --include=*.ts --include=*.md . | grep -v "docs/plan-"` lists only lines steps 27, 28 or 29 change.
 
-## Step 18: Shadow mode removed `[worker]`
+## Step 19: Shadow mode removed `[worker]`
 
 Files: `src/app/shadow.ts`, `src/core/shadow.ts` (+ test), `src/adapters/engine.ts` (+ test) deleted; `src/cli/parse.ts`
 (+ test) and `src/main.ts` lose the `shadow` kind. `mksync shadow` then exits 2 as any unknown command.
 
 Test: `bun run lint && bun test src/cli src/app && bun run build && tests/parity/run.sh --engine dist/mksync usage`.
 
-## Step 19: Linked-folder detection removed `[worker]`
+## Step 20: Linked-folder detection removed `[worker]`
 
 Files: `src/core/machine/linked.ts` (+ test) deleted; its callers (find them with `grep -rn detectLinkedPaths src`)
 and `scanLinks` in `sync-config.v2.json`'s Windows `.bashrc` entry. `parseV2` keeps accepting `scanLinks` as an
@@ -301,16 +301,16 @@ ignored key only if a shared case still uses it; otherwise it goes from the allo
 
 Test: `bun run lint && bun test src && bun run tools/check-config.ts`.
 
-## Step 20: The v1/v2 check removed `[worker]`
+## Step 21: The v1/v2 check removed `[worker]`
 
 Files: `tools/check-config.ts` (keeps checking the one config: valid v2, every repo file exists, no file without an
 entry; the v1/v2 comparison goes), `src/core/config/check.ts` (+ test: the comparison and its `convertV1` use go),
 `scripts/ci/check-config.sh` deleted if it only compared v1 (else it calls `bun run tools/check-config.ts`).
-`convert.ts` and `tools/convert-config.ts` stay until step 25: step 23 uses `convertV1`.
+`convert.ts` and `tools/convert-config.ts` stay until step 26: step 24 uses `convertV1`.
 
 Test: `bun run tools/check-config.ts && bun test src/core/config && bun run lint`.
 
-## Step 21: One config file `[worker]`
+## Step 22: One config file `[worker]`
 
 Files: `sync-config.json` (`git rm`), `sync-config.v2.json` (`git mv` to `sync-config.json`), the references to
 `sync-config.v2.json` in `src/`, `tools/`, `install.sh` and `install.ps1` (now `sync-config.json`), and the runners.
@@ -318,14 +318,14 @@ Files: `sync-config.json` (`git rm`), `sync-config.v2.json` (`git mv` to `sync-c
 - `src/adapters/snapshot.ts` keeps reading `sync-config.v2.json` first when present (decision 8: an old clone on a
   `v1.0.0` program); `src/adapters/git.ts`'s path list keeps both names.
 - `run.sh` and `run.ps1`: without `configName`, `configV2` is written as `sync-config.json` (the name the program now
-  reads); `config` (v1) keeps `sync-config.json` until step 23 converts it.
+  reads); `config` (v1) keeps `sync-config.json` until step 24 converts it.
 - New case `config-v2-old-clone`: `"configName": "sync-config.v2.json"` with a v2 config, plus a repo file
   `sync-config.json` holding a v1 config whose entry points elsewhere; command `import --force`. Expect exit 0 and only
   the v2 entry's file written.
 
 Test: `bun run lint && bun test src && bun run tools/check-config.ts && bun run build && tests/parity/run.sh`.
 
-## Step 22: The plan workflow and the worker in one module `[worker]`
+## Step 23: The plan workflow and the worker in one module `[worker]`
 
 Files: `sync-config.json` (v2 only now), `dotfiles/linux/claude/skills/next/`, `dotfiles/linux/claude/bin/plan-next`,
 `dotfiles/linux/claude/bin/pr-ready` (new, copied from `~/.claude`).
@@ -347,9 +347,9 @@ Test: `bun run tools/check-config.ts && scripts/ci/leak-scan.sh && grep -rl "$HO
 on a temp home with `SYNC_PROFILE=work-1` and a `work-1` profile listing `claude` only, `dist/mksync import --force <
 /dev/null` writes no file of module `claude-worker`.
 
-## Step 23: The shared cases on v2 `[worker]`
+## Step 24: The shared cases on v2 `[worker]`
 
-Files: `tools/convert-cases.ts` (new, dev-only, deleted in step 25), the 195 `tests/parity/cases/*/case.json` files that
+Files: `tools/convert-cases.ts` (new, dev-only, deleted in step 26), the 195 `tests/parity/cases/*/case.json` files that
 hold a v1 `config` (one mechanical change, counted as one file).
 
 Decision 7: the tool reads each `case.json`; when it has `config`, it runs `parseV1` then `convertV1` (the program's
@@ -362,15 +362,15 @@ Test: `bun tools/convert-cases.ts && bun run build && tests/parity/run.sh --engi
 as before the step (count from the run before), and `grep -l '"config":' tests/parity/cases/*/case.json` lists only the
 v1-only cases.
 
-## Step 24: The v1-only cases `[inline: which of them still test a contract rule]`
+## Step 25: The v1-only cases `[inline: which of them still test a contract rule]`
 
-For each case step 23 listed: drop it when it tests only v1 parsing (recorded in `docs/port-inventory.tsv` as
+For each case step 24 listed: drop it when it tests only v1 parsing (recorded in `docs/port-inventory.tsv` as
 `dropped: v1 config removed`), or rewrite it on `configV2` when the rule it tests holds for v2 too. Then no case has a
 `config` key, and `run.sh` and `run.ps1` refuse one (`case.json has a v1 config`).
 
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync && ! grep -l '"config":' tests/parity/cases/*/case.json`.
 
-## Step 25: v1 reading removed `[worker]`
+## Step 26: v1 reading removed `[worker]`
 
 Files: `src/core/config/v1.ts` (+ test), `src/core/config/convert.ts` (+ test), `tools/convert-config.ts`,
 `tools/convert-cases.ts` deleted; `src/adapters/snapshot.ts` (+ test); a new case `config-v1-refused`.
@@ -384,13 +384,13 @@ Files: `src/core/config/v1.ts` (+ test), `src/core/config/convert.ts` (+ test), 
 
 Test: `bun run lint && bun test src && bun run build && tests/parity/run.sh --engine dist/mksync config-`.
 
-## Step 26: CI and the local test command `[inline: a workflow file]`
+## Step 27: CI and the local test command `[inline: a workflow file]`
 
 Files: `.github/workflows/ci.yml`, `tests/all.sh`, `tests/macos/manual-checks.sh`.
 
 - `ci.yml`: `engine-linux`, `engine-macos` and `engine-windows` jobs go; `lint` shellchecks `bootstrap/linux.sh`,
   `install.sh`, `mksync`, `scripts/ci/*.sh`, `tests/**/*.sh` that remain; `jq empty sync-config.json` stays;
-  `check-config.sh` follows step 20; the probe workflow stays (decision 10); `macos-checks` runs `mksync doctor` (M3) instead of `./sync doctor`, and the
+  `check-config.sh` follows step 21; the probe workflow stays (decision 10); `macos-checks` runs `mksync doctor` (M3) instead of `./sync doctor`, and the
   `/bin/bash` re-exec check goes with `export.sh`. The bootstrap tests move into `program-build`.
 - `tests/all.sh`: `parity-bash` and `windows-powershell` layers go; the rest stays.
 - `tests/macos/manual-checks.sh`: `./sync` calls become `mksync`.
@@ -398,7 +398,7 @@ Files: `.github/workflows/ci.yml`, `tests/all.sh`, `tests/macos/manual-checks.sh
 Test: `python3 -c 'import yaml; yaml.safe_load(open(".github/workflows/ci.yml"))' && bash -n tests/all.sh
 tests/macos/manual-checks.sh` (plus `actionlint .github/workflows/ci.yml` when it is installed).
 
-## Step 27: CLAUDE.md `[inline: the project's own rules]`
+## Step 28: CLAUDE.md `[inline: the project's own rules]`
 
 `CLAUDE.md`: "Direction" says the program is the only engine; "Today's engines" becomes "The program" (config,
 `mksync` commands, invariants) and loses the bash and PowerShell 5.1 rules that only the engines used (keep the
@@ -407,7 +407,7 @@ installer and bootstrap ones); rule 3 goes; "Tests" drops `tests/linux/engine.sh
 
 Test: `npx prettier --check CLAUDE.md`.
 
-## Step 28: Docs `[inline: user-facing docs need judgment]`
+## Step 29: Docs `[inline: user-facing docs need judgment]`
 
 Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/configuration.md`, `docs/layout.md`, `README.md`,
 `docs/daily-workflow.md`, `docs/design-test-moves.md`, `TODO.md`.

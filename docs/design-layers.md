@@ -1330,7 +1330,7 @@ Enterprise. Every section ran:
   `%LOCALAPPDATA%\mksync\mksync.cmd` (no `mksync.exe`) and put that folder on the user `Path`; `mksync --version` prints
   `mksync 0.9.0`. Nothing was blocked.
 - Home: `~` and `$HOME` are `C:\Users\USER` in PowerShell, and `/c/Users/USER` (`C:/Users/USER`) in Git Bash.
-- Git Bash: `mksync` is `command not found` (127), `mksync.cmd` works. Fixed by cut-over step 8a ("Open").
+- Git Bash: `mksync` is `command not found` (127), `mksync.cmd` works. Fixed by cut-over step 9 ("Open").
 - `mksync statusline` on the sample payload: one line with the bar, exit 0. `MKSYNC_RUNTIME=bun` runs the launcher on
   Bun 1.3.14.
 - `mksync status` and `doctor` exit 0 (doctor: no machine record and 4 values not set, as on any machine before
@@ -1338,7 +1338,7 @@ Enterprise. Every section ran:
   says for a clone install. No `.user-values.json` yet.
 - `mksync shadow` exits 3 with 2 lines, both explained: `token-routing-map.html` is `CREATE` in the program and
   `SKIPPED` in the PowerShell engine because `~/.claude/docs` doesn't exist (the contract's known difference "Import,
-  target folder missing"); the `.bashrc.linked/…/vs.bat` linked path is in the old engine only, which cut-over step 10
+  target folder missing"); the `.bashrc.linked/…/vs.bat` linked path is in the old engine only, which cut-over step 11
   replaces with a `dir` entry.
 
 ## Open
@@ -1684,7 +1684,7 @@ doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push 
   asked: they run from the clone (`SYNCSETTINGS_RUNTIME=node`), whose `mksync.cmd` shim is on the user `Path`. Work #1
   ran the whole check that way ("Real-machine results"). Bun 1.3.14 also runs the launcher there, and neither launcher
   checks Bun's version, so nothing is added to them. The release program stays for personal machines and CI.
-- **`mksync` from Git Bash on a run-from-clone machine (settled 2026-11-18, cut-over step 8a).** The Node install
+- **`mksync` from Git Bash on a run-from-clone machine (settled 2026-11-18, cut-over step 9).** The Node install
   puts only `mksync.cmd` on the `Path`. Git Bash doesn't run a `.cmd` without its extension, so `mksync --version`
   there is `command not found` (127) while `mksync.cmd --version` works, in the local VM and on work #1. Claude Code
   runs hooks and the `statusLine` command through Git Bash, so part 2's synced `mksync statusline` would fail there.
