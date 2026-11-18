@@ -241,7 +241,9 @@ anything about this one computer goes on the machine. If a placeholder ends up i
 profile or to the machine by the table above. A placeholder that isn't in the table is asked about once,
 `<OTHER>: kept on 1) this profile 2) this machine [1]`, and `--yes` or end of input keeps it on the profile. The old
 file is left as it is, so the old engine still works until cut-over, and is deleted then. With a record the program reads
-values only from the machine, then the profile; a value asked for during a pull is saved by the same rule.
+values only from the machine, then the profile; a value asked for during a pull or setup is saved by the same rule.
+The program asks only for a value that nothing else fills: no record or profile value, no inferred value, no rule
+`default` and no `defaultEnv`.
 
 Example: personal Linux has `{"<YOUR_EMAIL>": "jane@example.com", "<HOME>": "/home/jane"}`. After the first run, the
 `personal` profile holds the email and the machine record holds `/home/jane`. On work #1, the same move puts the work

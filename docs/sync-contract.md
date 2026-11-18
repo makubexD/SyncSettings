@@ -264,8 +264,16 @@ placeholders. On import, hydrating puts the values back.
    the environment variable named by `defaultEnv`. An empty answer takes the default. With no default it stops the run
    (see below).
 
+The program asks only for a placeholder that none of these fills: no cached value (or record or profile value), no
+inferred value, no rule `default` and no `defaultEnv` value; any of those is taken without a prompt
+([Known differences](#known-differences)). Before the first question it prints
+`\n  Enter values to fill the placeholders in the config files:\n\n`, then ` <prompt>:` for each, and a newline after
+the last answer. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
+missing, so the run stops as below, after the prompts printed so far; with no input at all a run stops as it did
+before. `--check`, `preview`, `status`, `diff` and export never ask.
+
 `--reset-values` (bash, program) or `-ResetValues` (PowerShell) prompts again for every placeholder and skips inference.
-The cached value is only the prompt's default. With a machine record, an answer that differs from the record's or the
+The cached value is only the prompt's default. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
 profile's value replaces it there; a new one is placed as in [Values on a machine](#values-on-a-machine). The program
 takes the flag on `import` only so far.
 New values are saved back to `.user-values.json`. Each save leaves the file readable by the current user only: mode 600
@@ -1717,6 +1725,7 @@ old engines keep their own columns.
 | `defaultEnv` name check                                | none needed                                                                                                                                    | stops the run on an invalid name                                                 | stops the run on an invalid name, on every OS                                                                               |
 | Import check, target folder missing                    | `SKIPPED`, not a change                                                                                                                        | `CREATE`                                                                         | `CREATE`, on every OS                                                                                                       |
 | Import check for another profile                       | `-Check -User <other>` is an error                                                                                                             | not supported                                                                    | not supported                                                                                                               |
+| Value prompt with a default                            | asks, showing the default in brackets; an empty answer takes it                                                                                | asks, showing the default in brackets; an empty answer takes it                  | takes the default without asking; asks only when nothing fills the value                                                    |
 | Value prompt, input not a terminal                     | takes the default without reading input, so `-ResetValues` keeps the cached value                                                              | reads the answer from the input                                                  | as Linux, on every OS                                                                                                       |
 | `mksync setup`                                         | no bootstrap question                                                                                                                          | offers `bootstrap/linux.sh` on Ubuntu                                            | doctor first, then the machine record; the Ubuntu bootstrap question and `--bootstrap` as the bash engine                   |
 | `mksync` on `PATH`                                     | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin`                                                                                     | symlink in `~/.local/bin`                                                        | `dist/mksync` in the clone until phase 9                                                                                    |
