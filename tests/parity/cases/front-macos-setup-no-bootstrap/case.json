@@ -13,7 +13,7 @@
       }
     ]
   },
-  "stubs": ["bootstrap"],
+  "stubs": ["bootstrap", "gh"],
   "commands": [
     {
       "command": "setup",

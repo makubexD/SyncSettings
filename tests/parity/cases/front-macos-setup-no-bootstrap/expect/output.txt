@@ -1,0 +1,20 @@
+  OK       git
+  OK       brew
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+
+  SyncSettings -- IMPORT CHECK (macos)
+
+  UNCHANGED  dotfiles/common/parity/plain.txt
+
+  --------------------------------------------------
+
+  This machine matches the repo.
+
+  --------------------------------------------------
+
+  Setup done. Run mksync any time to see where this machine stands.

@@ -16,7 +16,7 @@
   "env": {
     "SYNC_OS_RELEASE": "../home/os-release"
   },
-  "stubs": ["bootstrap"],
+  "stubs": ["bootstrap", "gh"],
   "commands": [
     {
       "command": "setup",

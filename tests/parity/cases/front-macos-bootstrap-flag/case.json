@@ -12,5 +12,6 @@
       "options": { "bootstrap": true },
       "stderr": true
     }
-  ]
+  ],
+  "stubs": ["gh"]
 }

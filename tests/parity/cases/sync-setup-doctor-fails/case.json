@@ -9,7 +9,7 @@
   "env": {
     "SYNC_OS": "macos"
   },
-  "stubs": ["bootstrap"],
+  "stubs": ["bootstrap", "gh"],
   "commands": [
     {
       "command": "setup",
