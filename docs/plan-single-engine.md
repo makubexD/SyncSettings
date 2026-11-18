@@ -232,6 +232,12 @@ real machine (Node and Bun from the clone, release workflow, `mksync update`, in
 bootstrap question, the "before cut-over" fixes); `docs/plan-single-engine-9-cutover.md`, written when it finishes,
 tags the release, runs the real-Windows checklist and the Claude layout, and deletes the old engines.
 
+**First plan done 2026-11-17** ([plan-single-engine-9.md](plan-single-engine-9.md), branch `engine/cutover-prep`):
+process adapter on `node:child_process`, clone launchers for Bun and Node, usage errors exit 2, atomic state and repo
+writes that refuse symlinks, release workflow with `SHA256SUMS` and attestation, `mksync update`, installers that
+download the checked program, and setup with doctor first and the Ubuntu bootstrap. Next:
+`docs/plan-single-engine-9-cutover.md`.
+
 - A release workflow builds the programs with checksums and `gh attestation`.
 - The Claude layout goes live: `bun tools/claude-layout.ts <repo>` lists its writes, then `--cutover` writes the
   layers and drops the v1 Claude rows (a second run is refused), the synced
