@@ -110,8 +110,14 @@ jobs:
           echo "SYNCSETTINGS_RELEASE_URL=file://$release" >> "$GITHUB_ENV"
       - name: Remove Homebrew bash and jq, so the installer asks for them
         run: brew uninstall --ignore-dependencies bash jq || true
-      - name: Answer yes to every question
-        run: for i in $(seq 50); do echo y; done > "$RUNNER_TEMP/answers.txt"
+      # The installer reopens the file for each yes/no question, so it always
+      # reads line 1 (y); setup then reads the file from the top: line 1 is a
+      # new profile named y, then Claude none, push with a preview, the
+      # suggested backup for existing files, and y for every value and any
+      # later question.
+      - name: Answer the installer and setup
+        run: |
+          { printf 'y\n1\n1\n\n'; for i in $(seq 50); do echo y; done; } > "$RUNNER_TEMP/answers.txt"
       - name: Run the macOS checks under the stock bash 3.2
         run: |
           export SYNCSETTINGS_DIR="$RUNNER_TEMP/SyncSettings" SYNCSETTINGS_TTY="$RUNNER_TEMP/answers.txt"
