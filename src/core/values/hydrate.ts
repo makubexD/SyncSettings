@@ -204,8 +204,43 @@ export function resolveValues(
   return { ok: true, value: Object.fromEntries(resolved) };
 }
 
+/**
+ * The first rule of each placeholder `resolveValues` would stop on: nothing
+ * cached, inferred, given as the rule's `default` or as the environment
+ * variable `defaultEnv` names. In rule order.
+ */
+export function missingPlaceholders(
+  rules: readonly SanitizeRule[],
+  cached: Values,
+  inferred: Values,
+  env: Readonly<Record<string, string | undefined>>,
+): readonly SanitizeRule[] {
+  const missing: SanitizeRule[] = [];
+  const seen = new Set<string>();
+  for (const rule of rules) {
+    const placeholder = rule.placeholder;
+    if (placeholder.length === 0 || seen.has(placeholder)) {
+      continue;
+    }
+    seen.add(placeholder);
+    if (hasValue(cached[placeholder]) || hasValue(inferred[placeholder])) {
+      continue;
+    }
+    if (hasValue(rule.default)) {
+      continue;
+    }
+    const fromEnv =
+      rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
+    if (hasValue(fromEnv)) {
+      continue;
+    }
+    missing.push(rule);
+  }
+  return missing;
+}
+
 /** What `askValues` prompts with before the first question. */
-const ASK_HEADER =
+export const ASK_HEADER =
   "\n  Enter values to fill the placeholders in the config files:\n\n";
 
 export interface AskedValues {

@@ -25,8 +25,9 @@ import type {
 import { parseJson } from "../json/value.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
+import { planCheck } from "./check.ts";
 import { planExport } from "./export.ts";
-import { planImport } from "./import.ts";
+import { importValueQuestions, planImport } from "./import.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type {
@@ -905,8 +906,6 @@ describe("planImport values file", () => {
 
 describe("planImport reset values", () => {
   const LOCAL = "/home/user/.config/parity/a.conf";
-  const PROMPT =
-    "\n  Enter values to fill the placeholders in the config files:\n\n  Full name [Old Name]: \n";
 
   test("should ask again, replace the cached value and read the overwrite answer next", () => {
     // Arrange
@@ -929,7 +928,7 @@ describe("planImport reset values", () => {
     const plan = planImport(reset, ["New Name", "y"]);
 
     // Assert
-    expect(plan.prompt).toBe(PROMPT);
+    expect(plan.prompt).toBeUndefined();
     expect(plan.prepare).toEqual([
       { kind: "writeValues", text: expectedValues },
     ]);
@@ -944,6 +943,127 @@ describe("planImport reset values", () => {
       { kind: "backup", path: LOCAL },
       { kind: "writeLocal", path: LOCAL, text: "name=New Name\n" },
     ]);
+  });
+});
+
+describe("import value questions", () => {
+  const ASK_HEADER =
+    "\n  Enter values to fill the placeholders in the config files:\n\n";
+  const VALUE_REPO = "dotfiles/common/parity/a.conf";
+  const VALUE_REPO_TEXT = "name = <YOUR_NAME>\n";
+  const VALUE_LOCAL = "/home/user/.config/parity/a.conf";
+  const VALUE_ENTRY: ConfigV2Entry = {
+    file: "parity/a.conf",
+    module: "parity",
+    merge: "whole",
+    localPath: "~/.config/parity/a.conf",
+    sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name" }],
+  };
+  const NAME_VALUES = '{\n  "<YOUR_NAME>": "Jane Doe"\n}\n';
+
+  function valueSnapshot(entry: ConfigV2Entry): Snapshot {
+    return layeredSnapshot("linux", {
+      entries: [entry],
+      repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+    });
+  }
+
+  test("should ask once for a missing placeholder and save the answer", () => {
+    // Arrange
+    const snapshot = valueSnapshot(VALUE_ENTRY);
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+    const plan = planImport(snapshot, ["Jane Doe"]);
+
+    // Assert
+    expect(questions).toEqual([`${ASK_HEADER}  Full name: `]);
+    expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
+    expect(
+      shownActions(
+        plan.steps.flatMap((step) => step.actions.map((entry) => entry.action)),
+      ),
+    ).toEqual([
+      { kind: "mkdir", path: "/home/user/.config/parity" },
+      { kind: "writeLocal", path: VALUE_LOCAL, text: "name = Jane Doe\n" },
+    ]);
+  });
+
+  test("should stop with the missing-value error when the answer is empty", () => {
+    // Arrange
+    const snapshot = valueSnapshot(VALUE_ENTRY);
+
+    // Act
+    const plan = planImport(snapshot, [""]);
+
+    // Assert
+    expect(plan.code).toBe(1);
+    expect(plan.missing).toBe("<YOUR_NAME>");
+    expect(plan.lines).toEqual([
+      "missing value for <YOUR_NAME>: add it to .user-values.json",
+    ]);
+    expect(plan.steps).toEqual([]);
+  });
+
+  test("should ask a repeated placeholder only once", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [
+        { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+        { placeholder: "<YOUR_NAME>", prompt: "Name again" },
+      ],
+    };
+    const snapshot = valueSnapshot(entry);
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+    const plan = planImport(snapshot, ["Jane Doe"]);
+
+    // Assert
+    expect(questions).toEqual([`${ASK_HEADER}  Full name: `]);
+    expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
+  });
+
+  test("should ask every placeholder with its default under --reset-values", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [
+        { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+        { placeholder: "<HOME>", prompt: "Home folder" },
+      ],
+    };
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+        values: { "<YOUR_NAME>": "Old Name" },
+      }),
+      resetValues: true,
+    };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      `${ASK_HEADER}  Full name [Old Name]: `,
+      "  Home folder: ",
+    ]);
+  });
+
+  test("should ask no question when the check path plans a missing value", () => {
+    // Arrange
+    const snapshot = validSnapshot("missing-value-stops");
+
+    // Act
+    const plan = planCheck(snapshot);
+
+    // Assert
+    expect(plan.lines.some((line) => line.includes("Enter values to fill"))).toBe(
+      false,
+    );
   });
 });
 

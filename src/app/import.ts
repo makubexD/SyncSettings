@@ -12,7 +12,8 @@ import { planCheck } from "../core/plan/check.ts";
 import {
   importOverwriteQuestions,
   importPlan,
-  importValueAnswerCount,
+  importValueQuestions,
+  isQuestionList,
   resolveImportValues,
 } from "../core/plan/import.ts";
 import { renderRun } from "../core/plan/run.ts";
@@ -107,20 +108,20 @@ function overwritePrompt(name: string): string {
 }
 
 /**
- * Read the answers one prompt at a time and plan the run: the value answers of
- * `--reset-values` first, then one per differing file, printing each overwrite
- * prompt before its answer is read. End of input answers the rest as yes.
+ * Read the answers one prompt at a time and plan the run: the value answers
+ * first, then one per differing file, printing each overwrite prompt before its
+ * answer is read. End of input answers the rest as yes.
  */
 async function planWithAnswers(
   snapshot: Snapshot,
   io: ImportIo,
 ): Promise<RunPlan> {
-  const valueCount = importValueAnswerCount(snapshot);
-  if (typeof valueCount !== "number") {
-    return valueCount;
+  const questions = importValueQuestions(snapshot);
+  if (!isQuestionList(questions)) {
+    return questions;
   }
   const valueAnswers: string[] = [];
-  for (let i = 0; i < valueCount; i++) {
+  for (let i = 0; i < questions.length; i++) {
     valueAnswers.push((await io.readLine()) ?? "");
   }
   const resolved = resolveImportValues(snapshot, valueAnswers);
