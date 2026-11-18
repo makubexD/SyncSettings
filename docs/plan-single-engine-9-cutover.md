@@ -275,7 +275,15 @@ Test: `bun run build && tests/parity/run.sh && grep -rl oldEngines tests/parity/
 
 ## Step 17: The bash engine deleted `[worker:low]`
 
-`git rm export.sh import.sh commit.sh sync scripts/linux/ tests/linux/engine.sh tests/fixtures/` (the fixtures only
+Two users of the bash engine survive it, so they move first (found at run time):
+
+- `tests/parity/run.sh` sources `scripts/linux/os.sh` for `sync_os`: copy `sync_os` into `run.sh` verbatim, as step 14
+  did for the bootstrap, and drop the `source`.
+- `tests/linux/engine.sh` holds the installer cases (`case_install*`, step 15 added five). They move to a new
+  `tests/linux/install.sh` with the harness parts they use, same case names and results; `tests/all.sh` and CI
+  pick it up in step 27.
+
+Then `git rm export.sh import.sh commit.sh sync scripts/linux/ tests/linux/engine.sh tests/fixtures/` (the fixtures only
 `engine.sh` reads: check with `grep -rl tests/fixtures` first and keep any other user). `scripts/ci/` stays.
 
 Test: `bun run build && tests/parity/run.sh && tests/linux/bootstrap.sh`; `grep -rn "scripts/linux\|export\.sh\|import\.sh\|commit\.sh" --include=*.sh --include=*.ts --include=*.ps1 . | grep -v tests/parity/cases` lists only lines steps 21, 26, 27 or 28 change.
