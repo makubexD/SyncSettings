@@ -689,7 +689,14 @@ The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are
 - **The Claude layout waits for cut-over.** The v1/v2 check refuses a v2 entry that covers an OS its v1 twin doesn't,
   and v1 is frozen, so the split `settings.json` (a base for every OS, a Linux overlay with `hooks` and the keys that
   hold `<HOME>` or a `.sh` path, a Windows overlay) and the Windows rows in the catalog are written by
-  `tools/claude-layout.ts`, tested now and run in phase 9.
+  `tools/claude-layout.ts`, tested now and run in phase 9. Decided in the cut-over plan's review (2026-11-18): the
+  Linux overlay also takes the personal-only keys `enabledPlugins`, `extraKnownMarketplaces`, `permissions`,
+  `autoMode` and `skipDangerousModePermissionPrompt`, since a `personal` profile layer can't be committed while the
+  repo is public and the only Linux machine is personal; phase 10 moves them to `profiles/personal/`. The base keeps
+  the shared keys (`model`, `effortLevel`, `modelSettings`, `statusLine`, `theme`, `tui`, the notification flags,
+  `cleanupPeriodDays`, `autoUpdatesChannel`), so a work machine's own plugins, marketplaces and permissions stay its
+  own. `<HOME>` stays a placeholder: `hooks` is Linux-only and `statusLine` becomes `mksync statusline`, which holds
+  no path.
 - **The first backup merges, then points.** The first private export copies the record, the profile and their layer
   folders into the repo, merging with a profile copy already there; only after every write succeeds does
   `machine.json` become the pointer, so a failed backup leaves the machine as it was. Example: work #1's laptop backs
@@ -928,6 +935,12 @@ check is cheap.
   v2 entry that has a v1 counterpart. It prints each mismatch and fails.
 - **At cut-over** `sync-config.json` and the check are deleted, and `sync-config.v2.json` is renamed
   `sync-config.json` (still `schemaVersion: 2`).
+- **The file read (cut-over plan, decisions 7 and 8).** From `v0.9.0`, `loadConfig` reads `sync-config.v2.json` when
+  present, else `sync-config.json`, picking the parser by the file's own `schemaVersion`; so a `v0.9.0` program reads
+  the renamed file. Then v1 is dropped: the shared cases move from `config` to the `configV2` that `convertV1` makes,
+  `v1.ts`, `convert.ts` and the converter go, and a `sync-config.json` with no `schemaVersion` stops with exit 2.
+  `sync-config.v2.json` is still read first, so a machine that updates the program before it pulls loads its old
+  clone.
 
 ### v1 to v2, field by field
 
@@ -1312,16 +1325,18 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 - **A profile without a value.** `personal` has no `<YOUR_WORK_MARKETPLACE>`. Today import stops rather than write a
   placeholder. Options: the profile marks the value "none" and the engine drops that array item; or the item moves out
   of the base into each work profile's JSON layer, which "Merge and split" adds by item. The second needs no new rule
-  and is the likely answer; it changes the worked example in "Catalog", so it waits for the user.
+  and is the likely answer; it changes the worked example in "Catalog", so it waits for the user. It needs the work
+  profiles' layers in the repo, so it waits for phase 10 (cut-over plan, decision 3).
 - **Linux-only or personal-only.** There is one Linux machine and it is personal, so every Linux row could be an OS
   layer or the `personal` profile. The table says OS for tools (they'd suit any Linux machine) and machine for the two
   disk launchers (`disco-datos.desktop`, `mis-discos.desktop`), which name this machine's disks.
 - **Tools that could reach Windows.** `tmux`, `starship`, `wezterm`, `htop`, `gh`, `rtk` and VS Code are Linux and macOS
   today. Whether each also belongs on Windows (`gh` and VS Code likely do) is a profile choice for the work machines.
-- **`sampleGrok.md`.** An old Windows `CLAUDE.md`, kept for reference. Drop it at cut-over, or keep it as a document
-  outside the sync.
-- **Today's `.linked/` trees.** "Linked folders" puts a converted tree on a work profile. Which profile owns each tree
-  under `dotfiles/windows/shell/.bashrc.linked/` is the user's answer, since the repo doesn't record which job made it.
+- **`sampleGrok.md` (settled 2026-11-18).** Dropped at cut-over from the repo and both configs; git history keeps it.
+- **Today's `.linked/` trees (settled 2026-11-18).** The one tree, `MakuCustomAlias/` (the folder the Windows
+  `.bashrc` puts on `PATH`), becomes a `dir` entry in the Windows OS layer, `shell/MakuCustomAlias` with local folder
+  `C:/MakuCustomAlias`, moved with `git mv`. Every Windows machine is a work machine, so the OS layer reaches only
+  them; phase 10 can move it to a work profile.
 - **Removing a key in a later layer.** JSON merge can add and replace keys, not remove one the base sets. Options: a
   `null` in the later layer removes the key, or removal isn't supported. Claude and VS Code treat some `null` values as
   meaningful, so `null` may need an explicit marker instead.
