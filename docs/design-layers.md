@@ -1322,6 +1322,25 @@ to the existing clone) put the release program in `~/.local/bin`: `mksync --vers
   and local files hold the same JSON and differ only in layout. The program compares `json` entries parsed
   (`UNCHANGED`, as the contract says); the old engine compares bytes.
 
+**Work #1 (Windows), 2026-11-18, run from the clone.** `tools/windows-cutover-check.ps1` in PowerShell 7.6.9 (full
+language mode), on a clone made for the run: git 2.50.1, Node 26.13.0, Bun 1.3.14, jq 1.6, `gh` signed in, Windows 11
+Enterprise. Every section ran:
+
+- Install: the Node route removed the old `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`, wrote
+  `%LOCALAPPDATA%\mksync\mksync.cmd` (no `mksync.exe`) and put that folder on the user `Path`; `mksync --version` prints
+  `mksync 0.9.0`. Nothing was blocked.
+- Home: `~` and `$HOME` are `C:\Users\USER` in PowerShell, and `/c/Users/USER` (`C:/Users/USER`) in Git Bash.
+- Git Bash: `mksync` is `command not found` (127), `mksync.cmd` works. Fixed by cut-over step 8a ("Open").
+- `mksync statusline` on the sample payload: one line with the bar, exit 0. `MKSYNC_RUNTIME=bun` runs the launcher on
+  Bun 1.3.14.
+- `mksync status` and `doctor` exit 0 (doctor: no machine record and 4 values not set, as on any machine before
+  setup); `check` exits 3 with 2 files to change; `update` prints the `git pull` error with exit 2, as the contract
+  says for a clone install. No `.user-values.json` yet.
+- `mksync shadow` exits 3 with 2 lines, both explained: `token-routing-map.html` is `CREATE` in the program and
+  `SKIPPED` in the PowerShell engine because `~/.claude/docs` doesn't exist (the contract's known difference "Import,
+  target folder missing"); the `.bashrc.linked/…/vs.bat` linked path is in the old engine only, which cut-over step 10
+  replaces with a `dir` entry.
+
 ## Open
 
 ### Design
@@ -1661,18 +1680,17 @@ doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push 
   hooks look installed by the work tool (`hooks/work-tool-1-cache-heal.mjs`, next to its `heal-partial-install.log`);
   a hook a tool installs is the tool's, so it isn't synced, and the tool puts it back. Telling the two apart is
   "Owner of a setting" under "Open".
-- **The unsigned program (open).** The survey didn't download it: the user chose not to put an unknown `.exe` on a
-  work machine without asking IT first. Work #1 has Node 26.13, npm 11.20, Bun 1.3.14 and winget 1.29, so the
-  run-from-clone fallback ("Open", Bun or Node) needs no install there. Bun 1.3.14 is older than the repo's 1.4.4:
-  the real-Windows checklist (items 8, 10 and 11) asks IT or tries the program, then the Node and Bun fallbacks.
-  **User's call, 2026-11-18:** work machines don't get the downloaded program and IT isn't asked; they run from the
-  clone with Node (`SYNCSETTINGS_RUNTIME=node`), whose `mksync.cmd` shim is on the user `Path`.
-  `docs/windows-cutover-run.md` checks that route. Step 8 of the cut-over plan settles this item with its answer.
-- **`mksync` from Git Bash on a run-from-clone machine (open).** The Node install puts only `mksync.cmd` on the
-  `Path`. Git Bash doesn't run a `.cmd` without its extension, so `mksync --version` there is `command not found` (127)
-  while `mksync.cmd --version` works (local Windows VM, 2026-11-18). Claude Code runs hooks and the `statusLine`
-  command through Git Bash, so part 2's synced `mksync statusline` would fail there. Either the Windows overlay calls
-  `mksync.cmd`, or the installer also writes an extensionless `mksync` shell script next to the shim.
+- **The unsigned program (settled 2026-11-18).** Work machines don't get the downloaded `mksync.exe` and IT isn't
+  asked: they run from the clone (`SYNCSETTINGS_RUNTIME=node`), whose `mksync.cmd` shim is on the user `Path`. Work #1
+  ran the whole check that way ("Real-machine results"). Bun 1.3.14 also runs the launcher there, and neither launcher
+  checks Bun's version, so nothing is added to them. The release program stays for personal machines and CI.
+- **`mksync` from Git Bash on a run-from-clone machine (settled 2026-11-18, cut-over step 8a).** The Node install
+  puts only `mksync.cmd` on the `Path`. Git Bash doesn't run a `.cmd` without its extension, so `mksync --version`
+  there is `command not found` (127) while `mksync.cmd --version` works, in the local VM and on work #1. Claude Code
+  runs hooks and the `statusLine` command through Git Bash, so part 2's synced `mksync statusline` would fail there.
+  Of the two fixes (the Windows overlay calls `mksync.cmd`, or the installer also writes an extensionless `mksync`
+  script), the installer one is taken: the synced command stays `mksync` on every OS and every install mode, where
+  `mksync.cmd` exists only on a run-from-clone machine.
 - **mksync as an npm package (open, idea).** `npm install -g` would put `mksync` on `PATH` on any machine with Node,
   with `npm update -g` for updates. Against it, for now: it publishes to the public npm registry (a release decision),
   `package.json` is `private`, and an install from npm is as visible on a work machine as the clone's `mksync.cmd`
