@@ -2,11 +2,11 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
-## v1.0.2
+## v1.0.2 (2026-11-20)
 
 - Installs and `mksync update` check the program against `SHA256SUMS` only. The attestation check is gone, since
   GitHub makes no attestation for a private repo on the Free plan.
-- `SHA256SUMS` and the program come through a signed-in `gh`, from the same release.
+- Both files come from the same release: through a signed-in `gh`, or over HTTPS while the repo is public.
 - The docs describe the finished program: finished plans and research moved to `docs/archive/`, the README has a
   "Develop" section, and this changelog starts.
 

@@ -146,8 +146,9 @@ tests/all.sh                    # everything, in order, before a PR
 Windows checks when the local VM is up ([Windows VM](tests/windows-vm/README.md)).
 
 To make a release, bump `version` in `package.json`, add its entry to [CHANGELOG.md](CHANGELOG.md), merge that to
-`master`, and tag the merge `v<x.y.z>`. The release workflow builds the four programs and `SHA256SUMS` and publishes
-them.
+`master`, and tag the merge with an annotated tag `v<x.y.z>` whose message is that CHANGELOG section
+(`git tag -a v<x.y.z> -F <file>`). The release workflow builds the four programs and `SHA256SUMS` and publishes them,
+with the tag's message as the release notes.
 
 ## What gets synced
 

@@ -1174,7 +1174,7 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
 - **`schemaVersion` check:** a program meeting a config with a higher `schemaVersion` stops with `this config needs a
 newer mksync: run mksync update` (exit 2), before reading anything else. A pull that fast-forwards to such a config
   says the same.
-- **Private repo (decided 2026-11-20, built in `plan-single-engine-9-private-prep.md`, `v1.0.1`).** The install line
+- **Private repo (decided 2026-11-20, built in `archive/plan-single-engine-9-private-prep.md`, `v1.0.1`).** The install line
   is "install `gh`, `gh auth login`, then `gh api -H 'Accept: application/vnd.github.raw'
 repos/makubexD/SyncSettings/contents/install.sh | bash`" (`install.ps1 | Out-String | iex` on Windows), which works
   on a public and a private repo alike; no public releases-only repo. With `gh` signed in and no
@@ -1371,7 +1371,7 @@ Enterprise. Every section ran:
 
 ### Design
 
-- **Setup's bootstrap edges (phase 9 step 24; settled in `plan-single-engine-9-private-prep.md`, steps 1 and 3).**
+- **Setup's bootstrap edges (phase 9 step 24; settled in `archive/plan-single-engine-9-private-prep.md`, steps 1 and 3).**
   The contract now says the question comes after the record and profile are written and is skipped on `stop`, as
   built. `--bootstrap` on Windows stops like macOS, `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor
   (shared case `setup-windows-bootstrap-flag`), rather than the unknown-option exit 2 guessed here.
@@ -1417,7 +1417,7 @@ Enterprise. Every section ran:
 - **Lines that name the deleted engine (found in phase 9 step 17).** The program still prints `run ./import.sh --check
 to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  first` (`src/core/plan/run.ts`) and
   `ERROR: run commit.sh from master` (`src/app/commit.ts`). Those files are gone. Settled in
-  `plan-single-engine-9-private-prep.md` (steps 1 and 2): `mksync check`, `mksync setup` (a new machine needs setup,
+  `archive/plan-single-engine-9-private-prep.md` (steps 1 and 2): `mksync check`, `mksync setup` (a new machine needs setup,
   not a bare import) and `mksync commit`; the export line has the shared case `export-local-missing`.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
