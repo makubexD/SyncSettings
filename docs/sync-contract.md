@@ -777,16 +777,14 @@ Run mksync push again, or git restore dotfiles to drop them.` after a declined P
 The installers clone the repo, since the program reads its config there, then install the program from the latest
 GitHub release ([design, "Release and update"](design-layers.md#release-and-update)). A release holds four programs,
 `mksync-linux-x64`, `mksync-linux-arm64`, `mksync-darwin-arm64` and `mksync-windows-x64.exe`, and `SHA256SUMS`. The
-installer picks the one for this OS and CPU, checks its SHA256 against `SHA256SUMS`, and, when `gh auth status`
-succeeds, runs `gh attestation verify <file> --repo makubexD/SyncSettings`. Nothing is written to the bin folder before
-both checks pass. Its errors, each exit 1:
+installer picks the one for this OS and CPU and checks its SHA256 against `SHA256SUMS`, the only check. Nothing is
+written to the bin folder before it passes. Its errors, each exit 1:
 
 ```text
 ERROR: no mksync program for <os> <arch>.
 ERROR: could not find the latest release at <base>.
 ERROR: could not download <url>.
 ERROR: <asset>: checksum does not match SHA256SUMS.
-ERROR: <asset>: attestation check failed.
 ```
 
 A latest link that names no `v<x.y.z>` tag (GitHub's `/releases` page while no release exists) is `could not find the
@@ -886,8 +884,7 @@ failing `gh` call gives the same error line, with `gh`'s first stderr line as th
 
 - Not newer: `mksync <version> is up to date.`, exit 0, nothing downloaded but the tag.
 - Newer: it downloads `SHA256SUMS` and the program for this OS and CPU, checks the SHA256, writes it next to itself
-  as `<program>.new`, runs the attestation check as the installers do (only when `gh auth status` succeeds), and renames
-  it over itself: `mksync updated: <old> -> <new>.`, exit 0. On Windows the running program first moves to
+  as `<program>.new`, and renames it over itself: `mksync updated: <old> -> <new>.`, exit 0. On Windows the running program first moves to
   `mksync.old.exe`, and every start of the program deletes a leftover `mksync.old.exe` next to it.
 - Any failure changes nothing, exit 1:
 
@@ -896,7 +893,6 @@ failing `gh` call gives the same error line, with `gh`'s first stderr line as th
   ERROR: cannot get the mksync release: <reason>.
   ERROR: SHA256SUMS: <reason>.
   ERROR: <asset>: checksum does not match SHA256SUMS; nothing changed.
-  ERROR: <asset>: attestation check failed; nothing changed.
   ERROR: cannot replace <program>: <reason>; nothing changed.
   ```
 

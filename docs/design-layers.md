@@ -811,8 +811,8 @@ full text and the steps that build it.
 2. **Launchers.** `mksync` and `mksync.cmd` at the repo root pick Bun or Node (`MKSYNC_RUNTIME=bun|node`; unset, Bun
    first) and stop with `ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.`, exit 2, when neither
    fits.
-3. **Installers download the program; the clone stays.** SHA256 against `SHA256SUMS` always, `gh attestation verify`
-   when `gh` is signed in; `~/.local/bin/mksync`, or `%LOCALAPPDATA%\mksync\mksync.exe` on the user `Path`.
+3. **Installers download the program; the clone stays.** SHA256 against `SHA256SUMS` (the attestation check was
+   dropped in phase 10, see "Release and update"); `~/.local/bin/mksync`, or `%LOCALAPPDATA%\mksync\mksync.exe` on the user `Path`.
    `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on Windows, since `iex` passes no parameters) links the clone's
    launcher instead.
 4. **Releases.** A tag `v<x.y.z>` equal to `package.json`'s `version` releases the four programs, `SHA256SUMS` and a
@@ -1168,7 +1168,7 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
   on their own runners (`program-macos`, `program-windows`).
 - **Releases (from cut-over, v0.9.0):** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
   attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
-  `SHA256SUMS`; with `gh` signed in they also run `gh attestation verify`.
+  `SHA256SUMS`. From `v1.0.2` that is the only check (see "The attestation rule" below).
 - **`mksync update`** downloads the latest release the same way, checks it, and replaces itself. On Windows a running
   program can't be overwritten, so it renames itself to `mksync.old.exe` first and deletes that on the next run.
 - **`schemaVersion` check:** a program meeting a config with a higher `schemaVersion` stops with `this config needs a
@@ -1196,18 +1196,21 @@ As built in phase 9:
   both default to `https://github.com/makubexD/SyncSettings/releases`. The latest tag is where `<base>/latest`
   redirects; a `file://` base holds it in a `latest` file instead, which is how the tests serve a folder release.
   Files are `<base>/download/<tag>/<name>`.
-- **The attestation rule.** Checked only when `gh auth status` succeeds, as
-  `gh attestation verify <file> --repo makubexD/SyncSettings`; a failed check stops the install or the update and
-  writes nothing. Without `gh`, or signed out, the SHA256 is the only check.
+- **The attestation rule (replaced in phase 10).** Up to `v1.0.1` the installers and `mksync update` ran
+  `gh attestation verify <file> --repo makubexD/SyncSettings` when `gh auth status` succeeded. From `v1.0.2` they don't
+  (`plan-single-engine-10.md`, decision 1): GitHub Free makes no attestation on a private repo, so the check would
+  refuse every release. The `SHA256SUMS` check stays, and both files come from the same release through a signed-in
+  `gh` (or HTTPS while the repo is public). The release workflow keeps attesting until the repo goes private, so a
+  `v1.0.1` program can still update to `v1.0.2`.
 - **Install paths.** `~/.local/bin/mksync` on Linux and macOS (`SYNCSETTINGS_BIN`); `%LOCALAPPDATA%\mksync\mksync.exe`
   on Windows, added to the user `Path`. The earlier Windows launcher, `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`,
   is removed when it is ours. Intel Macs have no program; `--runtime` is their way in.
 - **Update.** `mksync update` downloads the new program next to itself as `<program>.new`, checks it, then renames it
   over (contract "Update").
 
-Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update; the attestation is
-checked when `gh` is there. The checksum stops a broken download; the attestation proves the file came from this
-repo's workflow, not just from someone who could change `SHA256SUMS` next to it.
+Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update. The checksum stops a
+broken download. A private repo that only the owner's token can read is the trust boundary the attestation used to
+prove: whoever could change `SHA256SUMS` next to the program could already change the program.
 
 ## Tests
 
