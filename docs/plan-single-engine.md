@@ -270,10 +270,11 @@ in, both installers clone with its credential helper (for that one command) and 
 
 ### Phase 10: private repo and review
 
-Starts when the user says development is done; it can come before or after phase 9.
+Started 2026-11-20 (the user said development is done; GitHub Free): `docs/plan-single-engine-10.md`. On Free a
+private repo loses enforced branch protection and attestations, so the plan first ships `v1.0.2` without the
+attestation check while the repo is public, moves CI to the minutes rule, and cleans the docs before the switch.
 
-Installs and updates already work on a private repo (phase 9's private-prep follow-up, `v1.0.1`), so the phase starts
-with the visibility switch.
+Installs and updates already work on a private repo (phase 9's private-prep follow-up, `v1.0.1`).
 
 - Make the repo private and rewrite `docs/decision-private-repo.md` to say what may be committed now. Lift the guard,
   so profiles, records and values are committed on the next push.
