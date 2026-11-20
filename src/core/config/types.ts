@@ -9,10 +9,6 @@ export interface ConfigError {
 
 export type Os = "windows" | "linux" | "macos";
 
-export type PlatformName = "common" | Os;
-
-export type Platform = PlatformName | readonly Os[];
-
 export type EntryType = "file" | "dir" | "dconf";
 
 export interface SanitizeRule {
@@ -21,26 +17,6 @@ export interface SanitizeRule {
   readonly default?: string;
   readonly defaultEnv?: string;
   readonly escapeBackslashes?: boolean;
-}
-
-export interface ConfigV1Entry {
-  readonly repoPath: string;
-  readonly localPath?: string;
-  readonly localPaths?: Readonly<Partial<Record<Os, string>>>;
-  readonly platform: Platform;
-  readonly description?: string;
-  readonly sanitizeRules?: readonly SanitizeRule[];
-  readonly type?: EntryType;
-  readonly path?: string;
-  readonly keys?: readonly string[];
-  readonly detectLinkedPaths?: boolean;
-}
-
-export interface ConfigV1 {
-  readonly version?: number;
-  readonly defaultUser?: string | null;
-  readonly files: readonly ConfigV1Entry[];
-  readonly excludePatterns?: readonly string[];
 }
 
 export type MergeType = "whole" | "json" | "import" | "dconf" | "dir";
