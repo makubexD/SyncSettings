@@ -792,11 +792,22 @@ ERROR: <asset>: attestation check failed.
 A latest link that names no `v<x.y.z>` tag (GitHub's `/releases` page while no release exists) is `could not find the
 latest release`.
 
+**Through `gh`.** When `SYNCSETTINGS_RELEASE_URL` is unset or empty and `gh auth status` succeeds (decided once per
+run), the installer works on a private repo too: the tag comes from
+`gh release view --repo makubexD/SyncSettings --json tagName -q .tagName`, the asset and `SHA256SUMS` from
+`gh release download <tag> --repo makubexD/SyncSettings -p <asset> -p SHA256SUMS -D <temp folder>`, and the checks
+above run unchanged. The clone, and the pull of an existing clone whose origin is on `github.com`, runs with
+`-c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential'` for that
+one git command; nothing is written to `~/.gitconfig`. A failing `gh` gives the same error lines as a failing
+download. Otherwise the installer downloads over HTTPS as above.
+
 The run-from-clone fallback, for a machine that blocks the program: `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on
 Windows) skips the download and puts the clone's launcher on `PATH` instead ([The program](#the-program)).
 
-`install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`
-(flags after `bash -s --`):
+`install.sh`, run with a signed-in `gh` as
+`gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash` (flags after
+`bash -s --`; while the repo is public, `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`
+works too):
 
 - Linux and macOS ([macOS](#macos) has its own rules); Windows shells and other systems stop with a message, exit 1.
 - Missing `git`, `jq` or `cmp`: offers `sudo apt-get install` where `apt-get` exists. Otherwise it names the packages
@@ -827,8 +838,10 @@ Windows) skips the download and puts the clone's launcher on `PATH` instead ([Th
 | `SYNC_ARCH`                       | `uname -m`                                                              |
 | `SYNC_OS_RELEASE` (status, setup) | `/etc/os-release`                                                       |
 
-`install.ps1`, run in PowerShell as
-`irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex`:
+`install.ps1`, run in PowerShell with a signed-in `gh` as
+`gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex`
+(while the repo is public, `irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex` works
+too):
 
 - Windows only; elsewhere it points to the bash installer, exit 1. It needs PowerShell 5.1. Errors are thrown and caught
   at the top, so `iex` never closes the user's window.
@@ -867,7 +880,9 @@ Windows) skips the download and puts the clone's launcher on `PATH` instead ([Th
 `mksync update` replaces the installed program with the latest release
 ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 5). It reads the latest tag at
 `MKSYNC_RELEASE_URL` (default `https://github.com/makubexD/SyncSettings/releases`) and compares it with its own
-version (`mksync --version`):
+version (`mksync --version`). With `MKSYNC_RELEASE_URL` unset or empty and `gh auth status` succeeding, the tag and
+the files come through `gh release view` and `gh release download`, as the installers do ([Install](#install)); a
+failing `gh` call gives the same error line, with `gh`'s first stderr line as the reason:
 
 - Not newer: `mksync <version> is up to date.`, exit 0, nothing downloaded but the tag.
 - Newer: it downloads `SHA256SUMS` and the program for this OS and CPU, checks the SHA256, writes it next to itself
