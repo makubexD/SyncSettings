@@ -239,11 +239,12 @@ download the checked program, and setup with doctor first and the Ubuntu bootstr
 [plan-single-engine-9-values.md](plan-single-engine-9-values.md) (done 2026-11-18): on a fresh machine the program asks for a value
 nothing else fills, during setup and pull, from the same input as their own questions.
 
-**Cut-over plan in progress** ([plan-single-engine-9-cutover.md](plan-single-engine-9-cutover.md), reviewed
-2026-11-18): part 1 on `engine/cutover-config` (config picked by `schemaVersion`, the layout tool's personal keys,
-then `v0.9.0` and the real-machine checks), part 2 on `engine/cutover` (layout, deletion, v1 configs dropped). The
-research probe and its workflow stay (they run only on demand). Claude tags `v0.9.0` and `v1.0.0` after the user's
-GO.
+**Done** 2026-11-20 ([plan-single-engine-9-cutover.md](plan-single-engine-9-cutover.md)): part 1 on
+`engine/cutover-config` (config picked by `schemaVersion`, the layout tool's personal keys, `v0.9.0` and the
+real-machine checks), part 2 on `engine/cutover` (layout, tag `two-engines-final`, the bash and PowerShell engines
+deleted, v1 configs refused, one `sync-config.json`). The finish review made the bootstrap run the program setup ran
+from (`MKSYNC_PROGRAM`), so a fresh Ubuntu restores before the bin folder is on `PATH`. The research probe and its
+workflow stay (they run only on demand). `v1.0.0` is tagged by Claude after the user's GO.
 
 - A release workflow builds the programs with checksums and `gh attestation`.
 - The Claude layout goes live: `bun tools/claude-layout.ts <repo>` lists its writes, then `--cutover` writes the
