@@ -55,6 +55,36 @@ function Install-SyncSettings {
         return $LASTEXITCODE
     }
 
+    # Run git and return its output, trimmed, or '' when it fails.
+    function Get-GitOutput {
+        param([string[]]$Arguments)
+        $ErrorActionPreference = 'Continue'
+        $text = (& git @Arguments 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            return ''
+        }
+        return $text
+    }
+
+    # True when the URL is a github.com remote: the only one gh's credential
+    # helper is for.
+    function Test-GitHubUrl {
+        param([string]$Url)
+        return ($Url -like 'https://github.com/*' -or $Url -like 'git@github.com:*' -or
+            $Url -like 'ssh://git@github.com/*')
+    }
+
+    # The two -c options that give gh's credential helper to one git command
+    # only, so nothing is written to ~/.gitconfig. gh is on PATH here, so the
+    # helper names it bare: a quoted path would need escaping that differs
+    # between Windows PowerShell 5.1 and PowerShell 7.3+.
+    function Get-GhGitOptions {
+        return @(
+            '-c', 'credential.https://github.com.helper=',
+            '-c', 'credential.https://github.com.helper=!gh auth git-credential'
+        )
+    }
+
     # Run one winget install, discarding its (large) output.
     function Invoke-WingetInstall {
         param([string]$Id)
@@ -171,6 +201,22 @@ function Install-SyncSettings {
         return $final.Substring($final.LastIndexOf('/') + 1)
     }
 
+    # The latest release tag: through gh when it carries the release, else the
+    # <base>/latest redirect (or file).
+    function Get-LatestTag {
+        param([string]$Base, [bool]$UseGh)
+        if (-not $UseGh) {
+            return Get-ReleaseTag $Base
+        }
+        $ErrorActionPreference = 'Continue'
+        $tag = (& gh release view --repo makubexD/SyncSettings --json tagName -q .tagName 2>$null |
+            Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            return ''
+        }
+        return $tag
+    }
+
     # Download a release URL to a file, or throw with the URL that failed.
     function Get-ReleaseFile {
         param([string]$Url, [string]$OutFile)
@@ -186,6 +232,19 @@ function Install-SyncSettings {
             Invoke-WebRequest -Uri $Url -UseBasicParsing -OutFile $OutFile
         } catch {
             throw "could not download $Url."
+        }
+    }
+
+    # Download the release asset and SHA256SUMS through gh into $Dir, for a
+    # private repo too.
+    function Get-GhReleaseFile {
+        param([string]$Tag, [string]$Asset, [string]$Dir)
+        $arguments = @(
+            'release', 'download', $Tag, '--repo', 'makubexD/SyncSettings',
+            '-p', $Asset, '-p', 'SHA256SUMS', '-D', $Dir
+        )
+        if ((Invoke-Gh $arguments) -ne 0) {
+            throw "could not download https://github.com/makubexD/SyncSettings/releases/download/$Tag/$Asset."
         }
     }
 
@@ -234,7 +293,8 @@ function Install-SyncSettings {
             throw 'SYNCSETTINGS_RUNTIME must be bun or node.'
         }
 
-        # 2. Tools: git is required, gh only opens pull requests.
+        # 2. Tools: git is required, gh opens pull requests and, when signed
+        #    in, carries the clone and the release files.
         $winget = Get-ToolCommand 'winget'
         $missing = @()
         if ($null -eq (Get-ToolCommand 'git')) {
@@ -281,13 +341,35 @@ function Install-SyncSettings {
             throw 'install Git from https://git-scm.com, open a new window, and run this again.'
         }
 
-        if ($null -eq (Get-ToolCommand 'gh')) {
+        $gh = Get-ToolCommand 'gh'
+        if ($null -eq $gh) {
             Write-Host '  Note: gh is not installed; mksync push cannot open a pull request. Install it from https://cli.github.com.'
         }
 
-        # 3. The repo clone: update one, or make a new one.
+        # True when gh carries the clone and the release files: it is signed in
+        # and SYNCSETTINGS_RELEASE_URL names no other release. Decided once,
+        # here.
+        $ghRelease = $false
+        if ($null -ne $gh -and [string]::IsNullOrEmpty((Get-Setting 'SYNCSETTINGS_RELEASE_URL' ''))) {
+            if ((Invoke-Gh @('auth', 'status')) -eq 0) {
+                $ghRelease = $true
+            }
+        }
+
+        # 3. The repo clone: update one, or make a new one. With gh signed in,
+        #    the clone carries gh's credential helper, and so does a pull from
+        #    github.com, where a pull from anywhere else has none.
+        $gitOptions = @()
+        if ($ghRelease) {
+            $gitOptions = Get-GhGitOptions
+        }
         if (Test-IsCloneWithOrigin $dir) {
-            if ((Invoke-Git @('-C', $dir, 'pull', '--ff-only', '-q')) -ne 0) {
+            $pullOptions = @()
+            if ($ghRelease -and
+                (Test-GitHubUrl (Get-GitOutput @('-C', $dir, 'remote', 'get-url', 'origin')))) {
+                $pullOptions = $gitOptions
+            }
+            if ((Invoke-Git (@($pullOptions) + @('-C', $dir, 'pull', '--ff-only', '-q'))) -ne 0) {
                 throw "could not update $dir; resolve it and run this again."
             }
             Write-Host "  Updated $dir"
@@ -295,7 +377,7 @@ function Install-SyncSettings {
             if (Test-DirNonEmpty $dir) {
                 throw "$dir exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR."
             }
-            if ((Invoke-Git @('clone', '-q', '--branch', $ref, $url, $dir)) -ne 0) {
+            if ((Invoke-Git (@($gitOptions) + @('clone', '-q', '--branch', $ref, $url, $dir))) -ne 0) {
                 throw "could not clone $url."
             }
             Write-Host "  Cloned into $dir"
@@ -337,12 +419,16 @@ function Install-SyncSettings {
             $base = Get-Setting 'SYNCSETTINGS_RELEASE_URL' 'https://github.com/makubexD/SyncSettings/releases'
             $downloadDir = Join-Path ([IO.Path]::GetTempPath()) ('mksync-' + [Guid]::NewGuid().ToString('N'))
             $null = New-Item -ItemType Directory -Path $downloadDir -Force
-            $tag = Get-ReleaseTag $base
+            $tag = Get-LatestTag $base $ghRelease
             if ([string]::IsNullOrEmpty($tag)) {
                 throw "could not find the latest release at $base."
             }
-            Get-ReleaseFile "$base/download/$tag/$asset" (Join-Path $downloadDir $asset)
-            Get-ReleaseFile "$base/download/$tag/SHA256SUMS" (Join-Path $downloadDir 'SHA256SUMS')
+            if ($ghRelease) {
+                Get-GhReleaseFile $tag $asset $downloadDir
+            } else {
+                Get-ReleaseFile "$base/download/$tag/$asset" (Join-Path $downloadDir $asset)
+                Get-ReleaseFile "$base/download/$tag/SHA256SUMS" (Join-Path $downloadDir 'SHA256SUMS')
+            }
 
             $sum = Get-SumFor (Join-Path $downloadDir 'SHA256SUMS') $asset
             $hash = (Get-FileHash -LiteralPath (Join-Path $downloadDir $asset) -Algorithm SHA256).Hash
