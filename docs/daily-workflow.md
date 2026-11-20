@@ -38,6 +38,23 @@ program itself is updated with `mksync update`, which replaces it only when a ne
 page is the same flow step by step. If `mksync` stops with something you don't recognize, see
 [Troubleshooting `mksync`](#troubleshooting-mksync).
 
+A machine that doesn't have `mksync` yet starts with the install line, which goes through a signed-in GitHub CLI so it
+works whether the repo is public or private ([README](../README.md#install) has the macOS and `--runtime node` forms):
+
+```bash
+sudo apt-get install gh && gh auth login
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash
+```
+
+```powershell
+winget install --id GitHub.cli -e
+# open a new PowerShell window, then:
+gh auth login
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex
+```
+
+With `gh` signed in, `mksync update` and the installer download the release through it too.
+
 ## Before you pull or push
 
 Three dry runs show what would happen, and none of them writes anything:
@@ -316,7 +333,7 @@ into use.
 
 | What you see                                                                                       | What to do                                                                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows: `running scripts is disabled on this system`                                              | It comes from running a `.ps1` directly. `mksync.exe` needs no execution policy, and the installer runs through `irm … \| iex`, which isn't blocked by it                                                                                                                         |
+| Windows: `running scripts is disabled on this system`                                              | It comes from running a `.ps1` directly. `mksync.exe` needs no execution policy, and the installer runs through `gh api … \| Out-String \| iex`, which isn't blocked by it                                                                                                        |
 | Windows: the installer prints `ERROR: install Git from https://git-scm.com, …`                     | There's no `winget` on this machine (it comes with App Installer from the Microsoft Store). Install Git from that link, open a new window, and run the installer again. `gh` can come later; `doctor` says how                                                                    |
 | `mksync` is not recognized, or `command not found`                                                 | The window was open before the install changed `PATH`. Open a new one. If a new window still can't find it, run the install line again; on Linux and macOS it prints the `PATH` line to add when `~/.local/bin` isn't on it                                                       |
 | macOS: `ERROR: install bash and jq with Homebrew (brew install bash jq), then run this again.`     | The installer needs Homebrew's bash and `jq` (macOS's own bash is too old). Run `brew install bash jq`, then the install line again. More in [Restore: macOS](restore.md#troubleshooting-on-macos)                                                                                |

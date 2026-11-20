@@ -5,17 +5,35 @@ change arrives as a pull request, and nothing reaches `master` until the PR is r
 
 ## Install
 
-Linux and macOS, in a terminal. On macOS 13 or newer, install [Homebrew](https://brew.sh) first; the installer then asks to
-run `brew install bash jq`.
+The install goes through the [GitHub CLI](https://cli.github.com) (`gh`), signed in to your GitHub account. The repo
+is going private, and a signed-in `gh` can fetch the installer, clone the repo and download the program whether the
+repo is public or private, so these lines work before and after the switch.
+
+Linux, in a terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash
+sudo apt-get install gh
+gh auth login
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash
 ```
 
-Windows, in PowerShell (the 5.1 that comes with Windows is enough):
+macOS 13 or newer, in a terminal, with [Homebrew](https://brew.sh) installed (the installer then asks to run
+`brew install bash jq`):
+
+```bash
+brew install gh
+gh auth login
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash
+```
+
+Windows, in PowerShell (the 5.1 that comes with Windows is enough). Open a new window after installing `gh`, so it is
+on `PATH`:
 
 ```powershell
-irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
+winget install --id GitHub.cli -e
+# open a new PowerShell window, then:
+gh auth login
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex
 ```
 
 Each one asks before installing a missing tool (`git`, `jq` and `diffutils` on Linux, `bash` and `jq` on macOS, Git
@@ -33,11 +51,11 @@ If your machine won't run a downloaded program (a work policy, for example), ins
 That needs [Bun](https://bun.sh) or [Node](https://nodejs.org) 22.18 or newer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash -s -- --runtime node
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash -s -- --runtime node
 ```
 
 ```powershell
-$env:SYNCSETTINGS_RUNTIME = 'node'; irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
+$env:SYNCSETTINGS_RUNTIME = 'node'; gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex
 ```
 
 Use `bun` instead of `node` for Bun. Installed this way, `mksync update` says to use `git pull` in the clone instead.
