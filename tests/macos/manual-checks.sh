@@ -156,15 +156,15 @@ else
         m2_fail="${m2_fail}mksync check exited $rc (expected 0 or 3); "
     fi
 
-    # Each check line is "<STATUS> dotfiles/<root>/<file>"; a dir entry lists its files under <file>/.
+    # Each check line is "  <STATUS>  dotfiles/<root>/<file>" (indented, padded); a dir entry lists its files under <file>/.
     for file in shell/.zshrc shell/.zprofile git/.gitconfig.local; do
-        if ! grep -qE "^[A-Z]+ dotfiles/[a-z]+/${file}\$" "$WORK/check.log"; then
+        if ! grep -qE "^ *[A-Z]+ +dotfiles/[a-z]+/${file}\$" "$WORK/check.log"; then
             m2_fail="${m2_fail}mksync check doesn't list $file; "
         fi
     done
-    if grep -qE '^[A-Z]+ dotfiles/(linux|windows)/' "$WORK/check.log"; then
+    if grep -qE '^ *[A-Z]+ +dotfiles/(linux|windows)/' "$WORK/check.log"; then
         say 'Listed but not for macOS:'
-        grep -E '^[A-Z]+ dotfiles/(linux|windows)/' "$WORK/check.log" | tee -a "$REPORT"
+        grep -E '^ *[A-Z]+ +dotfiles/(linux|windows)/' "$WORK/check.log" | tee -a "$REPORT"
         m2_fail="${m2_fail}mksync check lists linux or windows entries; "
     fi
 
