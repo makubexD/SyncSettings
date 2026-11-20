@@ -55,22 +55,6 @@ function readBytes(path: string): Uint8Array | undefined {
   }
 }
 
-/** True when `text` is JSON giving a plain object that has a `schemaVersion` key. */
-export function hasSchemaVersion(text: string): boolean {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return false;
-  }
-  return (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    !Array.isArray(parsed) &&
-    Object.hasOwn(parsed, "schemaVersion")
-  );
-}
-
 /** Decision 7's refusal of a v1 `sync-config.json`. */
 const OLD_CONFIG_ERROR: ConfigError = {
   message: "ERROR: sync-config.json: needs schemaVersion 2; this is an old config.",
