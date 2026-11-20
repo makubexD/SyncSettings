@@ -154,7 +154,11 @@ setup_install_origin() {
 }
 
 # Stubs for the install cases: sudo and apt-get log their arguments (the
-# install one links the real jq into the stub folder) and gh is signed in.
+# install one links the real jq into the stub folder) and gh answers as a
+# signed-in CLI does. Every gh call is logged to gh.log; auth status fails while
+# a gh-not-signed-in file is in the stub folder, release view prints the case's
+# latest tag, and release download copies the -p files out of the case's
+# release folder into -D.
 make_install_stubs() {
     cat > "$t/stub/sudo" <<EOF
 #!/bin/sh
@@ -171,8 +175,43 @@ fi
 exit 0
 EOF
     chmod +x "$t/stub/apt-get"
-    cat > "$t/stub/gh" <<'EOF'
+    cat > "$t/stub/gh" <<EOF
 #!/bin/sh
+printf 'gh %s\n' "\$*" >> "$t/stub/gh.log"
+cmd=\$1
+shift
+case \$cmd in
+    auth)
+        if [ -e "$t/stub/gh-not-signed-in" ]; then
+            printf 'You are not logged into any GitHub hosts.\n' >&2
+            exit 1
+        fi
+        ;;
+    release)
+        sub=\$1
+        shift
+        case \$sub in
+            view) cat "$t/release/latest" ;;
+            download)
+                tag=\$1
+                shift
+                names=''
+                dir=''
+                while [ "\$#" -gt 0 ]; do
+                    case \$1 in
+                        -p) names="\$names \$2"; shift 2 ;;
+                        -D) dir=\$2; shift 2 ;;
+                        *) shift ;;
+                    esac
+                done
+                for name in \$names; do
+                    cp "$t/release/download/\$tag/\$name" "\$dir/\$name" || exit 1
+                done
+                ;;
+            *) exit 1 ;;
+        esac
+        ;;
+esac
 exit 0
 EOF
     chmod +x "$t/stub/gh"
@@ -216,7 +255,9 @@ make_install_path() {
 }
 
 # Run install.sh against the bare origin with a throwaway HOME. $1 is the PATH,
-# $2 the answers source, and the rest are installer arguments.
+# $2 the answers source, and the rest are installer arguments. A case sets
+# SYNCSETTINGS_RELEASE_URL to '' to send the installer through gh, with the
+# case's file:// release as the default otherwise.
 run_install() {
     local path=$1 tty=$2
     shift 2
@@ -224,7 +265,7 @@ run_install() {
     (cd "$t" && PATH="$path" HOME="$t/home" GH="$t/stub/gh" \
         SYNC_OS="${SYNC_OS:-}" SYNC_ARCH="${SYNC_ARCH:-}" SYNC_BREW_BASH="${SYNC_BREW_BASH:-}" \
         SYNCSETTINGS_REPO_URL="$t/origin.git" SYNCSETTINGS_TTY="$tty" \
-        SYNCSETTINGS_RELEASE_URL="${SYNCSETTINGS_RELEASE_URL:-file://$t/release}" \
+        SYNCSETTINGS_RELEASE_URL="${SYNCSETTINGS_RELEASE_URL-file://$t/release}" \
         GIT_TERMINAL_PROMPT=0 "$REPO/install.sh" "$@") > "$out" 2>&1 || rc=$?
 }
 
@@ -590,6 +631,70 @@ case_install_twice() {
 
     [[ $(sha256_of "$t/home/.local/bin/mksync") == "$hash" ]] || fail "the second install changed the program"
     [[ $(file_mode "$t/home/.local/bin/mksync") == "$mode" ]] || fail "the second install changed the mode"
+}
+
+# gh signed in and no release URL: the tag and both release files come through
+# gh, and curl never runs.
+case_install_gh_download() {
+    setup_install_origin
+    make_install_stubs
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    [[ ! -s $t/stub/curl.log ]] || fail "curl ran although gh is signed in"
+    grep -Fq 'gh release view --repo makubexD/SyncSettings --json tagName -q .tagName' "$t/stub/gh.log" \
+        || fail "gh release view did not name the tag"
+    grep -Fq 'gh release download v9.9.9 --repo makubexD/SyncSettings -p mksync-linux-x64 -p SHA256SUMS' \
+        "$t/stub/gh.log" || fail "gh release download did not fetch the asset and SHA256SUMS"
+    cmp -s "$t/home/.local/bin/mksync" "$t/release/download/v9.9.9/mksync-linux-x64" \
+        || fail "mksync is not the downloaded program"
+}
+
+# gh signed in and no release URL: the clone carries gh's credential helper as
+# git options for that one command, and it still clones the case's local origin.
+case_install_gh_clone_helper() {
+    local real_git
+    setup_install_origin
+    make_install_stubs
+    real_git=$(command -v git)
+    cat > "$t/stub/git" <<EOF
+#!/bin/sh
+printf 'git %s\n' "\$*" >> "$t/stub/git.log"
+exec "$real_git" "\$@"
+EOF
+    chmod +x "$t/stub/git"
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    grep -Fq "credential.https://github.com.helper=!$t/stub/gh auth git-credential" "$t/stub/git.log" \
+        || fail "the clone did not carry gh's credential helper"
+    grep -Fq "clone -q --branch master $t/origin.git $t/home/SyncSettings" "$t/stub/git.log" \
+        || fail "the clone did not come from the case's origin"
+    [[ -d $t/home/SyncSettings/.git ]] || fail "the clone was not created"
+}
+
+# gh not signed in and no release URL: the plain curl path asks GitHub for the
+# latest release, and gh serves no release files.
+case_install_gh_not_signed_in() {
+    setup_install_origin
+    make_install_stubs
+    : > "$t/stub/gh-not-signed-in"
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 1 )) || fail "install.sh exited $rc, want 1"
+
+    grep -Fq 'https://github.com/makubexD/SyncSettings/releases/latest' "$t/stub/curl.log" \
+        || fail "the curl path did not ask for the latest release"
+    grep -Fq 'ERROR: could not find the latest release at https://github.com/makubexD/SyncSettings/releases.' \
+        "$out" || fail "missing the no-release error"
+    if grep -q '^gh release ' "$t/stub/gh.log"; then
+        fail "gh fetched the release while not signed in"
+    fi
 }
 
 # -- Runner --------------------------------------------------------------------

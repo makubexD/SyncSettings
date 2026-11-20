@@ -10,6 +10,10 @@ set -euo pipefail
 # The download folder, removed when the installer exits.
 work_tmp=''
 
+# 1 when gh carries the clone and the release files: it is signed in and
+# SYNCSETTINGS_RELEASE_URL names no other release. Decided once, in main.
+gh_release=0
+
 usage() {
     printf 'usage: install.sh [--yes] [--no-setup] [--runtime bun|node]\n'
     printf '  --yes                answer yes to the questions\n'
@@ -200,13 +204,38 @@ is_clone_with_origin() {
     git -C "$dir" remote get-url origin > /dev/null 2>&1
 }
 
+# True when $1 is a github.com URL: the only remote gh's credential helper is
+# for.
+is_github_url() {
+    case $1 in
+        https://github.com/*|git@github.com:*|ssh://git@github.com/*) return 0 ;;
+    esac
+    return 1
+}
+
+# Run git with the credential helper gh provides. The two -c options cover that
+# one command only, so nothing is written to ~/.gitconfig.
+git_gh() {
+    git -c 'credential.https://github.com.helper=' \
+        -c "credential.https://github.com.helper=!${GH:-gh} auth git-credential" "$@"
+}
+
 # Clone the repo, or fast-forward an existing clone, then check it looks like
-# SyncSettings.
+# SyncSettings. With gh signed in, the clone carries gh's credential helper,
+# and so does a pull from github.com, where a pull from anywhere else has none.
 install_repo() {
-    local dir=$1 url=$2 ref=$3
+    local dir=$1 url=$2 ref=$3 origin git_cmd=git
+
+    if (( gh_release )); then
+        git_cmd=git_gh
+    fi
 
     if is_clone_with_origin "$dir"; then
-        if ! git -C "$dir" pull --ff-only -q; then
+        origin=$(git -C "$dir" remote get-url origin 2> /dev/null || true)
+        if ! is_github_url "$origin"; then
+            git_cmd=git
+        fi
+        if ! "$git_cmd" -C "$dir" pull --ff-only -q; then
             printf 'ERROR: could not update %s; resolve it and run this again.\n' "$dir" >&2
             exit 1
         fi
@@ -216,7 +245,7 @@ install_repo() {
             printf "ERROR: %s exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR.\n" "$dir" >&2
             exit 1
         fi
-        if ! git clone -q --branch "$ref" "$url" "$dir"; then
+        if ! "$git_cmd" clone -q --branch "$ref" "$url" "$dir"; then
             printf 'ERROR: could not clone %s.\n' "$url" >&2
             exit 1
         fi
@@ -258,10 +287,32 @@ release_tag() {
     esac
 }
 
+# The latest release tag: through gh when it is signed in, else release_tag.
+latest_tag() {
+    local base=$1
+    if (( gh_release )); then
+        "${GH:-gh}" release view --repo makubexD/SyncSettings --json tagName -q .tagName 2> /dev/null
+    else
+        release_tag "$base"
+    fi
+}
+
 # Download $1 to $2, or stop with the URL that failed.
 fetch_release_file() {
     if ! curl -fsSL -o "$2" "$1"; then
         printf 'ERROR: could not download %s.\n' "$1" >&2
+        exit 1
+    fi
+}
+
+# Download the release asset and SHA256SUMS through gh into $3, for a private
+# repo too.
+fetch_gh_release() {
+    local tag=$1 asset=$2 dir=$3
+    if ! "${GH:-gh}" release download "$tag" --repo makubexD/SyncSettings \
+        -p "$asset" -p SHA256SUMS -D "$dir" > /dev/null 2>&1; then
+        printf 'ERROR: could not download %s.\n' \
+            "https://github.com/makubexD/SyncSettings/releases/download/$tag/$asset" >&2
         exit 1
     fi
 }
@@ -371,12 +422,16 @@ install_program() {
 
     # GitHub's latest link lands on /releases while no release exists, so a
     # tag that isn't v<x.y.z> means there is none.
-    if ! tag=$(release_tag "$base") || [[ ! $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if ! tag=$(latest_tag "$base") || [[ ! $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         printf 'ERROR: could not find the latest release at %s.\n' "$base" >&2
         exit 1
     fi
-    fetch_release_file "$base/download/$tag/$asset" "$tmp/$asset"
-    fetch_release_file "$base/download/$tag/SHA256SUMS" "$tmp/SHA256SUMS"
+    if (( gh_release )); then
+        fetch_gh_release "$tag" "$asset" "$tmp"
+    else
+        fetch_release_file "$base/download/$tag/$asset" "$tmp/$asset"
+        fetch_release_file "$base/download/$tag/SHA256SUMS" "$tmp/SHA256SUMS"
+    fi
 
     hash=$(sum_for "$tmp/SHA256SUMS" "$asset" || true)
     if [[ -z $hash || $(sha256_file "$tmp/$asset") != "$hash" ]]; then
@@ -451,6 +506,13 @@ main() {
     os=$(check_platform)
 
     tty=$(resolve_tty)
+
+    # Once the repo is private, the clone and the release files both need a
+    # sign-in: gh carries them when it is signed in and no release URL
+    # overrides its GitHub one.
+    if [[ -z ${SYNCSETTINGS_RELEASE_URL:-} ]] && "${GH:-gh}" auth status > /dev/null 2>&1; then
+        gh_release=1
+    fi
 
     if [[ $os == macos ]]; then
         brew_bash=$(ensure_macos_tools "$yes" "$tty")
