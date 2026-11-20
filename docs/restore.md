@@ -11,13 +11,13 @@ On a Mac, see [macOS](#macos): there is no bootstrap, so apps come from Homebrew
 The repo holds your configs and the lists of what to install. It doesn't hold the files below, so each one needs its own
 backup, such as a password manager:
 
-| What | Where | Without it |
-|---|---|---|
-| DeepSeek key | `~/.config/claude-workers/env` | `mk-exec` can't run |
+| What               | Where                              | Without it                                                     |
+| ------------------ | ---------------------------------- | -------------------------------------------------------------- |
+| DeepSeek key       | `~/.config/claude-workers/env`     | `mk-exec` can't run                                            |
 | OmniRoute settings | `~/.config/opencode/omniroute.env` | Nothing in the shell breaks; the line that loads it is guarded |
-| RepoWn accounts | `~/.config/repown/accounts.json` | You add the accounts again |
-| SSH keys | `~/.ssh` | You make new ones and register them |
-| GPG keys | `~/.gnupg` | You can't sign or decrypt with the old keys |
+| RepoWn accounts    | `~/.config/repown/accounts.json`   | You add the accounts again                                     |
+| SSH keys           | `~/.ssh`                           | You make new ones and register them                            |
+| GPG keys           | `~/.gnupg`                         | You can't sign or decrypt with the old keys                    |
 
 Sign-ins aren't backed up either, but you only have to repeat them: `gh`, Claude Code and VS Code Settings Sync.
 
@@ -26,10 +26,13 @@ Your own projects, and anything else outside the synced files, are also not here
 ## Restore Ubuntu
 
 Install Ubuntu 26.04 and sign in to the desktop. Open a terminal on the desktop, not a text console or SSH, because the GNOME
-settings need your desktop session. Then run:
+settings need your desktop session. Then install the GitHub CLI, sign in, and run the installer through it (this works
+whether the repo is public or private):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash
+sudo apt-get install gh
+gh auth login
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash
 ```
 
 It installs `git` and `jq` if needed (it asks first), clones the repo to `~/SyncSettings`, and runs `mksync setup`. Answer
@@ -49,27 +52,27 @@ ends with `./sync preview`, so the last thing on screen is the state of the mach
 
 ### What the lines mean
 
-| Status | Means | What to do |
-|---|---|---|
-| `INSTALLED` | Bootstrap added it | Nothing |
-| `UNCHANGED` | It was already there | Nothing |
-| `SKIPPED` | Bootstrap left it alone, and the note says why | See below |
-| `ERROR` | That item failed, and the steps after it still ran | Read the message above it, fix the cause, and rerun |
-| `WOULD` | `--dry-run` only: it's missing, and a real run would install it | Rerun without `--dry-run` |
+| Status      | Means                                                           | What to do                                          |
+| ----------- | --------------------------------------------------------------- | --------------------------------------------------- |
+| `INSTALLED` | Bootstrap added it                                              | Nothing                                             |
+| `UNCHANGED` | It was already there                                            | Nothing                                             |
+| `SKIPPED`   | Bootstrap left it alone, and the note says why                  | See below                                           |
+| `ERROR`     | That item failed, and the steps after it still ran              | Read the message above it, fix the cause, and rerun |
+| `WOULD`     | `--dry-run` only: it's missing, and a real run would install it | Rerun without `--dry-run`                           |
 
 Import prints its own status for each file, such as `CREATED` and `UPDATED`. See [sync-contract.md](sync-contract.md#statuses).
 
 Bootstrap exits 1 if any step failed, and the summary names each one. Rerunning is always safe: it skips what's there and retries
 what isn't.
 
-| `SKIPPED` note | Means | What to do |
-|---|---|---|
-| `no desktop session` | You ran it outside the desktop, so import and preview didn't run | Rerun from a terminal on the desktop |
-| `snapd not running` | Normal in a container. On a desktop, snapd isn't working | Fix snapd and rerun |
-| `code not installed` | The VS Code snap didn't install | Fix the snap step first |
-| `differs from the repo` | An apt source or key on the machine isn't the repo's copy. Bootstrap keeps it, because a key may have rotated on purpose | Read [Replace a rotated key](packages.md#replace-a-rotated-key) |
-| `exists; left alone` | A different file is at `~/.local/bin/<name>` | Remove it if you want the link, and rerun |
-| `settings.json or claude not installed` | Import or the Claude step didn't finish | Fix that first, and rerun |
+| `SKIPPED` note                          | Means                                                                                                                    | What to do                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `no desktop session`                    | You ran it outside the desktop, so import and preview didn't run                                                         | Rerun from a terminal on the desktop                            |
+| `snapd not running`                     | Normal in a container. On a desktop, snapd isn't working                                                                 | Fix snapd and rerun                                             |
+| `code not installed`                    | The VS Code snap didn't install                                                                                          | Fix the snap step first                                         |
+| `differs from the repo`                 | An apt source or key on the machine isn't the repo's copy. Bootstrap keeps it, because a key may have rotated on purpose | Read [Replace a rotated key](packages.md#replace-a-rotated-key) |
+| `exists; left alone`                    | A different file is at `~/.local/bin/<name>`                                                                             | Remove it if you want the link, and rerun                       |
+| `settings.json or claude not installed` | Import or the Claude step didn't finish                                                                                  | Fix that first, and rerun                                       |
 
 ## Finish by hand
 
@@ -126,10 +129,14 @@ until it updates.
 
 ## Windows
 
-A new Windows machine starts from one line in PowerShell, as your own user:
+A new Windows machine starts in PowerShell, as your own user: install the GitHub CLI, open a new window, sign in, and
+run the installer through it (this works whether the repo is public or private):
 
 ```powershell
-irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex
+winget install --id GitHub.cli -e
+# open a new PowerShell window, then:
+gh auth login
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex
 ```
 
 It offers to install Git and the GitHub CLI with `winget` (it asks first), clones the repo to `%USERPROFILE%\SyncSettings`,
@@ -170,10 +177,10 @@ run it on a physical Mac yet.
 
 ### Troubleshooting on macOS
 
-| You see | Do |
-|---|---|
-| `ERROR: SyncSettings needs bash 4.4 or newer (this is 3.2.57…)` | `brew install bash`. The scripts switch to Homebrew's bash by themselves once it's in `/opt/homebrew/bin` or `/usr/local/bin` |
-| `ERROR: install Homebrew first: https://brew.sh` | Install Homebrew with the line on its site, open a new Terminal, and run the install line again |
-| `MISSING  jq: install with brew install jq` | `brew install jq` |
-| `brew` not found right after installing it | Homebrew isn't on `PATH` yet. Apple silicon Macs use `/opt/homebrew`, Intel Macs `/usr/local`; the synced `~/.zprofile` loads whichever exists, or run `eval "$(/opt/homebrew/bin/brew shellenv)"` (`/usr/local/bin/brew` on Intel) |
-| `WARN  macOS 12.7 is older than 13` | Update macOS. Older releases may work, but Homebrew and the CI run only cover 13 and newer |
+| You see                                                         | Do                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ERROR: SyncSettings needs bash 4.4 or newer (this is 3.2.57…)` | `brew install bash`. The scripts switch to Homebrew's bash by themselves once it's in `/opt/homebrew/bin` or `/usr/local/bin`                                                                                                       |
+| `ERROR: install Homebrew first: https://brew.sh`                | Install Homebrew with the line on its site, open a new Terminal, and run the install line again                                                                                                                                     |
+| `MISSING  jq: install with brew install jq`                     | `brew install jq`                                                                                                                                                                                                                   |
+| `brew` not found right after installing it                      | Homebrew isn't on `PATH` yet. Apple silicon Macs use `/opt/homebrew`, Intel Macs `/usr/local`; the synced `~/.zprofile` loads whichever exists, or run `eval "$(/opt/homebrew/bin/brew shellenv)"` (`/usr/local/bin/brew` on Intel) |
+| `WARN  macOS 12.7 is older than 13`                             | Update macOS. Older releases may work, but Homebrew and the CI run only cover 13 and newer                                                                                                                                          |

@@ -67,7 +67,7 @@ const TAKE_REPO_OR_SEND =
 const FILE_BY_FILE = "mksync diff, then push or pull file by file.";
 
 const MACHINE_UNKNOWN =
-  "the machine check failed; run ./import.sh --check to see why.";
+  "the machine check failed; run mksync check to see why.";
 
 /** Contract "Front door": the origin line's text. */
 function originText(origin: OriginFact): string {
@@ -102,7 +102,7 @@ function unsentText(unsent: number | null): string {
 function machineText(machine: MachineFact): string {
   switch (machine.kind) {
     case "unknown":
-      return "not checked: run ./import.sh --check to see why";
+      return "not checked: run mksync check to see why";
     case "match":
       return "matches the repo";
     case "differ":

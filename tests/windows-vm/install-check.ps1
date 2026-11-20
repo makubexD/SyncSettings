@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
     Checks install.ps1 in the Windows VM: a folder release served over file://,
-    a bare origin built from this copy of the working tree, and a fake program
-    that logs its arguments. Prints `install-check: ok` and exits 0, or the
-    failed check and exits 1.
+    a bare origin built from this copy of the working tree, a fake program
+    that logs its arguments, and stubs for gh and git. Prints
+    `install-check: ok` and exits 0, or the failed check and exits 1.
 .DESCRIPTION
     Run from the repo copy in the VM:
         powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-vm/install-check.ps1
@@ -75,8 +75,9 @@ trap {
 # Runs install.ps1 the way a user does: -File, so its last line exits with
 # Install-SyncSettings' code. -Settings overrides the defaults and a $null
 # removes that variable; every other SYNCSETTINGS_* variable is removed.
+# -PathPrefix puts the case's stub folders ahead of the real Path.
 function Invoke-Install {
-    param([hashtable]$Settings = @{})
+    param([hashtable]$Settings = @{}, [string[]]$PathPrefix = @())
     $config = @{
         SYNCSETTINGS_REPO_URL = $Origin
         SYNCSETTINGS_DIR = $InstallDir
@@ -94,10 +95,15 @@ function Invoke-Install {
             [Environment]::SetEnvironmentVariable($name, $null)
         }
     }
+    $savedPath = $env:Path
+    if ($PathPrefix.Count -gt 0) {
+        $env:Path = ($PathPrefix -join ';') + ';' + $savedPath
+    }
     try {
         $script:InstallOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Repo 'install.ps1') 2>&1 | Out-String
         $script:InstallExit = $LASTEXITCODE
     } finally {
+        $env:Path = $savedPath
         [Environment]::SetEnvironmentVariable('Path', $SavedUserPath, 'User')
     }
     return @{ Out = $script:InstallOut; Exit = $script:InstallExit }
@@ -157,6 +163,116 @@ $null = New-Item -ItemType Directory -Path $TagDir -Force
 Copy-Item -LiteralPath $Program -Destination (Join-Path $TagDir $Asset)
 $ProgramHash = (Get-FileHash -LiteralPath $Program -Algorithm SHA256).Hash
 Write-Sums $ProgramHash
+
+# 2b. A gh stub: every call is logged to gh.log, auth status fails while the
+#     gh-not-signed-in file is in the folder, release view prints the case's
+#     latest tag, and release download copies the -p files out of the folder
+#     release into -D. Its folder has a space in the name, as the GitHub CLI's
+#     own does; the clone's credential helper names gh bare, found on PATH.
+$GhStubDir = Join-Path $T 'gh stub'
+$GhStub = Join-Path $GhStubDir 'gh.cmd'
+$GhLog = Join-Path $GhStubDir 'gh.log'
+$GhNotSignedIn = Join-Path $GhStubDir 'gh-not-signed-in'
+$null = New-Item -ItemType Directory -Path $GhStubDir -Force
+$ghLines = @(
+    '@echo off',
+    ('>> "' + $GhLog + '" echo gh %*'),
+    'if /I "%~1"=="auth" goto auth',
+    'if /I "%~1"=="release" goto release',
+    'exit /b 0',
+    '',
+    ':auth',
+    ('if exist "' + $GhNotSignedIn + '" exit /b 1'),
+    'exit /b 0',
+    '',
+    ':release',
+    'if /I "%~2"=="view" goto view',
+    'if /I "%~2"=="download" goto download',
+    'exit /b 1',
+    '',
+    ':view',
+    ('type "' + (Join-Path $Release 'latest') + '"'),
+    'exit /b 0',
+    '',
+    ':download',
+    'set "tag=%~3"',
+    'shift',
+    'shift',
+    'set "names="',
+    'set "dir="',
+    ':download_args',
+    'if "%~1"=="" goto download_copy',
+    'if /I "%~1"=="-p" (',
+    '    set "names=%names% %~2"',
+    '    shift',
+    '    shift',
+    '    goto download_args',
+    ')',
+    'if /I "%~1"=="-D" (',
+    '    set "dir=%~2"',
+    '    shift',
+    '    shift',
+    '    goto download_args',
+    ')',
+    'shift',
+    'goto download_args',
+    '',
+    ':download_copy',
+    ('for %%f in (%names%) do copy /Y "' + $Release + '\download\%tag%\%%~f" "%dir%\%%~f" >nul || exit /b 1'),
+    'exit /b 0'
+)
+[IO.File]::WriteAllText($GhStub, (($ghLines -join "`r`n") + "`r`n"), [Text.Encoding]::ASCII)
+
+# 2c. A git stub: it logs the arguments it receives, one per line, then runs
+#     the real git with the same ones.
+$GitStubDir = Join-Path $T 'gitstub'
+$GitStub = Join-Path $GitStubDir 'git.exe'
+$GitLog = Join-Path $GitStubDir 'git.log'
+$null = New-Item -ItemType Directory -Path $GitStubDir -Force
+$RealGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+$gitSource = @"
+public class MksyncCheckGit {
+    static string Quote(string s) {
+        if (s.Length > 0 && s.IndexOfAny(new char[] { ' ', '\t', '"', '\n', '\v' }) < 0) {
+            return s;
+        }
+        var sb = new System.Text.StringBuilder("\"");
+        int slashes = 0;
+        foreach (char c in s) {
+            if (c == '\\') {
+                slashes++;
+                continue;
+            }
+            if (c == '"') {
+                sb.Append('\\', 2 * slashes + 1);
+                sb.Append('"');
+            } else {
+                sb.Append('\\', slashes);
+                sb.Append(c);
+            }
+            slashes = 0;
+        }
+        sb.Append('\\', 2 * slashes);
+        sb.Append('"');
+        return sb.ToString();
+    }
+
+    public static int Main(string[] args) {
+        System.IO.File.AppendAllText(@"$GitLog", string.Join("\n", args) + "\n---\n");
+        var info = new System.Diagnostics.ProcessStartInfo(@"$RealGit");
+        info.UseShellExecute = false;
+        var parts = new System.Collections.Generic.List<string>();
+        foreach (string a in args) {
+            parts.Add(Quote(a));
+        }
+        info.Arguments = string.Join(" ", parts.ToArray());
+        var p = System.Diagnostics.Process.Start(info);
+        p.WaitForExit();
+        return p.ExitCode;
+    }
+}
+"@
+Add-Type -TypeDefinition $gitSource -OutputType ConsoleApplication -OutputAssembly $GitStub
 
 # 3. The checks, in order; the first failure stops the script.
 Remove-Item -LiteralPath $Log -Force -ErrorAction SilentlyContinue
@@ -304,6 +420,96 @@ $afterHash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
 $afterTime = (Get-Item -LiteralPath $exe).LastWriteTimeUtc
 if ($afterHash -ne $beforeHash -or $afterTime -ne $beforeTime) {
     Stop-Check 'second: mksync.exe changed'
+}
+
+# gh-download: with gh signed in and no release URL, the tag and both release
+# files come through gh. The empty release URL leaves the plain path pointing
+# at github.com, so the program's hash proves the stub's copy is what landed.
+Reset-Bin
+Remove-Item -LiteralPath $GhLog -Force -ErrorAction SilentlyContinue
+$run = Invoke-Install -Settings @{ SYNCSETTINGS_RELEASE_URL = '' } -PathPrefix @($GhStubDir)
+if ($run.Exit -ne 0) {
+    Stop-Check "gh-download: exit $($run.Exit)`n$($run.Out)"
+}
+$installedHash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+if ($installedHash -ine $ProgramHash) {
+    Stop-Check 'gh-download: the program is not the release fixture'
+}
+$ghText = [IO.File]::ReadAllText($GhLog)
+if (-not $ghText.Contains('gh release view --repo makubexD/SyncSettings --json tagName -q .tagName')) {
+    Stop-Check "gh-download: gh release view did not name the tag`n$ghText"
+}
+if (-not $ghText.Contains('gh release download v9.9.9 --repo makubexD/SyncSettings -p mksync-windows-x64.exe -p SHA256SUMS -D ')) {
+    Stop-Check "gh-download: gh release download did not fetch the asset and SHA256SUMS`n$ghText"
+}
+
+# gh-clone: with gh signed in and no release URL, the clone carries gh's
+# credential helper as -c options for that one command, and it still clones
+# the case's local origin.
+Reset-Bin
+if (Test-Path -LiteralPath $InstallDir) {
+    Remove-Item -LiteralPath $InstallDir -Recurse -Force
+}
+Remove-Item -LiteralPath $GhLog, $GitLog -Force -ErrorAction SilentlyContinue
+$run = Invoke-Install -Settings @{
+    SYNCSETTINGS_RELEASE_URL = ''
+    SYNCSETTINGS_NO_SETUP = '1'
+} -PathPrefix @($GhStubDir, $GitStubDir)
+if ($run.Exit -ne 0) {
+    Stop-Check "gh-clone: exit $($run.Exit)`n$($run.Out)"
+}
+$gitArgs = @([IO.File]::ReadAllLines($GitLog))
+if (-not ($gitArgs -contains 'credential.https://github.com.helper=')) {
+    Stop-Check "gh-clone: the clone did not reset the credential helper`n$($gitArgs -join "`n")"
+}
+$helperWant = 'credential.https://github.com.helper=!gh auth git-credential'
+if (@($gitArgs | Where-Object { $_ -ieq $helperWant }).Count -eq 0) {
+    Stop-Check "gh-clone: the clone did not carry gh's credential helper`n$($gitArgs -join "`n")"
+}
+if (-not ($gitArgs -contains 'clone')) {
+    Stop-Check "gh-clone: git never cloned`n$($gitArgs -join "`n")"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $InstallDir '.git'))) {
+    Stop-Check 'gh-clone: the clone was not created'
+}
+$originNow = @(& git -C $InstallDir remote get-url origin 2>$null)
+if ($originNow.Count -ne 1 -or $originNow[0] -ne $Origin) {
+    Stop-Check "gh-clone: the clone's origin is $originNow"
+}
+
+# gh-not-signed-in: with gh signed out and no release URL, gh is asked once
+# whether it is signed in and then serves nothing, and the clone carries no
+# credential helper. A runtime install stops before the program download,
+# whose plain HTTPS path would reach github.com; every other case runs that
+# path over file://.
+Reset-Bin
+if (Test-Path -LiteralPath $InstallDir) {
+    Remove-Item -LiteralPath $InstallDir -Recurse -Force
+}
+Remove-Item -LiteralPath $GhLog, $GitLog -Force -ErrorAction SilentlyContinue
+[IO.File]::WriteAllText($GhNotSignedIn, '')
+try {
+    $run = Invoke-Install -Settings @{
+        SYNCSETTINGS_RELEASE_URL = ''
+        SYNCSETTINGS_RUNTIME = 'node'
+        SYNCSETTINGS_NO_SETUP = '1'
+    } -PathPrefix @($GhStubDir, $GitStubDir)
+} finally {
+    Remove-Item -LiteralPath $GhNotSignedIn -Force -ErrorAction SilentlyContinue
+}
+if ($run.Exit -ne 0) {
+    Stop-Check "gh-not-signed-in: exit $($run.Exit)`n$($run.Out)"
+}
+$ghArgs = @([IO.File]::ReadAllLines($GhLog))
+if ($ghArgs.Count -ne 1 -or $ghArgs[0].Trim() -ne 'gh auth status') {
+    Stop-Check "gh-not-signed-in: gh was asked for more than the sign-in`n$($ghArgs -join "`n")"
+}
+$gitArgs = @([IO.File]::ReadAllLines($GitLog))
+if (@($gitArgs | Where-Object { $_.StartsWith('credential.https://github.com.helper') }).Count -gt 0) {
+    Stop-Check "gh-not-signed-in: the clone carried a credential helper`n$($gitArgs -join "`n")"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $InstallDir '.git'))) {
+    Stop-Check 'gh-not-signed-in: the clone was not created'
 }
 
 Restore-Settings

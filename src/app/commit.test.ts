@@ -221,6 +221,29 @@ describe("executeCommit", () => {
     );
   });
 
+  test("should refuse to commit on a branch other than master", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture();
+    const branch = "feature";
+    git(repoRoot, ["switch", "-c", branch]);
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location: stateLocation(state),
+      command: COMMAND,
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      `ERROR: run mksync commit from master (current: ${branch}).\n`,
+    );
+  });
+
   test("should refuse to commit when the leak scan cannot run (commit-scan-missing)", async () => {
     // Arrange
     const { repoRoot, state, ghLog } = fixture({ leakScan: false });

@@ -206,6 +206,10 @@ contract, and tests match on them.
 | `merge: dconf`: `dconf dump` failed               | `ERROR`     | `dconf dump failed`                                    |
 | Read, write or copy failed                        | `ERROR`     | the reason                                             |
 
+An export that copies nothing but skipped missing local files ends its summary with
+`Note: <n> file(s) skipped because they do not exist locally.` and
+`If this is a new machine, run  mksync setup  first to apply the repo settings.`
+
 ### Import
 
 | Case                                                                      | Status      | Note                                                             |
@@ -472,6 +476,8 @@ scan, the cached values. Besides:
   machine without Git Bash) the scan can't run, and the commit stops with that line.
 - **Cached values with a record.** The values searched are the record's and its profile's, where `.user-values.json`
   holds them without one.
+- **On `master`.** After the checks, commit runs only from `master`: any other branch stops it with
+  `ERROR: run mksync commit from master (current: <branch>).`, exit 1, before the fetch.
 - **The PR.** Branch `sync/<os>-<machine>-<stamp>`, the machine from the record when there is one, else a machine alias
   asked once and saved; the PR body adds `Profile: <p>` when there is a record.
 - **Git failures.** A git step that fails (reading the branch, the fetch, the counts, creating the branch, reading the
@@ -697,7 +703,7 @@ system, except where this section says otherwise.
 | `mksync push [--yes] [-m <msg>] [path…]` | First runs `git fetch -q origin master`: any commit in `HEAD..origin/master` stops it with `ERROR: origin has updates; run mksync pull first.`, nothing exported (a failed fetch skips this check). Then runs the export. Picked paths go to it as `--only`, and any path makes `mksync commit` run with `--partial`, so a partial push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short` (over `dotfiles`, `packages`, `sync-config.json`, `profiles` and `machines`), asks `Open a PR with these changes? [Y/n]`, then runs `mksync commit` | 0, or the failing step's code                                   |
 | `mksync diff [path…]`                    | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `mksync export --diff` ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing                                                                                                                                                                                                                                                  | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview`         | The [import check](#import-check) and the [export preview](#export-preview); neither writes anything                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 0, 3 from a check that found changes, or 1 on an error          |
-| `mksync setup [--yes] [--bootstrap] …`   | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the import check; on Ubuntu with an executable `bootstrap/linux.sh`, `Also restore apps and packages … [y/N]`: `y` runs it and setup ends, and `--bootstrap` runs it without asking. Then the machine record's questions ([`mksync setup`](#mksync-setup)), and it applies like `pull`. macOS never asks and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1. Windows has no bootstrap question and no `--bootstrap`                                              | 0, or 1 on an error                                             |
+| `mksync setup [--yes] [--bootstrap] …`   | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the import check; on Ubuntu with an executable `bootstrap/linux.sh`, `Also restore apps and packages … [y/N]`: `y` runs it and setup ends, and `--bootstrap` runs it without asking. Then the machine record's questions ([`mksync setup`](#mksync-setup)), and it applies like `pull`. macOS and Windows never ask, and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor                                                                       | 0, or 1 on an error                                             |
 | `mksync update`                          | Replaces the installed program with a newer release, checked as the installers check ([Update](#update))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 0, 1 on a failed download or check, 2 run from the clone        |
 | `mksync machine …`, `mksync profile …`   | The machine record and retiring a machine or profile ([Machines](#machines))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | as there                                                        |
 
@@ -736,7 +742,9 @@ More rules per command:
 
 - **`status`** never suggests `mksync push` on a pull-only machine: it skips the unsent row, and a machine that differs
   gets `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
-  `OUT` or `BOTH` file. It adds the [linked folder](#linked-folders) lines after the machine line.
+  `OUT` or `BOTH` file. It adds the [linked folder](#linked-folders) lines after the machine line. When the import
+  check itself fails, the machine line is `not checked: run mksync check to see why` and the next command is
+  `the machine check failed; run mksync check to see why.`
 - **`doctor`** checks what the program needs, in this order: `git`; on macOS `brew` (`MISSING brew: install from
 https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
   (`WARN no machine record; run mksync setup`); `values`; `bash` (`WARN bash: needed by the leak scan; install with
@@ -784,11 +792,22 @@ ERROR: <asset>: attestation check failed.
 A latest link that names no `v<x.y.z>` tag (GitHub's `/releases` page while no release exists) is `could not find the
 latest release`.
 
+**Through `gh`.** When `SYNCSETTINGS_RELEASE_URL` is unset or empty and `gh auth status` succeeds (decided once per
+run), the installer works on a private repo too: the tag comes from
+`gh release view --repo makubexD/SyncSettings --json tagName -q .tagName`, the asset and `SHA256SUMS` from
+`gh release download <tag> --repo makubexD/SyncSettings -p <asset> -p SHA256SUMS -D <temp folder>`, and the checks
+above run unchanged. The clone, and the pull of an existing clone whose origin is on `github.com`, runs with
+`-c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential'` for that
+one git command; nothing is written to `~/.gitconfig`. A failing `gh` gives the same error lines as a failing
+download. Otherwise the installer downloads over HTTPS as above.
+
 The run-from-clone fallback, for a machine that blocks the program: `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on
 Windows) skips the download and puts the clone's launcher on `PATH` instead ([The program](#the-program)).
 
-`install.sh`, run as `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`
-(flags after `bash -s --`):
+`install.sh`, run with a signed-in `gh` as
+`gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash` (flags after
+`bash -s --`; while the repo is public, `curl -fsSL https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.sh | bash`
+works too):
 
 - Linux and macOS ([macOS](#macos) has its own rules); Windows shells and other systems stop with a message, exit 1.
 - Missing `git`, `jq` or `cmp`: offers `sudo apt-get install` where `apt-get` exists. Otherwise it names the packages
@@ -819,8 +838,10 @@ Windows) skips the download and puts the clone's launcher on `PATH` instead ([Th
 | `SYNC_ARCH`                       | `uname -m`                                                              |
 | `SYNC_OS_RELEASE` (status, setup) | `/etc/os-release`                                                       |
 
-`install.ps1`, run in PowerShell as
-`irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex`:
+`install.ps1`, run in PowerShell with a signed-in `gh` as
+`gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex`
+(while the repo is public, `irm https://raw.githubusercontent.com/makubexD/SyncSettings/master/install.ps1 | iex` works
+too):
 
 - Windows only; elsewhere it points to the bash installer, exit 1. It needs PowerShell 5.1. Errors are thrown and caught
   at the top, so `iex` never closes the user's window.
@@ -859,7 +880,9 @@ Windows) skips the download and puts the clone's launcher on `PATH` instead ([Th
 `mksync update` replaces the installed program with the latest release
 ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 5). It reads the latest tag at
 `MKSYNC_RELEASE_URL` (default `https://github.com/makubexD/SyncSettings/releases`) and compares it with its own
-version (`mksync --version`):
+version (`mksync --version`). With `MKSYNC_RELEASE_URL` unset or empty and `gh auth status` succeeding, the tag and
+the files come through `gh release view` and `gh release download`, as the installers do ([Install](#install)); a
+failing `gh` call gives the same error line, with `gh`'s first stderr line as the reason:
 
 - Not newer: `mksync <version> is up to date.`, exit 0, nothing downloaded but the tag.
 - Newer: it downloads `SHA256SUMS` and the program for this OS and CPU, checks the SHA256, writes it next to itself
@@ -1222,8 +1245,10 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
   `none`, `Claude only` or `Claude plus DeepSeek`; `<mode>` is `push with a preview` or `pull only`.
 - **Bootstrap.** On Ubuntu with an executable `bootstrap/linux.sh`, before the first pull:
   `Also restore apps and packages from packages/linux (uses sudo)? [y/N] `; `y` runs the script and setup ends with
-  its exit code, while an empty answer or end of input skips it. `--bootstrap` runs it without asking. macOS never
-  asks and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1. The installed program passes its
+  its exit code, while an empty answer or end of input skips it. `--bootstrap` runs it without asking. The question
+  comes after the record and the profile are written, so a `y` that fails leaves them in place; the `stop` answer to
+  question 4 ends setup before it, so it is never asked. macOS and Windows never ask, and `--bootstrap` there is
+  `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor. The installed program passes its
   own path to the script as `MKSYNC_PROGRAM`, and the script's import and preview run that program first, then
   `mksync` from `PATH`, then the clone's `./mksync`. A fresh machine whose bin folder is not on `PATH` yet still
   restores without Bun or Node.
@@ -1598,7 +1623,7 @@ leak scan are bash scripts, so macOS still needs Homebrew. The reasons and the o
   `bootstrap/linux.sh`.
 - **Front door**: the status's OS is the version `sw_vers -productVersion` prints. `doctor` adds a `brew` line after
   `git` (`MISSING brew: install from https://brew.sh`), and its install hints name `brew install …`. `setup` has no
-  bootstrap question, and `--bootstrap` stops with `ERROR: --bootstrap is Ubuntu only.`, exit 1.
+  bootstrap question, and `--bootstrap` stops with `ERROR: --bootstrap is Ubuntu only.`, exit 1, as on Windows.
 - **`install.sh`**: without `brew`, it stops with `ERROR: install Homebrew first: https://brew.sh`, exit 1. A missing `jq`
   or Homebrew bash 4.4 gets `Install with Homebrew: brew install bash jq [Y/n]`, never `sudo`. End of input is no, as
   at the apt question: it installs nothing and exits 1. The program download, the `PATH` hint and `mksync setup` work
@@ -1620,7 +1645,7 @@ cut-over (tag `two-engines-final`).
 | [Package drift](#package-drift)                  | supported                                              | prints nothing                              | prints nothing                                                   |
 | File modes                                       | kept                                                   | kept                                        | not kept: Windows has none                                       |
 | `.user-values.json` access                       | mode 600                                               | mode 600                                    | no inherited access                                              |
-| `mksync setup`                                   | offers `bootstrap/linux.sh` on Ubuntu; `--bootstrap`   | no bootstrap question; `--bootstrap` errors | no bootstrap question, no `--bootstrap`                          |
+| `mksync setup`                                   | offers `bootstrap/linux.sh` on Ubuntu; `--bootstrap`   | no bootstrap question; `--bootstrap` errors | no bootstrap question; `--bootstrap` errors                      |
 | `mksync doctor`                                  | adds the `drift` line                                  | adds `brew`                                 | `bash` hint names Git for Windows                                |
 | `mksync` on `PATH`                               | `~/.local/bin/mksync`                                  | `~/.local/bin/mksync`                       | `%LOCALAPPDATA%\mksync\mksync.exe`                               |
 | Installer                                        | `install.sh`, `curl … \| bash`, `sudo apt-get install` | `install.sh`, `brew install bash jq`        | `install.ps1`, `irm … \| iex`, winget                            |

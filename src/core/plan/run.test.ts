@@ -209,6 +209,29 @@ describe("renderRun", () => {
     expect(rendered).toEqual({ lines: expected.lines, code: 0 });
   });
 
+  test("suggests mksync setup after the skipped-file note when an export copies nothing", () => {
+    // Arrange
+    const plan: RunPlan = {
+      steps: [],
+      finish: [],
+      lines: [],
+      summary: { kind: "export", onlyMatchedNothing: false, skipped: 2 },
+      code: 0,
+    };
+
+    // Act
+    const rendered = renderRun(plan, NO_FAILURES);
+
+    // Assert
+    const note = rendered.lines.indexOf(
+      "  Note: 2 file(s) skipped because they do not exist locally.",
+    );
+    expect(note).toBeGreaterThanOrEqual(0);
+    expect(rendered.lines[note + 1]).toBe(
+      "  If this is a new machine, run  mksync setup  first to apply the repo settings.",
+    );
+  });
+
   test("replaces a failed step's line with ERROR and lowers the count", () => {
     // Arrange
     const outcome: RunOutcome = {

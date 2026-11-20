@@ -56,7 +56,7 @@ function exportSummaryLines(
         `  Note: ${summary.skipped} file(s) skipped because they do not exist locally.`,
       );
       lines.push(
-        "  If this is a new machine, run  ./import.sh  first to apply the repo settings.",
+        "  If this is a new machine, run  mksync setup  first to apply the repo settings.",
       );
     }
   }

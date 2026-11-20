@@ -71,4 +71,79 @@ come from a machine that was never set up, so only work #1's count.
 - **The synced statusline.** `settings.json` still calls `statusline.sh` until part 2, so section 5 runs the launcher
   by hand with a sample payload.
 
+## Work #2 and #3: the extra checks
+
+The repo is going private (phase 10), so on work #2 and #3 the install goes through a signed-in GitHub CLI. In
+**Windows PowerShell**, as your own user:
+
+```powershell
+winget install --id GitHub.cli -e
+# open a new PowerShell window, then:
+gh auth login
+$env:SYNCSETTINGS_RUNTIME = 'node'; gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex
+```
+
+Then run the steps above, and after them the five checks below, one at a time, in the same window. Each changes
+nothing on the machine; check 3 adds a file to the clone and removes it again. Paste what each prints under its number
+in the answer block, with names replaced as in step 6.
+
+1. **Unset `USERPROFILE`.** Should `mksync` stop when it can't tell where home is?
+
+   ```powershell
+   $u = $env:USERPROFILE; Remove-Item Env:USERPROFILE; mksync check; "exit $LASTEXITCODE"; $env:USERPROFILE = $u
+   ```
+
+   Paste: the first five lines and the `exit` line.
+
+2. **Who can read the values file.**
+
+   ```powershell
+   icacls "$env:USERPROFILE\SyncSettings\.user-values.json"
+   ```
+
+   Paste: the whole output (a missing file prints an error; paste that).
+
+3. **Command lookup in the repo folder.** Does `mksync` run a `git.exe` that sits in the clone, before the one on
+   `PATH`?
+
+   ```powershell
+   Copy-Item "$env:WINDIR\System32\whoami.exe" "$env:USERPROFILE\SyncSettings\git.exe"
+   mksync status; "exit $LASTEXITCODE"
+   Remove-Item "$env:USERPROFILE\SyncSettings\git.exe"
+   ```
+
+   Paste: the status output and the `exit` line (a `whoami`-style line or a git error means the clone's file ran).
+
+4. **WSL's `bash` before Git Bash.**
+
+   ```powershell
+   Get-Command bash -All -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source; mksync doctor
+   ```
+
+   Paste: the list of `bash` paths in order, and the doctor's `bash` line.
+
+5. **The OS caption's code page.** Does the status's OS line match Windows's own caption, accents included?
+
+   ```powershell
+   (Get-CimInstance Win32_OperatingSystem).Caption; [Console]::OutputEncoding.CodePage; mksync status
+   ```
+
+   Paste: the caption, the code page number, and the status's OS line.
+
 ## Answer
+
+### Work #2: extra checks
+
+1. (unset `USERPROFILE`)
+2. (values file access)
+3. (command lookup in the repo folder)
+4. (WSL's `bash`)
+5. (the OS caption)
+
+### Work #3: extra checks
+
+1. (unset `USERPROFILE`)
+2. (values file access)
+3. (command lookup in the repo folder)
+4. (WSL's `bash`)
+5. (the OS caption)

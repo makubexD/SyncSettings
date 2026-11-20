@@ -246,6 +246,14 @@ deleted, v1 configs refused, one `sync-config.json`). The finish review made the
 from (`MKSYNC_PROGRAM`), so a fresh Ubuntu restores before the bin folder is on `PATH`. The research probe and its
 workflow stay (they run only on demand). `v1.0.0` is tagged by Claude after the user's GO.
 
+**Follow-up done** 2026-11-20 ([plan-single-engine-9-private-prep.md](plan-single-engine-9-private-prep.md), branch
+`engine/private-prep`, `v1.0.1`): everything a private repo needs works while it is still public. The install lines go
+through a signed-in `gh` (`gh api … contents/install.sh | bash`, `… install.ps1 | Out-String | iex`); with `gh` signed
+in, both installers clone with its credential helper (for that one command) and download the release through
+`gh release download`, and so does `mksync update`. The lines that named the deleted scripts name `mksync check`,
+`mksync setup` and `mksync commit`; `setup --bootstrap` on Windows stops as on macOS. The run sheet holds the five
+"Confirm on Windows" checks for work #2 and #3.
+
 - A release workflow builds the programs with checksums and `gh attestation`.
 - The Claude layout goes live: `bun tools/claude-layout.ts <repo>` lists its writes, then `--cutover` writes the
   layers and drops the v1 Claude rows (a second run is refused), the synced
@@ -263,6 +271,9 @@ workflow stay (they run only on demand). `v1.0.0` is tagged by Claude after the 
 ### Phase 10: private repo and review
 
 Starts when the user says development is done; it can come before or after phase 9.
+
+Installs and updates already work on a private repo (phase 9's private-prep follow-up, `v1.0.1`), so the phase starts
+with the visibility switch.
 
 - Make the repo private and rewrite `docs/decision-private-repo.md` to say what may be committed now. Lift the guard,
   so profiles, records and values are committed on the next push.

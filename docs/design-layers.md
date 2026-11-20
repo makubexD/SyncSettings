@@ -1174,6 +1174,16 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
 - **`schemaVersion` check:** a program meeting a config with a higher `schemaVersion` stops with `this config needs a
 newer mksync: run mksync update` (exit 2), before reading anything else. A pull that fast-forwards to such a config
   says the same.
+- **Private repo (decided 2026-11-20, built in `plan-single-engine-9-private-prep.md`, `v1.0.1`).** The install line
+  is "install `gh`, `gh auth login`, then `gh api -H 'Accept: application/vnd.github.raw'
+repos/makubexD/SyncSettings/contents/install.sh | bash`" (`install.ps1 | Out-String | iex` on Windows), which works
+  on a public and a private repo alike; no public releases-only repo. With `gh` signed in and no
+  `SYNCSETTINGS_RELEASE_URL` / `MKSYNC_RELEASE_URL`, the installers and `mksync update` take the tag from
+  `gh release view` and the asset and `SHA256SUMS` from `gh release download`; without it they keep the plain HTTPS
+  download, which works while the repo is public. The installers' clone (and a pull from a `github.com` origin) runs
+  with `-c credential.https://github.com.helper=` and `-c credential.https://github.com.helper=!gh auth
+git-credential` for that one command, so nothing is written to the synced `~/.gitconfig`; after the first pull,
+  Linux and macOS get the helper from `.gitconfig.local`, and Windows uses Git Credential Manager.
 
 As built in phase 9:
 
@@ -1358,10 +1368,10 @@ Enterprise. Every section ran:
 
 ### Design
 
-- **Setup's bootstrap edges (phase 9 step 24, to confirm).** The v2 setup offers the Ubuntu bootstrap after the
-  record and profile are written and skips it when the fourth answer is `stop`, since `stop` changes no file; the
-  contract doesn't say either way. `--bootstrap` on Windows is accepted and ignored, while the contract says Windows
-  has no `--bootstrap`: it should likely stop as an unknown option, exit 2.
+- **Setup's bootstrap edges (phase 9 step 24; settled in `plan-single-engine-9-private-prep.md`, steps 1 and 3).**
+  The contract now says the question comes after the record and profile are written and is skipped on `stop`, as
+  built. `--bootstrap` on Windows stops like macOS, `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor
+  (shared case `setup-windows-bootstrap-flag`), rather than the unknown-option exit 2 guessed here.
 - **Pull-only status (decided in phase 8 step 20, to confirm).** The contract only said status "never suggests
   `mksync push`" on a pull-only machine. The program skips the unsent rule there, and a differing machine's next line
   is `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
@@ -1403,8 +1413,9 @@ Enterprise. Every section ran:
   a shared value would need a fifth place (the user), which the decisions don't have.
 - **Lines that name the deleted engine (found in phase 9 step 17).** The program still prints `run ./import.sh --check
 to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  first` (`src/core/plan/run.ts`) and
-  `ERROR: run commit.sh from master` (`src/app/commit.ts`). Those files are gone. Proposed: `mksync check`,
-  `mksync import` and `mksync commit`, each with its shared case changed first (rule 2). No plan step covers it yet.
+  `ERROR: run commit.sh from master` (`src/app/commit.ts`). Those files are gone. Settled in
+  `plan-single-engine-9-private-prep.md` (steps 1 and 2): `mksync check`, `mksync setup` (a new machine needs setup,
+  not a bare import) and `mksync commit`; the export line has the shared case `export-local-missing`.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
 - **Editing one hook.** Array items are compared whole, so changing one command inside a `hooks.<event>[]` item is a
@@ -1435,9 +1446,8 @@ to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  fi
   arm64 and Windows x64 builds passed the shared cases on CI's runners (PR #74, 2026-11-12).
 - **The Windows VM.** Settled in phase 4: it runs here and is the Windows layer of `tests/all.sh` ("Tests"). Its
   evaluation licence ends 2027-02-09.
-- **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
-  so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
-  public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
+- **Installing from a private repo.** Decided 2026-11-20 and built for `v1.0.1`: installs go through a signed-in
+  `gh`; see "Release and update".
 - **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
   Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored. The
@@ -1633,6 +1643,9 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   public. Phase 10 moves both to the `personal` profile layer, so a work machine on Linux wouldn't get them either.
 
 ### Confirm on Windows
+
+The first five items below are on the run sheet (`docs/windows-cutover-run.md`, "Work #2 and #3: the extra checks"),
+each with its command and what to paste back, for work #2 and #3 when the user is at them. They don't block phase 10.
 
 - **Unset `USERPROFILE` (phase 4).** The PowerShell engine doesn't stop when `USERPROFILE` is unset (paths become
   `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or

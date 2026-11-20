@@ -1,5 +1,30 @@
 import { describe, expect, test } from "bun:test";
-import { bootstrapEnv } from "./setup.ts";
+import { bootstrapEnv, bootstrapRefusal } from "./setup.ts";
+
+describe("bootstrapRefusal", () => {
+  test("on Windows, --bootstrap is refused with the Ubuntu-only line", () => {
+    const refusal = bootstrapRefusal("windows", { kind: "setup", bootstrap: true });
+    expect(refusal).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "ERROR: --bootstrap is Ubuntu only.\n",
+    });
+  });
+
+  test("on macOS, --bootstrap is refused with the Ubuntu-only line", () => {
+    const refusal = bootstrapRefusal("macos", { kind: "setup", bootstrap: true });
+    expect(refusal).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "ERROR: --bootstrap is Ubuntu only.\n",
+    });
+  });
+
+  test("on Linux, --bootstrap is not refused", () => {
+    const refusal = bootstrapRefusal("linux", { kind: "setup", bootstrap: true });
+    expect(refusal).toBeUndefined();
+  });
+});
 
 describe("bootstrapEnv", () => {
   test("the installed program is passed on as MKSYNC_PROGRAM", () => {

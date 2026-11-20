@@ -1,0 +1,2 @@
+Note: 1 file(s) skipped because they do not exist locally.
+If this is a new machine, run  mksync setup  first to apply the repo settings.
