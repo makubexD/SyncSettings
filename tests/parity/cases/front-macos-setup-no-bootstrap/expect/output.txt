@@ -6,15 +6,25 @@
   OK       values
   OK       bash
   Ready.
+Scanning this machine...
+  OS         macos
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      0 of 2 macos entries already exist here
 
-  SyncSettings -- IMPORT CHECK (macos)
+Profiles on this machine:
+  1) personal
 
-  UNCHANGED  dotfiles/common/parity/plain.txt
+Machine wk1-laptop: profile work-1, Claude only, push with a preview.
+Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup
+  CREATED    dotfiles/common/shell/bashrc
+  CREATED    dotfiles/common/git/gitconfig
 
   --------------------------------------------------
 
-  This machine matches the repo.
+  2 file(s) applied.
 
   --------------------------------------------------
 
-  Setup done. Run mksync any time to see where this machine stands.

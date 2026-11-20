@@ -1,23 +1,51 @@
 {
-  "description": "macOS setup asks no bootstrap question and never runs bootstrap/linux.sh, even with the script present; exit 0 (Front door, setup; ported from front_macos_setup_no_bootstrap).",
-  "os": ["macos"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "description": "macOS setup asks no bootstrap question and never runs bootstrap/linux.sh, even with the script present; setup goes on with the first pull, exit 0 (Front door, setup; ported from front_macos_setup_no_bootstrap). The Ubuntu twin is sync-setup-offers-bootstrap.",
+  "os": [
+    "macos"
+  ],
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/plain.txt",
-        "localPath": "~/.config/parity/plain.txt",
-        "platform": "common",
-        "description": "Matches the repo"
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
       }
     ]
   },
-  "stubs": ["bootstrap", "gh"],
+  "stubs": [
+    "bootstrap",
+    "gh"
+  ],
   "commands": [
     {
       "command": "setup",
-      "options": { "yes": true }
+      "options": {
+        "profile": "work-1",
+        "yes": true
+      }
     }
   ]
 }

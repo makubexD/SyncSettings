@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseV2 } from "./v2.ts";
 
-const CONFIG_FILE = "sync-config.v2.json";
+const CONFIG_FILE = "sync-config.json";
 
 const MODULES = {
   git: { description: "Git settings" },
@@ -83,6 +83,14 @@ function dconfPathError(file: string): string {
 
 function backslashError(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} has a backslash in localPath.`;
+}
+
+function localPathsKeyError(file: string, key: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an unknown localPaths key ${key}.`;
+}
+
+function defaultEnvError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an invalid defaultEnv.`;
 }
 
 function osError(file: string, os: string, module: string): string {
@@ -284,6 +292,36 @@ describe("parseV2", () => {
 
     // Act / Assert
     expectError(configWith([bad]), backslashError(bad.file as string), 1);
+  });
+
+  test("a localPaths key that is not an OS name stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ localPaths: { freebsd: "~/.config/x.conf" } });
+
+    // Act / Assert
+    expectError(configWith([bad]), localPathsKeyError(bad.file as string, "freebsd"), 1);
+  });
+
+  test("a sanitize rule whose defaultEnv is not a variable name stops with exit 1", () => {
+    // Arrange
+    const bad = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", defaultEnv: "1BAD" }] });
+
+    // Act / Assert
+    expectError(configWith([bad]), defaultEnvError(bad.file as string), 1);
+  });
+
+  test("a sanitize rule with a valid defaultEnv and OS-named localPaths are accepted", () => {
+    // Arrange
+    const good = entry({
+      localPaths: { macos: "~/Library/x.conf" },
+      sanitize: [{ placeholder: "<HOME>", prompt: "Home", defaultEnv: "HOME" }],
+    });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok).toBe(true);
   });
 
   test("an entry os outside its module os stops with exit 1", () => {
@@ -520,18 +558,6 @@ describe("parseV2", () => {
     );
   });
 
-  test("scanLinks on a dir entry stops with exit 1", () => {
-    // Arrange
-    const bad = entry({ file: "vscode/snippets", merge: "dir", scanLinks: true });
-
-    // Act / Assert
-    expectError(
-      configWith([bad]),
-      canNotUseError("vscode/snippets", "scanLinks", "dir"),
-      1,
-    );
-  });
-
   test("localPath on a dconf entry stops with exit 1", () => {
     // Arrange
     const bad = dconfEntry({
@@ -558,18 +584,6 @@ describe("parseV2", () => {
     expectError(
       configWith([bad]),
       canNotUseError(bad.file as string, "sanitize", "dconf"),
-      1,
-    );
-  });
-
-  test("scanLinks on a dconf entry stops with exit 1", () => {
-    // Arrange
-    const bad = dconfEntry({ dconfPath: "/org/gnome/shell/", scanLinks: true });
-
-    // Act / Assert
-    expectError(
-      configWith([bad]),
-      canNotUseError(bad.file as string, "scanLinks", "dconf"),
       1,
     );
   });

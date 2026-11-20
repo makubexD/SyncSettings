@@ -17,72 +17,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ShellCheck
-        run: shellcheck -x bootstrap/linux.sh export.sh import.sh commit.sh sync install.sh scripts/linux/sync.sh scripts/linux/front.sh scripts/ci/*.sh tests/linux/*.sh tests/macos/*.sh tests/parity/run.sh tests/all.sh tests/windows-vm/vm.sh
+        run: shellcheck -x bootstrap/linux.sh install.sh mksync scripts/ci/*.sh tests/linux/*.sh tests/macos/*.sh tests/parity/run.sh tests/all.sh tests/windows-vm/vm.sh
       - name: Validate JSON
         run: jq empty sync-config.json
-      - name: Config sanity
-        run: scripts/ci/check-config.sh
       - name: Plugin sanity
         run: scripts/ci/check-plugins.sh
       - name: PSScriptAnalyzer
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
-          $r = @(Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error)
-          $r += @(Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error)
+          $r = @(Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error)
           $r += @(Invoke-ScriptAnalyzer -Path tests/parity/run.ps1 -Severity Error)
           $r
           if ($r) { exit 1 }
-  engine-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dconf
-        run: sudo apt-get update && sudo apt-get install -y dconf-cli dbus
-      - name: Engine contract tests (bash)
-        run: tests/linux/engine.sh
-      - name: Shared cases (bash)
-        run: tests/parity/run.sh
-      - name: Bootstrap tests (bash)
-        run: tests/linux/bootstrap.sh
-  engine-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install bash and jq
-        run: brew install bash jq
-      - name: Engine contract tests (bash, macOS)
-        run: /opt/homebrew/bin/bash tests/linux/engine.sh
-      - name: Shared cases (bash, macOS)
-        run: /opt/homebrew/bin/bash tests/parity/run.sh
-      - name: System bash reaches the guard
-        shell: bash
-        run: |
-          set -u
-
-          doctor_status=0
-          doctor_out=$(/bin/bash ./sync doctor 2>&1) || doctor_status=$?
-          printf '%s\n' "$doctor_out"
-          printf 'doctor exit status: %s\n' "$doctor_status"
-          if printf '%s\n' "$doctor_out" | grep -q 'MISSING.*bash 4 or newer'; then
-            echo 'system-bash: doctor reports MISSING bash 4 (guard reached, no re-exec)'
-          elif printf '%s\n' "$doctor_out" | grep -qE 'declare: -A|invalid option|syntax error|needs bash 4'; then
-            echo 'FAIL: /bin/bash did not re-exec into Homebrew bash for doctor'
-            exit 1
-          else
-            echo 'system-bash: doctor re-exec into Homebrew bash'
-          fi
-
-          export_status=0
-          export_out=$(HOME="$(mktemp -d)" /bin/bash ./export.sh < /dev/null 2>&1) || export_status=$?
-          printf '%s\n' "$export_out"
-          printf 'export exit status: %s\n' "$export_status"
-          if printf '%s\n' "$export_out" | grep -qE 'declare: -A|invalid option|needs bash 4'; then
-            echo 'FAIL: /bin/bash did not re-exec into Homebrew bash for export.sh'
-            exit 1
-          fi
   # The manual macOS checks M1-M3 (TODO.md) on a real macOS runner: the README install line from a
-  # stock Mac's point of view, then mksync status, import --check and /bin/bash ./sync doctor.
+  # stock Mac's point of view, then mksync status, import --check and the clone's ./mksync doctor.
   macos-checks:
     runs-on: macos-latest
     env:
@@ -129,21 +78,6 @@ jobs:
         with:
           name: macos-checks-report
           path: ~/mksync-macos-checks-*.txt
-  engine-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Pester
-        shell: powershell
-        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
-      - name: Run engine tests
-        shell: powershell
-        run: |
-          Import-Module Pester -MinimumVersion 5.5.0
-          Invoke-Pester -Path tests/windows -CI
-      - name: Shared cases (PowerShell)
-        shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1
   program-build:
     runs-on: ubuntu-latest
     steps:
@@ -158,7 +92,7 @@ jobs:
         run: bun run lint
       - name: Unit tests
         run: bun test src
-      - name: Config v1 and v2 in step
+      - name: Config check
         run: bun run tools/check-config.ts
       - name: Compile for Linux x64
         run: bun build --compile --target bun-linux-x64 src/main.ts --outfile dist/mksync-linux-x64
@@ -176,6 +110,8 @@ jobs:
           retention-days: 14
       - name: Shared cases (program, Linux)
         run: chmod +x dist/mksync-linux-x64 && tests/parity/run.sh --engine dist/mksync-linux-x64
+      - name: Bootstrap tests
+        run: tests/linux/bootstrap.sh
   program-macos:
     runs-on: macos-latest
     needs: program-build

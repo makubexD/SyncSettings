@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RunCommand } from "../cli/parse.ts";
-import { convertV1 } from "../core/config/convert.ts";
 import type { Profile } from "../core/config/profile.ts";
 import type {
   ConfigError,
@@ -9,7 +8,6 @@ import type {
   Os,
   Result as LoadResult,
 } from "../core/config/types.ts";
-import { parseV1 } from "../core/config/v1.ts";
 import { parseV2 } from "../core/config/v2.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
@@ -57,27 +55,38 @@ function readBytes(path: string): Uint8Array | undefined {
   }
 }
 
-/** True when `text` is JSON giving a plain object that has a `schemaVersion` key. */
-function hasSchemaVersion(text: string): boolean {
+/** Decision 7's refusal of a v1 `sync-config.json`. */
+const OLD_CONFIG_ERROR: ConfigError = {
+  message: "ERROR: sync-config.json: needs schemaVersion 2; this is an old config.",
+  code: 2,
+};
+
+/**
+ * True when `text` is JSON giving a plain object with no `schemaVersion`: a v1
+ * config. Text that is not a JSON object is left to `parseV2`'s own error.
+ */
+function isOldConfig(text: string): boolean {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
+    // Not JSON: parseV2 reports it.
     return false;
   }
   return (
     typeof parsed === "object" &&
     parsed !== null &&
     !Array.isArray(parsed) &&
-    Object.hasOwn(parsed, "schemaVersion")
+    !Object.hasOwn(parsed, "schemaVersion")
   );
 }
 
 /**
- * Decision 2: `sync-config.v2.json` when it exists, else `sync-config.json`,
- * parsed as v2 when it carries a `schemaVersion` or converted in memory by the
- * same converter that writes the v2 file. Contract "Path safety": a symlink
- * under `dotfiles/` stops the run before it touches a file.
+ * Decision 8: the old clone's `sync-config.v2.json` when it exists, else
+ * `sync-config.json`; both are parsed as v2. Decision 7: a `sync-config.json`
+ * with no `schemaVersion` is an old v1 config and stops with its own line and
+ * exit 2. Contract "Path safety": a symlink under `dotfiles/` stops the run
+ * before it touches a file.
  */
 export function loadConfig(
   repoRoot: string,
@@ -91,18 +100,15 @@ export function loadConfig(
   const v2Path = join(repoRoot, V2_CONFIG);
   if (existsSync(v2Path)) {
     const text = readText(v2Path);
-    loaded = text === undefined ? unreadable(V2_CONFIG) : parseV2(text);
+    loaded = text === undefined ? unreadable(V2_CONFIG) : parseV2(text, V2_CONFIG);
   } else {
     const text = readText(join(repoRoot, V1_CONFIG));
     if (text === undefined) {
       return unreadable(V1_CONFIG);
     }
-    if (hasSchemaVersion(text)) {
-      loaded = parseV2(text, V1_CONFIG);
-    } else {
-      const v1 = parseV1(text);
-      loaded = v1.ok ? convertV1(v1.value) : v1;
-    }
+    loaded = isOldConfig(text)
+      ? { ok: false, error: OLD_CONFIG_ERROR }
+      : parseV2(text, V1_CONFIG);
   }
   if (!loaded.ok) {
     return loaded;

@@ -1,0 +1,1 @@
+ERROR: sync-config.json: needs schemaVersion 2; this is an old config.

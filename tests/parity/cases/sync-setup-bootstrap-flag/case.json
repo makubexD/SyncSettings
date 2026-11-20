@@ -1,26 +1,53 @@
 {
-  "description": "Ubuntu `setup --bootstrap` runs bootstrap/linux.sh after doctor and the import check without asking the question, and setup ends with its exit code; exit 0 (Front door, setup).",
-  "os": ["linux"],
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "description": "On Ubuntu with an executable bootstrap/linux.sh, the v2 setup with --bootstrap writes the record and the profile, then runs the script without asking the question, and setup ends with its exit code; exit 0 (Machines (program only), mksync setup, bootstrap).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/plain.txt",
-        "localPath": "~/.config/parity/plain.txt",
-        "platform": "common",
-        "description": "Matches the repo"
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
       }
     ]
   },
   "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude",
     "SYNC_OS_RELEASE": "../home/os-release"
   },
-  "stubs": ["bootstrap", "gh"],
+  "stubs": [
+    "bootstrap",
+    "gh"
+  ],
   "commands": [
     {
       "command": "setup",
-      "options": { "bootstrap": true }
+      "options": {
+        "profile": "work-1",
+        "yes": true,
+        "bootstrap": true
+      }
     }
   ]
 }

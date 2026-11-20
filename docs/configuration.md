@@ -1,76 +1,82 @@
 # Configuration reference
 
-`sync-config.json` lists every file and folder SyncSettings keeps in the repo. This page covers each field and how to
-add an entry. For what the engines do with those fields, see [sync-contract.md](sync-contract.md). For where a new file
-belongs, see [layout.md](layout.md).
+`sync-config.json` lists every file and folder SyncSettings keeps in the repo, grouped in modules. This page covers each
+field and how to add an entry. For what `mksync` does with those fields, see [sync-contract.md](sync-contract.md). For
+where a new file belongs, see [layout.md](layout.md).
 
 ## File layout
 
 ```json
 {
-  "version": 1,
-  "defaultUser": null,
-  "files": [
+  "schemaVersion": 2,
+  "excludePatterns": ["*.pem", "*.key", "*.bak", ".env"],
+  "modules": {
+    "editor": { "description": "Editor defaults" }
+  },
+  "entries": [
     {
-      "repoPath": "dotfiles/common/editorconfig/.editorconfig",
+      "file": "editorconfig/.editorconfig",
+      "module": "editor",
+      "merge": "whole",
       "localPath": "~/.editorconfig",
-      "platform": "common",
       "description": "Editor defaults"
     }
-  ],
-  "excludePatterns": ["*.pem", "*.key", "*.bak", ".env"]
+  ]
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `files` | The entries to sync, processed in this order |
-| `excludePatterns` | Files never copied in either direction ([details](#excludepatterns)) |
-| `version`, `defaultUser` | Not read by the engines. Leave them as they are |
+| Field             | Meaning                                                                                                                                                                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion`   | `2`. A `sync-config.json` with none is an old v1 config: every command stops with `ERROR: sync-config.json: needs schemaVersion 2; this is an old config.`, exit 2. A newer number stops with exit 2 and asks for a newer `mksync` |
+| `modules`         | The modules, by name: `description`, and an optional `os` list that every entry of the module gets                                                                                                                                 |
+| `entries`         | The entries to sync, processed in this order                                                                                                                                                                                       |
+| `excludePatterns` | Files never copied in either direction ([details](#excludepatterns))                                                                                                                                                               |
+
+`mksync` reads `sync-config.v2.json` instead when a clone still has one (a clone from before v1.0.0); see
+[the contract](sync-contract.md#config).
 
 ## Entry fields
 
-| Field | Required | Meaning |
-|---|---|---|
-| `repoPath` | yes | Where the file lives in this repo, with forward slashes. No trailing slash, also for folders. Unique across entries |
-| `localPath` | yes, except on a `dconf` entry | Where it lives on the machine ([forms](#localpath)) |
-| `localPaths` | no | Another `localPath` per system, for the same file in another folder ([details](#localpaths)) |
-| `platform` | yes | `common`, `windows`, `linux`, `macos`, or a list such as `["linux", "macos"]` ([details](#platform)) |
-| `description` | no | A note for people. The engines don't read it |
-| `sanitizeRules` | no | Placeholders that keep private values out of the repo ([details](#sanitizerules)) |
-| `type` | no | `file` (default), `dir` ([details](#type-dir)) or `dconf` ([details](#type-dconf)) |
-| `path` | on a `dconf` entry | The dconf folder to sync ([details](#type-dconf)) |
-| `keys` | no | `dconf` entries only: which keys to keep ([details](#choosing-keys)) |
-| `detectLinkedPaths` | no | Windows only: also sync folders the file mentions ([details](#detectlinkedpaths)) |
+| Field               | Required                       | Meaning                                                                                                                                                                               |
+| ------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `file`              | yes                            | The path under the layer folders (`dotfiles/common/`, `dotfiles/<os>/`, a profile or machine layer), with forward slashes. No trailing slash, also for folders. Unique across entries |
+| `module`            | yes                            | The module it belongs to; a profile turns modules on and off                                                                                                                          |
+| `merge`             | yes                            | How its layers combine: `whole`, `json`, `import`, `dir` or `dconf` ([details](#merge-types))                                                                                         |
+| `localPath`         | yes, except on a `dconf` entry | Where it lives on the machine ([forms](#localpath))                                                                                                                                   |
+| `localPaths`        | no                             | Another `localPath` per system, for the same file in another folder ([details](#localpaths))                                                                                          |
+| `os`                | no                             | The systems that get it, such as `["linux", "macos"]`; else the module's `os`; else every system ([details](#os))                                                                     |
+| `description`       | no                             | A note for people. `mksync` doesn't read it                                                                                                                                           |
+| `sanitize`          | no                             | Placeholders that keep private values out of the repo ([details](#sanitize))                                                                                                          |
+| `dconfPath`, `keys` | `dconf` entries                | The dconf folder to sync, and which keys to keep ([details](#merge-dconf))                                                                                                            |
+| `localOnlyKeys`     | no                             | `json` entries: top-level keys kept from the local file                                                                                                                               |
+| `importName`        | `import` entries               | The side file each layer is written to, e.g. `CLAUDE.{layer}.md`                                                                                                                      |
+| `linked`            | no                             | `true` on a file that names folders to offer as `dir` entries ([details](#linked))                                                                                                    |
+| `elevate`           | no                             | Reserved; only `false` is accepted                                                                                                                                                    |
 
-## `platform`
+## `os`
 
-`platform` picks the engine and decides where the entry may live. An entry with no `platform`, or any other value,
-stops both engines with exit code 1 before they touch a file. CI lint also fails on it, and on the path rules below.
+`os` decides which systems get the entry and where its file is written when it is new.
 
-| `platform` | Runs on | `repoPath` must be | `localPath` |
-|---|---|---|---|
-| `common` | Windows, Linux and macOS | under `dotfiles/common/` | `~/` form only |
-| `linux` | Linux | under `dotfiles/linux/` | `~/` form only |
-| `macos` | macOS | under `dotfiles/macos/` | `~/` form only |
-| `windows` | Windows | under `dotfiles/windows/` | either form |
-| a list, e.g. `["linux", "macos"]` | each system listed | under `dotfiles/common/` | `~/` form only |
+| Effective `os`                         | Runs on                  | New file goes to   | `localPath`                    |
+| -------------------------------------- | ------------------------ | ------------------ | ------------------------------ |
+| none                                   | Windows, Linux and macOS | `dotfiles/common/` | `~/` form only                 |
+| one system, e.g. `["linux"]`           | that system              | `dotfiles/<os>/`   | `~/` form, or an absolute path |
+| two systems, e.g. `["linux", "macos"]` | each system listed       | `dotfiles/common/` | `~/` form only                 |
 
-A list holds two or three of `windows`, `linux` and `macos`, each once. Use it for a file two systems share and the third
-doesn't have: tmux's config is the same on Linux and macOS, but `common` would also write it on Windows. A one-item list
-works but says the same as the plain value, so write the plain value. A dconf entry needs the plain string `linux`: a
-list stops the run.
+A file in `dotfiles/<os>/` overrides the `dotfiles/common/` one on that system. Use a two-system list for a file two
+systems share and the third doesn't have: tmux's config is the same on Linux and macOS. A `dconf` entry runs on Linux
+only.
 
 ## `localPath`
 
-| Form | JSON example | Works on |
-|---|---|---|
-| `~/` with forward slashes | `"~/.config/git/ignore"` | every system |
-| `~\` with backslashes | `"~\\.gitconfig.local"` | Windows only |
+| Form                      | JSON example             | Works on                   |
+| ------------------------- | ------------------------ | -------------------------- |
+| `~/` with forward slashes | `"~/.config/git/ignore"` | every system               |
+| an absolute path          | `"C:/MakuCustomAlias"`   | the one system in its `os` |
 
-`~` is `$HOME` on Linux and macOS and the profile folder on Windows, or the target user's profile with `-User`.
-Backslashes are doubled in JSON. An absolute path, or a path with a `..` segment, stops every command before it touches a
-file.
+`~` is `$HOME` on Linux and macOS and the profile folder on Windows, where `/` becomes `\` after `~` is expanded. A
+`\` anywhere in `localPath` or `localPaths` stops every command with `entry <file> has a backslash in localPath.`, exit
+1: write Windows paths with `/` too.
 
 ## `localPaths`
 
@@ -79,28 +85,33 @@ For a shared file that lives in another folder on one system. VS Code reads the 
 
 ```json
 {
-  "repoPath": "dotfiles/common/vscode/settings.json",
+  "file": "vscode/settings.json",
+  "module": "vscode",
+  "merge": "json",
   "localPath": "~/.config/Code/User/settings.json",
-  "localPaths": { "macos": "~/Library/Application Support/Code/User/settings.json" },
-  "platform": ["linux", "macos"]
+  "localPaths": {
+    "macos": "~/Library/Application Support/Code/User/settings.json"
+  },
+  "os": ["linux", "macos"]
 }
 ```
 
 The keys are `linux`, `macos` and `windows`; on a system named here, its value replaces `localPath`. Each value follows
 the `localPath` rules. Any other key stops every command with exit code 1.
 
-## `sanitizeRules`
+## `sanitize`
 
 Each rule names a placeholder that stands in for a private value in the repo. Export replaces every occurrence of the
 value in the file, and import puts it back, so pick values specific enough not to match unrelated text.
 
 ```json
 {
-  "repoPath": "dotfiles/windows/git/.gitconfig.local",
-  "localPath": "~\\.gitconfig.local",
-  "platform": "windows",
-  "description": "Git credentials for Windows, included by .gitconfig",
-  "sanitizeRules": [
+  "file": "git/.gitconfig.local",
+  "module": "git",
+  "merge": "whole",
+  "localPath": "~/.gitconfig.local",
+  "os": ["windows"],
+  "sanitize": [
     { "placeholder": "<YOUR_GH_USERNAME>", "prompt": "GitHub username" },
     {
       "placeholder": "<GH_CLI_PATH>",
@@ -112,51 +123,43 @@ value in the file, and import puts it back, so pick values specific enough not t
 }
 ```
 
-```json
-{
-  "repoPath": "dotfiles/linux/claude/settings.json",
-  "localPath": "~/.claude/settings.json",
-  "platform": "linux",
-  "description": "Claude Code user settings",
-  "sanitizeRules": [
-    { "placeholder": "<HOME>", "prompt": "Home directory", "defaultEnv": "HOME" }
-  ]
-}
-```
+| Rule field          | Required | Meaning                                                                                                                                    |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `placeholder`       | yes      | The text stored in the repo, such as `<YOUR_NAME>`                                                                                         |
+| `prompt`            | yes      | The question shown when the value is needed; `mksync` asks only when nothing else (saved, inferred, `default`, `defaultEnv`) gives a value |
+| `default`           | no       | The value offered at the prompt                                                                                                            |
+| `defaultEnv`        | no       | Name of an environment variable to offer instead, used when `default` is not set                                                           |
+| `escapeBackslashes` | no       | `true` if the file stores the value with doubled backslashes (`C:\\Tools`), as `.gitconfig` does                                           |
 
-| Rule field | Required | Meaning |
-|---|---|---|
-| `placeholder` | yes | The text stored in the repo, such as `<YOUR_NAME>` |
-| `prompt` | yes | The question shown when the value is needed; the mksync program asks only when nothing else (cached, inferred, `default`, `defaultEnv`) gives a value ([contract, Known differences](sync-contract.md#known-differences)) |
-| `default` | no | The value offered at the prompt |
-| `defaultEnv` | no | Name of an environment variable to offer instead, used when `default` is not set |
-| `escapeBackslashes` | no | `true` if the file stores the value with doubled backslashes (`C:\\Tools`), as `.gitconfig` does |
-
-- `defaultEnv` reads the variable on the machine running the sync. `HOME` is usually unset on Windows, so a `common`
-  rule with `"defaultEnv": "HOME"` prompts there with no default.
+- `defaultEnv` reads the variable on the machine running the sync. `HOME` is usually unset on Windows, so a rule for
+  every system with `"defaultEnv": "HOME"` prompts there with no default.
 - A placeholder used by several entries has one value.
-- Values are cached in `.user-values.json`, which is gitignored, with placeholders as keys:
-
-  ```json
-  { "<YOUR_NAME>": "Jane Doe", "<HOME>": "/home/jane" }
-  ```
-
-- Without a terminal, a placeholder with no value stops the run. Add the value to `.user-values.json`.
+- With a machine record, values are saved in the record or the profile ([below](#profiles-and-machines)). Without one,
+  they are cached in `.user-values.json`, which is gitignored, with placeholders as keys.
+- Without a terminal, a placeholder with no value stops the run. Add the value where it is saved.
 - Export compares the sanitized text, so a change to a value alone (a new email) is not a change. A new line is.
+- `sanitize` isn't allowed on a `dir` or `dconf` entry.
 
-To enter the values again, run `./export.sh --reset-values` or `./import.sh --reset-values`, or on Windows
-`mksync export -ResetValues` or `mksync import -ResetValues`.
+## Merge types
 
-## `type: dir`
+Each entry has a `merge` that says how its layers combine ([contract](sync-contract.md#layers)):
 
-Syncs a whole folder, recursively.
+| `merge`  | Layers combine as                                                                                                          | Extra fields        |
+| -------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `whole`  | the latest layer that holds the file wins, byte for byte                                                                   |                     |
+| `json`   | objects merge key by key, a later layer winning; arrays collect items not there yet; export sends each change to its layer | `localOnlyKeys`     |
+| `import` | the base text, then one `@import` line per later layer, each layer written beside the local file                           | `importName`        |
+| `dir`    | a whole folder, recursively ([details](#merge-dir))                                                                        |                     |
+| `dconf`  | one folder of GNOME settings in one `.ini` file ([details](#merge-dconf))                                                  | `dconfPath`, `keys` |
+
+### `merge: dir`
 
 ```json
 {
-  "repoPath": "dotfiles/common/nvim",
+  "file": "nvim",
+  "module": "editor",
+  "merge": "dir",
   "localPath": "~/.config/nvim",
-  "platform": "common",
-  "type": "dir",
   "description": "Neovim configuration"
 }
 ```
@@ -165,187 +168,156 @@ Syncs a whole folder, recursively.
   history.
 - Import never deletes. It lists local files the repo doesn't have as `EXTRA` and keeps them.
 - Symlinks are skipped, and `excludePatterns` apply to every file inside.
-- `sanitizeRules` and `detectLinkedPaths` are not allowed on a `dir` entry. CI lint fails if either is set.
-- A `dir` entry can't contain another entry, not even another `dir`. CI lint fails if an entry's `repoPath` is inside
-  a `dir` entry's `repoPath`.
+- `sanitize`, `dconfPath` and `keys` are not allowed on a `dir` entry.
+- A `dir` entry can't contain another entry, not even another `dir`.
 - A local folder with nothing to sync keeps the repo files: the entry is `SKIPPED` and nothing is deleted.
 
-## `type: dconf`
+### `merge: dconf`
 
 Syncs one folder of GNOME settings with one `.ini` file. Linux only. It needs `dconf-cli`.
 
 ```json
 {
-  "repoPath": "dotfiles/linux/gnome/dconf/shell.ini",
-  "path": "/org/gnome/shell/",
-  "type": "dconf",
-  "platform": "linux",
+  "file": "gnome/dconf/shell.ini",
+  "module": "gnome",
+  "merge": "dconf",
+  "dconfPath": "/org/gnome/shell/",
   "description": "Dock favorites, extensions, shell shortcuts",
-  "keys": ["favorite-apps", "enabled-extensions", "disabled-extensions", "keybindings/*"]
+  "keys": [
+    "favorite-apps",
+    "enabled-extensions",
+    "disabled-extensions",
+    "keybindings/*"
+  ]
 }
 ```
 
-| Field | Rule |
-|---|---|
-| `path` | Starts and ends with `/`, with letters, digits, `.`, `_` or `-` in its segments and no `..` segment. `/` alone is refused |
-| `platform` | Must be `linux` |
-| `repoPath` | One `.ini` file under `dotfiles/linux/`. Export owns it, so don't edit it by hand |
-| `localPath`, `sanitizeRules`, `detectLinkedPaths` | Not allowed. CI lint fails if any is set |
+| Field                   | Rule                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `dconfPath`             | Starts and ends with `/`, with letters, digits, `.`, `_` or `-` in its segments and no `..` segment. `/` alone is refused |
+| `file`                  | One `.ini` file. Export owns it, so don't edit it by hand                                                                 |
+| `localPath`, `sanitize` | Not allowed                                                                                                               |
 
-Import merges the file into the folder: it asks before changing anything, saves a backup in
-`~/.local/state/sync-settings/dconf/`, and leaves keys the file doesn't name. It has to run in a terminal on the desktop,
-because `dconf load` needs the session bus. [sync-contract.md](sync-contract.md#dconf-entries-type-dconf) has the full rules.
+Import merges the file into the folder: it asks before changing anything, saves a backup, and leaves keys the file
+doesn't name. It has to run in a terminal on the desktop, because `dconf load` needs the session bus.
+[sync-contract.md](sync-contract.md#dconf-entries-merge-dconf) has the full rules.
 
-### Choosing `keys`
+#### Choosing `keys`
 
-`keys` is a list of globs matched against a key's name relative to `path`: `font-name`, or `Profiles/abc/label` in a
-subfolder. `*` also matches `/`, so `keybindings/*` covers everything below `keybindings`. Without `keys`, the whole
+`keys` is a list of globs matched against a key's name relative to `dconfPath`: `font-name`, or `Profiles/abc/label` in
+a subfolder. `*` also matches `/`, so `keybindings/*` covers everything below `keybindings`. Without `keys`, the whole
 folder goes.
 
 Leave `keys` out only for a narrow folder that holds nothing but preferences.
 
 > [!WARNING]
-> The repo is public, and the leak scan can't recognize coordinates or shell history. Don't sync a folder without reading
-> its dump first: `/org/gnome/settings-daemon/plugins/color/` holds your latitude and longitude, and `/org/gnome/shell/`
-> can hold `command-history`.
+> The repo is public, and the leak scan can't recognize coordinates or shell history. Don't sync a folder without
+> reading its dump first: `/org/gnome/settings-daemon/plugins/color/` holds your latitude and longitude, and
+> `/org/gnome/shell/` can hold `command-history`.
 
 > [!NOTE]
-> A filtered entry won't pick up a new key. Add it to `keys`, then export.
+> A filtered entry won't pick up a new key. Add it to `keys`, then push.
 
-### Adding a dconf folder
+#### Adding a dconf folder
 
-To find a key's real name, run `dconf watch /`, change the setting in its app, and read the path it prints. Read the folder
-before you add it:
+To find a key's real name, run `dconf watch /`, change the setting in its app, and read the path it prints. Read the
+folder before you add it:
 
 ```bash
 dconf dump /org/gnome/settings-daemon/plugins/media-keys/
 ```
 
-Add an entry for it, such as `media-keys.ini` with that `path`, then follow [Adding an entry](#adding-an-entry).
-[layout.md](layout.md#which-dconf-settings-are-synced) lists what's synced and what's left out on purpose.
+Add an entry for it, such as `gnome/dconf/media-keys.ini` with that `dconfPath`, then follow
+[Adding an entry](#adding-an-entry). [layout.md](layout.md#which-dconf-settings-are-synced) lists what's synced and
+what's left out on purpose.
 
-## `detectLinkedPaths`
+## `linked`
 
 ```json
 {
-  "repoPath": "dotfiles/windows/shell/.bashrc",
-  "localPath": "~\\.bashrc",
-  "platform": "windows",
-  "description": "Bash run commands",
-  "detectLinkedPaths": true
+  "file": "shell/.bashrc",
+  "module": "shell",
+  "merge": "whole",
+  "localPath": "~/.bashrc",
+  "os": ["windows"],
+  "linked": true
 }
 ```
 
-The Windows engine scans the file for folder paths (`/c/Tools` or `C:\Tools`) and syncs each folder that exists.
-System folders and anything under the user profile are ignored. Copies live in the repo under
-`<repoPath>.linked/<folder name>/`, for example `dotfiles/windows/shell/.bashrc.linked/Tools/`. The bash engine ignores
-this field.
-
-Import never deletes from a linked folder. It asks before overwriting a file and keeps a `.bak`, and a local file the
-repo doesn't have is reported as `EXTRA` and kept.
+`mksync setup` reads the file for folder paths (`/c/Tools` or `C:\Tools`). Each folder that exists and no entry syncs
+yet is offered once as a `dir` entry of its own, such as `shell/MakuCustomAlias` with local folder
+`C:/MakuCustomAlias`. System folders and anything under the user profile are ignored
+([contract](sync-contract.md#linked-folders)).
 
 ## `excludePatterns`
 
 Each pattern is a glob matched against the file name, or against the end of the path. A match is never copied in
-either direction, and this applies to files inside `dir` entries and linked folders too.
+either direction, and this applies to files inside `dir` entries too.
 
 Keep `*.bak` in the list. It stops the backups that import writes inside a synced folder from being exported.
 
 ## Adding an entry
 
-1. Add the entry to `files` in `sync-config.json`, with its `repoPath` where [layout.md](layout.md) says.
-2. Add the same entry to `sync-config.v2.json` ([below](#sync-configv2json)), then check that both files parse and
-   agree:
+1. Add the entry to `entries` in `sync-config.json`, with its `file` where [layout.md](layout.md) says, then check the
+   config:
 
    ```bash
-   jq empty sync-config.json && bun run tools/check-config.ts
+   bun run tools/check-config.ts
    ```
 
-3. Copy the file into the repo with `./export.sh` on Linux or `mksync export` on Windows. The new entry shows as `ADDED`.
-   A new `common` entry only needs exporting on one machine.
-4. On Linux, check that no home path reached the repo. This must print nothing:
-
-   ```bash
-   grep -rl "$HOME" dotfiles/linux
-   ```
-
-5. Commit with `./commit.sh` or `mksync commit` on Windows, which opens the pull request. See
+2. Send the file with `mksync push`, which copies it into the repo (the new entry shows as `ADDED`) and opens the pull
+   request. An entry for several systems only needs pushing from one machine. See
    [daily-workflow.md](daily-workflow.md).
+3. On Linux, check that no home path reached the repo. This must print nothing:
 
-## `sync-config.v2.json`
+   ```bash
+   grep -rl "$HOME" dotfiles/
+   ```
 
-The compiled `mksync` program that replaces the two engines ([design](design-layers.md)) reads config v2:
-`sync-config.v2.json`, next to `sync-config.json`. Its shape (`schemaVersion: 2`, `modules` holding the entries, the
-layers) is in the design's "Config v2". The program reads v2 when the repo has it, else converts `sync-config.json` in
-memory. The old engines read only `sync-config.json`.
+## Profiles and machines
 
-**Until cut-over both files change together.** An entry added, removed or changed in one goes into the other in the
-same commit. Two dev tools, run from the repo root, help (they need Bun and aren't part of the program):
+The machine record chooses the extra layers, as the system chooses the OS layer. `mksync setup` writes it once per
+machine; with no record there are no extra layers and every module is on.
 
-| Command | What it does |
-|---|---|
-| `bun run tools/convert-config.ts` | Prints `sync-config.json` converted to v2, to start or compare `sync-config.v2.json` |
-| `bun run tools/check-config.ts` | Checks that the two files describe the same entries; prints `config v1 and v2 in step` or each difference, and exits 1 |
-
-`tests/all.sh` and CI's `program-build` job run the check, so a commit that changes only one file fails there. At
-cut-over `sync-config.json` is deleted and v2 is the only config.
-
-### Merge types
-
-Each v2 entry has a `merge` that says how its layers combine ([contract](sync-contract.md#layers-program-only)):
-
-| `merge` | Layers combine as | Extra fields |
-|---|---|---|
-| `whole` | the latest layer that holds the file wins, byte for byte | |
-| `json` | objects merge key by key, a later layer winning; arrays collect items not there yet; export sends each change to its layer | `localOnlyKeys`: top-level keys kept from the local file |
-| `import` | the base text, then one `@import` line per later layer, each layer written beside the local file | `importName`, e.g. `CLAUDE.{layer}.md` |
-| `dir`, `dconf` | not layered yet: handled as in v1 (dconf export and import come in phase 8) | |
-
-### Profiles and machines
-
-The machine record chooses the extra layers, as `SYNC_OS` chooses the system. `dist/mksync setup` writes it once per
-machine ([daily-workflow.md](daily-workflow.md#try-a-machine-record)); with no record (every machine today) there are
-no extra layers and every module is on. The phase 5 variables `SYNC_PROFILE` and `SYNC_MACHINE` are gone.
-
-| File | Holds | Layer it brings | Layer label |
-|---|---|---|---|
-| `<state>/machine.json` | the record: name, profile, OS, Claude mode, push or pull only, module changes, machine values | `<state>/machines/<name>/` | `machines/<name>/<file>` |
-| `<state>/profiles/<profile>.json` | the profile: modules, values, destinations, retired | `<state>/profiles/<profile>/` | `profiles/<profile>/<file>` |
+| File                              | Holds                                                                                         | Layer it brings               | Layer label                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- | --------------------------- |
+| `<state>/machine.json`            | the record: name, profile, OS, Claude mode, push or pull only, module changes, machine values | `<state>/machines/<name>/`    | `machines/<name>/<file>`    |
+| `<state>/profiles/<profile>.json` | the profile: modules, values, destinations, retired                                           | `<state>/profiles/<profile>/` | `profiles/<profile>/<file>` |
 
 `<state>` is the state folder ([layout.md](layout.md#profiles-and-machines-in-the-state-folder)). A name is lowercase
 letters, digits and `-`, and it can't name another layer: neither name may be `linux`, `macos`, `windows`, `common` or
 `base`, and the machine can't share its profile's name (their side files, such as `CLAUDE.<name>.md`, would overwrite
 each other). A record or profile that doesn't parse stops the run with exit 2 before any file is touched, naming the
-field ([contract, "Machines"](sync-contract.md#machines-program-only)).
+field ([contract, "Machines"](sync-contract.md#machines)).
 
 **The record.** Every field is required; `setup` writes it, so it's rarely edited by hand:
 
-| Field | Type | Meaning |
-|---|---|---|
-| `name` | name | this machine, and its layer folder |
-| `profile` | name | the profile it runs |
-| `os` | `linux`, `macos` or `windows` | the system it was set up on |
-| `hostname`, `domain` | string; string or `null` | what the scan read, used to suggest this record on a reinstall |
-| `claude` | `none`, `claude` or `claude-deepseek` | turns off `claude` and `claude-worker`, `claude-worker` only, or neither |
-| `pullOnly` | boolean | pull without ever pushing |
-| `modules` | `{ "add": [...], "remove": [...] }` | modules turned on or off for this machine only |
-| `values` | object | this machine's values: `<HOME>`, `<GH_CLI_PATH>`, and any placeholder answered "this machine" |
-| `replaced` | list of `{hostname, domain, date}` | earlier installs this record took over, oldest first |
-| `retired` | boolean | set by `machine retire`; a retired record can't push |
+| Field                | Type                                  | Meaning                                                                                       |
+| -------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `name`               | name                                  | this machine, and its layer folder                                                            |
+| `profile`            | name                                  | the profile it runs                                                                           |
+| `os`                 | `linux`, `macos` or `windows`         | the system it was set up on                                                                   |
+| `hostname`, `domain` | string; string or `null`              | what the scan read, used to suggest this record on a reinstall                                |
+| `claude`             | `none`, `claude` or `claude-deepseek` | turns off `claude` and `claude-worker`, `claude-worker` only, or neither                      |
+| `pullOnly`           | boolean                               | pull without ever pushing                                                                     |
+| `modules`            | `{ "add": [...], "remove": [...] }`   | modules turned on or off for this machine only                                                |
+| `values`             | object                                | this machine's values: `<HOME>`, `<GH_CLI_PATH>`, and any placeholder answered "this machine" |
+| `replaced`           | list of `{hostname, domain, date}`    | earlier installs this record took over, oldest first                                          |
+| `retired`            | boolean                               | set by `machine retire`; a retired record can't push                                          |
 
 **The profile** is JSON with four optional fields:
 
-| Field | Type | Meaning |
-|---|---|---|
-| `modules` | array of module names | the modules this profile runs; an entry of any other module gets no status line |
-| `values` | object | the profile's values: name, email, GitHub user and org, work marketplace, and any placeholder answered "this profile"; a record's value wins over the profile's |
-| `destinations` | object | where a new setting goes: key path (`proxy`, `permissions.allow[]`) to layer slot, `os`, `profile` or `machine`; any other value stops the run (`destination <key> is not a layer`) |
-| `retired` | boolean | set by `profile retire`: not listed by `setup`, and refused if named |
+| Field          | Type                  | Meaning                                                                                                                                                                             |
+| -------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modules`      | array of module names | the modules this profile runs; an entry of any other module gets no status line                                                                                                     |
+| `values`       | object                | the profile's values: name, email, GitHub user and org, work marketplace, and any placeholder answered "this profile"; a record's value wins over the profile's                     |
+| `destinations` | object                | where a new setting goes: key path (`proxy`, `permissions.allow[]`) to layer slot, `os`, `profile` or `machine`; any other value stops the run (`destination <key> is not a layer`) |
+| `retired`      | boolean               | set by `profile retire`: not listed by `setup`, and refused if named                                                                                                                |
 
 **Worked example.** A work machine gets the `parity` module and one extra key in a JSON file:
 
 ```json
-// sync-config.v2.json (entry)
+// sync-config.json (entry)
 { "file": "parity/settings.json", "module": "parity", "merge": "json",
   "localPath": "~/.config/parity/settings.json" }
 
@@ -364,11 +336,10 @@ field ([contract, "Machines"](sync-contract.md#machines-program-only)).
 { "theme": "light", "proxy": "http://proxy.example.com" }
 ```
 
-Only the program reads profiles, so the example runs `dist/mksync` (`bun run build`), not the `mksync` front door,
-which still calls the old engines. With the record in place, `dist/mksync import` writes `~/.config/parity/settings.json` as
+With the record in place, `mksync pull` writes `~/.config/parity/settings.json` as
 `{ "editor": "vim", "theme": "light", "proxy": "http://proxy.example.com" }` (laid out over several lines) and labels
 the line with the latest layer, `profiles/work-1/parity/settings.json`. Changing `theme` locally and running
-`dist/mksync export` writes the new value back to the profile layer in the state folder, since that
+`mksync push` writes the new value back to the profile layer in the state folder, since that
 layer set it; `dotfiles/` doesn't change. Each time export rewrites or removes a file in the state folder, the old file
 goes into the run's dated backups folder first.
 

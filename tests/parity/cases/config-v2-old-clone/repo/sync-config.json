@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "repoPath": "dotfiles/common/parity/old.conf",
+      "localPath": "~/.config/parity/old.conf",
+      "type": "file",
+      "platform": "common",
+      "description": "v1 entry the v2 config supersedes"
+    }
+  ]
+}

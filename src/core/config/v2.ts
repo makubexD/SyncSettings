@@ -1,11 +1,14 @@
 import { hasDotDotSegment, isValidDconfPath } from "./dconf-path.ts";
 import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
 
-const CONFIG_FILE = "sync-config.v2.json";
+const CONFIG_FILE = "sync-config.json";
 
 const MERGE_TYPES: readonly MergeType[] = ["whole", "json", "import", "dconf", "dir"];
 
 const OSES: readonly Os[] = ["windows", "linux", "macos"];
+
+/** A `defaultEnv` names an environment variable, so it has to be a valid name. */
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const LAYER_PLACEHOLDER = "{layer}";
 
@@ -15,8 +18,8 @@ const DRIVE_LETTER_RE = /^[A-Za-z]:/;
 
 // Fields a merge can not use, in the order the first present one is named.
 const DISALLOWED_FIELDS: Readonly<Record<MergeType, readonly string[]>> = {
-  dir: ["sanitize", "scanLinks", "dconfPath", "keys"],
-  dconf: ["localPath", "sanitize", "scanLinks"],
+  dir: ["sanitize", "dconfPath", "keys"],
+  dconf: ["localPath", "sanitize"],
   whole: ["dconfPath", "keys"],
   json: ["dconfPath", "keys"],
   import: ["dconfPath", "keys"],
@@ -34,6 +37,26 @@ function isOsList(value: unknown): value is readonly Os[] {
   return (
     Array.isArray(value) &&
     value.every((item) => typeof item === "string" && (OSES as readonly string[]).includes(item))
+  );
+}
+
+/** The first `localPaths` key that is not an OS name, if any. */
+function unknownLocalPathsKey(localPaths: unknown): string | undefined {
+  if (!isRecord(localPaths)) {
+    return undefined;
+  }
+  return Object.keys(localPaths).find((key) => !(OSES as readonly string[]).includes(key));
+}
+
+function hasInvalidDefaultEnv(sanitize: unknown): boolean {
+  return (
+    Array.isArray(sanitize) &&
+    sanitize.some(
+      (rule) =>
+        isRecord(rule) &&
+        Object.hasOwn(rule, "defaultEnv") &&
+        (typeof rule.defaultEnv !== "string" || !ENV_NAME_RE.test(rule.defaultEnv)),
+    )
   );
 }
 
@@ -77,6 +100,8 @@ interface ConfigMessages {
   readonly insideDir: (file: string, dir: string) => string;
   readonly trailingSlash: (file: string) => string;
   readonly keys: (file: string) => string;
+  readonly localPathsKey: (file: string, key: string) => string;
+  readonly defaultEnv: (file: string) => string;
 }
 
 /** Every error line names the config file the text came from. */
@@ -108,6 +133,8 @@ function configMessages(configFile: string): ConfigMessages {
     insideDir: (file, dir) => `${prefix}: entry ${file} is inside dir entry ${dir}.`,
     trailingSlash: (file) => `${prefix}: entry ${file} has a trailing / in file.`,
     keys: (file) => `${prefix}: entry ${file} needs keys as a non-empty list of strings.`,
+    localPathsKey: (file, key) => `${prefix}: entry ${file} has an unknown localPaths key ${key}.`,
+    defaultEnv: (file) => `${prefix}: entry ${file} has an invalid defaultEnv.`,
   };
 }
 
@@ -242,6 +269,15 @@ export function parseV2(
 
     if (hasBackslash(record.localPath) || localPathsHaveBackslash(record.localPaths)) {
       return failure(messages.backslash(file), 1);
+    }
+
+    const unknownKey = unknownLocalPathsKey(record.localPaths);
+    if (unknownKey !== undefined) {
+      return failure(messages.localPathsKey(file, unknownKey), 1);
+    }
+
+    if (hasInvalidDefaultEnv(record.sanitize)) {
+      return failure(messages.defaultEnv(file), 1);
     }
 
     const moduleDef = modules[moduleName];

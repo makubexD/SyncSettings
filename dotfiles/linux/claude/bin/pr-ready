@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# pr-ready <pr-number> -- read-only merge gate; it never merges anything.
+#
+# Usage:   pr-ready <n>
+# Exit 0:  every check passed; stdout is `ready`.
+# Exit 1:  not ready; stdout has one reason per line (all reasons, not just the first).
+# Exit 2:  bad usage, or a `gh` call failed / returned invalid JSON; message is on stderr.
+#
+# A skipped check (conclusion SKIPPED) counts as passing, because path-filtered
+# jobs skip by design. A `review-gate` check is treated like any other check.
+# Only the latest run of each check counts: adding the `reviewed` label reruns `review-gate`, and the
+# rollup keeps the earlier failed run next to the new one.
+set -uo pipefail
+
+usage() {
+  printf 'usage: pr-ready <pr-number>\n' >&2
+}
+
+if [ "$#" -ne 1 ]; then
+  usage
+  exit 2
+fi
+n=$1
+
+if ! pr_json=$(gh pr view "$n" --json isDraft,mergeable,mergeStateStatus,baseRefName,labels,statusCheckRollup,files 2>/dev/null); then
+  printf 'pr-ready: gh pr view %s failed\n' "$n" >&2
+  exit 2
+fi
+
+if ! repo_json=$(gh repo view --json defaultBranchRef 2>/dev/null); then
+  printf 'pr-ready: gh repo view failed\n' >&2
+  exit 2
+fi
+
+if ! printf '%s\n' "$pr_json" | jq -e . >/dev/null 2>&1; then
+  printf 'pr-ready: gh pr view %s returned invalid JSON\n' "$n" >&2
+  exit 2
+fi
+
+if ! printf '%s\n' "$repo_json" | jq -e . >/dev/null 2>&1; then
+  printf 'pr-ready: gh repo view returned invalid JSON\n' >&2
+  exit 2
+fi
+
+default=$(printf '%s\n' "$repo_json" | jq -r '.defaultBranchRef.name // empty')
+if [ -z "$default" ]; then
+  printf 'pr-ready: could not read the default branch\n' >&2
+  exit 2
+fi
+
+reasons=$(
+  printf '%s\n' "$pr_json" | jq -r --arg default "$default" '
+    [
+      (if .isDraft == true then "draft" else empty end),
+      (if .mergeable != "MERGEABLE" then "mergeable: \(.mergeable // "unknown")" else empty end),
+      (if (.mergeStateStatus == "CLEAN" or .mergeStateStatus == "HAS_HOOKS")
+       then empty else "merge state: \(.mergeStateStatus // "unknown")" end),
+      (if .baseRefName != $default
+       then "base branch \(.baseRefName // "unknown") is not the default \($default)" else empty end),
+      (.files[]? | .path // empty | select(startswith(".github/workflows/")) | "workflows changed: \(.)"),
+      (if ((.statusCheckRollup // []) | length) == 0 then "no checks ran" else empty end),
+      ((.statusCheckRollup // [])
+       | group_by([.__typename, .workflowName // "", .name // .context // ""])
+       | map(sort_by(.startedAt // .createdAt // "") | last)
+       | .[]
+       | if .__typename == "CheckRun" then
+           if (.status == "COMPLETED"
+               and (.conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL"))
+           then empty
+           else "check \(.name // "unknown"): \(if .status != "COMPLETED"
+                                             then (.status // "unknown")
+                                             else (.conclusion // "no conclusion") end)"
+           end
+         elif .__typename == "StatusContext" then
+           if .state == "SUCCESS"
+           then empty
+           else "check \(.context // "unknown"): \(.state // "no state")"
+           end
+         else "check of unknown type \(.__typename // "null"): \(.name // .context // "unnamed")"
+         end)
+    ]
+    | .[]
+  '
+)
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  printf 'pr-ready: could not parse the PR data\n' >&2
+  exit 2
+fi
+
+if [ -z "$reasons" ]; then
+  printf 'ready\n'
+  exit 0
+fi
+
+printf '%s\n' "$reasons"
+exit 1

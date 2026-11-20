@@ -1,2 +1,2 @@
-Setup done. Run mksync any time to see where this machine stands.
+! Also restore apps and packages
 ! BOOTSTRAP RAN

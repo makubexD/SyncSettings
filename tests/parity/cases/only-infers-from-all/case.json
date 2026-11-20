@@ -1,33 +1,53 @@
 {
   "description": "Import with --only infers values from every entry, not just the picked one, and caches them (Picking files, Inference on import, Values).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
-        "description": "First parity case file",
-        "sanitizeRules": [
-          { "placeholder": "<USER>", "prompt": "User name" }
-        ]
+        "sanitize": [
+          {
+            "placeholder": "<USER>",
+            "prompt": "User name"
+          }
+        ],
+        "description": "First parity case file"
       },
       {
-        "repoPath": "dotfiles/common/parity/b.conf",
+        "file": "parity/b.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/b.conf",
-        "platform": "common",
-        "description": "Second parity case file",
-        "sanitizeRules": [
-          { "placeholder": "<USER>", "prompt": "User name" }
-        ]
+        "sanitize": [
+          {
+            "placeholder": "<USER>",
+            "prompt": "User name"
+          }
+        ],
+        "description": "Second parity case file"
       }
     ]
   },
   "commands": [
     {
       "command": "import",
-      "options": { "force": true, "only": ["dotfiles/common/parity/a.conf"] }
+      "options": {
+        "force": true,
+        "only": [
+          "dotfiles/common/parity/a.conf"
+        ]
+      }
     }
   ]
 }

@@ -1,16 +1,28 @@
 {
   "description": "Export skips a local file matching an exclude pattern and says why: SKIPPED with the exclude note (Exclude patterns; Statuses, Export).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.secret"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.secret"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/x.secret",
+        "file": "parity/x.secret",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/x.secret",
-        "platform": "common",
         "description": "Excluded parity file"
       }
     ]
   },
-  "commands": [{ "command": "export" }]
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

@@ -2,18 +2,30 @@
   "description": "Diff with a recorded sync point labels a file deleted from the local dir entry as OUT, exit 3 (Diff, Sync point, Directory entries). Ported from diff-dir-removed.",
   "git": "remote",
   "syncPoint": true,
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak", "*.secret"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak",
+      "*.secret"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/dir",
+        "file": "dir",
+        "module": "unsorted",
+        "merge": "dir",
         "localPath": "~/.config/fixture/dir",
-        "type": "dir",
-        "platform": "common",
         "description": "Directory fixture"
       }
     ]
   },
-  "commands": [{ "command": "diff" }]
+  "commands": [
+    {
+      "command": "diff"
+    }
+  ]
 }

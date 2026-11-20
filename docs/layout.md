@@ -1,11 +1,11 @@
 # Repository layout
 
-Every synced file lives under `dotfiles/<platform>/<tool>/`. This page says where a new file goes and why the
+Every synced file lives under `dotfiles/<os>/<tool>/` or `dotfiles/common/<tool>/`. This page says where a new file goes and why the
 exceptions exist. For the fields of an entry, see [configuration.md](configuration.md).
 
 ```text
 dotfiles/
-├── common/    Same file on more than one system; platform says which
+├── common/    The base layer: the file for every system the entry's os names
 │   ├── claude/
 │   └── git/
 ├── linux/     Linux only
@@ -41,18 +41,18 @@ bootstrap/
 Lists in `packages/` aren't under `dotfiles/`, so no entry owns them and `ORPHAN` doesn't apply. You edit them by hand; see
 [packages.md](packages.md). To restore a machine from all of this, see [restore.md](restore.md).
 
-## The new engine
+## The program
 
-The compiled `mksync` program that replaces the bash and PowerShell engines at cut-over is built from these. The
-installers don't use it yet ([design](design-layers.md)).
+The compiled `mksync` program is built from these; the installers download it from a release
+([design](design-layers.md)).
 
 ```text
 src/                 TypeScript engine (Bun)
-├── core/            pure: config, layers, values, plans, shadow comparison; no file or process access
-├── adapters/        the I/O: files, paths, git, the old engine for shadow
+├── core/            pure: config, layers, values, plans; no file or process access
+├── adapters/        the I/O: files, paths, git, processes
 ├── cli/             command parsing
 └── main.ts          wires cli, adapters and core
-tools/               dev-only scripts, never compiled in: convert-config.ts, check-config.ts
+tools/               dev-only scripts, never compiled in: check-config.ts, claude-layout.ts
 tests/all.sh         every local test layer, in order (lint, unit, config, build, shared cases, Windows VM)
 tests/windows-vm/    the local Windows 11 VM for the Windows layer; see its README.md
 package.json         Bun 1.4.4 and the scripts: lint, test, build
@@ -60,8 +60,7 @@ bun.lock             the lockfile; install with bun install --frozen-lockfile
 dist/                build output, gitignored
 ```
 
-`sync-config.v2.json` sits next to `sync-config.json` until cut-over; see
-[configuration.md](configuration.md#sync-configv2json).
+One `sync-config.json` (`schemaVersion` 2) holds the config; see [configuration.md](configuration.md).
 
 ### Profiles and machines in the state folder
 
@@ -90,19 +89,21 @@ and `profiles/` (phase 7) and `machine.json` keeps only a pointer, `{"name": "<n
 
 ## Where a file goes
 
-| The file | Where | Example |
-|---|---|---|
-| Is the same on every system | `dotfiles/common/<tool>/`, `"platform": "common"` | `claude/RTK.md` |
-| Is the same on two systems only | `dotfiles/common/<tool>/`, `"platform": ["linux", "macos"]` | `tmux/.tmux.conf` |
-| Is the same but lives in another folder on one system | as above, plus `localPaths` ([configuration.md](configuration.md#localpaths)) | `vscode/settings.json` |
-| Exists on one system, or differs throughout | `dotfiles/<linux, macos or windows>/<tool>/` | `windows/shell/.bashrc` |
-| Is mostly shared, with a few lines per system, and its tool has an include | Split it: the shared part in `common`, one local part per system | `git/.gitconfig` |
-| Is a folder where every file should be synced and none holds a private value | One `"type": "dir"` entry | `linux/claude/hooks` |
-| Is a folder with private values, or with files to leave out | One file entry per file | `linux/claude/bin/` |
+| The file                                                                     | Where                                                                         | Example                 |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------- |
+| Is the same on every system                                                  | `dotfiles/common/<tool>/`, no `os`                                            | `claude/RTK.md`         |
+| Is the same on two systems only                                              | `dotfiles/common/<tool>/`, `"os": ["linux", "macos"]`                         | `tmux/.tmux.conf`       |
+| Is the same but lives in another folder on one system                        | as above, plus `localPaths` ([configuration.md](configuration.md#localpaths)) | `vscode/settings.json`  |
+| Exists on one system, or differs throughout                                  | `dotfiles/<linux, macos or windows>/<tool>/`, one OS in `os`                  | `windows/shell/.bashrc` |
+| Is mostly shared, with a few lines per system, and its tool has an include   | Split it: the shared part in `common`, one local part per system              | `git/.gitconfig`        |
+| Is a folder where every file should be synced and none holds a private value | One `"merge": "dir"` entry                                                    | `linux/claude/hooks`    |
+| Is a folder with private values, or with files to leave out                  | One file entry per file                                                       | `linux/claude/bin/`     |
 
-CI lint enforces the platform folder: a `repoPath` outside `dotfiles/<platform>/` fails, and a list's folder is
-`common/`. A `common` or list entry must also use the `~/` form of `localPath`, because the other form only works on
-Windows.
+An entry's `os` (or its module's) says which systems get it; with none, every system does. A new file is written to
+`dotfiles/<os>/` when one system gets it, else to `dotfiles/common/`, and a file in `dotfiles/<os>/` overrides the
+`common/` one on that system. `bun run tools/check-config.ts` (CI) fails an entry with no file in its folder and a file
+no entry owns. An entry for more than one system must use the `~/` form of `localPath`, because the other form only
+works on Windows.
 
 ## Naming
 
@@ -124,11 +125,11 @@ with `core.autocrlf=true` doesn't add CR bytes to them. `*.gpg` files under `pac
 Identity, core settings, diff and merge tools, aliases and `init.defaultBranch` are the same everywhere. Credentials are
 not: Windows uses `manager` and `gh.exe`, Linux uses `/usr/bin/gh`. So there are three entries:
 
-| Entry | Local path | Holds |
-|---|---|---|
-| `common/git/.gitconfig` | `~/.gitconfig` | Everything shared, ending in `[include] path = ~/.gitconfig.local` |
-| `windows/git/.gitconfig.local` | `~\.gitconfig.local` | Windows credentials |
-| `linux/git/.gitconfig.local` | `~/.gitconfig.local` | Linux credentials |
+| Entry                          | Local path           | Holds                                                              |
+| ------------------------------ | -------------------- | ------------------------------------------------------------------ |
+| `common/git/.gitconfig`        | `~/.gitconfig`       | Everything shared, ending in `[include] path = ~/.gitconfig.local` |
+| `windows/git/.gitconfig.local` | `~\.gitconfig.local` | Windows credentials                                                |
+| `linux/git/.gitconfig.local`   | `~/.gitconfig.local` | Linux credentials                                                  |
 
 To check the merged result, include the local file: `git config --global --includes --get-all
 credential.https://github.com.helper`. Without `--includes`, the command reads only `~/.gitconfig` and finds nothing.
@@ -174,33 +175,34 @@ machine prompts for the URL, which has no default.
 Each folder has one `type: dconf` entry and one file under `dotfiles/linux/gnome/dconf/`. The repo is public, so a filtered
 entry names its `keys`, and a setting nobody named stays out.
 
-| `path` | File | `keys` | Holds |
-|---|---|---|---|
-| `/org/gnome/desktop/interface/` | `interface.ini` | none | Accent, dark scheme, GTK and icon theme |
-| `/org/gnome/desktop/input-sources/` | `input-sources.ini` | `sources`, `xkb-options`, `per-window` | Keyboard layouts |
-| `/org/gnome/desktop/wm/keybindings/` | `wm-keybindings.ini` | none | Workspace shortcuts |
-| `/org/gnome/desktop/privacy/` | `privacy.ini` | none | Problem reporting off |
-| `/org/gnome/desktop/session/` | `session.ini` | none | Screen blank delay |
-| `/org/gnome/settings-daemon/plugins/power/` | `power.ini` | none | Dimming, no sleep on AC |
-| `/org/gnome/shell/` | `shell.ini` | `favorite-apps`, `enabled-extensions`, `disabled-extensions`, `keybindings/*` | Dock, extensions, shell shortcuts |
-| `/org/gnome/Ptyxis/` | `ptyxis.ini` | Every preference except `window-size`, and the named `Profiles/*/` keys | Font, profile |
-| `/org/gnome/nautilus/preferences/` | `nautilus.ini` | none | Default view |
-| `/org/gtk/gtk4/settings/file-chooser/` | `file-chooser.ini` | `show-*`, `sort-directories-first` | Hidden files, folders first |
+| `path`                                      | File                 | `keys`                                                                        | Holds                                   |
+| ------------------------------------------- | -------------------- | ----------------------------------------------------------------------------- | --------------------------------------- |
+| `/org/gnome/desktop/interface/`             | `interface.ini`      | none                                                                          | Accent, dark scheme, GTK and icon theme |
+| `/org/gnome/desktop/input-sources/`         | `input-sources.ini`  | `sources`, `xkb-options`, `per-window`                                        | Keyboard layouts                        |
+| `/org/gnome/desktop/wm/keybindings/`        | `wm-keybindings.ini` | none                                                                          | Workspace shortcuts                     |
+| `/org/gnome/desktop/privacy/`               | `privacy.ini`        | none                                                                          | Problem reporting off                   |
+| `/org/gnome/desktop/session/`               | `session.ini`        | none                                                                          | Screen blank delay                      |
+| `/org/gnome/settings-daemon/plugins/power/` | `power.ini`          | none                                                                          | Dimming, no sleep on AC                 |
+| `/org/gnome/shell/`                         | `shell.ini`          | `favorite-apps`, `enabled-extensions`, `disabled-extensions`, `keybindings/*` | Dock, extensions, shell shortcuts       |
+| `/org/gnome/Ptyxis/`                        | `ptyxis.ini`         | Every preference except `window-size`, and the named `Profiles/*/` keys       | Font, profile                           |
+| `/org/gnome/nautilus/preferences/`          | `nautilus.ini`       | none                                                                          | Default view                            |
+| `/org/gtk/gtk4/settings/file-chooser/`      | `file-chooser.ini`   | `show-*`, `sort-directories-first`                                            | Hidden files, folders first             |
 
 Left out on purpose:
 
-| Path or key | Why |
-|---|---|
-| `Profiles/*/custom-command`, `use-custom-command`, `custom-links`, `default-container`, `preserve-container` | Can hold commands, paths and URLs, and the repo is public |
-| `settings-daemon/plugins/color/` | Holds coordinates. Night Light isn't configured, so nothing is lost |
-| `portal/filechooser/`, `control-center/`, `nautilus/window-state/`, `app-picker-layout`, `window-size` | Window state and history |
-| `apps/update-manager/`, `com/ubuntu/update-notifier/`, `net/nokyan/Resources/`, `evolution-data-server/`, `shell/world-clocks/`, `shell/extensions/ding/`, `welcome-dialog-last-shown-version` | Generated state, nothing set by hand |
-| `shell/extensions/tiling-assistant/`, `mutter/`, `mutter/keybindings/` | Written by the extension when it starts |
-| `desktop/notifications/`, `desktop/app-folders/`, `desktop/peripherals/keyboard/` | Generated lists, stock folders, and the live Num Lock state |
-| `system/location/` | Restoring it would turn location on without the question a fresh install asks |
-| `settings-daemon/plugins/media-keys/` | Empty here. [configuration.md](configuration.md#adding-a-dconf-folder) shows how to add a folder like it |
+| Path or key                                                                                                                                                                                    | Why                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `Profiles/*/custom-command`, `use-custom-command`, `custom-links`, `default-container`, `preserve-container`                                                                                   | Can hold commands, paths and URLs, and the repo is public                                                |
+| `settings-daemon/plugins/color/`                                                                                                                                                               | Holds coordinates. Night Light isn't configured, so nothing is lost                                      |
+| `portal/filechooser/`, `control-center/`, `nautilus/window-state/`, `app-picker-layout`, `window-size`                                                                                         | Window state and history                                                                                 |
+| `apps/update-manager/`, `com/ubuntu/update-notifier/`, `net/nokyan/Resources/`, `evolution-data-server/`, `shell/world-clocks/`, `shell/extensions/ding/`, `welcome-dialog-last-shown-version` | Generated state, nothing set by hand                                                                     |
+| `shell/extensions/tiling-assistant/`, `mutter/`, `mutter/keybindings/`                                                                                                                         | Written by the extension when it starts                                                                  |
+| `desktop/notifications/`, `desktop/app-folders/`, `desktop/peripherals/keyboard/`                                                                                                              | Generated lists, stock folders, and the live Num Lock state                                              |
+| `system/location/`                                                                                                                                                                             | Restoring it would turn location on without the question a fresh install asks                            |
+| `settings-daemon/plugins/media-keys/`                                                                                                                                                          | Empty here. [configuration.md](configuration.md#adding-a-dconf-folder) shows how to add a folder like it |
 
 ## Linked folders
 
-A file with `detectLinkedPaths` keeps its folders next to it, in `<repoPath>.linked/`, so they land in the same tool
-folder: `windows/shell/.bashrc.linked/MakuCustomAlias/`.
+A folder that a synced file points at, such as `C:/MakuCustomAlias` named in the Windows `.bashrc`, is its own
+`"merge": "dir"` entry in the same tool folder: `windows/shell/MakuCustomAlias/`. `mksync setup` offers one for each
+folder it finds in a `"linked": true` file ([contract](sync-contract.md#linked-folders)).

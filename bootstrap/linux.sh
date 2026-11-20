@@ -4,11 +4,68 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-# jq isn't installed yet, so skip the config checks sync.sh runs when sourced.
-SYNC_LIB_ONLY=1
-# Ubuntu only, so name the system instead of asking uname (the guards run first).
-export SYNC_OS=linux
-source scripts/linux/sync.sh
+REPO_ROOT=$PWD
+
+# The program that syncs the config files: the one `mksync setup` ran from
+# (MKSYNC_PROGRAM), so a fresh machine whose bin folder is not on PATH yet still
+# reaches it; else mksync from PATH; else the clone's launcher, which needs Bun
+# or Node (bootstrap already cd'd here).
+if [[ -n ${MKSYNC_PROGRAM:-} && -x $MKSYNC_PROGRAM ]]; then
+    MKSYNC=$MKSYNC_PROGRAM
+elif command -v mksync >/dev/null 2>&1; then
+    MKSYNC=mksync
+else
+    MKSYNC=./mksync
+fi
+
+# Helpers the steps below call, kept here so bootstrap needs no jq to start.
+
+status() {
+    # usage: status <STATUS> <label> [note]
+    local s=$1 label=$2 note=${3:-}
+    printf '  %-10s %s%s\n' "$s" "$label" "${note:+  ($note)}"
+}
+
+# Names in a list: the first field of each line, without comments and blanks.
+package_names() {
+    [[ -f $1 ]] || return 0
+    awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$1" | LC_ALL=C sort -u
+}
+
+# Installed apt package names from dpkg-query, LC_ALL=C sorted. Returns 1 when
+# dpkg-query is missing or failed, so a caller can tell "none" from "unknown".
+dpkg_installed() {
+    local out
+    if ! command -v dpkg-query >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! out=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' 2>/dev/null); then
+        return 1
+    fi
+    awk '$1 == "installed" { print $2 }' <<<"$out" | LC_ALL=C sort -u
+}
+
+# Installed npm packages under a node_modules dir: one @scope/name per scoped
+# package, one name per plain package, and no dotfiles like .bin.
+npm_packages() {
+    local node_dir=$1 name sub
+    [[ -d $node_dir ]] || return 0
+    for name in "$node_dir"/*; do
+        [[ -d $name ]] || continue
+        name=${name##*/}
+        [[ $name == .* ]] && continue
+        if [[ $name == @* ]]; then
+            for sub in "$node_dir/$name"/*; do
+                [[ -d $sub ]] || continue
+                sub=${sub##*/}
+                [[ $sub == .* ]] && continue
+                printf '%s/%s\n' "$name" "$sub"
+            done
+        else
+            printf '%s\n' "$name"
+        fi
+    done | LC_ALL=C sort -u
+}
 
 PACKAGES_DIR=$REPO_ROOT/packages/linux
 ROOT=${BOOTSTRAP_ROOT:-}
@@ -613,7 +670,7 @@ step_import() {
     fi
     # Stdin stays the terminal, so import's overwrite prompts work. Import exits 0
     # with a file in ERROR, by contract, so its status lines are the only signal.
-    ./import.sh | tee "$WORK/import.out" || return 1
+    "$MKSYNC" import | tee "$WORK/import.out" || return 1
     if grep -q '^  ERROR ' "$WORK/import.out"; then
         return 1
     fi
@@ -789,7 +846,7 @@ step_preview() {
     if (( NO_SESSION )); then
         return 0
     fi
-    ./sync preview </dev/null || return 1
+    "$MKSYNC" preview </dev/null || return 1
 }
 
 print_summary() {

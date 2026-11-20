@@ -1,17 +1,28 @@
 {
   "description": "Export of a dir entry reports a repo file gone locally, then removes it: UNCHANGED then REMOVED (Directory entries).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/dir",
+        "file": "parity/dir",
+        "module": "unsorted",
+        "merge": "dir",
         "localPath": "~/.config/parity/dir",
-        "type": "dir",
-        "platform": "common",
         "description": "Parity case folder"
       }
     ]
   },
-  "commands": [{ "command": "export" }]
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

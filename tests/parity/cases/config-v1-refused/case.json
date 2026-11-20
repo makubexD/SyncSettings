@@ -1,0 +1,15 @@
+{
+  "description": "A sync-config.json with no schemaVersion is an old v1 config: status stops with decision 7's line, exit 2, before any other field is read (docs/plan-single-engine-9-cutover.md; Config v2).",
+  "os": ["linux", "macos", "windows"],
+  "configV2": {
+    "version": 1,
+    "entries": [
+      {
+        "repoPath": "dotfiles/linux/parity/a.conf",
+        "localPath": "~/.config/parity/a.conf",
+        "platform": "linux"
+      }
+    ]
+  },
+  "commands": [{ "command": "status", "stderr": true }]
+}

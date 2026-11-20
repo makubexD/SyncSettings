@@ -1,0 +1,30 @@
+{
+  "description": "A repo with both sync-config.v2.json (a v2 config) and sync-config.json (a v1 config) reads the v2 one, so an import writes only its entry and nothing of the v1 entry (decision 8 of docs/plan-single-engine-9-cutover.md; Config v2).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "os": ["linux", "macos", "windows"],
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "configName": "sync-config.v2.json",
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

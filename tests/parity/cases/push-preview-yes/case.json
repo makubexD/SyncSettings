@@ -1,6 +1,5 @@
 {
   "description": "export --preview with --yes stops before anything runs with the clash ERROR line and exit 2 (New settings (program only), preview with --yes). Exit 2 since phase 9 decision 7.",
-  "oldEngines": ["none"],
   "configV2": {
     "schemaVersion": 2,
     "modules": {

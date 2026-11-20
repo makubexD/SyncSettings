@@ -1,21 +1,41 @@
 {
-  "description": "An invalid defaultEnv name stops export before it touches a file on bash, while PowerShell has no such check (Path safety, Known differences).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "description": "An invalid defaultEnv name stops export with exit 1 before it touches a file, on every OS (Path safety, Known differences).",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/git.conf",
+        "file": "parity/git.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/git.conf",
-        "platform": "common",
-        "description": "Sanitized parity file",
-        "sanitizeRules": [
-          { "placeholder": "<YOUR_NAME>", "prompt": "Full name", "defaultEnv": "1BAD" }
-        ]
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name",
+            "defaultEnv": "1BAD"
+          }
+        ],
+        "description": "Sanitized parity file"
       }
     ]
   },
-  "values": { "<YOUR_NAME>": "Parity User" },
-  "commands": [{ "command": "export" }],
-  "differences": ["defaultEnv name check"]
+  "values": {
+    "<YOUR_NAME>": "Parity User"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ],
+  "differences": [
+    "defaultEnv name check"
+  ]
 }

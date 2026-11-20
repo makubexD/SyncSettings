@@ -140,7 +140,7 @@ else
     done
 
     # -- M2 ----------------------------------------------------------------------
-    header 'M2: mksync status and import --check'
+    header 'M2: mksync status and mksync check'
     m2_fail=''
     run_logged status "$MKSYNC" status
     if ! grep -qF "SyncSettings  macos ($MACOS_VERSION)" "$WORK/status.log"; then
@@ -148,58 +148,43 @@ else
     fi
 
     say ''
-    # $1 is for the inner sh, not this shell.
+    # $1 and $2 are for the inner sh, not this shell.
     # shellcheck disable=SC2016
-    run_logged check /bin/sh -c 'cd "$1" && ./import.sh --check' sh "$DIR"
+    run_logged check /bin/sh -c 'cd "$1" && "$2" check' sh "$DIR" "$MKSYNC"
     rc=$?
     if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then
-        m2_fail="${m2_fail}import.sh --check exited $rc (expected 0 or 3); "
+        m2_fail="${m2_fail}mksync check exited $rc (expected 0 or 3); "
+    fi
+
+    # Each check line is "  <STATUS>  dotfiles/<root>/<file>" (indented, padded); a dir entry lists its files under <file>/.
+    for file in shell/.zshrc shell/.zprofile git/.gitconfig.local; do
+        if ! grep -qE "^ *[A-Z]+ +dotfiles/[a-z]+/${file}\$" "$WORK/check.log"; then
+            m2_fail="${m2_fail}mksync check doesn't list $file; "
+        fi
+    done
+    if grep -qE '^ *[A-Z]+ +dotfiles/(linux|windows)/' "$WORK/check.log"; then
+        say 'Listed but not for macOS:'
+        grep -E '^ *[A-Z]+ +dotfiles/(linux|windows)/' "$WORK/check.log" | tee -a "$REPORT"
+        m2_fail="${m2_fail}mksync check lists linux or windows entries; "
     fi
 
     if [ -z "$JQ" ]; then
-        m2_fail="${m2_fail}jq not found, can't read the expected list; "
+        m2_fail="${m2_fail}jq not found, can't read sync-config.json; "
     else
-        # The entries this Mac should get: platform common, macos, or a list naming macos.
-        "$JQ" -r '.files[]
-            | select(.platform == "common" or .platform == "macos"
-                or ((.platform | type) == "array" and (.platform | index("macos"))))
-            | .repoPath' "$DIR/sync-config.json" > "$WORK/expected.txt"
+        # The check lines show repo paths, so record where VS Code's files are on this Mac.
         say ''
-        say "Entries for macOS in sync-config.json: $(wc -l < "$WORK/expected.txt" | tr -d ' ')"
-        missing=''
-        while IFS= read -r rp; do
-            if ! awk -v rp="$rp" '$2 == rp || index($2, rp "/") == 1 { found = 1 } END { exit !found }' \
-                "$WORK/check.log"; then
-                missing="$missing $rp"
-            fi
-        done < "$WORK/expected.txt"
-        if [ -n "$missing" ]; then
-            say "Not listed by import --check:$missing"
-            m2_fail="${m2_fail}import --check skips$missing; "
-        fi
-        for rp in dotfiles/macos/shell/.zshrc dotfiles/macos/shell/.zprofile dotfiles/macos/git/.gitconfig.local; do
-            grep -qx "$rp" "$WORK/expected.txt" || m2_fail="${m2_fail}$rp is no longer a macOS entry; "
-        done
-        if grep -qE '^ +[A-Z]+ +dotfiles/(linux|windows)/' "$WORK/check.log"; then
-            say 'Listed but not for macOS:'
-            grep -E '^ +[A-Z]+ +dotfiles/(linux|windows)/' "$WORK/check.log" | tee -a "$REPORT"
-            m2_fail="${m2_fail}import --check lists linux or windows entries; "
-        fi
-
-        # The status lines show repo paths, so record where VS Code's files are on this Mac.
-        say ''
-        say 'VS Code (import --check labels show repo paths; the local side should be under ~/Library):'
-        "$JQ" -r '.files[] | select(.localPaths.macos != null) | "\(.repoPath)\t\(.localPaths.macos)"' \
+        say 'VS Code (check lines show repo paths; the local side should be under ~/Library):'
+        "$JQ" -r '.entries[] | select(.localPaths.macos != null) | "\(.file)\t\(.localPaths.macos)"' \
             "$DIR/sync-config.json" > "$WORK/vscode.txt"
-        while IFS="$(printf '\t')" read -r rp lp; do
+        while IFS="$(printf '\t')" read -r file lp; do
             local_path=$HOME/${lp#\~/}
             if [ -e "$local_path" ]; then state=exists; else state='not there'; fi
-            say "  $rp -> $lp ($state)"
+            say "  $file -> $lp ($state)"
             # localPaths.macos holds a literal ~/, so match it unexpanded.
             # shellcheck disable=SC2088
             case $lp in
                 '~/Library/Application Support/Code/User/'*) ;;
-                *) m2_fail="${m2_fail}$rp maps to $lp, not ~/Library/Application Support/Code/User/; " ;;
+                *) m2_fail="${m2_fail}$file maps to $lp, not ~/Library/Application Support/Code/User/; " ;;
             esac
         done < "$WORK/vscode.txt"
         if [ -e "$HOME/.config/Code/User" ]; then
@@ -207,27 +192,24 @@ else
         fi
     fi
     if [ -z "$m2_fail" ]; then
-        result M2 PASS "macos ($MACOS_VERSION) shown; import --check lists every macOS entry and no others"
+        result M2 PASS "macos ($MACOS_VERSION) shown; mksync check lists the macOS shell and git files and no other OS's"
     else
         result M2 FAIL "${m2_fail%; }"
     fi
 
     # -- M3 ----------------------------------------------------------------------
-    header 'M3: /bin/bash ./sync doctor re-runs under Homebrew bash'
+    header "M3: the clone's ./mksync doctor runs the installed program"
     # $1 is for the inner sh, not this shell.
     # shellcheck disable=SC2016
-    run_logged m3 /bin/sh -c 'cd "$1" && /bin/bash ./sync doctor' sh "$DIR"
+    run_logged m3 /bin/sh -c 'cd "$1" && ./mksync doctor' sh "$DIR"
     rc=$?
     m3_fail=''
     [ "$rc" -eq 0 ] || m3_fail="${m3_fail}exited $rc; "
-    if grep -qE 'declare: -A|invalid option|bad substitution|needs bash 4\.4' "$WORK/m3.log"; then
-        m3_fail="${m3_fail}bash 3.2 error in the output; "
-    fi
-    if ! grep -qE '^ *OK +bash ([5-9]|4\.[4-9])' "$WORK/m3.log"; then
-        m3_fail="${m3_fail}doctor's bash line isn't OK with 4.4 or newer; "
+    if grep -q '^ *MISSING' "$WORK/m3.log"; then
+        m3_fail="${m3_fail}doctor has a MISSING line; "
     fi
     if [ -z "$m3_fail" ]; then
-        result M3 PASS "$(grep -E '^ *OK +bash' "$WORK/m3.log" | sed 's/^ *OK *//')"
+        result M3 PASS "./mksync doctor clean from $DIR"
     else
         result M3 FAIL "${m3_fail%; }"
     fi

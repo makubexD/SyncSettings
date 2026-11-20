@@ -1,16 +1,29 @@
 {
   "description": "The import check never shows the overwrite prompt when stdin answers n, lists the changed file as UPDATE and exits 3 without writing (Import check, Overwrite prompt). Ported from import-check-no-prompt.",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/plain.txt",
+        "file": "plain.txt",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/fixture/plain.txt",
-        "platform": "common",
         "description": "Differs from the repo"
       }
     ]
   },
-  "commands": [{ "command": "check", "stdin": "n\n" }]
+  "commands": [
+    {
+      "command": "check",
+      "stdin": "n\n"
+    }
+  ]
 }

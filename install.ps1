@@ -112,6 +112,18 @@ function Install-SyncSettings {
         }
     }
 
+    # True when the file is a launcher this installer wrote: its second line
+    # is the marker.
+    function Test-OursSh {
+        param([string]$Path)
+        try {
+            $lines = [IO.File]::ReadAllLines($Path)
+            return ($lines.Count -ge 2 -and $lines[1] -eq '# SyncSettings launcher')
+        } catch {
+            return $false
+        }
+    }
+
     # True when the two files hold the same bytes.
     function Test-SameFile {
         param([string]$Path1, [string]$Path2)
@@ -289,7 +301,7 @@ function Install-SyncSettings {
             Write-Host "  Cloned into $dir"
         }
 
-        if (-not (Test-Path -LiteralPath (Join-Path $dir 'sync.cmd')) -or
+        if (-not (Test-Path -LiteralPath (Join-Path $dir 'mksync.cmd')) -or
             -not (Test-Path -LiteralPath (Join-Path $dir 'sync-config.json'))) {
             throw "$dir doesn't look like SyncSettings."
         }
@@ -297,6 +309,7 @@ function Install-SyncSettings {
         # 4. The mksync program in the bin folder: the latest release's
         #    mksync.exe, or with a runtime, a shim to the clone's launcher.
         $shim = Join-Path $bin 'mksync.cmd'
+        $sh = Join-Path $bin 'mksync'
         $target = Join-Path $bin 'mksync.exe'
 
         if ($runtime -ne '') {
@@ -306,12 +319,19 @@ function Install-SyncSettings {
             if ((Test-Path -LiteralPath $shim) -and -not (Test-OursCmd $shim)) {
                 throw "$shim already exists; remove it and run this again."
             }
+            if ((Test-Path -LiteralPath $sh) -and -not (Test-OursSh $sh)) {
+                throw "$sh already exists; remove it and run this again."
+            }
             $null = New-Item -ItemType Directory -Path $bin -Force
             $content = "@echo off`r`n" +
                 "rem SyncSettings launcher`r`n" +
                 "call `"$dir\mksync.cmd`" %*`r`n" +
                 "exit /b %ERRORLEVEL%`r`n"
             [IO.File]::WriteAllText($shim, $content, [Text.Encoding]::ASCII)
+            $content = "#!/bin/sh`n" +
+                "# SyncSettings launcher`n" +
+                "exec `"$($dir.Replace('\', '/'))/mksync`" `"`$@`"`n"
+            [IO.File]::WriteAllText($sh, $content, [Text.Encoding]::ASCII)
         } else {
             $asset = Get-ProgramAsset
             $base = Get-Setting 'SYNCSETTINGS_RELEASE_URL' 'https://github.com/makubexD/SyncSettings/releases'
@@ -344,7 +364,17 @@ function Install-SyncSettings {
                 if (-not (Test-OursCmd $shim)) {
                     throw "$shim already exists; remove it and run this again."
                 }
+            }
+            if (Test-Path -LiteralPath $sh) {
+                if (-not (Test-OursSh $sh)) {
+                    throw "$sh already exists; remove it and run this again."
+                }
+            }
+            if (Test-Path -LiteralPath $shim) {
                 Remove-Item -LiteralPath $shim -Force
+            }
+            if (Test-Path -LiteralPath $sh) {
+                Remove-Item -LiteralPath $sh -Force
             }
             $write = $true
             if (Test-Path -LiteralPath $target) {

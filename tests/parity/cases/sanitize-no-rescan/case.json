@@ -1,21 +1,42 @@
 {
   "description": "Export never scans a placeholder it put in: a short value that also appears in another placeholder's name leaves that placeholder whole (Sanitize and hydrate).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
-        "description": "Sanitized parity file",
-        "sanitizeRules": [
-          { "placeholder": "<USER_NAME>", "prompt": "User name" },
-          { "placeholder": "<HOST>", "prompt": "Host" }
-        ]
+        "sanitize": [
+          {
+            "placeholder": "<USER_NAME>",
+            "prompt": "User name"
+          },
+          {
+            "placeholder": "<HOST>",
+            "prompt": "Host"
+          }
+        ],
+        "description": "Sanitized parity file"
       }
     ]
   },
-  "values": { "<USER_NAME>": "parity-user", "<HOST>": "SER" },
-  "commands": [{ "command": "export" }]
+  "values": {
+    "<USER_NAME>": "parity-user",
+    "<HOST>": "SER"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

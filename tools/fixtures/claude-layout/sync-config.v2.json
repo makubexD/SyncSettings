@@ -176,7 +176,7 @@
       "os": [
         "windows"
       ],
-      "scanLinks": true,
+      "linked": true,
       "description": "Bash run commands"
     },
     {

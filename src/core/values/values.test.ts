@@ -9,11 +9,11 @@ import type { Values } from "./sanitize.ts";
 const CASE_ROOT = new URL("../../../tests/parity/cases/", import.meta.url);
 
 interface CaseEntry {
-  readonly sanitizeRules?: readonly SanitizeRule[];
+  readonly sanitize?: readonly SanitizeRule[];
 }
 
 interface ParityCase {
-  readonly config: { readonly files: readonly CaseEntry[] };
+  readonly configV2: { readonly entries: readonly CaseEntry[] };
   readonly values?: Values;
 }
 
@@ -24,7 +24,7 @@ function parityCase(name: string): ParityCase {
 }
 
 function caseRules(name: string): readonly SanitizeRule[] {
-  return parityCase(name).config.files[0]?.sanitizeRules ?? [];
+  return parityCase(name).configV2.entries[0]?.sanitize ?? [];
 }
 
 function caseValues(name: string): Values {

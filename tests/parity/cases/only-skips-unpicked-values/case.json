@@ -1,23 +1,35 @@
 {
   "description": "Import with --only updates the picked file without asking for an unpicked entry's missing value, and the same run without --only stops with exit 1 and writes nothing (Picking files, Values). Ported from only-skips-unpicked-values.",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/plain.txt",
+        "file": "plain.txt",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/fixture/plain.txt",
-        "platform": "common",
         "description": "Plain text fixture"
       },
       {
-        "repoPath": "dotfiles/common/san.conf",
+        "file": "san.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/fixture/san.conf",
-        "platform": "common",
-        "description": "Sanitized fixture",
-        "sanitizeRules": [
-          { "placeholder": "<MISSING>", "prompt": "Missing value" }
-        ]
+        "sanitize": [
+          {
+            "placeholder": "<MISSING>",
+            "prompt": "Missing value"
+          }
+        ],
+        "description": "Sanitized fixture"
       }
     ]
   },
@@ -27,7 +39,9 @@
       "command": "import",
       "options": {
         "force": true,
-        "only": ["dotfiles/common/plain.txt"]
+        "only": [
+          "dotfiles/common/plain.txt"
+        ]
       }
     },
     {

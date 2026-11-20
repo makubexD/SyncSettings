@@ -1,5 +1,5 @@
 {
-  "description": "A dconf entry with no path stops both engines with exit 1 before touching anything (Path safety; dconf entries).",
+  "description": "A dconf entry with no dconfPath stops with exit 1 before touching anything (Path safety; dconf entries).",
   "os": [
     "linux"
   ],
@@ -7,16 +7,24 @@
     "dconf",
     "getent"
   ],
-  "config": {
-    "version": 1,
+  "configV2": {
+    "schemaVersion": 2,
     "excludePatterns": [
       "*.bak"
     ],
-    "files": [
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/linux/dconf/app.ini",
-        "type": "dconf",
-        "platform": "linux",
+        "file": "dconf/app.ini",
+        "module": "unsorted",
+        "merge": "dconf",
+        "os": [
+          "linux"
+        ],
         "description": "Parity case dconf entry with no path"
       }
     ]

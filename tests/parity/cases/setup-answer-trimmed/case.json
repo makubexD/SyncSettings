@@ -1,7 +1,6 @@
 {
   "description": "setup's profile question answered \" 1 \\r\" picks profile 1 (personal), the same outcome as answering \"1\": the record, the profile and both entries are written and the summary names it (Machines (program only), mksync setup). Trimmed since phase 9 decision 8.",
   "os": ["linux"],
-  "oldEngines": ["none"],
   "configV2": {
     "schemaVersion": 2,
     "modules": {

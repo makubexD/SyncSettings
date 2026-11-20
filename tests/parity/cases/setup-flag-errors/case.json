@@ -1,6 +1,5 @@
 {
   "description": "setup with a --mode value outside push and pull-only stops before the scan with the contract's bad-choice error and exit 2 (Machines (program only), mksync setup). Exit 2 since phase 9 decision 7.",
-  "oldEngines": ["none"],
   "os": ["linux"],
   "configV2": {
     "schemaVersion": 2,

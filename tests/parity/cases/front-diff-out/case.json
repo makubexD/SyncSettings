@@ -2,16 +2,22 @@
   "description": "mksync diff runs the export diff after fetching origin: the same output and exit code as export --diff (Front door, Diff).",
   "git": "remote",
   "syncPoint": true,
-  "config": {
-    "version": 1,
+  "configV2": {
+    "schemaVersion": 2,
     "excludePatterns": [
       "*.bak"
     ],
-    "files": [
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/a.conf",
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/a.conf",
-        "platform": "common",
         "description": "Parity case file"
       }
     ]

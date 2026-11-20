@@ -1,5 +1,4 @@
 {
-  "cleanupPeriodDays": 36500,
   "permissions": {
     "allow": [
       "Agent",
@@ -116,10 +115,6 @@
       }
     ]
   },
-  "statusLine": {
-    "type": "command",
-    "command": "<HOME>/.claude/statusline.sh"
-  },
   "enabledPlugins": {
     "context-mode@context-mode": true,
     "agent-skills@addy-agent-skills": true,
@@ -154,18 +149,7 @@
       }
     }
   },
-  "effortLevel": "medium",
-  "modelSettings": {
-    "claude-opus-5-5": {
-      "effortLevel": "medium"
-    }
-  },
-  "autoUpdatesChannel": "latest",
-  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark",
-  "inputNeededNotifEnabled": true,
-  "agentPushNotifEnabled": true,
   "autoMode": {
     "environment": [
       "**Host**: personal Ubuntu developer machine with open internet. No organization, no production infrastructure, no deploy targets.",
@@ -175,6 +159,5 @@
       "**Tooling**: node via nvm, rtk (command-output proxy hook), context-mode plugin, jq, git, gh.",
       "**Merges**: the owner allows Claude to merge its own PRs in their repos with `gh pr merge <n> --merge --delete-branch`, without asking, once `pr-ready <n>` exits 0 for a PR from a plan the owner approved with a GO or a feature tested before it was sent. Never with `--admin`, never after a force-push."
     ]
-  },
-  "model": "opus"
+  }
 }

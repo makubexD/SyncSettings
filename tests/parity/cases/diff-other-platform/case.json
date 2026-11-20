@@ -1,19 +1,37 @@
 {
   "description": "Diff leaves out an entry for another OS even when origin changed it, exit 0 (Diff, Entry selection). Ported from diff-other-platform.",
-  "os": ["linux", "macos"],
+  "os": [
+    "linux",
+    "macos"
+  ],
   "git": "remote",
   "syncPoint": true,
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/windows/win.conf",
+        "file": "win.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/fixture/win.conf",
-        "platform": "windows",
+        "os": [
+          "windows"
+        ],
         "description": "Windows fixture"
       }
     ]
   },
-  "commands": [{ "command": "diff" }]
+  "commands": [
+    {
+      "command": "diff"
+    }
+  ]
 }

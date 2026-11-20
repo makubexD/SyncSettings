@@ -1,17 +1,29 @@
 {
   "description": "Export of a dir entry whose local folder holds only an excluded file skips that file, reports the entry as skipped and keeps the repo files (Statuses, Export; Directory entries). Ported from dir-export-only-excluded, Pester dir-export-only-excluded.",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak", "*.secret"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak",
+      "*.secret"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/dir",
+        "file": "dir",
+        "module": "unsorted",
+        "merge": "dir",
         "localPath": "~/.config/fixture/dir",
-        "type": "dir",
-        "platform": "common",
         "description": "Directory fixture"
       }
     ]
   },
-  "commands": [{ "command": "export" }]
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

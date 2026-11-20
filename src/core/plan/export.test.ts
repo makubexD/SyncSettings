@@ -14,9 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readSnapshot, runPlan } from "../../adapters/fs.ts";
 import type { RunContext } from "../../adapters/fs.ts";
-import { parseV1 } from "../config/v1.ts";
 import { parseV2 } from "../config/v2.ts";
-import { convertV1 } from "../config/convert.ts";
 import type { Profile } from "../config/profile.ts";
 import type {
   ConfigError,
@@ -65,8 +63,7 @@ interface CaseCommand {
 }
 
 interface ParityCase {
-  readonly config?: unknown;
-  readonly configV2?: unknown;
+  readonly configV2: unknown;
   readonly values?: Readonly<Record<string, string>>;
   readonly commands: readonly CaseCommand[];
 }
@@ -78,15 +75,7 @@ function parityCase(name: string): ParityCase {
 }
 
 function configOf(name: string): Result<ConfigV2, ConfigError> {
-  const parsed = parityCase(name);
-  if (parsed.configV2 !== undefined) {
-    return parseV2(JSON.stringify(parsed.configV2));
-  }
-  const v1 = parseV1(JSON.stringify(parsed.config));
-  if (!v1.ok) {
-    return v1;
-  }
-  return convertV1(v1.value);
+  return parseV2(JSON.stringify(parityCase(name).configV2));
 }
 
 /** Every file under `root`, as paths relative to it with forward slashes. */
@@ -788,26 +777,6 @@ describe("planExport", () => {
     expect(result.lines).toEqual([
       "ERROR: dotfiles/common/../x is not synced on this machine.",
     ]);
-  });
-
-  test("platform-list-common", () => {
-    // Act
-    const result = runCase("platform-list-common");
-
-    // Assert
-    expect(statusLines(result.lines)).toEqual([]);
-    expect(result.actions).toEqual([]);
-    expect(result.code).toBe(1);
-  });
-
-  test("platform-missing", () => {
-    // Act
-    const result = runCase("platform-missing");
-
-    // Assert
-    expect(statusLines(result.lines)).toEqual([]);
-    expect(result.actions).toEqual([]);
-    expect(result.code).toBe(1);
   });
 
   test("platform-picks-os", () => {

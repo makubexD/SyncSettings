@@ -46,7 +46,7 @@ bash	dir-import-update-backup	PORTED	tests/parity/cases/dir-import-update-backup
 bash	dir-roundtrip-unchanged	PORTED	tests/parity/cases/dir-roundtrip-unchanged	setup: dir entry in sync; cmd: export then import --force; exit 0 both; UNCHANGED for dir/a/b.txt and dir/c.txt on both, no ADDED/MODIFIED/REMOVED/CREATED/UPDATED/EXTRA, no .bak anywhere
 bash	dir-import-prompt-reads-stdin	PORTED	tests/parity/cases/dir-import-answer-no	setup: dir entry, home dir/c.txt='c2'; stdin 'n'; cmd: import (no --force); exit 0; 'SKIPPED dotfiles/common/dir/c.txt user skipped'; c.txt unchanged, no c.txt.bak (import-answer-no is a file entry)
 bash	orphan-none	PORTED	tests/parity/cases/orphan-none-other-os	setup: repo holds dotfiles/windows/win.conf owned by a windows entry; cmd: export on Linux; exit 0; no ORPHAN line (platform-picks-os does not put a file for the other OS in the repo; doubt)
-bash	orphan-linked-ok	PORTED	tests/parity/cases/orphan-linked-ok	setup: windows entry with detectLinkedPaths and repo dotfiles/windows/linked.sh.linked/tool/x.bat; cmd: export on Linux; exit 0; no ORPHAN line
+bash	orphan-linked-ok	DROP	dropped: v1 config removed; the .linked/ ORPHAN exemption goes with scanLinks (step 26); OS:windows-only	file entry with detectLinkedPaths and a `.linked/` tree is owned (no ORPHAN)
 bash	orphan-no-dir-entries	TWIN	orphan-reported	repo file no entry owns (dotfiles/stray.txt): 'ORPHAN dotfiles/stray.txt' exit 0 (gap: note 'no entry in sync-config.json; git rm it or add an entry')
 bash	upstream-none	TWIN	src/core/plan/uptodate.test.ts:a folder that is not a git repo: no check, no message	export in a non-git repo: exit 0, no 'NOTE:' or 'WARNING: repo is' line
 bash	upstream-current	TWIN	src/core/plan/uptodate.test.ts:up to date: no message	export with origin in step: exit 0, no up-to-date message (shared uptodate-current also exit 0)
@@ -232,7 +232,7 @@ pester	dir-import-creates	BASHTWIN	dir-import-creates	nothing more
 pester	dir-import-update-backup	BASHTWIN	dir-import-update-backup	nothing more
 pester	dir-roundtrip-unchanged	BASHTWIN	dir-roundtrip-unchanged	nothing more
 pester	orphan-none	BASHTWIN	orphan-none	nothing more
-pester	orphan-linked-ok	BASHTWIN	orphan-linked-ok	extra: file entry with detectLinkedPaths and a `.linked/` tree is owned (no ORPHAN); OS:windows-only, .linked dropped at cut-over (export.ts scanLinks owns it)
+pester	orphan-linked-ok	DROP	dropped: v1 config removed; the .linked/ ORPHAN exemption goes with scanLinks (step 26); OS:windows-only	file entry with detectLinkedPaths and a `.linked/` tree is owned (no ORPHAN)
 pester	import-linked-keeps-local	DROP	linked-folders	detectLinkedPaths/.linked trees are removed at cut-over (design-layers "Linked folders": become dir entries; setup-linked-yes/no cover it). The local-only-file-kept part is dir-import-extra. OS:windows-only
 pester	real-config-roundtrip	DROP	v1-real-config	round-trips the repo real v1 sync-config.json + dotfiles with fake values on the Windows engine; v1 config/real dotfiles are replaced by v2 migration at cut-over (phase 10 check, not a parity case). OS:windows-only
 pester	upstream-none	BASHTWIN	upstream-none	nothing more
@@ -539,3 +539,12 @@ pester	values-private-new	PORTED	src/adapters/acl.test.ts; tests/parity/run.ps1:
 pester	values-private-tightened	PORTED	src/adapters/acl.test.ts; tests/parity/run.ps1: Test-PrivateFiles	writeValuesFile on windows over an existing readable file leaves only the current user
 pester	values-private-no-domain	PORTED	src/adapters/acl.test.ts; tests/parity/run.ps1: Test-PrivateFiles	ACL set must not use Set-Acl/domain lookup: succeeds with the domain controller unreachable (fs.ts:551 is a shortcut, ACL not implemented, see doubt)
 pester	windows-dotfiles-byte-exact (<_>)	PORTED	src/adapters/git.test.ts: git archive of dotfiles	repo with .gitattributes, core.autocrlf in {input,true,false}, commit dotfiles/windows/shell/.bashrc bytes "lf line\ncrlf line\r\nlast\n", git archive HEAD dotfiles: extracted bytes equal the input (git part runs on Linux too; tar extraction Windows-only)
+parity	dconf-platform-common	DROP	dropped: v1 config removed; v2 has no platform field; a dconf entry's OS comes from its module (gnome, os linux)	A dconf entry with platform common stops both engines with exit 1: the platform must be the string linux (Path safety; dconf entries).
+parity	dconf-platform-list	DROP	dropped: v1 config removed; v2 has no platform field; os is always a list	A dconf entry whose platform is a list, even ["linux"], stops both engines with exit 1 (Path safety; dconf entries).
+parity	dconf-platform-windows	DROP	dropped: v1 config removed; v2 has no platform field; a dconf entry's OS comes from its module	A dconf entry with platform windows stops both engines with exit 1: only linux runs a dconf entry (Path safety; dconf entries).
+parity	platform-list-common	DROP	dropped: v1 config removed; v2 has no platform field; entry os is checked by config-v2 entryOs (v2.test.ts)	Export stops before touching a file when a platform list holds common (Entry selection).
+parity	platform-missing	DROP	dropped: v1 config removed; v2 has no platform field; an entry with no os runs on its module's OS	Export stops before touching a file when an entry has no platform (Entry selection).
+parity	dconf-repo-unsafe	DROP	dropped: v1 config removed; v2 file safety is config-v2-unsafe-file-dotdot	A dconf entry whose repoPath has a .. segment stops both engines with the unsafe path error (Path safety; dconf entries).
+parity	repo-path-dotdot	DROP	dropped: v1 config removed; v2 file safety is config-v2-unsafe-file-dotdot	Export stops before touching a file when a repoPath has a .. segment (Path safety).
+parity	dconf-path-root	DROP	dropped: v1 config removed; same rule on v2: dconf-v2-path-root	A dconf path of / alone is refused, so nobody dumps the whole database by accident (Path safety; dconf entries).
+parity	local-path-absolute	DROP	dropped: v1 config removed; v2 allows an absolute localPath (C:/MakuCustomAlias, cut-over decision 4)	Export stops before touching a file when a localPath is absolute (Path safety).

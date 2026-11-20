@@ -34,7 +34,6 @@ import type { FetchResult } from "./app/pull.ts";
 import { executePush } from "./app/push.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
-import { executeShadow } from "./app/shadow.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
 import {
   defaultUpdateDeps,
@@ -55,7 +54,6 @@ import type {
   RetireCommand,
   RunCommand,
   SetupCommand,
-  ShadowCommand,
   StatusCommand,
   StatuslineCommand,
   UpdateCommand,
@@ -241,7 +239,6 @@ async function askTerminalQuestion(
 type Resolved =
   | Result
   | RunCommand
-  | ShadowCommand
   | StatusCommand
   | DoctorCommand
   | DiffCommand
@@ -256,7 +253,6 @@ type Resolved =
 
 type ExecutableCommand =
   | RunCommand
-  | ShadowCommand
   | StatusCommand
   | DoctorCommand
   | DiffCommand
@@ -415,7 +411,6 @@ async function execute(
     case "profile-retire":
       return executeRetire(repoRoot, config.value, state, command);
     case "commit":
-    case "shadow":
     case "status":
     case "doctor":
     case "machine-show":
@@ -456,15 +451,6 @@ async function execute(
           ? { record: layers.value.record }
           : {}),
       });
-    case "shadow":
-      return executeShadow(
-        repoRoot,
-        config.value,
-        os.value,
-        home,
-        state,
-        layers.value,
-      );
     case "status":
       return executeStatus({
         repoRoot,
@@ -535,8 +521,6 @@ export function run(argv: readonly string[]): Resolved {
   const parsed = parseArgs(argv);
   switch (parsed.kind) {
     case "run":
-      return parsed;
-    case "shadow":
       return parsed;
     case "status":
       return parsed;

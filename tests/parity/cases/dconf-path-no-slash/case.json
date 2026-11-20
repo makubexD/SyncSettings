@@ -1,23 +1,38 @@
 {
-  "description": "Export stops before touching a file when a dconf path has no leading or trailing slash (Path safety).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "description": "Export stops before touching a file when a dconfPath has no leading or trailing slash (Path safety).",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/parity/ok.conf",
+        "file": "parity/ok.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/parity/ok.conf",
-        "platform": "common",
         "description": "Parity case file"
       },
       {
-        "repoPath": "dotfiles/linux/parity/test.ini",
-        "type": "dconf",
-        "platform": "linux",
-        "path": "org/parity/",
+        "file": "parity/test.ini",
+        "module": "unsorted",
+        "merge": "dconf",
+        "dconfPath": "org/parity/",
+        "os": [
+          "linux"
+        ],
         "description": "Parity case dconf entry with a path that has no leading slash"
       }
     ]
   },
-  "commands": [{ "command": "export" }]
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }

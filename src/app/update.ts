@@ -53,7 +53,7 @@ const PROGRAM_NAMES: readonly string[] = ["mksync", "mksync.exe"];
 
 /** Whether `execPath` is the compiled program rather than the runtime that
  * runs the source. */
-function isInstalledProgram(execPath: string): boolean {
+export function isInstalledProgram(execPath: string): boolean {
   return PROGRAM_NAMES.includes(basename(execPath).toLowerCase());
 }
 

@@ -1,23 +1,37 @@
 {
   "description": "Export of a common sanitized entry writes the placeholders and marks the new repo file ADDED with the sanitized note (Sanitize and hydrate; Statuses, Export).",
-  "config": {
-    "version": 1,
-    "excludePatterns": ["*.bak"],
-    "files": [
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
       {
-        "repoPath": "dotfiles/common/shared.conf",
+        "file": "shared.conf",
+        "module": "unsorted",
+        "merge": "whole",
         "localPath": "~/.config/fixture/shared.conf",
-        "platform": "common",
-        "description": "Shared sanitized fixture",
-        "sanitizeRules": [
+        "sanitize": [
           {
             "placeholder": "<NAME>",
             "prompt": "Full name"
           }
-        ]
+        ],
+        "description": "Shared sanitized fixture"
       }
     ]
   },
-  "values": { "<NAME>": "Parity User" },
-  "commands": [{ "command": "export" }]
+  "values": {
+    "<NAME>": "Parity User"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
 }
