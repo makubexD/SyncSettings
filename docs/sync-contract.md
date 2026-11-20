@@ -1223,7 +1223,10 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
 - **Bootstrap.** On Ubuntu with an executable `bootstrap/linux.sh`, before the first pull:
   `Also restore apps and packages from packages/linux (uses sudo)? [y/N] `; `y` runs the script and setup ends with
   its exit code, while an empty answer or end of input skips it. `--bootstrap` runs it without asking. macOS never
-  asks and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1.
+  asks and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1. The installed program passes its
+  own path to the script as `MKSYNC_PROGRAM`, and the script's import and preview run that program first, then
+  `mksync` from `PATH`, then the clone's `./mksync`. A fresh machine whose bin folder is not on `PATH` yet still
+  restores without Bun or Node.
 - **Then** it writes the record and the profile, and acts on the fourth answer: `backup` runs `import --force` (each
   file keeps its `.bak`); `keep` runs `export`, prints `Pushed into the repo folder; commit it with mksync push.`, then
   runs `import --force`; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the

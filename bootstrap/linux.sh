@@ -6,33 +6,23 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 REPO_ROOT=$PWD
 
-# The engine that syncs the config files: mksync from PATH when present, else
-# the compiled program at the repo root (bootstrap already cd'd here).
-if command -v mksync >/dev/null 2>&1; then
+# The program that syncs the config files: the one `mksync setup` ran from
+# (MKSYNC_PROGRAM), so a fresh machine whose bin folder is not on PATH yet still
+# reaches it; else mksync from PATH; else the clone's launcher, which needs Bun
+# or Node (bootstrap already cd'd here).
+if [[ -n ${MKSYNC_PROGRAM:-} && -x $MKSYNC_PROGRAM ]]; then
+    MKSYNC=$MKSYNC_PROGRAM
+elif command -v mksync >/dev/null 2>&1; then
     MKSYNC=mksync
 else
     MKSYNC=./mksync
 fi
 
-# Helpers copied verbatim from the bash sync engine: only what the steps below
-# call. jq is not installed yet, so bootstrap must not source the engine
-# library, which reads the OS helper and checks the config with jq.
-STATUS_ERRORS=0
-STATUS_USER_SKIPS=0
-# File lines printed in this run, so a --only pick that reached nothing can warn.
-ONLY_HITS=0
+# Helpers the steps below call, kept here so bootstrap needs no jq to start.
 
 status() {
     # usage: status <STATUS> <label> [note]
-    # Counts ERROR lines in STATUS_ERRORS and SKIPPED lines noted "user skipped"
-    # in STATUS_USER_SKIPS, so a caller can tell a clean, unattended run apart.
     local s=$1 label=$2 note=${3:-}
-    ONLY_HITS=$((ONLY_HITS + 1))
-    if [[ $s == ERROR ]]; then
-        STATUS_ERRORS=$((STATUS_ERRORS + 1))
-    elif [[ $s == SKIPPED && $note == 'user skipped' ]]; then
-        STATUS_USER_SKIPS=$((STATUS_USER_SKIPS + 1))
-    fi
     printf '  %-10s %s%s\n' "$s" "$label" "${note:+  ($note)}"
 }
 

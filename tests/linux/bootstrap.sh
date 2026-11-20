@@ -1541,6 +1541,25 @@ case_restore_import_runs() {
     grep -Fxq 'import' "$t/calls" || fail 'import was not called with no arguments'
 }
 
+# A fresh machine: no mksync on PATH, so the program setup ran from arrives as
+# MKSYNC_PROGRAM and the restore steps run it, not the clone's launcher.
+case_restore_program_from_setup() {
+    setup_case
+    seed_restore
+    mkdir -p "$t/prog"
+    mv "$t/bin/mksync" "$t/prog/mksync"
+    printf '#!/bin/sh\nprintf "launcher\\n" >> "%s/calls"\n' "$t" > "$t/repo/mksync"
+    chmod +x "$t/repo/mksync"
+    rc=0
+    (cd "$t/repo" && env -i HOME="$t/home" PATH="$t/bin:$t/sysbin" MKSYNC_PROGRAM="$t/prog/mksync" \
+        BOOTSTRAP_ROOT="$t/root" DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null TMPDIR="$t/tmp" \
+        bash "$t/repo/bootstrap/linux.sh" < /dev/null) > "$out" 2>&1 || rc=$?
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'import' "$t/calls" || fail 'import did not run through MKSYNC_PROGRAM'
+    grep -q '^sync preview' "$t/calls" || fail 'preview did not run through MKSYNC_PROGRAM'
+    ! grep -q '^launcher' "$t/calls" || fail "the clone's launcher ran"
+}
+
 case_restore_import_fails() {
     setup_case
     seed_restore
@@ -1832,7 +1851,7 @@ case_restore_idempotent() {
     output_has_status UNCHANGED plugins || fail 'second run did not report plugins unchanged'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues guard-sudo-dropped apt-sources-fresh apt-sources-comment-ignored apt-sources-bad-key-path apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-claude-not-executable tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-import-fails restore-import-error-line restore-preview-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues guard-sudo-dropped apt-sources-fresh apt-sources-comment-ignored apt-sources-bad-key-path apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-claude-not-executable tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-program-from-setup restore-import-fails restore-import-error-line restore-preview-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1924,6 +1943,7 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         vscode-snap-path) case_vscode_snap_path ;;
         vscode-dry-run) case_vscode_dry_run ;;
         restore-import-runs) case_restore_import_runs ;;
+        restore-program-from-setup) case_restore_program_from_setup ;;
         restore-import-fails) case_restore_import_fails ;;
         restore-import-error-line) case_restore_import_error_line ;;
         restore-preview-fails) case_restore_preview_fails ;;

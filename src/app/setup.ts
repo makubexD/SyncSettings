@@ -32,6 +32,7 @@ import { readVisibility } from "../adapters/visibility.ts";
 import { trimAnswer } from "../core/answer.ts";
 import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
+import { isInstalledProgram } from "./update.ts";
 import type { ExecuteOptions, Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
 import type { Profile } from "../core/config/profile.ts";
@@ -178,8 +179,27 @@ async function runBootstrap(
     }
   }
   terminal.close();
-  const bootstrapped = await run([script], { inherit: true });
+  const bootstrapped = await run([script], {
+    inherit: true,
+    env: bootstrapEnv(process.env, process.execPath),
+  });
   return { code: bootstrapped.code, stdout: "", stderr: "" };
+}
+
+/**
+ * The bootstrap's environment: this one, plus `MKSYNC_PROGRAM` naming this
+ * binary when it is the installed program. On a fresh machine the installer's
+ * bin folder is not on PATH yet, and the clone's launcher needs Bun or Node, so
+ * the bootstrap's import and preview run this binary instead.
+ */
+export function bootstrapEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  execPath: string,
+): Readonly<Record<string, string | undefined>> {
+  if (env.MKSYNC_LAUNCHER === "1" || !isInstalledProgram(execPath)) {
+    return env;
+  }
+  return { ...env, MKSYNC_PROGRAM: execPath };
 }
 
 /**
