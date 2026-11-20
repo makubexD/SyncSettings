@@ -436,16 +436,7 @@ function Install-SyncSettings {
                 throw "$asset`: checksum does not match SHA256SUMS."
             }
 
-            if ($null -ne (Get-ToolCommand 'gh')) {
-                if ((Invoke-Gh @('auth', 'status')) -eq 0) {
-                    $verify = @('attestation', 'verify', (Join-Path $downloadDir $asset), '--repo', 'makubexD/SyncSettings')
-                    if ((Invoke-Gh $verify) -ne 0) {
-                        throw "$asset`: attestation check failed."
-                    }
-                }
-            }
-
-            # Nothing is written to the bin folder before both checks pass.
+            # Nothing is written to the bin folder before the checksum passes.
             if (Test-Path -LiteralPath $shim) {
                 if (-not (Test-OursCmd $shim)) {
                     throw "$shim already exists; remove it and run this again."

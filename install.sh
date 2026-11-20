@@ -397,7 +397,7 @@ path_hint() {
 }
 
 # Install mksync into $2: the latest release's program for this OS and CPU,
-# checked against SHA256SUMS and its attestation; or, with a non-empty $4, the
+# checked against SHA256SUMS; or, with a non-empty $4, the
 # clone's launcher linked there for that runtime.
 install_program() {
     local dir=$1 bin=$2 os=$3 runtime=${4:-} base tmp tag asset hash link inst
@@ -437,13 +437,6 @@ install_program() {
     if [[ -z $hash || $(sha256_file "$tmp/$asset") != "$hash" ]]; then
         printf 'ERROR: %s: checksum does not match SHA256SUMS.\n' "$asset" >&2
         exit 1
-    fi
-
-    if "${GH:-gh}" auth status > /dev/null 2>&1; then
-        if ! "${GH:-gh}" attestation verify "$tmp/$asset" --repo makubexD/SyncSettings > /dev/null 2>&1; then
-            printf 'ERROR: %s: attestation check failed.\n' "$asset" >&2
-            exit 1
-        fi
     fi
 
     if check_conflict "$link" "$dir" "$tmp/$asset"; then
