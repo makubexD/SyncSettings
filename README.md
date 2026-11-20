@@ -5,9 +5,8 @@ change arrives as a pull request, and nothing reaches `master` until the PR is r
 
 ## Install
 
-The install goes through the [GitHub CLI](https://cli.github.com) (`gh`), signed in to your GitHub account. The repo
-is going private, and a signed-in `gh` can fetch the installer, clone the repo and download the program whether the
-repo is public or private, so these lines work before and after the switch.
+The install goes through the [GitHub CLI](https://cli.github.com) (`gh`), signed in to your GitHub account: the repo
+is private, and a signed-in `gh` is what fetches the installer, clones the repo and downloads the program.
 
 Linux, in a terminal:
 
@@ -44,8 +43,6 @@ on your `PATH`, and runs `mksync setup`. On Windows, open a new window afterward
 
 To update the program later, run `mksync update`. Your settings come with `mksync pull`. Running the install line again
 also works: it updates the clone and the program.
-
-On a machine set up before v1.0.0, run the install line again, then `mksync pull`.
 
 If your machine won't run a downloaded program (a work policy, for example), install it to run from the clone instead.
 That needs [Bun](https://bun.sh) or [Node](https://nodejs.org) 22.18 or newer:
@@ -125,15 +122,32 @@ differing files `?`, because it has no sync to compare against.
 Without the installer:
 
 ```bash
-git clone https://github.com/makubexD/SyncSettings.git
+gh repo clone makubexD/SyncSettings
 cd SyncSettings
 ./mksync setup
 ```
 
 `./mksync` runs the program from the clone with Bun or Node 22.18 or newer (`mksync.cmd` on Windows).
 
-Contributors run every test with `tests/all.sh`: lint, unit tests, the config check, the build and the shared cases in
-`tests/parity/`.
+## Develop
+
+The program is TypeScript, built and tested with [Bun](https://bun.sh):
+
+```bash
+bun install --frozen-lockfile   # once, and after bun.lock changes
+./mksync <command>              # run the program from the clone
+bun test src                    # unit tests
+bun run lint                    # type check
+bun run build                   # compile dist/mksync
+tests/all.sh                    # everything, in order, before a PR
+```
+
+`tests/all.sh` runs lint, the unit tests, the config check, the build and the shared cases in `tests/parity/`, and the
+Windows checks when the local VM is up ([Windows VM](tests/windows-vm/README.md)).
+
+To make a release, bump `version` in `package.json`, add its entry to [CHANGELOG.md](CHANGELOG.md), merge that to
+`master`, and tag the merge `v<x.y.z>`. The release workflow builds the four programs and `SHA256SUMS` and publishes
+them.
 
 ## What gets synced
 
@@ -173,7 +187,8 @@ Your name, email and paths are replaced with placeholders in the repo and filled
 - [Repository layout](docs/layout.md): where a file goes under `dotfiles/`, and why
 - [Packages](docs/packages.md): the Ubuntu package lists and the drift report
 - [Review gate](docs/review-gate.md): the checks every PR must pass and the `reviewed` label
-- [Sync contract](docs/sync-contract.md): the rules both engines follow
-- [One-engine design](docs/design-layers.md): the planned TypeScript engine with modules, profiles and layers
+- [Sync contract](docs/sync-contract.md): the rules the program follows
+- [Design](docs/design-layers.md): how modules, profiles and layers work
+- [Changelog](CHANGELOG.md): what each release changed
 
-[`docs/archive/`](docs/archive/) keeps the finished plans the scripts were built from.
+[`docs/archive/`](docs/archive/) keeps the finished plans and research.
