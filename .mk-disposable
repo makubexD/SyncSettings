@@ -1,0 +1,2 @@
+# Build outputs mk-exec may drop from a worker run (see ~/.claude/bin/mk-cache-filter).
+dist/
