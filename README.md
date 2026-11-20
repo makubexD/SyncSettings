@@ -27,6 +27,8 @@ on your `PATH`, and runs `mksync setup`. On Windows, open a new window afterward
 To update the program later, run `mksync update`. Your settings come with `mksync pull`. Running the install line again
 also works: it updates the clone and the program.
 
+On a machine set up before v1.0.0, run the install line again, then `mksync pull`.
+
 If your machine won't run a downloaded program (a work policy, for example), install it to run from the clone instead.
 That needs [Bun](https://bun.sh) or [Node](https://nodejs.org) 22.18 or newer:
 
@@ -110,15 +112,10 @@ cd SyncSettings
 ./mksync setup
 ```
 
-`./mksync` runs the program from the clone with Bun or Node 22.18 or newer (`mksync.cmd` on Windows). The old engines'
-`./sync setup` (`sync.cmd` on Windows) still works until they are removed.
+`./mksync` runs the program from the clone with Bun or Node 22.18 or newer (`mksync.cmd` on Windows).
 
-On Windows, run `.\sync setup` in PowerShell or `sync setup` in cmd. `./sync <command>` takes every `mksync` command,
-plus the single steps `export`, `commit` and `import`; options pass through (`./sync import --force`, `-Force` on
-Windows).
-
-Contributors run both engines' tests: `tests/linux/engine.sh [case-name-filter]` on Linux, and
-`Invoke-Pester -Path tests/windows -CI` in Windows PowerShell 5.1 with Pester 5.
+Contributors run every test with `tests/all.sh`: lint, unit tests, the config check, the build and the shared cases in
+`tests/parity/`.
 
 ## What gets synced
 
