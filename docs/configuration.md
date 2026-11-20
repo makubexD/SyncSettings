@@ -57,11 +57,11 @@ where a new file belongs, see [layout.md](layout.md).
 
 `os` decides which systems get the entry and where its file is written when it is new.
 
-| Effective `os`                         | Runs on                  | New file goes to   | `localPath`                                 |
-| -------------------------------------- | ------------------------ | ------------------ | ------------------------------------------- |
-| none                                   | Windows, Linux and macOS | `dotfiles/common/` | `~/` form only                              |
-| one system, e.g. `["linux"]`           | that system              | `dotfiles/<os>/`   | `~/` form, or either form for `["windows"]` |
-| two systems, e.g. `["linux", "macos"]` | each system listed       | `dotfiles/common/` | `~/` form only                              |
+| Effective `os`                         | Runs on                  | New file goes to   | `localPath`                    |
+| -------------------------------------- | ------------------------ | ------------------ | ------------------------------ |
+| none                                   | Windows, Linux and macOS | `dotfiles/common/` | `~/` form only                 |
+| one system, e.g. `["linux"]`           | that system              | `dotfiles/<os>/`   | `~/` form, or an absolute path |
+| two systems, e.g. `["linux", "macos"]` | each system listed       | `dotfiles/common/` | `~/` form only                 |
 
 A file in `dotfiles/<os>/` overrides the `dotfiles/common/` one on that system. Use a two-system list for a file two
 systems share and the third doesn't have: tmux's config is the same on Linux and macOS. A `dconf` entry runs on Linux
@@ -69,14 +69,14 @@ only.
 
 ## `localPath`
 
-| Form                      | JSON example             | Works on     |
-| ------------------------- | ------------------------ | ------------ |
-| `~/` with forward slashes | `"~/.config/git/ignore"` | every system |
-| `~\` with backslashes     | `"~\\.gitconfig.local"`  | Windows only |
+| Form                      | JSON example             | Works on                   |
+| ------------------------- | ------------------------ | -------------------------- |
+| `~/` with forward slashes | `"~/.config/git/ignore"` | every system               |
+| an absolute path          | `"C:/MakuCustomAlias"`   | the one system in its `os` |
 
-`~` is `$HOME` on Linux and macOS and the profile folder on Windows. Backslashes are doubled in JSON. A path with a `..`
-segment stops every command before it touches a file. A drive path such as `C:/MakuCustomAlias` works on Windows
-only.
+`~` is `$HOME` on Linux and macOS and the profile folder on Windows, where `/` becomes `\` after `~` is expanded. A
+`\` anywhere in `localPath` or `localPaths` stops every command with `entry <file> has a backslash in localPath.`, exit
+1: write Windows paths with `/` too.
 
 ## `localPaths`
 
@@ -109,7 +109,7 @@ value in the file, and import puts it back, so pick values specific enough not t
   "file": "git/.gitconfig.local",
   "module": "git",
   "merge": "whole",
-  "localPath": "~\\.gitconfig.local",
+  "localPath": "~/.gitconfig.local",
   "os": ["windows"],
   "sanitize": [
     { "placeholder": "<YOUR_GH_USERNAME>", "prompt": "GitHub username" },
@@ -142,7 +142,7 @@ value in the file, and import puts it back, so pick values specific enough not t
 
 ## Merge types
 
-Each entry has a `merge` that says how its layers combine ([contract](sync-contract.md#layers-program-only)):
+Each entry has a `merge` that says how its layers combine ([contract](sync-contract.md#layers)):
 
 | `merge`  | Layers combine as                                                                                                          | Extra fields        |
 | -------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------- |
@@ -200,7 +200,7 @@ Syncs one folder of GNOME settings with one `.ini` file. Linux only. It needs `d
 
 Import merges the file into the folder: it asks before changing anything, saves a backup, and leaves keys the file
 doesn't name. It has to run in a terminal on the desktop, because `dconf load` needs the session bus.
-[sync-contract.md](sync-contract.md#dconf-entries-type-dconf) has the full rules.
+[sync-contract.md](sync-contract.md#dconf-entries-merge-dconf) has the full rules.
 
 #### Choosing `keys`
 
@@ -288,7 +288,7 @@ machine; with no record there are no extra layers and every module is on.
 letters, digits and `-`, and it can't name another layer: neither name may be `linux`, `macos`, `windows`, `common` or
 `base`, and the machine can't share its profile's name (their side files, such as `CLAUDE.<name>.md`, would overwrite
 each other). A record or profile that doesn't parse stops the run with exit 2 before any file is touched, naming the
-field ([contract, "Machines"](sync-contract.md#machines-program-only)).
+field ([contract, "Machines"](sync-contract.md#machines)).
 
 **The record.** Every field is required; `setup` writes it, so it's rarely edited by hand:
 

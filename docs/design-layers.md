@@ -183,6 +183,15 @@ and `windows-terminal` are off and the rest apply.
 
 What goes in `work-base` comes from the Windows inventory (phase 7). Until then it is an empty module.
 
+**Modules choose files, layers choose keys** (decided 2026-11-18, cut-over decision 12). A tool only some profiles
+should have is a module that only those profiles list; a value or key that differs per profile goes in that profile's
+layer. Example: the plan workflow (`/next`, `plan-next`, `pr-ready`, the context gate, metrics) and the DeepSeek worker
+(`mk-exec`, `mk-delegate`, `mk-check`, `worker-mode`) are module `claude-worker`, which only `personal` lists, so a
+work profile never gets them on any OS. `claude` keeps what any Claude machine wants. One module holds both, since
+`/next` sends its steps to the worker; split it only when a profile needs one without the other. Its entries stay
+`os: ["linux"]` until a personal Windows or macOS machine exists ("Open", "Workflow on a personal Windows or macOS
+machine").
+
 **The profile file** holds four things:
 
 ```json
@@ -686,10 +695,10 @@ The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are
 - **The statusline is one program, colors always on.** `mksync statusline` prints what `statusline.sh` prints, ANSI
   included, under Git Bash or PowerShell; Load and Memory are Linux and macOS only. Its hand tweaks go through the
   source ("Statusline and hooks on Windows").
-- **The Claude layout waits for cut-over.** The v1/v2 check refuses a v2 entry that covers an OS its v1 twin doesn't,
-  and v1 is frozen, so the split `settings.json` (a base for every OS, a Linux overlay with `hooks` and the keys that
-  hold `<HOME>` or a `.sh` path, a Windows overlay) and the Windows rows in the catalog are written by
-  `tools/claude-layout.ts`, tested now and run in phase 9. Decided in the cut-over plan's review (2026-11-18): the
+- **The Claude layout waited for cut-over.** The v1/v2 check refused a v2 entry that covers an OS its v1 twin doesn't,
+  and v1 was frozen, so the split `settings.json` (a base for every OS, a Linux overlay with `hooks` and the keys that
+  hold `<HOME>` or a `.sh` path, a Windows overlay) and the Windows rows in the catalog were written by
+  `tools/claude-layout.ts` and run at the cut-over (phase 9). Decided in the cut-over plan's review (2026-11-18): the
   Linux overlay also takes the personal-only keys `enabledPlugins`, `extraKnownMarketplaces`, `permissions`,
   `autoMode` and `skipDangerousModePermissionPrompt`, since a `personal` profile layer can't be committed while the
   repo is public and the only Linux machine is personal; phase 10 moves them to `profiles/personal/`. The base keeps
@@ -844,13 +853,13 @@ PowerShell engine copies them under `<repoPath>.linked/` (`detectLinkedPaths`).
   otherwise. A yes becomes a `dir` entry in that layer; a no is remembered in the profile's `destinations` and not
   asked again.
 
-- **Cut-over.** Each tree under `dotfiles/windows/shell/.bashrc.linked/<folder>/` becomes a `dir` entry with the same
-  local folder, moved with `git mv` so its history follows, on the work profile that owns it (see "Open").
-  `detectLinkedPaths` and the `.linked/` layout are then removed.
+- **Cut-over.** Each tree under `dotfiles/windows/shell/.bashrc.linked/<folder>/` became a `dir` entry with the same
+  local folder, moved with `git mv` so its history follows (cut-over decision 4). `detectLinkedPaths` and the
+  `.linked/` layout were then removed.
 
 ## Config v2
 
-The new engine reads `sync-config.v2.json`. Its full shape is in `docs/config-v2.example.json`, which has one entry of
+`mksync` reads `sync-config.json` (`sync-config.v2.json` in a clone from before v1.0.0). Its full shape is in `docs/config-v2.example.json`, which has one entry of
 each merge type.
 
 **Top level**
@@ -921,23 +930,23 @@ Example: `SYNC_PROFILE=work-1 mksync import` on a test machine with `<state>/pro
 and `<state>/profiles/work-1/vscode/settings.json` holding `{"http.proxy": "http://proxy.example.com:8080"}` imports
 VS Code's settings with the proxy merged in, and skips every entry of a module `work-1` doesn't list.
 
-### v2 while the old engines read v1
+### v2 while the old engines read v1 (until cut-over)
 
-Decision: `sync-config.v2.json` is a separate, hand-edited file from phase 4 on, made once by a converter from v1, and
-a CI check keeps the two in step until cut-over. v2 is the file that survives, so it's the one people edit and read
-as written. Generating it from v1 would need a third file for what v1 can't say (modules, merge types) and make v2 a
-build output until cut-over. The old engines are frozen to bug fixes from phase 4, so new entries are rare and the
-check is cheap.
+Decision: `sync-config.v2.json` was a separate, hand-edited file from phase 4 on, made once by a converter from v1,
+and a CI check kept the two in step until cut-over. v2 is the file that survived, so it was the one people edited and
+read as written. Generating it from v1 would have needed a third file for what v1 can't say (modules, merge types) and
+made v2 a build output until cut-over. The old engines were frozen to bug fixes from phase 4, so new entries were rare
+and the check was cheap.
 
-- **The converter** runs once in phase 4 and applies the table below. Its output is reviewed and committed.
-- **The check** runs in CI and in the local test command. For every v1 entry there must be a v2 entry with the same
+- **The converter** ran once in phase 4 and applied the table below. Its output was reviewed and committed.
+- **The check** ran in CI and in the local test command. For every v1 entry there had to be a v2 entry with the same
   layer file, the same local path on each OS, the same placeholders and the same dconf keys, and the reverse for every
-  v2 entry that has a v1 counterpart. It prints each mismatch and fails.
-- **At cut-over** `sync-config.json` and the check are deleted, and `sync-config.v2.json` is renamed
+  v2 entry that had a v1 counterpart.
+- **At cut-over** the v1 `sync-config.json` and the check were deleted, and `sync-config.v2.json` was renamed
   `sync-config.json` (still `schemaVersion: 2`).
 - **The file read (cut-over plan, decisions 7 and 8).** From `v0.9.0`, `loadConfig` reads `sync-config.v2.json` when
   present, else `sync-config.json`, picking the parser by the file's own `schemaVersion`; so a `v0.9.0` program reads
-  the renamed file. Then v1 is dropped: the shared cases move from `config` to the `configV2` that `convertV1` makes,
+  the renamed file. Then v1 was dropped: the shared cases move from `config` to the `configV2` that `convertV1` makes,
   `v1.ts`, `convert.ts` and the converter go, and a `sync-config.json` with no `schemaVersion` stops with exit 2.
   `sync-config.v2.json` is still read first, so a machine that updates the program before it pulls loads its old
   clone.
@@ -947,7 +956,7 @@ check is cheap.
 | v1 field            | v2                                                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `version`           | `schemaVersion: 2`                                                                                                                                                                   |
-| `defaultUser`       | dropped: no engine reads it, and `-User` goes at cut-over                                                                                                                            |
+| `defaultUser`       | dropped: no engine read it, and `-User` went at cut-over                                                                                                                             |
 | `excludePatterns`   | `excludePatterns`, unchanged                                                                                                                                                         |
 | `files`             | `entries`                                                                                                                                                                            |
 | `repoPath`          | split into a layer root and `file`: `dotfiles/linux/git/.gitconfig.local` is the Linux OS layer of `git/.gitconfig.local`. v1 entries that differ only by OS folder become one entry |
@@ -957,7 +966,7 @@ check is cheap.
 | `description`       | `description`, unchanged                                                                                                                                                             |
 | `type`              | `merge`: `dir` → `dir`, `dconf` → `dconf`, absent → `whole`, then `json` or `import` set by hand on the entries the catalog marks so                                                 |
 | `sanitizeRules`     | `sanitize`, same fields; values move to the profile and machine ("Values")                                                                                                           |
-| `detectLinkedPaths` | `scanLinks: true`; the `.linked/` trees become `dir` entries ("Linked folders")                                                                                                      |
+| `detectLinkedPaths` | `linked: true`; the `.linked/` trees became `dir` entries ("Linked folders")                                                                                                         |
 | `keys`              | `keys`, unchanged (dconf only)                                                                                                                                                       |
 | `path`              | `dconfPath` (dconf only), renamed because `file` now names the repo side                                                                                                             |
 
@@ -1157,7 +1166,7 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
   (`program-build`, `bun build --compile` per target), and keeps them as one workflow artifact `mksync-<sha>` for 14
   days. Shared cases run against the Linux program in that job, and against the cross-built macOS and Windows programs
   on their own runners (`program-macos`, `program-windows`).
-- **At cut-over:** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
+- **Releases (from cut-over, v0.9.0):** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
   attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
   `SHA256SUMS`; with `gh` signed in they also run `gh attestation verify`.
 - **`mksync update`** downloads the latest release the same way, checks it, and replaces itself. On Windows a running
@@ -1194,13 +1203,18 @@ repo's workflow, not just from someone who could change `SHA256SUMS` next to it.
 
 **One local command,** `tests/all.sh`, runs every layer that Linux can run, in order, and stops at the first failure:
 
-1. **Unit tests** (`bun test`): the core with fake snapshots, including Windows ones (backslash paths, CRLF, `~\`).
-2. **Shared cases** (`tests/parity/run.sh`) against the Linux program built from the tree, then against the bash
-   engine until cut-over.
-3. **Windows cases** in the local VM: the shared cases (`run.ps1`) against the Windows program, then against the
-   PowerShell engine until cut-over. Skipped with a line saying so when the VM isn't running.
+1. **Lint, unit tests and the config check:** `bun run lint`, `bun test src` (the core with fake snapshots, including
+   Windows ones: backslash paths, CRLF), `bun run tools/check-config.ts`.
+2. **Build and shared cases:** `bun run build`, then `tests/parity/run.sh` against `dist/mksync` (`parity-program`)
+   and through the clone's launcher on Node (`parity-node`, skipped with a line when Node 22.18 isn't on `PATH`).
+3. **Windows cases** in the local VM: the Windows program (`windows-exe`), then the shared cases (`run.ps1`) against
+   it (`windows-program`). Skipped with a line saying so when the VM isn't running.
 
-macOS runs in CI only.
+Outside `tests/all.sh`: the stub suites `tests/linux/bootstrap.sh`, `tests/linux/install.sh`,
+`tests/linux/launcher.sh` and `tests/linux/release-files.sh`, and `tests/windows-vm/install-check.ps1` in the VM.
+macOS runs in CI only. Since the cut-over (phase 9) there is no old engine to run the cases against: the bash and
+PowerShell suites and the `parity-bash` and `windows-powershell` layers were deleted (tag `two-engines-final`). The
+paragraphs below up to "Real-machine results" record how the layers were built and proved.
 
 **The Windows VM, phase 4.** A Windows 11 VM in a container (podman, with KVM), with Windows PowerShell 5.1 as
 shipped. The repo is mounted into it. Phase 4 sets it up once, takes a snapshot, and proves it by running the old
@@ -1254,14 +1268,13 @@ script, with `bun` as a stub); `install.sh`'s cases in `tests/linux/engine.sh` a
 (`SYNCSETTINGS_RELEASE_URL=file://…`), and `tests/windows-vm/install-check.ps1` runs `install.ps1` in the VM. The runners gained the `bootstrap` stub (the
 repo's own `bootstrap/linux.sh`, logging each run to `bootstrap.log`) and the `bootstrap` option for `setup`. There are 307 shared cases at the end of phase 9; on Linux, bash passes 184 and skips 123.
 
-**Shadow mode** on the real machines, before cut-over. `mksync shadow` runs the new program's pull and push plans
-without writing anything and compares them with the old engine's check and preview: the same files, the same
-placeholders, the same status words. Differences go to a log in local state. Each machine runs it for a week of normal
-use; no unexplained difference on every machine is a condition for cut-over.
+**Shadow mode** on the real machines, before cut-over (deleted with the old engines). `mksync shadow` ran the new program's pull and push plans
+without writing anything and compared them with the old engine's check and preview: the same files, the same
+placeholders, the same status words. Differences went to a log in local state.
 
-`mksync shadow` (hidden, phase 4) prints `shadow: same` and exits 0, or prints one line per difference, appends them
-with a timestamp to `shadow.log` in the state folder and exits 3. The old engine's export runs in a throwaway copy of
-the clone, so the command writes nothing in the repo or home.
+`mksync shadow` (hidden, phase 4) printed `shadow: same` and exited 0, or printed one line per difference, appended
+them with a timestamp to `shadow.log` in the state folder and exited 3. The old engine's export ran in a throwaway copy
+of the clone, so the command wrote nothing in the repo or home.
 
 Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholders the same in every exported file.
 
@@ -1271,15 +1284,14 @@ Shadow on personal Linux, 2026-11-12: 21 differences, all explained, placeholder
   source); the program prints none. Phase 8 built package drift in the program. Shadow runs again in phase 9.
 
 **Shared cases for layers (phase 5).** The shared cases carried only v1 until phase 5. Layers need config v2, so a
-case may give `configV2` instead of `config`, plus `env` (from phase 6: `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`
+case could give `configV2` instead of `config` (since cut-over step 24 every case holds `configV2` only), plus `env` (from phase 6: `SYNC_HOSTNAME`, `SYNC_DOMAIN`, `SYNC_TOOLS`
 and `MKSYNC_VISIBILITY`; phase 5's `SYNC_PROFILE` and `SYNC_MACHINE` were removed) and a `state/` tree
-copied into the state folder, with `expect/state/` compared like `expect/home/`. The old engines can't read v2: their
-runs print `SKIP <case>: v2 only`. Example: `json-merge-layers` gives a base and a Linux `parity/settings.json`; the
+copied into the state folder, with `expect/state/` compared like `expect/home/`. The old engines couldn't read v2:
+their runs printed `SKIP <case>: v2 only`. Example: `json-merge-layers` gives a base and a Linux `parity/settings.json`; the
 program writes the merged file on Linux, macOS and Windows (CRLF there), and bash skips it.
 
-**Old cases without a shared twin.** `tests/linux/engine.sh` has 484 cases and the Pester suite 240; 20 and 19 of them
-have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, one row per group, are in
-`docs/design-test-moves.md`. In short:
+**Old cases without a shared twin.** `tests/linux/engine.sh` had 484 cases and the Pester suite 240; 20 and 19 of them
+had a shared twin. The rest, one row per group, are in `docs/design-test-moves.md`. In short:
 
 | Goes to                                                                                                    | bash | Pester |
 | ---------------------------------------------------------------------------------------------------------- | ---- | ------ |
@@ -1289,7 +1301,7 @@ have a shared twin already (`tests/parity/README.md`, "Moved from"). The rest, o
 | stays bash (CI scripts `leak-scan.sh`, `check-packages.sh`, `check-plugins.sh`; the installers)            | 108  | 0      |
 | dropped at cut-over (`sync` wrapper, `sync.cmd`, `-User`, Git Bash lookup, linked folders, bash internals) | 17   | 20     |
 
-Every old case stays in its suite until cut-over; nothing is removed because a new test exists.
+Every old case stayed in its suite until the cut-over deleted both suites.
 
 **The real-Windows checklist** (phase 9, or any time the user is at a work machine) starts with:
 
@@ -1299,7 +1311,8 @@ Every old case stays in its suite until cut-over; nothing is removed because a n
 4. Whether Git Bash and `jq` are installed.
 5. The run-from-clone fallback, if step 1 was blocked.
 6. Local state readable by the user only (the `Save-UserValues` ACL rule, now in the Windows adapter).
-7. `mksync shadow` in the clone: `shadow: same`, or each difference explained and recorded here, redacted.
+7. (Before cut-over) `mksync shadow` in the clone: `shadow: same`, or each difference explained and recorded here,
+   redacted.
 8. The installer on a work machine: `irm … | iex` puts `mksync.exe` in `%LOCALAPPDATA%\mksync`, on the user `Path`,
    with no SmartScreen, Defender or policy block; else the IT answer, recorded redacted.
 9. `mksync update`: `mksync <version> is up to date.` on the latest release, and after an older program is put back,
@@ -1348,8 +1361,7 @@ Enterprise. Every section ran:
 - **Setup's bootstrap edges (phase 9 step 24, to confirm).** The v2 setup offers the Ubuntu bootstrap after the
   record and profile are written and skips it when the fourth answer is `stop`, since `stop` changes no file; the
   contract doesn't say either way. `--bootstrap` on Windows is accepted and ignored, while the contract says Windows
-  has no `--bootstrap`: it should likely stop as an unknown option, exit 1 (check what `sync.cmd setup --bootstrap`
-  does today).
+  has no `--bootstrap`: it should likely stop as an unknown option, exit 2.
 - **Pull-only status (decided in phase 8 step 20, to confirm).** The contract only said status "never suggests
   `mksync push`" on a pull-only machine. The program skips the unsent rule there, and a differing machine's next line
   is `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
@@ -1365,11 +1377,6 @@ Enterprise. Every section ran:
   disk launchers (`disco-datos.desktop`, `mis-discos.desktop`), which name this machine's disks.
 - **Tools that could reach Windows.** `tmux`, `starship`, `wezterm`, `htop`, `gh`, `rtk` and VS Code are Linux and macOS
   today. Whether each also belongs on Windows (`gh` and VS Code likely do) is a profile choice for the work machines.
-- **`sampleGrok.md` (settled 2026-11-18).** Dropped at cut-over from the repo and both configs; git history keeps it.
-- **Today's `.linked/` trees (settled 2026-11-18).** The one tree, `MakuCustomAlias/` (the folder the Windows
-  `.bashrc` puts on `PATH`), becomes a `dir` entry in the Windows OS layer, `shell/MakuCustomAlias` with local folder
-  `C:/MakuCustomAlias`, moved with `git mv`. Every Windows machine is a work machine, so the OS layer reaches only
-  them; phase 10 can move it to a work profile.
 - **Removing a key in a later layer.** JSON merge can add and replace keys, not remove one the base sets. Options: a
   `null` in the later layer removes the key, or removal isn't supported. Claude and VS Code treat some `null` values as
   meaningful, so `null` may need an explicit marker instead.
@@ -1378,10 +1385,6 @@ Enterprise. Every section ran:
   Windows" came back yes on work #1: `~` and `$HOME` both resolve under Git Bash and PowerShell 5.1. So nothing on
   Windows blocks the switch; the layout tool's phase 9 run is where `<HOME>` in `hooks` and `statusLine` becomes `~`,
   if the user agrees then.
-- **Personal keys in the base.** The layout tool puts every Linux key but `hooks` in the base, so `enabledPlugins`,
-  `extraKnownMarketplaces`, `permissions` and `autoMode` from personal Linux would reach the work machines, merged
-  with their own (work #1 has two work marketplaces and 25 `autoMode.environment` items). Which of those belong in
-  profile `personal` instead is the user's call before phase 9 runs the tool.
 - **Owner of a setting (asked by the user 2026-11-16).** Sync and back up only what the user creates or changes; leave
   what a tool installs (a plugin's hook, a linked skill, a marketplace's cache) to that tool. The engine has no way yet
   to tell who made a hook, a skill or a key. Signals the scan could read, none decided: a link's target (a skill that
@@ -1398,19 +1401,6 @@ Enterprise. Every section ran:
   the work profile's side file, `CLAUDE.work-1.md`.
 - **`<YOUR_NAME>` per profile.** It's likely the same on every profile. Keeping it per profile costs one prompt per job;
   a shared value would need a fifth place (the user), which the decisions don't have.
-- **A config that isn't valid JSON.** The contract has no line for it: the bash engine stops with `jq`'s own parse
-  error. The program prints `ERROR: sync-config.json: invalid JSON.` and exits 1 (also when `files` isn't a list),
-  pending a shared case. Likewise an entry with no `repoPath` is named `null` by bash and an empty string by the
-  program.
-- **Config v2 error lines.** The design fixes only `unsupported config schemaVersion <n>` (exit 2). The program prints
-  it as `ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.`, with `none` for a missing key, and words
-  the other v2 refusals (exit 1) as `ERROR: sync-config.v2.json: entry <file> …`: `names unknown module <m>`,
-  `has an unknown merge <m>`, `can not use escapeBackslashes with merge json`, `has elevate other than false`,
-  `needs {layer} in importName`, `has a backslash in localPath`, `lists os <os> outside module <m>`, and (phase 8)
-  `has linked other than true`, and (phase 8 review) `needs a dconfPath like /org/gnome/shell/.` for a `dconf` entry
-  whose `dconfPath` is missing or isn't `/` plus one or more `[A-Za-z0-9._-]+/` parts, the v1 rule, and (port step
-  36, from the v1 lint rules) `can not use <field> with merge <merge>`, `is inside dir entry <dir>`,
-  `has a trailing / in file` and `needs keys as a non-empty list of strings`. They enter the contract when v2 does.
 - **Lines that name the deleted engine (found in phase 9 step 17).** The program still prints `run ./import.sh --check
 to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  first` (`src/core/plan/run.ts`) and
   `ERROR: run commit.sh from master` (`src/app/commit.ts`). Those files are gone. Proposed: `mksync check`,
@@ -1431,11 +1421,9 @@ to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  fi
   `NO_COLOR`, as `statusline.sh` does, because Claude Code renders them. The `cli` skill's color rule (color only on a
   terminal, `NO_COLOR` turns it off) doesn't fit a program whose only reader is Claude Code's bar. Kept as a known
   exception; honoring `NO_COLOR` would be a one-line change if a machine sets it globally and wants a plain bar.
-- **Elevation wrapper.** `-User` (import into another Windows account, elevated) is dropped at cut-over. If a real need
+- **Elevation wrapper.** `-User` (import into another Windows account, elevated) was dropped at cut-over. If a real need
   shows up (a file only an admin may write), a small wrapper runs `mksync pull` through `RunAs` on Windows or `sudo`
   elsewhere, for the one entry. Designed and built only then.
-- **`-User` at cut-over.** The flag is removed, not deprecated: the new engine has no equivalent. The cut-over notes
-  and the release notes say so; `sync.cmd` is deleted with the old engines.
 - **Work configs in a personal repo.** Whether each employer's policy allows its machines' configs (redacted or not) in
   the user's own repo, private or public. The user's call, per job; a job that says no gets a profile with
   `pullOnly` machines and no work layer.
@@ -1450,12 +1438,6 @@ to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  fi
 - **Installing from a private repo.** Once the repo is private (phase 10), its releases need a token to download,
   so `curl … | bash` and `irm … | iex` on a fresh machine stop working as they are (CLAUDE.md rule 5). Options: a
   public releases-only repo, or the installer asking for a `gh` login first. Decided before phase 10.
-- **Cases marked "stays bash" or "adapter test"** in `docs/design-test-moves.md` were grouped by name. Each group is
-  re-read when its phase starts, and a case that tests a rule the new engine has moves to a shared case. Settled by
-  the port: every case was re-read for `docs/port-inventory.tsv` (2026-11-16).
-- **`metrics-archive` and the hooks.** They serve the plan workflow, not the DeepSeek worker, so they're in `claude`
-  rather than `claude-worker`. Whether the work machines want them is part of "Hooks on Windows": proposed no (step
-  27).
 - **Failures the contract doesn't name (phase 4, program).** A failed save of `.user-values.json` and a failed
   sync-point write are not reported; the summary still prints `Sync point :` after the second. Bash ignores both too.
   Either the contract gives them a status (`WARNING`?) and both engines follow, or it says they're ignored. The
@@ -1642,6 +1624,13 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     and Administrators grants, which `icacls /inheritance:r /grant:r *<SID>:F` kept. `src/adapters/acl.ts` now runs
     the PowerShell engine's calls (a fresh protected `FileSecurity` with one rule for the token's SID) through
     `powershell.exe`, the path passed in an environment variable; `run.ps1`'s ACL check covers it.
+- **Workflow on a personal Windows or macOS machine (cut-over decision 12).** Module `claude-worker` (the plan
+  workflow and the DeepSeek worker) is `os: ["linux"]`, since its hooks and `bin/` scripts are bash and the only
+  personal machine is Linux. When a personal Windows or macOS machine exists: widen the entries' `os`, and either port
+  the bash scripts or run them under Git Bash on Windows (macOS runs them with Homebrew's bash).
+- **Workflow keys in phase 10.** Claude's `settings.json` keeps the workflow's `hooks` wiring in the Linux OS layer, and
+  `CLAUDE.md`'s workflow text is base text, because a `personal` profile layer can't be committed while the repo is
+  public. Phase 10 moves both to the `personal` profile layer, so a work machine on Linux wouldn't get them either.
 
 ### Confirm on Windows
 

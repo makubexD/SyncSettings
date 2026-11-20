@@ -1,6 +1,6 @@
 # Daily workflow
 
-How a settings change moves from one machine to the other. The commit step opens a pull request; nothing is
+How a settings change moves from one machine to the other with `mksync`. A push opens a pull request; nothing is
 pushed to `master` directly. See [review-gate.md](review-gate.md) for what the checks do.
 
 ```mermaid
@@ -10,9 +10,8 @@ sequenceDiagram
     participant GH as GitHub
     participant B as Machine B
 
-    You->>A: ./export.sh (or mksync export)
+    You->>A: mksync push
     Note over A: local files → dotfiles/, sanitized
-    You->>A: ./commit.sh (or mksync commit)
     A->>GH: push a sync/... branch, open PR
     Note over GH: review-gate red (no label yet)
     GH-->>You: "workflow failed" email
@@ -20,8 +19,7 @@ sequenceDiagram
     Note over GH: review-gate, leak-scan, lint green
     You->>GH: merge the PR
     You->>A: git pull
-    You->>B: git pull
-    You->>B: ./import.sh (or mksync import)
+    You->>B: mksync pull
     Note over B: dotfiles/ → local files, placeholders filled
 ```
 
@@ -37,7 +35,7 @@ mksync pull   # on the other machine, after the merge: pull, show, apply
 
 `mksync` names the next command, so you don't have to remember the order. `mksync pull` brings the settings; the
 program itself is updated with `mksync update`, which replaces it only when a newer release is out. The rest of this
-page is the same flow step by step, with the single scripts underneath. If `mksync` stops with something you don't recognize, see
+page is the same flow step by step. If `mksync` stops with something you don't recognize, see
 [Troubleshooting `mksync`](#troubleshooting-mksync).
 
 ## Before you pull or push
@@ -121,7 +119,7 @@ git pull
 See what would be sent. This changes nothing, in the repo or on the machine:
 
 ```bash
-./sync preview
+mksync preview
 ```
 
 It lists each file's status, shows the full diff against `HEAD`, and runs the leak scan. The diff shows placeholders,
@@ -130,18 +128,12 @@ not your real values. If the scan finds something, the diff is left out; fix the
 When it looks right, copy your settings into the repo and open the PR (add `-m "<message>"` to set the title yourself):
 
 ```bash
-./sync export
-./sync commit
+mksync push
 ```
 
-`commit` creates the branch `sync/linux-<alias>-<yyyymmdd-hhmm>` (`sync/macos-<alias>-<yyyymmdd-hhmm>` on a Mac),
-commits `dotfiles/`, `packages/` and `sync-config.json`, pushes the branch, opens the PR and switches back to
-`master`. It prints the PR link.
-
-On Windows, the commands are the same: `.\sync preview` in PowerShell, or `sync preview` in cmd. Use
-`-Message "<message>"` to set the title. The branch is `sync/windows-<alias>-<yyyyMMdd-HHmm>`.
-
-`./export.sh` and `./commit.sh` still work.
+It exports, shows what changed, and asks `Open a PR with these changes? [Y/n]`. Then it creates the branch
+`sync/<os>-<alias>-<yyyymmdd-hhmm>` (`linux`, `macos` or `windows`), commits `dotfiles/`, `packages/` and
+`sync-config.json`, pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
 
 ### Changes you didn't make
 
@@ -167,13 +159,13 @@ something is normal:
 ```
 
 It's only a report: nothing was changed, and it doesn't stop anything. If you want the package on a restored machine, add it to
-the list, run `scripts/ci/check-packages.sh`, then `./sync commit`. If not, uninstall it or add it to `drift-ignore.txt`.
+the list, run `scripts/ci/check-packages.sh`, then `mksync push`. If not, uninstall it or add it to `drift-ignore.txt`.
 [packages.md](packages.md#reading-the-report) covers every note.
 
 ### Machine alias
 
-`<alias>` names this machine in branch names and PR bodies, so the hostname never appears there. The first
-time you commit from a clone, `commit.sh` (or `mksync commit`) asks for it:
+`<alias>` names this machine in branch names and PR bodies, so the hostname never appears there. With a machine
+record it is the record's name. Without one, the first push from a clone asks for it:
 
 ```
   Machine alias for branch names (e.g. laptop, desktop):
@@ -187,14 +179,15 @@ git config --get syncsettings.machine
 git config syncsettings.machine desktop
 ```
 
-## Changing how the engine behaves
+## Changing how `mksync` behaves
 
 A change to what export, import or commit do starts in [sync-contract.md](sync-contract.md):
 
 1. Write the new rule in the contract.
-2. Add a shared case for it in `tests/parity/cases/` and run `tests/parity/run.sh <name>`. It fails until an
-   engine follows the rule, which shows the case tests something.
-3. Change both engines until the case passes on Linux; the PR's three engine jobs prove macOS and Windows.
+2. Add a shared case for it in `tests/parity/cases/` and run `tests/parity/run.sh <name>`. It fails until the
+   program follows the rule, which shows the case tests something.
+3. Change the program until the case passes on Linux; the PR's `program-macos` and `program-windows` jobs prove macOS
+   and Windows.
 
 Only a rule that differs by OS on purpose gets a row in the contract's Known differences and an `expect.<os>/`
 folder. How to write a case and read a failure: [tests/parity/README.md](../tests/parity/README.md).
@@ -216,12 +209,11 @@ git pull
 ## On the other machine
 
 ```bash
-git switch master
-git pull
-./sync import
+mksync pull
 ```
 
-`mksync pull` does all three, and shows what will change before asking. `mksync check` shows the same list without
+It switches nothing for you: the clone must be on `master`. It fetches, fast-forwards, and shows what will change before
+asking. `mksync check` shows the same list without
 applying it.
 
 Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
@@ -231,12 +223,6 @@ file: one the repo doesn't have is reported as `EXTRA` and kept.
 On Linux, run it in a terminal on the desktop, because GNOME settings load over the session bus. Their backups go in
 `~/.local/state/sync-settings/dconf/`, and a setting the repo doesn't name stays as it is.
 
-### Another user on the same Windows machine
-
-`mksync import -User <name>` applies the repo to that user's profile (`C:\Users\<name>`) instead of yours. When it isn't
-the user you're signed in as, the script asks Windows for an administrator window itself (the UAC prompt), so you don't
-need to start it elevated. Linux and macOS have no `-User`: run the import as that user.
-
 ## Moving a machine to the new layout
 
 The re-layout moved every file under `dotfiles/<platform>/<tool>/` and split `.gitconfig` into a shared file and a
@@ -245,11 +231,10 @@ so **import first, then export**. Do this once on each machine, before any expor
 
 ```bash
 git switch master
-git pull
-./sync import
+mksync pull
 ```
 
-Import asks for any value it doesn't have cached, so run it in a terminal. It rewrites `~/.gitconfig`, keeps the old
+The pull asks for any value it doesn't have cached, so run it in a terminal. It rewrites `~/.gitconfig`, keeps the old
 file as `~/.gitconfig.bak` and creates `~/.gitconfig.local`. Then check that git still works, and that the repo and the
 machine agree:
 
@@ -257,29 +242,25 @@ machine agree:
 git config --global user.email
 git config --global --includes --get-all credential.https://github.com.helper
 git ls-remote origin HEAD
-./sync preview
+mksync preview
 ```
 
-The second command prints the `gh` line. `./sync preview` is safe at any time, and until you import it shows `.gitconfig`
+The second command prints the `gh` line. `mksync preview` is safe at any time, and until you import it shows `.gitconfig`
 as changed.
 
 If you exported first, nothing is lost as long as you don't commit it. Drop the export, then import:
 
 ```bash
 git restore dotfiles
-./sync import
+mksync pull
 ```
 
-On Windows, the export copies the whole `.gitconfig`, credentials included, into the shared file, and `commit` stops at
-the cached-value check. On Linux, the export deletes lines from the shared file instead, and `commit` doesn't stop, so
-don't rely on it: read the diff.
+The export would copy the whole `.gitconfig`, credentials included, into the shared file. The push stops at the
+cached-value check only when a credential is a cached value, so don't rely on it: read the diff.
 
 ## Try a machine record
 
-Only the program knows machine records, and only once the repo has `sync-config.v2.json`. From phase 9 the installers
-put the program on `PATH` as `mksync`; a machine installed earlier still has the old front door there, and can build the
-program in the clone instead (`bun install --frozen-lockfile && bun run build`, then `dist/mksync` in place of
-`mksync` below). To try a record, run `setup` and tell it to stop before touching any file:
+`mksync setup` writes a machine record; the installers run it for you. To try a record on a machine that has none, run `setup` and tell it to stop before touching any file:
 
 ```bash
 mksync setup --existing stop
@@ -307,49 +288,49 @@ Once the record exists, `.user-values.json` is left alone: `setup` copied its va
 and from then on the program's `pull` and `push` neither read nor write it. A value found during a run (a path, a
 rule's default) is saved on the record or the profile instead, and a missing one stops the run with
 `missing value for <KEY>: add it to profile <profile> or machine <name>`
-([configuration.md](configuration.md#profiles-and-machines)). The old engines still use the file, so keep it while
-`mksync` runs them; deleting `machine.json` brings it back into use for `dist/mksync` too.
+([configuration.md](configuration.md#profiles-and-machines)). Deleting `machine.json` brings `.user-values.json` back
+into use.
 
-## When `commit.sh` stops
+## When `mksync push` stops
 
-| Message                                                                                                        | What to do                                                                                                                                                                                |
-| -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `no machine alias set. Run: git config syncsettings.machine <alias>`                                           | It ran without a terminal, so it could not ask. Run that command with your alias (e.g. `laptop`), then run it again                                                                       |
-| `invalid machine alias '<value>' …`                                                                            | Pick an alias with only `a-z`, `0-9` and `-`, not starting with `-`. If the message ends with `in git config syncsettings.machine`, fix it with `git config syncsettings.machine <alias>` |
-| `commit or stash changes outside dotfiles/ first.`                                                             | Commit those files on their own branch, or `git stash`, then run it again                                                                                                                 |
-| `the leak scan found the lines above; nothing was committed.`                                                  | Open each `<file>:<line>` it listed, replace the personal text or add a `sanitizeRules` entry, export again, then run it again                                                            |
-| `leak scan could not run; nothing was committed.`                                                              | Restore `scripts/ci/leak-scan.sh` with `git restore`. On Windows, make sure Git for Windows and its `bash.exe` are installed. Then run it again                                           |
-| `a cached value for <PLACEHOLDER> is in <file>; nothing was committed.`                                        | Add a `sanitizeRules` entry for that placeholder to the file's entry, or remove the value from the file, export again, then run it again                                                  |
-| `could not search for cached values; nothing was committed.`                                                   | A changed file could not be read. On Windows this can be a file name with unusual characters: rename it, then run it again                                                                |
-| `sync-config.json: entry <repoPath> has an unsafe path.`                                                       | Fix that entry: `repoPath` starts with `dotfiles/`, `localPath` starts with `~/` or `~\`, and neither has a `..` segment. Remove any symlink under `dotfiles/`                            |
-| `sync-config.json: entry <repoPath> needs "platform": "linux" and a dconf path like /org/gnome/shell/.`        | Fix that dconf entry: `"platform": "linux"`, and a `path` that starts and ends with `/`                                                                                                   |
-| `sync-config.json: entry <repoPath> has an invalid defaultEnv.`                                                | Use a valid variable name: letters, digits and `_`, not starting with a digit                                                                                                             |
-| `run commit.sh from master (current: <branch>).` (Windows: `run mksync push from master (current: <branch>).`) | `git switch master`, then run it again                                                                                                                                                    |
-| `master is behind origin; pull first.`                                                                         | `git pull`, then run it again                                                                                                                                                             |
-| `local master has unpushed commits; push or move them to a branch first.`                                      | `git branch <name>` to keep them on a branch, then `git reset --keep origin/master` (your uncommitted dotfiles changes stay)                                                              |
-| `push failed; you are on <branch>.`                                                                            | Fix the cause (network, auth), run the `git push -u origin <branch>` it prints, then `git switch master`                                                                                  |
-| `PR creation failed; branch <branch> is pushed.`                                                               | Run the `gh pr create --base master --head <branch>` it prints, then `git switch master`                                                                                                  |
-| `gh is not found in PATH.`                                                                                     | Install the [GitHub CLI](https://cli.github.com/), then run `gh auth login`                                                                                                               |
+| Message                                                                    | What to do                                                                                                                                                                                |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no machine alias set. Run: git config syncsettings.machine <alias>`       | It ran without a terminal, so it could not ask. Run that command with your alias (e.g. `laptop`), then run it again                                                                       |
+| `invalid machine alias '<value>' …`                                        | Pick an alias with only `a-z`, `0-9` and `-`, not starting with `-`. If the message ends with `in git config syncsettings.machine`, fix it with `git config syncsettings.machine <alias>` |
+| `commit or stash changes outside dotfiles/ first.`                         | Commit those files on their own branch, or `git stash`, then run it again                                                                                                                 |
+| `the leak scan found the lines above; nothing was committed.`              | Open each `<file>:<line>` it listed, replace the personal text or add a `sanitize` rule, then run it again                                                                                |
+| `leak scan could not run; nothing was committed.`                          | Restore `scripts/ci/leak-scan.sh` with `git restore`. On Windows, make sure Git for Windows and its `bash.exe` are installed. Then run it again                                           |
+| `a cached value for <PLACEHOLDER> is in <file>; nothing was committed.`    | Add a `sanitize` rule for that placeholder to the file's entry, or remove the value from the file, then run it again                                                                      |
+| `could not search for cached values; nothing was committed.`               | A changed file could not be read. On Windows this can be a file name with unusual characters: rename it, then run it again                                                                |
+| `sync-config.json: entry <file> has an unsafe path.`                       | Fix that entry's `file`: a relative path with `/`, no `..` segment, no drive letter. Remove any symlink under `dotfiles/`                                                                 |
+| `sync-config.json: entry <file> needs a dconfPath like /org/gnome/shell/.` | Fix that dconf entry: a `dconfPath` that starts and ends with `/`                                                                                                                         |
+| `sync-config.json: entry <file> has an invalid defaultEnv.`                | Use a valid variable name: letters, digits and `_`, not starting with a digit                                                                                                             |
+| `run commit.sh from master (current: <branch>).`                           | `git switch master`, then run it again                                                                                                                                                    |
+| `master is behind origin; pull first.`                                     | `git pull`, then run it again                                                                                                                                                             |
+| `local master has unpushed commits; push or move them to a branch first.`  | `git branch <name>` to keep them on a branch, then `git reset --keep origin/master` (your uncommitted dotfiles changes stay)                                                              |
+| `push failed; you are on <branch>.`                                        | Fix the cause (network, auth), run the `git push -u origin <branch>` it prints, then `git switch master`                                                                                  |
+| `PR creation failed; branch <branch> is pushed.`                           | Run the `gh pr create --base master --head <branch>` it prints, then `git switch master`                                                                                                  |
+| `gh is not found in PATH.`                                                 | Install the [GitHub CLI](https://cli.github.com/), then run `gh auth login`                                                                                                               |
 
 ## Troubleshooting `mksync`
 
 | What you see                                                                                       | What to do                                                                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows: `running scripts is disabled on this system`                                              | You don't need to change the execution policy: `mksync` and `sync.cmd` start PowerShell with `-ExecutionPolicy Bypass`, and the installer runs through `iex`. Start from those, not by running a `.ps1` directly                                                                  |
+| Windows: `running scripts is disabled on this system`                                              | It comes from running a `.ps1` directly. `mksync.exe` needs no execution policy, and the installer runs through `irm … \| iex`, which isn't blocked by it                                                                                                                         |
 | Windows: the installer prints `ERROR: install Git from https://git-scm.com, …`                     | There's no `winget` on this machine (it comes with App Installer from the Microsoft Store). Install Git from that link, open a new window, and run the installer again. `gh` can come later; `doctor` says how                                                                    |
-| `mksync` is not recognized, or `command not found`                                                 | The window was open before the install changed `PATH`. Open a new one. On Windows, if a new window still can't find it, run the installer again; on Linux, `doctor` prints the `ln -s` line that links it                                                                         |
-| macOS: `ERROR: SyncSettings needs bash 4.4 or newer (this is 3.2.57…)`                             | macOS's own bash is too old. Run `brew install bash`; after that the scripts switch to Homebrew's bash by themselves. More in [Restore: macOS](restore.md#troubleshooting-on-macos)                                                                                               |
-| `Next: the machine check failed; run ./import.sh --check to see why.`                              | The status couldn't compare the repo with this machine. Run the command it names and read its `ERROR` lines                                                                                                                                                                       |
+| `mksync` is not recognized, or `command not found`                                                 | The window was open before the install changed `PATH`. Open a new one. If a new window still can't find it, run the install line again; on Linux and macOS it prints the `PATH` line to add when `~/.local/bin` isn't on it                                                       |
+| macOS: `ERROR: install bash and jq with Homebrew (brew install bash jq), then run this again.`     | The installer needs Homebrew's bash and `jq` (macOS's own bash is too old). Run `brew install bash jq`, then the install line again. More in [Restore: macOS](restore.md#troubleshooting-on-macos)                                                                                |
+| `Next: the machine check failed; run ./import.sh --check to see why.`                              | The status couldn't compare the repo with this machine. Run `mksync check` (the line still names the old script) and read its `ERROR` lines                                                                                                                                       |
 | `WARN gh: not signed in; run gh auth login`                                                        | Run `gh auth login` once. Only `mksync push` needs it, to open the pull request                                                                                                                                                                                                   |
 | `SKIPPED … needs values: run mksync setup`                                                         | A file has a placeholder (your name, email, a path) with no value yet. Run `mksync setup`; it asks for each one and saves it in `.user-values.json`, which never leaves the machine                                                                                               |
 | `WARN <n> value(s) not set; mksync setup asks for them`                                            | The same thing, seen from `doctor`                                                                                                                                                                                                                                                |
-| `./import.sh --check` (or `Import-Settings.ps1 -Check`) exits with 3                               | Not an error: it means `<n> file(s) would change`. Read the list. If you changed any of those files on this machine, run `mksync push` first; otherwise `mksync pull` applies it. Exit 0 means the machine matches, and exit 1 means a check couldn't run (see its `ERROR` lines) |
+| `mksync check` exits with 3                                                                        | Not an error: it means `<n> file(s) would change`. Read the list. If you changed any of those files on this machine, run `mksync push` first; otherwise `mksync pull` applies it. Exit 0 means the machine matches, and exit 1 means a check couldn't run (see its `ERROR` lines) |
 | `ERROR: <n> file(s) changed on this machine since the last sync, and a pull would overwrite them.` | The pull found `OUT` or `BOTH` files (listed above the error). Run `mksync push` to send them, or `mksync pull --force` to replace them with the repo's version (each keeps a `.bak`)                                                                                             |
 | `ERROR: could not tell which side is newer; …`                                                     | The diff couldn't run. Run `mksync diff` and read its `ERROR` line; `mksync pull --force` skips the diff                                                                                                                                                                          |
 | `ERROR: the repo has changes not sent yet; run mksync push first, …`                               | `pull` won't mix your unsent changes with the repo's. Send them with `mksync push`, or drop them with `git restore`, then pull                                                                                                                                                    |
 | `ERROR: <dir> exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR.`                        | The installer won't write into a folder it didn't make. Move that folder, or set `SYNCSETTINGS_DIR` to another place and run it again                                                                                                                                             |
 | Windows: `ERROR: …\mksync.cmd already exists; remove it and run this again.` (or `mksync.exe`)     | Another `mksync.cmd` or `mksync.exe` is in the installer's bin folder. Remove or rename it if it isn't yours to keep, then run the installer again. On Linux and macOS the same line names `~/.local/bin/mksync`                                                                  |
-| `ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync update.`                 | The repo moved to a config this program doesn't know yet. Run `mksync update`, then the command again                                                                                                                                                                             |
+| `ERROR: sync-config.json: this config needs a newer mksync: run mksync update.`                    | The repo moved to a config this program doesn't know yet. Run `mksync update`, then the command again                                                                                                                                                                             |
 | `ERROR: <file>: checksum does not match SHA256SUMS…` or `…: attestation check failed…`             | The installer or `mksync update` downloaded a file that isn't the one the release published, and installed nothing. Run it again later; if it keeps failing, the release itself is wrong: don't install around the check                                                          |
 | `ERROR: mksync runs from the clone here; update it with git pull.`                                 | This machine runs `mksync` from the clone (installed with `--runtime`), so there is no program to replace: `git pull` in the clone updates it                                                                                                                                     |
 

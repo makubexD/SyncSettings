@@ -1,21 +1,21 @@
 # Sync engine contract
 
-SyncSettings has two engines: PowerShell 5.1 on Windows (`scripts/windows/`) and bash on Linux and macOS
-(`scripts/linux/sync.sh` plus `export.sh`, `import.sh`, `commit.sh`). They share no code. They share
-`sync-config.json`, the `.user-values.json` format, and the rules on this page.
+SyncSettings has one engine: `mksync`, a TypeScript program compiled per OS ([The program](#the-program)), with
+modules, profiles and layered settings ([design-layers.md](design-layers.md)). It reads `sync-config.json`, the
+`.user-values.json` values and the machine records, and follows the rules on this page on Linux, macOS and Windows.
+The bash and PowerShell engines it replaced were deleted at the cut-over; their last state is the git tag
+`two-engines-final`.
 
-This page is for contributors. If you change how an engine behaves, change this page in the same PR, and add a case
-that proves the rule. The shared cases in [`tests/parity/`](../tests/parity/README.md) are this page in executable
-form: each one runs unchanged against both engines, so a rule that shows in exit codes, status lines and files gets a
-shared case first. Text the shared runner doesn't read (notes, messages) and internal functions go in
-`tests/linux/engine.sh` or `tests/windows/Engine.Tests.ps1`. A rule listed under
-[Known differences](#known-differences) applies to one engine only. Every other rule applies to both.
+This page is for contributors. If you change how `mksync` behaves, change this page in the same PR, and add a case that
+proves the rule. The shared cases in [`tests/parity/`](../tests/parity/README.md) are this page in executable form, so
+a rule that shows in exit codes, status lines and files gets a shared case first, with `expect/` written from this
+page. Text the shared runner doesn't read (notes, messages) and internal functions go in the unit tests
+(`bun test src`). A rule that differs between operating systems is listed under
+[Known differences](#known-differences). Every other rule applies on all three.
 
-**Planned: one engine.** A single TypeScript engine will replace both, with modules, profiles and layered settings.
-Its design is [design-layers.md](design-layers.md); until its cut-over, this page describes the two engines as they
-are. What the new program does already is in [The program](#the-program).
-
-To add or change an entry in `sync-config.json`, see [configuration.md](configuration.md).
+A file's label below is its repo path, such as `dotfiles/linux/shell/.bashrc`: the entry's `file` under the layer
+folder it comes from (`repoPath` in the older wording). To add or change an entry in `sync-config.json`, see
+[configuration.md](configuration.md).
 
 ## Flow
 
@@ -28,79 +28,88 @@ flowchart LR
 ```
 
 - **Export** reads every selected entry's local file. It compares the file with the repo copy by content (never by
-  date), sanitizes it, and writes only the files that changed. It ends with the [orphan report](#orphan-report) and, in
-  bash, the [drift report](#package-drift).
+  date), sanitizes it, and writes only the files that changed. It ends with the [orphan report](#orphan-report) and, on
+  Linux, the [drift report](#package-drift).
 - **Commit** runs the [checks before pushing](#checks-before-pushing), stages `dotfiles/`, `sync-config.json` and
   `packages/` (if it exists), commits on a `sync/<os>-<machine>-…` branch (`sync/linux-…` on Linux, `sync/macos-…` on a
   Mac) and opens a PR. It never pushes to `master`. See [review-gate.md](review-gate.md).
 - **Import** reads every selected entry's repo file and hydrates its placeholders. If the local file differs, import
   asks before overwriting it (unless forced) and keeps a `.bak` copy of the old file.
 
-A [dconf entry](#dconf-entries-type-dconf) follows the same flow with a dconf folder in place of the local file.
+A [dconf entry](#dconf-entries-merge-dconf) follows the same flow with a dconf folder in place of the local file.
+
+## Config
+
+`mksync` looks for its config in the current folder, then each parent, and reads the first it finds, in this order
+([cut-over decision 8](plan-single-engine-9-cutover.md)):
+
+1. `sync-config.v2.json`, which only a clone from before v1.0.0 still has, so a machine that ran `mksync update` before
+   its first pull past v1.0.0 still loads its old clone's config and can pull;
+2. else `sync-config.json`.
+
+Either file is read as config v2 ([configuration.md](configuration.md)). Every `ERROR:` line about the config names
+the file it read. A `sync-config.json` whose JSON object has no `schemaVersion` is an old v1 config, and every command
+stops before it reads another field ([cut-over decision 7](plan-single-engine-9-cutover.md)):
+
+```text
+ERROR: sync-config.json: needs schemaVersion 2; this is an old config.
+```
+
+exit 2. A `schemaVersion` above 2 means the program is too old for the config
+([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 6). Any other value (below 2, not a
+number) gets the unsupported line. Both exit 2:
+
+```text
+ERROR: <config file>: this config needs a newer mksync: run mksync update.
+ERROR: <config file>: unsupported config schemaVersion <n>.
+```
+
+A config that isn't a JSON object stops with `ERROR: <config file>: invalid JSON.`, exit 1. No config in the folder
+or its parents stops with `ERROR: no sync-config.json or sync-config.v2.json in this folder or
+its parents.`, and a config file that can't be read with `ERROR: cannot read <file>.`, both exit 1.
+
+Shared cases: `config-v2-in-sync-config` (a v2 `sync-config.json` is read), `config-v2-old-clone` (both files: the
+`sync-config.v2.json` wins), `config-v1-refused` (decision 7's line), `config-v2-in-sync-config-newer` and
+`config-v2-newer-schema` (schema 3).
 
 ## Entry selection
 
-Each entry in `files` has a required `platform`: one of `"common"`, `"windows"`, `"linux"`, `"macos"`, or a list of
-the last three, such as `["linux", "macos"]`:
+An entry runs on the systems in its effective `os`: the entry's `os` list when it has one, else its module's `os`,
+else all three ([configuration.md, "`os`"](configuration.md#os)). With a machine record, an entry whose module the
+profile doesn't turn on is skipped too ([Layers](#layers)). After the config's entries come the linked folders the
+profile and the machine record hold ([Linked folders](#linked-folders)); they run on this machine whatever its system.
 
-| `platform` | Windows engine        | bash on Linux       | bash on macOS       |
-| ---------- | --------------------- | ------------------- | ------------------- |
-| `windows`  | yes                   | no                  | no                  |
-| `linux`    | no                    | yes                 | no                  |
-| `macos`    | no                    | no                  | yes                 |
-| `common`   | yes                   | yes                 | yes                 |
-| a list     | if it holds `windows` | if it holds `linux` | if it holds `macos` |
-
-`common` means all three systems. A file shared by Linux and macOS but not Windows uses the list `["linux", "macos"]`.
-
-If any entry has no `platform`, a value outside these, an empty list, a list with a repeat, or a list holding `common`,
-the engine stops with exit code 1 before it touches a file:
-
-```text
-ERROR: sync-config.json: entry <repoPath> needs "platform": "common", "windows", "linux", "macos" or a list of the last three.
-```
-
-The check covers every entry, not only the ones the engine would select, so a bad Linux entry also stops the Windows
-engine. CI lint catches the same mistake earlier.
-
-Entries run in the order they appear in `sync-config.json`.
+Entries run in the order they appear in `sync-config.json`. The config is checked as a whole before any file is
+touched, so a bad entry for one system stops every system ([Path safety](#path-safety)).
 
 ### Which system
 
-The bash engine picks its system with `sync_os`: `SYNC_OS` when it's set, else `uname -s` (`Linux` is `linux`, `Darwin`
-is `macos`). Tests set `SYNC_OS=macos` on Linux to cover macOS behavior. Any other value stops the run with exit code 1:
+`mksync` runs for its host's system: `linux`, `macos` or `windows`. `SYNC_OS` overrides it, but only with a value for
+the same host: `linux` or `macos` off Windows, `windows` on Windows. Tests set `SYNC_OS=macos` on Linux to cover macOS
+behavior. Any other value, or another host, stops the run with exit code 1:
 
 ```text
 ERROR: SyncSettings runs on Linux, macOS and Windows; this is <value>.
 ```
 
-The PowerShell engine is always `windows`. The program accepts a `SYNC_OS` only for its own host: `linux` or `macos`
-off Windows, `windows` on Windows; any other value stops the run with the same line and exit code 1. The program's
-profile and machine come from the machine record ([Machines](#machines-program-only)); the phase 5 variables for them
-were removed in phase 6. `SYNC_HOSTNAME`, `SYNC_DOMAIN` and `SYNC_TOOLS` stand in for the scan, as `SYNC_OS` does for
-the system ([The scan](#the-scan)).
-
-`os.sh` also defines `PLATFORM_SELECT_JQ`, the jq filter that picks the entries for a system. It's internal: a value
-inherited from the environment is overwritten, and only a second `source` in the same shell, where the variable is
-already `readonly`, keeps it.
+The profile and machine come from the machine record ([Machines](#machines)). `SYNC_HOSTNAME`, `SYNC_DOMAIN` and
+`SYNC_TOOLS` stand in for the scan, as `SYNC_OS` does for the system ([The scan](#the-scan)).
 
 ## Picking files
 
-Every command that walks entries takes a repeatable `--only <path>` (PowerShell: `-Only <string[]>`). A path is
-either a repo path or a local path:
+Every command that walks entries takes a repeatable `--only <path>` (`mksync pull`, `push`, `diff` and `check` take
+the paths as arguments and pass them on as `--only`). A path is either a repo path or a local path:
 
 - A path starting with `dotfiles/` is a repo path. It is accepted when an entry selected for this OS owns it: the path
-  equals its `repoPath`, or starts with `<repoPath>/` for a `dir` entry. A trailing `/` is dropped. A path with a `..`
-  segment is refused on both engines, and a path under `<repoPath>.linked/` is refused on bash; linked folders are
-  PowerShell only, so PowerShell still accepts a file entry's `<repoPath>.linked/` path.
+  equals its label, or starts with `<label>/` for a `dir` entry. A trailing `/` is dropped. A path with a `..`
+  segment is refused.
 - Any other path is a local path. A leading `~/` becomes `$HOME/` (a lone `~` becomes `$HOME`), a path that doesn't
-  start with `/` is joined to the caller's folder (`$SYNC_CALLER_PWD`, else `$PWD`), and `.` and `..` segments are
-  folded lexically, without following links. A relative pick is relative to the caller's folder on direct engine
-  calls too: `import.sh` and `export.sh` record `$PWD` before they `cd` to the repo root.
+  start with `/` is joined to the current folder, and `.` and `..`
+  segments are folded lexically, without following links.
 
 A local path resolves to a repo path by comparing it with each selected entry's resolved `localPath`, folded
-the same way: equal to a file entry gives its `repoPath`; equal to a `dir` entry's folder gives its `repoPath`, and
-inside that folder gives `<repoPath>/<rest>`. A `dconf` entry has no local path and is matched by its `repoPath` only.
+the same way: equal to a file entry gives its label; equal to a `dir` entry's folder gives its label, and
+inside that folder gives `<label>/<rest>`. A `dconf` entry has no local path and is matched by its label only.
 
 A path that matches no entry for this OS stops the run before it touches any file:
 
@@ -109,174 +118,153 @@ ERROR: <path> is not synced on this machine.
 ```
 
 Then a repo file is selected when there is no `--only`, or its repo path equals a selected path, or starts with
-`<selected>/` or `<selected>.linked/`. Selecting a whole entry is looser: an entry is walked when that file rule
-selects it, or when a pick lies under the entry's own path or `.linked/` folder, so the picked file inside it is
-still reached.
+`<selected>/`. An entry is walked when that rule selects one of its files, or when a pick lies under the entry's own
+path, so the picked file inside it is still reached.
 
-`import.sh --only` handles only the selected files: every other entry and file gets no status line and no count, and
-`--check --only` lists only the selected files. With `--only` only the picked entries' values are requested, so a
+`mksync import --only` handles only the selected files: every other entry and file gets no status line and no count,
+and `--check --only` lists only the selected files. With `--only` only the picked entries' values are requested, so a
 missing value that only an unpicked entry needs does not stop the run. A run with `--only` never records the sync
 point, because the machine agrees with only part of the repo. `--only` with no path after it is an error, exit 1.
 
-`export.sh --only` writes only the selected files. It removes a repo file gone from a `dir` entry's folder only when
-that file is selected, and skips the orphan and package drift reports: a partial run doesn't see the whole repo.
+`mksync export --only` writes only the selected files. It removes a repo file gone from a `dir` entry's folder only
+when that file is selected, and skips the orphan and package drift reports: a partial run doesn't see the whole repo.
 `--diff --only` labels only the selected paths, and its counts and hints cover only them. When `--only` is given and no
 file gets a status line or a diff label, the run prints `  WARNING: --only matched no file.` before the summary; the
 exit code and counts don't change. `--preview` with `--only` is an error, exit 1.
 
 ## Path safety
 
-Right after the `platform` check, each engine checks every entry, on any platform, and stops with exit code 1 before it
-touches a file:
-
-- `repoPath` starts with `dotfiles/` and has no `..` segment.
-- `localPath` starts with `~/` or `~\` and has no `..` segment.
-- Each [`localPaths`](#localpath) value follows the same rule, and its keys are `linux`, `macos` or `windows`.
-- Nothing under `dotfiles/` is a symlink.
-
-CI lint (`scripts/ci/check-config.sh`) is stricter: every `common` entry, every list entry, and every non-dconf
-`linux` or `macos` entry needs a `localPath` in the `~/` form.
+When it reads the config, `mksync` checks every entry, for any system, and stops with exit code 1 before it touches a
+file. Each line names the entry's `file`:
 
 ```text
-ERROR: sync-config.json: entry <repoPath> has an unsafe path.
-ERROR: sync-config.json: entry <repoPath> has an unknown localPaths key <key>.
+ERROR: <config file>: entry <file> has an unsafe path.
+ERROR: <config file>: entry <file> has a backslash in localPath.
+ERROR: <config file>: entry <file> has an unknown localPaths key <key>.
+ERROR: <config file>: entry <file> has an invalid defaultEnv.
+ERROR: <config file>: entry <file> needs a dconfPath like /org/gnome/shell/.
 ```
 
-The program's `sync-config.v2.json` has its own check when it reads the config: an entry `file` that is empty, starts
-with `/` or a drive letter (`C:`), holds a `..` segment, or holds a `\` stops with exit 1 before anything is written
-([design, "Config v2"](design-layers.md#config-v2), decision 11).
+- `file` is unsafe when it is empty, starts with `/` or a drive letter (`C:`), holds a `..` segment, or holds a `\`
+  ([design, "Config v2"](design-layers.md#config-v2), decision 11). A symlink anywhere under `dotfiles/` gets the
+  same line, with the symlink's repo path in place of `<file>`.
+- `localPath` and every [`localPaths`](#localpath) value use forward slashes; its keys are `linux`, `macos` or
+  `windows`.
+- A `sanitize` rule's `defaultEnv` matches `^[A-Za-z_][A-Za-z0-9_]*$`, because it names an environment variable.
+- A `dconf` entry has no `localPath`. Its `dconfPath` must start and end with `/`, hold at least one segment of
+  letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody dumps the whole
+  database by accident.
 
-```text
-ERROR: sync-config.v2.json: entry <file> has an unsafe path.
-```
-
-The v2 config keeps two of the rules above, with the entry's `file` in the line: a `localPaths` key other than
-`linux`, `macos` or `windows`, and a `defaultEnv` that isn't a variable name (below), each stop with exit 1. Its
-`localPath` may be absolute, such as `C:/MakuCustomAlias` ([cut-over decision 4](plan-single-engine-9-cutover.md)).
-
-A dconf entry has no `localPath`. Instead its `platform` must be the string `linux` (a list, even `["linux"]`, stops
-both engines), and its `path` must start and end with `/`, hold
-at least one segment of letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody
-dumps the whole database by accident.
-
-```text
-ERROR: sync-config.json: entry <repoPath> needs "platform": "linux" and a dconf path like /org/gnome/shell/.
-```
-
-The bash engine also checks that `defaultEnv` matches `^[A-Za-z_][A-Za-z0-9_]*$`, because it uses the name to look up a
-variable. PowerShell reads the name as plain data, so it has no such check.
-
-```text
-ERROR: sync-config.json: entry <repoPath> has an invalid defaultEnv.
-```
+The other shape checks stop the same way, exit 1, with these endings after `entry <file>`: `needs file and localPath
+as strings`, `names unknown module <m>`, `has an unknown merge <m>`, `can not use <field> with merge <merge>`,
+`can not use escapeBackslashes with merge json`, `has elevate other than false`, `has linked other than true`,
+`needs {layer} in importName`, `has an os that is not a list of linux, macos or windows`, `lists os <os> outside module
+<m>`, `has a trailing / in file`, `needs keys as a non-empty list of strings` and `is inside dir entry <dir>`; a module
+gets `module <m> has an os that is not a list of linux, macos or windows`. The fields are in
+[configuration.md](configuration.md). CI lint (`tools/check-config.ts`) runs the same parser on the repo's config.
 
 ## `localPath`
 
-| Form                   | Example                | Works on                                                |
-| ---------------------- | ---------------------- | ------------------------------------------------------- |
-| `~/` + forward slashes | `~/.config/git/ignore` | both. PowerShell turns `/` into `\` after expanding `~` |
-| `~\` + backslashes     | `~\.gitconfig.local`   | Windows only                                            |
+| Form                   | Example                | Works on     |
+| ---------------------- | ---------------------- | ------------ |
+| `~/` + forward slashes | `~/.config/git/ignore` | every system |
+| an absolute path       | `C:/MakuCustomAlias`   | its system   |
 
-`~` is the user's home: `$HOME` on Linux, the profile folder on Windows (`$env:USERPROFILE`, or the target user's
-profile with `-User`). A `common` entry, and any entry the bash engine runs (`linux`, `macos` or a list holding them), must
-use the `~/` form. Every `localPath` in a v1 config must use one of these two forms: an absolute path stops the run
-([Path safety](#path-safety)); a v2 config may name an absolute folder. With no home folder set (`HOME`, or `USERPROFILE` on Windows) the run stops with exit
-code 1 before touching a file; the program prints `ERROR: the home folder is not set (HOME).` (`(USERPROFILE).` on
-Windows).
+`~` is the user's home: `$HOME` on Linux and macOS, `USERPROFILE` on Windows, where `/` becomes `\` after `~` is
+expanded. An absolute path, such as `C:/MakuCustomAlias` ([cut-over decision 4](plan-single-engine-9-cutover.md)),
+belongs on an entry whose `os` names one system. With no home folder set the run stops with exit code 1 before
+touching a file: `ERROR: the home folder is not set (HOME).` (`(USERPROFILE).` on Windows).
 
 A symlink at a file entry's `localPath` is followed: export reads the target, and import writes through the link,
 which stays a link. A link to a missing target counts as a missing local file. Inside a `dir` entry links are skipped
-([Directory entries](#directory-entries-type-dir)).
+([Directory entries](#directory-entries-merge-dir)).
 
 `localPaths` (optional) is an object keyed by system, for a file whose content is shared but whose folder differs, such
 as VS Code's `~/.config/Code/User` on Linux and `~/Library/Application Support/Code/User` on macOS. On a system named in
-it, its value replaces `localPath`; elsewhere `localPath` applies. A key for a system the entry's `platform` doesn't
-select is allowed and never used. The bash engine swaps the path when it selects the entry, so every later rule sees one
-`localPath`.
+it, its value replaces `localPath`; elsewhere `localPath` applies. A key for a system the entry doesn't run on is
+allowed and never used. The swap happens when the entry is selected, so every later rule sees one `localPath`.
 
 ## Statuses
 
-Each file gets one status line: the status word, its label (the `repoPath`, or `<repoPath>/<rel>` inside a
-directory entry) and sometimes a note in parentheses. The layout is up to each engine (PowerShell puts the word in
-brackets and colors it), but the word, the label and the notes listed below are the contract, and tests match on
-them.
+Each file gets one status line: the status word, its label (the repo path, or `<label>/<rel>` inside a
+directory entry) and sometimes a note in parentheses. The line is `  WORD       label`, the word padded to 11
+characters, on every system; on a terminal the word is colored. The word, the label and the notes listed below are the
+contract, and tests match on them.
 
 ### Export
 
-| Case                                             | Status      | Note                                                   |
-| ------------------------------------------------ | ----------- | ------------------------------------------------------ |
-| Local path matches an exclude pattern            | `SKIPPED`   | `matches exclude pattern`                              |
-| Local file missing                               | `SKIPPED`   | `local file not found: <path>`                         |
-| Repo file missing                                | `ADDED`     | `sanitized` if the entry has rules                     |
-| Same content                                     | `UNCHANGED` |                                                        |
-| Different content                                | `MODIFIED`  | `sanitized` if the entry has rules                     |
-| `type: dir`: repo file no longer present locally | `REMOVED`   | `no longer in source`                                  |
-| `type: dconf`: `dconf` isn't installed           | `SKIPPED`   | `dconf not installed`                                  |
-| `type: dconf`: nothing left after `keys`         | `SKIPPED`   | `no settings under <path>`; a repo file stays as it is |
-| `type: dconf`: `dconf dump` failed               | `ERROR`     | `dconf dump failed`                                    |
-| Read, write or copy failed                       | `ERROR`     | the reason                                             |
+| Case                                              | Status      | Note                                                   |
+| ------------------------------------------------- | ----------- | ------------------------------------------------------ |
+| Local path matches an exclude pattern             | `SKIPPED`   | `matches exclude pattern`                              |
+| Local file missing                                | `SKIPPED`   | `local file not found: <path>`                         |
+| Repo file missing                                 | `ADDED`     | `sanitized` if the entry has rules                     |
+| Same content                                      | `UNCHANGED` |                                                        |
+| Different content                                 | `MODIFIED`  | `sanitized` if the entry has rules                     |
+| `merge: dir`: repo file no longer present locally | `REMOVED`   | `no longer in source`                                  |
+| `merge: dconf`: `dconf` isn't installed           | `SKIPPED`   | `dconf not installed`                                  |
+| `merge: dconf`: nothing left after `keys`         | `SKIPPED`   | `no settings under <path>`; a repo file stays as it is |
+| `merge: dconf`: `dconf dump` failed               | `ERROR`     | `dconf dump failed`                                    |
+| Read, write or copy failed                        | `ERROR`     | the reason                                             |
 
 ### Import
 
-| Case                                                                     | Status      | Note                                                             |
-| ------------------------------------------------------------------------ | ----------- | ---------------------------------------------------------------- |
-| Local path matches an exclude pattern                                    | `SKIPPED`   | `matches exclude pattern`                                        |
-| Repo file missing                                                        | `SKIPPED`   | `not found in repo`                                              |
-| Local file missing                                                       | `CREATED`   |                                                                  |
-| Same content                                                             | `UNCHANGED` |                                                                  |
-| Different content, overwrite accepted                                    | `UPDATED`   | `backup saved as <name>.bak`                                     |
-| Different content, user answered no                                      | `SKIPPED`   | `user skipped`                                                   |
-| `type: dir` or linked folder: local file not in the repo                 | `EXTRA`     | `not in repo; kept`                                              |
-| `type: dconf`: `dconf` isn't installed                                   | `SKIPPED`   | `dconf not installed`                                            |
-| `type: dconf`: `HOME` isn't the login home                               | `SKIPPED`   | `HOME is not the login home; dconf left alone`                   |
-| `type: dconf`: `${XDG_CONFIG_HOME:-$HOME/.config}` isn't `$HOME/.config` | `SKIPPED`   | `XDG_CONFIG_HOME is not ~/.config; dconf left alone`             |
-| `type: dconf`: nothing set under `path` yet                              | `CREATED`   | no prompt, no backup                                             |
-| `type: dconf`: every repo key already has that value                     | `UNCHANGED` | nothing is loaded                                                |
-| `type: dconf`: dump, backup or load failed                               | `ERROR`     | `dconf dump failed`, `cannot create backup`, `dconf load failed` |
-| Read, write or copy failed                                               | `ERROR`     | the reason                                                       |
+| Case                                                                      | Status      | Note                                                             |
+| ------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------- |
+| Local path matches an exclude pattern                                     | `SKIPPED`   | `matches exclude pattern`                                        |
+| Repo file missing                                                         | `SKIPPED`   | `not found in repo`                                              |
+| Local file missing                                                        | `CREATED`   |                                                                  |
+| Same content                                                              | `UNCHANGED` |                                                                  |
+| Different content, overwrite accepted                                     | `UPDATED`   | `backup saved as <name>.bak`                                     |
+| Different content, user answered no                                       | `SKIPPED`   | `user skipped`                                                   |
+| `merge: dir`: local file not in the repo                                  | `EXTRA`     | `not in repo; kept`                                              |
+| `merge: dconf`: `dconf` isn't installed                                   | `SKIPPED`   | `dconf not installed`                                            |
+| `merge: dconf`: `HOME` isn't the login home                               | `SKIPPED`   | `HOME is not the login home; dconf left alone`                   |
+| `merge: dconf`: `${XDG_CONFIG_HOME:-$HOME/.config}` isn't `$HOME/.config` | `SKIPPED`   | `XDG_CONFIG_HOME is not ~/.config; dconf left alone`             |
+| `merge: dconf`: nothing set under `dconfPath` yet                         | `CREATED`   | no prompt, no backup                                             |
+| `merge: dconf`: every repo key already has that value                     | `UNCHANGED` | nothing is loaded                                                |
+| `merge: dconf`: dump, backup or load failed                               | `ERROR`     | `dconf dump failed`, `cannot create backup`, `dconf load failed` |
+| Read, write or copy failed                                                | `ERROR`     | the reason                                                       |
 
 ### Both
 
-| Case                                                  | Status   | Note                                                                 |
-| ----------------------------------------------------- | -------- | -------------------------------------------------------------------- |
-| File under `dotfiles/` that no entry owns             | `ORPHAN` | `no entry in sync-config.json; git rm it or add an entry`            |
-| Bash, export: a package list and the machine disagree | `DRIFT`  | see [Package drift](#package-drift); the label is `<manager>/<name>` |
+| Case                                                   | Status   | Note                                                                 |
+| ------------------------------------------------------ | -------- | -------------------------------------------------------------------- |
+| File under `dotfiles/` that no entry owns              | `ORPHAN` | `no entry in sync-config.json; git rm it or add an entry`            |
+| Linux, export: a package list and the machine disagree | `DRIFT`  | see [Package drift](#package-drift); the label is `<manager>/<name>` |
 
-An `ERROR` affects only its own file. The engine moves on to the next entry, and the run still exits 0. Exit code 1
+An `ERROR` affects only its own file. `mksync` moves on to the next entry, and the run still exits 0. Exit code 1
 is reserved for problems that stop the whole run: invalid config, a missing placeholder value, a failed `git pull`, or a
 failed [check before pushing](#checks-before-pushing).
 
 ## Overwrite prompt
 
-Unless `--force` (bash) or `-Force` (PowerShell) is given, import asks `Overwrite <file>? [Y/n]` before it replaces a
-local file whose content differs. An empty answer means yes. In bash, end of input (for example `< /dev/null`) also
-counts as an empty answer, so a non-interactive run without `--force` overwrites. The `.bak` copy is still written.
-Force skips only the prompt, never the `.bak`. For a dconf entry, `<file>` is the entry's `path`.
+Unless `--force` is given, import asks `Overwrite <file>? [Y/n]` before it replaces a local file whose content
+differs. An empty answer means yes. End of input (for example `< /dev/null`) also counts as an empty answer, on every
+system, so a non-interactive run without `--force` overwrites. The `.bak` copy is still written. Force skips only the
+prompt, never the `.bak`. For a dconf entry, `<file>` is the entry's `dconfPath`.
 
 ## Sanitize and hydrate
 
-`sanitizeRules` hold the placeholders for one entry's file. On export, sanitizing replaces real values with
+An entry's `sanitize` rules hold the placeholders for its file. On export, sanitizing replaces real values with
 placeholders. On import, hydrating puts the values back.
 
 **Where values come from**, in this order:
 
-1. `.user-values.json` next to `sync-config.json` (gitignored, keys are placeholders). A value that isn't a string
-   is read as jq's `tostring` gives it (`8080` is `"8080"`, `null` is `"null"`) and saved back as that string.
+1. The cached value: the machine record's or its profile's ([Values on a machine](#values-on-a-machine)), or without a
+   record `.user-values.json` next to `sync-config.json` (gitignored, keys are placeholders). A value that isn't a
+   string is read as its JSON text (`8080` is `"8080"`, `null` is `"null"`) and saved back as that string.
 2. Import only: values inferred from the existing local file (below). They are never used for a placeholder that
    already has a cached value.
-3. A prompt, offering a default taken from the first of these that exists: the cached value, the rule's `default`,
-   the environment variable named by `defaultEnv`. An empty answer takes the default. With no default it stops the run
-   (see below).
+3. The rule's `default`, then the environment variable named by `defaultEnv`, taken without a prompt.
+4. A prompt, only for a placeholder none of these fills.
 
-The program asks only for a placeholder that none of these fills: no cached value (or record or profile value), no
-inferred value, no rule `default` and no `defaultEnv` value; any of those is taken without a prompt
-([Known differences](#known-differences)). Before the first question it prints
+Before the first question it prints
 `\n  Enter values to fill the placeholders in the config files:\n\n`, then ` <prompt>:` for each, and a newline after
 the last answer. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
 missing, so the run stops as below, after the prompts printed so far; with no input at all a run stops as it did
 before. `--check`, `preview`, `status`, `diff` and export never ask.
 
-`--reset-values` (bash, program) or `-ResetValues` (PowerShell) prompts again for every placeholder and skips inference.
+`mksync import --reset-values` prompts again for every placeholder and skips inference.
 The cached value is only the prompt's default. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
 profile's value replaces it there; a new one is placed as in [Values on a machine](#values-on-a-machine). The program
 takes the flag on `import` only so far.
@@ -285,7 +273,7 @@ on Linux, also tightening an existing file, and no inherited access on Windows. 
 controller, so it works on a domain laptop that's off the network.
 
 **Inference on import.** For each entry with rules whose local and repo files both exist, also entries left out by
-`--only`, the engine compares the
+`--only`, `mksync` compares the
 two files line by line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder,
 paired with a local line that doesn't. If the local line starts with the text before the placeholder and ends with
 the text after it, the text in between is the value. Empty results are ignored. For a rule with
@@ -300,16 +288,16 @@ contains `\`, the placeholder gets the backslash-doubled value instead.
 
 **No rescan.** Neither side scans text it has already put in. A short value that also appears in another placeholder's
 name (`SER` in `<USER_NAME>`) leaves that placeholder whole, and a value that holds a placeholder (`x<B>y`) is written
-as it is. The engines replace in two passes, first with tokens made of the control bytes `\x01`-`\x03` and then with
+as it is. `mksync` replaces in two passes, first with tokens made of the control bytes `\x01`-`\x03` and then with
 the result, so a synced file holding that byte run is not supported.
 
-**Missing value.** If a placeholder has no value after all of the above, with or without a terminal, the engine prints
+**Missing value.** If a placeholder has no value after all of the above, with or without a terminal, `mksync` prints
 `missing value for <PLACEHOLDER>: add it to .user-values.json` and exits 1 before writing any file. Output names the
 placeholder, never its value.
 
 ## Compare
 
-- Files without rules: byte for byte (`cmp` in bash, SHA256 in PowerShell), except shared files on Windows, below.
+- Files without rules: byte for byte, except shared files on Windows, below.
 - Shared files on Windows: a file under `dotfiles/common/` without sanitize rules is compared with CRLF folded to LF,
   and export writes it with LF line endings; a file holding a NUL byte is compared and copied byte for byte. Import
   writes the repo's bytes, so a local CRLF copy with the same lines counts as `UNCHANGED`. `dotfiles/windows/**` stays
@@ -336,8 +324,8 @@ restores the old values, but a key that had no value before keeps the repo's val
 
 Every import that overwrites a file also copies the old version into a folder for that run:
 
-- Linux and macOS: `${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/backups/<run>/<repoPath>`
-- Windows: `%LOCALAPPDATA%\SyncSettings\backups\<run>\<repoPath>`, with `\` separators
+- Linux and macOS: `${XDG_STATE_HOME:-$HOME/.local/state}/sync-settings/backups/<run>/<label>`
+- Windows: `%LOCALAPPDATA%\SyncSettings\backups\<run>\<label>`, with `\` separators
 
 `<run>` is `YYYYMMDD-HHMMSS-<pid>` in local time. The folder is created at the first backup of the run, so a run that
 overwrites nothing makes none, and a `--check` run never makes one. After the run the newest 20 run folders are kept
@@ -350,41 +338,33 @@ succeed.
 `excludePatterns` are globs matched against the local path's file name, or the end of the path. A match is skipped
 on export and import, and inside directory entries too.
 
-## Directory entries (`type: dir`)
+## Directory entries (`merge: dir`)
 
-An entry with `"type": "dir"` syncs a whole folder, recursively.
+An entry with `"merge": "dir"` syncs a whole folder, recursively.
 
 - Only regular files are synced. Symlinks are `SKIPPED` with the note `symlink`. A symlink at the folder's own
   path is followed.
 - A symlink is not a file of the folder, so on export a local file that is now a symlink is `SKIPPED` with the note
   `symlink`, then its repo copy is `REMOVED` with the note `no longer in source`, unless the empty-folder rule below
   keeps the repo files.
-- `excludePatterns` apply to every file. `sanitizeRules` and `detectLinkedPaths` are not allowed on a `dir`
-  entry (lint fails).
-- No entry may have its `repoPath` inside a `dir` entry's `repoPath`, including another `dir` entry (lint fails).
+- `excludePatterns` apply to every file. `sanitize` is not allowed on a `dir` entry (the config check fails).
+- No entry may have its `file` inside a `dir` entry's `file`, including another `dir` entry (the config check fails).
 - If the local folder is missing on export, the entry is `SKIPPED` with the note `local folder not found: <path>`.
 - If no local file passes the symlink and exclude checks (an empty folder, or one holding only symlinks or excluded
   files) while the repo folder still holds at least one file, the entry is `SKIPPED` with the note
   `local folder is empty; repo files kept` and no repo file is removed.
 - Export deletes repo files that are gone locally or are now excluded (`REMOVED`; git keeps the history), then
-  removes empty folders under the entry's `repoPath`.
+  removes empty folders under the entry's folder in the repo.
 - Import never deletes. A local file that the repo doesn't have is reported as `EXTRA` and kept, so a file you
   haven't exported yet survives an import.
 - Each file inside follows the same compare, prompt and `.bak` rules as a plain entry.
 
-## Linked folders (`detectLinkedPaths`)
+## Linked folders
 
-PowerShell only. A folder detected in an entry's file is stored under `<repoPath>.linked/<folder>/`.
-
-- Export deletes repo files that are gone from the folder, like a `dir` entry.
-- An empty folder keeps its repo files, like a `dir` entry.
-- Import never deletes. A local file that the repo doesn't have is reported as `EXTRA` and kept.
-- Each file inside follows the same compare, prompt and `.bak` rules as a plain entry on import, and `excludePatterns`
-  apply to it.
-
-**Program.** The program doesn't copy linked folders; it offers each one as a `dir` entry. A file entry with
-`detectLinkedPaths` (v1) or `"linked": true` (v2) is read for folder paths the way `Find-LinkedPaths` reads them.
-Each folder that exists, isn't synced by any entry and hasn't been answered is asked once, by `mksync setup` after its
+A file entry with `"linked": true` names folders, the way a `.bashrc` names a scripts folder. `mksync` doesn't copy
+those folders; it offers each one as a `dir` entry. The file is read for folder paths: a drive folder (`/c/Tools`,
+`C:\Tools`) and a home folder (`~/`, `$HOME/`, `%USERPROFILE%\`), a trailing `/*.<ext>` and slash dropped. Each
+folder that exists, isn't synced by any entry and hasn't been answered is asked once, by `mksync setup` after its
 four questions:
 
 ```text
@@ -393,22 +373,22 @@ four questions:
 
 - The suggestion is `1` for a folder in the home with fewer than 1000 files and under 10 MB, else `3`. `--yes` takes
   it. An answer other than `1` to `3` prints `Pick 1 to 3.` and asks again.
-- `1` adds a `dir` entry to the profile's `entries` list, `repoPath` `profiles/<p>/linked/<folder name>/`; `2` adds
-  it to the machine record's `entries`, `repoPath` `machines/<m>/linked/<folder name>/`. Both are state files, so the
-  [public-repo guard](#public-repo-guard-program-only) holds them while the repo is public.
+- `1` adds a `dir` entry to the profile's `entries` list, stored under `profiles/<p>/linked/<folder name>/`; `2` adds
+  it to the machine record's `entries`, under `machines/<m>/linked/<folder name>/`. Both are state files, so the
+  [public-repo guard](#public-repo-guard) holds them while the repo is public.
 - `3` stores `"linked: <localPath>": "no"` in the profile's `destinations`, and the folder isn't asked again.
 - `mksync status` asks nothing; it prints `Linked folder not synced: <path> (mksync setup asks)` for each folder not
   answered yet.
 - A found folder whose name is `.` or `..`, or the home folder itself, is never offered. A `dir` entry whose `file`
   has an empty, `.` or `..` part, or a `\`, is refused with `entry <file> is outside linked/`.
 
-## dconf entries (`type: dconf`)
+## dconf entries (`merge: dconf`)
 
-Bash only. An entry with `"type": "dconf"` syncs one dconf folder with one `.ini` file. The Windows engine validates these
-entries and never runs them.
+Linux only. An entry with `"merge": "dconf"` syncs one dconf folder with one `.ini` file. On Windows and macOS the
+config check still validates it, and the entry stays `SKIPPED`.
 
 - **Repo file.** Export owns it, so it is byte for byte what `dconf dump` prints, filtered by `keys`.
-- **`keys`.** An allowlist of shell globs matched against a key's name relative to `path`, such as `font-name` or
+- **`keys`.** An allowlist of shell globs matched against a key's name relative to `dconfPath`, such as `font-name` or
   `Profiles/abc/label`. `*` also matches `/`. Without `keys`, the whole subtree goes. A section left with no keys is
   dropped. A key nobody named stays out on purpose, because the repo is public and the leak scan can't recognize
   coordinates or shell history.
@@ -418,18 +398,17 @@ entries and never runs them.
   doesn't count as a difference. A key reset to its default on one machine disappears from the repo file, and another
   machine keeps its old value.
 - **Login-home guard.** Import won't load when `$HOME` isn't the home in `getent passwd`. dconf writes go over the session
-  bus to a service that keeps the login session's `HOME`, so `HOME=$(mktemp -d) ./import.sh` would otherwise change the
+  bus to a service that keeps the login session's `HOME`, so `HOME=$(mktemp -d) mksync import` would otherwise change the
   real desktop. Export needs no guard: `dconf dump` reads the file under `$XDG_CONFIG_HOME`.
 - **Session bus.** Import needs the graphical session. From a text console, each entry that has to load reports `ERROR`
   with `dconf load failed`. Export works without a bus.
 - **Bad repo file.** One invalid value fails the whole load, so no key of that entry is written.
-- **No `sanitizeRules` or `detectLinkedPaths`.** Lint fails on them, and on a `localPath`. A home path in a dump stops at
+- **No `sanitize` or `localPath`.** The config check fails on them. A home path in a dump stops at
   the leak scan.
 - **Leak scan.** An extension UUID has the shape of an address, so the `enabled-extensions` and `disabled-extensions` lines
   of an `.ini` under `dotfiles/linux/gnome/dconf/` are exempt from the email rule. Every other line, file and suffix isn't.
-- **Program.** The program follows every rule above on Linux, through `dconf` and `getent passwd` on `PATH`. On
-  Windows and macOS a dconf entry stays `SKIPPED`, as the PowerShell engine never runs one. The shared cases run
-  against stubs of both commands, so no case touches a real session bus.
+- **Commands.** `mksync` runs `dconf` and `getent passwd` from `PATH`. The shared cases run against stubs of both, so
+  no case touches a real session bus.
 
 ## Checks before pushing
 
@@ -482,34 +461,34 @@ ERROR: a cached value for <PLACEHOLDER> is in <file>; nothing was committed.
 
 A search that cannot finish stops the commit too, with `ERROR: could not search for cached values; nothing was committed.`
 
-**Program.** `mksync commit` runs the same checks, in this order: changes outside the sync paths, the
-[public-repo guard](#public-repo-guard-program-only), the leak scan, the cached values. Its differences:
+The checks run in this order: changes outside the sync paths, the [public-repo guard](#public-repo-guard), the leak
+scan, the cached values. Besides:
 
 - **Unpushed history.** Besides the tracked paths, the guard reads every commit in `origin/master..HEAD`
   (`git log -z --name-only`, so a path git would quote is read as it is). While the repo is public, a commit that adds or changes a path under `profiles/` or
   `machines/` is refused with the guard's `refused` line for that path, even when a later commit removed it from the
   index, because pushing the branch would publish it.
-- **The leak scan stays bash.** The program runs `bash scripts/ci/leak-scan.sh` as `commit.sh` does. With no `bash`
-  on `PATH` (a Windows machine without Git Bash) the scan can't run, and the commit stops with that line.
+- **The leak scan stays bash.** `mksync` runs `bash scripts/ci/leak-scan.sh`. With no `bash` on `PATH` (a Windows
+  machine without Git Bash) the scan can't run, and the commit stops with that line.
 - **Cached values with a record.** The values searched are the record's and its profile's, where `.user-values.json`
   holds them without one.
-- **The PR.** Branch `sync/<os>-<machine>-<stamp>` as `commit.sh` names it, the machine from the record when there is
-  one; the PR body adds `Profile: <p>` when there is a record.
+- **The PR.** Branch `sync/<os>-<machine>-<stamp>`, the machine from the record when there is one, else a machine alias
+  asked once and saved; the PR body adds `Profile: <p>` when there is a record.
 - **Git failures.** A git step that fails (reading the branch, the fetch, the counts, creating the branch, reading the
-  new commit, switching back) prints git's own error lines and exits 1, as `commit.sh` lets git's `fatal:` line
-  through. A commit that succeeded is never undone: when reading it back fails, the branch and its commit stay.
+  new commit, switching back) prints git's own error lines and exits 1. A commit that succeeded is never undone: when reading it back fails, the branch and its commit stay.
 
 ## Orphan report
 
-At the end of an export, each engine lists every file under `dotfiles/` that no entry owns, as `ORPHAN`. A file is
-owned if it is the `repoPath` of a file or dconf entry, lies under a `dir` entry's `repoPath/`, or lies under `<repoPath>.linked/` of
-an entry with `detectLinkedPaths`. Entries for all platforms count, so both engines print the same list. The report
+At the end of an export, `mksync` lists every file under `dotfiles/` that no entry owns, as `ORPHAN`. A file is
+owned if it is a file or dconf entry's `file` under `dotfiles/common/` or the folder of a system the entry runs on,
+or lies under such a `dir` entry's folder. Entries for
+all systems count, so every system prints the same list. The report
 never deletes anything, and never changes the change count or the exit code.
 
 ## Package drift
 
-Bash on Linux only, until the Windows engine has a list to compare; on macOS the report prints nothing. Right after the orphan report, in an export and in a preview, the
-engine compares `packages/linux/` with the machine. With no such folder it prints nothing. An import never reports drift.
+Linux only: on Windows and macOS the report prints nothing. Right after the orphan report, in an export and in a
+preview, `mksync` compares `packages/linux/` with the machine. With no such folder it prints nothing. An import never reports drift.
 
 The report never writes a file, never changes a count and never changes the exit code. It runs no install command. `DRIFT` isn't
 counted, and neither are its `SKIPPED` lines, so the "file(s) skipped" note keeps counting files only.
@@ -546,14 +525,13 @@ counted, and neither are its `SKIPPED` lines, so the "file(s) skipped" note keep
 
 When `dpkg-query` works and `apt-mark` is missing or fails, the `apt` block still prints its
 `in packages/linux/<file>, not installed` lines, then `SKIPPED packages/linux/apt.txt (apt-mark …)` in place of the
-extras, as bash does.
+extras.
 
 For `apt-source` and `apt-key`, `<file>` is `apt-sources`, and a listed source or key that can't be read counts as not
 installed. A failing tool never stops the rest of the report. A missing font or extension folder means nothing is present, so
 it isn't `SKIPPED`.
 
-**Program.** The program reports drift where bash does, after the orphan report of an export and a preview, with the
-same lines, and never in an import, a check or a diff. `mksync doctor` adds one line on Linux when the report has any
+Drift is never reported in an import, a check or a diff. `mksync doctor` adds one line on Linux when the report has any
 `DRIFT`: `WARN drift: <n> package(s) differ; run mksync preview`.
 
 **Leak scan.** An extension UUID has the shape of an address, so a whole well-formed line of
@@ -576,13 +554,14 @@ Export and import start by checking whether the repo is behind `origin/master`:
 
 ## Export preview
 
-`--preview` (bash) or `-Preview` (PowerShell) shows exactly what a commit would send, and writes nothing to the repo or
+`mksync preview` (`mksync export --preview`) shows exactly what a commit would send, and writes nothing to the repo or
 the machine.
 
-- The engine copies `dotfiles/`, `sync-config.json`, `.user-values.json` and itself to a temp folder, runs a normal
-  export there, and compares the result with `HEAD`. Changes exported earlier but not yet committed therefore show too.
-- The bash engine also copies `packages/`, so the [drift report](#package-drift) runs. The diff and the leak scan cover
-  `dotfiles/` and `sync-config.json` only, so a hand edit to `packages/` doesn't show.
+- It plans a normal export in memory, writes the repo tree that export would leave (`dotfiles/` and
+  `sync-config.json`) to a temp folder, and compares it with `HEAD`. Changes exported earlier but not yet committed
+  therefore show too.
+- The [drift report](#package-drift) runs as in an export. The diff and the leak scan cover `dotfiles/` and
+  `sync-config.json` only, so a hand edit to `packages/` doesn't show.
 - Status lines are the same as in a real export, followed by a `--stat` summary and the full diff. Text is sanitized,
   so the diff holds placeholders, not real values.
 - The temp folder is removed at the end, also after a failure. A placeholder value answered during a preview is not
@@ -597,25 +576,10 @@ was committed.`, prints no diff and exits 1.
 - The up-to-date check does not run.
 - A preview ends with `Nothing was written. Run mksync push to send it.` on every system.
 
-## One command
-
-`./sync <preview|check|export|commit|import> [options]` on Linux and Git Bash, `.\sync` in PowerShell, `sync` in cmd. The name
-resolves to the right script for the OS, so `sync` and `sync.cmd` are the two front doors, and Git Bash on Windows hands
-over to `sync.cmd`. It calls `sync.cmd` by its full Windows path (from `cygpath -w`, or the plain path when
-that fails), so the hand-over works even with `NoDefaultCurrentDirectoryInExePath` set. Options pass through unchanged. The `.sh` entry points still work.
-`./sync check` runs `./import.sh --check`, and `sync.cmd check` runs `Import-Settings.ps1 -Check`: each lists what an
-import would change, writes nothing, and exits 3 when something differs.
-
-`help` prints the usage and the detected OS and exits 0, and no command shows the [status](#front-door), on both
-systems. An unknown command, or a missing `git`, `jq` or `gh` on Linux, exits 1 and names what's wrong. `doctor` runs
-before the tool checks, so it works with tools missing. On Windows, `sync.cmd` hands `status`, `doctor`, `setup`, `pull`
-and `push` to `scripts/windows/Front.ps1`, and maps `--yes` and `-m <msg>` to `-Yes` and `-Message <msg>`, so the Linux
-spelling works too.
-
 ## Import check
 
-`import.sh --check` and `Import-Settings.ps1 -Check` report what an import would change and write nothing: no file,
-folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
+`mksync check` (`mksync import --check`) reports what an import would change and writes nothing: no file, folder,
+backup, mode, `.user-values.json` or dconf key, and no prompt.
 
 - The header says `IMPORT CHECK`. The up-to-date check doesn't run.
 - Values come from `.user-values.json` and inference from the local files, as in an import. A placeholder still
@@ -629,19 +593,15 @@ folder, backup, mode, `.user-values.json` or dconf key, and no prompt.
 overwrites them (each keeps a .bak).` then `If you changed them on this machine, run mksync push first.` and
   exit 3. Any `ERROR` line ends with `<n> error(s); see the ERROR lines above.` and exit 1, so an entry that
   couldn't be checked never reads as a match.
-- `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing. The PowerShell spellings
-  are `-Check`, `-ResetValues` and `-Force`.
-- Program only: when something would change, the [grouped block](#push-preview-program-only) follows the status lines
+- `--check` with `--reset-values` is an error, exit 1. `--force` is accepted and does nothing.
+- When something would change, the [grouped block](#push-preview) follows the status lines
   and comes before the summary line, with the header `Changes from the repo:`. A line takes the group of the layer its
   new content comes from: a json key the latest layer that sets it, a whole file the latest layer that holds it, an
   `import` side file its own layer. `+` is a key or file the local copy lacks (a new file is `new file, <n> line(s)`),
   `M` one that differs, `-` a key the import would drop, listed under the entry's latest layer. A json change prints
-  both sides sanitized, as the [push preview](#push-preview-program-only) does: the repo side the placeholder its layer
+  both sides sanitized, as the [push preview](#push-preview) does: the repo side the placeholder its layer
   holds, the local side the placeholder the value it replaces stands in for. Nothing to change: no block. Pull asks
   once for all groups; skipping a group isn't offered.
-- Windows only: a target folder that's missing stays `SKIPPED` with `WARNING: target folder not found: <dir>` and is not
-  a change, because an import skips it too. `-Check` with `-User` naming another profile stops before the elevation
-  code with `ERROR: -Check works on your own profile only.` and exit 1.
 
 ## Sync point
 
@@ -658,33 +618,29 @@ summary then prints `Sync point : <first 7 of the SHA>` after the `file(s) appli
 nothing, and neither does an import that skipped a prompt, hit an error, or ran on a dirty tree. A run with `--only`
 writes nothing either, because the machine agrees with only part of the repo.
 
-`commit.sh` writes it after the PR opens and the clone is back on `master`, with the sync commit's parent (the
+`mksync commit` writes it after the PR opens and the clone is back on `master`, with the sync commit's parent (the
 `master` commit the branch starts from), not the sync commit itself: until the PR merges, `origin/master` still has
 the old files, and with the sync commit as the base they would read as `IN` and a pull would undo the push. A run
 that failed before that (commit, push or PR) writes nothing. A PR that `gh` fails to open leaves the pushed branch and exits 1 with
-`ERROR: PR creation failed; branch <branch> is pushed. Run: gh pr create --base master --head <branch>`. A partial commit (`commit.sh --partial`, which the front
-door uses when `mksync push` is given paths) writes nothing either, for the same reason as a partial import: part of
+`ERROR: PR creation failed; branch <branch> is pushed. Run: gh pr create --base master --head <branch>`. A partial commit (`mksync commit --partial`, which
+`mksync push` uses when it is given paths) writes nothing either, for the same reason as a partial import: part of
 the repo only was sent.
-
-On Windows, `Import-Settings.ps1` and `Commit-Settings.ps1` follow the same rules, and an import for another user's
-profile (`-User`) never writes it, because the file belongs to whoever runs the script.
 
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
 ## Diff
 
-`export.sh --diff` (`Export-Settings.ps1 -Diff`) says which side changed each file, without writing anything. It
-builds three trees of `dotfiles/` in a temp folder:
+`mksync diff` (`mksync export --diff`) says which side changed each file, without writing anything. It compares
+three versions of `dotfiles/`, read from git objects, with no temp folder:
 
-- `base`: `git archive` of the sync point. With no sync point, `theirs` stands in for `base`.
-- `theirs`: `git archive` of `origin/master` when that ref exists, else `HEAD`. The engine never fetches; the front
-  door fetches first.
-- `mine`: a copy of `base` plus the current `sync-config.json`, `export.sh`, `scripts/`, `packages/` and
-  `.user-values.json`, with a preview export run inside it (`SYNC_PREVIEW=1`, stdin from `/dev/null`, output to a log
-  in the temp folder). Starting from `base` means any file export doesn't touch still equals `base`.
+- `base`: the sync point's tree. With no sync point, `theirs` stands in for `base`.
+- `theirs`: `origin/master` when that ref exists, else `HEAD`. `mksync export --diff` never fetches; `mksync diff`
+  fetches first.
+- `mine`: `base` with an export's writes applied in memory, the export planned with `base` as the repo side. Starting
+  from `base` means any file export doesn't touch still equals `base`.
 
-Only paths this OS's entries own are compared: a file or dconf entry owns its `repoPath`, a file entry also owns the
-`<repoPath>.linked/` prefix, and a dir entry owns the `<repoPath>/` prefix. With `--only`, only the selected paths are
+Only paths this OS's entries own are compared: a file or dconf entry owns its label, and a dir entry owns the
+`<label>/` prefix. With `--only`, only the selected paths are
 labeled and counted. A missing file counts as a version, and each owned path in the union of the three trees gets at
 most one label:
 
@@ -697,7 +653,7 @@ most one label:
 | differs                          | differs, `mine` ≠ `theirs` | `BOTH`: merge by hand                             |
 | no sync point, `mine` ≠ `theirs` |                            | `?`                                               |
 
-The lines print through the normal status formatter (`OUT        dotfiles/…`) and are sorted with `LC_ALL=C sort`.
+The lines print through the normal status formatter (`OUT        dotfiles/…`), sorted by code unit.
 The header names the sync point (`Last sync  : <short> (<date>)`, or `none recorded on this machine`) and the ref
 compared (`Repo       : origin/master <short>` or `Repo       : HEAD <short>`).
 
@@ -720,44 +676,30 @@ The hint line names only the labels present; `BOTH` adds `BOTH: changed on both 
 point the summary reads `N file(s) differ. No sync is recorded on this machine, so the newer side is unknown.` and
 `Run mksync pull or mksync push once to record one.` When nothing differs it prints `This machine and the repo agree.`
 
-The exit code is 0 when nothing differs, 3 when something does, and 1 on an error: a failed export prints its log
-and `ERROR: the export for the diff failed; see above.`; a failed `git archive` also exits 1. `--diff` cannot be
-combined with `--preview` or `--reset-values` (error, exit 1). The diff writes no repo file, no sync point and no
-`.user-values.json`, and its temp folder is removed on every exit.
-
-On Windows the rules, labels, text and exit codes are the same, with three mechanical differences: the `mine`
-export is a child `powershell.exe` running `scripts\windows\Export-Settings.ps1` (stdout to the log, stderr to a
-second log printed after it), `mine` copies `scripts/` in place of `export.sh`, and paths sort with ordinal
-comparison instead of `LC_ALL=C sort`. The status lines use the `[OUT      ] path` layout in
-[Known differences](#known-differences).
-
-**Program.** `mksync export --diff` builds no temp folder: it reads `base` and `theirs` from git objects, and `mine`
-is `base` with the export's writes applied in memory, the export planned with `base` as the repo side. The labels,
-lines, text and exit codes are the ones above. A failed export plan prints its lines and `ERROR: the export for the
-diff failed; see above.`, exit 1. `--diff` with `--preview` or `--yes` is an error, exit 1.
+The exit code is 0 when nothing differs, 3 when something does, and 1 on an error: a failed export plan prints its
+lines and `ERROR: the export for the diff failed; see above.`; a tree git can't read stops it with
+`ERROR: cannot read <ref> from git.`, and a clone with no commit with `ERROR: --diff needs a git repo with a commit.`
+`--diff` cannot be combined with `--preview` or `--yes` (error, exit 1). The diff writes no repo
+file, no sync point and no `.user-values.json`.
 
 ## Front door
 
-From phase 9, `mksync` on `PATH` is [the program](#the-program), which the installers download
-([Install](#install)): `~/.local/bin/mksync` on Linux and macOS, `%LOCALAPPDATA%\mksync\mksync.exe` on Windows. The
-old engines' front door stays in the clone until cut-over: on Linux and macOS `sync` (earlier installers linked it on
-`PATH` as `mksync`, a name that doesn't hide coreutils `sync`), on Windows `sync.cmd` (earlier installers wrote a
-four-line `mksync.cmd` launcher for it; its second line, `rem SyncSettings launcher`, marks it as ours). This section
-is the contract of both.
-Every `[Y/n]` prompt takes an empty answer or end of input as yes, every `[y/N]` prompt as no. Commands, wording and exit
-codes are the same on both systems, except where this section says otherwise.
+`mksync` on `PATH` is [the program](#the-program), which the installers download ([Install](#install)):
+`~/.local/bin/mksync` on Linux and macOS, `%LOCALAPPDATA%\mksync\mksync.exe` on Windows. Every `[Y/n]` prompt takes an
+empty answer or end of input as yes, every `[y/N]` prompt as no. Commands, wording and exit codes are the same on every
+system, except where this section says otherwise.
 
-| Command                                           | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Exit                                                            |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `mksync`, `mksync status`                         | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master`                                                                                                   | 0                                                               |
-| `mksync doctor`                                   | One `OK`, `WARN` or `MISSING` line per check. macOS: as Linux, plus `brew` and the macOS version ([macOS](#macos)). Linux: bash 4.4, `git`, `jq`, `cmp`, `gh` and its sign-in, the origin remote, the `mksync` link, unset values. Windows: PowerShell 5.1, `git`, `gh` and its sign-in, the origin remote, the `mksync.cmd` launcher, unset values (no `jq` or `cmp`: the PowerShell engine doesn't use them). A `MISSING` line names the install command (`winget install --id …` on Windows when `winget` is there)                                                                                                                      | 0, or 1 with a `MISSING` line                                   |
-| `mksync pull [--yes] [--force] [path…]`           | Refuses with exported changes not sent. Fetches, fast-forwards, re-runs itself so new code runs, then the import check. Nothing to change: a pull without paths still runs `import.sh --force` to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `import.sh --force` (`Import-Settings.ps1 -Force` on Windows). Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point         | 0, or 1 on an error                                             |
-| `mksync push [--yes] [-m <msg>] [path…]`          | First runs `git fetch -q origin master`: any commit in `HEAD..origin/master` stops it with `ERROR: origin has updates; run mksync pull first.`, nothing exported (a failed fetch skips this check). Then runs `export.sh` (`Export-Settings.ps1` on Windows). Picked paths go to it as `--only`, and any path makes `commit.sh` run with `--partial`, so a partial push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short` (over `dotfiles`, `packages` and `sync-config.json`; the program adds `profiles` and `machines`), asks `Open a PR with these changes? [Y/n]`, then runs `commit.sh` | 0, or the failing script's code                                 |
-| `mksync diff [path…]`                             | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `export.sh --diff` (`Export-Settings.ps1 -Diff` on Windows) ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing                                                                                                                                                                                                                                                             | 0 when nothing differs, 3 when something does, or 1 on an error |
-| `mksync check`, `mksync preview`                  | The import check ([above](#one-command)) and the export preview, unchanged; neither writes anything                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 0, 3 from a check that found changes, or 1 on an error          |
-| `mksync setup [--yes] [--bootstrap]`              | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the import check; on Ubuntu with an executable `bootstrap/linux.sh`, `Also restore apps and packages … [y/N]`: `y` runs it and setup ends, and `--bootstrap` runs it without asking. Then it applies like `pull`. macOS never asks and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1. Windows has no bootstrap question and no `--bootstrap`                                                                                                                                                                    | 0, or 1 on an error                                             |
-| `mksync update`                                   | Program only: replaces the installed program with a newer release, checked as the installers check ([Update](#update))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 0, 1 on a failed download or check, 2 run from the clone        |
-| `dist/mksync setup …`, `dist/mksync machine show` | Program only until phase 9, when the installers hand them over: the first run that writes the machine record, and the record ([Machines](#machines-program-only))                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | as there                                                        |
+| Command                                  | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Exit                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `mksync`, `mksync status`                | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master`                                                   | 0                                                               |
+| `mksync doctor`                          | One `OK`, `WARN` or `MISSING` line per check, below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 0, or 1 with a `MISSING` line                                   |
+| `mksync pull [--yes] [--force] [path…]`  | Refuses with exported changes not sent. Fetches, fast-forwards, then the import check. Nothing to change: a pull without paths still runs the import to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `mksync import --force`. Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point                                         | 0, or 1 on an error                                             |
+| `mksync push [--yes] [-m <msg>] [path…]` | First runs `git fetch -q origin master`: any commit in `HEAD..origin/master` stops it with `ERROR: origin has updates; run mksync pull first.`, nothing exported (a failed fetch skips this check). Then runs the export. Picked paths go to it as `--only`, and any path makes `mksync commit` run with `--partial`, so a partial push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short` (over `dotfiles`, `packages`, `sync-config.json`, `profiles` and `machines`), asks `Open a PR with these changes? [Y/n]`, then runs `mksync commit` | 0, or the failing step's code                                   |
+| `mksync diff [path…]`                    | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `mksync export --diff` ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing                                                                                                                                                                                                                                                  | 0 when nothing differs, 3 when something does, or 1 on an error |
+| `mksync check`, `mksync preview`         | The [import check](#import-check) and the [export preview](#export-preview); neither writes anything                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 0, 3 from a check that found changes, or 1 on an error          |
+| `mksync setup [--yes] [--bootstrap] …`   | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the import check; on Ubuntu with an executable `bootstrap/linux.sh`, `Also restore apps and packages … [y/N]`: `y` runs it and setup ends, and `--bootstrap` runs it without asking. Then the machine record's questions ([`mksync setup`](#mksync-setup)), and it applies like `pull`. macOS never asks and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1. Windows has no bootstrap question and no `--bootstrap`                                              | 0, or 1 on an error                                             |
+| `mksync update`                          | Replaces the installed program with a newer release, checked as the installers check ([Update](#update))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 0, 1 on a failed download or check, 2 run from the clone        |
+| `mksync machine …`, `mksync profile …`   | The machine record and retiring a machine or profile ([Machines](#machines))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | as there                                                        |
 
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
 sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
@@ -772,15 +714,13 @@ files.` and `Run mksync diff, then mksync push, mksync pull <path> without --yes
 exit 1; interactive it prints `No sync is recorded on this machine: if you changed these files here, a pull overwrites
 them (each keeps a .bak).` and asks `Apply these changes? [y/N]`, so only an answer starting with `y` or `Y` applies.
 When nothing differs, a pull without paths still runs the import, which records the sync point. `mksync setup` and
-`bootstrap/linux.sh` call the engine directly, so a new machine takes the repo's files unchanged.
-On Windows the guard recognises the same labels in the `[OUT      ]` status-line layout ([Known differences](#known-differences)).
+`bootstrap/linux.sh` run the import directly, so a new machine takes the repo's files unchanged.
 
-`pull` and `push` need the clone on `master` with an `origin` remote. On Windows, `pull` re-runs itself in a new
-`powershell.exe` after a fast-forward, since PowerShell has no `exec`, and the status fetch has a 15-second timeout as on
-Linux. The status's OS name comes from `SYNC_OS_NAME` if set, else the Windows caption. `--yes` answers the `[Y/n]` questions. It never
-answers the bootstrap question, because bootstrap uses `sudo`; `--bootstrap` does.
-On both front doors, `pull`, `push` and `diff` stop on an unknown option (a remaining argument that starts with `-`) with
-`Unknown option: <arg>` on stderr and exit 2 (the old engines exit 1), before any fetch or child step.
+`pull` and `push` need the clone on `master` with an `origin` remote. The status fetch has a 15-second timeout. The
+status's OS name is `PRETTY_NAME` from `/etc/os-release` (or the file `SYNC_OS_RELEASE` names) on Linux, the
+version `sw_vers -productVersion` prints on macOS, and `SYNC_OS_NAME` or the Windows caption on Windows. `--yes` answers the `[Y/n]` questions. It never answers the bootstrap
+question, because bootstrap uses `sudo`; `--bootstrap` does. An unknown option (a remaining argument that starts with
+`-`) prints `Unknown option: <arg>` on stderr and exits 2, before any fetch or child step.
 
 Status lines and the next command, in this order of precedence:
 
@@ -792,40 +732,37 @@ Status lines and the next command, in this order of precedence:
 | The machine differs from the repo | `mksync pull to take the repo's version, or mksync push to send this machine's.` |
 | Otherwise                         | `nothing to do.`                                                                 |
 
-**Program.** `mksync status`, `doctor`, `pull`, `push` and `diff` are the program's own commands, with the rules,
-lines and exit codes above, except:
+More rules per command:
 
 - **`status`** never suggests `mksync push` on a pull-only machine: it skips the unsent row, and a machine that differs
   gets `mksync pull`, or `mksync pull --force to take the repo's version (each keeps a .bak).` when the diff finds an
-  `OUT` or `BOTH` file. It adds the [linked folder](#linked-folders-detectlinkedpaths) lines after the machine line.
-- **`doctor`** checks what the program needs: `git`, `gh` and its sign-in, the origin remote, the machine record,
-  unset values, and `bash` (a `WARN`, since only the leak scan needs it). No `jq`, `cmp`, bash version or launcher
-  line. On Linux it adds the `drift` line of [Package drift](#package-drift). Its lines, in order: `git`, `gh`,
-  `repo clone with origin` (`WARN repo has no origin remote`), `machine record` (`WARN no machine record; run mksync
-setup`), `values`, `bash` (`WARN bash: needed by the leak scan; install with <command>`; on Windows `install with
-winget install --id Git.Git -e`, or `install Git for Windows from https://git-scm.com` without `winget`), then the
-  `drift` line. A `MISSING` line is followed by `Fix the MISSING items, then run mksync doctor again.`
-- **`pull`** doesn't re-run itself after the fast-forward: the program is the same before and after, so it reads the
-  config again and goes on. Its check prints the grouped block of the [import check](#import-check). After the fetch it
-  counts `HEAD..origin/master`: at 0 it runs no merge; at `n` it fast-forwards and prints `  Pulled <n> commit(s).`
-  A pulled config that needs a newer mksync stops the pull right after that line with
-  `ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync update.`, exit 2, writing nothing
-  ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 6).
+  `OUT` or `BOTH` file. It adds the [linked folder](#linked-folders) lines after the machine line.
+- **`doctor`** checks what the program needs, in this order: `git`; on macOS `brew` (`MISSING brew: install from
+https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
+  (`WARN no machine record; run mksync setup`); `values`; `bash` (`WARN bash: needed by the leak scan; install with
+<command>`; on Windows `install with winget install --id Git.Git -e`, or `install Git for Windows from
+https://git-scm.com` without `winget`); on Linux the `drift` line of [Package drift](#package-drift). A `MISSING` line
+  names the install command (`sudo apt-get install …`, `brew install …`, `winget install --id …`) and is followed by
+  `Fix the MISSING items, then run mksync doctor again.`
+- **`pull`** fetches, then counts `HEAD..origin/master`: at 0 it runs no merge; at `n` it fast-forwards, prints
+  `  Pulled <n> commit(s).`, reads the config again and goes on. A pulled config that needs a newer mksync stops the
+  pull right after that line with `ERROR: sync-config.json: this config needs a newer mksync: run mksync update.`,
+  exit 2, writing nothing ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 6). Its check
+  prints the grouped block of the [import check](#import-check).
 - **`push`** checks the clone first, before the export: a clone that isn't on `master` with an `origin` remote prints
   `ERROR: push needs the repo clone on master with an origin remote.` and exits 1, with nothing exported. A push whose
   [up-to-date check](#up-to-date-check) pulled stops there, exit 0, after `Pulled <n> commit(s); run the command
 again.`, with no PR question.
 - **`push`** on a pull-only machine prints `this machine is pull-only (see mksync machine show)` and exits 1. Otherwise
-  it runs the export with its grouped block and questions ([Push preview](#push-preview-program-only)), then
-  [Move a change](#move-a-change-program-only), the profile-value rule and the guard, then `Open a PR with these
+  it runs the export with its grouped block and questions ([Push preview](#push-preview)), then
+  [Move a change](#move-a-change), the profile-value rule and the guard, then `Open a PR with these
 changes? [Y/n]` and `mksync commit`.
-- **`pull`** and **`push`** keep the front door's own lines: `ERROR: <command> needs the repo clone on master with an
+- **`pull`** and **`push`** share these lines: `ERROR: <command> needs the repo clone on master with an
 origin remote.`, `ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.`,
   `Nothing applied.` after a declined apply, `Nothing to send: the repo matches this machine.`, and `Kept in the repo.
 Run mksync push again, or git restore dotfiles to drop them.` after a declined PR question.
-- **`diff`** runs `mksync export --diff` after the fetch. A clone with no commit stops it with `ERROR: --diff needs a
-git repo with a commit.`, and a tree git can't read with `ERROR: cannot read <ref> from git.`, exit 1.
-- `mksync check` and `mksync preview` are `mksync import --check` and `mksync export --preview`.
+- **`diff`** stops on a clone with no commit with `ERROR: --diff needs a git repo with a commit.`, and on a tree git
+  can't read with `ERROR: cannot read <ref> from git.`, exit 1.
 
 ### Install
 
@@ -864,6 +801,9 @@ Windows) skips the download and puts the clone's launcher on `PATH` instead ([Th
   clone nor the same bytes stops it with `ERROR: <bin>/mksync already exists; remove it and run this again.`, exit 1;
   the same bytes are left as they are. Prints the `PATH` line if needed, then runs `mksync setup` (`--yes` passed on)
   unless `--no-setup`, and ends with `  Installed. Run mksync any time.`
+- Removes `~/.local/bin/sync` when it is a symlink into the clone, a left-over of installers from before v1.0.0, and
+  prints `removed the old sync link`; anything else at that path is left alone
+  ([cut-over decision 9](plan-single-engine-9-cutover.md)).
 - `usage: install.sh [--yes] [--no-setup] [--runtime bun|node]` on stderr, exit 1, for any other argument.
 - The script is functions with `main "$@"` as its last line, so a cut-off download runs nothing.
 - Answers come from the terminal (`/dev/tty`) when stdin is the piped script.
@@ -943,9 +883,8 @@ version (`mksync --version`):
 
 ## The program
 
-One TypeScript engine, compiled to one `mksync` program per OS (`mksync.exe` on Windows), is replacing the bash and
-PowerShell engines ([design](design-layers.md)). From phase 9 the installers put it on `PATH` ([Install](#install));
-the old engines stay in the clone, behind `sync` and `sync.cmd`, until cut-over.
+`mksync` is one TypeScript engine compiled to one program per OS (`mksync.exe` on Windows)
+([design](design-layers.md)). The installers put it on `PATH` ([Install](#install)).
 
 On Windows the program starts only `.exe` and `.com` commands, never through cmd.exe, whose quoting can't carry free
 text such as a PR body safely. A tool that is only a `.cmd` or `.bat` (a `gh.cmd` on `PATH`, or `GH` naming one) counts
@@ -963,73 +902,42 @@ ERROR: MKSYNC_RUNTIME must be bun or node.
 ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.
 ```
 
-It takes the old entry points' verbs and flags unchanged:
+Besides the [front door](#front-door)'s commands, it has the lower-level verbs they run. The shared cases drive these
+directly; they run but stay off the usage line
+([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 12):
 
-| Command                                                                                                                                          | Same as                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `mksync export [--only <path>…]`                                                                                                                 | `export.sh`                                                                                         |
-| `mksync export --preview`                                                                                                                        | `export.sh --preview` ([Export preview](#export-preview))                                           |
-| `mksync import [--force] [--only <path>…]`                                                                                                       | `import.sh`                                                                                         |
-| `mksync import --check [--only <path>…]`                                                                                                         | `import.sh --check` ([Import check](#import-check))                                                 |
-| `mksync --version`                                                                                                                               | prints `mksync <version>`, exit 0                                                                   |
-| `mksync setup …`, `mksync machine show`, `mksync machine retire <name>`, `mksync profile retire <name>`                                          | new in phase 6 ([Machines](#machines-program-only))                                                 |
-| `mksync export --yes`, `mksync statusline`                                                                                                       | new in phase 7 ([New settings](#new-settings-program-only), [Statusline](#statusline-program-only)) |
-| `mksync export --diff [--only <path>…]`                                                                                                          | `export.sh --diff` ([Diff](#diff))                                                                  |
-| `mksync import --reset-values [--only <path>…]`                                                                                                  | `import.sh --reset-values` ([Sanitize and hydrate](#sanitize-and-hydrate))                          |
-| `mksync commit [-m <msg>] [--partial]`                                                                                                           | `commit.sh` ([Checks before pushing](#checks-before-pushing), [Sync point](#sync-point))            |
-| `mksync status`, `mksync doctor`, `mksync pull [--yes] [--force] [<path>…]`, `mksync push [--yes] [-m <msg>] [<path>…]`, `mksync diff [<path>…]` | the [front door](#front-door)'s commands of the same name, with the program notes there             |
-| `mksync check [<path>…]`, `mksync preview`                                                                                                       | `mksync import --check [--only <path>…]` and `mksync export --preview`                              |
+| Command                                                            | Does                                                                               |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `mksync export [--only <path>…] [--yes]`                           | the export ([Flow](#flow)); `--yes` answers [New settings](#new-settings)          |
+| `mksync export --preview`, `mksync export --diff [--only <path>…]` | `mksync preview` ([Export preview](#export-preview)) and the [Diff](#diff)         |
+| `mksync import [--force] [--reset-values] [--only <path>…]`        | the import ([Sanitize and hydrate](#sanitize-and-hydrate) for `--reset-values`)    |
+| `mksync import --check [--only <path>…]`                           | `mksync check` ([Import check](#import-check))                                     |
+| `mksync commit [-m <msg>] [--partial]`                             | [Checks before pushing](#checks-before-pushing), the branch and PR, the sync point |
+| `mksync statusline`                                                | [Statusline](#statusline)                                                          |
+| `mksync --version`                                                 | prints `mksync <version>`, exit 0                                                  |
 
-`export`, `import` and `commit` keep the old entry points' verbs so the shared cases drive the program and the old
-engines alike. From phase 9 they still run but leave the usage line ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9),
-decision 12).
-
-`mksync shadow` is hidden from the usage line and is deleted with the old engines.
-In the clone, it runs the program's import check, export preview and export plan without writing, and the old
-engine's `import.sh --check`, `export.sh --preview` and `export.sh` (Windows: `sync.cmd check`, `preview`, `export`).
-The export runs in a throwaway copy of the clone. It compares exit codes, the status word per label, and the
-placeholders in each exported file. It prints `shadow: same` and exits 0, or prints one line per difference, appends
-them with a timestamp to `shadow.log` in the state folder, and exits 3. It writes nothing in the repo or home.
-
-- Exit codes, status words, labels, notes and `ERROR:` lines are this contract's, as the bash engine prints them,
-  except for the mksync program column of [Known differences](#known-differences).
-- An unknown option prints `Unknown option: <arg>` on stderr and exits 2 (program; the old engines exit 1). So do
-  clashing flags, a repeated flag and an unknown verb in a group (`mksync machine list`)
-  ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 7). Run with no command, it prints
-  this usage line on stderr and exits 2:
+- Exit codes, status words, labels, notes and `ERROR:` lines are this contract's. Where they differ between systems,
+  [Known differences](#known-differences) says so.
+- An unknown option prints `Unknown option: <arg>` on stderr and exits 2. So do clashing flags, a repeated flag and an
+  unknown verb in a group (`mksync machine list`) ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9),
+  decision 7). Run with no command, it prints this usage line on stderr and exits 2:
 
   ```text
   usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--bootstrap] [--yes] | mksync update | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 
-- It reads `sync-config.v2.json` when the repo has one, else `sync-config.json`, converted in memory
-  ([design, "Config v2"](design-layers.md#config-v2)). `.user-values.json` and the state folder
-  ([Sync point](#sync-point)) are the old engines'.
-- A config whose `schemaVersion` is a number above 2 stops before any other field is read, since the program is too
-  old for it ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decision 6). A number below 2, a
-  `schemaVersion` that isn't a number, or a missing one keeps the unsupported line, with `none` for the missing key:
-
-  ```text
-  ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync update.
-  ERROR: sync-config.v2.json: unsupported config schemaVersion <n>.
-  ```
-
-- Run outside a clone, it stops with `ERROR: no sync-config.json or sync-config.v2.json in this folder or its
-parents.`, and a config file it can't read with `ERROR: cannot read <file>.`, exit 1.
+- It reads the config as [Config](#config) says, `.user-values.json` next to it, and the state folder
+  ([Sync point](#sync-point)).
 - Flag errors, each exit 1 before anything runs: `ERROR: --only needs a path.`, `ERROR: --diff cannot be combined
 with --preview or --yes.`, `ERROR: --check cannot be combined with --reset-values.`, and `Missing value for -m` for a
   `-m` with nothing after it (`commit`, `push`).
-- Since phase 8 the program runs every command of the old engines and the front door: `export --diff`,
-  `import --reset-values`, `commit`, dconf, package drift, and `status`, `doctor`, `pull`, `push`, `diff`, `check`
-  and `preview`. Phase 9 adds `update` and gives `setup` the doctor and the Ubuntu bootstrap of the front door's.
 
-### Layers (program only)
+### Layers
 
 The program builds a file from up to four layers, in order: base (`dotfiles/common/`), OS (`dotfiles/<os>/`),
-profile and machine ([design, "Layers"](design-layers.md#layers)). The old engines have no layers: they read
-`sync-config.json`, where every entry has one repo file.
+profile and machine ([design, "Layers"](design-layers.md#layers)).
 
-**Profile and machine.** They come from the machine record ([Machines](#machines-program-only)): the profile
+**Profile and machine.** They come from the machine record ([Machines](#machines)): the profile
 `<state>/profiles/<profile>.json` with its layer `<state>/profiles/<profile>/`, and the machine layer
 `<state>/machines/<name>/`. `<state>` is the folder of the [sync point](#sync-point). With no record (every machine
 before its first `mksync setup`): no profile or machine layer, and every module is on, as before. The program never
@@ -1048,13 +956,13 @@ ERROR: profile <name>: <reason>.
 
 Each stops the run with exit code 2 before any file is touched, as the record's own errors do. `<reason>` is
 `not valid JSON`, `unknown field <f>`, `<f> has the wrong type`, `unknown module <m>` or
-`destination <key> is not a layer`, and for a linked folder's entry ([Linked folders](#linked-folders-detectlinkedpaths))
+`destination <key> is not a layer`, and for a linked folder's entry ([Linked folders](#linked-folders))
 `entry <file> needs file and localPath as strings`, `entry <file> is outside linked/`,
 `entry <file> names unknown module <m>` or `entry <file> is not a dir`.
 
 A profile's `destinations` maps a key path (as in the `needs a destination` note below) to a layer slot: `base`,
 `os`, `profile` or `machine`. Any other value is `destination <key> is not a layer`. (`base` is accepted since phase 7,
-for an answer of "all machines", [New settings](#new-settings-program-only).)
+for an answer of "all machines", [New settings](#new-settings).)
 
 **Writes to the state folder.** Before a run overwrites or removes a file under `<state>/profiles/` or
 `<state>/machines/`, it copies the old file into the run's dated folder (`backups/<run>/profiles/…`,
@@ -1132,16 +1040,14 @@ Side files are local files like any other: import compares each one, asks before
 
 As every `ERROR` ([Both](#both)), these affect only their own file, and the run still exits 0.
 
-**Shared cases for layers** give `configV2` (written as `sync-config.v2.json`) instead of `config`, and may set files
+**Shared cases for layers** give `configV2` like every case, and may set files
 in the state folder (`state/machine.json` and `state/profiles/` for the record) and, in `env`, `SYNC_HOSTNAME`,
 `SYNC_DOMAIN`, `SYNC_TOOLS` and `MKSYNC_VISIBILITY` (the phase 5 `SYNC_PROFILE` and `SYNC_MACHINE` were removed).
-The old engines can't read config v2, so their runs skip these cases with `SKIP <case>: v2 only`; the program runs
-them on every OS.
+They run on every OS.
 
-### Machines (program only)
+### Machines
 
 Each machine has one record, written by `mksync setup` ([design, "Machine records"](design-layers.md#machine-records)).
-Until phase 9 these commands run as `dist/mksync …`; the bash and PowerShell front doors don't know them.
 
 **The record** is `<state>/machine.json`:
 
@@ -1166,7 +1072,7 @@ not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or 
 `domain` a string or `null`; `claude` is `none`, `claude` or `claude-deepseek`; `pullOnly` and `retired` booleans;
 `modules.add` and `modules.remove` lists of the config's module names; `values` maps placeholders to strings;
 `replaced` lists `{"hostname": <string>, "domain": <string or null>, "date": "<YYYY-MM-DD>"}`, oldest first. The program
-writes it in this key order in the layout of `json` entries ([Layers](#layers-program-only)): two-space indent, one key or
+writes it in this key order in the layout of `json` entries ([Layers](#layers)): two-space indent, one key or
 item per line (the example's one-line `modules` and `values` are input the program reads, not what it writes), `{}` and
 `[]` when empty, LF and a trailing newline, readable by the current
 user only (as `.user-values.json`, [Sanitize and hydrate](#sanitize-and-hydrate)); the profile file the same way. A
@@ -1289,7 +1195,7 @@ Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mo
   the suggestion in brackets. `--yes` takes every suggestion without asking. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints
   `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below). Answers are trimmed of
-  spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (program; phase 9 decision 8). A
+  spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (phase 9 decision 8). A
   byte order mark before the first line of input is dropped too: Windows PowerShell pipes one when `$OutputEncoding` is
   UTF-8 with a BOM.
 - **Suggestions.** The profile: the one whose non-retired record has exactly this hostname, with the `This looks like`
@@ -1409,7 +1315,7 @@ retired is refused, naming the first such record by name:
 isn't listed by `setup`; a retired machine isn't offered for `--replace` and can't push.
 
 **The repo store.** When `machine.json` is the pointer `{"name": <name>, "home": "repo"}` (written by the
-[first backup](#public-repo-guard-program-only)), both commands read and write `machines/<name>.json` and
+[first backup](#public-repo-guard)), both commands read and write `machines/<name>.json` and
 `profiles/<name>.json` in the repo; the state folder is left as it is. A run reads only its own record,
 `machines/<name>.json`, so another machine's broken record doesn't stop it; only `profile retire`'s "used by" reads
 every record under `machines/`. A repo record or profile that can't be read stops any command with
@@ -1417,7 +1323,7 @@ every record under `machines/`. A repo record or profile that can't be read stop
 profile's own (`not valid JSON`, …), or for a file that can't be opened `a folder in its place` or
 `no read permission`.
 
-### Public-repo guard (program only)
+### Public-repo guard
 
 Until the repo is private, profiles, records and values never reach it.
 
@@ -1473,8 +1379,8 @@ holds `profiles/<profile>.json`, the two copies are merged: modules joined in th
 machine's new ones, `destinations` joined, `retired` if either says so. The files are read after the export's own
 writes, so a layer file or destination the same export adds is in the backup; a path the export already printed a
 status line for isn't printed again. A value or destination the two copies set differently is asked, once per key, in
-key order, after the [push preview](#push-preview-program-only) block and the
-[new-setting](#new-settings-program-only) questions, and before any write:
+key order, after the [push preview](#push-preview) block and the
+[new-setting](#new-settings) questions, and before any write:
 
 ```text
 <YOUR_EMAIL> differs on profile work-1:
@@ -1497,7 +1403,7 @@ before any write too, with the state path in place of the repo path, `<reason>` 
 exit 2, as any state file that can't be read. A write of the export itself that fails ends the export with exit 1 and
 no backup. A record already in the pointer form has no first backup.
 
-### Push preview (program only)
+### Push preview
 
 The push side shows its changes grouped by who receives them, widest first. `export --preview` prints the block after
 its status lines and before the `--stat` summary; `export` prints it before it writes. It prints only when at least
@@ -1521,11 +1427,11 @@ This machine only
 - **Groups,** in this order, each always printed: `All machines` (base), `<OS> machines` for this machine's OS
   (`Linux machines`, `Windows machines`, `macOS machines`), `Profile <profile>`, `This machine only`. An empty group is
   one line `(none)`, indented to the kind column. A change belongs to the group of the layer it's written to
-  ([Layers](#layers-program-only)).
+  ([Layers](#layers)).
 - **Lines:** two spaces, the number, two spaces, the kind (`M` changed, `+` added, `-` removed), two spaces, the module,
   two spaces, the file, two spaces, what changed. The number is right-aligned to the widest number in the block; module
   and file are padded to the widest in the block. Numbers run from 1 in display order across all groups, then on
-  through [New settings](#new-settings-program-only).
+  through [New settings](#new-settings).
 - **The file** is the entry's `file` without its first folder (`claude/settings.json` → `settings.json`,
   `claude/docs/token-routing-map.html` → `docs/token-routing-map.html`); an `import` side file is its resolved
   `importName` (`CLAUDE.work-1.md`); a file inside a `dir` entry is `<file>/<name inside>`.
@@ -1541,9 +1447,9 @@ This machine only
 Moving a change to another group ("Move a change?") comes with `mksync push` in phase 8; the numbers are already its
 handles.
 
-### New settings (program only)
+### New settings
 
-A new key or a new array item in a `json` entry has no layer yet ([Layers](#layers-program-only)). With a record,
+A new key or a new array item in a `json` entry has no layer yet ([Layers](#layers)). With a record,
 the push side lists it after the groups and asks where it goes:
 
 ```text
@@ -1575,10 +1481,10 @@ New settings
   when that layer file is new).
 - `--preview` with `--yes` stops with `ERROR: --preview and --yes can't be used together.`, exit 1, before anything
   runs.
-- With no record nothing is asked: the [`needs a destination`](#layers-program-only) `ERROR` stays. A new file in a
+- With no record nothing is asked: the [`needs a destination`](#layers) `ERROR` stays. A new file in a
   `dir` entry isn't asked either; it goes to the entry's latest layer.
 
-### Move a change (program only)
+### Move a change
 
 `mksync push`, with a record and without `--yes`, asks after the block and the new-setting questions:
 
@@ -1604,11 +1510,11 @@ Move a change? Type its number, or press Enter to go on:
 - A layer file a move creates prints its `ADDED` or `MODIFIED` line right after its entry's other lines, before any
   `ORPHAN` line.
 - The block prints again after each move, with the change under its new group and its number kept.
-- The [profile-value rule](#profile-values-program-only) and the [guard](#public-repo-guard-program-only) run after the
+- The [profile-value rule](#profile-values) and the [guard](#public-repo-guard) run after the
   last move, so moving a change to `profile <p>` lets a refused value through.
 - `--yes` and a machine without a record never ask; nothing moves.
 
-### Profile values (program only)
+### Profile values
 
 A profile's values don't leave the profile. Before the push side writes anything, each layer text bound for the base
 or an OS layer is searched, after sanitize, for every non-empty value of the record's profile, ignoring case. A hit
@@ -1626,11 +1532,11 @@ forms sanitize replaces: as it is, with its backslashes doubled, and for a `json
 `importName` is still searched, its hit named by its repo path. The machine's values aren't searched. This is not a
 guarantee: a value written another way, or another profile's value, is the [leak scan's](#export-preview) job.
 
-### Statusline (program only)
+### Statusline
 
 `mksync statusline` replaces `~/.claude/statusline.sh`: Claude Code runs it with its JSON payload on stdin, and it
 prints one line on stdout and exits 0, whatever fails. It takes no options or arguments (any is `Unknown option:
-<arg>`, exit 1) and prints nothing on stderr. Until cut-over the synced `settings.json` still calls the script.
+<arg>`, exit 1) and prints nothing on stderr. The synced `settings.json` runs `mksync statusline`.
 
 **Payload fields** (missing, `null` or a payload that isn't JSON: empty): `model.display_name`, `workspace.project_dir`,
 the directory (`cwd`, else `workspace.current_dir`, else `workspace.project_dir`), `cost.total_cost_usd`,
@@ -1681,106 +1587,46 @@ left out when empty or when what it reads fails. Colors: gray `ESC[90m`, cyan `E
 
 ## macOS
 
-The bash engine runs on macOS with Homebrew's bash and `jq`. macOS ships bash 3.2 and no `jq`; everything else the engine
-uses is there. The reasons and the options weighed are in [macos-research.md](macos-research.md).
+`mksync` runs on macOS as the compiled `mksync-darwin-arm64`; it needs no bash or `jq` of its own. The installer and the
+leak scan are bash scripts, so macOS still needs Homebrew. The reasons and the options weighed are in
+[macos-research.md](macos-research.md). macOS is tested in CI only (`macos-checks`).
 
-- **Minimum**: macOS 13. `readlink -f` arrived in 12.3, and Homebrew supports the three newest releases. `mksync doctor`
-  prints `WARN macOS <version> is older than 13` below that and carries on.
-- **Bash 4.4 guard**: `sync`, `export.sh`, `import.sh` and `commit.sh` check the bash version before any line that needs it. Below
-  4.4, they re-run themselves once under `/opt/homebrew/bin/bash` or `/usr/local/bin/bash` (Apple silicon, Intel), whichever
-  exists. With neither:
-
-  ```text
-  ERROR: SyncSettings needs bash 4.4 or newer (this is <version>). On macOS: brew install bash
-  ```
-
-  exit 1. Everything past the guard may use bash 4.4 features.
-
-- **No GNU-only flags** on a path macOS runs. `chmod --reference` and `timeout` go through `copy_mode` and
-  `run_with_timeout`, which use the GNU tool when it's there. `SYNC_FETCH_TIMEOUT` sets the status fetch limit
-  (15 seconds by default).
-- **Skipped**: dconf entries (their `linux` platform keeps them off macOS), the [package drift](#package-drift) report, and
+- **Skipped**: dconf entries (`SKIPPED`, as on Windows), the [package drift](#package-drift) report, and
   `bootstrap/linux.sh`.
-- **Front door**: the status's OS is `macos <version>` from `sw_vers -productVersion`. `doctor` checks bash 4.4 (hint
-  `brew install bash`), `git`, `jq` (hint `brew install jq`), `cmp`, `brew` (`MISSING brew: install from
-https://brew.sh`), `gh` and its sign-in, the origin remote, the `mksync` link and unset values. `setup` has no
+- **Front door**: the status's OS is the version `sw_vers -productVersion` prints. `doctor` adds a `brew` line after
+  `git` (`MISSING brew: install from https://brew.sh`), and its install hints name `brew install …`. `setup` has no
   bootstrap question, and `--bootstrap` stops with `ERROR: --bootstrap is Ubuntu only.`, exit 1.
 - **`install.sh`**: without `brew`, it stops with `ERROR: install Homebrew first: https://brew.sh`, exit 1. A missing `jq`
-  or Homebrew bash 4.4 gets `Install with Homebrew: brew install bash jq [Y/n]`, never `sudo`. End of input is no, as at the apt question: it
-  installs nothing and exits 1. The
-  link, the `PATH` hint and `mksync setup` work as on Linux, under Homebrew's bash. It reads `SYNC_OS` like `sync_os`.
+  or Homebrew bash 4.4 gets `Install with Homebrew: brew install bash jq [Y/n]`, never `sudo`. End of input is no, as
+  at the apt question: it installs nothing and exits 1. The program download, the `PATH` hint and `mksync setup` work
+  as on Linux. It reads `SYNC_OS` as `mksync` does ([Which system](#which-system)).
 - **Layout**: `dotfiles/macos/<tool>/` holds macOS-only files. Files shared with Linux live in `dotfiles/common/<tool>/`
-  with `"platform": ["linux", "macos"]` ([layout.md](layout.md)).
+  with `"os": ["linux", "macos"]` ([layout.md](layout.md)).
 
 ## Known differences
 
-The mksync program column is the compiled engine ([The program](#the-program)). It follows the Linux column unless
-its cell says otherwise, and it keeps a difference between OSes only where the OS forces one. Until cut-over the two
-old engines keep their own columns.
+`mksync` keeps a difference between systems only where the system forces one. Each row below is one; every other rule
+on this page holds on Linux, macOS and Windows alike. The two old engines' own differences went with them at the
+cut-over (tag `two-engines-final`).
 
-| Behavior                                               | Windows (PowerShell)                                                                                                                           | Linux (bash)                                                                     | mksync program                                                                                                              |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Export, local file missing                             | the note starts with `WARNING:`, and is `WARNING: folder not found: <dir>` if its folder is missing too                                        | the note in the [Export](#export) table                                          | as Linux                                                                                                                    |
-| Import, target folder missing                          | `SKIPPED` with `WARNING: target folder not found: <dir>`; the app is probably not installed. For a `dir` entry this checks the folder's parent | creates the folder (`mkdir -p`)                                                  | as Linux, on every OS: creates the folder                                                                                   |
-| Exclude patterns                                       | case-insensitive (`-like`)                                                                                                                     | case-sensitive                                                                   | case-insensitive on Windows, case-sensitive elsewhere: the file system decides                                              |
-| Shared files without rules ([Compare](#compare))       | CRLF folded to LF; export writes LF                                                                                                            | byte for byte                                                                    | CRLF folded to LF on Windows, byte for byte elsewhere: Git on Windows may check a file out with CRLF                        |
-| End of input at the overwrite prompt                   | depends on the host; run with `-Force`                                                                                                         | counts as yes                                                                    | counts as yes, on every OS                                                                                                  |
-| `detectLinkedPaths`                                    | supported                                                                                                                                      | not supported                                                                    | not copied: `mksync setup` offers each linked folder as a `dir` entry ([Linked folders](#linked-folders-detectlinkedpaths)) |
-| `type: dconf`                                          | validated, never run                                                                                                                           | supported                                                                        | as Linux; validated, never run on Windows and macOS                                                                         |
-| [Package drift](#package-drift)                        | not yet                                                                                                                                        | supported                                                                        | as Linux; prints nothing on Windows and macOS                                                                               |
-| `-User <name>` (import into another profile, elevated) | supported                                                                                                                                      | not supported                                                                    | not supported; dropped at cut-over                                                                                          |
-| File modes                                             | not kept                                                                                                                                       | kept (`cp -p`; mode copied for written text)                                     | kept on Linux and macOS; not on Windows, which has none                                                                     |
-| Status line layout                                     | `[WORD      ] label`, colored                                                                                                                  | `WORD       label`                                                               | `WORD       label` on every OS; no color when stdout isn't a terminal                                                       |
-| Sanitized text that isn't valid UTF-8                  | invalid bytes are replaced when read                                                                                                           | bytes are kept                                                                   | bytes are kept, on every OS                                                                                                 |
-| `defaultEnv` name check                                | none needed                                                                                                                                    | stops the run on an invalid name                                                 | stops the run on an invalid name, on every OS                                                                               |
-| Import check, target folder missing                    | `SKIPPED`, not a change                                                                                                                        | `CREATE`                                                                         | `CREATE`, on every OS                                                                                                       |
-| Import check for another profile                       | `-Check -User <other>` is an error                                                                                                             | not supported                                                                    | not supported                                                                                                               |
-| Value prompt with a default                            | asks, showing the default in brackets; an empty answer takes it                                                                                | asks, showing the default in brackets; an empty answer takes it                  | takes the default without asking; asks only when nothing fills the value                                                    |
-| Value prompt, input not a terminal                     | takes the default without reading input, so `-ResetValues` keeps the cached value                                                              | reads the answer from the input                                                  | as Linux, on every OS                                                                                                       |
-| `mksync setup`                                         | no bootstrap question                                                                                                                          | offers `bootstrap/linux.sh` on Ubuntu                                            | doctor first, then the machine record; the Ubuntu bootstrap question and `--bootstrap` as the bash engine                   |
-| `mksync` on `PATH`                                     | `mksync.cmd` launcher in `%LOCALAPPDATA%\SyncSettings\bin`                                                                                     | symlink in `~/.local/bin`                                                        | `dist/mksync` in the clone until phase 9                                                                                    |
-| Installer                                              | `install.ps1`, `irm … \| iex`, winget                                                                                                          | `install.sh`, `curl … \| bash`, apt-get                                          | downloads the program at cut-over (phase 9)                                                                                 |
-| `mksync push` behind origin                            | no check before the export: the export warns, and commit stops with `ERROR: master is behind origin; pull first.`                              | stops before the export with `ERROR: origin has updates; run mksync pull first.` | as Linux, on every OS                                                                                                       |
-| Export, a file entry's repo folder cannot be created   | not checked                                                                                                                                    | `cannot create <absolute repo folder>`                                           | `cannot create <repo-relative folder>`: the planner holds no absolute path                                                  |
+| Behavior                                         | Linux                                                  | macOS                                       | Windows                                                          |
+| ------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------- |
+| Exclude patterns                                 | case-sensitive                                         | case-sensitive                              | case-insensitive: the file system decides                        |
+| Shared files without rules ([Compare](#compare)) | byte for byte                                          | byte for byte                               | CRLF folded to LF: Git on Windows may check a file out with CRLF |
+| `merge: dconf`                                   | supported                                              | validated, `SKIPPED`                        | validated, `SKIPPED`                                             |
+| [Package drift](#package-drift)                  | supported                                              | prints nothing                              | prints nothing                                                   |
+| File modes                                       | kept                                                   | kept                                        | not kept: Windows has none                                       |
+| `.user-values.json` access                       | mode 600                                               | mode 600                                    | no inherited access                                              |
+| `mksync setup`                                   | offers `bootstrap/linux.sh` on Ubuntu; `--bootstrap`   | no bootstrap question; `--bootstrap` errors | no bootstrap question, no `--bootstrap`                          |
+| `mksync doctor`                                  | adds the `drift` line                                  | adds `brew`                                 | `bash` hint names Git for Windows                                |
+| `mksync` on `PATH`                               | `~/.local/bin/mksync`                                  | `~/.local/bin/mksync`                       | `%LOCALAPPDATA%\mksync\mksync.exe`                               |
+| Installer                                        | `install.sh`, `curl … \| bash`, `sudo apt-get install` | `install.sh`, `brew install bash jq`        | `install.ps1`, `irm … \| iex`, winget                            |
+| Leak scan                                        | `bash` on `PATH`                                       | `bash` on `PATH`                            | needs Git Bash; without it a commit stops                        |
+| Commands the program starts                      | any on `PATH`                                          | any on `PATH`                               | `.exe` and `.com` only ([The program](#the-program))             |
 
-macOS runs the bash engine, so it has the Linux column's behavior except for these rows:
-
-| Behavior        | macOS (bash)                                     | Linux (bash)                                 |
-| --------------- | ------------------------------------------------ | -------------------------------------------- |
-| bash            | Homebrew bash 4.4+, re-run by the guard          | the system's                                 |
-| `type: dconf`   | not selected (`linux` platform)                  | supported                                    |
-| Package drift   | prints nothing                                   | supported                                    |
-| `mksync setup`  | no bootstrap question; `--bootstrap` is an error | offers `bootstrap/linux.sh` on Ubuntu        |
-| `mksync doctor` | adds `brew` and the macOS version                |                                              |
-| Installer       | `brew install bash jq`                           | `sudo apt-get install` for the missing tools |
-
-## Parity
-
-Every gap listed in [plan-restructure.md](archive/plan-restructure.md) is closed. A step number is the step of
-[plan-restructure-2.md](archive/plan-restructure-2.md) that closed the gap in that engine, and `yes` means the engine already
-had the behavior.
-
-| Behavior                                                                | Windows              | Linux               | Note                          |
-| ----------------------------------------------------------------------- | -------------------- | ------------------- | ----------------------------- |
-| Required `platform` with `common`                                       | step 6               | step 5              | lint: step 7                  |
-| `defaultEnv`                                                            | step 8               | yes                 |                               |
-| `escapeBackslashes`                                                     | yes                  | step 9              |                               |
-| Infer values from the local file on import                              | yes                  | step 10             |                               |
-| Inference undoes `escapeBackslashes`                                    | step 10b             | step 10a            |                               |
-| `type: dir` export                                                      | step 13              | step 11             |                               |
-| `type: dir` import                                                      | step 14              | step 12             |                               |
-| Missing value without a terminal stops the run                          | step 8a              | yes                 |                               |
-| Missing target folder on import                                         |                      |                     | kept as a known difference    |
-| Orphan report                                                           | step 16              | step 15             |                               |
-| Up-to-date check                                                        | step 18              | step 17             |                               |
-| Stop after a pull                                                       | step 18b             | step 18a            |                               |
-| Commit: branch + PR, stages `dotfiles/ packages/ sync-config.json`      | yes                  | yes                 | phase 1                       |
-| `type: dconf`                                                           | validates only       | phase 5             | kept as a known difference    |
-| Package drift                                                           | phase 8              | phase 6             | a known difference until then |
-| Sync point (import, commit)                                             | docs-dryrun-2 step 7 | steps 1-2           |                               |
-| `--diff` / `-Diff`                                                      | step 8               | step 3              |                               |
-| `mksync diff`, pull guard, status labels                                | step 9               | steps 4-6           |                               |
-| `--only` / `-Only` on import, export and `--diff`                       | safe-sync step 8     | safe-sync steps 1-3 |                               |
-| Paths on `mksync pull`, `push`, `diff`; `commit --partial` / `-Partial` | safe-sync step 9     | safe-sync step 4    |                               |
-| First-pull guard                                                        | safe-sync step 9     | safe-sync step 5    |                               |
-| Dated backups, kept for 20 runs                                         | safe-sync step 9     | safe-sync step 6    | no dconf on Windows           |
+Since the cut-over, these rules hold on every system where the old engines differed: import creates a missing target
+folder; end of input at the overwrite prompt counts as yes; status lines are `WORD       label`, colored only on a
+terminal; sanitized text that isn't valid UTF-8 keeps its bytes; an invalid `defaultEnv` name stops the run; the import
+check counts a missing folder as `CREATE`; a value with a default is taken without a prompt; `mksync push` behind
+origin stops before the export. Linked folders become `dir` entries ([Linked folders](#linked-folders)), and the
+elevated import into another user's profile (`-User`) is gone.
