@@ -1,6 +1,6 @@
 # One engine: research
 
-Phase 1 of [plan-single-engine.md](plan-single-engine.md). This file holds the evidence. The recommendation comes in
+Phase 1 of [plan-single-engine.md](../plan-single-engine.md). This file holds the evidence. The recommendation comes in
 step 7 of [plan-single-engine-1.md](plan-single-engine-1.md). Line numbers are for commit `27ab769`.
 
 ## 1. Inventory
@@ -24,28 +24,28 @@ functions (the PowerShell entry scripts) is cited by the lines that hold the beh
 | Contract section | bash code | PowerShell code | bash cases | Pester cases | Outside tools |
 |---|---|---|---|---|---|
 | Lint of the config and packages (`scripts/ci/`, outside the engine) | `scripts/ci/check-config.sh`, `check-packages.sh` | — | 110 | 2 | `jq` |
-| [Checks before pushing](sync-contract.md#checks-before-pushing), commit | `sync.sh:1096-1113` `run_leak_scan`; `commit.sh:51-342` | `SyncHelpers.ps1:1015-1060` `Find-GitBash`, `Invoke-LeakScan`; `Commit-Settings.ps1:32-313` | 31 | 18 | `git`, `gh`, bash (`leak-scan.sh` runs under Git Bash on Windows) |
-| [Package drift](sync-contract.md#package-drift) | `sync.sh:688-946` (`package_names` … `report_drift`) | none | 50 | 1 | `apt-mark`, `dpkg-query`, `snap`, `pipx`, `npm`, `code`, `cmp` |
-| [dconf entries](sync-contract.md#dconf-entries-type-dconf) | `sync.sh:80-84`, `634-687`; `export.sh:285-390` `export_dconf`; `import.sh:350-515` `import_dconf` | validation only, `SyncHelpers.ps1:37-105` | 50 | 8 | `dconf`, `jq`, `git` |
-| [`localPath`](sync-contract.md#localpath), [macOS](sync-contract.md#macos) | `sync.sh:173-188` `resolve_local`; `os.sh:7-38` `sync_os`; the bash 4.4 guard at `export.sh:4` and the other entry scripts | `SyncHelpers.ps1:12-25` `Resolve-UserProfile`, `237-245` `Resolve-LocalPath` | 20 | 5 | `uname` |
-| [Sync point](sync-contract.md#sync-point) | `sync.sh:948-959`, `996-1027` | `SyncHelpers.ps1:1693-1743` | 11 | 8 | `git` |
-| [Front door](sync-contract.md#front-door) (`mksync`, status, doctor, setup, pull, push) | `front.sh:1-658`, `install.sh:1-313` | `Front.ps1:1-777`, `install.ps1:1-245` | 35 | 38 | `git`, `gh`, `jq`, `cmp`, `apt-get` or `brew`, `winget` |
-| [One command](sync-contract.md#one-command) (`sync`, `sync.cmd`) | `sync:1-127` | `sync.cmd:1-97` | 37 | 12 | `cygpath` (Git Bash hand-over) |
-| [Diff](sync-contract.md#diff) | `sync.sh:1194-1403` `diff_path_same`, `run_diff` | `SyncHelpers.ps1:1185-1482` `Invoke-ExportDiff` | 18 | 16 | `git`, `cmp`, `mktemp` |
-| [Export preview](sync-contract.md#export-preview) | `sync.sh:1114-1193` `run_preview` | `SyncHelpers.ps1:1061-1184` `Invoke-ExportPreview` | 9 | 9 | `git`, `mktemp` |
-| [Up-to-date check](sync-contract.md#up-to-date-check) | `sync.sh:368-406` `check_upstream` | `SyncHelpers.ps1:437-489` `Test-RepoUpToDate` | 6 | 15 | `git` |
-| [Linked folders](sync-contract.md#linked-folders-detectlinkedpaths) | none | `SyncHelpers.ps1:754-959` (`Resolve-UnixPath` … `Sync-LinkedDirectory`), `1616-1692` `Import-LinkedDirectory` | 2 | 5 | — |
-| [Directory entries](sync-contract.md#directory-entries-type-dir) | `export.sh:189-284` `export_dir`; `import.sh:287-349` `import_dir` | `Export-Settings.ps1:152`; `SyncHelpers.ps1:1536-1615` `Import-DirEntry` | 22 | 21 | `cmp` |
-| [Orphan report](sync-contract.md#orphan-report) | `sync.sh:1047-1095` `report_orphans` | `SyncHelpers.ps1:960-1014` `Write-OrphanReport` | 2 | 2 | `git`, `jq` |
-| [Backups](sync-contract.md#backups) | `sync.sh:960-995` | `SyncHelpers.ps1:1744-1788` | 7 | 8 | — |
-| [Import check](sync-contract.md#import-check) | `import.sh:23-60` and the `CHECK` branches | `Import-Settings.ps1:34-131` and the `$Check` branches | 11 | 10 | — |
-| [Picking files](sync-contract.md#picking-files) | `sync.sh:212-331` `resolve_only`, `only_selected`, `warn_only_no_hits` | `SyncHelpers.ps1:246-410` `Resolve-OnlyPaths`, `Test-OnlySelected`, `Test-OnlyEntrySelected`; `1816-1821` | 21 | 18 | — |
-| [Path safety](sync-contract.md#path-safety) | `sync.sh:51-79` `path_is_safe`, `92-166` `check_paths`, `189-211` `normalize_path` | `SyncHelpers.ps1:106-236` `Test-SafePath`, `Get-OwningRepoPath`, `Assert-SafePaths` | 7 | 6 | `jq` |
-| [Entry selection](sync-contract.md#entry-selection), [Which system](sync-contract.md#which-system) | `sync.sh:29-50` `check_platforms`, `167-172` `platform_entries`, `332-352` `entry_selected` | `SyncHelpers.ps1:26-105` `Test-WindowsEntry`, `Assert-ValidPlatform`, `Select-WindowsEntries` | 8 | 12 | `jq` |
-| [Sanitize and hydrate](sync-contract.md#sanitize-and-hydrate) | `sync.sh:407-619` (`load_values` … `hydrate`); `import.sh:90-132` | `SyncHelpers.ps1:490-585` (`Get-UserValues` … `ConvertFrom-Sanitized`), `675-753` `Request-MissingValues` | 18 | 19 | `jq` |
-| [Exclude patterns](sync-contract.md#exclude-patterns) | `sync.sh:353-367` `is_excluded` | `SyncHelpers.ps1:411-421` `Test-Excluded` | 2 | 1 | — |
-| [Compare](sync-contract.md#compare) | `sync.sh:620-633` `same_normalized`, `1404-1423` `read_text`, `write_text`, `copy_mode` | `SyncHelpers.ps1:586-674` (`Compare-NormalizedContent` … `Write-Utf8File`) | 2 | 3 | `cmp`, `sha256sum` |
-| [Flow](sync-contract.md#flow), [Statuses](sync-contract.md#statuses), [Overwrite prompt](sync-contract.md#overwrite-prompt) | `export.sh:113-188`, `import.sh:133-286` (`apply_plain`, `process_entry`, the prompt at `import.sh:150`); `sync.sh:1028-1046` `status` | `Export-Settings.ps1:1-318`, `Import-Settings.ps1:1-485`; `SyncHelpers.ps1:1483-1535` `Copy-RepoFileToLocal` (prompt at `1520`), `1789-1815` `Write-StatusLine` | 6 | 3 | — |
+| [Checks before pushing](../sync-contract.md#checks-before-pushing), commit | `sync.sh:1096-1113` `run_leak_scan`; `commit.sh:51-342` | `SyncHelpers.ps1:1015-1060` `Find-GitBash`, `Invoke-LeakScan`; `Commit-Settings.ps1:32-313` | 31 | 18 | `git`, `gh`, bash (`leak-scan.sh` runs under Git Bash on Windows) |
+| [Package drift](../sync-contract.md#package-drift) | `sync.sh:688-946` (`package_names` … `report_drift`) | none | 50 | 1 | `apt-mark`, `dpkg-query`, `snap`, `pipx`, `npm`, `code`, `cmp` |
+| [dconf entries](../sync-contract.md#dconf-entries-type-dconf) | `sync.sh:80-84`, `634-687`; `export.sh:285-390` `export_dconf`; `import.sh:350-515` `import_dconf` | validation only, `SyncHelpers.ps1:37-105` | 50 | 8 | `dconf`, `jq`, `git` |
+| [`localPath`](../sync-contract.md#localpath), [macOS](../sync-contract.md#macos) | `sync.sh:173-188` `resolve_local`; `os.sh:7-38` `sync_os`; the bash 4.4 guard at `export.sh:4` and the other entry scripts | `SyncHelpers.ps1:12-25` `Resolve-UserProfile`, `237-245` `Resolve-LocalPath` | 20 | 5 | `uname` |
+| [Sync point](../sync-contract.md#sync-point) | `sync.sh:948-959`, `996-1027` | `SyncHelpers.ps1:1693-1743` | 11 | 8 | `git` |
+| [Front door](../sync-contract.md#front-door) (`mksync`, status, doctor, setup, pull, push) | `front.sh:1-658`, `install.sh:1-313` | `Front.ps1:1-777`, `install.ps1:1-245` | 35 | 38 | `git`, `gh`, `jq`, `cmp`, `apt-get` or `brew`, `winget` |
+| [One command](../sync-contract.md#one-command) (`sync`, `sync.cmd`) | `sync:1-127` | `sync.cmd:1-97` | 37 | 12 | `cygpath` (Git Bash hand-over) |
+| [Diff](../sync-contract.md#diff) | `sync.sh:1194-1403` `diff_path_same`, `run_diff` | `SyncHelpers.ps1:1185-1482` `Invoke-ExportDiff` | 18 | 16 | `git`, `cmp`, `mktemp` |
+| [Export preview](../sync-contract.md#export-preview) | `sync.sh:1114-1193` `run_preview` | `SyncHelpers.ps1:1061-1184` `Invoke-ExportPreview` | 9 | 9 | `git`, `mktemp` |
+| [Up-to-date check](../sync-contract.md#up-to-date-check) | `sync.sh:368-406` `check_upstream` | `SyncHelpers.ps1:437-489` `Test-RepoUpToDate` | 6 | 15 | `git` |
+| [Linked folders](../sync-contract.md#linked-folders-detectlinkedpaths) | none | `SyncHelpers.ps1:754-959` (`Resolve-UnixPath` … `Sync-LinkedDirectory`), `1616-1692` `Import-LinkedDirectory` | 2 | 5 | — |
+| [Directory entries](../sync-contract.md#directory-entries-type-dir) | `export.sh:189-284` `export_dir`; `import.sh:287-349` `import_dir` | `Export-Settings.ps1:152`; `SyncHelpers.ps1:1536-1615` `Import-DirEntry` | 22 | 21 | `cmp` |
+| [Orphan report](../sync-contract.md#orphan-report) | `sync.sh:1047-1095` `report_orphans` | `SyncHelpers.ps1:960-1014` `Write-OrphanReport` | 2 | 2 | `git`, `jq` |
+| [Backups](../sync-contract.md#backups) | `sync.sh:960-995` | `SyncHelpers.ps1:1744-1788` | 7 | 8 | — |
+| [Import check](../sync-contract.md#import-check) | `import.sh:23-60` and the `CHECK` branches | `Import-Settings.ps1:34-131` and the `$Check` branches | 11 | 10 | — |
+| [Picking files](../sync-contract.md#picking-files) | `sync.sh:212-331` `resolve_only`, `only_selected`, `warn_only_no_hits` | `SyncHelpers.ps1:246-410` `Resolve-OnlyPaths`, `Test-OnlySelected`, `Test-OnlyEntrySelected`; `1816-1821` | 21 | 18 | — |
+| [Path safety](../sync-contract.md#path-safety) | `sync.sh:51-79` `path_is_safe`, `92-166` `check_paths`, `189-211` `normalize_path` | `SyncHelpers.ps1:106-236` `Test-SafePath`, `Get-OwningRepoPath`, `Assert-SafePaths` | 7 | 6 | `jq` |
+| [Entry selection](../sync-contract.md#entry-selection), [Which system](../sync-contract.md#which-system) | `sync.sh:29-50` `check_platforms`, `167-172` `platform_entries`, `332-352` `entry_selected` | `SyncHelpers.ps1:26-105` `Test-WindowsEntry`, `Assert-ValidPlatform`, `Select-WindowsEntries` | 8 | 12 | `jq` |
+| [Sanitize and hydrate](../sync-contract.md#sanitize-and-hydrate) | `sync.sh:407-619` (`load_values` … `hydrate`); `import.sh:90-132` | `SyncHelpers.ps1:490-585` (`Get-UserValues` … `ConvertFrom-Sanitized`), `675-753` `Request-MissingValues` | 18 | 19 | `jq` |
+| [Exclude patterns](../sync-contract.md#exclude-patterns) | `sync.sh:353-367` `is_excluded` | `SyncHelpers.ps1:411-421` `Test-Excluded` | 2 | 1 | — |
+| [Compare](../sync-contract.md#compare) | `sync.sh:620-633` `same_normalized`, `1404-1423` `read_text`, `write_text`, `copy_mode` | `SyncHelpers.ps1:586-674` (`Compare-NormalizedContent` … `Write-Utf8File`) | 2 | 3 | `cmp`, `sha256sum` |
+| [Flow](../sync-contract.md#flow), [Statuses](../sync-contract.md#statuses), [Overwrite prompt](../sync-contract.md#overwrite-prompt) | `export.sh:113-188`, `import.sh:133-286` (`apply_plain`, `process_entry`, the prompt at `import.sh:150`); `sync.sh:1028-1046` `status` | `Export-Settings.ps1:1-318`, `Import-Settings.ps1:1-485`; `SyncHelpers.ps1:1483-1535` `Copy-RepoFileToLocal` (prompt at `1520`), `1789-1815` `Write-StatusLine` | 6 | 3 | — |
 | Totals | | | **485** | **240** | |
 
 What the counts say:
@@ -95,7 +95,7 @@ The two engines also drift apart, which costs fix steps. Since 2026-10-01:
 
 ## 2. Known differences
 
-Each row of the [Known differences](sync-contract.md#known-differences) table, classed. "Forced" means the OS or its
+Each row of the [Known differences](../sync-contract.md#known-differences) table, classed. "Forced" means the OS or its
 file system decides; one engine keeps both behaviors behind an OS check. "Accidental" means the two engines grew apart;
 one engine picks one behavior and the contract records it.
 
@@ -105,10 +105,10 @@ one engine picks one behavior and the contract records it.
 | Import, target folder missing | accidental | create the folder, as Linux does. A restore runs import before most apps have started once, and an empty folder for an app that isn't installed is harmless |
 | Exclude patterns | accidental | match case-insensitively everywhere. Patterns are file-name globs like `*.log`; no current pattern depends on case |
 | End of input at the overwrite prompt | accidental | count end of input as no, and name `--force` in the note. Safer than a silent yes. Bootstrap keeps the terminal as stdin (`bootstrap/linux.sh:614-616`), so its prompts don't change |
-| `detectLinkedPaths` | accidental | ~~support it on every OS, as PowerShell does~~ Superseded: linked folders become `dir` entries ([design](design-layers.md#linked-folders)) |
+| `detectLinkedPaths` | accidental | ~~support it on every OS, as PowerShell does~~ Superseded: linked folders become `dir` entries ([design](../design-layers.md#linked-folders)) |
 | `type: dconf` | forced (GNOME) | run it on Linux, validate it elsewhere |
 | Package drift | forced (apt, snap, pipx are Linux tools) | report on Linux; nothing elsewhere until a Windows list exists |
-| `-User <name>` | forced (Windows profiles and elevation) | ~~keep it Windows-only~~ Superseded: dropped at cut-over ([design](design-layers.md#open)) |
+| `-User <name>` | forced (Windows profiles and elevation) | ~~keep it Windows-only~~ Superseded: dropped at cut-over ([design](../design-layers.md#open)) |
 | File modes | forced (NTFS has no Unix modes) | keep modes where the file system has them |
 | Status line layout | accidental | one layout: `WORD       label`, colored when the output is a terminal |
 | Sanitized text that isn't valid UTF-8 | accidental | keep the bytes, as bash does |
@@ -170,7 +170,7 @@ What the runners can't show:
 
 ## 4. Shared case format
 
-The format is in [tests/parity/README.md](../tests/parity/README.md): a case is a folder with `case.json` (config,
+The format is in [tests/parity/README.md](../../tests/parity/README.md): a case is a folder with `case.json` (config,
 values, commands, OS list), the `home/` and `repo/` trees before, and `expect/` (exit codes, status lines, the trees
 after). Output is cut down to `WORD label` per status line, so the two layouts compare equal. Four cases are in
 `tests/parity/cases/`: `export-adds`, `check-one-change`, `sanitize-round-trip` and `hydrate-creates` (the review asked for a case where hydrate writes the file). `tests/parity/run.sh` runs all four

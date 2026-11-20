@@ -1,5 +1,5 @@
 {
-  "description": "Import asks for a placeholder that nothing else fills, hydrates the piped answer into the new local file and saves it in .user-values.json (Sanitize and hydrate; docs/plan-single-engine-9-values.md decisions 1-3). Linux and macOS only: the PowerShell engine doesn't read a value answer from redirected input (Known differences).",
+  "description": "Import asks for a placeholder that nothing else fills, hydrates the piped answer into the new local file and saves it in .user-values.json (Sanitize and hydrate; docs/archive/plan-single-engine-9-values.md decisions 1-3). Linux and macOS only: the PowerShell engine doesn't read a value answer from redirected input (Known differences).",
   "os": [
     "linux",
     "macos"

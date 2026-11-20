@@ -41,7 +41,7 @@ A [dconf entry](#dconf-entries-merge-dconf) follows the same flow with a dconf f
 ## Config
 
 `mksync` looks for its config in the current folder, then each parent, and reads the first it finds, in this order
-([cut-over decision 8](plan-single-engine-9-cutover.md)):
+([cut-over decision 8](archive/plan-single-engine-9-cutover.md)):
 
 1. `sync-config.v2.json`, which only a clone from before v1.0.0 still has, so a machine that ran `mksync update` before
    its first pull past v1.0.0 still loads its old clone's config and can pull;
@@ -49,7 +49,7 @@ A [dconf entry](#dconf-entries-merge-dconf) follows the same flow with a dconf f
 
 Either file is read as config v2 ([configuration.md](configuration.md)). Every `ERROR:` line about the config names
 the file it read. A `sync-config.json` whose JSON object has no `schemaVersion` is an old v1 config, and every command
-stops before it reads another field ([cut-over decision 7](plan-single-engine-9-cutover.md)):
+stops before it reads another field ([cut-over decision 7](archive/plan-single-engine-9-cutover.md)):
 
 ```text
 ERROR: sync-config.json: needs schemaVersion 2; this is an old config.
@@ -171,7 +171,7 @@ gets `module <m> has an os that is not a list of linux, macos or windows`. The f
 | an absolute path       | `C:/MakuCustomAlias`   | its system   |
 
 `~` is the user's home: `$HOME` on Linux and macOS, `USERPROFILE` on Windows, where `/` becomes `\` after `~` is
-expanded. An absolute path, such as `C:/MakuCustomAlias` ([cut-over decision 4](plan-single-engine-9-cutover.md)),
+expanded. An absolute path, such as `C:/MakuCustomAlias` ([cut-over decision 4](archive/plan-single-engine-9-cutover.md)),
 belongs on an entry whose `os` names one system. With no home folder set the run stops with exit code 1 before
 touching a file: `ERROR: the home folder is not set (HOME).` (`(USERPROFILE).` on Windows).
 
@@ -820,7 +820,7 @@ works too):
   unless `--no-setup`, and ends with `  Installed. Run mksync any time.`
 - Removes `~/.local/bin/sync` when it is a symlink into the clone, a left-over of installers from before v1.0.0, and
   prints `removed the old sync link`; anything else at that path is left alone
-  ([cut-over decision 9](plan-single-engine-9-cutover.md)).
+  ([cut-over decision 9](archive/plan-single-engine-9-cutover.md)).
 - `usage: install.sh [--yes] [--no-setup] [--runtime bun|node]` on stderr, exit 1, for any other argument.
 - The script is functions with `main "$@"` as its last line, so a cut-off download runs nothing.
 - Answers come from the terminal (`/dev/tty`) when stdin is the piped script.
@@ -1613,7 +1613,7 @@ left out when empty or when what it reads fails. Colors: gray `ESC[90m`, cyan `E
 
 `mksync` runs on macOS as the compiled `mksync-darwin-arm64`; it needs no bash or `jq` of its own. The installer and the
 leak scan are bash scripts, so macOS still needs Homebrew. The reasons and the options weighed are in
-[macos-research.md](macos-research.md). macOS is tested in CI only (`macos-checks`).
+[macos-research.md](archive/macos-research.md). macOS is tested in CI only (`macos-checks`).
 
 - **Skipped**: dconf entries (`SKIPPED`, as on Windows), the [package drift](#package-drift) report, and
   `bootstrap/linux.sh`.

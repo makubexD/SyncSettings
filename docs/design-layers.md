@@ -33,13 +33,13 @@ call fails, and the bar shows the fallback text or nothing. On work #2 without G
 
 The two options:
 
-|                     | One shared `statusline.sh`                  | `mksync statusline`                                                       |
-| ------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
-| Needs on Windows    | Git Bash and `jq`                           | the `mksync` program, already installed by the restore                    |
-| Runs under          | Git Bash only                               | Git Bash or PowerShell: the command is a program name, the same in both   |
-| Code                | one bash file, as today                     | one TypeScript command, tested by the shared cases                        |
-| Start-up on Windows | Git Bash, then `jq` and `git`; not measured | about 57 ms (Bun, `docs/single-engine-research.md` section 3), plus `git` |
-| Change by hand      | edit the file, see it on the next refresh   | edit the source and rebuild, or wait for a release                        |
+|                     | One shared `statusline.sh`                  | `mksync statusline`                                                               |
+| ------------------- | ------------------------------------------- | --------------------------------------------------------------------------------- |
+| Needs on Windows    | Git Bash and `jq`                           | the `mksync` program, already installed by the restore                            |
+| Runs under          | Git Bash only                               | Git Bash or PowerShell: the command is a program name, the same in both           |
+| Code                | one bash file, as today                     | one TypeScript command, tested by the shared cases                                |
+| Start-up on Windows | Git Bash, then `jq` and `git`; not measured | about 57 ms (Bun, `docs/archive/single-engine-research.md` section 3), plus `git` |
+| Change by hand      | edit the file, see it on the next refresh   | edit the source and rebuild, or wait for a release                                |
 
 Decision: the statusline becomes `mksync statusline`, on every OS. The work machines may have neither Git Bash nor
 `jq`, and the subcommand needs only the program the restore already installs, under whichever shell Claude Code picks.
@@ -667,7 +667,7 @@ change is bound for all machines and holds `<YOUR_EMAIL>`'s value of `work-1`, s
 
 ## Decided in phase 7
 
-The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are in the contract's program sections
+The plan's decisions (`docs/archive/plan-single-engine-7.md`), as rules. Exact lines are in the contract's program sections
 ("Push preview", "New settings", "Profile values", "Statusline", "Public-repo guard", "Retire", "Import check").
 
 - **The push side until phase 8 is `mksync export`.** `export --preview` prints the grouped block, `export` prints it,
@@ -711,12 +711,12 @@ The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are
   `machine.json` become the pointer, so a failed backup leaves the machine as it was. Example: work #1's laptop backs
   up `profiles/work-1.json`; later the desktop's first backup finds it, adds its own module, and asks about the one
   value that differs.
-- **The Windows survey runs once, early.** One prompt on work machine #1 (`docs/windows-survey.md`) answers "Confirm
+- **The Windows survey runs once, early.** One prompt on work machine #1 (`docs/archive/windows-survey.md`) answers "Confirm
   on Windows" with names and shapes only.
 
 ## Decided in phase 8
 
-The plan's decisions (`docs/plan-single-engine-8.md`), as rules. Exact lines are in the contract ("The program",
+The plan's decisions (`docs/archive/plan-single-engine-8.md`), as rules. Exact lines are in the contract ("The program",
 "Diff", "Checks before pushing", "dconf entries", "Package drift", "Front door", "Move a change", "Linked folders").
 
 - **Old verbs and new commands side by side.** The program keeps `export` and `import`, gains `export --diff`,
@@ -734,7 +734,7 @@ The plan's decisions (`docs/plan-single-engine-8.md`), as rules. Exact lines are
 - **dconf through stubs.** The shared cases stub `dconf` and `getent`, so the dconf rules run against bash and the
   program without a session bus. Example: `dconf-keys-filter` dumps a fixture `.ini` and expects the filtered repo
   file.
-- **Drift stays in export and preview,** as the contract says; `docs/design-test-moves.md`'s "moves into `mksync
+- **Drift stays in export and preview,** as the contract says; `docs/archive/design-test-moves.md`'s "moves into `mksync
 doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Linux, `mksync doctor` says
   `WARN drift: 3 package(s) differ; run mksync preview`, and the preview lists them.
 - **Pull doesn't re-run itself.** The program reads the config again after the fast-forward. Example: a pull that
@@ -745,13 +745,13 @@ doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Li
 - **Linked folders become `dir` entries** in a profile's or record's `entries`, asked once by `setup`. Example: on
   work #1, `.bashrc` sources `~/work-tool-1-scripts`; setup suggests "this profile", and the folder syncs as
   `profiles/work-1/linked/work-tool-1-scripts/`.
-- **The port has its own plan.** The old cases without a shared twin (`docs/design-test-moves.md`) are ported by
-  `docs/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
+- **The port has its own plan.** The old cases without a shared twin (`docs/archive/design-test-moves.md`) are ported by
+  `docs/archive/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
 
 ## Decided in phase 8, the port
 
-The port plan's decisions (`docs/plan-single-engine-8-port.md`), as rules. Its inventory, `docs/port-inventory.tsv`,
-gives every old case of `docs/design-test-moves.md` a verdict.
+The port plan's decisions (`docs/archive/plan-single-engine-8-port.md`), as rules. Its inventory, `docs/archive/port-inventory.tsv`,
+gives every old case of `docs/archive/design-test-moves.md` a verdict.
 
 - **Ported cases check the text the old case checked.** A shared case may add `expect/lines.txt`: lines that must
   appear in each command's output, in order, other lines allowed between them; `! <text>` must not appear; `# <n>`
@@ -801,7 +801,7 @@ gives every old case of `docs/design-test-moves.md` a verdict.
 
 ## Decided in phase 9
 
-Confirmed in the review of [plan-single-engine-9.md](plan-single-engine-9.md) (2026-11-17), which holds each one's
+Confirmed in the review of [plan-single-engine-9.md](archive/plan-single-engine-9.md) (2026-11-17), which holds each one's
 full text and the steps that build it.
 
 1. **Node runs the source, not a build.** `erasableSyntaxOnly` in `tsconfig.json`, every `Bun.*` call behind one process
@@ -972,7 +972,7 @@ and the check was cheap.
 
 ## Runtime
 
-The research probe (`docs/single-engine-research.md` section 3) built the same `main.ts` with Bun 1.4.4 and Deno 2.9.8
+The research probe (`docs/archive/single-engine-research.md` section 3) built the same `main.ts` with Bun 1.4.4 and Deno 2.9.8
 on four runners. Node SEA wasn't probed.
 
 |                                                                  | Bun                               | Deno          | Node SEA                                             |
@@ -1150,7 +1150,7 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
   ahead and behind counts, `ls-tree` and `cat-file --batch` reads, and the commit and push calls.
 - `tools/claude-layout.ts` (dev-only) splits Claude's `settings.json` into layers for the cut-over (step 28); phase 9
   runs it with `--cutover`.
-- After the phase 8 review (`docs/plan-single-engine-8-fixes.md`): `main.ts` only resolves the repo, OS, home and
+- After the phase 8 review (`docs/archive/plan-single-engine-8-fixes.md`): `main.ts` only resolves the repo, OS, home and
   config and dispatches with a `switch` over the command kind. `app/setup.ts`, `app/retire.ts` and `app/shadow.ts`
   hold those flows (`executeSetup` takes `execute` as a parameter, so `app/` never imports `main.ts`), and
   `app/import.ts` holds `runImport`. `app/export.ts` holds `runExport` and the run steps both share, in order:
@@ -1304,7 +1304,7 @@ their runs printed `SKIP <case>: v2 only`. Example: `json-merge-layers` gives a 
 program writes the merged file on Linux, macOS and Windows (CRLF there), and bash skips it.
 
 **Old cases without a shared twin.** `tests/linux/engine.sh` had 484 cases and the Pester suite 240; 20 and 19 of them
-had a shared twin. The rest, one row per group, are in `docs/design-test-moves.md`. In short:
+had a shared twin. The rest, one row per group, are in `docs/archive/design-test-moves.md`. In short:
 
 | Goes to                                                                                                    | bash | Pester |
 | ---------------------------------------------------------------------------------------------------------- | ---- | ------ |
@@ -1609,7 +1609,7 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     `src/app/` when it next changes. `import`, `setup`, the retires and `shadow` moved in the phase 8 review.
   - The program's `commit` keeps `commit.sh`'s own lines, including `run commit.sh from master`; they change with the
     cut-over's wording review.
-- **Left by the phase 8 review (`docs/plan-single-engine-8-fixes.md`).**
+- **Left by the phase 8 review (`docs/archive/plan-single-engine-8-fixes.md`).**
   - **The first push from a private repo (phase 10).** Commit's sync paths are `dotfiles/`, `sync-config.json` and
     `packages/`, so once the guard reads private, a push holding `profiles/`, `machines/` or `sync-config.v2.json`
     stops with `commit or stash changes outside dotfiles/ first.` Phase 10 adds those paths to the sync paths, the
@@ -1626,7 +1626,7 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     merged output reads as one line; the program prints no prompt and the line on stdout. The contract names neither
     the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
     (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
-- **Left by the case port (`docs/plan-single-engine-8-port.md`, 2026-11-17).**
+- **Left by the case port (`docs/archive/plan-single-engine-8-port.md`, 2026-11-17).**
   - **Drift in export and preview.** The contract ("Package drift", "Program") and "Drift stays in export and
     preview" above say the program reports `DRIFT` after an export's or a preview's orphan report; the program
     reports drift only in `mksync doctor` (`src/app/doctor.ts` is the only caller of `core/drift.ts`). No shared case
@@ -1665,7 +1665,7 @@ each with its command and what to paste back, for work #2 and #3 when the user i
 - **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
   the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
   `[Console]::OutputEncoding` first, and give the call a timeout.
-- **The survey (step 27).** Work machine #1's answer (`docs/windows-survey.md`, "Answer", 2026-11-16) settled the
+- **The survey (step 27).** Work machine #1's answer (`docs/archive/windows-survey.md`, "Answer", 2026-11-16) settled the
   next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
 
 - **Shell (work #1: Git Bash).** Claude Code's Bash tool is Git Bash (MSYS2 bash 5.2, `MINGW64`), and neither hook

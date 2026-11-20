@@ -76,6 +76,6 @@ override for tests; a bash 4 guard that re-execs under Homebrew bash; `mksync` a
 
 Only if one of the "later" conditions above becomes true.
 
-The single engine has its own roadmap, [plan-single-engine.md](plan-single-engine.md). Its research
+The single engine has its own roadmap, [plan-single-engine.md](../plan-single-engine.md). Its research
 ([single-engine-research.md](single-engine-research.md)) ended on 2026-11-09 with shared cases first and the engine
 decided later.

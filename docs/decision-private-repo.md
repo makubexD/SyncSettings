@@ -50,30 +50,30 @@ file, only examples, and the engine code never names a specific user's files.
 
 The engine reads `sync-config.json`, `dotfiles/`, `packages/` and the values from a second clone.
 
-| Pros | Cons |
-|---|---|
-| Clean split; engine fixes arrive with a normal `git pull` | Every entry point, both installers, the tests and `docs/sync-contract.md` assume the data is in the same repo; all need a data-root setting |
+| Pros                                                                   | Cons                                                                                                                                                            |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Clean split; engine fixes arrive with a normal `git pull`              | Every entry point, both installers, the tests and `docs/sync-contract.md` assume the data is in the same repo; all need a data-root setting                     |
 | The data repo holds real values: no sanitizing for privacy, no prompts | `sync-config.json` is the contract and belongs with the data, so a config-format change must land in both repos at once, or a newer engine breaks on older data |
-| | Two clones, two PR flows, and CI and a review gate in both |
-| | The installer must sign in to a private repo before anything runs |
+|                                                                        | Two clones, two PR flows, and CI and a review gate in both                                                                                                      |
+|                                                                        | The installer must sign in to a private repo before anything runs                                                                                               |
 
 ### B. Template: each user makes a private copy
 
 The engine repo is a GitHub template; each user creates a private repo from it and keeps config, dotfiles and values
 there.
 
-| Pros | Cons |
-|---|---|
-| One repo per user, private, no prompts | A GitHub fork of a public repo stays public, so users must use "Use this template", not fork |
+| Pros                                                     | Cons                                                                                                                                                                                                                  |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One repo per user, private, no prompts                   | A GitHub fork of a public repo stays public, so users must use "Use this template", not fork                                                                                                                          |
 | No runtime link between repos; the engine barely changes | A template copy shares no history with the engine, so pulling engine updates means merging unrelated histories. Cloning and pushing to a new private repo keeps history, but users still merge engine changes by hand |
 
 ### C. Private data repo with the engine as a git submodule
 
 The user's private repo holds config, dotfiles and values, and pins an engine version in a submodule.
 
-| Pros | Cons |
-|---|---|
-| The pin keeps engine and data in step, fixing A's version drift | Submodule friction: `--recursive` clones, detached HEADs, bumping the pin by hand |
+| Pros                                                                  | Cons                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| The pin keeps engine and data in step, fixing A's version drift       | Submodule friction: `--recursive` clones, detached HEADs, bumping the pin by hand    |
 | Engine updates are one deliberate pin bump, reviewed in the data repo | Harder on Windows and for users new to git; the installers must handle the submodule |
 
 ### When to revisit
