@@ -49,14 +49,10 @@ else
     printf 'parity-node: Node 22.18 not found, skipped\n'
 fi
 
-run_layer parity-bash tests/parity/run.sh
-
 if tests/windows-vm/vm.sh status >/dev/null 2>&1; then
     run_layer windows-exe bun build --compile --target bun-windows-x64 src/main.ts --outfile dist/mksync.exe
     run_layer windows-program tests/windows-vm/vm.sh run \
         'powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 -Engine dist/mksync.exe'
-    run_layer windows-powershell tests/windows-vm/vm.sh run \
-        'powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1'
 else
     printf 'Windows: VM not running, skipped\n'
 fi

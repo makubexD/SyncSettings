@@ -2,8 +2,8 @@
 
 Cases that test the [contract](../../docs/sync-contract.md) through the command line only, so a case runs against
 the compiled program: `dist/mksync` on Linux and macOS, `dist\mksync.exe` on Windows. `run.sh` runs them on Linux and
-macOS; `run.ps1` runs them on Windows PowerShell 5.1. CI runs them in `engine-linux`, `engine-macos` and
-`engine-windows`, each next to that OS's unit and engine tests.
+macOS; `run.ps1` runs them on Windows PowerShell 5.1. CI runs them in `program-build` (Linux), `program-macos` and
+`program-windows`, against the program `program-build` compiles.
 
 ```bash
 tests/parity/run.sh                                          # every case, against dist/mksync

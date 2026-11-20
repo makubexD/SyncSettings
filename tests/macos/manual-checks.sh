@@ -213,21 +213,18 @@ else
     fi
 
     # -- M3 ----------------------------------------------------------------------
-    header 'M3: /bin/bash ./sync doctor re-runs under Homebrew bash'
+    header "M3: the clone's ./mksync doctor runs the installed program"
     # $1 is for the inner sh, not this shell.
     # shellcheck disable=SC2016
-    run_logged m3 /bin/sh -c 'cd "$1" && /bin/bash ./sync doctor' sh "$DIR"
+    run_logged m3 /bin/sh -c 'cd "$1" && ./mksync doctor' sh "$DIR"
     rc=$?
     m3_fail=''
     [ "$rc" -eq 0 ] || m3_fail="${m3_fail}exited $rc; "
-    if grep -qE 'declare: -A|invalid option|bad substitution|needs bash 4\.4' "$WORK/m3.log"; then
-        m3_fail="${m3_fail}bash 3.2 error in the output; "
-    fi
-    if ! grep -qE '^ *OK +bash ([5-9]|4\.[4-9])' "$WORK/m3.log"; then
-        m3_fail="${m3_fail}doctor's bash line isn't OK with 4.4 or newer; "
+    if grep -q '^ *MISSING' "$WORK/m3.log"; then
+        m3_fail="${m3_fail}doctor has a MISSING line; "
     fi
     if [ -z "$m3_fail" ]; then
-        result M3 PASS "$(grep -E '^ *OK +bash' "$WORK/m3.log" | sed 's/^ *OK *//')"
+        result M3 PASS "./mksync doctor clean from $DIR"
     else
         result M3 FAIL "${m3_fail%; }"
     fi
