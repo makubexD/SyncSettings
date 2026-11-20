@@ -494,11 +494,16 @@ describe("readSnapshot", () => {
   });
 });
 
-/** A minimal v1 config, so `loadConfig` converts it in memory. */
-function writeV1Config(repo: string, files: readonly unknown[]): void {
+/** A minimal v2 config holding `entries`, all in module `test`. */
+function writeConfig(repo: string, entries: readonly unknown[]): void {
+  const config = {
+    schemaVersion: 2,
+    modules: { test: { description: "Test entries" } },
+    entries,
+  };
   writeFixture(
     join(repo, "sync-config.json"),
-    `${JSON.stringify({ version: 1, files }, null, 2)}\n`,
+    `${JSON.stringify(config, null, 2)}\n`,
   );
 }
 
@@ -510,12 +515,14 @@ function unsafePathError(name: string): ConfigError {
   };
 }
 
-/** A file entry whose repoPath sits under `dotfiles/linux/`. */
+/** A file entry whose repo file sits under `dotfiles/linux/`. */
 function plainConfigEntry(): unknown {
   return {
-    repoPath: "dotfiles/linux/plain.txt",
+    file: "plain.txt",
+    module: "test",
+    merge: "whole",
     localPath: "~/plain.txt",
-    platform: "linux",
+    os: ["linux"],
   };
 }
 
@@ -523,7 +530,7 @@ describe("loadConfig path safety", () => {
   test("should reject a file entry whose repoPath is a symlink", () => {
     // Arrange
     const { repo } = fixture();
-    writeV1Config(repo, [plainConfigEntry()]);
+    writeConfig(repo, [plainConfigEntry()]);
     const link = join(repo, "dotfiles", "linux", "plain.txt");
     mkdirSync(dirname(link), { recursive: true });
     symlinkSync("nowhere", link);
@@ -544,12 +551,13 @@ describe("loadConfig path safety", () => {
   test("should reject a dconf entry whose repoPath is a symlink", () => {
     // Arrange
     const { repo } = fixture();
-    writeV1Config(repo, [
+    writeConfig(repo, [
       {
-        repoPath: "dotfiles/linux/dconf/app.ini",
-        type: "dconf",
-        platform: "linux",
-        path: "/test/app/",
+        file: "dconf/app.ini",
+        module: "test",
+        merge: "dconf",
+        dconfPath: "/test/app/",
+        os: ["linux"],
       },
     ]);
     const link = join(repo, "dotfiles", "linux", "dconf", "app.ini");
@@ -572,12 +580,13 @@ describe("loadConfig path safety", () => {
   test("should reject a dir entry holding a symlink and name the folder", () => {
     // Arrange
     const { repo } = fixture();
-    writeV1Config(repo, [
+    writeConfig(repo, [
       {
-        repoPath: "dotfiles/linux/folder",
+        file: "folder",
+        module: "test",
+        merge: "dir",
         localPath: "~/.config/folder",
-        type: "dir",
-        platform: "linux",
+        os: ["linux"],
       },
     ]);
     const target = join(repo, "target.txt");
@@ -600,7 +609,7 @@ describe("loadConfig path safety", () => {
   test("should reject a symlink no entry owns and name the symlink", () => {
     // Arrange
     const { repo } = fixture();
-    writeV1Config(repo, [plainConfigEntry()]);
+    writeConfig(repo, [plainConfigEntry()]);
     const link = join(repo, "dotfiles", "linux", "stray.txt");
     mkdirSync(dirname(link), { recursive: true });
     symlinkSync("nowhere", link);
@@ -619,7 +628,7 @@ describe("loadConfig path safety", () => {
   test("should accept a repo with no symlink under dotfiles", () => {
     // Arrange
     const { repo } = fixture();
-    writeV1Config(repo, [plainConfigEntry()]);
+    writeConfig(repo, [plainConfigEntry()]);
     writeFixture(join(repo, "dotfiles", "linux", "plain.txt"), "x\n");
 
     // Act

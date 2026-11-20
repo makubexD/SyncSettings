@@ -34,12 +34,9 @@ const V2_TEXT =
 const V2_NEWER_TEXT =
   '{"schemaVersion":3,"modules":{"base":{"description":"Base"}},"entries":[]}\n';
 
-/** What `{"files":[]}` converts to through `convertV1`. */
-const V1_CONVERTED: ConfigV2 = {
-  schemaVersion: 2,
-  modules: { unsorted: { description: "Entries converted from v1, not sorted yet." } },
-  entries: [],
-};
+/** An old v1 config, as a clone from before the cut-over still holds it. */
+const OLD_CONFIG_TEXT =
+  '{"version":1,"entries":[{"repoPath":"dotfiles/linux/parity/a.conf","localPath":"~/.config/parity/a.conf","platform":"linux"}]}\n';
 
 const REPO_FILE = "dotfiles/common/parity/a.conf";
 
@@ -179,16 +176,38 @@ describe("loadConfig", () => {
     expect(loaded).toEqual({ ok: true, value: JSON.parse(V2_TEXT) });
   });
 
-  test("should convert sync-config.json to v2 when it has no schemaVersion", () => {
+  test("should refuse an old sync-config.json with no schemaVersion, exit 2", () => {
     // Arrange
     const root = tempFolder();
-    writeFixture(join(root, V1_CONFIG), V1_TEXT);
+    writeFixture(join(root, V1_CONFIG), OLD_CONFIG_TEXT);
 
     // Act
     const loaded = loadConfig(root);
 
     // Assert
-    expect(loaded).toEqual({ ok: true, value: V1_CONVERTED });
+    expect(loaded).toEqual({
+      ok: false,
+      error: {
+        message:
+          "ERROR: sync-config.json: needs schemaVersion 2; this is an old config.",
+        code: 2,
+      },
+    });
+  });
+
+  test("should report a sync-config.json that is not JSON as invalid, not as old", () => {
+    // Arrange
+    const root = tempFolder();
+    writeFixture(join(root, V1_CONFIG), "{not json\n");
+
+    // Act
+    const loaded = loadConfig(root);
+
+    // Assert
+    expect(loaded).toEqual({
+      ok: false,
+      error: { message: "ERROR: sync-config.json: invalid JSON.", code: 1 },
+    });
   });
 
   test("should stop a sync-config.json that needs a newer mksync with exit 2", () => {
