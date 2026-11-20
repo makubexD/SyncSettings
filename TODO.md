@@ -2,8 +2,8 @@
 
 ## macOS (low priority: needs a real Mac)
 
-M1-M3 (install line with the brew question, status and `import --check`, `/bin/bash ./sync doctor`) pass in the
-`macos-checks` CI job on every PR, first on 2026-11-10 (macOS 26.7.2, arm64, PR #68). Only M4 needs RTK on a real Mac;
+M1-M3 (install line with the brew question, `mksync status` and `import --check`, the clone's `./mksync doctor`)
+run in the `macos-checks` CI job on every PR, first on 2026-11-10 (macOS 26.7.2, arm64, PR #68). Only M4 needs RTK on a real Mac;
 there `tests/macos/manual-checks.sh` runs it and writes a report to `~` (the header says how).
 
 - [ ] **M4** Find RTK's config folder on macOS (`~/Library/Application Support/rtk`?) and decide whether `~/.config/rtk/`

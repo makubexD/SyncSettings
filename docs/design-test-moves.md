@@ -1,5 +1,8 @@
 # Old test cases without a shared twin
 
+The old suites (`tests/linux/engine.sh`, `tests/windows/Engine.Tests.ps1`) were deleted at the cut-over; the last
+commit that holds them is tagged `two-engines-final`. This file is the record of where each case went.
+
 Generated for `docs/design-layers.md` ("Tests"). One row per group of cases from `tests/linux/engine.sh`
 (bash) and `tests/windows/Engine.Tests.ps1` (Pester) that have no shared twin in `tests/parity/`, and where
 each group goes. The twins already found are in `tests/parity/README.md` ("Moved from"). Every case stays in
