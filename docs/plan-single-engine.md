@@ -1,6 +1,6 @@
 # One engine for every OS
 
-Phase 5 of `docs/plan-easy-install.md`. Today every behavior is written twice: bash (Linux, macOS) and PowerShell
+Phase 5 of `docs/archive/plan-easy-install.md`. Today every behavior is written twice: bash (Linux, macOS) and PowerShell
 (Windows), about 3,800 and 4,000 lines, with 485 bash cases and 240 Pester cases that test the same contract separately.
 
 Phases 1 and 2 researched a single engine and added shared cases. Since 2026-11-10 the roadmap builds one TypeScript
@@ -15,7 +15,7 @@ machine and several Windows work machines, one for each job.
 - Each "Known differences" row is kept only if the OS forces it (dconf, elevation, file modes); the others pick one
   behavior and the contract records which.
 - `bootstrap/linux.sh` stays bash: it runs before anything is installed.
-- The docs rule in `docs/plan-easy-install.md` applies to every phase.
+- The docs rule in `docs/archive/plan-easy-install.md` applies to every phase.
 - **Old engines frozen from phase 4 to cut-over.** The bash and PowerShell engines only get bug fixes. Each fix comes
   with a shared case, so the new engine inherits it. No new features go into them.
 - **Old engines are deleted only when** every one of their cases that has no shared twin has been ported to the new
@@ -24,12 +24,12 @@ machine and several Windows work machines, one for each job.
 
 ## Phases
 
-### Phase 1: research `docs/plan-single-engine-1.md`
+### Phase 1: research `docs/archive/plan-single-engine-1.md`
 
 Inventory, a compiled probe on four runners, a draft of engine-neutral test cases, and a recommendation. Changes no
 engine code. Ends with the user's decision: go (and which runtime), shared cases only, or stop.
 
-**Done 2026-11-09.** Evidence in [single-engine-research.md](single-engine-research.md). Decision: **B, shared cases
+**Done 2026-11-09.** Evidence in [single-engine-research.md](archive/single-engine-research.md). Decision: **B, shared cases
 only.** Phase 2 goes ahead; both engines stay. Phases 3-5 wait: after phase 2, count the steps that repeat a behavior in
 the second engine in the plans that follow, and start phase 3 only if they are still about a quarter of the steps
 (section 5 of the research). The probe (`probe/single-engine/`, workflow `single-engine-probe`, run on `workflow_dispatch` or a push to `research/single-engine`) stays for
@@ -41,7 +41,7 @@ Engine-neutral cases in `tests/parity/` that drive any engine as a black box (fi
 out), run against both current engines in CI. Worth doing even with no new engine: it replaces two hand-kept suites
 for the same contract.
 
-**Done 2026-11-10** ([plan-single-engine-2.md](plan-single-engine-2.md), PR #65, green run
+**Done 2026-11-10** ([plan-single-engine-2.md](archive/plan-single-engine-2.md), PR #65, green run
 [42841540002](https://github.com/makubexD/SyncSettings/actions/runs/42841540002)). 37 shared cases; `run.sh` (Linux, macOS)
 and `run.ps1` (Windows) run them in the three engine jobs. No old case was removed: each bash or Pester twin checks
 text the shared runner doesn't read (notes, `ERROR:` messages, summaries) or takes other inputs; the list is in
@@ -55,7 +55,7 @@ the other way round); a step that only adds a shared case doesn't count. Over th
 steps by all steps. Start phase 3 only if that is still about a quarter or more (section 5 of the research); below
 that, the shared cases are enough and phases 3-5 stay parked.
 
-### Phase 3: design `docs/plan-single-engine-3.md`
+### Phase 3: design `docs/archive/plan-single-engine-3.md`
 
 **Done 2026-11-10** ([design-layers.md](design-layers.md), PR #73). Decided: `mksync statusline`, Bun, config v2 as a
 separate file checked against v1, and every rule below with an example; the rest is in the design's "Open". Phase 4 is
@@ -140,7 +140,7 @@ Decisions made 2026-11-10, to be written into the design:
 - **Shadow mode:** on the user's real machines, the new program's `check` and `preview` run next to the old engine's,
   and their output is diffed. Every difference is explained or fixed.
 
-**Done 2026-11-12** ([plan-single-engine-4.md](plan-single-engine-4.md), PR #74). The program passes the 44 shared
+**Done 2026-11-12** ([plan-single-engine-4.md](archive/plan-single-engine-4.md), PR #74). The program passes the 44 shared
 cases with bash; shadow on personal Linux explained every difference; the work machines run shadow from the
 real-Windows checklist. The finish review's fixes are steps 32 to 40; what it left is in the design's "Open".
 
@@ -151,7 +151,7 @@ real-Windows checklist. The finish review's fixes are steps 32 to 40; what it le
 - Config v2 with modules and profiles, living beside v1 as the design decides.
 - Unit tests for every worked example in the design.
 
-**Done 2026-11-12** ([plan-single-engine-5.md](plan-single-engine-5.md), PR #75). The program merges `json` and
+**Done 2026-11-12** ([plan-single-engine-5.md](archive/plan-single-engine-5.md), PR #75). The program merges `json` and
 `import` entries on import and check and splits them back on export, reads profiles and the profile and machine layers
 from the state folder (`SYNC_PROFILE`, `SYNC_MACHINE`), and passes the 51 shared cases. What's left is in the design's
 "Open" ("Boundaries review, phase 4", "Layers, phase 5" and "Finish review, phase 5").
@@ -162,7 +162,7 @@ from the state folder (`SYNC_PROFILE`, `SYNC_MACHINE`), and passes the 51 shared
   profiles, and per-machine and per-profile values.
 - The public-repo guard: values stay local and are committed after the repo goes private.
 
-**Done 2026-11-13** ([plan-single-engine-6.md](plan-single-engine-6.md), PR #76). `dist/mksync setup` scans the machine, asks
+**Done 2026-11-13** ([plan-single-engine-6.md](archive/plan-single-engine-6.md), PR #76). `dist/mksync setup` scans the machine, asks
 four questions and writes the record and profile to local state; `machine show`, `machine retire` and `profile retire`
 work on them, and the record picks the profile and machine layers (`SYNC_PROFILE` and `SYNC_MACHINE` are gone). The
 guard reads the push URL's visibility and holds or refuses `profiles/` and `machines/` while public. The finish review's
@@ -174,7 +174,7 @@ cases. Merging two copies of a profile is built but wired in phase 7; what's lef
 
 ### Phase 7: push, pull and Claude
 
-**Done 2026-11-14** ([plan-single-engine-7.md](plan-single-engine-7.md)). Push shows its changes grouped by who
+**Done 2026-11-14** ([plan-single-engine-7.md](archive/plan-single-engine-7.md)). Push shows its changes grouped by who
 receives them, asks where a new setting goes (once per path, stored as `<module> <file>: <path>`) and refuses a
 profile's value in a shared layer; pull's check prints the same groups, sanitized. The first backup moves the record
 and profile into a private clone and leaves a pointer; from then on every state write goes to the clone.
@@ -199,54 +199,54 @@ the phase 7 finish review").
 
 ### Phase 8: the rest
 
-**Done** 2026-11-17. [plan-single-engine-8.md](plan-single-engine-8.md) and its review fixes
-([plan-single-engine-8-fixes.md](plan-single-engine-8-fixes.md)) on `engine/front-door`: the Claude layout tool, linked
+**Done** 2026-11-17. [plan-single-engine-8.md](archive/plan-single-engine-8.md) and its review fixes
+([plan-single-engine-8-fixes.md](archive/plan-single-engine-8-fixes.md)) on `engine/front-door`: the Claude layout tool, linked
 folders, move a change, `mksync check`, `preview` and `diff`, and the 14 Required fixes. Then the case port,
-[plan-single-engine-8-port.md](plan-single-engine-8-port.md) on `engine/case-port`: every old case has a final verdict
-in [port-inventory.tsv](port-inventory.tsv) (133 ported, 383 twins, 20 dropped, 4 for phase 9), the program's six
+[plan-single-engine-8-port.md](archive/plan-single-engine-8-port.md) on `engine/case-port`: every old case has a final verdict
+in [port-inventory.tsv](archive/port-inventory.tsv) (133 ported, 383 twins, 20 dropped, 4 for phase 9), the program's six
 gaps against the contract are fixed, and the program passes 292 shared cases. The finish review fixed the preview's
 Windows leak-hit paths and run.ps1's stderr lines; nine `dir` and `--only` cases carry `oldEngines: ["bash"]`, since
 the frozen PowerShell engine differs there and is deleted at cut-over.
 
 - **First, carried from phase 7: the Windows survey and the Claude layout tool.** Phase 7 closed (2026-11-14) before
-  the survey ran on work machine #1 (`docs/windows-survey.md`). When the redacted answer is in, it settles the
+  the survey ran on work machine #1 (`docs/archive/windows-survey.md`). When the redacted answer is in, it settles the
   design's "Confirm on Windows" list and the Windows overlay's keys; then `tools/claude-layout.ts` writes the base,
   Linux and Windows `settings.json` layers and the v2 entries widened to Windows (`--cutover` drops the v1 Claude
   rows), tested on a temp copy against `dotfiles/linux/claude/settings.json` with `statusLine` as
-  `mksync statusline`. The specs were phase 7's steps 32 and 33, removed from `docs/plan-single-engine-7.md` by the
+  `mksync statusline`. The specs were phase 7's steps 32 and 33, removed from `docs/archive/plan-single-engine-7.md` by the
   commit "docs: plan single-engine 7, Windows steps to phase 8". Steps that don't need the answer go first; the plan
   stops at the survey step if it isn't in.
 - Diff and the sync point, commit and the PR per profile, dconf and package drift, linked-folder suggestions, the
   `mksync` front door.
 - The cases of the old engines that have no shared twin, ported (the phase 3 list). Their own plan,
-  `docs/plan-single-engine-8-port.md`, written when `docs/plan-single-engine-8.md` finishes: about 370 shared cases
+  `docs/archive/plan-single-engine-8-port.md`, written when `docs/archive/plan-single-engine-8.md` finishes: about 370 shared cases
   and 150 unit and adapter tests would more than double the phase. Phase 8 ports only the dconf and drift groups, with
   their rules.
-- The phase 8 review's fixes: `docs/plan-single-engine-8-fixes.md` (the 14 Required findings of the finish review and
+- The phase 8 review's fixes: `docs/archive/plan-single-engine-8-fixes.md` (the 14 Required findings of the finish review and
   the cheap Optional ones; the rest is in the design's "Open" under "Left by the phase 8 review").
 
 ### Phase 9: cut-over
 
-Two plans: [plan-single-engine-9.md](plan-single-engine-9.md) builds and tests on Linux everything below that needs no
+Two plans: [plan-single-engine-9.md](archive/plan-single-engine-9.md) builds and tests on Linux everything below that needs no
 real machine (Node and Bun from the clone, release workflow, `mksync update`, installers, setup with doctor and the
-bootstrap question, the "before cut-over" fixes); `docs/plan-single-engine-9-cutover.md`, written when it finishes,
+bootstrap question, the "before cut-over" fixes); `docs/archive/plan-single-engine-9-cutover.md`, written when it finishes,
 tags the release, runs the real-Windows checklist and the Claude layout, and deletes the old engines.
 
-**First plan done 2026-11-17** ([plan-single-engine-9.md](plan-single-engine-9.md), branch `engine/cutover-prep`):
+**First plan done 2026-11-17** ([plan-single-engine-9.md](archive/plan-single-engine-9.md), branch `engine/cutover-prep`):
 process adapter on `node:child_process`, clone launchers for Bun and Node, usage errors exit 2, atomic state and repo
 writes that refuse symlinks, release workflow with `SHA256SUMS` and attestation, `mksync update`, installers that
 download the checked program, and setup with doctor first and the Ubuntu bootstrap. Its PR also carries
-[plan-single-engine-9-values.md](plan-single-engine-9-values.md) (done 2026-11-18): on a fresh machine the program asks for a value
+[plan-single-engine-9-values.md](archive/plan-single-engine-9-values.md) (done 2026-11-18): on a fresh machine the program asks for a value
 nothing else fills, during setup and pull, from the same input as their own questions.
 
-**Done** 2026-11-20 ([plan-single-engine-9-cutover.md](plan-single-engine-9-cutover.md)): part 1 on
+**Done** 2026-11-20 ([plan-single-engine-9-cutover.md](archive/plan-single-engine-9-cutover.md)): part 1 on
 `engine/cutover-config` (config picked by `schemaVersion`, the layout tool's personal keys, `v0.9.0` and the
 real-machine checks), part 2 on `engine/cutover` (layout, tag `two-engines-final`, the bash and PowerShell engines
 deleted, v1 configs refused, one `sync-config.json`). The finish review made the bootstrap run the program setup ran
 from (`MKSYNC_PROGRAM`), so a fresh Ubuntu restores before the bin folder is on `PATH`. The research probe and its
 workflow stay (they run only on demand). `v1.0.0` is tagged by Claude after the user's GO.
 
-**Follow-up done** 2026-11-20 ([plan-single-engine-9-private-prep.md](plan-single-engine-9-private-prep.md), branch
+**Follow-up done** 2026-11-20 ([plan-single-engine-9-private-prep.md](archive/plan-single-engine-9-private-prep.md), branch
 `engine/private-prep`, `v1.0.1`): everything a private repo needs works while it is still public. The install lines go
 through a signed-in `gh` (`gh api … contents/install.sh | bash`, `… install.ps1 | Out-String | iex`); with `gh` signed
 in, both installers clone with its credential helper (for that one command) and download the release through
@@ -270,10 +270,11 @@ in, both installers clone with its credential helper (for that one command) and 
 
 ### Phase 10: private repo and review
 
-Starts when the user says development is done; it can come before or after phase 9.
+Started 2026-11-20 (the user said development is done; GitHub Free): `docs/plan-single-engine-10.md`. On Free a
+private repo loses enforced branch protection and attestations, so the plan first ships `v1.0.2` without the
+attestation check while the repo is public, moves CI to the minutes rule, and cleans the docs before the switch.
 
-Installs and updates already work on a private repo (phase 9's private-prep follow-up, `v1.0.1`), so the phase starts
-with the visibility switch.
+Installs and updates already work on a private repo (phase 9's private-prep follow-up, `v1.0.1`).
 
 - Make the repo private and rewrite `docs/decision-private-repo.md` to say what may be committed now. Lift the guard,
   so profiles, records and values are committed on the next push.

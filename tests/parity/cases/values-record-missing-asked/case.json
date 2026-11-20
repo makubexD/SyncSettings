@@ -1,5 +1,5 @@
 {
-  "description": "Import with a record asks for a placeholder that nothing else fills, hydrates the piped answer into the new local file and saves it on the profile, leaving the machine record unchanged (Machines (program only), values on a machine; docs/plan-single-engine-9-values.md decision 4).",
+  "description": "Import with a record asks for a placeholder that nothing else fills, hydrates the piped answer into the new local file and saves it on the profile, leaving the machine record unchanged (Machines (program only), values on a machine; docs/archive/plan-single-engine-9-values.md decision 4).",
   "os": ["linux"],
   "configV2": {
     "schemaVersion": 2,

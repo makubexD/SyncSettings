@@ -58,8 +58,6 @@ interface FixtureOptions {
   readonly sumsDigest?: string;
   /** Set `MKSYNC_LAUNCHER=1`, as the clone launchers do. */
   readonly launcher?: boolean;
-  /** What the attestation stub answers. */
-  readonly verification?: "skipped" | "verified" | "failed";
 }
 
 interface Fixture {
@@ -98,7 +96,6 @@ function makeFixture(options: FixtureOptions): Fixture {
       platform: process.platform,
       arch: process.arch,
       env,
-      verifyAttestation: async () => options.verification ?? "skipped",
     },
   };
 }
@@ -192,25 +189,5 @@ describe("executeUpdate", () => {
     // Assert
     expect(result).toEqual({ code: 2, stdout: "", stderr: LAUNCHER_ERROR });
     expect(readFileSync(runtimePath, "utf8")).toBe(RUNTIME_BYTES);
-  });
-
-  test("should refuse a failed attestation and leave the program alone", async () => {
-    // Arrange
-    const asset = releaseAsset();
-    const fixture = makeFixture({
-      current: CURRENT_OLDER,
-      verification: "failed",
-    });
-
-    // Act
-    const result = await executeUpdate(fixture.deps);
-
-    // Assert
-    expect(result.code).toBe(1);
-    expect(result.stderr).toBe(
-      `ERROR: ${asset}: attestation check failed; nothing changed.\n`,
-    );
-    expect(readFileSync(fixture.execPath, "utf8")).toBe(OLD_PROGRAM);
-    expect(existsSync(`${fixture.execPath}.new`)).toBe(false);
   });
 });

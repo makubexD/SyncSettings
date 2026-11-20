@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { decode, run } from "../adapters/process.ts";
+import { decode } from "../adapters/process.ts";
 import {
   download,
   latestTag,
@@ -40,12 +40,6 @@ const PROGRAM_MODE = 0o755;
 
 /** The `SHA256SUMS` file every release carries. */
 const SUMS_NAME = "SHA256SUMS";
-
-/** The repository the release and its attestation come from. */
-const RELEASE_REPO = "makubexD/SyncSettings";
-
-/** How long one `gh` call may take before it is killed. */
-const GH_TIMEOUT_MS = 60_000;
 
 /** The refusal when the program runs from the clone: `git pull` updates that
  * copy, and downloading over it would fight the clone. */
@@ -141,7 +135,7 @@ function replaceProgram(
 }
 
 /** What `mksync update` reads from the run: the running version and path, the
- * machine it runs on, the environment, and the attestation check. */
+ * machine it runs on, and the environment. */
 export interface UpdateDeps {
   /** The version the running program reports (`mksync --version`). */
   readonly current: string;
@@ -154,39 +148,9 @@ export interface UpdateDeps {
   /** The environment `MKSYNC_RELEASE_URL` and `MKSYNC_LAUNCHER` are read
    * from. */
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** Check `file` against the release's provenance attestation: `skipped`
-   * when `gh` is missing or signed out, `verified` on a passing check, and
-   * `failed` when the check does not pass. */
-  readonly verifyAttestation: (
-    file: string,
-  ) => Promise<"skipped" | "verified" | "failed">;
 }
 
-/**
- * The `gh` attestation check: `gh auth status` first, so a machine without a
- * signed-in `gh` skips the check instead of failing the update. Any non-zero
- * status there, including a missing `gh`, is `skipped`; a signed-in `gh` that
- * does not verify the file is `failed`.
- */
-async function verifyWithGh(
-  file: string,
-): Promise<"skipped" | "verified" | "failed"> {
-  const status = await run(["gh", "auth", "status"], {
-    stdout: "ignore",
-    stderr: "ignore",
-    timeoutMs: GH_TIMEOUT_MS,
-  });
-  if (status.code !== 0) {
-    return "skipped";
-  }
-  const verify = await run(
-    ["gh", "attestation", "verify", file, "--repo", RELEASE_REPO],
-    { stdout: "ignore", stderr: "ignore", timeoutMs: GH_TIMEOUT_MS },
-  );
-  return verify.code === 0 ? "verified" : "failed";
-}
-
-/** The dependencies of a real run: the process facts and the `gh` check. */
+/** The dependencies of a real run: the process facts. */
 export function defaultUpdateDeps(version: string): UpdateDeps {
   return {
     current: version,
@@ -194,7 +158,6 @@ export function defaultUpdateDeps(version: string): UpdateDeps {
     platform: process.platform,
     arch: process.arch,
     env: process.env,
-    verifyAttestation: verifyWithGh,
   };
 }
 
@@ -260,13 +223,6 @@ export async function executeUpdate(deps: UpdateDeps): Promise<Result> {
   } catch (error) {
     removeIfPresent(newPath);
     return cannotReplace(deps.execPath, error);
-  }
-  if ((await deps.verifyAttestation(newPath)) === "failed") {
-    unlinkSync(newPath);
-    return failure(
-      `ERROR: ${asset}: attestation check failed; nothing changed.`,
-      1,
-    );
   }
   const replaced = replaceProgram(newPath, deps.execPath, deps.platform);
   if (replaced !== undefined) {

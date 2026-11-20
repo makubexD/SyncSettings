@@ -240,7 +240,7 @@ file: one the repo doesn't have is reported as `EXTRA` and kept.
 On Linux, run it in a terminal on the desktop, because GNOME settings load over the session bus. Their backups go in
 `~/.local/state/sync-settings/dconf/`, and a setting the repo doesn't name stays as it is.
 
-## Moving a machine to the new layout
+## Moving a machine from the old layout
 
 The re-layout moved every file under `dotfiles/<platform>/<tool>/` and split `.gitconfig` into a shared file and a
 `.gitconfig.local` per system ([layout.md](layout.md)). A machine that hasn't caught up still has the whole `.gitconfig`,
@@ -348,7 +348,7 @@ into use.
 | `ERROR: <dir> exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR.`                        | The installer won't write into a folder it didn't make. Move that folder, or set `SYNCSETTINGS_DIR` to another place and run it again                                                                                                                                             |
 | Windows: `ERROR: …\mksync.cmd already exists; remove it and run this again.` (or `mksync.exe`)     | Another `mksync.cmd` or `mksync.exe` is in the installer's bin folder. Remove or rename it if it isn't yours to keep, then run the installer again. On Linux and macOS the same line names `~/.local/bin/mksync`                                                                  |
 | `ERROR: sync-config.json: this config needs a newer mksync: run mksync update.`                    | The repo moved to a config this program doesn't know yet. Run `mksync update`, then the command again                                                                                                                                                                             |
-| `ERROR: <file>: checksum does not match SHA256SUMS…` or `…: attestation check failed…`             | The installer or `mksync update` downloaded a file that isn't the one the release published, and installed nothing. Run it again later; if it keeps failing, the release itself is wrong: don't install around the check                                                          |
+| `ERROR: <file>: checksum does not match SHA256SUMS…`                                               | The installer or `mksync update` downloaded a file that isn't the one the release published, and installed nothing. Run it again later; if it keeps failing, the release itself is wrong: don't install around the check                                                          |
 | `ERROR: mksync runs from the clone here; update it with git pull.`                                 | This machine runs `mksync` from the clone (installed with `--runtime`), so there is no program to replace: `git pull` in the clone updates it                                                                                                                                     |
 
 ## Cleaning up

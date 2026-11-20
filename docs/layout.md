@@ -85,7 +85,7 @@ A layer file has the entry's `file` path under its layer folder, as in `dotfiles
 `machine.json` names the machine and its profile, so it chooses which of these layers apply
 ([configuration.md](configuration.md#profiles-and-machines)); no record, no extra layers. The record and profile files
 are readable by the current user only. Once the repo is private, the first push moves them to the repo's `machines/`
-and `profiles/` (phase 7) and `machine.json` keeps only a pointer, `{"name": "<name>", "home": "repo"}`.
+and `profiles/`, and `machine.json` keeps only a pointer, `{"name": "<name>", "home": "repo"}`.
 
 ## Where a file goes
 

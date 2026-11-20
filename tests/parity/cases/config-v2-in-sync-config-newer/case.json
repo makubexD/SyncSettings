@@ -1,5 +1,5 @@
 {
-  "description": "A v2 config named sync-config.json with a schemaVersion above 2 stops with the newer-mksync line naming that file, exit 2, before any file is written (decision 8 of docs/plan-single-engine-9-cutover.md; Config v2).",
+  "description": "A v2 config named sync-config.json with a schemaVersion above 2 stops with the newer-mksync line naming that file, exit 2, before any file is written (decision 8 of docs/archive/plan-single-engine-9-cutover.md; Config v2).",
   "configV2": {
     "schemaVersion": 3,
     "modules": {

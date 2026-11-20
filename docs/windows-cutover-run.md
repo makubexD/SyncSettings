@@ -1,6 +1,6 @@
 # Windows run sheet for the cut-over
 
-Part 1 of `docs/plan-single-engine-9-cutover.md` ends with one run on a real Windows work machine. The answer settles
+Part 1 of `docs/archive/plan-single-engine-9-cutover.md` ends with one run on a real Windows work machine. The answer settles
 the design's real-Windows checklist (`docs/design-layers.md`, "Tests") for work machines. It runs on work #1 first;
 work #2 and #3 run the same sheet when you're at them.
 

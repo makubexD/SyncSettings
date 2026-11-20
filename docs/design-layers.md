@@ -33,13 +33,13 @@ call fails, and the bar shows the fallback text or nothing. On work #2 without G
 
 The two options:
 
-|                     | One shared `statusline.sh`                  | `mksync statusline`                                                       |
-| ------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
-| Needs on Windows    | Git Bash and `jq`                           | the `mksync` program, already installed by the restore                    |
-| Runs under          | Git Bash only                               | Git Bash or PowerShell: the command is a program name, the same in both   |
-| Code                | one bash file, as today                     | one TypeScript command, tested by the shared cases                        |
-| Start-up on Windows | Git Bash, then `jq` and `git`; not measured | about 57 ms (Bun, `docs/single-engine-research.md` section 3), plus `git` |
-| Change by hand      | edit the file, see it on the next refresh   | edit the source and rebuild, or wait for a release                        |
+|                     | One shared `statusline.sh`                  | `mksync statusline`                                                               |
+| ------------------- | ------------------------------------------- | --------------------------------------------------------------------------------- |
+| Needs on Windows    | Git Bash and `jq`                           | the `mksync` program, already installed by the restore                            |
+| Runs under          | Git Bash only                               | Git Bash or PowerShell: the command is a program name, the same in both           |
+| Code                | one bash file, as today                     | one TypeScript command, tested by the shared cases                                |
+| Start-up on Windows | Git Bash, then `jq` and `git`; not measured | about 57 ms (Bun, `docs/archive/single-engine-research.md` section 3), plus `git` |
+| Change by hand      | edit the file, see it on the next refresh   | edit the source and rebuild, or wait for a release                                |
 
 Decision: the statusline becomes `mksync statusline`, on every OS. The work machines may have neither Git Bash nor
 `jq`, and the subcommand needs only the program the restore already installs, under whichever shell Claude Code picks.
@@ -667,7 +667,7 @@ change is bound for all machines and holds `<YOUR_EMAIL>`'s value of `work-1`, s
 
 ## Decided in phase 7
 
-The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are in the contract's program sections
+The plan's decisions (`docs/archive/plan-single-engine-7.md`), as rules. Exact lines are in the contract's program sections
 ("Push preview", "New settings", "Profile values", "Statusline", "Public-repo guard", "Retire", "Import check").
 
 - **The push side until phase 8 is `mksync export`.** `export --preview` prints the grouped block, `export` prints it,
@@ -711,12 +711,12 @@ The plan's decisions (`docs/plan-single-engine-7.md`), as rules. Exact lines are
   `machine.json` become the pointer, so a failed backup leaves the machine as it was. Example: work #1's laptop backs
   up `profiles/work-1.json`; later the desktop's first backup finds it, adds its own module, and asks about the one
   value that differs.
-- **The Windows survey runs once, early.** One prompt on work machine #1 (`docs/windows-survey.md`) answers "Confirm
+- **The Windows survey runs once, early.** One prompt on work machine #1 (`docs/archive/windows-survey.md`) answers "Confirm
   on Windows" with names and shapes only.
 
 ## Decided in phase 8
 
-The plan's decisions (`docs/plan-single-engine-8.md`), as rules. Exact lines are in the contract ("The program",
+The plan's decisions (`docs/archive/plan-single-engine-8.md`), as rules. Exact lines are in the contract ("The program",
 "Diff", "Checks before pushing", "dconf entries", "Package drift", "Front door", "Move a change", "Linked folders").
 
 - **Old verbs and new commands side by side.** The program keeps `export` and `import`, gains `export --diff`,
@@ -734,7 +734,7 @@ The plan's decisions (`docs/plan-single-engine-8.md`), as rules. Exact lines are
 - **dconf through stubs.** The shared cases stub `dconf` and `getent`, so the dconf rules run against bash and the
   program without a session bus. Example: `dconf-keys-filter` dumps a fixture `.ini` and expects the filtered repo
   file.
-- **Drift stays in export and preview,** as the contract says; `docs/design-test-moves.md`'s "moves into `mksync
+- **Drift stays in export and preview,** as the contract says; `docs/archive/design-test-moves.md`'s "moves into `mksync
 doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Linux, `mksync doctor` says
   `WARN drift: 3 package(s) differ; run mksync preview`, and the preview lists them.
 - **Pull doesn't re-run itself.** The program reads the config again after the fast-forward. Example: a pull that
@@ -745,13 +745,13 @@ doctor`" is replaced by one `WARN drift` line in doctor. Example: on personal Li
 - **Linked folders become `dir` entries** in a profile's or record's `entries`, asked once by `setup`. Example: on
   work #1, `.bashrc` sources `~/work-tool-1-scripts`; setup suggests "this profile", and the folder syncs as
   `profiles/work-1/linked/work-tool-1-scripts/`.
-- **The port has its own plan.** The old cases without a shared twin (`docs/design-test-moves.md`) are ported by
-  `docs/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
+- **The port has its own plan.** The old cases without a shared twin (`docs/archive/design-test-moves.md`) are ported by
+  `docs/archive/plan-single-engine-8-port.md`, except the dconf and drift groups, which phase 8 ports with their rules.
 
 ## Decided in phase 8, the port
 
-The port plan's decisions (`docs/plan-single-engine-8-port.md`), as rules. Its inventory, `docs/port-inventory.tsv`,
-gives every old case of `docs/design-test-moves.md` a verdict.
+The port plan's decisions (`docs/archive/plan-single-engine-8-port.md`), as rules. Its inventory, `docs/archive/port-inventory.tsv`,
+gives every old case of `docs/archive/design-test-moves.md` a verdict.
 
 - **Ported cases check the text the old case checked.** A shared case may add `expect/lines.txt`: lines that must
   appear in each command's output, in order, other lines allowed between them; `! <text>` must not appear; `# <n>`
@@ -801,7 +801,7 @@ gives every old case of `docs/design-test-moves.md` a verdict.
 
 ## Decided in phase 9
 
-Confirmed in the review of [plan-single-engine-9.md](plan-single-engine-9.md) (2026-11-17), which holds each one's
+Confirmed in the review of [plan-single-engine-9.md](archive/plan-single-engine-9.md) (2026-11-17), which holds each one's
 full text and the steps that build it.
 
 1. **Node runs the source, not a build.** `erasableSyntaxOnly` in `tsconfig.json`, every `Bun.*` call behind one process
@@ -811,8 +811,8 @@ full text and the steps that build it.
 2. **Launchers.** `mksync` and `mksync.cmd` at the repo root pick Bun or Node (`MKSYNC_RUNTIME=bun|node`; unset, Bun
    first) and stop with `ERROR: mksync needs Bun or Node 22.18 or newer to run from the clone.`, exit 2, when neither
    fits.
-3. **Installers download the program; the clone stays.** SHA256 against `SHA256SUMS` always, `gh attestation verify`
-   when `gh` is signed in; `~/.local/bin/mksync`, or `%LOCALAPPDATA%\mksync\mksync.exe` on the user `Path`.
+3. **Installers download the program; the clone stays.** SHA256 against `SHA256SUMS` (the attestation check was
+   dropped in phase 10, see "Release and update"); `~/.local/bin/mksync`, or `%LOCALAPPDATA%\mksync\mksync.exe` on the user `Path`.
    `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on Windows, since `iex` passes no parameters) links the clone's
    launcher instead.
 4. **Releases.** A tag `v<x.y.z>` equal to `package.json`'s `version` releases the four programs, `SHA256SUMS` and a
@@ -972,7 +972,7 @@ and the check was cheap.
 
 ## Runtime
 
-The research probe (`docs/single-engine-research.md` section 3) built the same `main.ts` with Bun 1.4.4 and Deno 2.9.8
+The research probe (`docs/archive/single-engine-research.md` section 3) built the same `main.ts` with Bun 1.4.4 and Deno 2.9.8
 on four runners. Node SEA wasn't probed.
 
 |                                                                  | Bun                               | Deno          | Node SEA                                             |
@@ -1150,7 +1150,7 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
   ahead and behind counts, `ls-tree` and `cat-file --batch` reads, and the commit and push calls.
 - `tools/claude-layout.ts` (dev-only) splits Claude's `settings.json` into layers for the cut-over (step 28); phase 9
   runs it with `--cutover`.
-- After the phase 8 review (`docs/plan-single-engine-8-fixes.md`): `main.ts` only resolves the repo, OS, home and
+- After the phase 8 review (`docs/archive/plan-single-engine-8-fixes.md`): `main.ts` only resolves the repo, OS, home and
   config and dispatches with a `switch` over the command kind. `app/setup.ts`, `app/retire.ts` and `app/shadow.ts`
   hold those flows (`executeSetup` takes `execute` as a parameter, so `app/` never imports `main.ts`), and
   `app/import.ts` holds `runImport`. `app/export.ts` holds `runExport` and the run steps both share, in order:
@@ -1168,13 +1168,13 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
   on their own runners (`program-macos`, `program-windows`).
 - **Releases (from cut-over, v0.9.0):** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
   attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
-  `SHA256SUMS`; with `gh` signed in they also run `gh attestation verify`.
+  `SHA256SUMS`. From `v1.0.2` that is the only check (see "The attestation rule" below).
 - **`mksync update`** downloads the latest release the same way, checks it, and replaces itself. On Windows a running
   program can't be overwritten, so it renames itself to `mksync.old.exe` first and deletes that on the next run.
 - **`schemaVersion` check:** a program meeting a config with a higher `schemaVersion` stops with `this config needs a
 newer mksync: run mksync update` (exit 2), before reading anything else. A pull that fast-forwards to such a config
   says the same.
-- **Private repo (decided 2026-11-20, built in `plan-single-engine-9-private-prep.md`, `v1.0.1`).** The install line
+- **Private repo (decided 2026-11-20, built in `archive/plan-single-engine-9-private-prep.md`, `v1.0.1`).** The install line
   is "install `gh`, `gh auth login`, then `gh api -H 'Accept: application/vnd.github.raw'
 repos/makubexD/SyncSettings/contents/install.sh | bash`" (`install.ps1 | Out-String | iex` on Windows), which works
   on a public and a private repo alike; no public releases-only repo. With `gh` signed in and no
@@ -1196,18 +1196,21 @@ As built in phase 9:
   both default to `https://github.com/makubexD/SyncSettings/releases`. The latest tag is where `<base>/latest`
   redirects; a `file://` base holds it in a `latest` file instead, which is how the tests serve a folder release.
   Files are `<base>/download/<tag>/<name>`.
-- **The attestation rule.** Checked only when `gh auth status` succeeds, as
-  `gh attestation verify <file> --repo makubexD/SyncSettings`; a failed check stops the install or the update and
-  writes nothing. Without `gh`, or signed out, the SHA256 is the only check.
+- **The attestation rule (replaced in phase 10).** Up to `v1.0.1` the installers and `mksync update` ran
+  `gh attestation verify <file> --repo makubexD/SyncSettings` when `gh auth status` succeeded. From `v1.0.2` they don't
+  (`plan-single-engine-10.md`, decision 1): GitHub Free makes no attestation on a private repo, so the check would
+  refuse every release. The `SHA256SUMS` check stays, and both files come from the same release through a signed-in
+  `gh` (or HTTPS while the repo is public). The release workflow keeps attesting until the repo goes private, so a
+  `v1.0.1` program can still update to `v1.0.2`.
 - **Install paths.** `~/.local/bin/mksync` on Linux and macOS (`SYNCSETTINGS_BIN`); `%LOCALAPPDATA%\mksync\mksync.exe`
   on Windows, added to the user `Path`. The earlier Windows launcher, `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`,
   is removed when it is ours. Intel Macs have no program; `--runtime` is their way in.
 - **Update.** `mksync update` downloads the new program next to itself as `<program>.new`, checks it, then renames it
   over (contract "Update").
 
-Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update; the attestation is
-checked when `gh` is there. The checksum stops a broken download; the attestation proves the file came from this
-repo's workflow, not just from someone who could change `SHA256SUMS` next to it.
+Decision: releases are built in CI from one Linux job and checked by SHA256 at install and update. The checksum stops a
+broken download. A private repo that only the owner's token can read is the trust boundary the attestation used to
+prove: whoever could change `SHA256SUMS` next to the program could already change the program.
 
 ## Tests
 
@@ -1301,7 +1304,7 @@ their runs printed `SKIP <case>: v2 only`. Example: `json-merge-layers` gives a 
 program writes the merged file on Linux, macOS and Windows (CRLF there), and bash skips it.
 
 **Old cases without a shared twin.** `tests/linux/engine.sh` had 484 cases and the Pester suite 240; 20 and 19 of them
-had a shared twin. The rest, one row per group, are in `docs/design-test-moves.md`. In short:
+had a shared twin. The rest, one row per group, are in `docs/archive/design-test-moves.md`. In short:
 
 | Goes to                                                                                                    | bash | Pester |
 | ---------------------------------------------------------------------------------------------------------- | ---- | ------ |
@@ -1368,7 +1371,7 @@ Enterprise. Every section ran:
 
 ### Design
 
-- **Setup's bootstrap edges (phase 9 step 24; settled in `plan-single-engine-9-private-prep.md`, steps 1 and 3).**
+- **Setup's bootstrap edges (phase 9 step 24; settled in `archive/plan-single-engine-9-private-prep.md`, steps 1 and 3).**
   The contract now says the question comes after the record and profile are written and is skipped on `stop`, as
   built. `--bootstrap` on Windows stops like macOS, `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor
   (shared case `setup-windows-bootstrap-flag`), rather than the unknown-option exit 2 guessed here.
@@ -1414,7 +1417,7 @@ Enterprise. Every section ran:
 - **Lines that name the deleted engine (found in phase 9 step 17).** The program still prints `run ./import.sh --check
 to see why` (`mksync status`, `src/core/front/status.ts`), `run  ./import.sh  first` (`src/core/plan/run.ts`) and
   `ERROR: run commit.sh from master` (`src/app/commit.ts`). Those files are gone. Settled in
-  `plan-single-engine-9-private-prep.md` (steps 1 and 2): `mksync check`, `mksync setup` (a new machine needs setup,
+  `archive/plan-single-engine-9-private-prep.md` (steps 1 and 2): `mksync check`, `mksync setup` (a new machine needs setup,
   not a bare import) and `mksync commit`; the export line has the shared case `export-local-missing`.
 - **Machine-state keys.** Which keys of Claude's `settings.json` (and VS Code's) are this machine's state, never pushed
   and kept on pull. Found by diffing the file before and after a few sessions, on Linux first.
@@ -1606,7 +1609,7 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     `src/app/` when it next changes. `import`, `setup`, the retires and `shadow` moved in the phase 8 review.
   - The program's `commit` keeps `commit.sh`'s own lines, including `run commit.sh from master`; they change with the
     cut-over's wording review.
-- **Left by the phase 8 review (`docs/plan-single-engine-8-fixes.md`).**
+- **Left by the phase 8 review (`docs/archive/plan-single-engine-8-fixes.md`).**
   - **The first push from a private repo (phase 10).** Commit's sync paths are `dotfiles/`, `sync-config.json` and
     `packages/`, so once the guard reads private, a push holding `profiles/`, `machines/` or `sync-config.v2.json`
     stops with `commit or stash changes outside dotfiles/ first.` Phase 10 adds those paths to the sync paths, the
@@ -1623,7 +1626,7 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     merged output reads as one line; the program prints no prompt and the line on stdout. The contract names neither
     the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
     (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
-- **Left by the case port (`docs/plan-single-engine-8-port.md`, 2026-11-17).**
+- **Left by the case port (`docs/archive/plan-single-engine-8-port.md`, 2026-11-17).**
   - **Drift in export and preview.** The contract ("Package drift", "Program") and "Drift stays in export and
     preview" above say the program reports `DRIFT` after an export's or a preview's orphan report; the program
     reports drift only in `mksync doctor` (`src/app/doctor.ts` is the only caller of `core/drift.ts`). No shared case
@@ -1662,7 +1665,7 @@ each with its command and what to paste back, for work #2 and #3 when the user i
 - **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
   the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
   `[Console]::OutputEncoding` first, and give the call a timeout.
-- **The survey (step 27).** Work machine #1's answer (`docs/windows-survey.md`, "Answer", 2026-11-16) settled the
+- **The survey (step 27).** Work machine #1's answer (`docs/archive/windows-survey.md`, "Answer", 2026-11-16) settled the
   next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
 
 - **Shell (work #1: Git Bash).** Claude Code's Bash tool is Git Bash (MSYS2 bash 5.2, `MINGW64`), and neither hook

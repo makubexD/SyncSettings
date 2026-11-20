@@ -250,5 +250,5 @@ Only the first difference prints. Fix it and run the case again with its name as
 ## Moved from
 
 The old bash and Pester suites were deleted at the cut-over (tag `two-engines-final`). Where each of their cases went,
-a shared case, a unit test or dropped, is in [design-test-moves.md](../../docs/design-test-moves.md) and
-[port-inventory.tsv](../../docs/port-inventory.tsv).
+a shared case, a unit test or dropped, is in [design-test-moves.md](../../docs/archive/design-test-moves.md) and
+[port-inventory.tsv](../../docs/archive/port-inventory.tsv).
