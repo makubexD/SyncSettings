@@ -700,7 +700,6 @@ function rootsFor(config: ConfigV2, entry: ConfigV2Entry): readonly string[] {
 function orphanReport(state: State): void {
   const exact = new Set<string>();
   const folders: string[] = [];
-  const linked: string[] = [];
 
   for (const entry of state.snapshot.config.entries) {
     for (const root of rootsFor(state.snapshot.config, entry)) {
@@ -709,9 +708,6 @@ function orphanReport(state: State): void {
         folders.push(`${repoPath}/`);
       } else {
         exact.add(repoPath);
-      }
-      if (entry.scanLinks === true) {
-        linked.push(`${repoPath}.linked/`);
       }
     }
   }
@@ -722,9 +718,7 @@ function orphanReport(state: State): void {
       continue;
     }
     const owned =
-      exact.has(path) ||
-      folders.some((prefix) => path.startsWith(prefix)) ||
-      linked.some((prefix) => path.startsWith(prefix));
+      exact.has(path) || folders.some((prefix) => path.startsWith(prefix));
     if (!owned) {
       pushStatus(state, "ORPHAN", path, ORPHAN_NOTE);
     }

@@ -18,8 +18,8 @@ const DRIVE_LETTER_RE = /^[A-Za-z]:/;
 
 // Fields a merge can not use, in the order the first present one is named.
 const DISALLOWED_FIELDS: Readonly<Record<MergeType, readonly string[]>> = {
-  dir: ["sanitize", "scanLinks", "dconfPath", "keys"],
-  dconf: ["localPath", "sanitize", "scanLinks"],
+  dir: ["sanitize", "dconfPath", "keys"],
+  dconf: ["localPath", "sanitize"],
   whole: ["dconfPath", "keys"],
   json: ["dconfPath", "keys"],
   import: ["dconfPath", "keys"],

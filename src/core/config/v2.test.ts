@@ -558,18 +558,6 @@ describe("parseV2", () => {
     );
   });
 
-  test("scanLinks on a dir entry stops with exit 1", () => {
-    // Arrange
-    const bad = entry({ file: "vscode/snippets", merge: "dir", scanLinks: true });
-
-    // Act / Assert
-    expectError(
-      configWith([bad]),
-      canNotUseError("vscode/snippets", "scanLinks", "dir"),
-      1,
-    );
-  });
-
   test("localPath on a dconf entry stops with exit 1", () => {
     // Arrange
     const bad = dconfEntry({
@@ -596,18 +584,6 @@ describe("parseV2", () => {
     expectError(
       configWith([bad]),
       canNotUseError(bad.file as string, "sanitize", "dconf"),
-      1,
-    );
-  });
-
-  test("scanLinks on a dconf entry stops with exit 1", () => {
-    // Arrange
-    const bad = dconfEntry({ dconfPath: "/org/gnome/shell/", scanLinks: true });
-
-    // Act / Assert
-    expectError(
-      configWith([bad]),
-      canNotUseError(bad.file as string, "scanLinks", "dconf"),
       1,
     );
   });

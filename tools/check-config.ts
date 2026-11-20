@@ -51,7 +51,6 @@ const problems: string[] = [];
 
 const ownedFiles = new Set<string>();
 const ownedFolders: string[] = [];
-const linkedFolders: string[] = [];
 
 for (const entry of config.entries) {
   const os = effectiveOs(config, entry);
@@ -62,9 +61,6 @@ for (const entry of config.entries) {
     } else {
       ownedFiles.add(repoPath);
     }
-    if (entry.scanLinks === true) {
-      linkedFolders.push(`${repoPath}.linked/`);
-    }
   }
   const primary = `${writeRootFor(os)}${entry.file}`;
   if (!existsSync(primary)) {
@@ -74,9 +70,7 @@ for (const entry of config.entries) {
 
 for (const path of repoFiles(DOTFILES).sort()) {
   const owned =
-    ownedFiles.has(path) ||
-    ownedFolders.some((folder) => path.startsWith(folder)) ||
-    linkedFolders.some((folder) => path.startsWith(folder));
+    ownedFiles.has(path) || ownedFolders.some((folder) => path.startsWith(folder));
   if (!owned) {
     problems.push(`${path}: no config entry covers this file`);
   }
