@@ -54,8 +54,8 @@ const UBUNTU = "ubuntu";
 /** `bootstrap/linux.sh`, under the repo root. */
 const BOOTSTRAP_SCRIPT = ["bootstrap", "linux.sh"] as const;
 
-/** `setup --bootstrap` on macOS, before doctor runs. */
-const BOOTSTRAP_ONLY_MACOS = "ERROR: --bootstrap is Ubuntu only.";
+/** `setup --bootstrap` off Ubuntu, before doctor runs. */
+const BOOTSTRAP_ONLY_UBUNTU = "ERROR: --bootstrap is Ubuntu only.";
 
 /** The bootstrap question, exactly as `front_setup` prints it. */
 const BOOTSTRAP_QUESTION =
@@ -232,6 +232,20 @@ function noRecordLayers(state: string): Layers {
 }
 
 /**
+ * Contract "mksync setup": `--bootstrap` is Ubuntu only. On macOS and Windows
+ * it is refused before the doctor asks or prints anything; `undefined` when
+ * setup may go on.
+ */
+export function bootstrapRefusal(
+  os: Os,
+  command: SetupCommand,
+): Result | undefined {
+  return command.bootstrap === true && os !== "linux"
+    ? failure(BOOTSTRAP_ONLY_UBUNTU)
+    : undefined;
+}
+
+/**
  * Run `mksync setup` end to end: run the doctor, read the store and the scan,
  * run the flow, move `.user-values.json`, write the record and profile, offer
  * the Ubuntu bootstrap, then act on the fourth answer (decision 9).
@@ -247,8 +261,9 @@ export async function executeSetup(
 ): Promise<Result> {
   // Contract "mksync setup": `--bootstrap` is Ubuntu only, refused before the
   // doctor asks or prints anything.
-  if (command.bootstrap === true && os === "macos") {
-    return failure(BOOTSTRAP_ONLY_MACOS);
+  const refusal = bootstrapRefusal(os, command);
+  if (refusal !== undefined) {
+    return refusal;
   }
   const store = readStore(state, repoRoot, config);
   let own: MachineRecord | undefined;
