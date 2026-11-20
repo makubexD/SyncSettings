@@ -168,17 +168,17 @@ async function latestTagViaGh(): Promise<Result<string, string>> {
 }
 
 /**
- * The latest release tag. When `gh` is signed in and no release base is
- * configured, `gh release view` answers; otherwise over `file://` a `latest`
+ * The latest release tag. With `viaGh` (the caller's `useGh` answer, decided
+ * once per run), `gh release view` answers; otherwise over `file://` a `latest`
  * file next to the release folder holds it, and over http(s) the
  * `<base>/latest` redirect is followed and the tag is read from the `/tag/`
  * URL it lands on.
  */
 export async function latestTag(
   base: string,
-  env: Readonly<Record<string, string | undefined>>,
+  viaGh: boolean,
 ): Promise<Result<string, string>> {
-  if (await useGh(env)) {
+  if (viaGh) {
     return await latestTagViaGh();
   }
   const url = `${base}/latest`;
@@ -254,8 +254,8 @@ async function downloadViaGh(
 }
 
 /**
- * The bytes of one release asset, `<base>/download/<tag>/<name>`. When `gh` is
- * signed in and no release base is configured, `gh release download` answers;
+ * The bytes of one release asset, `<base>/download/<tag>/<name>`. With `viaGh`
+ * (the caller's `useGh` answer), `gh release download` answers;
  * otherwise over `file://` it is read from disk, and over http(s) the answer's
  * body is read under the adapter's time limit. A non-2xx answer is an error.
  */
@@ -263,9 +263,9 @@ export async function download(
   base: string,
   tag: string,
   name: string,
-  env: Readonly<Record<string, string | undefined>>,
+  viaGh: boolean,
 ): Promise<Result<Uint8Array, string>> {
-  if (await useGh(env)) {
+  if (viaGh) {
     return await downloadViaGh(tag, name);
   }
   const url = `${base}/download/${tag}/${name}`;

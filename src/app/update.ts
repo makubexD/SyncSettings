@@ -12,7 +12,12 @@ import { createHash } from "node:crypto";
 import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { decode, run } from "../adapters/process.ts";
-import { download, latestTag, releaseBase } from "../adapters/release.ts";
+import {
+  download,
+  latestTag,
+  releaseBase,
+  useGh,
+} from "../adapters/release.ts";
 import {
   assetName,
   isNewer,
@@ -207,14 +212,16 @@ export async function executeUpdate(deps: UpdateDeps): Promise<Result> {
     return failure(noAssetError(deps.platform, deps.arch), 1);
   }
   const base = releaseBase(deps.env);
-  const latest = await latestTag(base, deps.env);
+  // Decided once, so the tag and both files come from the same source.
+  const viaGh = await useGh(deps.env);
+  const latest = await latestTag(base, viaGh);
   if (!latest.ok) {
     return cannotGet(latest.error);
   }
   if (!isNewer(deps.current, latest.value)) {
     return upToDate(deps.current);
   }
-  const sumsText = await download(base, latest.value, SUMS_NAME, deps.env);
+  const sumsText = await download(base, latest.value, SUMS_NAME, viaGh);
   if (!sumsText.ok) {
     return cannotGet(sumsText.error);
   }
@@ -222,7 +229,7 @@ export async function executeUpdate(deps: UpdateDeps): Promise<Result> {
   if (!sums.ok) {
     return failure(`ERROR: SHA256SUMS: ${sums.error}.`, 1);
   }
-  const program = await download(base, latest.value, asset, deps.env);
+  const program = await download(base, latest.value, asset, viaGh);
   if (!program.ok) {
     return cannotGet(program.error);
   }

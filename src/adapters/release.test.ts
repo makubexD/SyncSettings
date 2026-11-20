@@ -123,8 +123,9 @@ describe("release adapter over gh", () => {
     const base = releaseBase({});
 
     // Act
-    const tag = await latestTag(base, {});
-    const asset = await download(base, TAG, ASSET, {});
+    const viaGh = await useGh({});
+    const tag = await latestTag(base, viaGh);
+    const asset = await download(base, TAG, ASSET, viaGh);
 
     // Assert
     expect(tag).toEqual({ ok: true, value: TAG });
@@ -148,7 +149,7 @@ exit 1`,
     const base = releaseBase({});
 
     // Act
-    const result = await download(base, TAG, ASSET, {});
+    const result = await download(base, TAG, ASSET, await useGh({}));
 
     // Assert
     expect(result).toEqual({ ok: false, error: NOT_FOUND });
@@ -175,8 +176,8 @@ exit 1`,
 
     // Act
     const use = await useGh(env);
-    const tag = await latestTag(base, env);
-    const asset = await download(base, TAG, ASSET, env);
+    const tag = await latestTag(base, use);
+    const asset = await download(base, TAG, ASSET, use);
 
     // Assert
     expect(use).toBe(false);
