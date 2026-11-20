@@ -445,6 +445,18 @@ Files: `docs/sync-contract.md`, `docs/design-layers.md`, `docs/configuration.md`
 
 Test: `npx prettier --check docs README.md CLAUDE.md && bun run tools/check-config.ts && scripts/ci/leak-scan.sh`.
 
+## Step 30: Docs, part 2 `[inline: user-facing docs need judgment]`
+
+Split from step 29 at run time: step 29 did `TODO.md`, `docs/design-test-moves.md`, `README.md`, `docs/layout.md`
+and `docs/configuration.md` (plus macOS check M2 on `mksync check`). This step does the rest of step 29's list, as
+written there:
+
+- `docs/sync-contract.md` (the contract bullet), `tests/parity/README.md` (`configV2` only; `configName`),
+  `docs/design-layers.md` (the design bullet), `docs/daily-workflow.md` (`mksync` commands only).
+- `docs/` held 32 files that already failed `prettier --check` before this plan; format the files this step touches.
+
+Test: `npx prettier --check docs/sync-contract.md docs/design-layers.md docs/daily-workflow.md tests/parity/README.md && bun run tools/check-config.ts && scripts/ci/leak-scan.sh`.
+
 ## After this plan
 
 The finish opens part 2's PR; it touches `.github/workflows/`, so it waits for the user's `reviewed` label. After the
