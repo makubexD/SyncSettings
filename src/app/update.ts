@@ -207,14 +207,14 @@ export async function executeUpdate(deps: UpdateDeps): Promise<Result> {
     return failure(noAssetError(deps.platform, deps.arch), 1);
   }
   const base = releaseBase(deps.env);
-  const latest = await latestTag(base);
+  const latest = await latestTag(base, deps.env);
   if (!latest.ok) {
     return cannotGet(latest.error);
   }
   if (!isNewer(deps.current, latest.value)) {
     return upToDate(deps.current);
   }
-  const sumsText = await download(base, latest.value, SUMS_NAME);
+  const sumsText = await download(base, latest.value, SUMS_NAME, deps.env);
   if (!sumsText.ok) {
     return cannotGet(sumsText.error);
   }
@@ -222,7 +222,7 @@ export async function executeUpdate(deps: UpdateDeps): Promise<Result> {
   if (!sums.ok) {
     return failure(`ERROR: SHA256SUMS: ${sums.error}.`, 1);
   }
-  const program = await download(base, latest.value, asset);
+  const program = await download(base, latest.value, asset, deps.env);
   if (!program.ok) {
     return cannotGet(program.error);
   }

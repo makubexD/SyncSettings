@@ -50,9 +50,10 @@ function ghBinary(): string {
  * `adapters/visibility.ts` has the same runner for its own gh call, but its
  * result is stdout-only and its abort handling is tied to `VisibilityDeps`;
  * moving it would change that file's public surface, so the minimal runner is
- * repeated here rather than shared.
+ * repeated here rather than shared. `adapters/release.ts` reuses this runner
+ * for `gh release view` and `gh release download`.
  */
-async function runGh(
+export async function runGh(
   repoRoot: string,
   args: readonly string[],
   timeoutMs: number,
