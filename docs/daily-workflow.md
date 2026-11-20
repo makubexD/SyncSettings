@@ -240,7 +240,7 @@ file: one the repo doesn't have is reported as `EXTRA` and kept.
 On Linux, run it in a terminal on the desktop, because GNOME settings load over the session bus. Their backups go in
 `~/.local/state/sync-settings/dconf/`, and a setting the repo doesn't name stays as it is.
 
-## Moving a machine to the new layout
+## Moving a machine from the old layout
 
 The re-layout moved every file under `dotfiles/<platform>/<tool>/` and split `.gitconfig` into a shared file and a
 `.gitconfig.local` per system ([layout.md](layout.md)). A machine that hasn't caught up still has the whole `.gitconfig`,
