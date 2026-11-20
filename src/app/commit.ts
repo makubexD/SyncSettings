@@ -98,7 +98,7 @@ const ALIAS_PROMPT =
 
 const CONFIG_FAILED = "ERROR: git config failed.";
 
-const NOT_MASTER_PREFIX = "ERROR: run commit.sh from master (current: ";
+const NOT_MASTER_PREFIX = "ERROR: run mksync commit from master (current: ";
 
 const BEHIND_ERROR = "ERROR: master is behind origin; pull first.";
 

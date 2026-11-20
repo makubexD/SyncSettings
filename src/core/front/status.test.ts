@@ -22,7 +22,7 @@ const FORCE_PULL =
   "mksync pull --force to take the repo's version (each keeps a .bak).";
 
 const MACHINE_UNKNOWN =
-  "the machine check failed; run ./import.sh --check to see why.";
+  "the machine check failed; run mksync check to see why.";
 
 /** Every fact, with the values of an up-to-date clone on this machine. */
 const CURRENT: StatusFacts = {
@@ -249,7 +249,7 @@ describe("statusLines unsent text", () => {
 describe("statusLines machine text", () => {
   test("unknown names the check", () => {
     expect(labelledLine(facts({ machine: { kind: "unknown" } }), "Machine")).toBe(
-      "  Machine   : not checked: run ./import.sh --check to see why",
+      "  Machine   : not checked: run mksync check to see why",
     );
   });
 
