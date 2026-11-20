@@ -276,6 +276,10 @@ attestation check while the repo is public, moves CI to the minutes rule, and cl
 
 Installs and updates already work on a private repo (phase 9's private-prep follow-up, `v1.0.1`).
 
+**Part A done 2026-11-20** (PR #85, `v1.0.2`): no attestation check in the installers or `mksync update`, history
+moved to `docs/archive/`, README and `CHANGELOG.md`. The `v1.0.2` release checked out (SHA256, `--version`, attestation
+still made), and a real `v1.0.1` updated to `1.0.2` with and without `gh`.
+
 - Make the repo private and rewrite `docs/decision-private-repo.md` to say what may be committed now. Lift the guard,
   so profiles, records and values are committed on the next push.
 - CI minutes rule: Linux on every PR; macOS and Windows when engine or installer files change, on `master`, or on
