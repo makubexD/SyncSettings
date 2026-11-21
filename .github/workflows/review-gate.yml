@@ -4,7 +4,6 @@ on:
     types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
 permissions:
   pull-requests: write
-  contents: read
 jobs:
   review-gate:
     runs-on: ubuntu-latest
@@ -34,6 +33,9 @@ jobs:
   new-settings:
     if: contains(fromJSON('["opened", "reopened", "synchronize"]'), github.event.action)
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
     concurrency:
       group: new-settings-${{ github.event.pull_request.number }}
       cancel-in-progress: true
@@ -47,12 +49,15 @@ jobs:
         with:
           bun-version: 1.4.4
 
+      # The base is where the PR left master, so a branch that is behind
+      # never lists as new what master has since removed.
       - name: List the new settings
         env:
           BASE: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          { echo '<!-- new-settings -->'; bun tools/new-settings.ts "origin/$BASE" "$HEAD_SHA"; } > "$RUNNER_TEMP/new-settings.md"
+          fork=$(git merge-base "origin/$BASE" "$HEAD_SHA")
+          { echo '<!-- new-settings -->'; bun tools/new-settings.ts "$fork" "$HEAD_SHA"; } > "$RUNNER_TEMP/new-settings.md"
 
       - name: Post or update the comment
         env:
@@ -60,8 +65,10 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-            --jq '.[] | select(.body | startswith("<!-- new-settings -->")) | .id' | head -n 1)
+          # A failed lookup fails the job rather than posting a second comment.
+          ids=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- new-settings -->"))) | .id')
+          id=${ids%%$'\n'*}
           if [[ -n $id ]]; then
             gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$RUNNER_TEMP/new-settings.md" > /dev/null
           else

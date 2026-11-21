@@ -78,7 +78,8 @@ function collectKeyPaths(
 function keyPaths(text: string): ReadonlySet<string> | undefined {
   let value: unknown;
   try {
-    value = JSON.parse(text);
+    // A file saved with a UTF-8 BOM still parses.
+    value = JSON.parse(text.replace(/^\uFEFF/, ""));
   } catch {
     return undefined;
   }

@@ -1372,6 +1372,10 @@ Enterprise. Every section ran:
 
 ### Design
 
+- **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
+  new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
+  plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").
+
 - **Setup's bootstrap edges (phase 9 step 24; settled in `archive/plan-single-engine-9-private-prep.md`, steps 1 and 3).**
   The contract now says the question comes after the record and profile are written and is skipped on `stop`, as
   built. `--bootstrap` on Windows stops like macOS, `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor

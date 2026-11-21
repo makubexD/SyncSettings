@@ -29,7 +29,8 @@ jobs:
             exit 0
           fi
           pattern='^(src/|tests/|install\.sh$|install\.ps1$|bootstrap/|mksync$|mksync\.cmd$|package\.json$|bun\.lock$|scripts/ci/|\.github/workflows/ci\.yml$)'
-          if git diff --name-only "origin/$BASE...HEAD" | grep -Eq "$pattern"; then
+          # A diff that fails runs every job rather than skipping them.
+          if ! changed=$(git diff --name-only "origin/$BASE...HEAD") || grep -Eq "$pattern" <<< "$changed"; then
             echo "platforms=true" >> "$GITHUB_OUTPUT"
           else
             echo "platforms=false" >> "$GITHUB_OUTPUT"
@@ -121,7 +122,7 @@ jobs:
       - name: Lint
         run: bun run lint
       - name: Unit tests
-        run: bun test src
+        run: bun test src tools
       - name: Config check
         run: bun run tools/check-config.ts
       - name: Compile for Linux x64

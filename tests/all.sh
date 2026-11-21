@@ -22,7 +22,7 @@ run_layer() { # $1: layer name, rest: command
 }
 
 run_layer lint bun run lint
-run_layer unit bun test src
+run_layer unit bun test src tools
 run_layer config bun run tools/check-config.ts
 run_layer build bun run build
 run_layer parity-program tests/parity/run.sh --engine dist/mksync

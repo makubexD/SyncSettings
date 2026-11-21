@@ -218,6 +218,52 @@ describe("new-settings", () => {
     expect(result.stdout).toBe(body());
   });
 
+  test("an unparsable JSON file on the base side lists no keys", async () => {
+    const fixture = await makeRepo(
+      { "dotfiles/linux/bad.json": "{ not json\n" },
+      async (repo) => {
+        await writeFiles(repo, { "dotfiles/linux/bad.json": '{"a": 1}\n' });
+      },
+    );
+
+    const result = run(fixture, fixture.base, fixture.head);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(body());
+  });
+
+  test("an array is one value: a new item is not listed, a new array key is", async () => {
+    const fixture = await makeRepo(
+      { "dotfiles/linux/x.json": '{"a": [1]}\n' },
+      async (repo) => {
+        await writeFiles(repo, {
+          "dotfiles/linux/x.json": '{"a": [1, {"c": 2}], "b": [3]}\n',
+        });
+      },
+    );
+
+    const result = run(fixture, fixture.base, fixture.head);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(body("key dotfiles/linux/x.json: b"));
+  });
+
+  test("a JSON file saved with a BOM still lists its new keys", async () => {
+    const fixture = await makeRepo(
+      { "dotfiles/linux/x.json": '﻿{"a": 1}\n' },
+      async (repo) => {
+        await writeFiles(repo, {
+          "dotfiles/linux/x.json": '﻿{"a": 1, "b": 2}\n',
+        });
+      },
+    );
+
+    const result = run(fixture, fixture.base, fixture.head);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(body("key dotfiles/linux/x.json: b"));
+  });
+
   test("the lines come out sorted", async () => {
     const fixture = await makeRepo(
       {

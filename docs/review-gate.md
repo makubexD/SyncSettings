@@ -50,7 +50,8 @@ A sync PR can bring a setting that wasn't in the repo before. So that you don't 
 is opened, reopened or pushed to, and edits its own comment (marked `<!-- new-settings -->`) instead of adding one. It
 doesn't change the label check: every PR still waits for `reviewed`.
 
-A new setting is, comparing the PR's head with its base:
+A new setting is, comparing the PR's head with the commit where it left its base (`git merge-base`), so a branch
+that is behind never lists what the base has since removed:
 
 - an entry in `sync-config.json` whose `file` the base doesn't have;
 - a file under `dotfiles/`, `profiles/` or `machines/` that the base doesn't have;
