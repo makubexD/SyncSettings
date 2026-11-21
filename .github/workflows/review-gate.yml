@@ -4,12 +4,12 @@ on:
     types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
 permissions:
   pull-requests: write
-concurrency:
-  group: review-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
 jobs:
   review-gate:
     runs-on: ubuntu-latest
+    concurrency:
+      group: review-gate-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       - name: Drop the review label after new commits
         if: github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'reviewed')
@@ -26,3 +26,51 @@ jobs:
             exit 1
           fi
           echo "Reviewed."
+
+  # One comment per PR listing its new settings (docs/review-gate.md, "New
+  # settings"). Its own concurrency group, so a label event cancelling the gate
+  # above never cancels this job.
+  new-settings:
+    if: contains(fromJSON('["opened", "reopened", "synchronize"]'), github.event.action)
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    concurrency:
+      group: new-settings-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+
+      # The base is where the PR left master, so a branch that is behind
+      # never lists as new what master has since removed.
+      - name: List the new settings
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          fork=$(git merge-base "origin/$BASE" "$HEAD_SHA")
+          { echo '<!-- new-settings -->'; bun tools/new-settings.ts "$fork" "$HEAD_SHA"; } > "$RUNNER_TEMP/new-settings.md"
+
+      - name: Post or update the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # A failed lookup fails the job rather than posting a second comment.
+          ids=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- new-settings -->"))) | .id')
+          id=${ids%%$'\n'*}
+          if [[ -n $id ]]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$RUNNER_TEMP/new-settings.md" > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$RUNNER_TEMP/new-settings.md" > /dev/null
+          fi
