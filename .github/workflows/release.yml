@@ -1,7 +1,7 @@
 name: release
 
-# A pushed tag v<x.y.z> builds the four programs, attests them, and publishes a
-# GitHub release with SHA256SUMS. The tag must match package.json's version
+# A pushed tag v<x.y.z> builds the four programs and publishes a GitHub release
+# with SHA256SUMS. The tag must match package.json's version
 # (scripts/ci/release-files.sh refuses otherwise). Every action is pinned by
 # commit SHA.
 
@@ -12,8 +12,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
-  attestations: write
 
 jobs:
   release:
@@ -36,11 +34,6 @@ jobs:
 
       - name: Build the release files
         run: scripts/ci/release-files.sh "$GITHUB_REF_NAME" release
-
-      - name: Attest the programs
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: release/mksync-*
 
       - name: Publish the release
         env:

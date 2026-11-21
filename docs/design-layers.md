@@ -815,8 +815,8 @@ full text and the steps that build it.
    dropped in phase 10, see "Release and update"); `~/.local/bin/mksync`, or `%LOCALAPPDATA%\mksync\mksync.exe` on the user `Path`.
    `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on Windows, since `iex` passes no parameters) links the clone's
    launcher instead.
-4. **Releases.** A tag `v<x.y.z>` equal to `package.json`'s `version` releases the four programs, `SHA256SUMS` and a
-   provenance attestation. First `v0.9.0`, tagged by the user; `v1.0.0` after the old engines are deleted.
+4. **Releases.** A tag `v<x.y.z>` equal to `package.json`'s `version` releases the four programs, `SHA256SUMS` (and,
+   up to `v1.0.2`, a provenance attestation). First `v0.9.0`, tagged by the user; `v1.0.0` after the old engines are deleted.
 5. **`mksync update`** replaces the program only with a newer release, checked as the installers check; on Windows
    through `mksync.old.exe`, deleted on the next start. Run from the clone it refuses (`git pull` updates it). No
    `--check`.
@@ -1166,8 +1166,8 @@ load` and the login home from `getent passwd`), `adapters/packages.ts` (`dpkg-qu
   (`program-build`, `bun build --compile` per target), and keeps them as one workflow artifact `mksync-<sha>` for 14
   days. Shared cases run against the Linux program in that job, and against the cross-built macOS and Windows programs
   on their own runners (`program-macos`, `program-windows`).
-- **Releases (from cut-over, v0.9.0):** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and a build provenance
-  attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
+- **Releases (from cut-over, v0.9.0):** a tag `v<x.y.z>` makes a GitHub release with the four programs, `SHA256SUMS`, and, up to
+  `v1.0.2`, a build provenance attestation (`gh attestation`). The installers download the program for the machine and check its SHA256 against
   `SHA256SUMS`. From `v1.0.2` that is the only check (see "The attestation rule" below).
 - **`mksync update`** downloads the latest release the same way, checks it, and replaces itself. On Windows a running
   program can't be overwritten, so it renames itself to `mksync.old.exe` first and deletes that on the next run.
@@ -1190,8 +1190,9 @@ As built in phase 9:
 - **Release files.** `scripts/ci/release-files.sh <tag> <folder>` refuses a tag that isn't `v` plus `package.json`'s
   `version`, cross-compiles `mksync-linux-x64`, `mksync-linux-arm64`, `mksync-darwin-arm64` and
   `mksync-windows-x64.exe`, and writes `SHA256SUMS` (sorted by name, `sha256sum -c` format). The `release` workflow runs
-  it on a pushed `v*` tag, attests the four programs with `actions/attest-build-provenance`, and publishes the release
-  with the annotated tag's message as its notes. Every action is pinned by commit SHA.
+  it on a pushed `v*` tag and publishes the release with the annotated tag's message as its notes. Releases are not
+  attested from `v1.0.3` on (phase 10, part B): the workflow no longer runs `actions/attest-build-provenance` and asks
+  for no `id-token` or `attestations` permission. Every action is pinned by commit SHA.
 - **Where the files come from.** The installers read `SYNCSETTINGS_RELEASE_URL`, the program `MKSYNC_RELEASE_URL`;
   both default to `https://github.com/makubexD/SyncSettings/releases`. The latest tag is where `<base>/latest`
   redirects; a `file://` base holds it in a `latest` file instead, which is how the tests serve a folder release.
@@ -1200,8 +1201,8 @@ As built in phase 9:
   `gh attestation verify <file> --repo makubexD/SyncSettings` when `gh auth status` succeeded. From `v1.0.2` they don't
   (`plan-single-engine-10.md`, decision 1): GitHub Free makes no attestation on a private repo, so the check would
   refuse every release. The `SHA256SUMS` check stays, and both files come from the same release through a signed-in
-  `gh` (or HTTPS while the repo is public). The release workflow keeps attesting until the repo goes private, so a
-  `v1.0.1` program can still update to `v1.0.2`.
+  `gh` (or HTTPS while the repo is public). The release workflow attested `v1.0.2` too, so a `v1.0.1` program could
+  still update to it; from `v1.0.3` releases carry no attestation.
 - **Install paths.** `~/.local/bin/mksync` on Linux and macOS (`SYNCSETTINGS_BIN`); `%LOCALAPPDATA%\mksync\mksync.exe`
   on Windows, added to the user `Path`. The earlier Windows launcher, `%LOCALAPPDATA%\SyncSettings\bin\mksync.cmd`,
   is removed when it is ours. Intel Macs have no program; `--runtime` is their way in.
