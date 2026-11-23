@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "command": "a.sh"
+      }
+    ]
+  },
+  "theme": "light"
+}
