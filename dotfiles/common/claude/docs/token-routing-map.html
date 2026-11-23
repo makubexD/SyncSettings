@@ -285,7 +285,8 @@ footer { color: var(--muted); font-size: 0.85rem; }
         <text x="450" y="236" text-anchor="middle" class="t-small">Accepted → done. Rejected twice → Opus does the task in the main session.</text>
       </svg>
     </div>
-    <p>You don't run any of this by hand. When a task is mechanical and has a plan, the main session sends it here and prints <code>⏵ mk-exec (deepseek deepseek-flash, medium effort): …</code>. Effort defaults to medium: <b>low</b> = flash, light thinking; <b>medium</b> = flash, full thinking; <b>high</b> = v4-pro. Override per step with <code>/mk-delegate --effort high …</code> or tag the plan step <code>[worker:high]</code>. To make sure it gets used, run <code>/mk-delegate</code>, or turn on worker mode so Claude can't write the code itself.</p>
+    <p>You don't run any of this by hand. When a task is mechanical and has a plan, the main session sends it here and prints <code>⏵ mk-exec (deepseek deepseek-flash, medium effort): …</code>. Effort defaults to medium: <b>low</b> = flash, light thinking; <b>medium</b> = flash, full thinking; <b>high</b> = v4-pro, about 7× the cost of medium. High runs in two cases only, and <code>mk-exec</code> refuses it without a reason: an <b>escalation</b> after a medium run of the same step was rejected for wrong logic, or a step tagged <code>[worker:high: reasoning: &lt;what the spec can't hold&gt;]</code> (one per plan at most). CI-only, hard to test or "must land first try" are not reasons; a big step is split instead. <code>workflow-report</code> shows what high cost and how often it was accepted. To make sure it gets used, run <code>/mk-delegate</code>, or turn on worker mode so Claude can't write the code itself.</p>
+    <p>When your DeepSeek balance drops under $2 (set <code>MK_BALANCE_WARN</code> to change it), every run prints a <code>LOW BALANCE</code> line and you get a push notification, but the plan keeps going. It stops only at zero. If a worker builds something your repo ignores, like <code>dist/</code>, its worktree is kept rather than merged, and Claude tells you which line to add to the repo's <code>.mk-disposable</code> file so build outputs are dropped next time. After each run, <code>mk-prune</code> removes worktrees left for over 7 days and full transcripts over 14 days old once they're archived. The short logs stay.</p>
   </section>
 
   <section aria-labelledby="proof-h">
@@ -300,7 +301,7 @@ footer { color: var(--muted); font-size: 0.85rem; }
       <div><b>0</b><small>subagent tokens per step (Haiku dispatcher removed)</small></div>
     </div>
 <pre class="diffbox">~/.claude/state/mk-worker-logs/&lt;time&gt;-&lt;repo&gt;/
-  stream.jsonl   every tool call and result
+  stream.jsonl   every tool call and result (pruned after 14 days, once archived)
   meta.json      model, effort, exit, tokens, DeepSeek balance
   diff.patch     what the worker changed
   summary.txt    the ≤40 lines Opus reads</pre>
@@ -314,7 +315,7 @@ footer { color: var(--muted); font-size: 0.85rem; }
       <div class="cmd"><code>/next [--force] [plan path]</code><span>Runs the plan. It finds the plan and the next step from git, sends worker steps to DeepSeek, does inline steps itself, and keeps going. When no steps are left it runs the report, the review, the full test suite, the PR and the merge. On a finished plan it resumes an open PR, or drafts the next phase's plan, commits it and stops for your review. Over 200k tokens of context it's blocked before spending anything, with “/clear, then /next”. <code>--force</code> skips that check.</span></div>
       <div class="cmd"><code>/mk-delegate [--effort low|medium|high] &lt;task&gt;</code><span>Hands a task to the DeepSeek worker (default effort medium). Opus writes the spec, then reads the diff and reruns the step's own tests before accepting. Works with a plan step too: <code>/mk-delegate step 2 of docs/plan-x.md</code>.</span></div>
       <div class="cmd"><code>/mk-check</code><span>Checks the key (without showing it), the isolation from your Claude login and worker mode, then runs a 6-second live job on DeepSeek that also proves the worker follows the repo's own <code>CLAUDE.md</code>. The job itself uses no Claude tokens.</span></div>
-      <div class="cmd"><code>! workflow-report .</code><span>After a feature: which steps went to the worker and which were done inline, every worker run with model, effort, exit, tokens and errors, and the commits.</span></div>
+      <div class="cmd"><code>! workflow-report .</code><span>After a feature: which steps went to the worker and which were done inline, every worker run with model, effort, exit, tokens and errors, and the commits. Its totals also show the workflow's health: compactions, gate stops, median peak context, <code>ctx_execute</code> KB read back, and plan steps per session.</span></div>
       <div class="cmd"><code>! worker-mode on</code><span>Blocks Claude from editing your code files, so every change goes through mk-exec. A green WORKER badge shows in the status line. Plan files and <code>~/.claude</code> stay editable.</span></div>
       <div class="cmd"><code>! worker-mode off</code><span>Lets Claude edit normally again. Use it for tiny fixes or judgment work.</span></div>
       <div class="cmd"><code>! worker-mode status</code><span>Shows whether it's on.</span></div>
@@ -340,7 +341,7 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
         <span class="who">Opus · spends usage, worth it</span>
         <div><p>This is the expensive thinking, and it happens once. Ask for exact files, exact changes and a test command, because that is what makes the work cheap to hand off.</p>
 <div class="prompt">Plan adding pagination to the GET /users endpoint. Write the plan to docs/plan-pagination.md with small numbered steps. For each step list the files to change, the exact change, and the test command that proves it's done. Tag each step [worker] or [inline: reason], and list every test case with its expected result. Don't implement anything yet.<button class="copy" type="button">Copy</button></div>
-<p>Using plan mode or <code>opusplan</code>? That's fine. If the approved plan sends steps to the worker, Claude writes it to <code>docs/plan-*.md</code>, commits it and stops for your review instead of starting work. If every step is small and inline, your approval is the review and it goes ahead. If the approved plan changes an existing plan file (new steps, review follow-ups), Claude writes that change into the file and commits it first, so it survives <code>/clear</code>. Every plan is committed the moment it's written: an uncommitted plan is invisible to <code>/next</code> after a clear. For big work with several PRs or research first, ask for a roadmap of phases; each phase gets its own step-level plan when it starts.</p></div>
+<p>Using plan mode or <code>opusplan</code>? That's fine. If the approved plan sends steps to the worker, Claude writes it to <code>docs/plan-*.md</code>, commits it and stops for your review instead of starting work. If every step is small and inline, your approval is the review and it goes ahead. If the approved plan changes an existing plan file (new steps, review follow-ups), Claude writes that change into the file and commits it first, so it survives <code>/clear</code>. Every plan is committed the moment it's written: an uncommitted plan is invisible to <code>/next</code> after a clear. For big work with several PRs or research first, ask for a roadmap of phases; each phase gets its own step-level plan when it starts. A plan holds at most 20 steps, and a worker step touches at most about 3 files; <code>plan-next --check</code> refuses anything bigger, so it gets split. Smaller plans finish in fewer sessions.</p></div>
       </li>
       <li>
         <h3>Read the plan yourself</h3>
@@ -424,7 +425,8 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
         <ul>
           <li>The DeepSeek worker. It costs cents on your DeepSeek balance, not plan usage, and only its short summary comes back.</li>
           <li>Shell output RTK trims away before it reaches context.</li>
-          <li>Data processed inside <code>ctx_execute</code>. Only what it prints enters the conversation, so use it to compute, not to print a file or diff (that skips RTK).</li>
+          <li>Data processed inside <code>ctx_execute</code>. Only what it prints enters the conversation, so use it to compute, not to print a file or diff (that skips RTK, and a hook now denies it).</li>
+          <li>A short global <code>CLAUDE.md</code> (under 8 KB). The plan-run detail (stops, context gate, trailers, worker internals) lives in the <code>/next</code> skill and loads only when you type <code>/next</code>.</li>
           <li>Prompt cache hits. Staying on one task keeps the cache warm.</li>
           <li><code>/clear</code>: a fresh session re-reads nothing.</li>
         </ul>
@@ -504,5 +506,5 @@ Is my git tree clean? If not, show me what's uncommitted.<button class="copy" ty
     });
   });
   </script>
-  <footer>Built from ~/.claude/CLAUDE.md, ~/.local/bin/mk-exec, ~/.claude-worker, skills/mk-delegate, skills/mk-check, hooks/worker-mode-guard.sh, settings.json and statusline.sh.</footer>
+  <footer>Built from ~/.claude/CLAUDE.md, ~/.local/bin/mk-exec, ~/.claude-worker, skills/next, skills/mk-delegate, skills/mk-check, hooks/worker-mode-guard.sh, hooks/ctx-print-guard.sh, settings.json and statusline.sh.</footer>
 </main>
