@@ -1,5 +1,5 @@
 {
-  "description": "On Ubuntu with an executable bootstrap/linux.sh, setup asks the bootstrap question before the summary, with --bootstrap in Same as:; --yes answers the confirm, y runs the script, and setup goes on with answer 4: the import applies both entries, exit 0 (mksync setup, Bootstrap, Then).",
+  "description": "On Ubuntu with an executable bootstrap/linux.sh, setup asks the bootstrap question before the summary, with --bootstrap in Same as:; --yes answers the confirm, y runs the script with MKSYNC_SETUP_EXISTING=backup, so the script imports as answer 4 says and setup imports nothing after it, exit 0 (mksync setup, Bootstrap, Then).",
   "os": ["linux"],
   "configV2": {
     "schemaVersion": 2,

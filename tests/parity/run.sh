@@ -614,7 +614,8 @@ write_getent_stub() {
 }
 
 # Write the bootstrap stub into the case's repo: `bootstrap/linux.sh` appends
-# `ran` to $temp/bootstrap.log and prints BOOTSTRAP RAN, then exits 0. The front
+# `ran <MKSYNC_SETUP_EXISTING>` to $temp/bootstrap.log and prints BOOTSTRAP RAN,
+# then exits 0; it imports nothing, so a case's home shows setup imported nothing. The front
 # door runs the repo's own file, so this is the one stub inside a compared tree;
 # its log stays outside both trees. `$0` is the repo's absolute path, or the
 # relative one the caller ran from the repo root, so its two parents are $temp.
@@ -624,7 +625,7 @@ write_bootstrap_stub() {
     # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
     printf '%s\n' \
         '#!/bin/sh' \
-        "printf 'ran\\n' >> \"\${0%/*}/../../bootstrap.log\"" \
+        "printf 'ran %s\\n' \"\${MKSYNC_SETUP_EXISTING-}\" >> \"\${0%/*}/../../bootstrap.log\"" \
         "printf 'BOOTSTRAP RAN\\n'" \
         'exit 0' > "$temp/repo/bootstrap/linux.sh" || die 'writing the bootstrap stub failed'
     chmod +x "$temp/repo/bootstrap/linux.sh" || die 'making the bootstrap stub executable failed'
