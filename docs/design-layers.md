@@ -1522,6 +1522,11 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     `--profile` with `--replace` takes the record's profile.
   - Setup "keep mine": a failed export stops before the import, with the export's exit code, so local files that
     weren't pushed are never overwritten.
+  - Setup "keep mine" with a sync point exports only the diff's `OUT` and `BOTH` files since `v1.1.1`; a diff label
+    outside `dotfiles/` (which `export --only` doesn't take) falls back to the whole export.
+  - Syncing the `ctx-print-guard` hook from this machine: its script needs a `sync-config.json` entry and its
+    `hooks.PreToolUse` wiring a Linux-layer home, so it isn't pushed into the common `settings.json` layer. Later
+    work.
   - Replace asks each machine value as `<KEY> [<old value>] ` in the record's key order; no shared case has a value
     yet.
   - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1.
@@ -1537,7 +1542,9 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - `--profile`, `--claude` and `--mode` given with `--replace` are ignored without a message.
   - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
     which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's
-    rules would be a migration.
+    rules would be a migration. WIZ-4 (refuse without a terminal) stays here: `v1.1.1` instead makes end of input at
+    setup's `[Y/n]` confirm a no, so a run with no terminal (Claude Code's `!`) writes nothing, while piped answers
+    keep working (`docs/plan-setup-hotfix.md`, decision 3).
   - An SSH alias that resolves to `ssh.github.com` (GitHub's SSH over port 443) is public, since only `github.com`
     is asked. It fails closed; asking it as `github.com` would need a line in the contract first.
   - The guard's stop when `git ls-files` fails in a clone has no shared case: the runner can't break a clone's index

@@ -1013,6 +1013,10 @@ non-ASCII characters as themselves, and a trailing newline: CRLF on Windows, LF 
 file parsed, so whitespace, key order and line endings alone are `UNCHANGED`. Keys listed in the entry's
 `localOnlyKeys` keep their local value and are never pushed.
 
+Import makes the file equal to the merged layers, so a key or array item only this machine has is dropped; that is
+how a removal made on another machine reaches this one. Such a file is `OUT` (or `BOTH`) in the [Diff](#diff), so
+`mksync pull` and `mksync setup` stop before overwriting it; run `mksync push` first to keep it.
+
 A layer that isn't JSON (comments and trailing commas included) gets `ERROR` with the note
 `not valid JSON: <layer path>`, and the local file is left alone. A UTF-8 BOM at the start of any JSON file, layer or
 local, is skipped on read and never written. JSON nested deeper than 512 levels counts as `not valid JSON`.

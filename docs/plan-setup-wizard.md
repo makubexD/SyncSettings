@@ -23,6 +23,10 @@ Plan: `docs/plan-setup-wizard-1.md`. Release `v1.1.0`.
   `OUT` or `BOTH`.
 - **WIZ-16:** the Front-door row for setup matches the setup section.
 
+**Hotfix `v1.1.1`** (`docs/plan-setup-hotfix.md`, 2026-11-23), from the user's own setup run after `v1.1.0`: keep mine
+exports only the diff's `OUT` and `BOTH` files (with the bootstrap too), end of input at setup's confirm means no, and
+shared cases prove the pull guard stops over a local-only JSON array item.
+
 ## Phase 2: a friendlier setup
 
 Plan: `docs/plan-setup-wizard-2.md`, written when phase 1 is done. Release `v1.2.0`.
@@ -41,4 +45,4 @@ Plan: `docs/plan-setup-wizard-2.md`, written when phase 1 is done. Release `v1.2
 ## Not planned
 
 Into the design's "Open" list, not built: prompts on stderr (WIZ-5), refusing piped answers without a terminal
-(WIZ-4), a step-table engine (WIZ-15, phase 2 may need part of it for back navigation).
+(WIZ-4; the hotfix makes end of input at the confirm a no instead), a step-table engine (WIZ-15, phase 2 may need part of it for back navigation).
