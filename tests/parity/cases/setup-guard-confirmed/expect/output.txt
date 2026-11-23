@@ -21,8 +21,7 @@ Machine box1: profile personal, Claude only, push with a preview.
 Same as: mksync setup --profile personal --name box1 --claude claude --mode push --existing backup
   OUT        dotfiles/common/shell/a.conf
   1 file(s) changed on this machine since the last sync; back up and replace overwrites them (each keeps a .bak).
-Write the record and apply? [y/N] 
-  UPDATED    dotfiles/common/shell/a.conf  (backup saved as a.conf.bak)
+Write the record and apply? [y/N]   UPDATED    dotfiles/common/shell/a.conf  (backup saved as a.conf.bak)
 
   --------------------------------------------------
 
