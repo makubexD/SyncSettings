@@ -13,6 +13,7 @@ Roadmap: `docs/plan-setup-wizard.md`, phase 1. Contract: `docs/sync-contract.md`
 - **The pull guard is reused, not copied.** Setup calls the same diff (`runDiff`) and the same `OUT`/`BOTH` line filter
   as `src/app/pull.ts`; a helper both use moves to one module.
 - The repo is public: fixtures use `example.com`, `/home/user`, `wk1-laptop`, and `leak-scan` stays green.
+- `tests/parity/run.sh` takes one substring filter, not a regex: several filters run as a loop.
 - Each worker step: one concern, at most 4 files. Test commands run that step's tests only; `tests/all.sh` runs before
   the PR (step 11).
 
@@ -100,7 +101,7 @@ push`, stdin empty. Above question 4: `  1 file(s) differ: 0 in, 1 out, 0 both.`
    question 4: `  1 file(s) differ. No sync is recorded on this machine, so the newer side is unknown.`; suggestion
    `[1]`; no guard block; confirm `[Y/n]`; the import runs; exit 0.
 
-Test: `tests/parity/run.sh 'setup-(existing-suggests|confirm-declined|no-sync-point)'` fails now for the missing lines.
+Test: `for f in setup-existing-suggests setup-confirm-declined setup-no-sync-point; do tests/parity/run.sh $f; done` fails now for the missing lines.
 
 ## Step 4: Case and bootstrap test: the bootstrap keeps answer 4 `[worker]`
 
@@ -157,7 +158,7 @@ all commands ran and before comparing `expect/output.txt`, rewrite the actual wh
 Nothing else changes, so every existing case still passes. README "How the runner checks it": one bullet with the three
 rules, next to the state folder's `backups/RUN`.
 
-Test: `bash -n tests/parity/run.sh && tests/parity/run.sh 'setup|pull-guard|import'`: every case that passed before
+Test: `bash -n tests/parity/run.sh && for f in setup pull-guard import; do tests/parity/run.sh $f; done`: every case that passed before
 still passes (the `setup-guard-*` and step 3's cases still fail, for the missing guard, as before).
 
 ## Step 8: Question 4 and the guard `[worker:high: reasoning: reusing pull's guard across the setup flow without a second copy of its rules]`
@@ -171,8 +172,8 @@ Files: `src/app/setup.ts`, `src/app/pull.ts`, `src/app/guard.ts` (new), `src/app
   after it, and `--yes` refuses (decision 4).
 - Unit tests in `guard.test.ts`: the filter keeps `OUT` and `BOTH` lines, drops `IN` and `?`, and counts them.
 
-Test: `bun test src/app && bun run lint`, then `bun run build && tests/parity/run.sh --engine dist/mksync
-'setup|pull-guard'`: steps 2 and 3's cases pass, and every `pull-guard-*` case still passes.
+Test: `bun test src/app && bun run lint`, then `bun run build && for f in setup pull-guard; do tests/parity/run.sh --engine
+dist/mksync $f; done`: steps 2 and 3's cases pass, and every `pull-guard-*` case still passes.
 
 ## Step 9: The bootstrap skips its import under setup `[worker]`
 
