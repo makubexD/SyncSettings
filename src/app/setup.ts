@@ -30,6 +30,7 @@ import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
 import {
   blockedLines,
+  blockedPaths,
   diffCommand,
   diffCounts,
   pullImportCommand,
@@ -469,22 +470,48 @@ export async function executeSetup(
         stderr: "",
       };
     }
-    return await importAfterSetup(outcome.action, execute, { terminal });
+    return await importAfterSetup(
+      outcome.action,
+      execute,
+      { terminal },
+      differ,
+    );
   } finally {
     terminal.close();
   }
 }
 
 /**
- * Decision 9's last move: `backup` imports at once; `keep` exports the local
- * files into the repo folder first, then imports. The import reads its value
- * answers from setup's own reader (`options.terminal`), so piped answers left
- * after the four questions still reach it.
+ * Hotfix decision 1 (docs/plan-setup-hotfix.md): keep exports only this machine's own changes. With a diff that
+ * ran, they are the paths its `OUT` and `BOTH` lines name; `undefined` means
+ * export everything, as no sync point or a failed diff leaves the newer side
+ * unknown. A label outside `dotfiles/` isn't a repo path `export --only` takes
+ * (contract "Picking files"), so it falls back to the whole export too.
+ */
+function keepPaths(differ: SetupDiffer): readonly string[] | undefined {
+  if (differ.diff?.ok !== true) {
+    return undefined;
+  }
+  const paths = blockedPaths(differ.diff.blocked);
+  return paths.every((path) => path.startsWith("dotfiles/"))
+    ? paths
+    : undefined;
+}
+
+/**
+ * Decision 9's last move: `backup` imports at once; `keep` exports this
+ * machine's own changes into the repo folder first, then imports. With a diff
+ * that ran, `keep` exports only its `OUT` and `BOTH` paths, and with no such
+ * path it runs only the import, printing no `Pushed into` line (hotfix decision 1).
+ * The import reads its value answers from setup's own reader
+ * (`options.terminal`), so piped answers left after the four questions still
+ * reach it.
  */
 async function importAfterSetup(
   action: Exclude<ExistingAction, "stop">,
   execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
   options: ExecuteOptions,
+  differ: SetupDiffer,
 ): Promise<Result> {
   const importCommand: RunCommand = {
     kind: "run",
@@ -499,6 +526,12 @@ async function importAfterSetup(
   if (action === "backup") {
     return execute(importCommand, options);
   }
+  const paths = keepPaths(differ);
+  if (paths !== undefined && paths.length === 0) {
+    // Nothing changed on this machine since the sync point, so there is
+    // nothing to send: the import alone brings the repo's `IN` files.
+    return execute(importCommand, options);
+  }
   const exportCommand: RunCommand = {
     kind: "run",
     command: "export",
@@ -507,7 +540,7 @@ async function importAfterSetup(
     check: false,
     resetValues: false,
     yes: false,
-    only: [],
+    only: paths ?? [],
   };
   const exported = await execute(exportCommand, options);
   if (exported.code !== 0) {

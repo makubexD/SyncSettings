@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Result } from "./export.ts";
-import { blockedLines, diffCounts } from "./guard.ts";
+import { blockedLines, blockedPaths, diffCounts } from "./guard.ts";
 
 const OUT_LINE = "  OUT        dotfiles/common/parity/a.conf";
 
@@ -39,6 +39,45 @@ describe("blockedLines", () => {
 
     // Assert
     expect(blocked).toEqual([]);
+  });
+});
+
+describe("blockedPaths", () => {
+  test("should give the paths of the OUT and BOTH lines in order", () => {
+    // Arrange
+    const lines = [OUT_LINE, BOTH_LINE];
+
+    // Act
+    const paths = blockedPaths(lines);
+
+    // Assert
+    expect(paths).toEqual([
+      "dotfiles/common/parity/a.conf",
+      "dotfiles/common/parity/b.conf",
+    ]);
+  });
+
+  test("should give no path for IN and ? lines and for summary or hint lines", () => {
+    // Arrange
+    const summary = "  2 file(s) differ: 1 in, 0 out, 0 both.";
+    const hint = "  IN: mksync pull takes them.";
+
+    // Act
+    const paths = blockedPaths([IN_LINE, UNKNOWN_LINE, summary, hint]);
+
+    // Assert
+    expect(paths).toEqual([]);
+  });
+
+  test("should keep a path with a space whole", () => {
+    // Arrange
+    const line = "  OUT        dotfiles/common/my folder/a b.conf";
+
+    // Act
+    const paths = blockedPaths([line]);
+
+    // Assert
+    expect(paths).toEqual(["dotfiles/common/my folder/a b.conf"]);
   });
 });
 

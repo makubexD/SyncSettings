@@ -1286,8 +1286,11 @@ Write the record and apply? [Y/n]
   restores without Bun or Node.
 - **Then**, after a yes, it writes the record and the profile. With the bootstrap chosen, the script acts on the fourth
   answer ("Bootstrap"); otherwise setup does: `backup` runs `import --force` (each
-  file keeps its `.bak`); `keep` runs `export`, prints `Pushed into the repo folder; commit it with mksync push.`, then
-  runs `import --force`; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
+  file keeps its `.bak`); `keep`, with a sync point and a diff that ran, runs `export` with `--only` for each file the
+  diff labelled `OUT` or `BOTH`, prints `Pushed into the repo folder; commit it with mksync push.`, then runs
+  `import --force`, which brings the `IN` files; when the diff labelled no such file, only the import runs and no
+  `Pushed into` line prints; without a sync point, or after a failed diff, it runs the whole `export` as before, since
+  the newer side is unknown; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
   import's or export's code.
 
 A flag that can't be read stops before the scan, exit 2, like an unknown option: `ERROR: <flag> needs a value.`,
