@@ -1218,7 +1218,8 @@ Write the record and apply? [Y/n]
   piped after the four (and any value or bootstrap answers) reach the import's value questions
   ([Sanitize and hydrate](#sanitize-and-hydrate)). `mksync pull` shares its input with its import the same way.
 - **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
-  the suggestion in brackets. `--yes` takes every suggestion without asking. A choice is digits only (`0x2` or `2.0`
+  the suggestion in brackets, except at the confirm, where end of input is no (see below). `--yes` takes every
+  suggestion without asking. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints
   `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below). Answers are trimmed of
   spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (phase 9 decision 8). A
@@ -1262,7 +1263,9 @@ Write the record and apply? [Y/n]
   `  Could not tell which side is newer; back up and replace may overwrite files changed here (each keeps a .bak).`
   `IN` lines never make a guard block, and `keep` or `stop` never do.
 - **Confirm.** `Write the record and apply? [Y/n] `, or `[y/N] ` after a guard block. A no prints
-  `Stopped: nothing was written.` and exits 0, with no record, profile, bootstrap or import. `--yes` answers yes,
+  `Stopped: nothing was written.` and exits 0, with no record, profile, bootstrap or import. An empty answer is yes;
+  end of input at `[Y/n]` counts as no, printing `Stopped: nothing was written.` and exiting 0, since with no
+  terminal, as under Claude Code's `!`, nobody answered. `--yes` answers yes,
   except after a guard block: there setup stops before anything is written with
   `ERROR: <n> file(s) changed on this machine since the last sync, and setup would overwrite them.` and
   `Run mksync setup --existing keep to push them first, or run it without --yes to confirm.`, exit 1; after a failed

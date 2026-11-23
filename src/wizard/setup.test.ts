@@ -150,7 +150,13 @@ const OUT_DIFF = {
 
 describe("runSetup", () => {
   test("should print the contract's layout for answers on stdin", async () => {
-    const { outcome, output } = await run(input(), ["work-1", "2", "1", "1"]);
+    const { outcome, output } = await run(input(), [
+      "work-1",
+      "2",
+      "1",
+      "1",
+      "",
+    ]);
     expect(output).toBe(
       [
         SCAN_BLOCK,
@@ -198,22 +204,35 @@ describe("runSetup", () => {
     expect(output.endsWith(CONFIRM_QUESTION)).toBe(true);
   });
 
-  test("should take end of input on the confirm as yes", async () => {
+  test("should take end of input on the confirm as no", async () => {
     // Arrange
     const setup = input({}, ANSWER_FLAGS);
 
     // Act
-    const { outcome } = await run(setup);
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(outcome).toEqual({ ok: false, declined: true });
+    expect(output.endsWith(CONFIRM_QUESTION)).toBe(true);
+  });
+
+  test("should take an empty line on the confirm as yes", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { outcome } = await run(setup, [""]);
 
     // Assert
     expect(outcome.ok).toBe(true);
   });
 
-  test("should not print the confirm under --yes", async () => {
+  test("should take --yes without reading the confirm", async () => {
     // Arrange
     const setup = input({}, { ...ANSWER_FLAGS, yes: true });
 
     // Act
+    // With no scripted answers a read would now mean end of input, hence no.
     const { outcome, output } = await run(setup);
 
     // Assert
@@ -348,7 +367,7 @@ describe("runSetup", () => {
   });
 
   test("should take the suggestion on an empty answer and at end of input", async () => {
-    const { outcome } = await run(input(), ["work-1", ""]);
+    const { outcome } = await run(input(), ["work-1", "", "", "", ""]);
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.record.claude).toBe("claude");
     expect(outcome.action).toBe("backup");
@@ -373,7 +392,15 @@ describe("runSetup", () => {
   });
 
   test("should ask the first question again after a bad answer", async () => {
-    const { outcome, output } = await run(input(), ["7", "Bad_Name", "1"]);
+    const { outcome, output } = await run(input(), [
+      "7",
+      "Bad_Name",
+      "1",
+      "",
+      "",
+      "",
+      "",
+    ]);
     expect(output).toContain(
       `${Q1}Pick 1 to 1 or type a new profile name.\n${Q1}Pick 1 to 1 or type a new profile name.\n${Q1}`,
     );
@@ -385,6 +412,9 @@ describe("runSetup", () => {
     const { outcome, output } = await run(input({}, { profile: "work-1" }), [
       "9",
       "3",
+      "",
+      "",
+      "",
     ]);
     expect(output).toContain(`${Q2}Pick 1 to 3.\n${Q2}`);
     if (!outcome.ok) throw new Error("expected ok");
@@ -396,6 +426,9 @@ describe("runSetup", () => {
       "0x2",
       "2.0",
       "3",
+      "",
+      "",
+      "",
     ]);
     expect(output).toContain(`${Q2}Pick 1 to 3.\n${Q2}Pick 1 to 3.\n${Q2}`);
     if (!outcome.ok) throw new Error("expected ok");
@@ -435,7 +468,13 @@ describe("runSetup", () => {
 
   test("should pick a listed profile by number and keep its modules", async () => {
     const work = profile("work-1", ["git"]);
-    const { outcome, output } = await run(input({ profiles: [work] }), ["2"]);
+    const { outcome, output } = await run(input({ profiles: [work] }), [
+      "2",
+      "",
+      "",
+      "",
+      "",
+    ]);
     expect(output).toContain("  1) personal\n  2) work-1\n");
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.newProfile).toBe(false);
@@ -503,7 +542,7 @@ describe("runSetup", () => {
       records: [record()],
       isPrivate: true,
     });
-    const { outcome, output } = await run(setup, ["", ""]);
+    const { outcome, output } = await run(setup, ["", "", ""]);
     expect(output).toContain(
       "Profiles in this repo:\n  1) personal\n  2) work-1      machine wk1-laptop\n" +
         "  This looks like wk1-laptop (same hostname): choosing 2 replaces it.\n\n" +
@@ -538,7 +577,7 @@ describe("runSetup", () => {
         existing: "stop",
       },
     );
-    const { outcome, output } = await run(setup);
+    const { outcome, output } = await run(setup, [""]);
     expect(output).not.toContain("1/4");
     expect(output).toContain(
       "Same as: mksync setup --profile work-1 --replace wk1-laptop --claude none --mode pull-only --existing stop\n",
@@ -759,7 +798,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, [""]);
+    const { outcome, output } = await run(setup, ["", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -974,7 +1013,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome, output } = await run(setup, ["1"]);
+    const { outcome, output } = await run(setup, ["1", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -988,7 +1027,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome } = await run(setup, ["2"]);
+    const { outcome } = await run(setup, ["2", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1001,7 +1040,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome } = await run(setup, ["3"]);
+    const { outcome } = await run(setup, ["3", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1042,7 +1081,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome, output } = await run(setup, ["4", "1"]);
+    const { outcome, output } = await run(setup, ["4", "1", ""]);
 
     // Assert
     expect(output).toContain(
@@ -1061,7 +1100,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS, other]);
 
     // Act
-    const { outcome } = await run(setup, ["1", "1"]);
+    const { outcome } = await run(setup, ["1", "1", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
