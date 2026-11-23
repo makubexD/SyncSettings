@@ -1251,7 +1251,9 @@ Write the record and apply? [Y/n]
   [sync point](#sync-point) exists, the [diff](#diff). It prints one line above question 4 (also when a flag answers
   it): with a sync point, `  <n> file(s) differ: <i> in, <o> out, <b> both.`; without one,
   `  <n> file(s) differ. No sync is recorded on this machine, so the newer side is unknown.`; after a failed diff,
-  `  <n> file(s) differ; could not tell which side is newer.` Nothing differing prints no line. Question 4 suggests `2`
+  `  <n> file(s) differ; could not tell which side is newer.` `<n>` is the diff's count (`<i> + <o> + <b>`); without a
+  sync point or after a failed diff it is the check's `UPDATE` count. A `CREATE` never counts, since a file this
+  machine lacks has nothing to overwrite, so a fresh machine gets no line. A count of 0 prints no line. Question 4 suggests `2`
   (keep mine) when the diff has an `OUT` or `BOTH` file and the mode is push, else `1`.
 - **Guard block.** When the fourth answer is `backup`, a sync point exists and the diff has an `OUT` or `BOTH` file,
   setup prints those diff lines after `Same as:`, then
