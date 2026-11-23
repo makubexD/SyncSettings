@@ -1,0 +1,43 @@
+{
+  "description": "Setup without a sync point and one differing file prints the newer-side-unknown line above question 4 and suggests back up and replace ([1]) with no guard block; end of input takes it and the plain [Y/n] confirm, then the import updates the file, keeps the old one in a.conf.bak and records the sync point, exit 0 (mksync setup, What differs, Confirm, Then).",
+  "os": ["linux"],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/a.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "box1",
+        "claude": "none",
+        "mode": "push"
+      }
+    }
+  ]
+}

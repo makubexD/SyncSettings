@@ -1,0 +1,44 @@
+{
+  "description": "Setup with a sync point and one OUT file prints the differ line above question 4 and suggests keep ([2]); end of input keeps this machine's file, so Same as: names --existing keep, the confirm is the plain [Y/n] and a yes exports the file into the repo, prints Pushed into the repo folder, then imports, exit 0 (mksync setup, What differs, Confirm, Then).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/a.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "box1",
+        "claude": "none",
+        "mode": "push"
+      }
+    }
+  ]
+}

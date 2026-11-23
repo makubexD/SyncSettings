@@ -1,0 +1,35 @@
+  OK       git
+  OK       gh (signed in)
+  OK       repo clone with origin
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      1 of 1 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+  1 file(s) differ. No sync is recorded on this machine, so the newer side is unknown.
+4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1] 
+Machine box1: profile personal, none, push with a preview.
+Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing backup
+Write the record and apply? [Y/n] 
+  UPDATED    dotfiles/common/shell/a.conf  (backup saved as a.conf.bak)
+
+  --------------------------------------------------
+
+  1 file(s) applied.
+
+  Backups    : <HOME>/.local/state/sync-settings/backups/RUN
+
+  Sync point : <HEAD>
+
+  --------------------------------------------------
+
