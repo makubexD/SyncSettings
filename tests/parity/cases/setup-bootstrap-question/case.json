@@ -1,5 +1,5 @@
 {
-  "description": "On Ubuntu with an executable bootstrap/linux.sh, the v2 setup writes the record and the profile, then asks the bootstrap question; y runs the script and setup ends with its exit code, with no first pull (Machines (program only), mksync setup, bootstrap).",
+  "description": "On Ubuntu with an executable bootstrap/linux.sh, setup asks the bootstrap question before the summary, with --bootstrap in Same as:; --yes answers the confirm, y runs the script, and setup goes on with answer 4: the import applies both entries, exit 0 (mksync setup, Bootstrap, Then).",
   "os": ["linux"],
   "configV2": {
     "schemaVersion": 2,
