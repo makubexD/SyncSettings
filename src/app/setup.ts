@@ -28,7 +28,12 @@ import {
 import { readVisibility } from "../adapters/visibility.ts";
 import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
-import { blockedLines, diffCounts } from "./guard.ts";
+import {
+  blockedLines,
+  diffCommand,
+  diffCounts,
+  pullImportCommand,
+} from "./guard.ts";
 import { isInstalledProgram } from "./update.ts";
 import type { ExecuteOptions, Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
@@ -60,29 +65,10 @@ const BOOTSTRAP_SCRIPT = ["bootstrap", "linux.sh"] as const;
 const BOOTSTRAP_ONLY_UBUNTU = "ERROR: --bootstrap is Ubuntu only.";
 
 /** `import --check`, as pull's check runs it, for question 4's differ line. */
-const IMPORT_CHECK: RunCommand = {
-  kind: "run",
-  command: "import",
-  force: false,
-  preview: false,
-  check: true,
-  resetValues: false,
-  yes: false,
-  only: [],
-};
+const IMPORT_CHECK: RunCommand = pullImportCommand(true, false, []);
 
 /** `export --diff`, as pull's diff runs it, for the guard block. */
-const DIFF: RunCommand = {
-  kind: "run",
-  command: "export",
-  force: false,
-  preview: false,
-  check: false,
-  resetValues: false,
-  yes: false,
-  diff: true,
-  only: [],
-};
+const DIFF: RunCommand = diffCommand([]);
 
 /** A check line an import would overwrite: `UPDATE`, never `CREATE`. */
 const UPDATE_LINE = /^ {2}UPDATE /;
@@ -223,14 +209,16 @@ function bootstrapScript(repoRoot: string, os: Os): string | undefined {
 /**
  * Contract "mksync setup": runs the script the flow chose, after the record
  * and profile are written. The script owns the terminal (it may prompt for
- * sudo), so our answer reader is closed first. MKSYNC_SETUP=1 tells it to skip
- * its import, since setup imports next. `undefined` when no script runs or it
- * succeeds; otherwise its exit code ends setup.
+ * sudo), so our answer reader is closed first. `MKSYNC_SETUP_EXISTING` hands it
+ * the fourth answer, which its import step carries out in its usual place,
+ * before the links, plugins and preview that need the files; setup then ends
+ * with the script's exit code. `undefined` when no script runs.
  */
 async function runBootstrap(
   repoRoot: string,
   os: Os,
   terminal: SetupTerminal,
+  existing: ExistingAction,
 ): Promise<Result | undefined> {
   const script = bootstrapScript(repoRoot, os);
   if (script === undefined) {
@@ -239,11 +227,11 @@ async function runBootstrap(
   terminal.close();
   const bootstrapped = await run([script], {
     inherit: true,
-    env: { ...bootstrapEnv(process.env, process.execPath), MKSYNC_SETUP: "1" },
+    env: {
+      ...bootstrapEnv(process.env, process.execPath),
+      MKSYNC_SETUP_EXISTING: existing,
+    },
   });
-  if (bootstrapped.code === 0) {
-    return undefined;
-  }
   return { code: bootstrapped.code, stdout: "", stderr: "" };
 }
 
@@ -461,10 +449,15 @@ export async function executeSetup(
     }
 
     // Contract "Then": only a confirm's yes reaches here, so the record and
-    // profile are written, then the chosen bootstrap runs and ends setup with
-    // its exit code, and only then does setup act on question 4.
+    // profile are written. A chosen bootstrap acts on question 4 itself and
+    // ends setup with its exit code; otherwise setup acts on it.
     if (outcome.bootstrap) {
-      const bootstrapped = await runBootstrap(repoRoot, os, terminal);
+      const bootstrapped = await runBootstrap(
+        repoRoot,
+        os,
+        terminal,
+        outcome.action,
+      );
       if (bootstrapped !== undefined) {
         return bootstrapped;
       }

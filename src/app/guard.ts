@@ -4,6 +4,7 @@
  * names. Only the parsing lives here; pull and setup keep their own wording.
  */
 
+import type { RunCommand } from "../cli/parse.ts";
 import type { Result } from "./export.ts";
 
 /** A diff label line the guard stops on: `formatLine` leaves two spaces, the
@@ -44,4 +45,39 @@ export function diffCounts(diff: Result): DiffCounts {
     }
   }
   return { inCount, outCount, bothCount };
+}
+
+/** A pull child's `import`: the check (`--check`) or the forced apply. Setup's
+ * differ line runs the same check. */
+export function pullImportCommand(
+  check: boolean,
+  force: boolean,
+  only: readonly string[],
+): RunCommand {
+  return {
+    kind: "run",
+    command: "import",
+    force,
+    preview: false,
+    check,
+    resetValues: false,
+    yes: false,
+    only,
+  };
+}
+
+/** A child's `export --diff`, narrowed to the pulled or picked paths. Setup's
+ * guard runs the same diff over every path. */
+export function diffCommand(only: readonly string[]): RunCommand {
+  return {
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: false,
+    check: false,
+    resetValues: false,
+    yes: false,
+    diff: true,
+    only,
+  };
 }

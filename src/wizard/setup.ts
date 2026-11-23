@@ -267,15 +267,18 @@ function guardBlockText(guard: SetupGuard): string {
   return `${[...guard.lines, countLine].join("\n")}\n`;
 }
 
-/** Contract "Confirm": `--yes` after a guard block stops with these lines. */
-function guardRefusalText(guard: SetupGuard): string {
+/** Contract "Confirm": `--yes` after a guard block stops with these lines.
+ * A pull-only machine can't keep, so its lines don't suggest it. */
+function guardRefusalText(guard: SetupGuard, mode: SetupMode): string {
+  const canKeep = mode === "push";
   if (guard.kind === "failed") {
-    return "ERROR: could not tell which side is newer; run mksync diff to see why, or mksync setup --existing keep.";
+    const keepHint = canKeep ? ", or mksync setup --existing keep" : "";
+    return `ERROR: could not tell which side is newer; run mksync diff to see why${keepHint}.`;
   }
-  return (
-    `ERROR: ${guard.count} file(s) changed on this machine since the last sync, and setup would overwrite them.\n` +
-    "Run mksync setup --existing keep to push them first, or run it without --yes to confirm."
-  );
+  const next = canKeep
+    ? "Run mksync setup --existing keep to push them first, or run it without --yes to confirm."
+    : "Run it without --yes to confirm.";
+  return `ERROR: ${guard.count} file(s) changed on this machine since the last sync, and setup would overwrite them.\n${next}`;
 }
 
 /** The hostname up to its first dot: the name `setup` suggests, since macOS
@@ -733,7 +736,7 @@ export async function runSetup(
   // end of input takes the default: yes for `[Y/n]`, no for `[y/N]`.
   if (flags.yes === true) {
     if (guard !== undefined) {
-      return stop(guardRefusalText(guard), 1);
+      return stop(guardRefusalText(guard, mode), 1);
     }
   } else {
     io.write(guard === undefined ? CONFIRM_QUESTION : CONFIRM_GUARDED_QUESTION);

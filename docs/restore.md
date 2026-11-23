@@ -38,8 +38,8 @@ gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/conte
 It installs `git` and `jq` if needed (it asks first), clones the repo to `~/SyncSettings`, and runs `mksync setup`. Setup
 asks all its questions first, then shows a summary and asks `Write the record and apply? [Y/n]`; a no writes nothing.
 Answer yes to `Also restore apps and packages from packages/linux (uses sudo)?`; after the confirm that runs
-`./bootstrap/linux.sh`, described below, and then setup imports the files as question 4 said. You can also run the
-bootstrap yourself from the clone.
+`./bootstrap/linux.sh`, described below, whose import step does what question 4 said (back up and replace, keep mine,
+or stop). You can also run the bootstrap yourself from the clone; it then imports as a plain `mksync import` does.
 
 On a machine that already has its own changes (a reinstall that kept `HOME`, or a second `setup` after
 `--replace`), read the line above question 4, `Files that are already here?`. `<n> file(s) differ: <i> in, <o> out, <b>
@@ -150,8 +150,8 @@ gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/conte
 ```
 
 It offers to install Git and the GitHub CLI with `winget` (it asks first), clones the repo to `%USERPROFILE%\SyncSettings`,
-puts `mksync` on your user `PATH`, and runs `mksync setup`. Setup runs `doctor`, asks its questions, shows what the
-import would change, and applies it only after `Write the record and apply?` gets a yes, then asks for the values the
+puts `mksync` on your user `PATH`, and runs `mksync setup`. Setup runs `doctor`, asks its questions, says how many
+files differ, and applies it only after `Write the record and apply?` gets a yes, then asks for the values the
 configs need (your name and email for git, for example). On a machine with changes of its own, see the paragraph on
 question 4 [under Ubuntu](#restore-ubuntu): it works the same here. It keeps a `.bak` of every file it replaces. Then open a new window and run `mksync`; `Machine : matches the repo` means
 it worked.

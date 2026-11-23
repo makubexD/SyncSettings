@@ -90,7 +90,8 @@ The first pull on a machine has no sync recorded, so it can't tell which side ch
 so a script never overwrites a machine it knows nothing about, even with paths. Take files one at a time without
 `--yes` instead (below), or
 `mksync pull --force`. A pull that finds nothing to change records the sync anyway, so the next diff has labels.
-`mksync setup` and the restore script still take the repo's files on a new machine without asking.
+`mksync setup` guards the same way: once a machine has a sync point, its "back up and replace" lists the files changed
+here and asks `[y/N]`, and `--yes` refuses. Run by hand, the restore script still imports without that guard.
 
 ## Take or send only some files
 

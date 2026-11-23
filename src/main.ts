@@ -28,6 +28,7 @@ import { readVisibility } from "./adapters/visibility.ts";
 import { executeCommit } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
 import { executeDoctor } from "./app/doctor.ts";
+import { diffCommand, pullImportCommand } from "./app/guard.ts";
 import { runImport } from "./app/import.ts";
 import { executePull } from "./app/pull.ts";
 import type { FetchResult } from "./app/pull.ts";
@@ -73,39 +74,6 @@ export type { Result } from "./app/export.ts";
 const GIT_ENV: Readonly<Record<string, string>> = {
   GIT_TERMINAL_PROMPT: "0",
 };
-
-/** A pull child's `import`: the check (`--check`) or the forced apply. */
-function pullImportCommand(
-  check: boolean,
-  force: boolean,
-  only: readonly string[],
-): RunCommand {
-  return {
-    kind: "run",
-    command: "import",
-    force,
-    preview: false,
-    check,
-    resetValues: false,
-    yes: false,
-    only,
-  };
-}
-
-/** A child's `export --diff`, narrowed to the pulled or picked paths. */
-function diffCommand(only: readonly string[]): RunCommand {
-  return {
-    kind: "run",
-    command: "export",
-    force: false,
-    preview: false,
-    check: false,
-    resetValues: false,
-    yes: false,
-    diff: true,
-    only,
-  };
-}
 
 /** A push child's `export`: the picked paths, with `--yes` taking the new
  * settings' suggestions, as the design's "Push and pull" says. */
