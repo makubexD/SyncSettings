@@ -2,6 +2,18 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.1 (2026-11-23)
+
+- "Keep mine" in `mksync setup` no longer undoes the repo's newer files. After a first sync it sends only the files
+  changed on this machine (`OUT` and `BOTH`) into the repo folder, then imports, so files changed only in the repo
+  still arrive. Before a first sync it still sends everything. With the bootstrap, setup does this before the script,
+  whose import step then only imports.
+- `mksync setup` with nobody to answer (no terminal, such as Claude Code's `!`) no longer applies: end of input at
+  `Write the record and apply? [Y/n]` stops with `Stopped: nothing was written.` An empty answer is still yes, piped
+  answers still work, and `--yes` still applies.
+- New shared cases prove `mksync pull` stops before overwriting a JSON file that holds an item only this machine has
+  (a hook, say). The contract explains why an import drops such an item and that `mksync push` keeps it.
+
 ## v1.1.0 (2026-11-23)
 
 - `mksync setup` keeps this machine's changes. It asks every question first, the bootstrap one included, then shows
