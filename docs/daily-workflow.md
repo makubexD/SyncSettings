@@ -285,9 +285,10 @@ mksync setup --existing stop
 
 It shows what it read (OS, hostname, tools, how many config entries already exist), lists the profiles (`personal` and
 any made on this machine), and asks what the machine is for, Claude, and push or pull only; Enter takes the suggestion
-in brackets. It prints the same choices as one command (`Same as: mksync setup …`), then writes
-`~/.local/state/sync-settings/machine.json` and the profile next to it, and stops:
-`Stopped: the record is written, no file was changed.` If `.user-values.json` has a value it doesn't know where to keep,
+in brackets. Above the last question it says how many files differ and, after a first sync, on which side. It prints
+the same choices as one command (`Same as: mksync setup …`) and asks `Write the record and apply? [Y/n]`: a no prints
+`Stopped: nothing was written.` A yes writes `~/.local/state/sync-settings/machine.json` and the profile next to it,
+and stops: `Stopped: the record is written, no file was changed.` If `.user-values.json` has a value it doesn't know where to keep,
 it asks once: `<KEY>: kept on 1) this profile 2) this machine [1]`.
 
 ```bash
@@ -296,7 +297,9 @@ mksync check             # what a pull would change, with the profile and machin
 ```
 
 `--existing backup` instead of `stop` runs the first import right away (each file keeps its `.bak`); `keep` exports this
-machine's files first, so it can't be used with `--mode pull-only`. Running `setup` again stops, because the machine
+machine's files first, so it can't be used with `--mode pull-only`. When this machine has a sync point and files it
+changed since (`OUT` or `BOTH` in `mksync diff`), `backup` lists them and the confirm becomes `[y/N]`; `--yes` refuses
+with exit 1, as `mksync pull --yes` does. Pick `keep` to push those changes first. Running `setup` again stops, because the machine
 already has a record; `--replace <name>` takes over a record, for a reinstall. To go back to no layers at all, delete
 `machine.json`; `machine retire` only marks the record so it can't push. While the repo is public, nothing of this goes
 into it: `export` holds the record and profile, and refuses if the clone already tracks `profiles/` or `machines/`.

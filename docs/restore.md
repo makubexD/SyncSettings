@@ -35,9 +35,19 @@ gh auth login
 gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.sh | bash
 ```
 
-It installs `git` and `jq` if needed (it asks first), clones the repo to `~/SyncSettings`, and runs `mksync setup`. Answer
-yes to `Also restore apps and packages from packages/linux (uses sudo)?`; that runs `./bootstrap/linux.sh`, described
-below. You can also run it yourself from the clone.
+It installs `git` and `jq` if needed (it asks first), clones the repo to `~/SyncSettings`, and runs `mksync setup`. Setup
+asks all its questions first, then shows a summary and asks `Write the record and apply? [Y/n]`; a no writes nothing.
+Answer yes to `Also restore apps and packages from packages/linux (uses sudo)?`; after the confirm that runs
+`./bootstrap/linux.sh`, described below, and then setup imports the files as question 4 said. You can also run the
+bootstrap yourself from the clone.
+
+On a machine that already has its own changes (a reinstall that kept `HOME`, or a second `setup` after
+`--replace`), read the line above question 4, `Files that are already here?`. `<n> file(s) differ: <i> in, <o> out, <b>
+both.` counts the files the import would overwrite, by which side changed since the last sync. Any `out` or `both`
+means this machine has changes the repo lacks: answer `2` (keep mine, push them first), which setup then suggests on a machine that pushes. If
+you answer `1` (back up and replace) anyway, setup lists those files and the confirm turns to `[y/N]`, so Enter
+stops; with `--yes` it refuses. Without a sync point the line says the newer side is unknown: run `mksync diff` after
+setup, or answer `2` when in doubt.
 
 Run it as your own user, not with `sudo`. It installs packages, tools and configs, links the scripts, adds the Claude plugins, and
 ends with `./sync preview`, so the last thing on screen is the state of the machine. Expect it to take a while.
@@ -140,9 +150,10 @@ gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/conte
 ```
 
 It offers to install Git and the GitHub CLI with `winget` (it asks first), clones the repo to `%USERPROFILE%\SyncSettings`,
-puts `mksync` on your user `PATH`, and runs `mksync setup`. Setup runs `doctor`, shows what the import would change, and
-applies it after you say yes, asking for the values the configs need on the way (your name and email for git, for
-example). It keeps a `.bak` of every file it replaces. Then open a new window and run `mksync`; `Machine : matches the repo` means
+puts `mksync` on your user `PATH`, and runs `mksync setup`. Setup runs `doctor`, asks its questions, shows what the
+import would change, and applies it only after `Write the record and apply?` gets a yes, then asks for the values the
+configs need (your name and email for git, for example). On a machine with changes of its own, see the paragraph on
+question 4 [under Ubuntu](#restore-ubuntu): it works the same here. It keeps a `.bak` of every file it replaces. Then open a new window and run `mksync`; `Machine : matches the repo` means
 it worked.
 
 There's no Windows package restore: apps aren't installed for you, only their settings. Install the apps first (VS Code,

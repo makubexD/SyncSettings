@@ -10,7 +10,7 @@ layout.
 The user chose (2026-11-22): safety and look, in two phases; run now, before phase 10's switch to private, and release
 it as `v1.1.0` so the work machines update straight to it. Phase 10 part D resumes after phase 1.
 
-## Phase 1: setup keeps this machine's changes
+## Phase 1: setup keeps this machine's changes — **Done**
 
 Plan: `docs/plan-setup-wizard-1.md`. Release `v1.1.0`.
 
