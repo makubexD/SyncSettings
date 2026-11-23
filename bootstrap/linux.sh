@@ -671,15 +671,12 @@ step_import() {
     # Under mksync setup, MKSYNC_SETUP_EXISTING is its fourth answer, and this
     # step carries it out here, so the links, plugins and preview after it see
     # the files. Setup already confirmed, so its import doesn't ask again.
+    # Setup has already run keep's export and printed its Pushed line, so keep
+    # and backup both only import.
     local import_args=()
     case ${MKSYNC_SETUP_EXISTING:-} in
         '') ;;
-        backup) import_args=(--force) ;;
-        keep)
-            "$MKSYNC" export || return 1
-            printf 'Pushed into the repo folder; commit it with mksync push.\n'
-            import_args=(--force)
-            ;;
+        backup|keep) import_args=(--force) ;;
         stop)
             boot_skipped import 'mksync setup --existing stop'
             return 0

@@ -1273,10 +1273,12 @@ Write the record and apply? [Y/n]
 - **Bootstrap.** On Ubuntu with an executable `bootstrap/linux.sh`, after question 4 and before the summary:
   `Also restore apps and packages from packages/linux (uses sudo)? [y/N] `; `y` chooses it, while an empty answer or
   end of input skips it. `--bootstrap` chooses it without asking. The `stop` answer to question 4 never asks it. After
-  the confirm and the record and profile are written, setup runs the script with `MKSYNC_SETUP_EXISTING` set to the
-  fourth answer, and the script's import step does what "Then" says for it in place of its own import: `backup` runs
-  `import --force`; `keep` runs `export`, prints `Pushed into the repo folder; commit it with mksync push.`, then runs
-  `import --force`, and a failed export fails the step with no import; `stop` prints
+  the confirm and the record and profile are written, with `keep` setup runs keep's export as "Then" describes (and
+  prints `Pushed into the repo folder; commit it with mksync push.`) before the script, while setup's terminal is still
+  open; a failed export stops setup before the script with the export's code, the record and profile staying written.
+  Then setup runs the script with `MKSYNC_SETUP_EXISTING` set to the fourth answer, and the script's import step does
+  what "Then" says for it in place of its own import: `backup` and `keep` run `import --force` (with keep, the export
+  is already done); `stop` prints
   `  SKIPPED    import (mksync setup --existing stop)` and runs no import. The steps after it (links, plugins,
   preview) see the restored files, and the script keeps the terminal for the import's questions. Setup ends with the
   script's exit code and does nothing after it; a failure leaves the record and profile in place. macOS and Windows never ask, and `--bootstrap`
