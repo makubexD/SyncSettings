@@ -1204,7 +1204,7 @@ Profiles on this machine:
 3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1]
   3 file(s) differ: 3 in, 0 out, 0 both.
 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1]
-Also restore apps and packages from packages/linux (uses sudo)? [y/N]
+  Also restore apps and packages from packages/linux (uses sudo)? [y/N]
 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup
