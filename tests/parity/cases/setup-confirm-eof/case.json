@@ -1,0 +1,43 @@
+{
+  "description": "Setup with the four answers from stdin and the input ending at the plain [Y/n] confirm treats end of input as no: it prints Write the record and apply? [Y/n] Stopped: nothing was written., exits 0, and writes no record, no profile and no file (mksync setup, Confirm).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "stdin": "1\n1\n1\n1\n"
+    }
+  ]
+}

@@ -39,7 +39,7 @@
   "commands": [
     {
       "command": "setup",
-      "stdin": "\n3\n"
+      "stdin": "\n3\ny\n"
     }
   ]
 }

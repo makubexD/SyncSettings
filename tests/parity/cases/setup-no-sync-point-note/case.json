@@ -37,7 +37,8 @@
         "name": "box1",
         "claude": "none",
         "mode": "push"
-      }
+      },
+      "stdin": "\ny\n"
     }
   ]
 }

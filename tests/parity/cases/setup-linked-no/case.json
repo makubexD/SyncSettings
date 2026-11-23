@@ -28,7 +28,7 @@
   "commands": [
     {
       "command": "setup",
-      "stdin": "work-1\n2\n1\n1\n3\n"
+      "stdin": "work-1\n2\n1\n1\n3\ny\n"
     }
   ]
 }

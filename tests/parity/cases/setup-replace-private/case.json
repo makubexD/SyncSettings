@@ -43,7 +43,8 @@
         "profile": "work-1",
         "replace": "wk1-laptop",
         "existing": "stop"
-      }
+      },
+      "stdin": "y\n"
     },
     {
       "command": "machine-show",
