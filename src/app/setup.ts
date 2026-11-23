@@ -7,14 +7,10 @@
  * never imports `main.ts`.
  */
 
-import {
-  accessSync,
-  constants as fsConstants,
-  statSync,
-} from "node:fs";
+import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { join } from "node:path";
 import { SymlinkRefusal } from "../adapters/atomic.ts";
-import { readOrigin } from "../adapters/git.ts";
+import { readOrigin, readSyncPoint } from "../adapters/git.ts";
 import { readOsId } from "../adapters/osname.ts";
 import { run } from "../adapters/process.ts";
 import { readScan } from "../adapters/scan.ts";
@@ -32,6 +28,7 @@ import {
 import { readVisibility } from "../adapters/visibility.ts";
 import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
+import { blockedLines, diffCounts } from "./guard.ts";
 import { isInstalledProgram } from "./update.ts";
 import type { ExecuteOptions, Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
@@ -44,7 +41,12 @@ import type { ValuePlace } from "../core/machine/values.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { runSetup } from "../wizard/setup.ts";
-import type { ExistingAction, SetupFlags, SetupIo } from "../wizard/setup.ts";
+import type {
+  ExistingAction,
+  SetupDiffer,
+  SetupFlags,
+  SetupIo,
+} from "../wizard/setup.ts";
 
 const VALUES_FILE = ".user-values.json";
 
@@ -56,6 +58,69 @@ const BOOTSTRAP_SCRIPT = ["bootstrap", "linux.sh"] as const;
 
 /** `setup --bootstrap` off Ubuntu, before doctor runs. */
 const BOOTSTRAP_ONLY_UBUNTU = "ERROR: --bootstrap is Ubuntu only.";
+
+/** `import --check`, as pull's check runs it, for question 4's differ line. */
+const IMPORT_CHECK: RunCommand = {
+  kind: "run",
+  command: "import",
+  force: false,
+  preview: false,
+  check: true,
+  resetValues: false,
+  yes: false,
+  only: [],
+};
+
+/** `export --diff`, as pull's diff runs it, for the guard block. */
+const DIFF: RunCommand = {
+  kind: "run",
+  command: "export",
+  force: false,
+  preview: false,
+  check: false,
+  resetValues: false,
+  yes: false,
+  diff: true,
+  only: [],
+};
+
+/** A check line an import would overwrite: `UPDATE`, never `CREATE`. */
+const UPDATE_LINE = /^ {2}UPDATE /;
+
+/** The check's `UPDATE` count; a `CREATE` never counts. */
+function updateCount(check: Result): number {
+  return `${check.stdout}${check.stderr}`
+    .split("\n")
+    .filter((line) => UPDATE_LINE.test(line)).length;
+}
+
+/**
+ * The facts question 4 and the guard read: the import check's `UPDATE` count,
+ * whether a sync point is recorded, and, with changes and a sync point, the
+ * diff's counts and `OUT` / `BOTH` lines (or that it failed). Nothing prints
+ * here; the wizard renders the lines.
+ */
+async function readDiffer(
+  repoRoot: string,
+  state: string,
+  execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
+): Promise<SetupDiffer> {
+  const check = await execute(IMPORT_CHECK);
+  const updates = updateCount(check);
+  const hasSyncPoint = (await readSyncPoint(repoRoot, state)) !== undefined;
+  if (check.code !== 3 || !hasSyncPoint) {
+    return { updates, hasSyncPoint };
+  }
+  const diff = await execute(DIFF);
+  if (diff.code !== 0 && diff.code !== 3) {
+    return { updates, hasSyncPoint, diff: { ok: false } };
+  }
+  return {
+    updates,
+    hasSyncPoint,
+    diff: { ok: true, ...diffCounts(diff), blocked: blockedLines(diff) },
+  };
+}
 
 /** Today as `YYYY-MM-DD` in the machine's own time zone. */
 function localDate(now: Date): string {
@@ -315,6 +380,7 @@ export async function executeSetup(
   }
 
   const scan = await readScan(process.env, os, home, config);
+  const differ = await readDiffer(repoRoot, state, execute);
   const terminal = setupTerminal();
   const outcome = await runSetup(
     {
@@ -326,6 +392,7 @@ export async function executeSetup(
       isPrivate,
       today: localDate(new Date()),
       flags: command,
+      differ,
       bootstrapOffered: bootstrapScript(repoRoot, os) !== undefined,
       linkedFolders: (profile, record) =>
         readLinkedFolders(home, os, config, profile, record),

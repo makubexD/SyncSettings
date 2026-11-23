@@ -16,6 +16,7 @@ Scanning this machine...
 Profiles on this machine:
   1) personal
 
+  1 file(s) differ. No sync is recorded on this machine, so the newer side is unknown.
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing stop
 Stopped: the record is written, no file was changed.

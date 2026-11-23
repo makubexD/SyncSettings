@@ -20,7 +20,18 @@ Profiles on this machine:
 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [2] 
 Machine box1: profile personal, none, push with a preview.
 Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing keep
-Write the record and apply? [Y/n]   MODIFIED   dotfiles/common/shell/a.conf
+Write the record and apply? [Y/n] Changes on box1 (profile personal):
+
+All machines
+  1  M  shell  a.conf  1 line(s) changed
+Linux machines
+     (none)
+Profile personal
+     (none)
+This machine only
+     (none)
+
+  MODIFIED   dotfiles/common/shell/a.conf
 
   --------------------------------------------------
 
