@@ -1,0 +1,50 @@
+{
+  "description": "Setup with a sync point and --existing backup prints the OUT line, the guard's count and the [y/N] confirm; a no from stdin prints Stopped: nothing was written., exit 0, with no record, profile or import (mksync setup, Guard block, Confirm).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/a.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "box1",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "backup"
+      },
+      "stdin": "n\n"
+    },
+    {
+      "command": "machine-show",
+      "stderr": true
+    }
+  ]
+}

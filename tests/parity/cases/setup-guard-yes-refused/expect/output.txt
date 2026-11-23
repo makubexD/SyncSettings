@@ -1,0 +1,26 @@
+  OK       git
+  OK       gh (signed in)
+  OK       repo clone with origin
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      1 of 1 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+  1 file(s) differ: 0 in, 1 out, 0 both.
+Machine box1: profile personal, Claude only, push with a preview.
+Same as: mksync setup --profile personal --name box1 --claude claude --mode push --existing backup
+  OUT        dotfiles/common/shell/a.conf
+  1 file(s) changed on this machine since the last sync; back up and replace overwrites them (each keeps a .bak).
+ERROR: 1 file(s) changed on this machine since the last sync, and setup would overwrite them.
+Run mksync setup --existing keep to push them first, or run it without --yes to confirm.
+ERROR: no machine record here; run mksync setup.
