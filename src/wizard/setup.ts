@@ -27,6 +27,7 @@ export interface SetupFlags {
   readonly mode?: SetupMode;
   readonly existing?: ExistingAction;
   readonly yes?: boolean;
+  readonly bootstrap?: boolean;
 }
 
 /** Everything the flow reads; it reads nothing else and writes nothing. */
@@ -43,6 +44,9 @@ export interface SetupInput {
   /** `YYYY-MM-DD`, for a replaced record's history. */
   readonly today: string;
   readonly flags: SetupFlags;
+  /** The Ubuntu bootstrap can run here (an executable `bootstrap/linux.sh` on
+   * Ubuntu), so setup asks about it before the summary. */
+  readonly bootstrapOffered?: boolean;
   /** The linked folders to ask about, read once through this input: the flow
    * makes no other read and reads nothing by itself. */
   readonly linkedFolders?: (
@@ -68,8 +72,12 @@ export type SetupOutcome =
       /** True when an existing record is taken over, by `--replace` or by
        * choosing the profile the hostname suggests. */
       readonly replaced: boolean;
+      /** The bootstrap question was answered `y`, or `--bootstrap` was given. */
+      readonly bootstrap: boolean;
     }
-  | { readonly ok: false; readonly message: string; readonly code: 1 | 2 };
+  | { readonly ok: false; readonly message: string; readonly code: 1 | 2 }
+  /** The confirm was answered no: nothing is written, exit 0. */
+  | { readonly ok: false; readonly declined: true };
 
 const PERSONAL = "personal";
 
@@ -108,6 +116,13 @@ const Q3 =
 const Q4 =
   "4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop";
 
+/** Contract "Bootstrap": the question setup asks before the summary. */
+const BOOTSTRAP_QUESTION =
+  "  Also restore apps and packages from packages/linux (uses sudo)? [y/N] ";
+
+/** Contract "Confirm": asked after the summary; nothing is written on a no. */
+const CONFIRM_QUESTION = "Write the record and apply? [Y/n] ";
+
 /** The modules a new profile takes for each tool the scan found. */
 const TOOL_MODULES: readonly (readonly [string, string])[] = [
   ["gh", "gh"],
@@ -133,6 +148,16 @@ const OS_MODULES: Readonly<Record<Os, readonly string[]>> = {
 
 function stop(message: string, code: 1 | 2): SetupOutcome {
   return { ok: false, message, code };
+}
+
+/** Bash's `[Yy]*`: the bootstrap question's yes. */
+function isYes(answer: string): boolean {
+  return answer.startsWith("y") || answer.startsWith("Y");
+}
+
+/** Bash's `[Nn]*`: the confirm's no. */
+function isNo(answer: string): boolean {
+  return answer.startsWith("n") || answer.startsWith("N");
 }
 
 /** The hostname up to its first dot: the name `setup` suggests, since macOS
@@ -349,9 +374,9 @@ async function linkedAnswer(
 
 /**
  * The first-run flow of `mksync setup`, per the contract's "mksync setup": the
- * scan block, the profile list, the four questions and the summary. It returns
- * the record and profile to write and what to do with existing files; it
- * writes nothing.
+ * scan block, the profile list, the four questions, the bootstrap question,
+ * the summary and the confirm. It returns the record and profile to write and
+ * what to do with existing files; it writes nothing.
  */
 export async function runSetup(
   input: SetupInput,
@@ -505,6 +530,23 @@ export async function runSetup(
     );
   }
 
+  // Contract "Bootstrap": asked after question 4 and before the summary, never
+  // for the `stop` answer; `--bootstrap` chooses it without asking.
+  let bootstrap =
+    input.bootstrapOffered === true &&
+    flags.bootstrap === true &&
+    action !== "stop";
+  if (
+    input.bootstrapOffered === true &&
+    flags.bootstrap !== true &&
+    action !== "stop"
+  ) {
+    io.write(BOOTSTRAP_QUESTION);
+    const answer = trimAnswer((await io.readLine()) ?? "");
+    io.write("\n");
+    bootstrap = isYes(answer);
+  }
+
   const existing = profileNamed(input, profileName);
   const profile: Profile = existing ?? {
     name: profileName,
@@ -550,10 +592,20 @@ export async function runSetup(
     replacing === undefined
       ? `--name ${record.name}`
       : `--replace ${record.name}`;
+  const bootstrapFlag = bootstrap ? " --bootstrap" : "";
   io.write(
     `Machine ${record.name}: profile ${profileName}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
-      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}\n`,
+      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${bootstrapFlag}\n`,
   );
+  // Contract "Confirm": `--yes` answers yes without printing it; an empty
+  // answer or end of input is yes, a no writes nothing.
+  if (flags.yes !== true) {
+    io.write(CONFIRM_QUESTION);
+    const line = await io.readLine();
+    if (line !== undefined && isNo(trimAnswer(line))) {
+      return { ok: false, declined: true };
+    }
+  }
   return {
     ok: true,
     record: answeredRecord,
@@ -561,6 +613,7 @@ export async function runSetup(
     newProfile: existing === undefined,
     action,
     replaced: replacing !== undefined,
+    bootstrap,
   };
 }
 

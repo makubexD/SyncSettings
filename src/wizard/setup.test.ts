@@ -113,6 +113,17 @@ const Q3 =
   "3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1] ";
 const Q4 =
   "4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1] ";
+const BOOTSTRAP_QUESTION =
+  "  Also restore apps and packages from packages/linux (uses sudo)? [y/N] ";
+const CONFIRM_QUESTION = "Write the record and apply? [Y/n] ";
+
+/** The four flags that answer every question, without `--yes`. */
+const ANSWER_FLAGS: SetupFlags = {
+  profile: "work-1",
+  claude: "claude",
+  mode: "push",
+  existing: "backup",
+};
 
 describe("runSetup", () => {
   test("should print the contract's layout for answers on stdin", async () => {
@@ -126,7 +137,7 @@ describe("runSetup", () => {
         `${Q1}${Q2}${Q3}${Q4}`,
         "Machine wk1-laptop: profile work-1, Claude only, push with a preview.",
         "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup",
-        "",
+        "Write the record and apply? [Y/n] ",
       ].join("\n"),
     );
     expect(outcome.ok).toBe(true);
@@ -138,6 +149,124 @@ describe("runSetup", () => {
       profile("work-1", ["shell", "git", "gh", "claude", "gnome"]),
     );
     expect(outcome.record).toEqual(record());
+  });
+
+  test("should go on when the confirm is answered yes", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { outcome, output } = await run(setup, ["y"]);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+    expect(output).toContain("Write the record and apply? [Y/n] ");
+  });
+
+  test("should write nothing when the confirm is answered no", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { outcome, output } = await run(setup, ["n"]);
+
+    // Assert
+    expect(outcome).toEqual({ ok: false, declined: true });
+    expect(output.endsWith(CONFIRM_QUESTION)).toBe(true);
+  });
+
+  test("should take end of input on the confirm as yes", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { outcome } = await run(setup);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("should not print the confirm under --yes", async () => {
+    // Arrange
+    const setup = input({}, { ...ANSWER_FLAGS, yes: true });
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+    expect(output).not.toContain("Write the record and apply?");
+  });
+
+  test("should ask the bootstrap question before the summary", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, ["y"]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(true);
+    expect(output.indexOf(BOOTSTRAP_QUESTION)).toBeGreaterThan(-1);
+    expect(output.indexOf(BOOTSTRAP_QUESTION)).toBeLessThan(
+      output.indexOf("Machine "),
+    );
+    expect(output).toContain("--existing backup --bootstrap\n");
+  });
+
+  test("should not ask the bootstrap question with --bootstrap", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true, bootstrap: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(true);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).toContain(
+      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --bootstrap\n",
+    );
+  });
+
+  test("should not ask the bootstrap question for the stop answer", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, existing: "stop", yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).not.toContain("--bootstrap");
+  });
+
+  test("should not choose the bootstrap when --bootstrap meets the stop answer", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, existing: "stop", yes: true, bootstrap: true },
+    );
+
+    // Act
+    const { outcome } = await run(setup);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
   });
 
   test("should take every flag and ask nothing", async () => {
@@ -245,9 +374,7 @@ describe("runSetup", () => {
       "2.0",
       "3",
     ]);
-    expect(output).toContain(
-      `${Q2}Pick 1 to 3.\n${Q2}Pick 1 to 3.\n${Q2}`,
-    );
+    expect(output).toContain(`${Q2}Pick 1 to 3.\n${Q2}Pick 1 to 3.\n${Q2}`);
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.record.claude).toBe("claude-deepseek");
   });
@@ -262,9 +389,9 @@ describe("runSetup", () => {
         "ERROR: machine work-1 can't share its profile's name; use --name <machine>.",
       code: 2,
     });
-    expect(output.endsWith("Profiles on this machine:\n  1) personal\n\n")).toBe(
-      true,
-    );
+    expect(
+      output.endsWith("Profiles on this machine:\n  1) personal\n\n"),
+    ).toBe(true);
     expect(output).not.toContain("1/4");
     expect(output).not.toContain("Machine ");
   });
@@ -542,7 +669,10 @@ const LINKED_QUESTION =
   ".bashrc uses ~/scripts (1 file, 40 B). Sync it as a folder? " +
   "1) this profile  2) this machine  3) no";
 
-function scriptsEntry(localPath: string, file = "linked/scripts"): ConfigV2Entry {
+function scriptsEntry(
+  localPath: string,
+  file = "linked/scripts",
+): ConfigV2Entry {
   return {
     file,
     module: "shell",
