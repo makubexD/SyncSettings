@@ -223,8 +223,9 @@ function bootstrapScript(repoRoot: string, os: Os): string | undefined {
 /**
  * Contract "mksync setup": runs the script the flow chose, after the record
  * and profile are written. The script owns the terminal (it may prompt for
- * sudo), so our answer reader is closed first and setup ends with its exit
- * code. `undefined` when no script runs.
+ * sudo), so our answer reader is closed first. MKSYNC_SETUP=1 tells it to skip
+ * its import, since setup imports next. `undefined` when no script runs or it
+ * succeeds; otherwise its exit code ends setup.
  */
 async function runBootstrap(
   repoRoot: string,
@@ -238,8 +239,11 @@ async function runBootstrap(
   terminal.close();
   const bootstrapped = await run([script], {
     inherit: true,
-    env: bootstrapEnv(process.env, process.execPath),
+    env: { ...bootstrapEnv(process.env, process.execPath), MKSYNC_SETUP: "1" },
   });
+  if (bootstrapped.code === 0) {
+    return undefined;
+  }
   return { code: bootstrapped.code, stdout: "", stderr: "" };
 }
 

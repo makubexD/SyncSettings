@@ -668,6 +668,10 @@ step_import() {
     if (( DRY_RUN )); then
         return 0
     fi
+    if [[ ${MKSYNC_SETUP:-} == 1 ]]; then
+        boot_skipped import 'mksync setup imports next'
+        return 0
+    fi
     # Stdin stays the terminal, so import's overwrite prompts work. Import exits 0
     # with a file in ERROR, by contract, so its status lines are the only signal.
     "$MKSYNC" import | tee "$WORK/import.out" || return 1
