@@ -1,24 +1,69 @@
 #!/usr/bin/env bash
 # Run a mechanical task as a headless Claude Code worker on the paid DeepSeek API.
-# Usage: mk-exec [--effort low|medium|high] <repo-dir> <task text>
+# Usage: mk-exec [--effort low|medium|high] [--step <plan>#<n>] [--why escalation|reasoning] <repo-dir> <task text>
 # Exit: worker's exit code; 2 = bad usage/setup; 75 = API quota/auth/balance error; 124 = timeout.
 # 137 from a hard kill is reported as 124, and a run killed after it already produced a successful result is reported as 0.
-# Logs: ~/.claude/state/mk-worker-logs/<ts>-<repo>/{stream.jsonl,stderr.log,meta.json,diff.patch,summary.txt}
+# Logs: ${MK_LOG_ROOT:-~/.claude/state/mk-worker-logs}/<ts>-<repo>/{stream.jsonl,stderr.log,meta.json,diff.patch,summary.txt}
+# Steps run at `high` only with --why, and `escalation` must prove a rejected medium run (see CLAUDE.md).
 set -uo pipefail
 
-effort=medium
-if [[ "${1:-}" == "--effort" ]]; then effort="${2:-}"; shift 2; fi
+usage() { echo "usage: mk-exec [--effort low|medium|high] [--step <plan>#<n>] [--why escalation|reasoning] <repo-dir> <task text>" >&2; exit 2; }
+
+effort=medium step='' why=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --effort) [[ $# -ge 2 ]] || usage; effort="$2"; shift 2 ;;
+    --step)   [[ $# -ge 2 ]] || usage; step="$2";   shift 2 ;;
+    --why)    [[ $# -ge 2 ]] || usage; why="$2";    shift 2 ;;
+    *) break ;;
+  esac
+done
 case "$effort" in
   low)    model=deepseek-flash;  api_effort=low ;;
   medium) model=deepseek-flash;  api_effort=high ;;
   high)   model=deepseek-v4-pro; api_effort=high ;;
   *) echo "mk-exec: --effort must be low, medium or high" >&2; exit 2 ;;
 esac
-if [[ $# -lt 2 ]]; then echo "usage: mk-exec [--effort low|medium|high] <repo-dir> <task text>" >&2; exit 2; fi
+case "$why" in
+  ""|escalation|reasoning) ;;
+  *) echo "mk-exec: --why must be escalation or reasoning" >&2; exit 2 ;;
+esac
+[[ $# -ge 2 ]] || usage
 repo="$(cd "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || { echo "mk-exec: $1 is not a git repo" >&2; exit 2; }
 shift; task="$*"
 
 if [[ -n "$(git -C "$repo" status --porcelain)" ]]; then echo "mk-exec: $repo has uncommitted changes; commit or stash first" >&2; exit 2; fi
+
+# The high gate runs before any API or worktree work, so a dry run needs no key.
+log_root="${MK_LOG_ROOT:-$HOME/.claude/state/mk-worker-logs}"
+if [[ $effort == high && -z $why ]]; then
+  echo "mk-exec: --effort high needs --why escalation|reasoning (see CLAUDE.md)" >&2; exit 2
+fi
+if [[ $why == escalation ]]; then
+  if [[ -z $step ]]; then echo "mk-exec: --why escalation needs --step <plan>#<n>" >&2; exit 2; fi
+  # One jq process for all logs; a run that ended on a quota/auth error (75) does not count as a rejected medium run.
+  # An unreadable or invalid meta.json fails the whole read, which counts as no prior run.
+  prior_medium=0
+  shopt -s nullglob
+  metas=("$log_root"/*/meta.json)
+  shopt -u nullglob
+  if (( ${#metas[@]} )); then
+    prior_medium="$(jq -n --arg r "$repo" --arg s "$step" \
+      '[inputs | select(.repo == $r and .step == $s and .effort == "medium" and .exit != 75)] | length' \
+      "${metas[@]}" 2>/dev/null)" || prior_medium=0
+    [[ $prior_medium =~ ^[0-9]+$ ]] || prior_medium=0
+  fi
+  if (( prior_medium == 0 )); then
+    echo "mk-exec: --why escalation needs a prior medium run for $step under $log_root" >&2; exit 2
+  fi
+  # grep -c reads git's whole output, so git never dies of SIGPIPE and the result doesn't depend on the pipeline status.
+  plan_commits="$(git -C "$repo" log --format=%B | grep -cxF "Plan-Step: $step")" || plan_commits=0
+  if [[ ${plan_commits:-0} -gt 0 ]]; then
+    echo "mk-exec: $step already has a Plan-Step commit; escalation needs a rejected run, not a committed step" >&2; exit 2
+  fi
+fi
+[[ "${MK_DRY_RUN:-}" == 1 ]] && exit 0
+
 [[ -r "$HOME/.config/claude-workers/env" ]] && source "$HOME/.config/claude-workers/env"
 if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then echo "mk-exec: DEEPSEEK_API_KEY missing in ~/.config/claude-workers/env" >&2; exit 2; fi
 
@@ -32,7 +77,13 @@ project_cfg="$(cd "$repo" && for f in CLAUDE.md .claude/CLAUDE.md .claude/rules 
 project_cfg="${project_cfg% }"
 
 # Preflight: a bad key or empty balance fails here in a second instead of after Claude Code's retries.
+# MK_BALANCE_STUB skips the network call for tests: it prints the given amount and exits 0, or 75 when it is 0 or less.
 balance() {
+  if [[ -n "${MK_BALANCE_STUB:-}" ]]; then
+    printf '%s\n' "$MK_BALANCE_STUB"
+    awk -v v="$MK_BALANCE_STUB" 'BEGIN { if (v + 0 <= 0) exit 75; exit 0 }'
+    return
+  fi
   python3 -I -c '
 import json, os, sys, urllib.request, urllib.error
 req = urllib.request.Request("https://api.deepseek.com/user/balance",
@@ -54,7 +105,19 @@ case $? in
   *) echo "mk-exec: DeepSeek balance check failed ($balance_before); continuing" >&2; balance_before="" ;;
 esac
 
-logdir="$HOME/.claude/state/mk-worker-logs/$(date +%F-%H%M%S)-$(basename "$repo")"
+# A numeric balance below MK_BALANCE_WARN is a warning, not a failure: the run still starts and the line is repeated
+# in the worker summary. A failed check (no number) says nothing about the balance, so it doesn't warn.
+low_balance=""
+balance_warn="${MK_BALANCE_WARN:-2.00}"
+if [[ $balance_before =~ ^[0-9]+([.][0-9]+)?$ ]] &&
+   awk -v b="$balance_before" -v w="$balance_warn" 'BEGIN { exit !(b + 0 < w + 0) }'; then
+  low_balance="mk-exec: LOW BALANCE \$$balance_before (under \$$balance_warn): top up before the next plan"
+  printf '%s\n' "$low_balance" >&2
+fi
+# MK_DRY_RUN=preflight stops right after the preflight and its warning; MK_DRY_RUN=1 stops earlier, before the key check.
+[[ "${MK_DRY_RUN:-}" == preflight ]] && exit 0
+
+logdir="$log_root/$(date +%F-%H%M%S)-$(basename "$repo")"
 mkdir -p "$logdir"
 echo "mk-exec: log=$logdir model=$model effort=$effort balance=\$${balance_before:-?} project=${project_cfg:-none}"
 head_before="$(git -C "$repo" rev-parse HEAD)"
@@ -112,7 +175,7 @@ if [[ $workdir != "$repo" ]]; then
   # The diff can't carry gitignored files, and removing the worktree would lose them without a word.
   # Tool caches (bytecode, linters, test runners, build caches) are regenerated, so they don't keep it.
   ignored="$(git -C "$workdir" ls-files --others --ignored --exclude-standard |
-    grep -vE '(^|/)(__pycache__|\.ruff_cache|\.pytest_cache|\.mypy_cache|\.hypothesis|\.tox|\.cache|\.turbo|\.eslintcache|node_modules|coverage)(/|$)|\.py[co]$|\.tsbuildinfo$' |
+    "$(dirname "$(readlink -f "$0")")/mk-cache-filter" "$workdir" |
     head -20 | tr '\n' ' ')"
   if [[ -n $add_failed ]]; then
     echo "mk-exec: could not stage the worker's changes; worktree kept at $workdir" | tee -a "$logdir/stderr.log" >&2
@@ -130,7 +193,8 @@ fi
 balance_after="$(DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" balance 2>/dev/null)" || balance_after=""
 
 MK_BAL0="$balance_before" MK_BAL1="$balance_after" MK_CODE="$code" MK_LOG="$logdir" MK_REPO="$repo" MK_MODEL="$model" MK_EFFORT="$effort" MK_API_EFFORT="$api_effort" \
-MK_TASK="$task" MK_PROJECT="$project_cfg" MK_HEAD="$head_before" MK_START="$started" python3 -I - <<'PY'
+MK_TASK="$task" MK_PROJECT="$project_cfg" MK_HEAD="$head_before" MK_START="$started" MK_STEP="$step" MK_WHY="$why" \
+MK_LOW_BALANCE="$low_balance" python3 -I - <<'PY'
 import json, os, re, subprocess, datetime
 e = os.environ; log = e["MK_LOG"]; code = int(e["MK_CODE"])
 result, errors, tools = {}, [], 0
@@ -184,6 +248,7 @@ if duration_ms is None:
     duration_ms = int((ended_dt - start).total_seconds() * 1000)
 meta = {
     "repo": e["MK_REPO"], "task": e["MK_TASK"], "model": e["MK_MODEL"], "effort": e["MK_EFFORT"],
+    "step": e["MK_STEP"] or None, "why": e["MK_WHY"] or None,
     "api_effort": e["MK_API_EFFORT"], "head_before": e["MK_HEAD"], "started": e["MK_START"],
     "ended": ended_dt.isoformat(timespec="seconds"), "exit": code, "lingered": lingered,
     "num_turns": result.get("num_turns"), "tool_calls": tools, "duration_ms": duration_ms,
@@ -203,6 +268,8 @@ lines = [f"EXIT={code}" + (" (quota/auth/balance)" if code == 75 else " (timeout
          " (max turns: ran out after 90; the diff may be partial; split the step)" if maxed else "")]
 if lingered:
     lines.append("note: the worker finished, then lingered until killed; its result is kept")
+if e.get("MK_LOW_BALANCE"):
+    lines.append(e["MK_LOW_BALANCE"])
 lines += [
          f"model={e['MK_MODEL']} effort={e['MK_EFFORT']} turns={meta['num_turns']} tools={tools} "
          f"tokens in/out={usage.get('input_tokens')}/{usage.get('output_tokens')} "
@@ -214,5 +281,10 @@ if errors: lines += ["--- errors", *[x[:200] for x in errors[:6]]]
 lines.append(f"--- log {log}")
 open(f"{log}/summary.txt", "w").write("\n".join(lines[:40]) + "\n")
 PY
+
+# meta.json is written: prune old worktrees and archived streams in the background, so a run never waits on it.
+"$(dirname "$(readlink -f "$0")")/mk-prune" --apply >/dev/null 2>&1 &
+disown
+
 cat "$logdir/summary.txt"
 exit "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["exit"])' "$logdir/meta.json")"

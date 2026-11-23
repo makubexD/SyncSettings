@@ -81,8 +81,9 @@ def median(xs):
 def session_stats(path, since):
     """Per-session counts, parsed like session_steps: type user/assistant, message.content blocks."""
     st = {"prompts": 0, "whats_next": 0, "plan_next_none": 0, "next_at": None,
-          "launch_at": None, "context": None}
-    calls = {}
+          "launch_at": None, "context": None, "peak_context": None, "compactions": 0,
+          "gate_stop": False, "ctx_bytes": 0}
+    calls, ctx_ids = {}, set()
     for line in open(path, errors="replace"):
         try:
             ev = json.loads(line)
@@ -94,6 +95,9 @@ def session_stats(path, since):
             continue
         t = ts(when)
         if t < since:
+            continue
+        if ev.get("type") == "system" and ev.get("subtype") == "compact_boundary":
+            st["compactions"] += 1
             continue
         if ev.get("type") == "user" and isinstance(content, str):
             text = content.strip()
@@ -110,23 +114,38 @@ def session_stats(path, since):
             continue
         if ev.get("type") == "assistant":
             usage = msg.get("usage")
-            if usage and st["context"] is None:
-                st["context"] = sum(usage.get(k) or 0 for k in (
+            if usage:
+                ctx = sum(usage.get(k) or 0 for k in (
                     "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+                if st["context"] is None:
+                    st["context"] = ctx
+                if st["peak_context"] is None or ctx > st["peak_context"]:
+                    st["peak_context"] = ctx
             for b in content:
-                if b.get("type") == "tool_use" and b.get("name") == "Bash":
-                    cmd = (b.get("input") or {}).get("command", "")
-                    calls[b.get("id")] = cmd
-                    if ("mk-exec" in cmd and st["next_at"] is not None and st["launch_at"] is None
-                            and t > st["next_at"]):
-                        st["launch_at"] = t
+                if b.get("type") == "text":
+                    if "/clear, then /next" in (b.get("text") or ""):
+                        st["gate_stop"] = True
+                elif b.get("type") == "tool_use":
+                    if b.get("name") == "Bash":
+                        cmd = (b.get("input") or {}).get("command", "")
+                        calls[b.get("id")] = cmd
+                        if ("mk-exec" in cmd and st["next_at"] is not None and st["launch_at"] is None
+                                and t > st["next_at"]):
+                            st["launch_at"] = t
+                    elif b.get("name") == "mcp__plugin_context-mode_context-mode__ctx_execute":
+                        ctx_ids.add(b.get("id"))
         elif ev.get("type") == "user":
             for b in content:
-                if b.get("type") != "tool_result" or "plan-next" not in calls.get(b.get("tool_use_id"), ""):
+                if b.get("type") != "tool_result":
                     continue
                 rc = b.get("content")
                 text = rc if isinstance(rc, str) else "\n".join(
                     x.get("text", "") for x in rc or [] if isinstance(x, dict))
+                if b.get("tool_use_id") in ctx_ids:
+                    st["ctx_bytes"] += len(text.encode("utf-8"))
+                    continue
+                if "plan-next" not in calls.get(b.get("tool_use_id"), ""):
+                    continue
                 if '"state": "none"' in text:
                     st["plan_next_none"] += 1
     return st
@@ -146,6 +165,31 @@ def mk_exec_runs(repo, since):
             m["kind"], m["log"] = "mk-exec", os.path.dirname(f)
             runs.append(m)
     return runs
+
+
+def high_accepted(high, commits):
+    """The high runs a commit credits: exit 0, ended at or before a commit carrying its
+    Plan-Step and Route: worker:high, and the latest such run for that step before it.
+    Each such commit credits at most one run."""
+    accepted = set()
+    for ct, body in commits:
+        lines = {x.strip() for x in body.splitlines()}
+        if "Route: worker:high" not in lines:
+            continue
+        steps = {x.split(":", 1)[1].strip() for x in lines if x.startswith("Plan-Step:")}
+        cands = []
+        for i, r in enumerate(high):
+            if r.get("step") not in steps or r.get("exit") != 0:
+                continue
+            try:
+                ended = ts(r.get("ended") or r.get("started")).timestamp()
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if ended <= ct:
+                cands.append((ended, i))
+        if cands:
+            accepted.add(max(cands)[1])
+    return accepted
 
 
 def opencode_runs(repo, since):
@@ -239,23 +283,47 @@ def main():
     ok = [r for r in runs if r["exit"] == 0]
     seg = [s for s in steps if s["edits"] or s["runs"] or STEP_RE.search(s["prompt"])]
     delegated = sum(1 for s in seg if s["runs"])
+    # Split per commit (NUL separator), carrying each commit time (epoch seconds, SOH-separated)
+    # so a high run can be matched against one commit's trailers and time.
+    log = subprocess.run(["git", "-C", repo, "log", f"--since={since_s} 00:00", "--format=%ct%x01%B%x00"],
+                         capture_output=True, text=True).stdout
+    commits = []
+    for rec in log.split("\x00"):
+        ct, sep, body = rec.lstrip("\n").partition("\x01")
+        if not sep:
+            continue
+        try:
+            commits.append((int(ct), body.rstrip("\n")))
+        except ValueError:
+            continue
+    trailers = "\n".join(body for _, body in commits)
+    plans = {m.group(1) for m in re.finditer(r"^Plan-Step:[ \t]*(\S+?)#\d+[ \t]*$", trailers, re.M)}
     bal = [r for r in runs if r["kind"] == "mk-exec" and r.get("balance_before")]
     print("\n## Totals\n")
     print(f"- steps: {len(seg)}, delegated: {delegated}, inline-only: {len(seg) - delegated}")
     print(f"- worker runs: {len(runs)}, exit 0: {len(ok)}, failed: {len(runs) - len(ok)}")
     print(f"- worker tokens in/out: {sum((r.get('usage') or {}).get('input_tokens') or 0 for r in runs)}/"
           f"{sum((r.get('usage') or {}).get('output_tokens') or 0 for r in runs)}")
-    print(f"- worker cost≈ (from tokens and DeepSeek prices): "
-          f"{money(sum(r.get('cost_usd_est') or 0 for r in runs))}"
+    worker_cost = sum(r.get("cost_usd_est") or 0 for r in runs)
+    print(f"- worker cost≈ (from tokens and DeepSeek prices): {money(worker_cost)}"
           + (" (some runs have no estimate)" if any(r.get("cost_usd_est") is None for r in runs) else ""))
+    high = [r for r in runs if r["kind"] == "mk-exec" and r.get("effort") == "high"]
+    if high:
+        high_cost = sum(r.get("cost_usd_est") or 0 for r in high)
+        pct = "-" if worker_cost == 0 else f"{round(high_cost / worker_cost * 100)}"
+        whys = [r.get("why") for r in high]
+        print(f"- high runs: {len(high)} (${high_cost:.2f}, {pct}% of worker cost), "
+              f"escalation: {whys.count('escalation')}, reasoning: {whys.count('reasoning')}, "
+              f"no reason: {sum(1 for w in whys if not w)}")
+        print(f"- high accepted: {len(high_accepted(high, commits))} of {len(high)}")
+    else:
+        print("- high runs: 0")
+        print("- high accepted: 0 of 0")
     if bal:
         print(f"- DeepSeek balance: ${bal[0]['balance_before']} before first run, "
               f"${bal[-1].get('balance_after')} right after last run (billing settles with a delay)")
     print(f"- repo files edited inline (distinct per step): {sum(len(s['edits']) for s in seg)}")
     sessions = sum(1 for s in stats if s["prompts"])
-    trailers = subprocess.run(["git", "-C", repo, "log", f"--since={since_s} 00:00", "--format=%B"],
-                              capture_output=True, text=True).stdout
-    plans = {m.group(1) for m in re.finditer(r"^Plan-Step:[ \t]*(\S+?)#\d+[ \t]*$", trailers, re.M)}
     launch = [(s["launch_at"] - s["next_at"]).total_seconds() / 60
               for s in stats if s["next_at"] and s["launch_at"]]
     contexts = [s["context"] for s in stats if s["context"] is not None]
@@ -267,6 +335,14 @@ def main():
     print("- median minutes /next -> first worker launch: "
           + ("-" if launch_m is None else f"{launch_m:.1f}"))
     print("- median start context: " + ("-" if context_m is None else f"{context_m / 1000:.0f}k"))
+    peaks = [s["peak_context"] for s in stats if s["peak_context"] is not None]
+    peak_m = median(peaks)
+    print(f"- compactions: {sum(s['compactions'] for s in stats)}")
+    print(f"- gate stops: {sum(1 for s in stats if s['gate_stop'])}")
+    print("- median peak context: " + ("-" if peak_m is None else f"{peak_m / 1000:.0f}k"))
+    print(f"- ctx_execute result KB: {sum(s['ctx_bytes'] for s in stats) / 1024:.1f}")
+    print(f"- steps per session: {len(re.findall(r'^Plan-Step:', trailers, re.M)) / sessions:.1f}"
+          if sessions else "- steps per session: -")
     print("\n## Commits\n")
     print(subprocess.run(["git", "-C", repo, "log", f"--since={since_s} 00:00", "--format=- %h %ad %s", "--date=format:%m-%d %H:%M"],
                          capture_output=True, text=True).stdout.strip() or "(none)")

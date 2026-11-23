@@ -26,7 +26,8 @@ are 1..n, contiguous, unique and every one is tagged; exit 1 with each
 problem on its own stderr line otherwise; exit 2 when the file cannot be
 read. `high` tags follow the effort gate: a high step must be tagged
 `[worker:high: reasoning: <text>]`, and a plan may hold at most one high
-step.
+step. A plan holds at most 20 steps, and a worker step's `Files:` line may
+name at most 4 backticked paths.
 """
 
 import json
@@ -47,7 +48,9 @@ NONE = {
 HEADING_RE = re.compile(r"^#{2,3} (?:Step (\d+)(?=[: `]|$)|(\d+)\.)(.*)$")
 USAGE = "usage: plan-next [--body] [plan path] | plan-next --check <plan path>"
 TAG_RE = re.compile(r"`\[([^\]]*)\]`")
-HIGH_REASON_RE = re.compile(r"worker:high:\s*reasoning:\s*\S.*")
+HIGH_REASON_RE = re.compile(
+    r"worker\s*:\s*high\s*:\s*reasoning\s*:\s*\S.*", re.I
+)
 PLAN_PATH_RE = re.compile(r"^docs/plan-[^/]*\.md$")
 
 
@@ -262,13 +265,19 @@ def check(plan_path):
             duplicates.append(number)
     for number in duplicates:
         problems.append("duplicate step %d" % number)
+    if len(numbers) > 20:
+        problems.append(
+            "%d steps; split into phases of at most 20 (a roadmap "
+            "docs/plan-<topic>.md plus docs/plan-<topic>-<phase>.md)"
+            % len(numbers)
+        )
     high_steps = []
     for number, (tag, _) in sorted(parse_steps(text).items()):
         if tag is None:
             problems.append("step %d has no tag" % number)
             continue
         stripped = tag.strip()
-        if stripped == "worker:high" or stripped.startswith("worker:high:"):
+        if re.match(r"worker\s*:\s*high\b", stripped, re.I):
             high_steps.append(number)
             if not HIGH_REASON_RE.fullmatch(stripped):
                 problems.append(
@@ -280,6 +289,19 @@ def check(plan_path):
             "only one high step per plan (steps %s)"
             % ", ".join(str(number) for number in high_steps)
         )
+    for number, (tag, _) in sorted(parse_steps(text).items()):
+        if tag is not None and not re.match(r"worker\b", tag.strip(), re.I):
+            continue
+        body = step_body(text, number) or ""
+        for line in body.split("\n"):
+            if not line.strip().startswith("Files:"):
+                continue
+            paths = set(re.findall(r"`([^`]+)`", line))
+            if len(paths) > 4:
+                problems.append(
+                    "step %d: %d files; a worker step is one concern in at "
+                    "most about 3 files, split it" % (number, len(paths))
+                )
 
     if problems:
         for problem in problems:

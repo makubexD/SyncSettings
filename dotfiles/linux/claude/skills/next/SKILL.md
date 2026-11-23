@@ -35,8 +35,12 @@ with `/clear, then /next`, so a fresh session runs the whole finish. Once starte
 context; over that, push-notify and stop with `/clear, then /next`.
 
 1. Run `workflow-report .` and note anything wrong it shows: errors, rework, steps done inline without a reason.
-2. Run `/agent-skills:review` on the whole feature. Fix its findings on the same branch, in one round only. If you
-   can't settle a finding, alert the user and stop.
+2. Review the whole feature, once. If the repo's `.claude/agents/` has a `*code-reviewer.md`, run it: prefer a
+   language-prefixed one (`py-code-reviewer.md`) over the shared `code-reviewer.md`, and on a diff in several languages
+   run one per language touched. Also run the `*security-auditor.md` for that language, when there is one and the diff
+   touches input handling, auth, secrets or subprocess calls. With no `*code-reviewer.md`, run `/agent-skills:review`.
+   Never both a repo reviewer and `/agent-skills:review`. Fix their findings on the same branch, in one round only. If
+   you can't settle a finding, alert the user and stop.
 3. Run the repo's full test suite once. A failure is a finding: fix it on the branch, or alert the user and stop.
 4. Mark the phase done in the roadmap (`docs/plan-<topic>.md`) if there is one, and update the project memory with
    what's done and what comes next. Delete finished plan files only if the roadmap or the repo's rules say so.
@@ -79,6 +83,8 @@ plan uncommitted at a stop: after `/clear` an uncommitted plan is invisible to `
   Reject with a concrete reason and resend once; after two rejections, do the step in the main session. After a
   `medium` rejection for wrong logic (not a bad spec), resend once at `high` with `--why escalation`. After a
   timeout, split the step and send the pieces at `medium`, even under a `high` tag.
+- **Low balance**: a worker summary with a `mk-exec: LOW BALANCE …` line is not a stop. Push-notify the line once
+  per session, so the user tops up, and keep going; only exit 75 stops.
 - **Context gate**: the `context-gate` hook adds its line after a worker notification or a plan-step commit when the
   context is at or over 200k, or 70% of the model's window when that's smaller (auto-compact comes at about 83%).
   Then commit the step, push-notify and stop with "/clear, then /next". Over 200k a typed `/next` is blocked before
@@ -108,7 +114,14 @@ commit (roadmap and memory, before the PR) adds `Plan-Done: <plan path>` above `
 - Worktrees: headless Claude Code refuses writes under any `.claude` directory, so a repo there (`~/.claude` itself)
   runs in a temporary worktree in `~/.cache/mk-worktrees/`. So does a repo holding a `.user-values.json` (deny rules
   don't stop an interpreter, and a gitignored file isn't in a worktree). The diff is applied back and the worktree
-  removed; it is kept, with a message, if the apply fails.
+  removed; it is kept, with a message, if the apply fails. It is also kept when the worker leaves gitignored
+  files that aren't tool caches, e.g. a build output like `dist/mksync`; a repo lists those in `.mk-disposable` (one
+  pattern per line, `dist/` for a directory, else a glob on the repo-relative path), and `mk-cache-filter` drops them.
+- Pruning: after each run `mk-exec` starts `mk-prune --apply` in the background. It removes kept worktrees older than
+  7 days and `stream.jsonl` files older than 14 days that `metrics-archive` already holds at the same size;
+  `meta.json`, `diff.patch` and `summary.txt` stay. `mk-prune [--days N]` alone is a dry run.
+- Balance: the preflight stops at 0 (exit 75) and warns under `MK_BALANCE_WARN` (default `2.00`) with a
+  `LOW BALANCE` line on stderr and in the summary.
 - Logs: every run writes `~/.claude/state/mk-worker-logs/<ts>-<repo>/` with `stream.jsonl` (full transcript),
   `meta.json` (model, effort, exit, tokens, cost estimate, balance), `diff.patch` and `summary.txt`.
   `workflow-report [repo, default .] [--since DATE]` joins those with the orchestrator transcripts and git log.
