@@ -14,7 +14,7 @@ Roadmap: `docs/plan-setup-wizard.md`, phase 1. Contract: `docs/sync-contract.md`
   as `src/app/pull.ts`; a helper both use moves to one module.
 - The repo is public: fixtures use `example.com`, `/home/user`, `wk1-laptop`, and `leak-scan` stays green.
 - Each worker step: one concern, at most 4 files. Test commands run that step's tests only; `tests/all.sh` runs before
-  the PR (step 10).
+  the PR (step 11).
 
 ## Decided
 
@@ -75,8 +75,13 @@ contract:
    unchanged, no `.bak`).
 2. `setup-guard-declined`: the same flags without `--yes`, stdin `n`. The guard block, then
    `Write the record and apply? [y/N] Stopped: nothing was written.`; exit 0; home unchanged.
-3. `setup-guard-confirmed`: stdin `y`. The guard block, the confirm, then the import's lines; exit 0; the record and
-   profile are written, the file holds the repo's content and `<file>.bak` the old one.
+3. `setup-guard-confirmed`: stdin `y`. The guard block, the confirm, then the import's lines, ending with
+   `  Backups    : <HOME>/.local/state/sync-settings/backups/RUN` and `  Sync point : <HEAD>` (step 7's
+   placeholders); exit 0; the record and profile are written, the file holds the repo's content and `<file>.bak` the
+   old one.
+
+Cases 1 and 2 add a second command, `machine-show` with `stderr: true`, expecting
+`ERROR: no machine record here; run mksync setup.` and exit 1: the proof that no record was written.
 
 Test: `tests/parity/run.sh setup-guard` fails now, each case for the missing guard block (not a fixture error).
 
@@ -136,7 +141,26 @@ Files: `src/wizard/setup.ts`, `src/wizard/setup.test.ts`, `src/app/setup.ts`, `s
 Test: `bun test src/wizard src/app/setup.test.ts && bun run lint && tests/parity/run.sh --engine dist/mksync setup`
 after `bun run build`: step 5's cases and `setup-confirm-declined` pass.
 
-## Step 7: Question 4 and the guard `[worker:high: reasoning: reusing pull's guard across the setup flow without a second copy of its rules]`
+## Step 7: Harness placeholders for setup's import summary `[worker]`
+
+Files: `tests/parity/run.sh`, `tests/parity/run.ps1`, `tests/parity/README.md`.
+
+Setup's output is compared whole, and an import that backs files up ends with `  Backups    : <path>` and
+`  Sync point : <sha>`, which change per run, so `setup-guard-confirmed` can't be written exactly. Both runners, after
+all commands ran and before comparing `expect/output.txt`, rewrite the actual whole output (not status lines):
+
+- the case's temp home folder, wherever it appears, becomes `<HOME>` (`/` separators on Windows too);
+- `backups/<name>` (`backups\<name>` on Windows), where `<name>` is the one backup run folder in the state folder,
+  becomes `backups/RUN`;
+- in a line `  Sync point : <sha>`, a `<sha>` that begins the repo's `HEAD` after the run becomes `<HEAD>`.
+
+Nothing else changes, so every existing case still passes. README "How the runner checks it": one bullet with the three
+rules, next to the state folder's `backups/RUN`.
+
+Test: `bash -n tests/parity/run.sh && tests/parity/run.sh 'setup|pull-guard|import'`: every case that passed before
+still passes (the `setup-guard-*` and step 3's cases still fail, for the missing guard, as before).
+
+## Step 8: Question 4 and the guard `[worker:high: reasoning: reusing pull's guard across the setup flow without a second copy of its rules]`
 
 Files: `src/app/setup.ts`, `src/app/pull.ts`, `src/app/guard.ts` (new), `src/app/guard.test.ts` (new).
 
@@ -150,7 +174,7 @@ Files: `src/app/setup.ts`, `src/app/pull.ts`, `src/app/guard.ts` (new), `src/app
 Test: `bun test src/app && bun run lint`, then `bun run build && tests/parity/run.sh --engine dist/mksync
 'setup|pull-guard'`: steps 2 and 3's cases pass, and every `pull-guard-*` case still passes.
 
-## Step 8: The bootstrap skips its import under setup `[worker]`
+## Step 9: The bootstrap skips its import under setup `[worker]`
 
 Files: `bootstrap/linux.sh`, `src/app/setup.ts`.
 
@@ -162,7 +186,7 @@ Files: `bootstrap/linux.sh`, `src/app/setup.ts`.
 Test: `tests/linux/bootstrap.sh && bun run build && tests/parity/run.sh --engine dist/mksync setup-bootstrap`, and
 `shellcheck -x bootstrap/linux.sh`.
 
-## Step 9: Docs `[inline: docs need judgment]`
+## Step 10: Docs `[inline: docs need judgment]`
 
 Files: `docs/restore.md`, `docs/daily-workflow.md`, `docs/design-layers.md`, `README.md` (only if it describes setup's
 questions).
@@ -174,7 +198,7 @@ questions).
 
 Test: `npx prettier --check docs/*.md README.md` (apart from `docs/review-gate.md`, which already fails on `master`).
 
-## Step 10: PR and release `v1.1.0` `[inline: release run and its verification need judgment]`
+## Step 11: PR and release `v1.1.0` `[inline: release run and its verification need judgment]`
 
 - `CHANGELOG.md` `v1.1.0` section; `package.json` version `1.1.0`.
 - `tests/all.sh`, the `ts-code-reviewer` and `wizard-auditor` on the branch (one round of fixes), push, PR. It touches
