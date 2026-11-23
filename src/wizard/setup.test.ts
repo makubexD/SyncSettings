@@ -4,7 +4,12 @@ import type { LinkedFolder } from "../adapters/store.ts";
 import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry } from "../core/config/types.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
-import type { SetupFlags, SetupInput, SetupOutcome } from "./setup.ts";
+import type {
+  SetupDiffer,
+  SetupFlags,
+  SetupInput,
+  SetupOutcome,
+} from "./setup.ts";
 import { runSetup } from "./setup.ts";
 
 const TODAY = "2026-11-13";
@@ -75,8 +80,13 @@ function input(
     isPrivate: false,
     today: TODAY,
     flags,
+    differ: differ(),
     ...overrides,
   };
+}
+
+function differ(overrides: Partial<SetupDiffer> = {}): SetupDiffer {
+  return { updates: 0, hasSyncPoint: false, ...overrides };
 }
 
 /** A scripted terminal: answers in order, then end of input. */
@@ -113,6 +123,30 @@ const Q3 =
   "3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1] ";
 const Q4 =
   "4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1] ";
+const BOOTSTRAP_QUESTION =
+  "  Also restore apps and packages from packages/linux (uses sudo)? [y/N] ";
+const CONFIRM_QUESTION = "Write the record and apply? [Y/n] ";
+
+/** The four flags that answer every question, without `--yes`. */
+const ANSWER_FLAGS: SetupFlags = {
+  profile: "work-1",
+  claude: "claude",
+  mode: "push",
+  existing: "backup",
+};
+
+const OUT_LINE = "  OUT        dotfiles/common/shell/a.conf";
+
+const BOTH_LINE = "  BOTH       dotfiles/common/shell/b.conf";
+
+/** A sync-point diff that blocks: one `OUT` file. */
+const OUT_DIFF = {
+  ok: true,
+  inCount: 0,
+  outCount: 1,
+  bothCount: 0,
+  blocked: [OUT_LINE],
+} as const;
 
 describe("runSetup", () => {
   test("should print the contract's layout for answers on stdin", async () => {
@@ -126,7 +160,7 @@ describe("runSetup", () => {
         `${Q1}${Q2}${Q3}${Q4}`,
         "Machine wk1-laptop: profile work-1, Claude only, push with a preview.",
         "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup",
-        "",
+        "Write the record and apply? [Y/n] ",
       ].join("\n"),
     );
     expect(outcome.ok).toBe(true);
@@ -138,6 +172,124 @@ describe("runSetup", () => {
       profile("work-1", ["shell", "git", "gh", "claude", "gnome"]),
     );
     expect(outcome.record).toEqual(record());
+  });
+
+  test("should go on when the confirm is answered yes", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { outcome, output } = await run(setup, ["y"]);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+    expect(output).toContain("Write the record and apply? [Y/n] ");
+  });
+
+  test("should write nothing when the confirm is answered no", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { outcome, output } = await run(setup, ["n"]);
+
+    // Assert
+    expect(outcome).toEqual({ ok: false, declined: true });
+    expect(output.endsWith(CONFIRM_QUESTION)).toBe(true);
+  });
+
+  test("should take end of input on the confirm as yes", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { outcome } = await run(setup);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("should not print the confirm under --yes", async () => {
+    // Arrange
+    const setup = input({}, { ...ANSWER_FLAGS, yes: true });
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+    expect(output).not.toContain("Write the record and apply?");
+  });
+
+  test("should ask the bootstrap question before the summary", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, ["y"]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(true);
+    expect(output.indexOf(BOOTSTRAP_QUESTION)).toBeGreaterThan(-1);
+    expect(output.indexOf(BOOTSTRAP_QUESTION)).toBeLessThan(
+      output.indexOf("Machine "),
+    );
+    expect(output).toContain("--existing backup --bootstrap\n");
+  });
+
+  test("should not ask the bootstrap question with --bootstrap", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true, bootstrap: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(true);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).toContain(
+      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --bootstrap\n",
+    );
+  });
+
+  test("should not ask the bootstrap question for the stop answer", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, existing: "stop", yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).not.toContain("--bootstrap");
+  });
+
+  test("should not choose the bootstrap when --bootstrap meets the stop answer", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, existing: "stop", yes: true, bootstrap: true },
+    );
+
+    // Act
+    const { outcome } = await run(setup);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
   });
 
   test("should take every flag and ask nothing", async () => {
@@ -245,9 +397,7 @@ describe("runSetup", () => {
       "2.0",
       "3",
     ]);
-    expect(output).toContain(
-      `${Q2}Pick 1 to 3.\n${Q2}Pick 1 to 3.\n${Q2}`,
-    );
+    expect(output).toContain(`${Q2}Pick 1 to 3.\n${Q2}Pick 1 to 3.\n${Q2}`);
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.record.claude).toBe("claude-deepseek");
   });
@@ -262,9 +412,9 @@ describe("runSetup", () => {
         "ERROR: machine work-1 can't share its profile's name; use --name <machine>.",
       code: 2,
     });
-    expect(output.endsWith("Profiles on this machine:\n  1) personal\n\n")).toBe(
-      true,
-    );
+    expect(
+      output.endsWith("Profiles on this machine:\n  1) personal\n\n"),
+    ).toBe(true);
     expect(output).not.toContain("1/4");
     expect(output).not.toContain("Machine ");
   });
@@ -519,6 +669,262 @@ describe("runSetup", () => {
     ]);
     expect(outcome.record.os).toBe("windows");
   });
+
+  test("should print the differ line above question 4 with a sync point", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({
+          hasSyncPoint: true,
+          diff: {
+            ok: true,
+            inCount: 1,
+            outCount: 2,
+            bothCount: 0,
+            blocked: [OUT_LINE],
+          },
+        }),
+      },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, ["y"]);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+    const line = "  3 file(s) differ: 1 in, 2 out, 0 both.";
+    expect(output).toContain(`${line}\n`);
+    expect(output.indexOf(line)).toBeLessThan(output.indexOf("Machine "));
+  });
+
+  test("should print the newer-side-unknown differ line without a sync point", async () => {
+    // Arrange
+    const setup = input({ differ: differ({ updates: 2 }) }, ANSWER_FLAGS);
+
+    // Act
+    const { output } = await run(setup);
+
+    // Assert
+    expect(output).toContain(
+      "  2 file(s) differ. No sync is recorded on this machine, so the newer side is unknown.\n",
+    );
+  });
+
+  test("should print the could-not-tell differ line after a failed diff", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({ hasSyncPoint: true, updates: 2, diff: { ok: false } }),
+      },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup);
+
+    // Assert
+    expect(output).toContain(
+      "  2 file(s) differ; could not tell which side is newer.\n",
+    );
+  });
+
+  test("should print no differ line when nothing differs", async () => {
+    // Arrange
+    const setup = input({}, ANSWER_FLAGS);
+
+    // Act
+    const { output } = await run(setup);
+
+    // Assert
+    expect(output).not.toContain("file(s) differ");
+  });
+
+  test("should suggest keep when a push would overwrite an OUT file", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({
+          hasSyncPoint: true,
+          diff: {
+            ok: true,
+            inCount: 0,
+            outCount: 1,
+            bothCount: 0,
+            blocked: [OUT_LINE],
+          },
+        }),
+      },
+      { profile: "work-1", claude: "claude", mode: "push" },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, [""]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.action).toBe("keep");
+    expect(output).toContain("  3) stop [2] ");
+  });
+
+  test("should suggest back up and replace when the diff has only IN lines", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({
+          hasSyncPoint: true,
+          diff: {
+            ok: true,
+            inCount: 1,
+            outCount: 0,
+            bothCount: 0,
+            blocked: [],
+          },
+        }),
+      },
+      { profile: "work-1", claude: "claude", mode: "push" },
+    );
+
+    // Act
+    const { output } = await run(setup, [""]);
+
+    // Assert
+    expect(output).toContain("  3) stop [1] ");
+  });
+
+  test("should print the guard block and a [y/N] confirm for backup with an OUT file", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({
+          hasSyncPoint: true,
+          updates: 1,
+          diff: OUT_DIFF,
+        }),
+      },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, ["y"]);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+    expect(output).toContain(
+      `${OUT_LINE}\n  1 file(s) changed on this machine since the last sync; back up and replace overwrites them (each keeps a .bak).\n`,
+    );
+    expect(output).toContain("Write the record and apply? [y/N] ");
+  });
+
+  test("should take end of input on the guarded confirm as no", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({
+          hasSyncPoint: true,
+          updates: 1,
+          diff: OUT_DIFF,
+        }),
+      },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome } = await run(setup);
+
+    // Assert
+    expect(outcome).toEqual({ ok: false, declined: true });
+  });
+
+  test("should refuse --yes after a guard block", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({
+          hasSyncPoint: true,
+          updates: 1,
+          diff: OUT_DIFF,
+        }),
+      },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: 1 file(s) changed on this machine since the last sync, and setup would overwrite them.\n" +
+        "Run mksync setup --existing keep to push them first, or run it without --yes to confirm.",
+      code: 1,
+    });
+    expect(output).toContain(
+      `${OUT_LINE}\n  1 file(s) changed on this machine since the last sync; back up and replace overwrites them (each keeps a .bak).\n`,
+    );
+    expect(output).not.toContain("Write the record and apply?");
+  });
+
+  test("should refuse --yes after a failed diff", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({ hasSyncPoint: true, updates: 1, diff: { ok: false } }),
+      },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: could not tell which side is newer; run mksync diff to see why, or mksync setup --existing keep.",
+      code: 1,
+    });
+    expect(output).toContain(
+      "  Could not tell which side is newer; back up and replace may overwrite files changed here (each keeps a .bak).\n",
+    );
+    expect(output).not.toContain("Write the record and apply?");
+  });
+
+  test("should guard a BOTH line and count every blocked line", async () => {
+    // Arrange
+    const setup = input(
+      {
+        differ: differ({
+          hasSyncPoint: true,
+          updates: 2,
+          diff: {
+            ok: true,
+            inCount: 0,
+            outCount: 1,
+            bothCount: 1,
+            blocked: [OUT_LINE, BOTH_LINE],
+          },
+        }),
+      },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: 2 file(s) changed on this machine since the last sync, and setup would overwrite them.\n" +
+        "Run mksync setup --existing keep to push them first, or run it without --yes to confirm.",
+      code: 1,
+    });
+    expect(output).toContain(
+      `${OUT_LINE}\n${BOTH_LINE}\n  2 file(s) changed on this machine since the last sync; back up and replace overwrites them (each keeps a .bak).\n`,
+    );
+  });
 });
 
 const FLAGS_ALL: SetupFlags = {
@@ -542,7 +948,10 @@ const LINKED_QUESTION =
   ".bashrc uses ~/scripts (1 file, 40 B). Sync it as a folder? " +
   "1) this profile  2) this machine  3) no";
 
-function scriptsEntry(localPath: string, file = "linked/scripts"): ConfigV2Entry {
+function scriptsEntry(
+  localPath: string,
+  file = "linked/scripts",
+): ConfigV2Entry {
   return {
     file,
     module: "shell",

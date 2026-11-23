@@ -2,6 +2,17 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.0 (2026-11-23)
+
+- `mksync setup` keeps this machine's changes. It asks every question first, the bootstrap one included, then shows
+  the summary and asks `Write the record and apply?`; a no writes nothing.
+- Above question 4 a line says how many files the import would overwrite and, after a first sync, which side changed
+  them. With `OUT` or `BOTH` files it suggests "keep mine"; "back up and replace" lists them and needs a `[y/N]`
+  confirm, and `--yes` refuses, as `mksync pull --yes` does.
+- A yes to the bootstrap no longer drops answer 4: setup hands it to `bootstrap/linux.sh`, whose import step backs up
+  and replaces, keeps this machine's files (export, then import), or stops, before the links, plugins and preview.
+- A pull-only `--yes` refusal no longer suggests `--existing keep`, which pull-only can't use.
+
 ## v1.0.2 (2026-11-20)
 
 - Installs and `mksync update` check the program against `SHA256SUMS` only. The attestation check is gone, since

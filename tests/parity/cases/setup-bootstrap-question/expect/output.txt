@@ -16,6 +16,7 @@ Scanning this machine...
 Profiles on this machine:
   1) personal
 
+  Also restore apps and packages from packages/linux (uses sudo)? [y/N] 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup
-  Also restore apps and packages from packages/linux (uses sudo)? [y/N] BOOTSTRAP RAN
+Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --bootstrap
+BOOTSTRAP RAN

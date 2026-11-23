@@ -12,6 +12,7 @@
 
 import { writeLines } from "./export.ts";
 import type { Result } from "./export.ts";
+import { blockedLines } from "./guard.ts";
 
 /** What the parsed command asks a pull to do. */
 export interface PullInput {
@@ -87,22 +88,12 @@ const APPLY_QUESTION = "  Apply these changes? [Y/n] ";
 /** What a declined question prints, exit 0. */
 const NOTHING_APPLIED = "  Nothing applied.\n";
 
-/** A diff label line the guard stops on: `formatLine` leaves two spaces, the
- * word and one more space. */
-const BLOCKED_LINE = /^ {2}(?:OUT|BOTH) /;
-
 /** `front_pull`'s two lines for the labels that would be overwritten. */
 function overwriteError(count: number): string {
   return (
     `  ERROR: ${count} file(s) changed on this machine since the last sync, and a pull would overwrite them.\n` +
     "  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).\n"
   );
-}
-
-/** The diff's `OUT` and `BOTH` lines, in the order it printed them. */
-function blockedLines(diff: Result): readonly string[] {
-  const lines = `${diff.stdout}${diff.stderr}`.split("\n");
-  return lines.filter((line) => BLOCKED_LINE.test(line));
 }
 
 /** What is left to print once a question has flushed the output before it. */

@@ -1642,6 +1642,22 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     and Administrators grants, which `icacls /inheritance:r /grant:r *<SID>:F` kept. `src/adapters/acl.ts` now runs
     the PowerShell engine's calls (a fresh protected `FileSecurity` with one rule for the token's SID) through
     `powershell.exe`, the path passed in an environment variable; `run.ps1`'s ACL check covers it.
+- **Left by the setup wizard audit (`docs/plan-setup-wizard.md`, "Not planned", 2026-11-22).** Its WIZ numbers are its
+  own, not the phase 7 export audit's above.
+  - Setup's prompts go to stdout, so `mksync setup > log` hides the questions; they belong on stderr (WIZ-5).
+  - Setup reads piped answers without a terminal and doesn't refuse them; refusing needs phase 2's flags (WIZ-14)
+    first, so a script can still answer every question (WIZ-4).
+  - The flow is hand-written code, not a table of steps; phase 2's back navigation may need part of one (WIZ-15).
+- **Left by the setup wizard phase 1 review (2026-11-23).**
+  - The differ line and the guard come from the layers before setup: the record and profile this machine had, or the
+    base and OS layers alone. A re-setup that picks another profile imports that profile's layers, whose files the
+    guard never compared. The fix is to recompute after question 1.
+  - A failed import check (exit 1) gives no differ line and no guard, and setup goes on; pull stops there. It is safe only
+    if the import after the confirm fails the same way, which no case checks.
+  - The diff runs even when answer 4 is `keep` or `stop`, which never use it. It is read-only, so only time is lost.
+  - `--yes` still asks the bootstrap question on Ubuntu, while the contract says `--yes` takes every suggestion
+    without asking; `setup-bootstrap-question` and `sync-setup-offers-bootstrap` hold the asking. Settle it
+    in the contract with phase 2's WIZ-14 flags.
 - **Workflow on a personal Windows or macOS machine (cut-over decision 12).** Module `claude-worker` (the plan
   workflow and the DeepSeek worker) is `os: ["linux"]`, since its hooks and `bin/` scripts are bash and the only
   personal machine is Linux. When a personal Windows or macOS machine exists: widen the entries' `os`, and either port

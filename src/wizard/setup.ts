@@ -27,6 +27,31 @@ export interface SetupFlags {
   readonly mode?: SetupMode;
   readonly existing?: ExistingAction;
   readonly yes?: boolean;
+  readonly bootstrap?: boolean;
+}
+
+/** The diff's outcome when it ran: success with its counts and the `OUT` and
+ * `BOTH` lines it printed, or a failure that couldn't tell which side is newer. */
+export type SetupDiff =
+  | {
+      readonly ok: true;
+      readonly inCount: number;
+      readonly outCount: number;
+      readonly bothCount: number;
+      /** The diff's `OUT` and `BOTH` lines, in the order it printed them. */
+      readonly blocked: readonly string[];
+    }
+  | { readonly ok: false };
+
+/** What the import check and the diff already know, computed by the caller
+ * before the flow: the check's `UPDATE` count, whether a sync point is
+ * recorded, and the diff's outcome when it ran. A `CREATE` never counts. */
+export interface SetupDiffer {
+  readonly updates: number;
+  readonly hasSyncPoint: boolean;
+  /** Present when the diff ran (the check found changes and a sync point
+   * exists); absent when nothing told it to run. */
+  readonly diff?: SetupDiff;
 }
 
 /** Everything the flow reads; it reads nothing else and writes nothing. */
@@ -43,6 +68,12 @@ export interface SetupInput {
   /** `YYYY-MM-DD`, for a replaced record's history. */
   readonly today: string;
   readonly flags: SetupFlags;
+  /** What the import check and the diff already know, for question 4 and the
+   * guard block. */
+  readonly differ: SetupDiffer;
+  /** The Ubuntu bootstrap can run here (an executable `bootstrap/linux.sh` on
+   * Ubuntu), so setup asks about it before the summary. */
+  readonly bootstrapOffered?: boolean;
   /** The linked folders to ask about, read once through this input: the flow
    * makes no other read and reads nothing by itself. */
   readonly linkedFolders?: (
@@ -68,8 +99,12 @@ export type SetupOutcome =
       /** True when an existing record is taken over, by `--replace` or by
        * choosing the profile the hostname suggests. */
       readonly replaced: boolean;
+      /** The bootstrap question was answered `y`, or `--bootstrap` was given. */
+      readonly bootstrap: boolean;
     }
-  | { readonly ok: false; readonly message: string; readonly code: 1 | 2 };
+  | { readonly ok: false; readonly message: string; readonly code: 1 | 2 }
+  /** The confirm was answered no: nothing is written, exit 0. */
+  | { readonly ok: false; readonly declined: true };
 
 const PERSONAL = "personal";
 
@@ -108,6 +143,16 @@ const Q3 =
 const Q4 =
   "4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop";
 
+/** Contract "Bootstrap": the question setup asks before the summary. */
+const BOOTSTRAP_QUESTION =
+  "  Also restore apps and packages from packages/linux (uses sudo)? [y/N] ";
+
+/** Contract "Confirm": asked after the summary; nothing is written on a no. */
+const CONFIRM_QUESTION = "Write the record and apply? [Y/n] ";
+
+/** Contract "Confirm": after a guard block the default is no. */
+const CONFIRM_GUARDED_QUESTION = "Write the record and apply? [y/N] ";
+
 /** The modules a new profile takes for each tool the scan found. */
 const TOOL_MODULES: readonly (readonly [string, string])[] = [
   ["gh", "gh"],
@@ -133,6 +178,107 @@ const OS_MODULES: Readonly<Record<Os, readonly string[]>> = {
 
 function stop(message: string, code: 1 | 2): SetupOutcome {
   return { ok: false, message, code };
+}
+
+/** Bash's `[Yy]*`: the bootstrap question's yes. */
+function isYes(answer: string): boolean {
+  return answer.startsWith("y") || answer.startsWith("Y");
+}
+
+/** Bash's `[Nn]*`: the confirm's no. */
+function isNo(answer: string): boolean {
+  return answer.startsWith("n") || answer.startsWith("N");
+}
+
+/** Contract "What differs": the line above question 4, or undefined when
+ * nothing differs (a count of 0 prints no line). */
+function differLine(differ: SetupDiffer): string | undefined {
+  if (!differ.hasSyncPoint) {
+    return differ.updates === 0
+      ? undefined
+      : `  ${differ.updates} file(s) differ. No sync is recorded on this machine, so the newer side is unknown.`;
+  }
+  if (differ.diff === undefined) {
+    return undefined;
+  }
+  if (!differ.diff.ok) {
+    return differ.updates === 0
+      ? undefined
+      : `  ${differ.updates} file(s) differ; could not tell which side is newer.`;
+  }
+  const count =
+    differ.diff.inCount + differ.diff.outCount + differ.diff.bothCount;
+  return count === 0
+    ? undefined
+    : `  ${count} file(s) differ: ${differ.diff.inCount} in, ${differ.diff.outCount} out, ${differ.diff.bothCount} both.`;
+}
+
+/** Question 4's suggestion: 2 (keep mine) when a push would overwrite an `OUT`
+ * or `BOTH` file, else 1. */
+function existingSuggestion(differ: SetupDiffer, mode: SetupMode): number {
+  return differ.hasSyncPoint &&
+    differ.diff?.ok === true &&
+    (differ.diff.outCount > 0 || differ.diff.bothCount > 0) &&
+    mode === "push"
+    ? 2
+    : 1;
+}
+
+/** The guard for answer 4, when one applies: `backup` with a sync point and
+ * either a failed diff or a diff that printed an `OUT` or `BOTH` line. */
+type SetupGuard =
+  | {
+      readonly kind: "blocked";
+      readonly lines: readonly string[];
+      readonly count: number;
+    }
+  | { readonly kind: "failed" };
+
+function guardOf(
+  differ: SetupDiffer,
+  action: ExistingAction,
+): SetupGuard | undefined {
+  if (
+    action !== "backup" ||
+    !differ.hasSyncPoint ||
+    differ.diff === undefined
+  ) {
+    return undefined;
+  }
+  if (!differ.diff.ok) {
+    return { kind: "failed" };
+  }
+  return differ.diff.blocked.length === 0
+    ? undefined
+    : {
+        kind: "blocked",
+        lines: differ.diff.blocked,
+        count: differ.diff.blocked.length,
+      };
+}
+
+/** Contract "Guard block": the blocked diff lines and the count line, or the
+ * failed-diff line, each followed by a newline. */
+function guardBlockText(guard: SetupGuard): string {
+  if (guard.kind === "failed") {
+    return "  Could not tell which side is newer; back up and replace may overwrite files changed here (each keeps a .bak).\n";
+  }
+  const countLine = `  ${guard.count} file(s) changed on this machine since the last sync; back up and replace overwrites them (each keeps a .bak).`;
+  return `${[...guard.lines, countLine].join("\n")}\n`;
+}
+
+/** Contract "Confirm": `--yes` after a guard block stops with these lines.
+ * A pull-only machine can't keep, so its lines don't suggest it. */
+function guardRefusalText(guard: SetupGuard, mode: SetupMode): string {
+  const canKeep = mode === "push";
+  if (guard.kind === "failed") {
+    const keepHint = canKeep ? ", or mksync setup --existing keep" : "";
+    return `ERROR: could not tell which side is newer; run mksync diff to see why${keepHint}.`;
+  }
+  const next = canKeep
+    ? "Run mksync setup --existing keep to push them first, or run it without --yes to confirm."
+    : "Run it without --yes to confirm.";
+  return `ERROR: ${guard.count} file(s) changed on this machine since the last sync, and setup would overwrite them.\n${next}`;
 }
 
 /** The hostname up to its first dot: the name `setup` suggests, since macOS
@@ -349,9 +495,9 @@ async function linkedAnswer(
 
 /**
  * The first-run flow of `mksync setup`, per the contract's "mksync setup": the
- * scan block, the profile list, the four questions and the summary. It returns
- * the record and profile to write and what to do with existing files; it
- * writes nothing.
+ * scan block, the profile list, the four questions, the bootstrap question,
+ * the summary and the confirm. It returns the record and profile to write and
+ * what to do with existing files; it writes nothing.
  */
 export async function runSetup(
   input: SetupInput,
@@ -487,13 +633,19 @@ export async function runSetup(
     mode = await answer(io, flags, flags.mode, MODE_CHOICES, Q3, 1);
   }
   asked ||= flags.existing === undefined && flags.yes !== true;
+  // Contract "What differs": one line above question 4, also when a flag
+  // answers it; a count of 0 prints nothing.
+  const shown = differLine(input.differ);
+  if (shown !== undefined) {
+    io.write(`${shown}\n`);
+  }
   const action = await answer(
     io,
     flags,
     flags.existing,
     EXISTING_CHOICES,
     Q4,
-    1,
+    existingSuggestion(input.differ, mode),
   );
   if (asked) {
     io.write("\n");
@@ -503,6 +655,23 @@ export async function runSetup(
       "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.",
       1,
     );
+  }
+
+  // Contract "Bootstrap": asked after question 4 and before the summary, never
+  // for the `stop` answer; `--bootstrap` chooses it without asking.
+  let bootstrap =
+    input.bootstrapOffered === true &&
+    flags.bootstrap === true &&
+    action !== "stop";
+  if (
+    input.bootstrapOffered === true &&
+    flags.bootstrap !== true &&
+    action !== "stop"
+  ) {
+    io.write(BOOTSTRAP_QUESTION);
+    const answer = trimAnswer((await io.readLine()) ?? "");
+    io.write("\n");
+    bootstrap = isYes(answer);
   }
 
   const existing = profileNamed(input, profileName);
@@ -550,10 +719,33 @@ export async function runSetup(
     replacing === undefined
       ? `--name ${record.name}`
       : `--replace ${record.name}`;
+  const bootstrapFlag = bootstrap ? " --bootstrap" : "";
   io.write(
     `Machine ${record.name}: profile ${profileName}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
-      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}\n`,
+      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${bootstrapFlag}\n`,
   );
+  // Contract "Guard block": after `Same as:`, the diff lines and the count when
+  // answer 4 is `backup` with a sync point and an `OUT` or `BOTH` file (or a
+  // failed diff). It turns the confirm's default into no.
+  const guard = guardOf(input.differ, action);
+  if (guard !== undefined) {
+    io.write(guardBlockText(guard));
+  }
+  // Contract "Confirm": `--yes` answers yes without printing it, except after a
+  // guard block, where it stops before anything is written. An empty answer or
+  // end of input takes the default: yes for `[Y/n]`, no for `[y/N]`.
+  if (flags.yes === true) {
+    if (guard !== undefined) {
+      return stop(guardRefusalText(guard, mode), 1);
+    }
+  } else {
+    io.write(guard === undefined ? CONFIRM_QUESTION : CONFIRM_GUARDED_QUESTION);
+    const line = await io.readLine();
+    const answer = line === undefined ? "" : trimAnswer(line);
+    if (guard === undefined ? isNo(answer) : !isYes(answer)) {
+      return { ok: false, declined: true };
+    }
+  }
   return {
     ok: true,
     record: answeredRecord,
@@ -561,6 +753,7 @@ export async function runSetup(
     newProfile: existing === undefined,
     action,
     replaced: replacing !== undefined,
+    bootstrap,
   };
 }
 

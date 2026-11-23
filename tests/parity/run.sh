@@ -302,6 +302,66 @@ whole_output() {
     done
 }
 
+# Rewrite the placeholders in the whole-stdout lines of the collected output,
+# after every command ran (see the README's "How the runner checks it"): the
+# case's temp home becomes <HOME>, the one backup run folder becomes
+# backups/RUN, and a Sync point's sha that begins the repo's HEAD becomes
+# <HEAD>. The status lines, and every line outside a whole-stdout command, are
+# left alone. $1 is the case's temp folder, $2 the case's git mode.
+rewrite_whole_output() {
+    local temp=$1 git_mode=$2 line n=0 start end run='' head='' sha='' in_whole i
+    local result=$temp/actual-output-rewritten
+    local -a starts=() ends=() runs=()
+    if [[ -f $temp/whole-ranges ]]; then
+        while read -r start end; do
+            [[ -n $start ]] || continue
+            starts+=("$start")
+            ends+=("$end")
+        done < "$temp/whole-ranges"
+    fi
+    if [[ -d $temp/home/.local/state/sync-settings/backups ]]; then
+        while IFS= read -r -d '' folder; do
+            if [[ -n $folder ]]; then
+                runs+=("${folder##*/}")
+            fi
+        done < <(find "$temp/home/.local/state/sync-settings/backups" \
+            -mindepth 1 -maxdepth 1 -type d -print0)
+        if (( ${#runs[@]} == 1 )); then
+            run=${runs[0]}
+        fi
+    fi
+    if [[ $git_mode != none ]]; then
+        head=$(git_env -C "$temp/repo" rev-parse HEAD 2> /dev/null) || head=''
+    fi
+    : > "$result"
+    while IFS= read -r line || [[ -n $line ]]; do
+        n=$((n + 1))
+        in_whole=false
+        for i in "${!starts[@]}"; do
+            if (( n > starts[i] && n <= ends[i] )); then
+                in_whole=true
+                break
+            fi
+        done
+        if [[ $in_whole == true ]]; then
+            # The temp home as a literal string: quoting keeps a path's glob
+            # characters out of the pattern.
+            line=${line//"$temp/home"/<HOME>}
+            if [[ -n $run ]]; then
+                line=${line//"backups/$run"/backups/RUN}
+            fi
+            if [[ -n $head && $line == '  Sync point : '* ]]; then
+                sha=${line#'  Sync point : '}
+                if [[ -n $sha && $sha != *[!0-9a-fA-F]* && $head == "$sha"* ]]; then
+                    line='  Sync point : <HEAD>'
+                fi
+            fi
+        fi
+        printf '%s\n' "$line" >> "$result"
+    done < "$temp/actual-output"
+    mv "$result" "$temp/actual-output"
+}
+
 # One command's output for the expect/lines.txt check: ANSI color codes
 # removed, each line trimmed, and a status line in either engine's layout read
 # as `WORD label note` with single spaces between (see the README's "How the
@@ -554,7 +614,8 @@ write_getent_stub() {
 }
 
 # Write the bootstrap stub into the case's repo: `bootstrap/linux.sh` appends
-# `ran` to $temp/bootstrap.log and prints BOOTSTRAP RAN, then exits 0. The front
+# `ran <MKSYNC_SETUP_EXISTING>` to $temp/bootstrap.log and prints BOOTSTRAP RAN,
+# then exits 0; it imports nothing, so a case's home shows setup imported nothing. The front
 # door runs the repo's own file, so this is the one stub inside a compared tree;
 # its log stays outside both trees. `$0` is the repo's absolute path, or the
 # relative one the caller ran from the repo root, so its two parents are $temp.
@@ -564,7 +625,7 @@ write_bootstrap_stub() {
     # shellcheck disable=SC2016  # the stub's own $ expansions run when the stub runs
     printf '%s\n' \
         '#!/bin/sh' \
-        "printf 'ran\\n' >> \"\${0%/*}/../../bootstrap.log\"" \
+        "printf 'ran %s\\n' \"\${MKSYNC_SETUP_EXISTING-}\" >> \"\${0%/*}/../../bootstrap.log\"" \
         "printf 'BOOTSTRAP RAN\\n'" \
         'exit 0' > "$temp/repo/bootstrap/linux.sh" || die 'writing the bootstrap stub failed'
     chmod +x "$temp/repo/bootstrap/linux.sh" || die 'making the bootstrap stub executable failed'
@@ -582,7 +643,7 @@ run_case() {
     local stderr_mode all_output keep_ansi target value
     local want_exit want_output want_home want_repo want_values want_state want_gh want_dconf calls first_load
     local want_bootstrap first_run
-    local file rel got want_mode got_mode start_head state_want clone positional
+    local file rel got want_mode got_mode start_head state_want clone positional out_start out_end
     local -a args=() runs=() path_env=() case_env_unset=() case_env_set=()
 
     t=$(mktemp -d)
@@ -722,6 +783,7 @@ run_case() {
 
     : > "$t/actual-exit"
     : > "$t/actual-output"
+    : > "$t/whole-ranges"
     for ((i = 0; i < count; i++)); do
         cmd=$(jq -r ".commands[$i].command // empty" "$dir/case.json")
         args=()
@@ -830,6 +892,7 @@ run_case() {
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2>&1 || rc=$?
         fi
         printf '%s\n' "$rc" >> "$t/actual-exit"
+        out_start=$(wc -l < "$t/actual-output")
         if [[ $all_output == true ]]; then
             whole_output "$t/raw" "$keep_ansi" >> "$t/actual-output"
         else
@@ -841,6 +904,12 @@ run_case() {
                     printf '%s\n' "$line"
                 done >> "$t/actual-output"
         fi
+        if [[ $all_output == true ]]; then
+            # The lines this command added, 1-based, for the placeholder
+            # rewrite once every command has run.
+            out_end=$(wc -l < "$t/actual-output")
+            printf '%s %s\n' "$out_start" "$out_end" >> "$t/whole-ranges"
+        fi
         # The same command's whole output, normalized for expect/lines.txt.
         # Stderr joins it only when the case asked for stderr, as for output.txt.
         normalize_output "$t/raw" > "$t/cmd-$((i + 1)).lines"
@@ -848,6 +917,11 @@ run_case() {
             normalize_output "$t/raw-err" >> "$t/cmd-$((i + 1)).lines"
         fi
     done
+
+    # Every command has run: the whole-stdout lines can now be compared with
+    # the places whose value changes per run replaced (the temp home, the
+    # backup run folder, the sync point's sha).
+    rewrite_whole_output "$t" "$git_mode"
 
     # Each gh call is cut to its first two words, so branch names and titles
     # don't matter. No expected file means gh must not be called.

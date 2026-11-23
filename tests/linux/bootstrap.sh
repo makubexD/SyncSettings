@@ -226,15 +226,20 @@ setup_case() {
     cp -a "$REPO/packages/linux" "$t/repo/packages/"
     # The engine the restore steps run: a stub on the test PATH that logs its
     # arguments, prints $t/stub/import.out and exits with $t/stub/import.rc for
-    # import, and exits with $t/stub/sync.rc for preview. A case can make one
-    # fail or report a file in ERROR.
+    # import, exits with $t/stub/export.rc for export, and with $t/stub/sync.rc
+    # for preview. A case can make one fail or report a file in ERROR.
     cat > "$t/bin/mksync" <<EOF
 #!/bin/sh
 case \$1 in
     import)
-        printf 'import\n' >> "$t/calls"
+        printf '%s\n' "\$*" >> "$t/calls"
         cat "$t/stub/import.out" 2>/dev/null
         rc=\$(cat "$t/stub/import.rc" 2>/dev/null || echo 0)
+        [ "\$rc" -eq 0 ] || exit "\$rc"
+        ;;
+    export)
+        printf '%s\n' "\$*" >> "$t/calls"
+        rc=\$(cat "$t/stub/export.rc" 2>/dev/null || echo 0)
         [ "\$rc" -eq 0 ] || exit "\$rc"
         ;;
     preview)
@@ -1541,6 +1546,54 @@ case_restore_import_runs() {
     grep -Fxq 'import' "$t/calls" || fail 'import was not called with no arguments'
 }
 
+# Under mksync setup the script gets setup's fourth answer as
+# MKSYNC_SETUP_EXISTING and runs it as its import step: run_setup_bootstrap
+# runs the script with that answer and a desktop session.
+run_setup_bootstrap() {
+    rc=0
+    (cd "$t/repo" && env -i HOME="$t/home" PATH="$t/bin:$t/sysbin" MKSYNC_SETUP_EXISTING="$1" \
+        BOOTSTRAP_ROOT="$t/root" DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null TMPDIR="$t/tmp" \
+        bash "$t/repo/bootstrap/linux.sh" < /dev/null) > "$out" 2>&1 || rc=$?
+}
+
+case_setup_existing_backup() {
+    setup_case
+    seed_restore
+    run_setup_bootstrap backup
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    grep -Fxq 'import --force' "$t/calls" || fail 'import --force was not called'
+    ! grep -q '^export' "$t/calls" || fail 'export ran for backup'
+}
+
+case_setup_existing_keep() {
+    setup_case
+    seed_restore
+    run_setup_bootstrap keep
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    [[ $(grep -E '^(export|import)' "$t/calls") == $'export\nimport --force' ]] \
+        || fail 'want export, then import --force'
+    grep -Fxq 'Pushed into the repo folder; commit it with mksync push.' "$out" || fail 'missing the pushed line'
+}
+
+case_setup_existing_keep_export_fails() {
+    setup_case
+    seed_restore
+    printf '1\n' > "$t/stub/export.rc"
+    run_setup_bootstrap keep
+    (( rc == 1 )) || fail "exited $rc, want 1"
+    ! grep -q '^import' "$t/calls" || fail 'import ran after a failed export'
+    output_has_status ERROR import 'failed' || fail 'summary does not name import'
+}
+
+case_setup_existing_stop() {
+    setup_case
+    seed_restore
+    run_setup_bootstrap stop
+    (( rc == 0 )) || fail "exited $rc, want 0"
+    output_has_status SKIPPED import 'mksync setup --existing stop' || fail 'missing SKIPPED import'
+    ! grep -q '^import' "$t/calls" || fail 'import ran for stop'
+}
+
 # A fresh machine: no mksync on PATH, so the program setup ran from arrives as
 # MKSYNC_PROGRAM and the restore steps run it, not the clone's launcher.
 case_restore_program_from_setup() {
@@ -1851,7 +1904,7 @@ case_restore_idempotent() {
     output_has_status UNCHANGED plugins || fail 'second run did not report plugins unchanged'
 }
 
-for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues guard-sudo-dropped apt-sources-fresh apt-sources-comment-ignored apt-sources-bad-key-path apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-claude-not-executable tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs restore-program-from-setup restore-import-fails restore-import-error-line restore-preview-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
+for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sudo-refused guard-other-release guard-unknown-option guard-help guard-dry-run-no-sudo guard-step-order guard-sourced-no-main guard-no-jq guard-step-failure-continues guard-sudo-dropped apt-sources-fresh apt-sources-comment-ignored apt-sources-bad-key-path apt-sources-same apt-sources-differs apt-sources-before-install apt-install-missing apt-nothing-missing apt-install-fails apt-dry-run apt-update-new-source apt-certs-long-list deb-installs deb-bad-hash deb-wrong-package deb-already-installed deb-loop-keeps-going desktop-snap-args desktop-snap-both-options desktop-snap-failure-continues desktop-snap-present desktop-snap-down desktop-font-installs desktop-font-bad-hash desktop-font-bad-archive desktop-font-present desktop-ext-installs desktop-ext-wrong-commit desktop-ext-no-install-sh desktop-ext-present desktop-ext-partial-folder desktop-ext-fetch-fails desktop-dry-run node-installs-nvm node-bad-hash node-profile-untouched node-installs-lts node-present node-npm-missing node-npm-newest node-npm-scoped node-npm-present node-pipx-installs node-pipx-present node-pipx-missing-tool node-dry-run tools-bun tools-rtk tools-copilot tools-bad-hash tools-bad-archive tools-present tools-claude-file-first tools-claude-fails tools-claude-no-binary tools-claude-not-executable tools-nvm-skipped tools-dry-run vscode-installs-missing vscode-case-insensitive vscode-one-fails vscode-no-code vscode-snap-path vscode-dry-run restore-import-runs setup-existing-backup setup-existing-keep setup-existing-keep-export-fails setup-existing-stop restore-program-from-setup restore-import-fails restore-import-error-line restore-preview-fails restore-no-session restore-order restore-link-new restore-link-same restore-link-real-file restore-link-other-target restore-link-dangling restore-plugins-ref restore-plugins-no-ref restore-plugins-disabled restore-plugins-settings-back restore-plugins-settings-back-on-failure restore-plugins-no-settings restore-plugins-present restore-plugins-partial restore-plugins-no-state restore-plugins-dry-run restore-plugins-bun-on-path restore-dry-run-no-import restore-idempotent; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
@@ -1943,6 +1996,10 @@ for case_name in guard-root guard-arch guard-not-ubuntu guard-bad-list guard-sud
         vscode-snap-path) case_vscode_snap_path ;;
         vscode-dry-run) case_vscode_dry_run ;;
         restore-import-runs) case_restore_import_runs ;;
+        setup-existing-backup) case_setup_existing_backup ;;
+        setup-existing-keep) case_setup_existing_keep ;;
+        setup-existing-keep-export-fails) case_setup_existing_keep_export_fails ;;
+        setup-existing-stop) case_setup_existing_stop ;;
         restore-program-from-setup) case_restore_program_from_setup ;;
         restore-import-fails) case_restore_import_fails ;;
         restore-import-error-line) case_restore_import_error_line ;;

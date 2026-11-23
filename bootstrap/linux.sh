@@ -668,9 +668,30 @@ step_import() {
     if (( DRY_RUN )); then
         return 0
     fi
-    # Stdin stays the terminal, so import's overwrite prompts work. Import exits 0
-    # with a file in ERROR, by contract, so its status lines are the only signal.
-    "$MKSYNC" import | tee "$WORK/import.out" || return 1
+    # Under mksync setup, MKSYNC_SETUP_EXISTING is its fourth answer, and this
+    # step carries it out here, so the links, plugins and preview after it see
+    # the files. Setup already confirmed, so its import doesn't ask again.
+    local import_args=()
+    case ${MKSYNC_SETUP_EXISTING:-} in
+        '') ;;
+        backup) import_args=(--force) ;;
+        keep)
+            "$MKSYNC" export || return 1
+            printf 'Pushed into the repo folder; commit it with mksync push.\n'
+            import_args=(--force)
+            ;;
+        stop)
+            boot_skipped import 'mksync setup --existing stop'
+            return 0
+            ;;
+        *)
+            status ERROR import "unknown MKSYNC_SETUP_EXISTING: ${MKSYNC_SETUP_EXISTING}"
+            return 1
+            ;;
+    esac
+    # Stdin stays the terminal, so import's prompts work. Import exits 0 with a
+    # file in ERROR, by contract, so its status lines are the only signal.
+    "$MKSYNC" import "${import_args[@]}" | tee "$WORK/import.out" || return 1
     if grep -q '^  ERROR ' "$WORK/import.out"; then
         return 1
     fi

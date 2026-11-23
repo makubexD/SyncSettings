@@ -1,5 +1,5 @@
 {
-  "description": "On Ubuntu with an executable bootstrap/linux.sh, the v2 setup asks the bootstrap question after writing the record and the profile; an empty answer skips the script and setup goes on with the first pull, exit 0 (Machines (program only), mksync setup, bootstrap). The y answer is setup-bootstrap-question.",
+  "description": "On Ubuntu with an executable bootstrap/linux.sh, the v2 setup asks the bootstrap question after question 4 and before the summary; an empty answer skips the script and setup goes on with the first pull, exit 0 (Machines (program only), mksync setup, bootstrap). The y answer is setup-bootstrap-question.",
   "os": [
     "linux"
   ],

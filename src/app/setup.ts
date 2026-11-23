@@ -1,19 +1,16 @@
 /**
  * `mksync setup` (contract "First run"): run the doctor, read the store and the
- * scan, run the flow, move `.user-values.json`, write the record and profile,
- * offer the Ubuntu bootstrap, then act on the fourth answer (decision 9). The
- * export and import the flow ends with run through the caller's `execute`, so
- * this module never imports `main.ts`.
+ * scan, run the flow (the bootstrap question and the confirm included), move
+ * `.user-values.json`, write the record and profile, run the Ubuntu bootstrap
+ * when chosen, then act on the fourth answer (decision 9). The export and
+ * import the flow ends with run through the caller's `execute`, so this module
+ * never imports `main.ts`.
  */
 
-import {
-  accessSync,
-  constants as fsConstants,
-  statSync,
-} from "node:fs";
+import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { join } from "node:path";
 import { SymlinkRefusal } from "../adapters/atomic.ts";
-import { readOrigin } from "../adapters/git.ts";
+import { readOrigin, readSyncPoint } from "../adapters/git.ts";
 import { readOsId } from "../adapters/osname.ts";
 import { run } from "../adapters/process.ts";
 import { readScan } from "../adapters/scan.ts";
@@ -29,9 +26,14 @@ import {
   stateLocation,
 } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
-import { trimAnswer } from "../core/answer.ts";
 import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
+import {
+  blockedLines,
+  diffCommand,
+  diffCounts,
+  pullImportCommand,
+} from "./guard.ts";
 import { isInstalledProgram } from "./update.ts";
 import type { ExecuteOptions, Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
@@ -44,7 +46,12 @@ import type { ValuePlace } from "../core/machine/values.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { runSetup } from "../wizard/setup.ts";
-import type { ExistingAction, SetupFlags, SetupIo } from "../wizard/setup.ts";
+import type {
+  ExistingAction,
+  SetupDiffer,
+  SetupFlags,
+  SetupIo,
+} from "../wizard/setup.ts";
 
 const VALUES_FILE = ".user-values.json";
 
@@ -57,9 +64,49 @@ const BOOTSTRAP_SCRIPT = ["bootstrap", "linux.sh"] as const;
 /** `setup --bootstrap` off Ubuntu, before doctor runs. */
 const BOOTSTRAP_ONLY_UBUNTU = "ERROR: --bootstrap is Ubuntu only.";
 
-/** The bootstrap question, exactly as `front_setup` prints it. */
-const BOOTSTRAP_QUESTION =
-  "  Also restore apps and packages from packages/linux (uses sudo)? [y/N] ";
+/** `import --check`, as pull's check runs it, for question 4's differ line. */
+const IMPORT_CHECK: RunCommand = pullImportCommand(true, false, []);
+
+/** `export --diff`, as pull's diff runs it, for the guard block. */
+const DIFF: RunCommand = diffCommand([]);
+
+/** A check line an import would overwrite: `UPDATE`, never `CREATE`. */
+const UPDATE_LINE = /^ {2}UPDATE /;
+
+/** The check's `UPDATE` count; a `CREATE` never counts. */
+function updateCount(check: Result): number {
+  return `${check.stdout}${check.stderr}`
+    .split("\n")
+    .filter((line) => UPDATE_LINE.test(line)).length;
+}
+
+/**
+ * The facts question 4 and the guard read: the import check's `UPDATE` count,
+ * whether a sync point is recorded, and, with changes and a sync point, the
+ * diff's counts and `OUT` / `BOTH` lines (or that it failed). Nothing prints
+ * here; the wizard renders the lines.
+ */
+async function readDiffer(
+  repoRoot: string,
+  state: string,
+  execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
+): Promise<SetupDiffer> {
+  const check = await execute(IMPORT_CHECK);
+  const updates = updateCount(check);
+  const hasSyncPoint = (await readSyncPoint(repoRoot, state)) !== undefined;
+  if (check.code !== 3 || !hasSyncPoint) {
+    return { updates, hasSyncPoint };
+  }
+  const diff = await execute(DIFF);
+  if (diff.code !== 0 && diff.code !== 3) {
+    return { updates, hasSyncPoint, diff: { ok: false } };
+  }
+  return {
+    updates,
+    hasSyncPoint,
+    diff: { ok: true, ...diffCounts(diff), blocked: blockedLines(diff) },
+  };
+}
 
 /** Today as `YYYY-MM-DD` in the machine's own time zone. */
 function localDate(now: Date): string {
@@ -146,42 +193,44 @@ function isExecutableFile(path: string): boolean {
   }
 }
 
-/** True for an answer bash's `[Yy]*` matches. */
-function isYes(answer: string): boolean {
-  return answer.startsWith("y") || answer.startsWith("Y");
-}
-
 /**
- * Contract "Front door": on Ubuntu with an executable `bootstrap/linux.sh`,
- * `--bootstrap` runs it; otherwise setup asks and runs it for an answer
- * starting with y or Y. The script owns the terminal (it may prompt for sudo),
- * so our answer reader is closed first and setup ends with its exit code.
- * `undefined` when no script runs.
+ * Contract "mksync setup": `bootstrap/linux.sh`, when this machine offers it
+ * (Ubuntu, with an executable script); `undefined` otherwise. The flow asks
+ * about it before the summary and returns the answer.
  */
-async function runBootstrap(
-  repoRoot: string,
-  os: Os,
-  command: SetupCommand,
-  terminal: SetupTerminal,
-): Promise<Result | undefined> {
+function bootstrapScript(repoRoot: string, os: Os): string | undefined {
   if (os !== "linux" || readOsId(process.env) !== UBUNTU) {
     return undefined;
   }
   const script = join(repoRoot, ...BOOTSTRAP_SCRIPT);
-  if (!isExecutableFile(script)) {
+  return isExecutableFile(script) ? script : undefined;
+}
+
+/**
+ * Contract "mksync setup": runs the script the flow chose, after the record
+ * and profile are written. The script owns the terminal (it may prompt for
+ * sudo), so our answer reader is closed first. `MKSYNC_SETUP_EXISTING` hands it
+ * the fourth answer, which its import step carries out in its usual place,
+ * before the links, plugins and preview that need the files; setup then ends
+ * with the script's exit code. `undefined` when no script runs.
+ */
+async function runBootstrap(
+  repoRoot: string,
+  os: Os,
+  terminal: SetupTerminal,
+  existing: ExistingAction,
+): Promise<Result | undefined> {
+  const script = bootstrapScript(repoRoot, os);
+  if (script === undefined) {
     return undefined;
-  }
-  if (command.bootstrap !== true) {
-    terminal.io.write(BOOTSTRAP_QUESTION);
-    const answer = trimAnswer((await terminal.io.readLine()) ?? "");
-    if (!isYes(answer)) {
-      return undefined;
-    }
   }
   terminal.close();
   const bootstrapped = await run([script], {
     inherit: true,
-    env: bootstrapEnv(process.env, process.execPath),
+    env: {
+      ...bootstrapEnv(process.env, process.execPath),
+      MKSYNC_SETUP_EXISTING: existing,
+    },
   });
   return { code: bootstrapped.code, stdout: "", stderr: "" };
 }
@@ -247,8 +296,9 @@ export function bootstrapRefusal(
 
 /**
  * Run `mksync setup` end to end: run the doctor, read the store and the scan,
- * run the flow, move `.user-values.json`, write the record and profile, offer
- * the Ubuntu bootstrap, then act on the fourth answer (decision 9).
+ * run the flow, move `.user-values.json`, write the record and profile, run
+ * the Ubuntu bootstrap when the flow chose it, then act on the fourth answer
+ * (decision 9).
  */
 export async function executeSetup(
   repoRoot: string,
@@ -322,6 +372,7 @@ export async function executeSetup(
   }
 
   const scan = await readScan(process.env, os, home, config);
+  const differ = await readDiffer(repoRoot, state, execute);
   const terminal = setupTerminal();
   const outcome = await runSetup(
     {
@@ -333,6 +384,8 @@ export async function executeSetup(
       isPrivate,
       today: localDate(new Date()),
       flags: command,
+      differ,
+      bootstrapOffered: bootstrapScript(repoRoot, os) !== undefined,
       linkedFolders: (profile, record) =>
         readLinkedFolders(home, os, config, profile, record),
     },
@@ -340,6 +393,9 @@ export async function executeSetup(
   );
   if (!outcome.ok) {
     terminal.close();
+    if ("declined" in outcome) {
+      return { code: 0, stdout: "Stopped: nothing was written.\n", stderr: "" };
+    }
     return failure(outcome.message, outcome.code);
   }
 
@@ -357,10 +413,10 @@ export async function executeSetup(
     command,
     terminal.io,
   );
-  // The record and the profile are written first, then the bootstrap question
-  // and the import's value questions are asked on the same reader: it stays
-  // open so a piped answer still reaches them, and `runBootstrap` closes it
-  // before the script gets the terminal.
+  // The confirm was answered yes, so the record and the profile are written
+  // after the value questions, which use the same reader as the flow: a piped
+  // answer left after the confirm reaches them, and `runBootstrap` closes the
+  // reader before the script gets the terminal.
   try {
     const moved = moveUserValues(values, answers);
     const record: MachineRecord = {
@@ -392,16 +448,26 @@ export async function executeSetup(
       return failure(`ERROR: cannot write the machine record: ${message}`);
     }
 
+    // Contract "Then": only a confirm's yes reaches here, so the record and
+    // profile are written. A chosen bootstrap acts on question 4 itself and
+    // ends setup with its exit code; otherwise setup acts on it.
+    if (outcome.bootstrap) {
+      const bootstrapped = await runBootstrap(
+        repoRoot,
+        os,
+        terminal,
+        outcome.action,
+      );
+      if (bootstrapped !== undefined) {
+        return bootstrapped;
+      }
+    }
     if (outcome.action === "stop") {
       return {
         code: 0,
         stdout: "Stopped: the record is written, no file was changed.\n",
         stderr: "",
       };
-    }
-    const bootstrapped = await runBootstrap(repoRoot, os, command, terminal);
-    if (bootstrapped !== undefined) {
-      return bootstrapped;
     }
     return await importAfterSetup(outcome.action, execute, { terminal });
   } finally {

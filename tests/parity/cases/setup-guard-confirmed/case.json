@@ -1,0 +1,46 @@
+{
+  "description": "Setup with a sync point and --existing backup prints the OUT line and the guard's count, then a yes at the [y/N] confirm writes the record and profile and imports the repo's version over this machine's file, keeping the old one in a.conf.bak, exit 0 (mksync setup, Guard block, Confirm, Then).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/a.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "box1",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "backup"
+      },
+      "stdin": "y\n"
+    }
+  ]
+}
