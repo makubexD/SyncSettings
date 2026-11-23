@@ -671,12 +671,21 @@ step_import() {
     # Under mksync setup, MKSYNC_SETUP_EXISTING is its fourth answer, and this
     # step carries it out here, so the links, plugins and preview after it see
     # the files. Setup already confirmed, so its import doesn't ask again.
-    # Setup has already run keep's export and printed its Pushed line, so keep
-    # and backup both only import.
+    # With MKSYNC_SETUP_EXPORTED=1 setup has already run keep's export (only
+    # this machine's changes) and printed its Pushed line, so keep only imports.
     local import_args=()
     case ${MKSYNC_SETUP_EXISTING:-} in
         '') ;;
-        backup|keep) import_args=(--force) ;;
+        backup) import_args=(--force) ;;
+        keep)
+            # An older mksync leaves keep's export to the script and doesn't
+            # set MKSYNC_SETUP_EXPORTED; export here then, so nothing is lost.
+            if [[ ${MKSYNC_SETUP_EXPORTED:-} != 1 ]]; then
+                "$MKSYNC" export || return 1
+                printf 'Pushed into the repo folder; commit it with mksync push.\n'
+            fi
+            import_args=(--force)
+            ;;
         stop)
             boot_skipped import 'mksync setup --existing stop'
             return 0

@@ -692,7 +692,8 @@ file, no sync point and no `.user-values.json`.
 
 `mksync` on `PATH` is [the program](#the-program), which the installers download ([Install](#install)):
 `~/.local/bin/mksync` on Linux and macOS, `%LOCALAPPDATA%\mksync\mksync.exe` on Windows. Every `[Y/n]` prompt takes an
-empty answer or end of input as yes, every `[y/N]` prompt as no. Commands, wording and exit codes are the same on every
+empty answer or end of input as yes, every `[y/N]` prompt as no, except `mksync setup`'s confirm, where end of input is
+no ([`mksync setup`](#mksync-setup)). Commands, wording and exit codes are the same on every
 system, except where this section says otherwise.
 
 | Command                                  | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Exit                                                            |
@@ -1283,7 +1284,9 @@ Write the record and apply? [Y/n]
   the confirm and the record and profile are written, with `keep` setup runs keep's export as "Then" describes (and
   prints `Pushed into the repo folder; commit it with mksync push.`) before the script, while setup's terminal is still
   open; a failed export stops setup before the script with the export's code, the record and profile staying written.
-  Then setup runs the script with `MKSYNC_SETUP_EXISTING` set to the fourth answer, and the script's import step does
+  Then setup runs the script with `MKSYNC_SETUP_EXISTING` set to the fourth answer (and, with `keep`,
+  `MKSYNC_SETUP_EXPORTED=1`; a script that gets `keep` without it, from an older program, runs `export` and prints the
+  `Pushed into` line itself), and the script's import step does
   what "Then" says for it in place of its own import: `backup` and `keep` run `import --force` (with keep, the export
   is already done); `stop` prints
   `  SKIPPED    import (mksync setup --existing stop)` and runs no import. The steps after it (links, plugins,
@@ -1299,7 +1302,8 @@ Write the record and apply? [Y/n]
   diff labelled `OUT` or `BOTH`, prints `Pushed into the repo folder; commit it with mksync push.`, then runs
   `import --force`, which brings the `IN` files; when the diff labelled no such file, only the import runs and no
   `Pushed into` line prints; without a sync point, or after a failed diff, it runs the whole `export` as before, since
-  the newer side is unknown; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
+  the newer side is unknown, and when `--only` refuses a path (a layer added since the sync point) the whole export
+  runs too; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
   import's or export's code.
 
 A flag that can't be read stops before the scan, exit 2, like an unknown option: `ERROR: <flag> needs a value.`,

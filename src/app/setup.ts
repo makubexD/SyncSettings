@@ -65,6 +65,10 @@ const BOOTSTRAP_SCRIPT = ["bootstrap", "linux.sh"] as const;
 /** `setup --bootstrap` off Ubuntu, before doctor runs. */
 const BOOTSTRAP_ONLY_UBUNTU = "ERROR: --bootstrap is Ubuntu only.";
 
+/** `export --only`'s refusal of a path no selected entry owns (contract
+ * "Picking files"). */
+const NOT_SYNCED_LINE = / is not synced on this machine\.$/m;
+
 /** After keep's export, once the changes are in the repo folder. */
 const PUSHED_LINE =
   "Pushed into the repo folder; commit it with mksync push.\n";
@@ -215,7 +219,9 @@ function bootstrapScript(repoRoot: string, os: Os): string | undefined {
  * Contract "mksync setup": runs the script the flow chose, after the record
  * and profile are written. The script owns the terminal (it may prompt for
  * sudo), so our answer reader is closed first. `MKSYNC_SETUP_EXISTING` hands it
- * the fourth answer, which its import step carries out in its usual place,
+ * the fourth answer, which its import step carries out in its usual place;
+ * `MKSYNC_SETUP_EXPORTED=1` says setup already ran keep's export, so a script
+ * that sees `keep` without it (an older program) still exports itself,
  * before the links, plugins and preview that need the files; setup then ends
  * with the script's exit code. `undefined` when no script runs.
  */
@@ -224,6 +230,7 @@ async function runBootstrap(
   os: Os,
   terminal: SetupTerminal,
   existing: ExistingAction,
+  exported: boolean,
 ): Promise<Result | undefined> {
   const script = bootstrapScript(repoRoot, os);
   if (script === undefined) {
@@ -235,6 +242,7 @@ async function runBootstrap(
     env: {
       ...bootstrapEnv(process.env, process.execPath),
       MKSYNC_SETUP_EXISTING: existing,
+      ...(exported ? { MKSYNC_SETUP_EXPORTED: "1" } : {}),
     },
   });
   return { code: bootstrapped.code, stdout: "", stderr: "" };
@@ -469,8 +477,8 @@ export async function executeSetup(
             return exported;
           }
           process.stdout.write(exported.stdout);
-          process.stdout.write(PUSHED_LINE);
           process.stderr.write(exported.stderr);
+          process.stdout.write(PUSHED_LINE);
         }
       }
       const bootstrapped = await runBootstrap(
@@ -478,6 +486,7 @@ export async function executeSetup(
         os,
         terminal,
         outcome.action,
+        outcome.action === "keep",
       );
       if (bootstrapped !== undefined) {
         return bootstrapped;
@@ -524,9 +533,12 @@ function keepPaths(differ: SetupDiffer): readonly string[] | undefined {
  * sync point or a failed diff, `keepPaths` says the newer side is unknown and
  * it exports everything. An empty path list means there is nothing to push, so
  * `undefined` comes back and no export runs (and no `Pushed into` line prints).
- * Setup's own keep and the bootstrap's share this one rule.
+ * Setup's own keep and the bootstrap's share this one rule. The diff reads an
+ * entry's repo path from the sync point's tree and the export from today's, so
+ * a layer added since can make `--only` refuse a path; then the whole export
+ * runs, as before the hotfix, rather than failing keep.
  */
-async function exportKeep(
+export async function exportKeep(
   execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
   options: ExecuteOptions,
   differ: SetupDiffer,
@@ -535,19 +547,25 @@ async function exportKeep(
   if (paths !== undefined && paths.length === 0) {
     return undefined;
   }
-  return execute(
-    {
-      kind: "run",
-      command: "export",
-      force: false,
-      preview: false,
-      check: false,
-      resetValues: false,
-      yes: false,
-      only: paths ?? [],
-    },
-    options,
-  );
+  const exportCommand = (only: readonly string[]): RunCommand => ({
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: false,
+    check: false,
+    resetValues: false,
+    yes: false,
+    only,
+  });
+  const exported = await execute(exportCommand(paths ?? []), options);
+  if (
+    paths !== undefined &&
+    exported.code !== 0 &&
+    NOT_SYNCED_LINE.test(`${exported.stdout}${exported.stderr}`)
+  ) {
+    return execute(exportCommand([]), options);
+  }
+  return exported;
 }
 
 /**

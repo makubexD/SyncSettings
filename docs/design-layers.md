@@ -1524,6 +1524,10 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     weren't pushed are never overwritten.
   - Setup "keep mine" with a sync point exports only the diff's `OUT` and `BOTH` files since `v1.1.1`; a diff label
     outside `dotfiles/` (which `export --only` doesn't take) falls back to the whole export.
+  - Setup "keep mine" runs the diff only when the import check exits 3: after a check that exits 1 (a file in
+    `ERROR`) it falls back to the whole export, and with nothing to update it still prints the `Pushed into` line.
+  - An installer whose setup stops at the confirm for want of a terminal (`Stopped: nothing was written.`, exit 0)
+    still ends with `Installed. Run mksync any time.`; it could say setup was skipped.
   - Syncing the `ctx-print-guard` hook from this machine: its script needs a `sync-config.json` entry and its
     `hooks.PreToolUse` wiring a Linux-layer home, so it isn't pushed into the common `settings.json` layer. Later
     work.
@@ -1682,6 +1686,9 @@ each with its command and what to paste back, for work #2 and #3 when the user i
   `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or
   record it as a known difference.
 
+- **End of input at setup's confirm (v1.1.1).** `run.ps1` pipes a case's stdin with `$text | & exe`, which adds a
+  newline, so no Windows case can end at end of input: the confirm reads an empty line (yes). `setup-confirm-eof` is
+  Linux only. Check on a work machine that `mksync setup` with no console stops with `Stopped: nothing was written.`
 - **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
   access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
