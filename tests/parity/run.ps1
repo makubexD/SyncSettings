@@ -1073,6 +1073,7 @@ function Run-Case {
         $exitCodes = New-Object System.Collections.Generic.List[string]
         $statusOut = New-Object System.Collections.Generic.List[string]
         $lineOutputs = New-Object System.Collections.Generic.List[object]
+        $wholeRanges = New-Object System.Collections.Generic.List[object]
 
         for ($i = 0; $i -lt $commands.Count; $i++) {
             $cmdObj = $commands[$i]
@@ -1307,6 +1308,7 @@ function Run-Case {
                 Pop-Location
             }
 
+            $outStart = $statusOut.Count
             $exitCodes.Add([string]$rc)
             if ($stderrMode) {
                 # Stdout lines are the strings; stderr lines arrive as error
@@ -1349,6 +1351,54 @@ function Run-Case {
                     $statusOut.Add($line)
                 }
                 $lineOutputs.Add((Get-NormalizedLines -Raw $raw))
+            }
+            if ($allOutput) {
+                # The lines this command added, for the placeholder rewrite
+                # once every command has run.
+                $wholeRanges.Add(@($outStart, $statusOut.Count))
+            }
+        }
+
+        # Every command has run: the whole-stdout lines can now be compared
+        # with the places whose value changes per run replaced (the temp home,
+        # the backup run folder, the sync point's sha). The status lines, and
+        # every line outside a whole-stdout command, are left alone.
+        $rewriteHomes = @()
+        $rewriteHomes += $homeDir
+        $rewriteHomes += ($homeDir -replace '\\', '/')
+        $runName = ''
+        $backupsDir = Join-Path (Join-Path $localDir 'SyncSettings') 'backups'
+        if (Test-Path -LiteralPath $backupsDir -PathType Container) {
+            $backupRuns = @(Get-ChildItem -LiteralPath $backupsDir -Directory -Force)
+            if ($backupRuns.Count -eq 1) {
+                $runName = [string]$backupRuns[0].Name
+            }
+        }
+        $syncHead = ''
+        if ($gitMode -ceq 'committed' -or $gitMode -ceq 'remote') {
+            try {
+                $syncHead = Get-GitHead -RepoDir $repoDir
+            } catch {
+                $syncHead = ''
+            }
+        }
+        foreach ($range in $wholeRanges) {
+            for ($n = [int]$range[0]; $n -lt [int]$range[1]; $n++) {
+                $line = $statusOut[$n]
+                foreach ($homeForm in $rewriteHomes) {
+                    $line = $line -creplace [regex]::Escape($homeForm), '<HOME>'
+                }
+                if ($runName -ne '') {
+                    $line = $line -creplace [regex]::Escape('backups\' + $runName), 'backups/RUN'
+                    $line = $line -creplace [regex]::Escape('backups/' + $runName), 'backups/RUN'
+                }
+                if ($syncHead -ne '') {
+                    $point = [regex]::Match($line, '^  Sync point : ([0-9a-fA-F]+)$')
+                    if ($point.Success -and $syncHead.StartsWith($point.Groups[1].Value, [System.StringComparison]::Ordinal)) {
+                        $line = '  Sync point : <HEAD>'
+                    }
+                }
+                $statusOut[$n] = $line
             }
         }
 
