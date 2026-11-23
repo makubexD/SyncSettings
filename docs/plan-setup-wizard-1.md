@@ -42,10 +42,12 @@ Roadmap: `docs/plan-setup-wizard.md`, phase 1. Contract: `docs/sync-contract.md`
    `Run mksync setup --existing keep to push them first, or run it without --yes to confirm.`, exit 1 (after a failed
    diff: `ERROR: could not tell which side is newer; run mksync diff to see why, or mksync setup --existing keep.`,
    exit 1).
-5. **The bootstrap keeps answer 4.** Setup runs `bootstrap/linux.sh` with `MKSYNC_SETUP=1`. With it set, the script's
-   import step prints `  SKIPPED    import (mksync setup imports next)` and runs no import. A bootstrap that exits 0
-   lets setup go on to answer 4; one that fails ends setup with its exit code, before any import. `--bootstrap` now
-   shows in `Same as:` when the bootstrap runs.
+5. **The bootstrap keeps answer 4.** Setup runs `bootstrap/linux.sh` with `MKSYNC_SETUP_EXISTING=<answer 4>`, and the
+   script's import step acts on it in its usual place (`backup`: `import --force`; `keep`: export, then
+   `import --force`; `stop`: `  SKIPPED    import (mksync setup --existing stop)`). Setup ends with the script's exit
+   code. `--bootstrap` now shows in `Same as:` when the bootstrap runs. _Amended 2026-11-23 in step 11's review:_ step
+   9's first take (`MKSYNC_SETUP=1`, script skips, setup imports after it) ran links, plugins and preview before the
+   files existed, and setup's import read a closed terminal.
 6. **Exit codes** stay as the contract has them; the only new ones are decision 4's exit 1 with `--yes` and its exit 0
    on a declined confirm.
 
