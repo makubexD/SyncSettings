@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "command": "a.sh"
+      },
+      {
+        "matcher": "Bash",
+        "command": "guard.sh"
+      }
+    ]
+  },
+  "theme": "dark"
+}

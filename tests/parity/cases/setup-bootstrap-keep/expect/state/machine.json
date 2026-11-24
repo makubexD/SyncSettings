@@ -1,0 +1,16 @@
+{
+  "name": "box1",
+  "profile": "personal",
+  "os": "linux",
+  "hostname": "wk1-laptop",
+  "domain": null,
+  "claude": "none",
+  "pullOnly": false,
+  "modules": {
+    "add": [],
+    "remove": []
+  },
+  "values": {},
+  "replaced": [],
+  "retired": false
+}

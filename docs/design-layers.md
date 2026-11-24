@@ -1522,6 +1522,24 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     `--profile` with `--replace` takes the record's profile.
   - Setup "keep mine": a failed export stops before the import, with the export's exit code, so local files that
     weren't pushed are never overwritten.
+  - Setup "keep mine" with a sync point exports only the diff's `OUT` and `BOTH` files since `v1.1.1`; a diff label
+    outside `dotfiles/` (which `export --only` doesn't take) falls back to the whole export.
+  - Setup "keep mine" runs the diff only when the import check exits 3: after a check that exits 1 (a file in
+    `ERROR`) it falls back to the whole export, and with nothing to update it still prints the `Pushed into` line.
+  - Setup "keep mine" when the answers change the profile or modules (kept for after `v1.1.1`, user 2026-11-23): the
+    diff runs with the old record, so a changed file in a module the new profile adds isn't exported and the import
+    replaces it (only its `.bak` keeps it); and a diff path the new selection no longer syncs makes `--only` refuse,
+    so keep falls back to the whole export, which can push back files the repo changed. Options: work out the list
+    after the new record is chosen and export only the paths still synced, or refuse keep when the selection changes.
+  - A `v1.1.1` program with a clone still on an older `bootstrap/linux.sh` exports twice under keep: the old script
+    ignores `MKSYNC_SETUP_EXPORTED` and runs the whole export after setup's `--only` one. Only an unpulled clone.
+  - `setup-bootstrap-keep` has a single `OUT` entry, so it can't tell an `--only` export from a whole one; a second
+    entry changed only in the repo, plus `MKSYNC_SETUP_EXPORTED` in the stub's log, would cover the bootstrap path.
+  - An installer whose setup stops at the confirm for want of a terminal (`Stopped: nothing was written.`, exit 0)
+    still ends with `Installed. Run mksync any time.`; it could say setup was skipped.
+  - Syncing the `ctx-print-guard` hook from this machine: its script needs a `sync-config.json` entry and its
+    `hooks.PreToolUse` wiring a Linux-layer home, so it isn't pushed into the common `settings.json` layer. Later
+    work.
   - Replace asks each machine value as `<KEY> [<old value>] ` in the record's key order; no shared case has a value
     yet.
   - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1.
@@ -1537,7 +1555,9 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - `--profile`, `--claude` and `--mode` given with `--replace` are ignored without a message.
   - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
     which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's
-    rules would be a migration.
+    rules would be a migration. WIZ-4 (refuse without a terminal) stays here: `v1.1.1` instead makes end of input at
+    setup's `[Y/n]` confirm a no, so a run with no terminal (Claude Code's `!`) writes nothing, while piped answers
+    keep working (`docs/plan-setup-hotfix.md`, decision 3).
   - An SSH alias that resolves to `ssh.github.com` (GitHub's SSH over port 443) is public, since only `github.com`
     is asked. It fails closed; asking it as `github.com` would need a line in the contract first.
   - The guard's stop when `git ls-files` fails in a clone has no shared case: the runner can't break a clone's index
@@ -1675,6 +1695,9 @@ each with its command and what to paste back, for work #2 and #3 when the user i
   `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or
   record it as a known difference.
 
+- **End of input at setup's confirm (v1.1.1).** `run.ps1` pipes a case's stdin with `$text | & exe`, which adds a
+  newline, so no Windows case can end at end of input: the confirm reads an empty line (yes). `setup-confirm-eof` is
+  Linux only. Check on a work machine that `mksync setup` with no console stops with `Stopped: nothing was written.`
 - **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
   access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with

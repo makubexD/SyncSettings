@@ -732,8 +732,10 @@ export async function runSetup(
     io.write(guardBlockText(guard));
   }
   // Contract "Confirm": `--yes` answers yes without printing it, except after a
-  // guard block, where it stops before anything is written. An empty answer or
-  // end of input takes the default: yes for `[Y/n]`, no for `[y/N]`.
+  // guard block, where it stops before anything is written. An empty answer is
+  // yes for `[Y/n]` and no for `[y/N]`. End of input at `[Y/n]` is no too: with
+  // no terminal (Claude Code's `!`, a closed pipe) nobody answered, so nothing
+  // is written; the guarded `[y/N]` already read end of input as no.
   if (flags.yes === true) {
     if (guard !== undefined) {
       return stop(guardRefusalText(guard, mode), 1);
@@ -741,6 +743,9 @@ export async function runSetup(
   } else {
     io.write(guard === undefined ? CONFIRM_QUESTION : CONFIRM_GUARDED_QUESTION);
     const line = await io.readLine();
+    if (guard === undefined && line === undefined) {
+      return { ok: false, declined: true };
+    }
     const answer = line === undefined ? "" : trimAnswer(line);
     if (guard === undefined ? isNo(answer) : !isYes(answer)) {
       return { ok: false, declined: true };

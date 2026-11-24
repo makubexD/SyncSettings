@@ -1,0 +1,45 @@
+  OK       git
+  OK       gh (signed in)
+  OK       repo clone with origin
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      1 of 1 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+  1 file(s) differ: 0 in, 1 out, 0 both.
+  Also restore apps and packages from packages/linux (uses sudo)? [y/N] 
+Machine box1: profile personal, none, push with a preview.
+Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing keep --bootstrap
+Changes on box1 (profile personal):
+
+All machines
+  1  M  shell  b.conf  1 line(s) changed
+Linux machines
+     (none)
+Profile personal
+     (none)
+This machine only
+     (none)
+
+  MODIFIED   dotfiles/common/shell/b.conf
+
+  --------------------------------------------------
+
+  1 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+
+Pushed into the repo folder; commit it with mksync push.
+BOOTSTRAP RAN

@@ -728,9 +728,12 @@ run_case() {
     fi
 
     # An unsent/ tree goes over the repo's working tree after the commit and
-    # stays uncommitted, so `git status --porcelain` shows it.
+    # stays uncommitted, so `git status --porcelain` shows it. Plain cp -R
+    # gives the copies a new mtime: with cp -a a same-size edit can keep the
+    # committed file's size and mtime second, and git's stat check then calls
+    # the tree clean on some runs.
     if [[ -d $dir/unsent ]]; then
-        cp -a "$dir/unsent/." "$t/repo/" || die 'copying the case unsent/ failed'
+        cp -R "$dir/unsent/." "$t/repo/" || die 'copying the case unsent/ failed'
     fi
 
     # A seeded state/ goes into the folder the engine treats as its own state,

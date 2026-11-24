@@ -1,0 +1,53 @@
+{
+  "description": "Setup with a sync point, --existing keep and --yes exports only the OUT file b.conf into the repo folder, leaving the IN file a.conf to the import, prints Pushed into the repo folder once between the export's and the import's output, then imports a.conf over this machine's copy with a .bak, exit 0 (plan-setup-hotfix decision 1; mksync setup, What differs, Then).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/a.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      },
+      {
+        "file": "shell/b.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "box1",
+        "claude": "none",
+        "mode": "push",
+        "existing": "keep",
+        "yes": true
+      }
+    }
+  ]
+}

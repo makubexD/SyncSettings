@@ -1,0 +1,47 @@
+{
+  "description": "Setup on Ubuntu with a sync point, --existing keep, the bootstrap chosen and --yes runs keep's export before the script, printing the export's lines and Pushed into the repo folder; the script gets MKSYNC_SETUP_EXISTING=keep and imports nothing, and setup runs no import of its own, exit 0 (plan-setup-hotfix decision 2; mksync setup, Bootstrap, Then).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/b.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude",
+    "SYNC_OS_RELEASE": "../home/os-release"
+  },
+  "stubs": ["bootstrap", "gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "box1",
+        "claude": "none",
+        "mode": "push",
+        "existing": "keep",
+        "yes": true
+      },
+      "stdin": "y\n"
+    }
+  ]
+}

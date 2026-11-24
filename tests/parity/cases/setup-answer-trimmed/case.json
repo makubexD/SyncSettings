@@ -37,7 +37,7 @@
   "commands": [
     {
       "command": "setup",
-      "stdin": " 1 \r\n2\n1\n1\n"
+      "stdin": " 1 \r\n2\n1\n1\ny\n"
     }
   ]
 }

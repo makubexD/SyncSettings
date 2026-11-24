@@ -11,6 +11,10 @@ import type { Result } from "./export.ts";
  * word and one more space. */
 const BLOCKED_LINE = /^ {2}(?:OUT|BOTH) /;
 
+/** Where `formatLine` starts the label: two spaces, the word padded to ten
+ * columns, one space (`src/core/status.ts`). */
+const LABEL_COLUMN = 13;
+
 const IN_LINE = /^ {2}IN /;
 
 const OUT_LINE = /^ {2}OUT /;
@@ -21,6 +25,17 @@ const BOTH_LINE = /^ {2}BOTH /;
 export function blockedLines(diff: Result): readonly string[] {
   const lines = `${diff.stdout}${diff.stderr}`.split("\n");
   return lines.filter((line) => BLOCKED_LINE.test(line));
+}
+
+/**
+ * The repo path of each `OUT` and `BOTH` line, in the order the diff printed
+ * them. Only the label prefix is cut, so a path with spaces comes back whole;
+ * a line with any other label gives no path.
+ */
+export function blockedPaths(lines: readonly string[]): readonly string[] {
+  return lines
+    .filter((line) => BLOCKED_LINE.test(line))
+    .map((line) => line.slice(LABEL_COLUMN));
 }
 
 /** The `IN`, `OUT` and `BOTH` counts a diff printed, for setup's differ line. */

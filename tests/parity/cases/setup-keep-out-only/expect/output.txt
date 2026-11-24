@@ -1,0 +1,55 @@
+  OK       git
+  OK       gh (signed in)
+  OK       repo clone with origin
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      2 of 2 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+  2 file(s) differ: 1 in, 1 out, 0 both.
+Machine box1: profile personal, none, push with a preview.
+Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing keep
+  WARNING: repo is 1 commit(s) behind origin/master; run git pull --ff-only.
+Changes on box1 (profile personal):
+
+All machines
+  1  M  shell  b.conf  1 line(s) changed
+Linux machines
+     (none)
+Profile personal
+     (none)
+This machine only
+     (none)
+
+  MODIFIED   dotfiles/common/shell/b.conf
+
+  --------------------------------------------------
+
+  1 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+
+Pushed into the repo folder; commit it with mksync push.
+  WARNING: repo is 1 commit(s) behind origin/master; run git pull --ff-only.
+  UPDATED    dotfiles/common/shell/a.conf  (backup saved as a.conf.bak)
+  UNCHANGED  dotfiles/common/shell/b.conf
+
+  --------------------------------------------------
+
+  1 file(s) applied.
+
+  Backups    : <HOME>/.local/state/sync-settings/backups/RUN
+
+  --------------------------------------------------

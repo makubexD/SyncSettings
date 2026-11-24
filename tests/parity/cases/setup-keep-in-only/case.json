@@ -1,0 +1,46 @@
+{
+  "description": "Setup with a sync point, --existing keep and --yes and only an IN file runs no export and prints no Pushed into line, only the import, which takes the repo's a.conf over this machine's copy and keeps the old one in a.conf.bak, exit 0 (plan-setup-hotfix decision 1; mksync setup, What differs, Then).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/a.conf",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "box1",
+        "claude": "none",
+        "mode": "push",
+        "existing": "keep",
+        "yes": true
+      }
+    }
+  ]
+}

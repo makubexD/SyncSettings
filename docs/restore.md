@@ -36,7 +36,8 @@ gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/conte
 ```
 
 It installs `git` and `jq` if needed (it asks first), clones the repo to `~/SyncSettings`, and runs `mksync setup`. Setup
-asks all its questions first, then shows a summary and asks `Write the record and apply? [Y/n]`; a no writes nothing.
+asks all its questions first, then shows a summary and asks `Write the record and apply? [Y/n]`; a no writes nothing,
+and so does a run with no terminal to answer it (end of input counts as no; pass `--yes` to apply without asking).
 Answer yes to `Also restore apps and packages from packages/linux (uses sudo)?`; after the confirm that runs
 `./bootstrap/linux.sh`, described below, whose import step does what question 4 said (back up and replace, keep mine,
 or stop). You can also run the bootstrap yourself from the clone; it then imports as a plain `mksync import` does.
@@ -44,7 +45,8 @@ or stop). You can also run the bootstrap yourself from the clone; it then import
 On a machine that already has its own changes (a reinstall that kept `HOME`, or a second `setup` after
 `--replace`), read the line above question 4, `Files that are already here?`. `<n> file(s) differ: <i> in, <o> out, <b>
 both.` counts the files the import would overwrite, by which side changed since the last sync. Any `out` or `both`
-means this machine has changes the repo lacks: answer `2` (keep mine, push them first), which setup then suggests on a machine that pushes. If
+means this machine has changes the repo lacks: answer `2` (keep mine, push them first), which setup then suggests on a machine that pushes.
+Keep mine sends only the `out` and `both` files into the repo folder and then imports, so the `in` files still arrive. If
 you answer `1` (back up and replace) anyway, setup lists those files and the confirm turns to `[y/N]`, so Enter
 stops; with `--yes` it refuses. Without a sync point the line says the newer side is unknown: run `mksync diff` after
 setup, or answer `2` when in doubt.

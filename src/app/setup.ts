@@ -30,6 +30,7 @@ import { executeDoctor } from "./doctor.ts";
 import { failure, setupTerminal } from "./export.ts";
 import {
   blockedLines,
+  blockedPaths,
   diffCommand,
   diffCounts,
   pullImportCommand,
@@ -63,6 +64,14 @@ const BOOTSTRAP_SCRIPT = ["bootstrap", "linux.sh"] as const;
 
 /** `setup --bootstrap` off Ubuntu, before doctor runs. */
 const BOOTSTRAP_ONLY_UBUNTU = "ERROR: --bootstrap is Ubuntu only.";
+
+/** `export --only`'s refusal of a path no selected entry owns (contract
+ * "Picking files"). */
+const NOT_SYNCED_LINE = / is not synced on this machine\.$/m;
+
+/** After keep's export, once the changes are in the repo folder. */
+const PUSHED_LINE =
+  "Pushed into the repo folder; commit it with mksync push.\n";
 
 /** `import --check`, as pull's check runs it, for question 4's differ line. */
 const IMPORT_CHECK: RunCommand = pullImportCommand(true, false, []);
@@ -210,7 +219,9 @@ function bootstrapScript(repoRoot: string, os: Os): string | undefined {
  * Contract "mksync setup": runs the script the flow chose, after the record
  * and profile are written. The script owns the terminal (it may prompt for
  * sudo), so our answer reader is closed first. `MKSYNC_SETUP_EXISTING` hands it
- * the fourth answer, which its import step carries out in its usual place,
+ * the fourth answer, which its import step carries out in its usual place;
+ * `MKSYNC_SETUP_EXPORTED=1` says setup already ran keep's export, so a script
+ * that sees `keep` without it (an older program) still exports itself,
  * before the links, plugins and preview that need the files; setup then ends
  * with the script's exit code. `undefined` when no script runs.
  */
@@ -219,6 +230,7 @@ async function runBootstrap(
   os: Os,
   terminal: SetupTerminal,
   existing: ExistingAction,
+  exported: boolean,
 ): Promise<Result | undefined> {
   const script = bootstrapScript(repoRoot, os);
   if (script === undefined) {
@@ -230,6 +242,7 @@ async function runBootstrap(
     env: {
       ...bootstrapEnv(process.env, process.execPath),
       MKSYNC_SETUP_EXISTING: existing,
+      ...(exported ? { MKSYNC_SETUP_EXPORTED: "1" } : {}),
     },
   });
   return { code: bootstrapped.code, stdout: "", stderr: "" };
@@ -452,11 +465,28 @@ export async function executeSetup(
     // profile are written. A chosen bootstrap acts on question 4 itself and
     // ends setup with its exit code; otherwise setup acts on it.
     if (outcome.bootstrap) {
+      // Hotfix decision 2: the script's keep case only imports, so setup runs
+      // keep's export here, while its terminal is still open for the export's
+      // value questions. The script inherits stdout, so the export's output and
+      // the Pushed line go out first; a failed export returns its result and
+      // the script never runs, the record and profile staying written.
+      if (outcome.action === "keep") {
+        const exported = await exportKeep(execute, { terminal }, differ);
+        if (exported !== undefined) {
+          if (exported.code !== 0) {
+            return exported;
+          }
+          process.stdout.write(exported.stdout);
+          process.stderr.write(exported.stderr);
+          process.stdout.write(PUSHED_LINE);
+        }
+      }
       const bootstrapped = await runBootstrap(
         repoRoot,
         os,
         terminal,
         outcome.action,
+        outcome.action === "keep",
       );
       if (bootstrapped !== undefined) {
         return bootstrapped;
@@ -469,22 +499,89 @@ export async function executeSetup(
         stderr: "",
       };
     }
-    return await importAfterSetup(outcome.action, execute, { terminal });
+    return await importAfterSetup(
+      outcome.action,
+      execute,
+      { terminal },
+      differ,
+    );
   } finally {
     terminal.close();
   }
 }
 
 /**
- * Decision 9's last move: `backup` imports at once; `keep` exports the local
- * files into the repo folder first, then imports. The import reads its value
- * answers from setup's own reader (`options.terminal`), so piped answers left
- * after the four questions still reach it.
+ * Hotfix decision 1 (docs/plan-setup-hotfix.md): keep exports only this machine's own changes. With a diff that
+ * ran, they are the paths its `OUT` and `BOTH` lines name; `undefined` means
+ * export everything, as no sync point or a failed diff leaves the newer side
+ * unknown. A label outside `dotfiles/` isn't a repo path `export --only` takes
+ * (contract "Picking files"), so it falls back to the whole export too.
+ */
+function keepPaths(differ: SetupDiffer): readonly string[] | undefined {
+  if (differ.diff?.ok !== true) {
+    return undefined;
+  }
+  const paths = blockedPaths(differ.diff.blocked);
+  return paths.every((path) => path.startsWith("dotfiles/"))
+    ? paths
+    : undefined;
+}
+
+/**
+ * Hotfix decision 1 (docs/plan-setup-hotfix.md): keep's export. With a diff
+ * that ran and only this machine's changes, it exports those paths; with no
+ * sync point or a failed diff, `keepPaths` says the newer side is unknown and
+ * it exports everything. An empty path list means there is nothing to push, so
+ * `undefined` comes back and no export runs (and no `Pushed into` line prints).
+ * Setup's own keep and the bootstrap's share this one rule. The diff reads an
+ * entry's repo path from the sync point's tree and the export from today's, so
+ * a layer added since can make `--only` refuse a path; then the whole export
+ * runs, as before the hotfix, rather than failing keep.
+ */
+export async function exportKeep(
+  execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
+  options: ExecuteOptions,
+  differ: SetupDiffer,
+): Promise<Result | undefined> {
+  const paths = keepPaths(differ);
+  if (paths !== undefined && paths.length === 0) {
+    return undefined;
+  }
+  const exportCommand = (only: readonly string[]): RunCommand => ({
+    kind: "run",
+    command: "export",
+    force: false,
+    preview: false,
+    check: false,
+    resetValues: false,
+    yes: false,
+    only,
+  });
+  const exported = await execute(exportCommand(paths ?? []), options);
+  if (
+    paths !== undefined &&
+    exported.code !== 0 &&
+    NOT_SYNCED_LINE.test(`${exported.stdout}${exported.stderr}`)
+  ) {
+    return execute(exportCommand([]), options);
+  }
+  return exported;
+}
+
+/**
+ * Decision 9's last move: `backup` imports at once; `keep` exports this
+ * machine's own changes into the repo folder first, then imports. With a diff
+ * that ran, `keep` exports only its `OUT` and `BOTH` paths, and with no such
+ * path it runs only the import, printing no `Pushed into` line (hotfix decision 1).
+ * The import reads its value answers from setup's own reader
+ * (`options.terminal`), so piped answers left after the four questions still
+ * reach it.
  */
 async function importAfterSetup(
   action: Exclude<ExistingAction, "stop">,
   execute: (command: RunCommand, options?: ExecuteOptions) => Promise<Result>,
   options: ExecuteOptions,
+  differ: SetupDiffer,
 ): Promise<Result> {
   const importCommand: RunCommand = {
     kind: "run",
@@ -499,17 +596,12 @@ async function importAfterSetup(
   if (action === "backup") {
     return execute(importCommand, options);
   }
-  const exportCommand: RunCommand = {
-    kind: "run",
-    command: "export",
-    force: false,
-    preview: false,
-    check: false,
-    resetValues: false,
-    yes: false,
-    only: [],
-  };
-  const exported = await execute(exportCommand, options);
+  const exported = await exportKeep(execute, options, differ);
+  if (exported === undefined) {
+    // Nothing changed on this machine since the sync point, so there is
+    // nothing to send: the import alone brings the repo's `IN` files.
+    return execute(importCommand, options);
+  }
   if (exported.code !== 0) {
     // The local files weren't saved, so importing now would overwrite them.
     return exported;
@@ -517,10 +609,7 @@ async function importAfterSetup(
   const imported = await execute(importCommand, options);
   return {
     code: imported.code,
-    stdout:
-      exported.stdout +
-      "Pushed into the repo folder; commit it with mksync push.\n" +
-      imported.stdout,
+    stdout: exported.stdout + PUSHED_LINE + imported.stdout,
     stderr: `${exported.stderr}${imported.stderr}`,
   };
 }

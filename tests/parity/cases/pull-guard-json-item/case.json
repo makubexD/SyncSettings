@@ -1,0 +1,37 @@
+{
+  "description": "Pull with a sync point stops on a json entry whose local file added an array item: the OUT line, then the pull guard's ERROR pair, exit 1 and nothing written (plan-setup-hotfix decided 4; Front door, pull guard; json entries, import).",
+  "os": [
+    "linux",
+    "windows"
+  ],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true
+      }
+    }
+  ],
+  "syncPoint": true
+}

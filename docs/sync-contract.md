@@ -692,7 +692,8 @@ file, no sync point and no `.user-values.json`.
 
 `mksync` on `PATH` is [the program](#the-program), which the installers download ([Install](#install)):
 `~/.local/bin/mksync` on Linux and macOS, `%LOCALAPPDATA%\mksync\mksync.exe` on Windows. Every `[Y/n]` prompt takes an
-empty answer or end of input as yes, every `[y/N]` prompt as no. Commands, wording and exit codes are the same on every
+empty answer or end of input as yes, every `[y/N]` prompt as no, except `mksync setup`'s confirm, where end of input is
+no ([`mksync setup`](#mksync-setup)). Commands, wording and exit codes are the same on every
 system, except where this section says otherwise.
 
 | Command                                  | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Exit                                                            |
@@ -1013,6 +1014,10 @@ non-ASCII characters as themselves, and a trailing newline: CRLF on Windows, LF 
 file parsed, so whitespace, key order and line endings alone are `UNCHANGED`. Keys listed in the entry's
 `localOnlyKeys` keep their local value and are never pushed.
 
+Import makes the file equal to the merged layers, so a key or array item only this machine has is dropped; that is
+how a removal made on another machine reaches this one. Such a file is `OUT` (or `BOTH`) in the [Diff](#diff), so
+`mksync pull` and `mksync setup` stop before overwriting it; run `mksync push` first to keep it.
+
 A layer that isn't JSON (comments and trailing commas included) gets `ERROR` with the note
 `not valid JSON: <layer path>`, and the local file is left alone. A UTF-8 BOM at the start of any JSON file, layer or
 local, is skipped on read and never written. JSON nested deeper than 512 levels counts as `not valid JSON`.
@@ -1218,7 +1223,8 @@ Write the record and apply? [Y/n]
   piped after the four (and any value or bootstrap answers) reach the import's value questions
   ([Sanitize and hydrate](#sanitize-and-hydrate)). `mksync pull` shares its input with its import the same way.
 - **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
-  the suggestion in brackets. `--yes` takes every suggestion without asking. A choice is digits only (`0x2` or `2.0`
+  the suggestion in brackets, except at the confirm, where end of input is no (see below). `--yes` takes every
+  suggestion without asking. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints
   `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below). Answers are trimmed of
   spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (phase 9 decision 8). A
@@ -1262,7 +1268,9 @@ Write the record and apply? [Y/n]
   `  Could not tell which side is newer; back up and replace may overwrite files changed here (each keeps a .bak).`
   `IN` lines never make a guard block, and `keep` or `stop` never do.
 - **Confirm.** `Write the record and apply? [Y/n] `, or `[y/N] ` after a guard block. A no prints
-  `Stopped: nothing was written.` and exits 0, with no record, profile, bootstrap or import. `--yes` answers yes,
+  `Stopped: nothing was written.` and exits 0, with no record, profile, bootstrap or import. An empty answer is yes;
+  end of input at `[Y/n]` counts as no, printing `Stopped: nothing was written.` and exiting 0, since with no
+  terminal, as under Claude Code's `!`, nobody answered. `--yes` answers yes,
   except after a guard block: there setup stops before anything is written with
   `ERROR: <n> file(s) changed on this machine since the last sync, and setup would overwrite them.` and
   `Run mksync setup --existing keep to push them first, or run it without --yes to confirm.`, exit 1; after a failed
@@ -1273,10 +1281,14 @@ Write the record and apply? [Y/n]
 - **Bootstrap.** On Ubuntu with an executable `bootstrap/linux.sh`, after question 4 and before the summary:
   `Also restore apps and packages from packages/linux (uses sudo)? [y/N] `; `y` chooses it, while an empty answer or
   end of input skips it. `--bootstrap` chooses it without asking. The `stop` answer to question 4 never asks it. After
-  the confirm and the record and profile are written, setup runs the script with `MKSYNC_SETUP_EXISTING` set to the
-  fourth answer, and the script's import step does what "Then" says for it in place of its own import: `backup` runs
-  `import --force`; `keep` runs `export`, prints `Pushed into the repo folder; commit it with mksync push.`, then runs
-  `import --force`, and a failed export fails the step with no import; `stop` prints
+  the confirm and the record and profile are written, with `keep` setup runs keep's export as "Then" describes (and
+  prints `Pushed into the repo folder; commit it with mksync push.`) before the script, while setup's terminal is still
+  open; a failed export stops setup before the script with the export's code, the record and profile staying written.
+  Then setup runs the script with `MKSYNC_SETUP_EXISTING` set to the fourth answer (and, with `keep`,
+  `MKSYNC_SETUP_EXPORTED=1`; a script that gets `keep` without it, from an older program, runs `export` and prints the
+  `Pushed into` line itself), and the script's import step does
+  what "Then" says for it in place of its own import: `backup` and `keep` run `import --force` (with keep, the export
+  is already done); `stop` prints
   `  SKIPPED    import (mksync setup --existing stop)` and runs no import. The steps after it (links, plugins,
   preview) see the restored files, and the script keeps the terminal for the import's questions. Setup ends with the
   script's exit code and does nothing after it; a failure leaves the record and profile in place. macOS and Windows never ask, and `--bootstrap`
@@ -1286,8 +1298,12 @@ Write the record and apply? [Y/n]
   restores without Bun or Node.
 - **Then**, after a yes, it writes the record and the profile. With the bootstrap chosen, the script acts on the fourth
   answer ("Bootstrap"); otherwise setup does: `backup` runs `import --force` (each
-  file keeps its `.bak`); `keep` runs `export`, prints `Pushed into the repo folder; commit it with mksync push.`, then
-  runs `import --force`; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
+  file keeps its `.bak`); `keep`, with a sync point and a diff that ran, runs `export` with `--only` for each file the
+  diff labelled `OUT` or `BOTH`, prints `Pushed into the repo folder; commit it with mksync push.`, then runs
+  `import --force`, which brings the `IN` files; when the diff labelled no such file, only the import runs and no
+  `Pushed into` line prints; without a sync point, or after a failed diff, it runs the whole `export` as before, since
+  the newer side is unknown, and when `--only` refuses a path (a layer added since the sync point) the whole export
+  runs too; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
   import's or export's code.
 
 A flag that can't be read stops before the scan, exit 2, like an unknown option: `ERROR: <flag> needs a value.`,

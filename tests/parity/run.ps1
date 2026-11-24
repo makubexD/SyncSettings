@@ -1021,9 +1021,19 @@ function Run-Case {
         }
 
         # An unsent/ tree goes over the repo's working tree after the commit and
-        # stays uncommitted, so `git status --porcelain` shows it.
-        if (Test-Path -LiteralPath (Join-Path $Dir 'unsent') -PathType Container) {
-            Copy-Tree (Join-Path $Dir 'unsent') $repoDir
+        # stays uncommitted, so `git status --porcelain` shows it. The copies
+        # get a new write time: Copy-Item keeps the source's, and a same-size
+        # edit with the committed file's time would pass git's stat check as
+        # unchanged on some runs.
+        $unsentDir = Join-Path $Dir 'unsent'
+        if (Test-Path -LiteralPath $unsentDir -PathType Container) {
+            Copy-Tree $unsentDir $repoDir
+            $unsentRoot = (Resolve-Path -LiteralPath $unsentDir).Path
+            $now = Get-Date
+            foreach ($item in @(Get-ChildItem -LiteralPath $unsentRoot -Recurse -File -Force)) {
+                $rel = $item.FullName.Substring($unsentRoot.Length).TrimStart('\', '/')
+                (Get-Item -LiteralPath (Join-Path $repoDir $rel) -Force).LastWriteTime = $now
+            }
         }
 
         # A seeded state/ goes into the folder the engine treats as its own
