@@ -1526,6 +1526,15 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     outside `dotfiles/` (which `export --only` doesn't take) falls back to the whole export.
   - Setup "keep mine" runs the diff only when the import check exits 3: after a check that exits 1 (a file in
     `ERROR`) it falls back to the whole export, and with nothing to update it still prints the `Pushed into` line.
+  - Setup "keep mine" when the answers change the profile or modules (kept for after `v1.1.1`, user 2026-11-23): the
+    diff runs with the old record, so a changed file in a module the new profile adds isn't exported and the import
+    replaces it (only its `.bak` keeps it); and a diff path the new selection no longer syncs makes `--only` refuse,
+    so keep falls back to the whole export, which can push back files the repo changed. Options: work out the list
+    after the new record is chosen and export only the paths still synced, or refuse keep when the selection changes.
+  - A `v1.1.1` program with a clone still on an older `bootstrap/linux.sh` exports twice under keep: the old script
+    ignores `MKSYNC_SETUP_EXPORTED` and runs the whole export after setup's `--only` one. Only an unpulled clone.
+  - `setup-bootstrap-keep` has a single `OUT` entry, so it can't tell an `--only` export from a whole one; a second
+    entry changed only in the repo, plus `MKSYNC_SETUP_EXPORTED` in the stub's log, would cover the bootstrap path.
   - An installer whose setup stops at the confirm for want of a terminal (`Stopped: nothing was written.`, exit 0)
     still ends with `Installed. Run mksync any time.`; it could say setup was skipped.
   - Syncing the `ctx-print-guard` hook from this machine: its script needs a `sync-config.json` entry and its
