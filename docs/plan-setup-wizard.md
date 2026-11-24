@@ -23,9 +23,10 @@ Plan: `docs/plan-setup-wizard-1.md`. Release `v1.1.0`.
   `OUT` or `BOTH`.
 - **WIZ-16:** the Front-door row for setup matches the setup section.
 
-**Hotfix `v1.1.1`** (`docs/plan-setup-hotfix.md`, 2026-11-23), from the user's own setup run after `v1.1.0`: keep mine
+**Hotfix `v1.1.1` — Done** (`docs/plan-setup-hotfix.md`, 2026-11-23), from the user's own setup run after `v1.1.0`: keep mine
 exports only the diff's `OUT` and `BOTH` files (with the bootstrap too), end of input at setup's confirm means no, and
-shared cases prove the pull guard stops over a local-only JSON array item.
+shared cases prove the pull guard stops over a local-only JSON array item. Keep's gaps when setup also changes
+the profile or modules are in the design's "Open" list, for after the release.
 
 ## Phase 2: a friendlier setup
 
