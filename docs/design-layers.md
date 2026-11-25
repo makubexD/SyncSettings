@@ -607,7 +607,7 @@ New settings
 Held until the repo is private: machines/wk1-laptop.json, profiles/work-1.json
 
 Move a change? Type its number, or press Enter to go on:
-Open a PR with these changes? [Y/n]
+Open a PR with these changes? [y/N]
 ```
 
 - A line is `<number> <M|+|-> <module> <file> <what>`: a changed key with old and new value, an added or removed item,
@@ -621,7 +621,7 @@ Open a PR with these changes? [Y/n]
 - **Pull-only** machines have no push: `mksync push` prints `this machine is pull-only (see mksync machine show)` and exits 1,
   and `mksync status` never suggests it.
 
-**Pull** stays today's command: the guard against unpushed local edits, `Apply these changes? [Y/n]`, `.bak` before
+**Pull** stays today's command: the guard against unpushed local edits, `Apply these changes? [y/N]`, `.bak` before
 each write, the sync point. Its list of changes uses the same groups, so the user sees that a change arrives from "all
 machines" or from "profile work-1".
 

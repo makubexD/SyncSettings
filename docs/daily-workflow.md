@@ -74,7 +74,7 @@ The check can't tell which side is newer; the diff can. It fetches first, then g
 | ------ | ------------------------------------- | ------------------------------------------------- |
 | `IN`   | Only the repo changed it              | `mksync pull` takes it                            |
 | `OUT`  | Only this machine changed it          | `mksync push` sends it                            |
-| `BOTH` | Both changed it, differently          | Merge by hand, then push                          |
+| `BOTH` | Both changed it, differently          | [Settle it](pull-push-modes.md#settle-a-conflict) |
 | `?`    | This machine has no sync recorded yet | Decide by hand; the next pull or push records one |
 
 Each machine remembers the repo commit it last agreed with (`~/.local/state/sync-settings/last-sync`, or
@@ -86,7 +86,12 @@ repo changed one layer and this machine another, the line is `BOTH`.
 
 `mksync pull` runs the diff before it applies anything and stops if a file is `OUT` or `BOTH`, so it can't replace an
 edit you haven't sent. Run `mksync push` first, or `mksync pull --force` to overwrite anyway (each file keeps its
-`.bak`, and a dated copy: see [Getting an old version back](#getting-an-old-version-back)).
+`.bak`, and a dated copy: see [Getting an old version back](#getting-an-old-version-back)). A `BOTH` file's lines are
+shown from both sides.
+
+`mksync push` runs the same diff before it exports: it sends the `OUT` files, leaves the `IN` ones alone and stops on
+`BOTH`. Pull and push both ask before acting, and Enter is No. [Pull and push modes](pull-push-modes.md) has every
+label, option and case.
 
 The first pull on a machine has no sync recorded, so it can't tell which side changed a file. It warns, and asks
 `Apply these changes? [y/N]`: Enter keeps your files, `y` applies the repo's. `mksync pull --yes` refuses outright,
@@ -152,7 +157,8 @@ When it looks right, copy your settings into the repo and open the PR (add `-m "
 mksync push
 ```
 
-It exports, shows what changed, and asks `Open a PR with these changes? [Y/n]`. Then it creates the branch
+It exports, shows what changed, and asks `Open a PR with these changes? [y/N]`: Enter is No, and puts the repo folder
+back as it was. On a yes it creates the branch
 `sync/<os>-<alias>-<yyyymmdd-hhmm>` (`linux`, `macos` or `windows`), commits `dotfiles/`, `packages/` and
 `sync-config.json`, pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
 
@@ -234,8 +240,7 @@ mksync pull
 ```
 
 It switches nothing for you: the clone must be on `master`. It fetches, fast-forwards, and shows what will change before
-asking. `mksync check` shows the same list without
-applying it.
+asking `Apply these changes? [y/N]`, where Enter is No. `mksync check` shows the same list without applying it.
 
 Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
 `--force`. If you import a newer change over the same file later, that `.bak` is replaced. Import never deletes a local
@@ -350,7 +355,10 @@ into use.
 | `WARN <n> value(s) not set; mksync setup asks for them`                                            | The same thing, seen from `doctor`                                                                                                                                                                                                                                                |
 | `mksync check` exits with 3                                                                        | Not an error: it means `<n> file(s) would change`. Read the list. If you changed any of those files on this machine, run `mksync push` first; otherwise `mksync pull` applies it. Exit 0 means the machine matches, and exit 1 means a check couldn't run (see its `ERROR` lines) |
 | `ERROR: <n> file(s) changed on this machine since the last sync, and a pull would overwrite them.` | The pull found `OUT` or `BOTH` files (listed above the error). Run `mksync push` to send them, or `mksync pull --force` to replace them with the repo's version (each keeps a `.bak`)                                                                                             |
-| `ERROR: could not tell which side is newer; …`                                                     | The diff couldn't run. Run `mksync diff` and read its `ERROR` line; `mksync pull --force` skips the diff                                                                                                                                                                          |
+| `ERROR: <n> file(s) changed on both sides since the last sync.`                                    | The push found `BOTH` files and sent nothing. [Settle each one](pull-push-modes.md#settle-a-conflict), then push                                                                                                                                                                  |
+| `<n> file(s) are newer in the repo and were left alone; …`                                         | Not an error: the push sent your other changes. Merge its PR, then `mksync pull` takes those files                                                                                                                                                                                |
+| `WARNING: no sync is recorded on this machine, so this sends every file that differs.`             | The push can't tell which side is newer. Read the changes before you answer `y`; a file the repo changed would go back to this machine's version                                                                                                                                  |
+| `ERROR: could not tell which side is newer; …`                                                     | The diff couldn't run. Run `mksync diff` and read its `ERROR` line. `mksync pull --force` and `mksync push --force` go on without it; a push then exports every file                                                                                                              |
 | `ERROR: the repo has changes not sent yet; run mksync push first, …`                               | `pull` won't mix your unsent changes with the repo's. Send them with `mksync push`, or drop them with `git restore`, then pull                                                                                                                                                    |
 | `ERROR: <dir> exists and isn't a SyncSettings clone; set SYNCSETTINGS_DIR.`                        | The installer won't write into a folder it didn't make. Move that folder, or set `SYNCSETTINGS_DIR` to another place and run it again                                                                                                                                             |
 | Windows: `ERROR: …\mksync.cmd already exists; remove it and run this again.` (or `mksync.exe`)     | Another `mksync.cmd` or `mksync.exe` is in the installer's bin folder. Remove or rename it if it isn't yours to keep, then run the installer again. On Linux and macOS the same line names `~/.local/bin/mksync`                                                                  |
