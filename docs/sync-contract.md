@@ -681,6 +681,9 @@ the entry's write root. A private layer's path is never printed. The verdicts of
 | `?` (no sync point)                 | `?`    |
 | none                                | none   |
 
+A `BOTH` gives no label when an export planned with `theirs` as the repo side would change none of the entry's layer
+files: the local file holds what `theirs` already builds, only with the same change in other layers.
+
 A `BOTH` made of an `OUT` and an `IN` in two layers is still one entry: pulling it would drop this machine's change.
 
 The lines print through the normal status formatter (`OUT        dotfiles/…`), sorted by code unit.
@@ -707,7 +710,9 @@ point the summary reads `N file(s) differ. No sync is recorded on this machine, 
 `Run mksync pull or mksync push once to record one.` When nothing differs it prints `This machine and the repo agree.`
 
 The exit code is 0 when nothing differs, 3 when something does, and 1 on an error: a failed export plan prints its
-lines and `ERROR: the export for the diff failed; see above.`; a tree git can't read stops it with
+lines and `ERROR: the export for the diff failed; see above.` (a plan that only fails for some files, such as invalid
+JSON, an unreadable file or a new setting with no machine record, prints their `ERROR` lines; a failed dconf dump is not
+one of them); a tree git can't read stops it with
 `ERROR: cannot read <ref> from git.`, and a clone with no commit with `ERROR: --diff needs a git repo with a commit.`
 `--diff` cannot be combined with `--preview` or `--yes` (error, exit 1). The diff writes no repo
 file, no sync point and no `.user-values.json`.
@@ -1298,9 +1303,8 @@ Write the record and apply? [Y/n]
   except after a guard block: there setup stops before anything is written with
   `ERROR: <n> file(s) changed on this machine since the last sync, and setup would overwrite them.` and
   `Run mksync setup --existing keep to push them first, or run it without --yes to confirm.`, exit 1; after a failed
-  diff, `ERROR: could not tell which side is newer; run mksync diff to see why, or mksync setup --existing keep.`,
-  exit 1. With `--mode pull-only`, which can't keep, the second line is `Run it without --yes to confirm.` and the
-  failed-diff line ends at `see why.` Value questions (`<KEY>: kept on …`) come after the confirm: they choose where a value is stored and
+  diff, `ERROR: could not tell which side is newer; run mksync diff to see why, or run setup without --yes to confirm.`,
+  exit 1. With `--mode pull-only`, which can't keep, the second line is `Run it without --yes to confirm.` Value questions (`<KEY>: kept on …`) come after the confirm: they choose where a value is stored and
   overwrite nothing.
 - **Bootstrap.** On Ubuntu with an executable `bootstrap/linux.sh`, after question 4 and before the summary:
   `Also restore apps and packages from packages/linux (uses sudo)? [y/N] `; `y` chooses it, while an empty answer or
@@ -1325,8 +1329,10 @@ Write the record and apply? [Y/n]
   file keeps its `.bak`); `keep`, with a sync point and a diff that ran, runs `export` with `--only` for each file the
   diff labelled `OUT` or `BOTH`, prints `Pushed into the repo folder; commit it with mksync push.`, then runs
   `import --force`, which brings the `IN` files; when the diff labelled no such file, only the import runs and no
-  `Pushed into` line prints; without a sync point, or after a failed diff, it runs the whole `export` as before, since
-  the newer side is unknown, and when `--only` refuses a path (a layer added since the sync point) the whole export
+  `Pushed into` line prints; without a sync point it runs the whole `export`, since
+  the newer side is unknown; after a failed diff `keep` stops before any export with
+  `ERROR: could not tell which side is newer; run mksync diff to see why, then run setup again.`, exit 1, the record and
+  profile staying written; and when `--only` refuses a path (a layer added since the sync point) the whole export
   runs too; `stop` prints `Stopped: the record is written, no file was changed.` Exit 0, or the
   import's or export's code.
 

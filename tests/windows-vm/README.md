@@ -36,7 +36,7 @@ tests/windows-vm/vm.sh snapshot           # after the first install, with the VM
 
 - The evaluation licence lasts 90 days from install. When it runs out, delete `storage/` and `snapshot/` and run
   `up` again.
-- The VM takes 4 GB of RAM and 4 cores while it runs, and about 46 GB of disk (disk plus snapshot).
+- The VM takes 6 GB of RAM (`SYNC_VM_RAM`) and every core (`SYNC_VM_CPUS`) while it runs, and about 46 GB of disk (disk plus snapshot).
 - Starting from the snapshot takes about 6 minutes; the first install about an hour, most of it the ISO download.
 - A job's output is what PowerShell wrote to stdout, then stderr. Use `vm.sh down` when done: nothing stops the VM
   by itself.

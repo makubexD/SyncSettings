@@ -1,0 +1,49 @@
+{
+  "description": "Setup --existing keep stops with exit 1 before any export when the diff can't export a local file with invalid JSON; the file and the repo are unchanged (Setup, Then; Diff).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "replace": "wk1-laptop",
+        "claude": "none",
+        "mode": "push",
+        "existing": "keep",
+        "yes": true
+      }
+    }
+  ]
+}

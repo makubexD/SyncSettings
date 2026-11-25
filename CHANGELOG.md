@@ -10,6 +10,11 @@ Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine wit
 - Such a file still prints one line. A change in the repo and one on this machine in different layers is `BOTH`.
 - `--only` accepts the path the diff prints when the file also has a profile or machine layer.
 - The `ctx-print-guard` hook is synced for Linux.
+- A JSON file whose local version is what the repo already builds, with the change in another layer, no longer prints a
+  false `BOTH`.
+- `mksync diff` exits 1 for a file it can't plan (invalid JSON, or a new setting on a machine with no record) instead of
+  saying both sides agree, so `mksync pull` stops until it's fixed or `--force` is given.
+- One run's backups always go into one folder, even when the run crosses a second.
 
 ## v1.1.1 (2026-11-23)
 

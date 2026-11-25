@@ -270,11 +270,10 @@ function guardBlockText(guard: SetupGuard): string {
 /** Contract "Confirm": `--yes` after a guard block stops with these lines.
  * A pull-only machine can't keep, so its lines don't suggest it. */
 function guardRefusalText(guard: SetupGuard, mode: SetupMode): string {
-  const canKeep = mode === "push";
   if (guard.kind === "failed") {
-    const keepHint = canKeep ? ", or mksync setup --existing keep" : "";
-    return `ERROR: could not tell which side is newer; run mksync diff to see why${keepHint}.`;
+    return "ERROR: could not tell which side is newer; run mksync diff to see why, or run setup without --yes to confirm.";
   }
+  const canKeep = mode === "push";
   const next = canKeep
     ? "Run mksync setup --existing keep to push them first, or run it without --yes to confirm."
     : "Run it without --yes to confirm.";

@@ -1,0 +1,36 @@
+{
+  "description": "Pull --yes stops with exit 1 when the diff can't export a local file with invalid JSON, and the local file is unchanged (Front door, pull guard; Diff).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true
+      }
+    }
+  ]
+}

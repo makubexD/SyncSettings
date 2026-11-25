@@ -42,7 +42,7 @@ cmd_up() {
     podman rm -f "$NAME" >/dev/null 2>&1 || true
     podman run -d --name "$NAME" \
         --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN \
-        -e VERSION=11e -e RAM_SIZE=4G -e CPU_CORES=4 -e DISK_SIZE=40G \
+        -e VERSION=11e -e RAM_SIZE="${SYNC_VM_RAM:-6G}" -e CPU_CORES="${SYNC_VM_CPUS:-$(nproc)}" -e DISK_SIZE=40G \
         -p 127.0.0.1:8006:8006 --stop-timeout 120 \
         -v "$VM_HOME/storage:/storage" -v "$DATA:/data" -v "$REPO:/data/repo:ro" \
         -v "$REPO/tests/windows-vm/oem:/oem:ro" \
