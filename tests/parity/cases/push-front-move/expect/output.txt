@@ -1,3 +1,4 @@
+  WARNING: no sync is recorded on this machine, so this sends every file that differs.
 Changes on wk1-laptop (profile work-1):
 
 All machines
@@ -31,4 +32,4 @@ Move a change? Type its number, or press Enter to go on:   MODIFIED   profiles/w
   --------------------------------------------------
 
  M profiles/work-1/parity/settings.json
-  Open a PR with these changes? [Y/n]   Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.
+  Open a PR with these changes? [y/N]   Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.

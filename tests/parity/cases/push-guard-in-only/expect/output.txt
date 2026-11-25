@@ -1,2 +1,3 @@
+UNCHANGED dotfiles/common/parity/a.conf
 IN dotfiles/common/parity/b.conf
 UNCHANGED dotfiles/common/parity/a.conf

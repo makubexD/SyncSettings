@@ -12,11 +12,14 @@
 
 import { trimAnswer } from "../core/answer.ts";
 import type { Result as CoreResult } from "../core/config/types.ts";
-import type { Result } from "./export.ts";
+import { formatLine } from "../core/status.ts";
+import { writeLines } from "./export.ts";
+import type { DiffReport, Result } from "./export.ts";
 
 /** What the parsed command asks a push to do. */
 export interface PushInput {
   readonly yes: boolean;
+  readonly force: boolean;
   readonly message?: string;
   readonly paths: readonly string[];
 }
@@ -54,11 +57,20 @@ export interface OriginState {
 
 /** What a push runs; `only` is the push's picked paths. */
 export interface PushDeps {
-  /** `export` with the picked paths; `--yes` takes the new settings'
-   * suggestions. */
+  /** The record's refusal (pull-only, retired, moved), before the guard. */
+  readonly refusal: () => Promise<Result | undefined>;
+  readonly hasSyncPoint: () => Promise<boolean>;
+  /** `export --diff`, with the conflict blocks when asked for. */
+  readonly runDiff: (
+    only: readonly string[],
+    conflicts: boolean,
+  ) => Promise<Result>;
+  /** `export` with the picked paths, leaving `skip` alone; `--yes` takes the
+   * new settings' suggestions. */
   readonly runExport: (
     only: readonly string[],
     yes: boolean,
+    skip: readonly string[],
   ) => Promise<Result>;
   /** `git status --short` over the sync paths. */
   readonly statusShort: () => Promise<StatusResult>;
@@ -67,7 +79,7 @@ export interface PushDeps {
   readonly ask: (question: string, defaultYes: boolean) => Promise<boolean>;
   /** Write a result's stdout and stderr now, so a question follows them. */
   readonly print: (shown: Result) => void;
-  /** `commit`, `--partial` when the push had picked paths. */
+  /** `commit`, `--partial` when the push left files out. */
   readonly runCommit: (
     partial: boolean,
     message: string | undefined,
@@ -88,12 +100,33 @@ const BEHIND_ORIGIN = "ERROR: origin has updates; run mksync pull first.\n";
 /** `front_push`'s line when the export left the repo as it was. */
 const NOTHING_TO_SEND = "  Nothing to send: the repo matches this machine.\n";
 
+/** The same, when an `IN` file was left alone: the repo doesn't match. */
+const NOTHING_TO_SEND_IN = "  Nothing to send.\n";
+
+/** A diff that can't say which side is newer. */
+const COULD_NOT_TELL =
+  "  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync push --force.\n";
+
+const NO_SYNC_POINT =
+  "  WARNING: no sync is recorded on this machine, so this sends every file that differs.\n";
+
+function leftAloneLine(count: number): string {
+  return `  ${count} file(s) are newer in the repo and were left alone; run mksync pull to take them.`;
+}
+
+function bothError(count: number): string {
+  return (
+    `  ERROR: ${count} file(s) changed on both sides since the last sync.\n` +
+    "  Merge by hand, then run mksync push --force <path>; or mksync pull --force <path> takes the repo's version (keeps a .bak).\n"
+  );
+}
+
 /** `front_push`'s line when the question is declined. */
 const KEPT_IN_REPO =
   "  Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.\n";
 
-/** The question after the changes; an empty answer or end of input opens the PR. */
-const PR_QUESTION = "  Open a PR with these changes? [Y/n] ";
+/** The question after the changes; an empty answer or end of input is no. */
+const PR_QUESTION = "  Open a PR with these changes? [y/N] ";
 
 /** `commit`'s failed `git status`, as it prints it. */
 const STATUS_FAILED = "ERROR: git status failed.\n";
@@ -200,6 +233,77 @@ export async function askMoves(
   }
 }
 
+/** What the guard decided: stop with a result, or go on, leaving `skip` alone
+ * and committing with `--partial` when the push sends less than everything. */
+type GuardOutcome =
+  | { readonly kind: "stop"; readonly result: Result }
+  | {
+      readonly kind: "go";
+      readonly shown: string;
+      readonly skip: readonly string[];
+      readonly partial: boolean;
+    };
+
+/** The diff's labels, when it ran to its end. */
+function reportOf(diff: Result): DiffReport | undefined {
+  return diff.code === 0 || diff.code === 3 ? diff.diff : undefined;
+}
+
+/**
+ * Contract "Front door": what the repo changed since the last sync is never
+ * sent back to its old version. Without a sync point the newer side is
+ * unknown, so everything is sent after a warning.
+ */
+async function guardPush(
+  input: PushInput,
+  deps: PushDeps,
+): Promise<GuardOutcome> {
+  if (!(await deps.hasSyncPoint())) {
+    return { kind: "go", shown: NO_SYNC_POINT, skip: [], partial: false };
+  }
+  const diff = await deps.runDiff(input.paths, !input.force);
+  const report = reportOf(diff);
+  if (report === undefined) {
+    if (input.force) {
+      return { kind: "go", shown: "", skip: [], partial: true };
+    }
+    // A picked path that isn't synced fails the diff: its line says so.
+    const reason = input.paths.length > 0 ? diff.stdout : "";
+    return {
+      kind: "stop",
+      result: { code: 1, stdout: reason, stderr: COULD_NOT_TELL },
+    };
+  }
+  const linesOf = (word: "IN" | "BOTH"): readonly string[] =>
+    report.labels
+      .filter(({ label }) => label === word)
+      .map(({ path }) => formatLine(word, path));
+
+  const both = linesOf("BOTH");
+  if (both.length > 0 && !input.force) {
+    return {
+      kind: "stop",
+      result: {
+        code: 1,
+        stdout: writeLines(both) + writeLines(report.conflictLines),
+        stderr: bothError(both.length),
+      },
+    };
+  }
+  const left = linesOf("IN");
+  if (left.length === 0) {
+    return { kind: "go", shown: "", skip: [], partial: false };
+  }
+  return {
+    kind: "go",
+    shown: writeLines([...left, leftAloneLine(left.length)]),
+    skip: report.labels
+      .filter(({ label }) => label === "IN")
+      .map(({ path }) => path),
+    partial: true,
+  };
+}
+
 /**
  * Run `mksync push` end to end, stopping at the export's first failure. The
  * export's output prints before the repo's changes, and the commit's output
@@ -214,6 +318,11 @@ export async function executePush(
     return { code: 1, stdout: "", stderr: CLONE_ERROR };
   }
 
+  const refused = await deps.refusal();
+  if (refused !== undefined) {
+    return refused;
+  }
+
   // Contract "Front door": a repo behind origin would make the export offer
   // its own pull and stop, so stop first. A failed fetch skips the check.
   const origin = await deps.originState();
@@ -221,7 +330,16 @@ export async function executePush(
     return { code: 1, stdout: "", stderr: BEHIND_ORIGIN };
   }
 
-  const exported = await deps.runExport(only, input.yes);
+  const guard = await guardPush(input, deps);
+  if (guard.kind === "stop") {
+    return guard.result;
+  }
+  if (guard.shown !== "") {
+    // The export can ask questions, so the guard's lines go out before them.
+    deps.print({ code: 0, stdout: guard.shown, stderr: "" });
+  }
+
+  const exported = await deps.runExport(only, input.yes, guard.skip);
   if (exported.code !== 0) {
     return exported;
   }
@@ -244,7 +362,9 @@ export async function executePush(
   if (status.stdout.trim() === "") {
     return {
       code: 0,
-      stdout: exported.stdout + NOTHING_TO_SEND,
+      stdout:
+        exported.stdout +
+        (guard.skip.length > 0 ? NOTHING_TO_SEND_IN : NOTHING_TO_SEND),
       stderr: exported.stderr,
     };
   }
@@ -254,8 +374,8 @@ export async function executePush(
     stdout: exported.stdout + status.stdout,
     stderr: exported.stderr,
   });
-  if (!input.yes && !(await deps.ask(PR_QUESTION, true))) {
+  if (!input.yes && !(await deps.ask(PR_QUESTION, false))) {
     return { code: 0, stdout: KEPT_IN_REPO, stderr: "" };
   }
-  return deps.runCommit(only.length > 0, input.message);
+  return deps.runCommit(only.length > 0 || guard.partial, input.message);
 }

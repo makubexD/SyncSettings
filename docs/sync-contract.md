@@ -801,8 +801,9 @@ and before the export; a failed fetch leaves it comparing with the last one. Pic
 
 - **`--force`** sends the `BOTH` files too, as this machine has them, through the PR, with no `BOTH` line or block. It
   still leaves `IN` files alone and still asks; `--yes` answers.
-- **A failed diff** (exit 1) stops the push with this line on stderr, exit 1. With `--force` the push goes on, exports
-  every file and commits with `--partial`.
+- **A failed diff** (exit 1) stops the push with this line on stderr, exit 1. With picked paths the diff's own stdout
+  prints first, so a path that isn't synced is named. With `--force` the push goes on, exports every file and commits
+  with `--partial`.
 
   ```text
     ERROR: could not tell which side is newer; run mksync diff to see why, or mksync push --force.

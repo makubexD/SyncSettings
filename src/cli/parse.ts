@@ -10,7 +10,7 @@ import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 export const USAGE =
   "usage: mksync status | mksync doctor | " +
   "mksync pull [--yes] [--force] [<path>...] | " +
-  "mksync push [--yes] [-m <msg>] [<path>...] | " +
+  "mksync push [--yes] [--force] [-m <msg>] [<path>...] | " +
   "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
@@ -69,11 +69,12 @@ export interface PullCommand {
   readonly paths: readonly string[];
 }
 
-/** `push [--yes] [-m <msg>] [path...]`: the flags, the message and the picked
+/** `push [--yes] [--force] [-m <msg>] [path...]`: the flags, the message and the picked
  * paths. */
 export interface PushCommand {
   readonly kind: "push";
   readonly yes: boolean;
+  readonly force: boolean;
   readonly message?: string;
   readonly paths: readonly string[];
 }
@@ -203,6 +204,8 @@ const PULL_FORCE = "--force";
 const PUSH_COMMAND = "push";
 
 const PUSH_YES = "--yes";
+
+const PUSH_FORCE = "--force";
 
 /** `front_push`'s missing `-m` value, before any child runs. */
 const MESSAGE_NEEDS_VALUE = "Missing value for -m";
@@ -463,13 +466,14 @@ function parsePull(argv: readonly string[]): PullCommand | ParseError {
 }
 
 /**
- * Parse `push [--yes] [-m <msg>] [path...]` as `front_push` does: `-m` takes
+ * Parse `push [--yes] [--force] [-m <msg>] [path...]` as `front_push` does: `-m` takes
  * the next argument as its message even when it starts with `-`, a later `-m`
  * replaces an earlier one, and every argument that isn't a flag is a picked
  * path.
  */
 function parsePush(argv: readonly string[]): PushCommand | ParseError {
   let yes = false;
+  let force = false;
   let message: string | undefined;
   const paths: string[] = [];
 
@@ -481,6 +485,11 @@ function parsePush(argv: readonly string[]): PushCommand | ParseError {
     }
     if (arg === PUSH_YES) {
       yes = true;
+      index++;
+      continue;
+    }
+    if (arg === PUSH_FORCE) {
+      force = true;
       index++;
       continue;
     }
@@ -503,6 +512,7 @@ function parsePush(argv: readonly string[]): PushCommand | ParseError {
   return {
     kind: "push",
     yes,
+    force,
     paths,
     ...(message === undefined ? {} : { message }),
   };

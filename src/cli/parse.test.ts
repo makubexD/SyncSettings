@@ -63,7 +63,7 @@ const PREVIEW = {
 
 const PULL = { kind: "pull", yes: false, force: false, paths: [] } as const;
 
-const PUSH = { kind: "push", yes: false, paths: [] } as const;
+const PUSH = { kind: "push", yes: false, force: false, paths: [] } as const;
 
 const SETUP = { kind: "setup" } as const;
 
@@ -398,6 +398,10 @@ describe("parseArgs", () => {
 
   test("should parse push --yes", () => {
     expect(parseArgs(["push", "--yes"])).toEqual({ ...PUSH, yes: true });
+  });
+
+  test("should parse push --force", () => {
+    expect(parseArgs(["push", "--force"])).toEqual({ ...PUSH, force: true });
   });
 
   test("should parse push with one path", () => {
@@ -748,7 +752,7 @@ describe("parseArgs", () => {
 
   test("should name push in the usage line", () => {
     expect(
-      USAGE_TEXT.includes("mksync push [--yes] [-m <msg>] [<path>...]"),
+      USAGE_TEXT.includes("mksync push [--yes] [--force] [-m <msg>] [<path>...]"),
     ).toBe(true);
   });
 
