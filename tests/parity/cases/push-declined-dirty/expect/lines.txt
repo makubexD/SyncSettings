@@ -1,0 +1,4 @@
+M dotfiles/common/parity/a.conf
+M dotfiles/common/parity/b.conf
+Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.
+! Nothing sent

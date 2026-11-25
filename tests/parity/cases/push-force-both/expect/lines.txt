@@ -1,0 +1,8 @@
+# 2
+IN dotfiles/common/parity/c.conf
+1 file(s) are newer in the repo and were left alone; run mksync pull to take them.
+M dotfiles/common/parity/a.conf
+M dotfiles/common/parity/b.conf
+! M dotfiles/common/parity/c.conf
+! BOTH
+! --- repo
