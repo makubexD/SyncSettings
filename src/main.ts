@@ -308,7 +308,7 @@ async function execute(
           { yes: command.yes, force: command.force, paths: command.paths },
           {
             runCheck: (only) => execute(pullImportCommand(true, false, only)),
-            runDiff: (only) => execute(diffCommand(only)),
+            runDiff: (only) => execute(diffCommand(only, true)),
             runImport: (only) =>
               execute(pullImportCommand(false, true, only), { terminal }),
             unsent: async () => (await unsentCount(repoRoot)) ?? 0,

@@ -21,7 +21,17 @@ const NO_SYNC_QUESTION =
   "  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).\n" +
   "  Apply these changes? [y/N] ";
 
-const APPLY_QUESTION = "  Apply these changes? [Y/n] ";
+const APPLY_QUESTION = "  Apply these changes? [y/N] ";
+
+const CONFLICT_LINES = [
+  "  --- repo           dotfiles/common/parity/a.conf",
+  "  +++ this machine   dotfiles/common/parity/a.conf",
+  "  @@ -1 +1 @@",
+  "  -repo line",
+  "  +machine line",
+];
+
+const BLOCK = CONFLICT_LINES.map((line) => `${line}\n`).join("");
 
 const NO_SYNC_ERROR =
   "  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files.\n" +
@@ -398,6 +408,86 @@ describe("executePull", () => {
     );
   });
 
+  test("should print the block after the BOTH line", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      diff: {
+        code: 3,
+        stdout: `${BOTH_LINE}\n`,
+        stderr: "",
+        diff: {
+          labels: [{ label: "BOTH", path: "dotfiles/common/parity/a.conf" }],
+          conflictLines: CONFLICT_LINES,
+        },
+      },
+    });
+
+    // Act
+    const result = await executePull(pullInput({ yes: true }), fake);
+
+    // Assert
+    expect(result).toEqual({
+      code: 1,
+      stdout: `${CHECK_OUTPUT}${BOTH_LINE}\n${BLOCK}`,
+      stderr:
+        "  ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.\n" +
+        "  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).\n",
+    });
+    expect(calls.imports).toEqual([]);
+  });
+
+  test("should print no block for an OUT-only diff", async () => {
+    // Arrange
+    const { deps: fake } = deps({
+      check: CHANGED,
+      diff: {
+        code: 3,
+        stdout: `${OUT_LINE}\n`,
+        stderr: "",
+        diff: {
+          labels: [{ label: "OUT", path: "dotfiles/common/parity/a.conf" }],
+          conflictLines: [],
+        },
+      },
+    });
+
+    // Act
+    const result = await executePull(pullInput({ yes: true }), fake);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe(`${CHECK_OUTPUT}${OUT_LINE}\n`);
+  });
+
+  test("should print every blocking label before the block of a BOTH file", async () => {
+    // Arrange
+    const { deps: fake } = deps({
+      check: CHANGED,
+      diff: {
+        code: 3,
+        stdout: `${OUT_LINE}\n${BOTH_LINE}\n`,
+        stderr: "",
+        diff: {
+          labels: [
+            { label: "OUT", path: "dotfiles/common/parity/a.conf" },
+            { label: "BOTH", path: "dotfiles/common/parity/a.conf" },
+          ],
+          conflictLines: CONFLICT_LINES,
+        },
+      },
+    });
+
+    // Act
+    const result = await executePull(pullInput({ yes: true }), fake);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe(
+      `${CHECK_OUTPUT}${OUT_LINE}\n${BOTH_LINE}\n${BLOCK}`,
+    );
+  });
+
   test("should apply when the diff has only IN lines", async () => {
     // Arrange
     const { deps: fake, calls } = deps({
@@ -472,11 +562,12 @@ describe("executePull", () => {
     expect(calls.printed).toEqual([CHANGED]);
   });
 
-  test("should ask the apply question and import on yes", async () => {
+  test("should ask the apply question with a no default and import on yes", async () => {
     // Arrange
     const { deps: fake, calls } = deps({
       check: CHANGED,
       importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
+      answers: [true],
     });
 
     // Act
@@ -489,7 +580,64 @@ describe("executePull", () => {
       stderr: "",
     });
     expect(calls.questions).toEqual([
-      { question: APPLY_QUESTION, defaultYes: true },
+      { question: APPLY_QUESTION, defaultYes: false },
+    ]);
+    expect(calls.imports).toEqual([[]]);
+  });
+
+  test("should treat an empty answer to the apply question as no", async () => {
+    // Arrange: the ask stub's empty answer list returns the question's default.
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
+    });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
+    expect(calls.questions).toEqual([
+      { question: APPLY_QUESTION, defaultYes: false },
+    ]);
+    expect(calls.imports).toEqual([]);
+  });
+
+  test("should apply nothing when the apply question gets n", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
+      answers: [false],
+    });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
+    expect(calls.questions).toEqual([
+      { question: APPLY_QUESTION, defaultYes: false },
+    ]);
+    expect(calls.imports).toEqual([]);
+  });
+
+  test("should import when the apply question gets y or Y", async () => {
+    // Arrange: the stub's true stands for either an `y` or a `Y` answer.
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
+      importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
+      answers: [true],
+    });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: IMPORT_OUTPUT, stderr: "" });
+    expect(calls.questions).toEqual([
+      { question: APPLY_QUESTION, defaultYes: false },
     ]);
     expect(calls.imports).toEqual([[]]);
   });
