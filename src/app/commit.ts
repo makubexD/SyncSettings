@@ -578,7 +578,8 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
         os,
         stateFolder: state,
         location,
-        now: () => new Date(),
+        // The same stamp as `src/app/run.ts`: one backup folder per run.
+        now: () => new Date(performance.timeOrigin),
         pid: process.pid,
         env: process.env,
       },

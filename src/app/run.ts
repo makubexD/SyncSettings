@@ -189,7 +189,8 @@ export async function buildRun(
     stateFolder: env.state,
     location: env.layers.location,
     env: snapshot.env,
-    now: () => new Date(),
+    // One backup folder per run, even when its phases cross a second.
+    now: () => new Date(performance.timeOrigin),
     pid: process.pid,
   };
   return { snapshot, context };
