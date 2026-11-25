@@ -3,6 +3,7 @@
 # compiled program in a throwaway HOME and repo, then compare exit codes, status
 # lines and both trees with expect/. The case format is tests/parity/README.md.
 # Usage: tests/parity/run.sh [--engine <path>] [case-name-filter]
+# PARITY_JOBS: how many cases run at once, default one per processor.
 
 set -euo pipefail
 
@@ -14,6 +15,7 @@ filter=''
 engine_path=$REPO/dist/mksync
 passed=0
 failed_cases=0
+jobs=${PARITY_JOBS:-$(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 4)}
 case_name=''
 t=''
 
@@ -80,6 +82,7 @@ while (( $# > 0 )); do
     esac
 done
 
+[[ $jobs =~ ^[1-9][0-9]*$ ]] || die 'PARITY_JOBS must be a whole number above 0'
 [[ -f $engine_path ]] || die "--engine: $engine_path is not a file"
 engine_path=$(cd "$(dirname "$engine_path")" && pwd)/$(basename "$engine_path")
 
@@ -535,7 +538,8 @@ setup_git() {
     git_env -C "$repo" config user.name Parity || die 'git config user.name failed'
     git_env -C "$repo" config user.email parity@example.com || die 'git config user.email failed'
     git_env -C "$repo" config commit.gpgsign false || die 'git config commit.gpgsign failed'
-    printf '.user-values.json\n' >> "$repo/.git/info/exclude" || die 'writing .git/info/exclude failed'
+    # The program stays out of git: compressing its 100 MB takes seconds a case.
+    printf '%s\n' .user-values.json /mksync >> "$repo/.git/info/exclude" || die 'writing .git/info/exclude failed'
     git_env -C "$repo" add -A || die 'git add failed'
     git_env -C "$repo" commit -q -m 'parity case' || die 'git commit failed'
     if [[ $mode == remote ]]; then
@@ -663,7 +667,8 @@ run_case() {
         # the clone while the cases still run ./mksync.
         ln -s "$engine_path" "$t/repo/mksync" || die 'linking the launcher failed'
     else
-        cp -a "$engine_path" "$t/repo/mksync" || die 'copying the program failed'
+        # A hard link to the run's own copy: a copy per case costs 100 MB each.
+        ln "$work/mksync" "$t/repo/mksync" || die 'copying the program failed'
     fi
     # The program runs the leak scan from the repo.
     mkdir -p "$t/repo/scripts"
@@ -1080,7 +1085,62 @@ run_case() {
 
 # -- Runner --------------------------------------------------------------------
 
+# Checks and runs one case: prints its result line and, on the first line, one
+# of ok, fail or skip for the summary.
+report_case() {
+    local dir=$1 reason
+    if ! reason=$(validate_case "$dir"); then
+        printf 'fail\nFAIL %s: %s\n' "$case_name" "${reason:-invalid case.json}"
+        return 0
+    fi
+
+    # import-eof-no-force counts as yes on every OS.
+    if [[ $case_name != import-eof-no-force ]]; then
+        if [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
+            # shellcheck disable=SC2016  # $os is a jq argument, not a shell variable
+            if ! jq -e --arg os "$HARNESS_OS" 'any(.os[]; . == $os)' "$dir/case.json" > /dev/null; then
+                printf 'skip\nskip %s\n' "$case_name"
+                return 0
+            fi
+        fi
+    fi
+
+    if reason=$(run_case "$dir"); then
+        printf 'ok\nok %s\n' "$case_name"
+    else
+        printf 'fail\nFAIL %s: %s\n' "$case_name" "${reason:-unknown failure}"
+    fi
+}
+
+# Prints case number $1's result and counts it. No result file means its
+# subshell died, which is a failure too.
+take_result() {
+    local file=$work/$1 kind='' name=${names[$1]}
+    if [[ -f $file ]]; then
+        { read -r kind || true; cat; } < "$file"
+    fi
+    case $kind in
+        ok) passed=$((passed + 1)) ;;
+        skip) ;;
+        fail) failed_cases=$((failed_cases + 1)) ;;
+        *)
+            printf 'FAIL %s: the case ended with no result\n' "$name"
+            failed_cases=$((failed_cases + 1))
+            ;;
+    esac
+}
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+if [[ $engine_path != "$REPO/mksync" ]]; then
+    cp -a "$engine_path" "$work/mksync" || die 'copying the program failed'
+fi
+
+# Cases share nothing, so up to $jobs run at once; results print in case order.
 matched=0
+shown=0
+names=()
+pids=()
 for dir in "$CASES"/*/; do
     [[ -d $dir ]] || continue
     dir=${dir%/}
@@ -1089,32 +1149,21 @@ for dir in "$CASES"/*/; do
     if [[ -n $filter && $case_name != *"$filter"* ]]; then
         continue
     fi
+    names+=("$case_name")
+    report_case "$dir" > "$work/$matched" < /dev/null &
+    pids+=("$!")
     matched=$((matched + 1))
 
-    if ! reason=$(validate_case "$dir"); then
-        printf 'FAIL %s: %s\n' "$case_name" "${reason:-invalid case.json}"
-        failed_cases=$((failed_cases + 1))
-        continue
-    fi
-
-    # import-eof-no-force counts as yes on every OS.
-    if [[ $case_name != import-eof-no-force ]]; then
-        if [[ $(jq -r 'has("os")' "$dir/case.json") == true ]]; then
-            # shellcheck disable=SC2016  # $os is a jq argument, not a shell variable
-            if ! jq -e --arg os "$HARNESS_OS" 'any(.os[]; . == $os)' "$dir/case.json" > /dev/null; then
-                printf 'skip %s\n' "$case_name"
-                continue
-            fi
-        fi
-    fi
-
-    if reason=$(run_case "$dir"); then
-        printf 'ok %s\n' "$case_name"
-        passed=$((passed + 1))
-    else
-        printf 'FAIL %s: %s\n' "$case_name" "${reason:-unknown failure}"
-        failed_cases=$((failed_cases + 1))
-    fi
+    while (( matched - shown >= jobs )); do
+        wait "${pids[shown]}" || true
+        take_result "$shown"
+        shown=$((shown + 1))
+    done
+done
+while (( shown < matched )); do
+    wait "${pids[shown]}" || true
+    take_result "$shown"
+    shown=$((shown + 1))
 done
 
 if [[ -n $filter && $matched -eq 0 ]]; then

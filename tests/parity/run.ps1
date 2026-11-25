@@ -4,6 +4,8 @@
 # compare exit codes, status lines and both trees with expect/. The case format
 # is tests/parity/README.md.
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engine <path>] [case-name-filter]
+# PARITY_JOBS: how many processes share the cases, default one per processor.
+# PARITY_SHARD (<k>/<n>, set by the runner itself): run only the k-th of n shares.
 
 $ErrorActionPreference = 'Stop'
 
@@ -43,6 +45,65 @@ $EnginePath = (Resolve-Path -LiteralPath $EnginePath).Path
 $passed = 0
 $failed = 0
 $matched = 0
+
+# Cases share nothing, so the first process splits them between child processes
+# of this same script, prints what each one printed and adds up their counts.
+$shardIndex = 0
+$shardCount = 1
+if (-not [string]::IsNullOrEmpty($env:PARITY_SHARD)) {
+    $shardParts = $env:PARITY_SHARD -split '/'
+    $shardIndex = [int]$shardParts[0]
+    $shardCount = [int]$shardParts[1]
+} else {
+    $jobCount = [Environment]::ProcessorCount
+    if (-not [string]::IsNullOrEmpty($env:PARITY_JOBS)) {
+        $jobCount = [int]$env:PARITY_JOBS
+    }
+    if ($jobCount -gt 1 -and $Filter -eq '') {
+        $shardDir = Join-Path ([IO.Path]::GetTempPath()) ('mksync-shards-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $shardDir -Force | Out-Null
+        $children = @()
+        try {
+            for ($k = 0; $k -lt $jobCount; $k++) {
+                $env:PARITY_SHARD = "$k/$jobCount"
+                $child = Start-Process -FilePath 'powershell.exe' -NoNewWindow -PassThru `
+                    -RedirectStandardOutput (Join-Path $shardDir "$k.out") `
+                    -RedirectStandardError (Join-Path $shardDir "$k.err") `
+                    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Engine', "`"$EnginePath`"")
+                # Reading the handle now keeps ExitCode readable after the exit.
+                $null = $child.Handle
+                $children += $child
+            }
+            for ($k = 0; $k -lt $jobCount; $k++) {
+                $children[$k].WaitForExit()
+                $summary = $null
+                foreach ($line in @(Get-Content -LiteralPath (Join-Path $shardDir "$k.out"))) {
+                    if ($line -cmatch '^(\d+) passed, (\d+) failed$') {
+                        $summary = $line
+                        $passed += [int]$Matches[1]
+                        $failed += [int]$Matches[2]
+                    } else {
+                        Write-Output $line
+                    }
+                }
+                # A share that died has no summary, and that is a failure.
+                if ($null -eq $summary -or ($children[$k].ExitCode -ne 0 -and $summary -cmatch ' 0 failed$')) {
+                    Write-Output "FAIL share ${k}: ended with exit code $($children[$k].ExitCode)"
+                    Get-Content -LiteralPath (Join-Path $shardDir "$k.err")
+                    $failed++
+                }
+            }
+        } finally {
+            $env:PARITY_SHARD = $null
+            Remove-Item -LiteralPath $shardDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Write-Output "$passed passed, $failed failed"
+        if ($failed -gt 0) {
+            exit 1
+        }
+        exit 0
+    }
+}
 
 # The runner is Windows-only: every case runs for the program.
 $HarnessOs = 'windows'
@@ -822,7 +883,8 @@ function Setup-Git {
     Invoke-Git -What 'git config user.email' -GitArgs @('-C', $RepoDir, 'config', 'user.email', 'parity@example.com')
     Invoke-Git -What 'git config commit.gpgsign' -GitArgs @('-C', $RepoDir, 'config', 'commit.gpgsign', 'false')
     Invoke-Git -What 'git config core.autocrlf' -GitArgs @('-C', $RepoDir, 'config', 'core.autocrlf', 'false')
-    [IO.File]::AppendAllText((Join-Path $RepoDir '.git\info\exclude'), ".user-values.json`n", [System.Text.UTF8Encoding]::new($false))
+    # The program stays out of git: compressing its 100 MB takes seconds a case.
+    [IO.File]::AppendAllText((Join-Path $RepoDir '.git\info\exclude'), ".user-values.json`n/mksync.exe`n", [System.Text.UTF8Encoding]::new($false))
     Invoke-Git -What 'git add' -GitArgs @('-C', $RepoDir, 'add', '-A')
     Invoke-Git -What 'git commit' -GitArgs @('-C', $RepoDir, 'commit', '-q', '-m', 'parity case')
     if ($Mode -ceq 'remote') {
@@ -1587,6 +1649,9 @@ foreach ($caseDir in $caseDirs) {
         continue
     }
     $matched++
+    if (($matched - 1) % $shardCount -ne $shardIndex) {
+        continue
+    }
 
     $reason = $null
     $case = $null

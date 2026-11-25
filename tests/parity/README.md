@@ -11,6 +11,9 @@ tests/parity/run.sh only-                                    # cases whose name 
 tests/parity/run.sh --engine dist/mksync export-unchanged    # another build
 ```
 
+Cases run at once, one per processor; `PARITY_JOBS=<n>` sets another number (both runners). The program stays out of
+each case's git repo: committing its 100 MB took seconds a case.
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 [-Engine <path>] [case-name-filter]
 ```
