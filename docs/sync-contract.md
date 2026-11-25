@@ -645,6 +645,7 @@ three versions of `dotfiles/`, read from git objects, with no temp folder:
   never fetches; `mksync diff` fetches first.
 - `mine`: `base` with an export's writes applied in memory, the export planned with `base` as the repo side. Starting
   from `base` means any file export doesn't touch still equals `base`.
+  The diff never asks: a [new setting](#new-settings) is planned for its suggested layer, as with `--yes`.
 
 The private layers are the profile's and the machine's layer files of the `json` entries ([Layers](#layers)). No git tree holds them, so
 the diff reads the stored ones and adds the same content to `base` and `theirs`, and so to `mine` before the export's

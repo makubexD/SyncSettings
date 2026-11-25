@@ -6,6 +6,7 @@ import {
 } from "../adapters/git.ts";
 import type { EntryType, MergeType, Os } from "../core/config/types.ts";
 import { selectEntries } from "../core/layers/select.ts";
+import type { SelectedEntry } from "../core/layers/select.ts";
 import { diffText, labelDiff, ownedPaths } from "../core/plan/diff.ts";
 import type {
   DiffHeader,
@@ -14,6 +15,10 @@ import type {
   RepoRef,
 } from "../core/plan/diff.ts";
 import { planExport } from "../core/plan/export.ts";
+import {
+  newSettingChoices,
+  suggestionAnswers,
+} from "../core/plan/newsettings.ts";
 import {
   onlySelected,
   primaryRepoPath,
@@ -58,9 +63,39 @@ function narrowOwned(owned: OwnedPaths, only: readonly string[]): OwnedPaths {
   return {
     exact: owned.exact,
     prefixes: owned.prefixes,
-    owns: (path) => owned.owns(path) && onlySelected(path, only),
+    owns: (path) =>
+      owned.owns(path) && onlySelected(owned.labelOf(path), only),
     labelOf: owned.labelOf,
   };
+}
+
+/**
+ * Contract "Diff": a `json` entry's profile and machine layers are stored
+ * outside git, so the snapshot's copies join both sides of the comparison.
+ * Other merge types never gain a private file. Each call returns a fresh map;
+ * the given tree is never changed.
+ */
+function withPrivateLayers(
+  tree: RepoFiles,
+  selected: readonly SelectedEntry[],
+  repoFiles: RepoFiles,
+): RepoFiles {
+  const copy = new Map(tree);
+  for (const entry of selected) {
+    if (entry.entry.merge !== "json") {
+      continue;
+    }
+    for (const slot of entry.slots) {
+      if (slot.name !== "profile" && slot.name !== "machine") {
+        continue;
+      }
+      const bytes = repoFiles.get(slot.repoPath);
+      if (bytes !== undefined) {
+        copy.set(slot.repoPath, bytes);
+      }
+    }
+  }
+  return copy;
 }
 
 /**
@@ -165,28 +200,52 @@ export async function diffExport(
     };
   }
 
-  const planned = planExport({ ...snapshot, repoFiles: base });
-  if (planned.code !== 0) {
+  const baseTree = withPrivateLayers(base, selected.value, snapshot.repoFiles);
+  const theirsTree = withPrivateLayers(
+    theirs,
+    selected.value,
+    snapshot.repoFiles,
+  );
+
+  // The diff never asks, so a new setting takes the suggestion, as `--yes`
+  // does; the plan is made again with those answers.
+  const planned = planExport({ ...snapshot, repoFiles: baseTree });
+  const settings = planned.newSettings ?? [];
+  const question =
+    settings.length > 0
+      ? newSettingChoices(snapshot.record, snapshot.os)
+      : undefined;
+  const exportPlan =
+    question === undefined
+      ? planned
+      : planExport(
+          { ...snapshot, repoFiles: baseTree },
+          suggestionAnswers(settings, question),
+        );
+  if (exportPlan.code !== 0) {
     return {
       code: 1,
-      stdout: writeLines(planned.lines),
+      stdout: writeLines(exportPlan.lines),
       stderr: `${EXPORT_FAILED}\n`,
     };
   }
 
-  const mine = appliedTree(base, planned);
+  const mine = appliedTree(baseTree, exportPlan);
   const allOwned = ownedPaths(
     selected.value.map((entry) => ({
       repoPath: primaryRepoPath(entry),
       type: ownedType(entry.entry.merge),
+      ...(entry.entry.merge === "json"
+        ? { layerPaths: entry.slots.map((slot) => slot.repoPath) }
+        : {}),
     })),
   );
   const owned =
     only.paths.length === 0 ? allOwned : narrowOwned(allOwned, only.paths);
   const labels = labelDiff({
     owned,
-    base,
-    theirs,
+    base: baseTree,
+    theirs: theirsTree,
     mine,
     hasSyncPoint: syncPoint !== undefined,
   });
