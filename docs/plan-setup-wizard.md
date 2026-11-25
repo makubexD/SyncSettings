@@ -28,6 +28,9 @@ exports only the diff's `OUT` and `BOTH` files (with the bootstrap too), end of 
 shared cases prove the pull guard stops over a local-only JSON array item. Keep's gaps when setup also changes
 the profile or modules are in the design's "Open" list, for after the release.
 
+**Hotfix `v1.1.2`** (`docs/plan-diff-layers.md`, 2026-11-25): `mksync diff`, and so the pull guard, keep and the status
+line, see every layer of a JSON file. The work machines wait for it.
+
 ## Phase 2: a friendlier setup
 
 Plan: `docs/plan-setup-wizard-2.md`, written when phase 1 is done. Release `v1.2.0`.

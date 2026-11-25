@@ -81,6 +81,9 @@ Each machine remembers the repo commit it last agreed with (`~/.local/state/sync
 `%LOCALAPPDATA%\SyncSettings\last-sync` on Windows). A full pull records it, and so does a push once its PR opens. Files
 you pushed read `OUT` until the PR merges, then drop out of the list.
 
+A JSON file built from several layers (common, system, profile, machine) is one line, whichever layer changed. If the
+repo changed one layer and this machine another, the line is `BOTH`.
+
 `mksync pull` runs the diff before it applies anything and stops if a file is `OUT` or `BOTH`, so it can't replace an
 edit you haven't sent. Run `mksync push` first, or `mksync pull --force` to overwrite anyway (each file keeps its
 `.bak`, and a dated copy: see [Getting an old version back](#getting-an-old-version-back)).

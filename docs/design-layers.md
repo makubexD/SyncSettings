@@ -1537,9 +1537,10 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     entry changed only in the repo, plus `MKSYNC_SETUP_EXPORTED` in the stub's log, would cover the bootstrap path.
   - An installer whose setup stops at the confirm for want of a terminal (`Stopped: nothing was written.`, exit 0)
     still ends with `Installed. Run mksync any time.`; it could say setup was skipped.
-  - Syncing the `ctx-print-guard` hook from this machine: its script needs a `sync-config.json` entry and its
-    `hooks.PreToolUse` wiring a Linux-layer home, so it isn't pushed into the common `settings.json` layer. Later
-    work.
+  - Closed in `v1.1.2`: the `ctx-print-guard` hook is synced for Linux, script and wiring.
+  - Since `v1.1.2` the diff covers every layer of a `json` entry. `import`, `whole` and `dir` entries still compare the
+    one `dotfiles/` path they label, so a profile or machine layer of theirs is in no tree, and a change bound for one
+    shows as `OUT`, or a base change under an OS file is missed, as before.
   - Replace asks each machine value as `<KEY> [<old value>] ` in the record's key order; no shared case has a value
     yet.
   - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1.
