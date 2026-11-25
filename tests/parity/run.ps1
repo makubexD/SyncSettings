@@ -1000,7 +1000,7 @@ function Run-Case {
         New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
 
         # Program files (scripts\ci too: later cases need leak-scan).
-        Copy-Item -LiteralPath $EnginePath -Destination (Join-Path $repoDir 'mksync.exe') -Force
+        New-Item -ItemType HardLink -Path (Join-Path $repoDir 'mksync.exe') -Value $script:engineShared -ErrorAction Stop | Out-Null
         # The program runs the leak scan from the repo, as run.sh copies it.
         New-Item -ItemType Directory -Path (Join-Path $repoDir 'scripts') -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $Repo 'scripts\ci') -Destination (Join-Path $repoDir 'scripts\ci') -Recurse -Force
@@ -1639,6 +1639,14 @@ function Run-Case {
 
 # -- Runner --------------------------------------------------------------------
 
+# One copy of the program per process, and a hard link to it per case: copying
+# 110 MB for each case was most of the run time. The copy is in Temp because a
+# link can't cross drives, and each share has its own because Windows refuses
+# to delete a link while another process runs the same file.
+$engineShared = Join-Path ([IO.Path]::GetTempPath()) ('mksync-engine-' + [Guid]::NewGuid().ToString('N') + '\mksync.exe')
+New-Item -ItemType Directory -Path (Split-Path -Parent $engineShared) -Force | Out-Null
+Copy-Item -LiteralPath $EnginePath -Destination $engineShared -Force
+
 $caseDirs = @(Get-ChildItem -LiteralPath $Cases -Directory -ErrorAction SilentlyContinue | Sort-Object Name)
 
 foreach ($caseDir in $caseDirs) {
@@ -1713,6 +1721,7 @@ foreach ($caseDir in $caseDirs) {
 }
 
 if ($Filter -ne '' -and $matched -eq 0) {
+    Remove-Item -LiteralPath (Split-Path -Parent $engineShared) -Recurse -Force -ErrorAction SilentlyContinue
     Write-Output "no case matches $Filter"
     exit 1
 }
@@ -1722,6 +1731,7 @@ Write-Output "$passed passed, $failed failed"
 if ($ghExeTemplate -ne '') {
     Remove-Item -LiteralPath (Split-Path -Parent $ghExeTemplate) -Recurse -Force -ErrorAction SilentlyContinue
 }
+Remove-Item -LiteralPath (Split-Path -Parent $engineShared) -Recurse -Force -ErrorAction SilentlyContinue
 
 if ($failed -gt 0) {
     exit 1
