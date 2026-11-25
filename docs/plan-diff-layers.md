@@ -92,7 +92,7 @@ Files: `src/app/diff.ts`, `src/core/plan/pick.ts` and its unit test, new case
 `tests/parity/cases/diff-layers-profile-only/`.
 
 Pass each `json` entry's `slots` repo paths as `layerPaths`. Copy the snapshot's `profiles/…` and `machines/…` layer
-files into both `base` and `theirs` before planning. Entries are still selected from git's paths alone, so a label
+files of `json` entries (only those, so another type keeps its `OUT`) into both `base` and `theirs` before planning. Entries are still selected from git's paths alone, so a label
 stays the `dotfiles/` path it is today. `dir`, `dconf` and `whole` entries keep today's paths.
 
 Added while running step 3: with a stored profile layer, `primaryRepoPath` is `profiles/…`, so `--only` refuses the
