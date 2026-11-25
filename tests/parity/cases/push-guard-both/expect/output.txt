@@ -1,0 +1,5 @@
+UPDATE dotfiles/common/parity/a.conf
+OUT dotfiles/common/parity/a.conf
+BOTH dotfiles/common/parity/b.conf
+  ERROR: 1 file(s) changed on both sides since the last sync.
+  Merge by hand, then run mksync push --force <path>; or mksync pull --force <path> takes the repo's version (keeps a .bak).
