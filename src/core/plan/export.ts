@@ -136,7 +136,8 @@ function pushStatus(
 ): number {
   const text = formatLine(word, label, note);
   state.lines.push(text);
-  if (word === "ERROR") {
+  // A failed dconf dump says nothing about a file, and often only means no bus.
+  if (word === "ERROR" && note !== DCONF_FAILED_NOTE) {
     state.errorLines.push(text);
   }
   state.hits++;

@@ -510,11 +510,14 @@ export async function executeSetup(
   }
 }
 
+/** Contract "Then": keep after a failed diff stops with this line. */
+const KEEP_UNKNOWN =
+  "ERROR: could not tell which side is newer; run mksync diff to see why, then run setup again.";
+
 /**
  * Hotfix decision 1 (docs/plan-setup-hotfix.md): keep exports only this machine's own changes. With a diff that
  * ran, they are the paths its `OUT` and `BOTH` lines name; `undefined` means
- * export everything, as no sync point or a failed diff leaves the newer side
- * unknown. A label outside `dotfiles/` isn't a repo path `export --only` takes
+ * export everything, as no sync point leaves the newer side unknown. A label outside `dotfiles/` isn't a repo path `export --only` takes
  * (contract "Picking files"), so it falls back to the whole export too.
  */
 function keepPaths(differ: SetupDiffer): readonly string[] | undefined {
@@ -530,8 +533,8 @@ function keepPaths(differ: SetupDiffer): readonly string[] | undefined {
 /**
  * Hotfix decision 1 (docs/plan-setup-hotfix.md): keep's export. With a diff
  * that ran and only this machine's changes, it exports those paths; with no
- * sync point or a failed diff, `keepPaths` says the newer side is unknown and
- * it exports everything. An empty path list means there is nothing to push, so
+ * sync point, `keepPaths` says the newer side is unknown and it exports
+ * everything. A failed diff stops keep with exit 1. An empty path list means there is nothing to push, so
  * `undefined` comes back and no export runs (and no `Pushed into` line prints).
  * Setup's own keep and the bootstrap's share this one rule. The diff reads an
  * entry's repo path from the sync point's tree and the export from today's, so
@@ -543,6 +546,10 @@ export async function exportKeep(
   options: ExecuteOptions,
   differ: SetupDiffer,
 ): Promise<Result | undefined> {
+  if (differ.diff?.ok === false) {
+    // A whole export would write this machine's old copy over each `IN` file.
+    return failure(KEEP_UNKNOWN);
+  }
   const paths = keepPaths(differ);
   if (paths !== undefined && paths.length === 0) {
     return undefined;
