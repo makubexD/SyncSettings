@@ -639,16 +639,21 @@ A write that fails prints `WARNING: could not record the sync point in <file>.` 
 `mksync diff` (`mksync export --diff`) says which side changed each file, without writing anything. It compares
 three versions of `dotfiles/`, read from git objects, with no temp folder:
 
-- `base`: the sync point's tree. With no sync point, `theirs` stands in for `base`.
-- `theirs`: `origin/master` when that ref exists, else `HEAD`. `mksync export --diff` never fetches; `mksync diff`
-  fetches first.
+- `base`: the sync point's tree, plus the private layers below. With no sync point, `theirs` stands in for `base`.
+- `theirs`: `origin/master` when that ref exists, else `HEAD`, plus the private layers below. `mksync export --diff`
+  never fetches; `mksync diff` fetches first.
 - `mine`: `base` with an export's writes applied in memory, the export planned with `base` as the repo side. Starting
   from `base` means any file export doesn't touch still equals `base`.
 
-Only paths this OS's entries own are compared: a file or dconf entry owns its label, and a dir entry owns the
-`<label>/` prefix. With `--only`, only the selected paths are
-labeled and counted. A missing file counts as a version, and each owned path in the union of the three trees gets at
-most one label:
+The private layers are the profile's and the machine's layer files ([Layers](#layers)). No git tree holds them, so
+the diff reads the stored ones and adds the same content to `base` and `theirs`, and so to `mine` before the export's
+writes. They never give `IN`: a private layer the export would leave alone gives nothing, and a setting the export
+would write into one gives `OUT`.
+
+Only paths this OS's entries own are compared: a `json` entry owns the file of each of its
+[layers](#layers) (base, OS, profile and machine), any other file or dconf entry owns its label, and a dir entry owns
+the `<label>/` prefix. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
+as a version, and each owned path in the union of the three trees gets at most one verdict:
 
 | `mine` vs `base`                 | `theirs` vs `base`         | Label                                             |
 | -------------------------------- | -------------------------- | ------------------------------------------------- |
@@ -658,6 +663,21 @@ most one label:
 | differs                          | differs, `mine` = `theirs` | none: both made the same change                   |
 | differs                          | differs, `mine` ≠ `theirs` | `BOTH`: merge by hand                             |
 | no sync point, `mine` ≠ `theirs` |                            | `?`                                               |
+
+A `json` entry prints one line, however many of its layer files changed, so `--only` and the counts see the entry
+once. Its label is always a `dotfiles/` path: the OS file if it exists, else the base file, else the file the OS layer
+would have. A private layer's path is never printed. The verdicts of its layer files fold into that line:
+
+| Verdicts of the entry's layer files | Label  |
+| ----------------------------------- | ------ |
+| any `BOTH`                          | `BOTH` |
+| an `OUT` and an `IN`                | `BOTH` |
+| `OUT`, no `IN`                      | `OUT`  |
+| `IN`, no `OUT`                      | `IN`   |
+| `?` (no sync point)                 | `?`    |
+| none                                | none   |
+
+A `BOTH` made of an `OUT` and an `IN` in two layers is still one entry: pulling it would drop this machine's change.
 
 The lines print through the normal status formatter (`OUT        dotfiles/…`), sorted by code unit.
 The header names the sync point (`Last sync  : <short> (<date>)`, or `none recorded on this machine`) and the ref
