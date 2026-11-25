@@ -1,0 +1,29 @@
+{
+  "description": "Diff with a sync point and a personal record labels a new item the export would write into the base layer as one OUT on the entry's Linux label, exit 3 (Diff, Layers, New settings).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "diff"
+    }
+  ]
+}

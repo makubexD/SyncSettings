@@ -1,0 +1,54 @@
+  OK       git
+  OK       gh (signed in)
+  OK       repo clone with origin
+  OK       machine record
+  OK       values
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      1 of 1 linux entries already exist here
+
+Profiles on this machine:
+  1) personal    machine wk1-laptop
+
+  1 file(s) differ: 0 in, 1 out, 0 both.
+Machine wk1-laptop: profile personal, none, push with a preview.
+Same as: mksync setup --profile personal --replace wk1-laptop --claude none --mode push --existing keep
+Changes on wk1-laptop (profile personal):
+
+All machines
+     (none)
+Linux machines
+     (none)
+Profile personal
+     (none)
+This machine only
+     (none)
+
+New settings
+  1  +  parity  settings.json  hooks[]: "mine"
+     Where does it go? 1) all machines  2) Linux machines  3) profile personal  4) this machine [1]   MODIFIED   dotfiles/common/parity/settings.json
+
+  --------------------------------------------------
+
+  1 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+
+Pushed into the repo folder; commit it with mksync push.
+  UPDATED    dotfiles/linux/parity/settings.json  (backup saved as settings.json.bak)
+
+  --------------------------------------------------
+
+  1 file(s) applied.
+
+  Backups    : <HOME>/.local/state/sync-settings/backups/RUN
+
+  --------------------------------------------------
