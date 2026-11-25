@@ -271,7 +271,7 @@ function guardBlockText(guard: SetupGuard): string {
  * A pull-only machine can't keep, so its lines don't suggest it. */
 function guardRefusalText(guard: SetupGuard, mode: SetupMode): string {
   if (guard.kind === "failed") {
-    return "ERROR: could not tell which side is newer; run mksync diff to see why.";
+    return "ERROR: could not tell which side is newer; run mksync diff to see why, or run setup without --yes to confirm.";
   }
   const canKeep = mode === "push";
   const next = canKeep

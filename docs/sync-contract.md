@@ -1303,7 +1303,7 @@ Write the record and apply? [Y/n]
   except after a guard block: there setup stops before anything is written with
   `ERROR: <n> file(s) changed on this machine since the last sync, and setup would overwrite them.` and
   `Run mksync setup --existing keep to push them first, or run it without --yes to confirm.`, exit 1; after a failed
-  diff, `ERROR: could not tell which side is newer; run mksync diff to see why.`,
+  diff, `ERROR: could not tell which side is newer; run mksync diff to see why, or run setup without --yes to confirm.`,
   exit 1. With `--mode pull-only`, which can't keep, the second line is `Run it without --yes to confirm.` Value questions (`<KEY>: kept on …`) come after the confirm: they choose where a value is stored and
   overwrite nothing.
 - **Bootstrap.** On Ubuntu with an executable `bootstrap/linux.sh`, after question 4 and before the summary:

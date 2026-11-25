@@ -921,7 +921,7 @@ describe("runSetup", () => {
     expect(outcome).toEqual({
       ok: false,
       message:
-        "ERROR: could not tell which side is newer; run mksync diff to see why.",
+        "ERROR: could not tell which side is newer; run mksync diff to see why, or run setup without --yes to confirm.",
       code: 1,
     });
     expect(output).toContain(
