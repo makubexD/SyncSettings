@@ -88,12 +88,19 @@ Test: `bun test src/core/plan/diff.test.ts` and `bun run lint`.
 
 ## Step 5: Diff uses every layer `[worker]`
 
-Files: `src/app/diff.ts` (and its unit test, if one exists).
+Files: `src/app/diff.ts`, `src/core/plan/pick.ts` and its unit test, new case
+`tests/parity/cases/diff-layers-profile-only/`.
 
 Pass each `json` entry's `slots` repo paths as `layerPaths`. Copy the snapshot's `profiles/…` and `machines/…` layer
-files into both `base` and `theirs` before selecting and planning. `primaryRepoPath` for a label must pick a
-`dotfiles/` path: the last layer among base and OS that exists, else `<writeRoot><file>`. `dir`, `dconf` and `whole`
-entries keep today's paths.
+files into both `base` and `theirs` before planning. Entries are still selected from git's paths alone, so a label
+stays the `dotfiles/` path it is today. `dir`, `dconf` and `whole` entries keep today's paths.
+
+Added while running step 3: with a stored profile layer, `primaryRepoPath` is `profiles/…`, so `--only` refuses the
+label the diff prints, and keep and `mksync diff <path>` would stop. `resolveOnly` also accepts a `json` entry's
+`dotfiles/` label (the OS file if it exists, else the base file, else `<writeRoot><file>`) and resolves it to
+`primaryRepoPath`; the diff's own narrowing compares with the printed label. Case `diff-layers-profile-only`: as
+`diff-layers-profile`, with `diff dotfiles/linux/parity/settings.json`: the same `OUT` line and counts, exit 3. The
+"Picking files" section of the contract says so.
 
 Test: `bun run lint && bun run build && tests/parity/run.sh --engine dist/mksync layers`, then filters `diff-`,
 `pull-guard`, `setup-keep`, `status-`: all pass.

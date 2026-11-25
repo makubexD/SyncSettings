@@ -101,7 +101,8 @@ Every command that walks entries takes a repeatable `--only <path>` (`mksync pul
 the paths as arguments and pass them on as `--only`). A path is either a repo path or a local path:
 
 - A path starting with `dotfiles/` is a repo path. It is accepted when an entry selected for this OS owns it: the path
-  equals its label, or starts with `<label>/` for a `dir` entry. A trailing `/` is dropped. A path with a `..`
+  equals its label, or starts with `<label>/` for a `dir` entry. A `json` entry whose label is a profile or machine
+  layer also accepts the label the [diff](#diff) prints for it. A trailing `/` is dropped. A path with a `..`
   segment is refused.
 - Any other path is a local path. A leading `~/` becomes `$HOME/` (a lone `~` becomes `$HOME`), a path that doesn't
   start with `/` is joined to the current folder, and `.` and `..`
