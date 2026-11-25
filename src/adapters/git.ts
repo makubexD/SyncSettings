@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { RepoFiles } from "../core/plan/types.ts";
 import { decode, run } from "./process.ts";
 import { originUrls } from "./visibility.ts";
@@ -985,6 +985,65 @@ export async function previewDiff(
       stat: decodeText(statResult.stdout),
       diff: decodeText(diffResult.stdout),
     };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/** The temp folder prefix `textDiff` makes, removed again on every path. */
+const TEXT_DIFF_TMP_PREFIX = "mksync-conflict-";
+
+/** `git diff --no-index` exits 1 when the files differ; above is a failure. */
+const MAX_DIFF_EXIT = 1;
+
+/** No user, system or attribute setting may change the diff's lines. */
+const TEXT_DIFF_ARGS = [
+  "-c",
+  "core.attributesFile=/dev/null",
+  "-c",
+  "core.autocrlf=false",
+  "diff",
+  "--no-index",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-color",
+  "--unified=3",
+  "--",
+] as const;
+
+/**
+ * Git's unified diff from `before` to `after`, header included, with the user's
+ * git settings left out. A missing side diffs as an empty file. The bytes go
+ * through a private temp folder, removed on failure too. `undefined` when git
+ * cannot tell.
+ */
+export async function textDiff(
+  before: Uint8Array | undefined,
+  after: Uint8Array | undefined,
+): Promise<string | undefined> {
+  const tmp = mkdtempSync(join(tmpdir(), TEXT_DIFF_TMP_PREFIX));
+  try {
+    const missing = new Uint8Array(0);
+    writeFileSync(join(tmp, "theirs"), before ?? missing);
+    writeFileSync(join(tmp, "mine"), after ?? missing);
+    const output = await runGit(
+      tmp,
+      [...TEXT_DIFF_ARGS, "theirs", "mine"],
+      undefined,
+      {
+        GIT_ATTR_NOSYSTEM: "1",
+        GIT_CEILING_DIRECTORIES: dirname(tmp),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        // Git lets this one win over `--unified`.
+        GIT_DIFF_OPTS: "",
+      },
+    );
+    return output === undefined ||
+      output.code < 0 ||
+      output.code > MAX_DIFF_EXIT
+      ? undefined
+      : decodeText(output.stdout);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

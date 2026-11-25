@@ -82,8 +82,12 @@ export function pullImportCommand(
 }
 
 /** A child's `export --diff`, narrowed to the pulled or picked paths. Setup's
- * guard runs the same diff over every path. */
-export function diffCommand(only: readonly string[]): RunCommand {
+ * guard runs the same diff over every path. `conflicts` asks for the conflict
+ * blocks too, in the result's `diff`. */
+export function diffCommand(
+  only: readonly string[],
+  conflicts = false,
+): RunCommand {
   return {
     kind: "run",
     command: "export",
@@ -93,6 +97,7 @@ export function diffCommand(only: readonly string[]): RunCommand {
     resetValues: false,
     yes: false,
     diff: true,
+    ...(conflicts ? { conflicts: true } : {}),
     only,
   };
 }

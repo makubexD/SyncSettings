@@ -38,6 +38,8 @@ export interface RunCommand {
   readonly yes: boolean;
   /** `export --diff`: label what changed on each side, writing nothing. */
   readonly diff?: boolean;
+  /** With `diff`: carry the conflict blocks; set by the program, no flag sets it. */
+  readonly conflicts?: boolean;
   /** Repo paths a push leaves alone; set by the program, no flag sets it. */
   readonly skip?: readonly string[];
   readonly only: readonly string[];

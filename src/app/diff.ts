@@ -3,15 +3,18 @@ import {
   readCommitStamp,
   readSyncPoint,
   readTreeAt,
+  textDiff,
 } from "../adapters/git.ts";
 import type { EntryType, MergeType, Os } from "../core/config/types.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { Layer, SelectedEntry } from "../core/layers/select.ts";
 import { onlyRemoves } from "../core/json/removal.ts";
 import { parseJsonBytes } from "../core/merge/json.ts";
+import { conflictBlock } from "../core/plan/conflict.ts";
 import { diffText, labelDiff, ownedPaths } from "../core/plan/diff.ts";
 import type {
   DiffHeader,
+  DiffLine,
   LastSync,
   OwnedPaths,
   RepoRef,
@@ -38,6 +41,9 @@ const ORIGIN_MASTER = "refs/remotes/origin/master";
 const ORIGIN_MASTER_NAME = "origin/master";
 
 const HEAD = "HEAD";
+
+/** Where the files the repo tracks for the entries are. */
+const DOTFILES_PREFIX = "dotfiles/";
 
 const NO_COMMIT = "ERROR: --diff needs a git repo with a commit.";
 
@@ -232,6 +238,51 @@ function headerOf(
   };
 }
 
+/** What the conflict blocks are read from. */
+export interface ConflictInput {
+  readonly labels: readonly DiffLine[];
+  readonly owned: OwnedPaths;
+  readonly theirs: RepoFiles;
+  readonly mine: RepoFiles;
+  /** The paths of layers kept in local state, never printed. */
+  readonly privatePaths: ReadonlySet<string>;
+}
+
+/**
+ * Contract "Conflict block": the blocks of the `BOTH` labels, in label order,
+ * one per `dotfiles/` file of the label where the two sides differ. A file git
+ * can't diff keeps its header lines, so the refusal it explains still prints.
+ */
+export async function conflictLines(
+  input: ConflictInput,
+): Promise<readonly string[]> {
+  const { owned, theirs, mine } = input;
+  const all = [...new Set([...theirs.keys(), ...mine.keys()])]
+    .filter(
+      (path) =>
+        path.startsWith(DOTFILES_PREFIX) &&
+        !input.privatePaths.has(path) &&
+        owned.owns(path) &&
+        !sameFile(theirs.get(path), mine.get(path)),
+    )
+    .sort();
+  const paths = input.labels
+    .filter(({ label }) => label === "BOTH")
+    .flatMap(({ path: label }) =>
+      all.filter((path) => owned.labelOf(path) === label),
+    );
+  const lines: string[] = [];
+  // One git at a time: a conflict list is short, and its length is unbounded.
+  for (const path of paths) {
+    const before = theirs.get(path);
+    const after = mine.get(path);
+    const diff = await textDiff(before, after);
+    const sides = { theirs: before !== undefined, mine: after !== undefined };
+    lines.push(...conflictBlock(path, sides, diff ?? ""));
+  }
+  return lines;
+}
+
 /**
  * Contract "Diff", **Program.**: `mksync export --diff` reads `base` (the sync
  * point's tree, or `theirs` without one) and `theirs` (`origin/master` when the
@@ -239,11 +290,14 @@ function headerOf(
  * repo side, and applies its writes to a copy of `base` for `mine`. Prints the
  * labels and the header, exits 0 when nothing differs and 3 when something
  * does. It writes nothing: no repo file, no sync point, no `.user-values.json`.
+ * The result's `diff` carries the labels, and the conflict blocks when
+ * `conflicts` asks for them; the text is the same either way.
  */
 export async function diffExport(
   repoRoot: string,
   stateFolder: string,
   snapshot: Snapshot,
+  conflicts = false,
 ): Promise<Result> {
   const [headStamp, syncPoint, hasOrigin] = await Promise.all([
     readCommitStamp(repoRoot, HEAD),
@@ -369,9 +423,26 @@ export async function diffExport(
     headerOf(repoRef, repoStamp.short, lastSync),
     snapshot.only.length > 0,
   );
+  const privatePaths = new Set(
+    selected.value.flatMap(({ slots }) =>
+      slots.filter(isPrivate).map(({ repoPath }) => repoPath),
+    ),
+  );
   return {
     code: text.exit,
     stdout: `${title(snapshot.os)}${writeLines(text.lines)}`,
     stderr: "",
+    diff: {
+      labels,
+      conflictLines: conflicts
+        ? await conflictLines({
+            labels,
+            owned,
+            theirs: theirsTree,
+            mine,
+            privatePaths,
+          })
+        : [],
+    },
   };
 }

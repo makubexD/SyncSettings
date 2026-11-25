@@ -468,7 +468,12 @@ async function execute(
           process.env,
           layers.value,
         );
-        return diffExport(repoRoot, state, snapshot);
+        return diffExport(
+          repoRoot,
+          state,
+          snapshot,
+          command.conflicts === true,
+        );
       }
       return command.command === "export"
         ? runExport(environment, command)
