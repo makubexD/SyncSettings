@@ -59,6 +59,7 @@ function narrowOwned(owned: OwnedPaths, only: readonly string[]): OwnedPaths {
     exact: owned.exact,
     prefixes: owned.prefixes,
     owns: (path) => owned.owns(path) && onlySelected(path, only),
+    labelOf: owned.labelOf,
   };
 }
 

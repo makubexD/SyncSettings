@@ -5,6 +5,7 @@ import type {
   DiffLabel,
   DiffLine,
   OwnedEntry,
+  OwnedPaths,
 } from "./diff.ts";
 import type { RepoFiles } from "./types.ts";
 
@@ -19,6 +20,10 @@ const LOWER = "dotfiles/common/lower.conf";
 const DCONF_FILE = "dotfiles/linux/gnome/dconf/interface.ini";
 
 const FOLDER = "dotfiles/linux/gnome/bookmarks";
+
+const LAYER_BASE = "dotfiles/common/settings.json";
+
+const LAYER_OS = "dotfiles/linux/settings.json";
 
 const V1 = "v1";
 
@@ -48,6 +53,11 @@ const NO_SYNC_HEADER: DiffHeader = {
 
 /** Every path under `dotfiles/` is owned, so a case tests only the table. */
 const ALL_OWNED = ownedPaths([{ repoPath: "dotfiles", type: "dir" }]);
+
+/** One layered entry: its base and OS files fold into the OS label. */
+const LAYERED: OwnedPaths = ownedPaths([
+  { repoPath: LAYER_OS, layerPaths: [LAYER_BASE, LAYER_OS] },
+]);
 
 function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -184,6 +194,65 @@ const MISSING_CASES: readonly MissingCase[] = [
   },
 ];
 
+const LAYER_CASES: readonly TableCase[] = [
+  {
+    name: "should label OUT at the entry's label when only the base layer changed",
+    base: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    theirs: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    mine: tree({ [LAYER_BASE]: V2, [LAYER_OS]: V1 }),
+    hasSyncPoint: true,
+    expected: [{ label: "OUT", path: LAYER_OS }],
+  },
+  {
+    name: "should label IN at the entry's label when only the repo's base layer changed",
+    base: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    theirs: tree({ [LAYER_BASE]: V2, [LAYER_OS]: V1 }),
+    mine: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    hasSyncPoint: true,
+    expected: [{ label: "IN", path: LAYER_OS }],
+  },
+  {
+    name: "should fold a base OUT and an OS IN into BOTH",
+    base: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    theirs: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V2 }),
+    mine: tree({ [LAYER_BASE]: V2, [LAYER_OS]: V1 }),
+    hasSyncPoint: true,
+    expected: [{ label: "BOTH", path: LAYER_OS }],
+  },
+  {
+    name: "should keep BOTH when one layer is BOTH",
+    base: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    theirs: tree({ [LAYER_BASE]: V2, [LAYER_OS]: V1 }),
+    mine: tree({ [LAYER_BASE]: V3, [LAYER_OS]: V1 }),
+    hasSyncPoint: true,
+    expected: [{ label: "BOTH", path: LAYER_OS }],
+  },
+  {
+    name: "should print exactly one OUT when every layer is OUT",
+    base: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    theirs: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    mine: tree({ [LAYER_BASE]: V2, [LAYER_OS]: V2 }),
+    hasSyncPoint: true,
+    expected: [{ label: "OUT", path: LAYER_OS }],
+  },
+  {
+    name: "should print nothing when no layer changed",
+    base: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    theirs: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    mine: tree({ [LAYER_BASE]: V1, [LAYER_OS]: V1 }),
+    hasSyncPoint: true,
+    expected: [],
+  },
+  {
+    name: "should label ? when there is no sync point and a layer differs",
+    base: tree({}),
+    theirs: tree({ [LAYER_BASE]: V2, [LAYER_OS]: V1 }),
+    mine: tree({ [LAYER_BASE]: V3, [LAYER_OS]: V1 }),
+    hasSyncPoint: false,
+    expected: [{ label: "?", path: LAYER_OS }],
+  },
+];
+
 describe("ownedPaths", () => {
   test("should own a file entry's path and its linked prefix", () => {
     // Arrange
@@ -216,6 +285,25 @@ describe("ownedPaths", () => {
     expect(owns(entry, `${FOLDER}/nested/file`)).toBe(true);
     expect(owns(entry, FOLDER)).toBe(false);
     expect(owns(entry, `${FOLDER}.bak`)).toBe(false);
+  });
+
+  test("should own each layer path exactly and label it as the entry's path", () => {
+    // Arrange
+    const entry: OwnedEntry = {
+      repoPath: LAYER_OS,
+      layerPaths: [LAYER_BASE, LAYER_OS],
+    };
+
+    // Act
+    const owned = ownedPaths([entry]);
+
+    // Assert
+    expect(owned.owns(LAYER_BASE)).toBe(true);
+    expect(owned.owns(LAYER_OS)).toBe(true);
+    expect(owned.owns(`${LAYER_BASE}.linked/file`)).toBe(false);
+    expect(owned.labelOf(LAYER_BASE)).toBe(LAYER_OS);
+    expect(owned.labelOf(LAYER_OS)).toBe(LAYER_OS);
+    expect(owned.labelOf(BASHRC)).toBe(BASHRC);
   });
 
   test("should own the paths of every entry in the list", () => {
@@ -267,6 +355,67 @@ describe("labelDiff", () => {
       expect(result).toEqual(row.expected);
     });
   }
+
+  for (const row of LAYER_CASES) {
+    test(row.name, () => {
+      // Act
+      const result = labelDiff({
+        owned: LAYERED,
+        base: row.base,
+        theirs: row.theirs,
+        mine: row.mine,
+        hasSyncPoint: row.hasSyncPoint,
+      });
+
+      // Assert
+      expect(result).toEqual(row.expected);
+    });
+  }
+
+  test("should label an entry without layer paths as before", () => {
+    // Arrange
+    const base = tree({ [BASHRC]: V1 });
+    const mine = tree({ [BASHRC]: V2 });
+
+    // Act
+    const result = labelDiff({
+      owned: ownedPaths([{ repoPath: BASHRC }]),
+      base,
+      theirs: base,
+      mine,
+      hasSyncPoint: true,
+    });
+
+    // Assert
+    expect(result).toEqual([{ label: "OUT", path: BASHRC }]);
+  });
+
+  test("should sort the folded labels by code unit", () => {
+    // Arrange
+    const lowerLayer = `${LOWER}.base`;
+    const upperLayer = `${UPPER}.base`;
+    const owned = ownedPaths([
+      { repoPath: LOWER, layerPaths: [lowerLayer] },
+      { repoPath: UPPER, layerPaths: [upperLayer] },
+    ]);
+    const base = tree({ [lowerLayer]: V1, [upperLayer]: V1 });
+    const mine = tree({ [lowerLayer]: V2, [upperLayer]: V2 });
+
+    // Act
+    const result = labelDiff({
+      owned,
+      base,
+      theirs: base,
+      mine,
+      hasSyncPoint: true,
+    });
+
+    // Assert
+    expect(result).toEqual([
+      { label: "OUT", path: UPPER },
+      { label: "OUT", path: LOWER },
+    ]);
+  });
 
   test("should sort the labels by code unit of the path", () => {
     // Arrange

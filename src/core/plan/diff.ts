@@ -26,17 +26,20 @@ const HINTS: Readonly<Record<DiffLabel, string | undefined>> = {
   "?": undefined,
 };
 
-/** A config entry's repo path and type, the two fields the owned set reads.
- * A v1 entry fits as it is; a v2 entry's layer slots are passed one each. */
+/** A config entry's repo path, type, and the files of its layers. A v1 entry
+ * fits as it is; a v2 entry's layer slots are passed one each. */
 export interface OwnedEntry {
   readonly repoPath: string;
   readonly type?: EntryType;
+  /** The entry's layer files, each folded into the line at `repoPath`. */
+  readonly layerPaths?: readonly string[];
 }
 
 /**
  * The owned set: the repo paths this OS's entries own. A file or dconf entry
  * owns its `repoPath` exactly; a file entry also owns its `<repoPath>.linked/`
- * prefix, and a dir entry owns its `<repoPath>/` prefix.
+ * prefix, and a dir entry owns its `<repoPath>/` prefix. Each `layerPath` is
+ * owned exactly and labels as its entry's `repoPath`.
  */
 export interface OwnedPaths {
   /** Paths an entry owns exactly. */
@@ -45,6 +48,9 @@ export interface OwnedPaths {
   readonly prefixes: readonly string[];
   /** Whether an entry owns `path`, exactly or under one of its prefixes. */
   owns(path: string): boolean;
+  /** The `repoPath` of the entry whose `layerPaths` include `path`, else
+   * `path` itself. */
+  labelOf(path: string): string;
 }
 
 function isOwned(owned: OwnedPaths, path: string): boolean {
@@ -58,21 +64,29 @@ function isOwned(owned: OwnedPaths, path: string): boolean {
 export function ownedPaths(entries: readonly OwnedEntry[]): OwnedPaths {
   const exact = new Set<string>();
   const prefixes: string[] = [];
+  const labels = new Map<string, string>();
   for (const entry of entries) {
     const type = entry.type ?? "file";
-    if (type === "dir") {
+    if (type !== "dir") {
+      exact.add(entry.repoPath);
+      if (type === "file") {
+        prefixes.push(`${entry.repoPath}${LINKED_SUFFIX}`);
+      }
+    } else {
       prefixes.push(`${entry.repoPath}/`);
-      continue;
     }
-    exact.add(entry.repoPath);
-    if (type === "file") {
-      prefixes.push(`${entry.repoPath}${LINKED_SUFFIX}`);
+    for (const layerPath of entry.layerPaths ?? []) {
+      exact.add(layerPath);
+      if (!labels.has(layerPath)) {
+        labels.set(layerPath, entry.repoPath);
+      }
     }
   }
   const owned: OwnedPaths = {
     exact,
     prefixes,
     owns: (path) => isOwned(owned, path),
+    labelOf: (path) => labels.get(path) ?? path,
   };
   return owned;
 }
@@ -181,10 +195,30 @@ function labelFor(
   return sameVersion(mine, theirs, path) ? undefined : "BOTH";
 }
 
+/** Contract "Diff": the one label an entry's verdicts fold into. */
+function foldLabels(labels: readonly DiffLabel[]): DiffLabel {
+  if (labels.includes("BOTH")) {
+    return "BOTH";
+  }
+  const hasIn = labels.includes("IN");
+  const hasOut = labels.includes("OUT");
+  if (hasIn && hasOut) {
+    return "BOTH";
+  }
+  if (hasOut) {
+    return "OUT";
+  }
+  if (hasIn) {
+    return "IN";
+  }
+  return "?";
+}
+
 /**
- * Contract "Diff": one label per owned path in the union of the three trees,
- * sorted by code unit. Without a sync point `theirs` stands in for `base`, and
- * a machine file that differs from the repo reads `?`.
+ * Contract "Diff": one line per owned label, sorted by code unit. Each owned
+ * path gets the table's verdict, then the paths that label as the same entry
+ * fold into one verdict at that label. Without a sync point `theirs` stands in
+ * for `base`, and a machine file that differs from the repo reads `?`.
  */
 export function labelDiff(input: DiffInput): readonly DiffLine[] {
   const paths = new Set<string>();
@@ -195,8 +229,8 @@ export function labelDiff(input: DiffInput): readonly DiffLine[] {
       }
     }
   }
-  const lines: DiffLine[] = [];
-  for (const path of [...paths].sort(byCodeUnit)) {
+  const verdicts = new Map<string, DiffLabel[]>();
+  for (const path of paths) {
     const label = labelFor(
       path,
       input.base,
@@ -204,9 +238,22 @@ export function labelDiff(input: DiffInput): readonly DiffLine[] {
       input.mine,
       input.hasSyncPoint,
     );
-    if (label !== undefined) {
-      lines.push({ label, path });
+    if (label === undefined) {
+      continue;
     }
+    const group = input.owned.labelOf(path);
+    const folded = verdicts.get(group);
+    if (folded === undefined) {
+      verdicts.set(group, [label]);
+    } else {
+      folded.push(label);
+    }
+  }
+  const lines: DiffLine[] = [];
+  for (const [path, labels] of [...verdicts].sort(([a], [b]) =>
+    byCodeUnit(a, b),
+  )) {
+    lines.push({ label: foldLabels(labels), path });
   }
   return lines;
 }
