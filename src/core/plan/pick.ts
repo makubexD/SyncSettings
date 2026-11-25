@@ -170,6 +170,51 @@ export function entrySelected(
   );
 }
 
+/**
+ * Whether an export leaves `repoPath` alone: the path itself, or a file under
+ * its `<path>.linked/` tree. A skipped folder's own children (`<path>/…`) are
+ * not skipped; a `dir` entry checks its files one by one.
+ */
+export function pathSkipped(
+  repoPath: string,
+  skip: readonly string[] | undefined,
+): boolean {
+  if (skip === undefined || skip.length === 0) {
+    return false;
+  }
+  return skip.some(
+    (skipped) =>
+      repoPath === skipped || repoPath.startsWith(`${skipped}.linked/`),
+  );
+}
+
+/**
+ * Whether an export leaves a selected entry alone as a whole. A `dir` entry is
+ * never skipped as a whole; its files are checked individually. Every other
+ * entry is skipped when its primary repo path, any layer slot's path, or the
+ * label the diff prints is skipped: the label can name a file an older tree
+ * held.
+ */
+export function entrySkipped(
+  selected: SelectedEntry,
+  skip: readonly string[] | undefined,
+): boolean {
+  if (skip === undefined || skip.length === 0) {
+    return false;
+  }
+  if (selected.entry.merge === "dir") {
+    return false;
+  }
+  if (pathSkipped(primaryRepoPath(selected), skip)) {
+    return true;
+  }
+  if (selected.slots.some((slot) => pathSkipped(slot.repoPath, skip))) {
+    return true;
+  }
+  const label = printedLabel(selected);
+  return label !== undefined && pathSkipped(label, skip);
+}
+
 export function errorPlan(message: string, code: number): RunPlan {
   return {
     steps: [],

@@ -31,6 +31,9 @@ the profile or modules are in the design's "Open" list, for after the release.
 **Hotfix `v1.1.2` — Done** (`docs/plan-diff-layers.md`, 2026-11-25): `mksync diff`, and so the pull guard, keep and the status
 line, see every layer of a JSON file. The work machines wait for it.
 
+**Safe push, in `v1.1.2` — Done** (`docs/plan-safe-push.md`, 2026-11-25): push leaves the repo's newer files alone, pull and
+push show both sides of a conflict, and their questions default to No. The release waits for the user's OK.
+
 ## Phase 2: a friendlier setup
 
 Plan: `docs/plan-setup-wizard-2.md`, written when phase 1 is done. Release `v1.2.0`.

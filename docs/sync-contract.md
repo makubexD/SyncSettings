@@ -630,8 +630,11 @@ writes nothing either, because the machine agrees with only part of the repo.
 the old files, and with the sync commit as the base they would read as `IN` and a pull would undo the push. A run
 that failed before that (commit, push or PR) writes nothing. A PR that `gh` fails to open leaves the pushed branch and exits 1 with
 `ERROR: PR creation failed; branch <branch> is pushed. Run: gh pr create --base master --head <branch>`. A partial commit (`mksync commit --partial`, which
-`mksync push` uses when it is given paths) writes nothing either, for the same reason as a partial import: part of
-the repo only was sent.
+`mksync push` uses when it is given paths, when it left an `IN` file alone, or when `--force` passed a failed diff)
+writes nothing either, for the same reason as a partial import: the machine agrees with only part of the repo. After a
+push that left an `IN` file, a recorded point would make that file read as `OUT`, and the next push would undo the
+repo's change. A commit that fast-forwarded the clone first writes nothing either: no diff compared the commits it
+brought with this machine.
 
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
@@ -655,8 +658,9 @@ applied here (a profile just chosen): it gives nothing, and a pull applies it. T
 only remove from the layer file, or when the local file is exactly what git's layers alone build.
 
 Only paths this OS's entries own are compared: a `json` entry owns the file of each of its
-[layers](#layers) (base, OS, profile and machine), any other file or dconf entry owns its label, and a dir entry owns
-the `<label>/` prefix. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
+[layers](#layers) (base, OS, profile and machine), an `import` entry its base and OS layer files, any other file or
+dconf entry the layer file it reads in `base` and the one it reads in `theirs`, and a dir entry the `<label>/` prefix of
+both. Every file of one entry folds into one line at its label, except a dir entry's. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
 as a version, and each owned path in the union of the three trees gets at most one verdict:
 
 | `mine` vs `base`                 | `theirs` vs `base`         | Label                                             |
@@ -717,6 +721,29 @@ one of them); a tree git can't read stops it with
 `--diff` cannot be combined with `--preview` or `--yes` (error, exit 1). The diff writes no repo
 file, no sync point and no `.user-values.json`.
 
+### Conflict block
+
+When a `BOTH` file stops `mksync pull` or `mksync push`, they show the lines of both sides. `mksync diff` itself prints
+no block. One block per `BOTH` file, in the order of the label lines, after the last of them:
+
+```text
+  --- repo           dotfiles/common/parity/b.conf
+  +++ this machine   dotfiles/common/parity/b.conf
+  @@ -1 +1 @@
+  -repo line
+  +machine line
+```
+
+- The body is git's unified diff from `theirs` to `mine`, with git's own header dropped and two spaces in front of each
+  line. Both sides are the sanitized repo form. The user's git diff settings (external diff, color) don't apply.
+- A control or text-direction character (tab excepted), in a line or a path, prints as `\u` and its four-digit hex
+  code. A body line over 200 characters is cut there, ending in `…`.
+- Over 40 body lines: the first 40, then `  … <n> more line(s)`.
+- A binary file's body is `  binary files differ`.
+- A side that doesn't have the file has ` (missing)` at the end of its header line.
+- A `json` entry gets one block per `dotfiles/` layer file where `theirs` and `mine` differ. A private layer is never
+  printed, and a file of any other merge type that has one gets no block: its local content is the private layer's.
+
 ## Front door
 
 `mksync` on `PATH` is [the program](#the-program), which the installers download ([Install](#install)):
@@ -725,24 +752,26 @@ empty answer or end of input as yes, every `[y/N]` prompt as no, except `mksync 
 no ([`mksync setup`](#mksync-setup)). Commands, wording and exit codes are the same on every
 system, except where this section says otherwise.
 
-| Command                                  | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Exit                                                            |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `mksync`, `mksync status`                | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master`                                                                                                                                                                        | 0                                                               |
-| `mksync doctor`                          | One `OK`, `WARN` or `MISSING` line per check, below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 0, or 1 with a `MISSING` line                                   |
-| `mksync pull [--yes] [--force] [path…]`  | Refuses with exported changes not sent. Fetches, fast-forwards, then the import check. Nothing to change: a pull without paths still runs the import to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [Y/n]` and runs `mksync import --force`. Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point                                                                                                                                                              | 0, or 1 on an error                                             |
-| `mksync push [--yes] [-m <msg>] [path…]` | First runs `git fetch -q origin master`: any commit in `HEAD..origin/master` stops it with `ERROR: origin has updates; run mksync pull first.`, nothing exported (a failed fetch skips this check). Then runs the export. Picked paths go to it as `--only`, and any path makes `mksync commit` run with `--partial`, so a partial push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short` (over `dotfiles`, `packages`, `sync-config.json`, `profiles` and `machines`), asks `Open a PR with these changes? [Y/n]`, then runs `mksync commit`                                                                                                                      | 0, or the failing step's code                                   |
-| `mksync diff [path…]`                    | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `mksync export --diff` ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing                                                                                                                                                                                                                                                                                                                                                                       | 0 when nothing differs, 3 when something does, or 1 on an error |
-| `mksync check`, `mksync preview`         | The [import check](#import-check) and the [export preview](#export-preview); neither writes anything                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 0, 3 from a check that found changes, or 1 on an error          |
-| `mksync setup [--yes] [--bootstrap] …`   | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the scan, the profiles, the machine record's questions with the import check's and diff's summary above question 4, and on Ubuntu with an executable `bootstrap/linux.sh` `Also restore apps and packages … [y/N]` (`--bootstrap` chooses it). Then the summary, the guard block and `Write the record and apply?` ([`mksync setup`](#mksync-setup)); only a yes writes anything. The bootstrap runs question 4's choice as its import step; without it, setup acts on question 4. macOS and Windows never ask, and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor | 0, or 1 on an error                                             |
-| `mksync update`                          | Replaces the installed program with a newer release, checked as the installers check ([Update](#update))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 0, 1 on a failed download or check, 2 run from the clone        |
-| `mksync machine …`, `mksync profile …`   | The machine record and retiring a machine or profile ([Machines](#machines))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | as there                                                        |
+| Command                                            | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Exit                                                            |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `mksync`, `mksync status`                          | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master`                                                                                                                                                                                                                                                     | 0                                                               |
+| `mksync doctor`                                    | One `OK`, `WARN` or `MISSING` line per check, below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 0, or 1 with a `MISSING` line                                   |
+| `mksync pull [--yes] [--force] [path…]`            | Refuses with exported changes not sent. Fetches, fast-forwards, then the import check. Nothing to change: a pull without paths still runs the import to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [y/N]` and runs `mksync import --force`. Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point                                                                                                                                                                                                                                           | 0, or 1 on an error                                             |
+| `mksync push [--yes] [--force] [-m <msg>] [path…]` | First runs `git fetch -q origin master`: any commit in `HEAD..origin/master` stops it with `ERROR: origin has updates; run mksync pull first.`, nothing exported (a failed fetch skips this check). Then the diff guards it: an `IN` file is left alone, a `BOTH` file stops it unless `--force`. Then runs the export without the `IN` files. Picked paths go to the diff and the export as `--only`. Any path, an `IN` file left alone, or a failed diff passed with `--force` makes `mksync commit` run with `--partial`, so that push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short` (over `dotfiles`, `packages`, `sync-config.json`, `profiles` and `machines`), asks `Open a PR with these changes? [y/N]`, then runs `mksync commit` | 0, or the failing step's code                                   |
+| `mksync diff [path…]`                              | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `mksync export --diff` ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 0 when nothing differs, 3 when something does, or 1 on an error |
+| `mksync check`, `mksync preview`                   | The [import check](#import-check) and the [export preview](#export-preview); neither writes anything                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 0, 3 from a check that found changes, or 1 on an error          |
+| `mksync setup [--yes] [--bootstrap] …`             | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the scan, the profiles, the machine record's questions with the import check's and diff's summary above question 4, and on Ubuntu with an executable `bootstrap/linux.sh` `Also restore apps and packages … [y/N]` (`--bootstrap` chooses it). Then the summary, the guard block and `Write the record and apply?` ([`mksync setup`](#mksync-setup)); only a yes writes anything. The bootstrap runs question 4's choice as its import step; without it, setup acts on question 4. macOS and Windows never ask, and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor                                                                              | 0, or 1 on an error                                             |
+| `mksync update`                                    | Replaces the installed program with a newer release, checked as the installers check ([Update](#update))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 0, 1 on a failed download or check, 2 run from the clone        |
+| `mksync machine …`, `mksync profile …`             | The machine record and retiring a machine or profile ([Machines](#machines))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | as there                                                        |
 
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
-sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then `ERROR: <n> file(s) changed on this machine
+sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then a
+[conflict block](#conflict-block) per `BOTH` file, then `ERROR: <n> file(s) changed on this machine
 since the last sync, and a pull would overwrite them.` and `Run mksync push first, or mksync pull --force to overwrite
 them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block.
 A diff that fails (exit 1) stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
-or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it.
+or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it. The clone
+fast-forwards before the question, so a declined pull leaves the clone updated and this machine as it was.
 
 Without a sync point every label would be `?`, so the diff doesn't run and the first pull is guarded instead: with
 `--yes` it stops with `ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these
@@ -754,9 +783,66 @@ its confirm: with `--existing backup`, a sync point and an `OUT` or `BOTH` file 
 `[y/N]`, and `--yes` stops with exit 1 ([`mksync setup`](#mksync-setup)). The bootstrap it runs imports as setup's fourth
 answer says (`MKSYNC_SETUP_EXISTING`), so only that answer changes files.
 
+`mksync push` protects the repo's newer files the same way. With a sync point it runs the diff after the origin check
+and before the export; a failed fetch leaves it comparing with the last one. Picked paths narrow it.
+
+- **`OUT`** files are sent.
+- **`IN`** files are left alone: the export skips them, writing, removing and counting nothing for them. Their lines
+  print, then a sentence, on stdout, and the push goes on:
+
+  ```text
+    IN         dotfiles/common/parity/b.conf
+    1 file(s) are newer in the repo and were left alone; run mksync pull to take them.
+  ```
+
+- **`BOTH`**: the `BOTH` lines and their [conflict blocks](#conflict-block) print on stdout, then the two lines below on
+  stderr, and the push stops with exit 1 before the export writes anything. `IN` files get no line in that run.
+
+  ```text
+    ERROR: 1 file(s) changed on both sides since the last sync.
+    Merge by hand, then run mksync push --force <path>; or mksync pull --force <path> takes the repo's version (keeps a .bak).
+  ```
+
+- **`--force`** sends the `BOTH` files too, as this machine has them, through the PR, with no `BOTH` line or block. It
+  still leaves `IN` files alone and still asks; `--yes` answers.
+- **A failed diff** (exit 1) stops the push with this line on stderr, exit 1. With picked paths the diff's own stdout
+  prints first, so a path that isn't synced is named. With `--force` the push goes on, exports every file and commits
+  with `--partial`.
+
+  ```text
+    ERROR: could not tell which side is newer; run mksync diff to see why, or mksync push --force.
+  ```
+
+- **No sync point**: the newer side is unknown, so the diff doesn't run and the push sends every file that differs, after
+  this line on stdout. `--yes` isn't refused: a PR is reviewed before it reaches anyone, unlike a pull.
+
+  ```text
+    WARNING: no sync is recorded on this machine, so this sends every file that differs.
+  ```
+
+The export skips the `IN` files instead of picking the `OUT` ones, so any other file an earlier export left stale in the
+repo folder is rewritten, and a [linked folder](#linked-folders)'s files, which `--only` refuses, are still sent.
+
+The commit stages every push path, so a stale `IN` file would still be sent. A push that would leave an `IN` file alone,
+while `dotfiles/`, `profiles/` or `machines/` has changes not committed, stops before the export with this line on
+stderr after the `IN` lines, exit 1, `--force` included:
+
+```text
+  ERROR: the repo folder has changes not sent yet, and they can hold older versions of these files; run git stash -u, then push again.
+```
+
+A declined PR question leaves no trace when the push paths had no changes before the export: the tracked files the
+export changed are restored and the untracked files it added are removed, and no other file is touched. Moves made in
+that run are lost with them. It prints `  Nothing sent; the repo folder is as it was.`, exit 0. If the push paths had
+changes before the export, or the export also changed the record, a profile or a layer in local state (the first
+backup, a move or an answer kept there), every file stays and the `Kept in the repo.` line prints, exit 0: what moved
+out of local state is only in the repo folder. A
+restore that fails, or that leaves a change behind (`ERROR: the repo folder still has changes.`), prints the error and the `Kept in the repo.` line, exit 1.
+
 `pull` and `push` need the clone on `master` with an `origin` remote. The status fetch has a 15-second timeout. The
 status's OS name is `PRETTY_NAME` from `/etc/os-release` (or the file `SYNC_OS_RELEASE` names) on Linux, the
-version `sw_vers -productVersion` prints on macOS, and `SYNC_OS_NAME` or the Windows caption on Windows. `--yes` answers the `[Y/n]` questions. It never answers the bootstrap
+version `sw_vers -productVersion` prints on macOS, and `SYNC_OS_NAME` or the Windows caption on Windows. `--yes` answers the `[Y/n]` questions, and pull's and push's
+`[y/N]` ones. It never answers the bootstrap
 question, because bootstrap uses `sudo`; `--bootstrap` does. Setup's `--yes` answers its confirm, except after a guard
 block. An unknown option (a remaining argument that starts with
 `-`) prints `Unknown option: <arg>` on stderr and exits 2, before any fetch or child step.
@@ -794,14 +880,17 @@ https://git-scm.com` without `winget`); on Linux the `drift` line of [Package dr
   `ERROR: push needs the repo clone on master with an origin remote.` and exits 1, with nothing exported. A push whose
   [up-to-date check](#up-to-date-check) pulled stops there, exit 0, after `Pulled <n> commit(s); run the command
 again.`, with no PR question.
-- **`push`** on a pull-only machine prints `this machine is pull-only (see mksync machine show)` and exits 1. Otherwise
-  it runs the export with its grouped block and questions ([Push preview](#push-preview)), then
-  [Move a change](#move-a-change), the profile-value rule and the guard, then `Open a PR with these
-changes? [Y/n]` and `mksync commit`.
+- **`push`** on a pull-only machine prints `this machine is pull-only (see mksync machine show)` and exits 1, before the
+  diff guard. Otherwise it runs the export with its grouped block and questions ([Push preview](#push-preview)), then
+  [Move a change](#move-a-change), the profile-value rule and the guard, then `Open a PR with these changes? [y/N]`
+  and `mksync commit`.
 - **`pull`** and **`push`** share these lines: `ERROR: <command> needs the repo clone on master with an
 origin remote.`, `ERROR: the repo has changes not sent yet; run mksync push first, or git restore them.`,
-  `Nothing applied.` after a declined apply, `Nothing to send: the repo matches this machine.`, and `Kept in the repo.
-Run mksync push again, or git restore dotfiles to drop them.` after a declined PR question.
+  `Nothing applied.` after a declined apply, `Nothing to send: the repo matches this machine.` (`Nothing to send.` when
+  an `IN` file was left alone), and after a declined PR question `Nothing sent; the repo folder is as it was.`, or
+  `Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.` when the repo folder already had
+  changes or the export changed local state. Both questions, `Apply these changes? [y/N]` and `Open a PR with these changes? [y/N]`, take only an answer
+  starting with `y` or `Y` as yes.
 - **`diff`** stops on a clone with no commit with `ERROR: --diff needs a git repo with a commit.`, and on a tree git
   can't read with `ERROR: cannot read <ref> from git.`, exit 1.
 
@@ -975,7 +1064,7 @@ directly; they run but stay off the usage line
   decision 7). Run with no command, it prints this usage line on stderr and exits 2:
 
   ```text
-  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--bootstrap] [--yes] | mksync update | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
+  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [--force] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--bootstrap] [--yes] | mksync update | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
   ```
 
 - It reads the config as [Config](#config) says, `.user-values.json` next to it, and the state folder

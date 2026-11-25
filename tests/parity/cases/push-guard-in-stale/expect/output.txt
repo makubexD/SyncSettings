@@ -1,0 +1,6 @@
+UPDATE dotfiles/common/parity/a.conf
+OUT dotfiles/common/parity/a.conf
+MODIFIED dotfiles/common/parity/a.conf
+MODIFIED dotfiles/common/parity/b.conf
+IN dotfiles/common/parity/b.conf
+  ERROR: the repo folder has changes not sent yet, and they can hold older versions of these files; run git stash -u, then push again.

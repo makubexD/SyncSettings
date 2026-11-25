@@ -83,7 +83,7 @@ const NO_SYNC_ERROR =
   "  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).\n";
 
 /** The apply question, after the guard passed. */
-const APPLY_QUESTION = "  Apply these changes? [Y/n] ";
+const APPLY_QUESTION = "  Apply these changes? [y/N] ";
 
 /** What a declined question prints, exit 0. */
 const NOTHING_APPLIED = "  Nothing applied.\n";
@@ -206,14 +206,17 @@ export async function executePull(
     if (blocked.length > 0) {
       return {
         code: 1,
-        stdout: check.stdout + writeLines(blocked),
+        stdout:
+          check.stdout +
+          writeLines(blocked) +
+          writeLines(diff.diff?.conflictLines ?? []),
         stderr: check.stderr + overwriteError(blocked.length),
       };
     }
   }
 
   if (!input.yes) {
-    if (!(await askAfter(deps, check, APPLY_QUESTION, true))) {
+    if (!(await askAfter(deps, check, APPLY_QUESTION, false))) {
       return { code: 0, stdout: NOTHING_APPLIED, stderr: "" };
     }
     return append(NOTHING_LEFT, await deps.runImport(only));

@@ -7,6 +7,7 @@ import type { RunContext } from "../adapters/fs.ts";
 import { previewDiff, readOrigin, readTrackedPaths } from "../adapters/git.ts";
 import type { PreviewDiff } from "../adapters/git.ts";
 import { runLeakScan } from "../adapters/leakscan.ts";
+import type { DiffLine } from "../core/plan/diff.ts";
 import type { LeakScanResult } from "../adapters/leakscan.ts";
 import { previewWorkingTree } from "../adapters/snapshot.ts";
 import {
@@ -82,6 +83,13 @@ import type { MoveSession } from "./push.ts";
 import { buildRun, endRun, startRun } from "./run.ts";
 import type { RunEnvironment } from "./run.ts";
 
+/** What a diff found, so pull and push don't parse it from the text. */
+export interface DiffReport {
+  readonly labels: readonly DiffLine[];
+  /** The conflict block lines of the `BOTH` labels, when they were asked for. */
+  readonly conflictLines: readonly string[];
+}
+
 /** What the front prints and the code it exits with. */
 export interface Result {
   readonly code: number;
@@ -89,6 +97,10 @@ export interface Result {
   readonly stderr: string;
   /** The up-to-date pull ran and the caller must stop here. */
   readonly stopped?: boolean;
+  /** Set by a diff that ran to its end. */
+  readonly diff?: DiffReport;
+  /** The repo paths an export wrote or removed. */
+  readonly repoPaths?: readonly string[];
 }
 
 /** A failed command: `message` on stderr, exit `code`. */
@@ -849,6 +861,17 @@ function finishFirstBackup(
   };
 }
 
+/** The repo paths a plan's steps write or remove. */
+function touchedRepoPaths(plan: RunPlan): readonly string[] {
+  return plan.steps.flatMap(({ actions }) =>
+    actions.flatMap(({ action }) =>
+      action.kind === "writeRepo" || action.kind === "removeRepo"
+        ? [action.path]
+        : [],
+    ),
+  );
+}
+
 /**
  * Contract "The first backup": run the export's steps, store the item answers
  * in the profile, then read both sides again. The export has just written the
@@ -907,7 +930,12 @@ function applyExportPlan(
   const planned = withWrittenFiles(plan, written);
   const rendered = renderRun(planned, outcome);
   return {
-    result: { code, stdout: writeLines(rendered.lines), stderr },
+    result: {
+      code,
+      stdout: writeLines(rendered.lines),
+      stderr,
+      repoPaths: touchedRepoPaths(plan),
+    },
     prepared,
     backups: outcome.backups,
   };

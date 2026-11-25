@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   lstatSync,
   mkdirSync,
@@ -900,6 +901,45 @@ export function writeStoreProfile(
     join(location.profilesFolder, `${profile.name}${PROFILE_EXTENSION}`),
     profileText(profile),
   );
+}
+
+/**
+ * A fingerprint of the record, the profiles and the layers in the state
+ * folder: it changes when any of their files does. A file that can't be read
+ * counts by its error.
+ */
+export function layerStateStamp(stateFolder: string): string {
+  const hash = createHash("sha256");
+  const addFile = (path: string): void => {
+    hash.update(`${path}\0`);
+    try {
+      hash.update(readFileSync(path));
+    } catch (error) {
+      hash.update(String(error));
+    }
+    hash.update("\0");
+  };
+  const addFolder = (folder: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(folder, { withFileTypes: true });
+    } catch (error) {
+      hash.update(`${folder}\0${String(error)}\0`);
+      return;
+    }
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) {
+        addFolder(path);
+      } else {
+        addFile(path);
+      }
+    }
+  };
+  addFile(join(stateFolder, MACHINE_FILE));
+  addFolder(join(stateFolder, PROFILES_FOLDER));
+  addFolder(join(stateFolder, MACHINES_FOLDER));
+  return hash.digest("hex");
 }
 
 /** Write this machine's record to `<state>/machine.json`. */

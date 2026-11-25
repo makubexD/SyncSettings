@@ -1,5 +1,5 @@
 {
-  "description": "Push with a record and without --yes moves a base json key to the profile layer after the block, leaving the base repo file as the repo holds it and the profile layer file holding the key; git status lists the profile layer file and the PR question is answered n, exit 0 (Move a change (program only)).",
+  "description": "Push with a record and without --yes moves a base json key to the profile layer after the block; git status lists the profile layer file and the PR question is answered n, which puts the repo folder back, exit 0 (Move a change (program only)).",
   "os": [
     "linux"
   ],

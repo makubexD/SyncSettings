@@ -2,13 +2,17 @@ import { unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import {
+  changedFiles,
+  pathsClean,
   readAheadBehind,
   readSyncPoint,
   readUpstreamFacts,
+  restoreFiles,
   runGitResult,
   statusPorcelain,
 } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
+import { layerStateStamp } from "./adapters/store.ts";
 import { readAllStdin } from "./adapters/process.ts";
 import { readIdentity } from "./adapters/scan.ts";
 import {
@@ -62,6 +66,8 @@ import type {
 import { trimAnswer } from "./core/answer.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
+import type { MachineIdentity } from "./core/machine/check.ts";
+import type { MachineRecord } from "./core/machine/record.ts";
 import { machineScope } from "./core/machine/scope.ts";
 import { renderMachineShow } from "./core/machine/show.ts";
 import type { SetupIo } from "./wizard/setup.ts";
@@ -77,7 +83,11 @@ const GIT_ENV: Readonly<Record<string, string>> = {
 
 /** A push child's `export`: the picked paths, with `--yes` taking the new
  * settings' suggestions, as the design's "Push and pull" says. */
-function pushExportCommand(only: readonly string[], yes: boolean): RunCommand {
+function pushExportCommand(
+  only: readonly string[],
+  yes: boolean,
+  skip: readonly string[],
+): RunCommand {
   return {
     kind: "run",
     command: "export",
@@ -86,11 +96,12 @@ function pushExportCommand(only: readonly string[], yes: boolean): RunCommand {
     check: false,
     resetValues: false,
     yes,
+    skip,
     only,
   };
 }
 
-/** A push child's `commit`: `--partial` when the push had picked paths. */
+/** A push child's `commit`: `--partial` when the push left files out. */
 function pushCommitCommand(
   partial: boolean,
   message: string | undefined,
@@ -111,6 +122,20 @@ const PUSH_STATUS_PATHS = [
   "profiles",
   "machines",
 ] as const;
+
+/** The push paths whose files the diff guard can call `IN`. */
+const GUARDED_PATHS = ["dotfiles", "profiles", "machines"] as const;
+
+/** The record check that stops a push, before its diff guard. */
+function pushRefusal(
+  record: MachineRecord,
+  identity: MachineIdentity,
+): Result | undefined {
+  const check = checkRecord(record, identity, "push");
+  return check.stop
+    ? { code: 1, stdout: "", stderr: writeLines(check.lines) }
+    : undefined;
+}
 
 /** Contract "Front door": pull needs the clone on `master` with an origin. */
 async function cloneReady(repoRoot: string): Promise<boolean> {
@@ -308,7 +333,7 @@ async function execute(
           { yes: command.yes, force: command.force, paths: command.paths },
           {
             runCheck: (only) => execute(pullImportCommand(true, false, only)),
-            runDiff: (only) => execute(diffCommand(only)),
+            runDiff: (only) => execute(diffCommand(only, true)),
             runImport: (only) =>
               execute(pullImportCommand(false, true, only), { terminal }),
             unsent: async () => (await unsentCount(repoRoot)) ?? 0,
@@ -337,17 +362,38 @@ async function execute(
         return await executePush(
           {
             yes: command.yes,
+            force: command.force,
             paths: command.paths,
             ...(command.message === undefined
               ? {}
               : { message: command.message }),
           },
           {
-            runExport: (only, yes) =>
-              execute(pushExportCommand(only, yes), {
+            refusal: async () => {
+              const layers = loadLayers(state, repoRoot, config.value);
+              if (!layers.ok) {
+                return failure(layers.error.message, layers.error.code);
+              }
+              const record = layers.value.record;
+              return record === undefined
+                ? undefined
+                : pushRefusal(record, readIdentity(process.env, os.value));
+            },
+            hasSyncPoint: async () =>
+              (await readSyncPoint(repoRoot, state)) !== undefined,
+            runDiff: (only, conflicts) =>
+              execute(diffCommand(only, conflicts)),
+            runExport: (only, yes, skip) =>
+              execute(pushExportCommand(only, yes, skip), {
                 moves: true,
                 terminal,
               }),
+            stateStamp: () => layerStateStamp(state),
+            guardedClean: () => pathsClean(repoRoot, GUARDED_PATHS),
+            pathsClean: () => pathsClean(repoRoot, PUSH_STATUS_PATHS),
+            changedFiles: () => changedFiles(repoRoot, PUSH_STATUS_PATHS),
+            restoreFiles: (files) =>
+              restoreFiles(repoRoot, files, PUSH_STATUS_PATHS),
             statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
             ask: (question, defaultYes) =>
               askTerminalQuestion(terminal.io, question, defaultYes),
@@ -468,7 +514,12 @@ async function execute(
           process.env,
           layers.value,
         );
-        return diffExport(repoRoot, state, snapshot);
+        return diffExport(
+          repoRoot,
+          state,
+          snapshot,
+          command.conflicts === true,
+        );
       }
       return command.command === "export"
         ? runExport(environment, command)

@@ -36,9 +36,24 @@ tests/windows-vm/vm.sh snapshot           # after the first install, with the VM
 
 - The evaluation licence lasts 90 days from install. When it runs out, delete `storage/` and `snapshot/` and run
   `up` again.
-- The VM takes 6 GB of RAM (`SYNC_VM_RAM`) and every core (`SYNC_VM_CPUS`) while it runs, and about 46 GB of disk (disk plus snapshot).
+- The VM takes 4 GB of RAM (`SYNC_VM_RAM`) and 4 cores (`SYNC_VM_CPUS`) while it runs, and about 46 GB of disk (disk
+  plus snapshot).
 - Starting from the snapshot takes about 6 minutes; the first install about an hour, most of it the ISO download.
 - A job's output is what PowerShell wrote to stdout, then stderr. Use `vm.sh down` when done: nothing stops the VM
   by itself.
+
+## Run time of the shared cases
+
+`run.ps1` in this VM (4 cores, 4 GB, 4 shares), 148 passed and 0 failed in every run, 2026-11-25:
+
+| How each case gets `mksync.exe`                      | Time             |
+| ---------------------------------------------------- | ---------------- |
+| a copy per case (before)                             | 5m17, 5m32, 6m25 |
+| a copy per case, `mksync.exe` as an excluded process | 6m23             |
+| a hard link per case to the one `dist/mksync.exe`    | 1m44, 1m47, 1m55 |
+| a hard link per case to one copy per share (kept)    | 1m18, 1m19, 1m21 |
+
+The first run with a hard link took 6m05, and it is not in the table: that job didn't print which `run.ps1` the guest
+ran, and no later link run came close to it. The process exclusion didn't help and isn't set.
 
 Measured numbers and the licence date are in `docs/design-layers.md`, "Tests".

@@ -15,6 +15,14 @@ Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine wit
 - `mksync diff` exits 1 for a file it can't plan (invalid JSON, or a new setting on a machine with no record) instead of
   saying both sides agree, so `mksync pull` stops until it's fixed or `--force` is given.
 - One run's backups always go into one folder, even when the run crosses a second.
+- `mksync push` no longer sends the repo's newer files back to their old version: it leaves `IN` files alone and stops on
+  `BOTH`. `mksync push --force` sends `BOTH` files as this machine has them.
+- A `BOTH` file that stops a pull or push shows the lines of both sides.
+- Pull and push still ask, but Enter is now No (`[y/N]`); `--yes` still applies. A declined push puts the repo folder
+  back as it was.
+- `mksync diff` also sees the base file of an `import` entry with an OS layer, and a layer the repo gained.
+- A commit that has to bring the clone up to date first records no sync point.
+- New page: [Pull and push modes](docs/pull-push-modes.md).
 
 ## v1.1.1 (2026-11-23)
 

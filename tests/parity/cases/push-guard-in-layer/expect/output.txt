@@ -1,0 +1,6 @@
+UPDATE dotfiles/common/parity/a.conf
+OUT dotfiles/common/parity/a.conf
+IN dotfiles/common/parity/b.conf
+MODIFIED dotfiles/common/parity/a.conf
+OUT dotfiles/common/parity/a.conf
+IN dotfiles/common/parity/b.conf

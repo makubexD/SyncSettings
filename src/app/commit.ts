@@ -571,7 +571,9 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
     return done(1, gitErrorText(back, "switch"));
   }
 
-  if (!command.partial) {
+  // A fast-forward brought commits no diff compared with this machine, so the
+  // parent isn't what the machine agrees with.
+  if (!command.partial && counts.behind === 0) {
     const syncPoint = writeSyncPoint(
       {
         repoRoot,

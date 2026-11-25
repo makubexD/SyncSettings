@@ -1,0 +1,37 @@
+{
+  "description": "Pull --yes on a file changed on both sides fast-forwards, then stops with the BOTH line, the conflict block and the pull guard's ERROR pair, exit 1 and nothing written here (Front door, pull guard; Conflict block).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true
+      },
+      "stderr": true
+    }
+  ],
+  "syncPoint": true
+}

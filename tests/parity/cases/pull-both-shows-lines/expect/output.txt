@@ -1,0 +1,4 @@
+UPDATE dotfiles/common/parity/b.conf
+BOTH dotfiles/common/parity/b.conf
+  ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.
+  Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).

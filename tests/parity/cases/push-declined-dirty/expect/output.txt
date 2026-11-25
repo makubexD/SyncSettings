@@ -1,0 +1,2 @@
+MODIFIED dotfiles/common/parity/a.conf
+UNCHANGED dotfiles/common/parity/b.conf

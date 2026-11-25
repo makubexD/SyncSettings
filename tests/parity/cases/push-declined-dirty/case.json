@@ -1,0 +1,43 @@
+{
+  "description": "Declining a push whose paths were already dirty keeps the files and prints today's line, exit 0 (Front door, push).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "First parity case file"
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Second parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "n\n"
+    }
+  ]
+}

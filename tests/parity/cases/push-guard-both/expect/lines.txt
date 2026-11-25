@@ -1,0 +1,8 @@
+# 2
+BOTH dotfiles/common/parity/b.conf
+--- repo           dotfiles/common/parity/b.conf
++++ this machine   dotfiles/common/parity/b.conf
+@@ -1 +1 @@
+-repo line
++machine line
+! MODIFIED

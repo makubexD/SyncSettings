@@ -114,7 +114,8 @@ overwrite (keeping a `.bak`), and `EXTRA` a local file the repo doesn't have, wh
 
 The check can't tell which side is newer; `mksync diff` can. It marks each file `IN` (only the repo changed: pull
 takes it), `OUT` (only this machine changed: push sends it) or `BOTH` (merge by hand). `mksync pull` stops before it
-overwrites an `OUT` or `BOTH` file unless you add `--force`. Until this machine's first pull or push, the diff marks
+overwrites an `OUT` or `BOTH` file unless you add `--force`. `mksync push` leaves `IN` files alone and stops on `BOTH`.
+Both ask first, and Enter is No; [Pull and push modes](docs/pull-push-modes.md) has every case. Until this machine's first pull or push, the diff marks
 differing files `?`, because it has no sync to compare against.
 
 ## Run from a clone
@@ -183,6 +184,7 @@ Your name, email and paths are replaced with placeholders in the repo and filled
 ## Read next
 
 - [Daily workflow](docs/daily-workflow.md): push, review, merge, pull on the other machine, and troubleshooting
+- [Pull and push modes](docs/pull-push-modes.md): what happens to each file, `--yes`, `--force`, paths and conflicts
 - [Restore a machine](docs/restore.md): a new Ubuntu, Windows or Mac machine, and what's left to do by hand
 - [Configuration](docs/configuration.md): every `sync-config.json` field, placeholders and linked folders
 - [Repository layout](docs/layout.md): where a file goes under `dotfiles/`, and why

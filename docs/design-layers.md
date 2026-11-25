@@ -607,7 +607,7 @@ New settings
 Held until the repo is private: machines/wk1-laptop.json, profiles/work-1.json
 
 Move a change? Type its number, or press Enter to go on:
-Open a PR with these changes? [Y/n]
+Open a PR with these changes? [y/N]
 ```
 
 - A line is `<number> <M|+|-> <module> <file> <what>`: a changed key with old and new value, an added or removed item,
@@ -621,7 +621,7 @@ Open a PR with these changes? [Y/n]
 - **Pull-only** machines have no push: `mksync push` prints `this machine is pull-only (see mksync machine show)` and exits 1,
   and `mksync status` never suggests it.
 
-**Pull** stays today's command: the guard against unpushed local edits, `Apply these changes? [Y/n]`, `.bak` before
+**Pull** stays today's command: the guard against unpushed local edits, `Apply these changes? [y/N]`, `.bak` before
 each write, the sync point. Its list of changes uses the same groups, so the user sees that a change arrives from "all
 machines" or from "profile work-1".
 
@@ -1372,6 +1372,11 @@ Enterprise. Every section ran:
 
 ### Design
 
+- **A private layer that isn't `json` reads `BOTH` (safe-push review).** A `whole` file overridden by a profile or
+  machine layer reads `OUT`, or `BOTH` when the repo changes the shared file, because only `json` entries' private
+  layers join the diff (decided in the diff-layers plan). Pull and push then stop on it, and the printed
+  `--force <path>` fails with `is not synced on this machine`; `--force` without a path works. No entry has such a
+  layer in the repo today. Options: let every merge type's private layers join the diff, or accept the label as a path.
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
   new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
   plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").

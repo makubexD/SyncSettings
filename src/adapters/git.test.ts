@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,10 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  changedFiles,
   changedSyncPaths,
   commitExists,
   commitStaged,
   deleteBranch,
+  pathsClean,
   previewDiff,
   pushBranch,
   readAheadBehind,
@@ -26,11 +29,13 @@ import {
   readPorcelain,
   readSyncPoint,
   readUnpushedHistory,
+  restoreFiles,
   runGitResult,
   stagePaths,
   statusPorcelain,
   switchToMaster,
   switchToNewBranch,
+  textDiff,
 } from "./git.ts";
 
 /** A per-command identity: never written to any git config, local or global. */
@@ -1108,5 +1113,150 @@ describe("previewDiff", () => {
 
     // Assert
     expect(result).toBeUndefined();
+  });
+});
+
+/** The `mksync-conflict-*` temp folders left in the system tmpdir. */
+function conflictFolders(): readonly string[] {
+  return readdirSync(tmpdir()).filter((name) =>
+    name.startsWith("mksync-conflict-"),
+  );
+}
+
+describe("textDiff", () => {
+  test("should diff two versions and leave no temp folder", async () => {
+    const foldersBefore = conflictFolders();
+
+    const diff = await textDiff(encodeText("repo\n"), encodeText("machine\n"));
+
+    expect(diff).toEndWith("@@ -1 +1 @@\n-repo\n+machine\n");
+    expect(conflictFolders()).toEqual(foldersBefore);
+  });
+
+  test("should diff a missing side as an empty file", async () => {
+    expect(await textDiff(undefined, encodeText("a\n"))).toEndWith(
+      "@@ -0,0 +1 @@\n+a\n",
+    );
+    expect(await textDiff(encodeText("a\n"), undefined)).toEndWith(
+      "@@ -1 +0,0 @@\n-a\n",
+    );
+  });
+
+  test("should name binary files", async () => {
+    const diff = await textDiff(
+      new Uint8Array([0, 1]),
+      new Uint8Array([0, 2]),
+    );
+
+    expect(diff).toContain("Binary files ");
+  });
+
+  test("should ignore the user's git diff settings and keep CRLF apart", async () => {
+    const home = mkdtempSync(join(tmpdir(), "mksync-home-"));
+    const saved = { ...process.env };
+    try {
+      writeFileSync(
+        join(home, "gitconfig"),
+        "[core]\n\tautocrlf = true\n[color]\n\tui = always\n[diff]\n\tcontext = 0\n\texternal = false\n",
+      );
+      process.env.GIT_CONFIG_GLOBAL = join(home, "gitconfig");
+      process.env.GIT_EXTERNAL_DIFF = "false";
+      process.env.GIT_DIFF_OPTS = "-u0";
+
+      const diff = await textDiff(
+        encodeText("a\nb\n"),
+        encodeText("a\nb\r\n"),
+      );
+
+      expect(diff).toEndWith("@@ -1,2 +1,2 @@\n a\n-b\n+b\r\n");
+    } finally {
+      for (const key of [
+        "GIT_CONFIG_GLOBAL",
+        "GIT_EXTERNAL_DIFF",
+        "GIT_DIFF_OPTS",
+      ]) {
+        if (saved[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = saved[key];
+        }
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("should return undefined and leave no temp folder when git can't run", async () => {
+    const foldersBefore = conflictFolders();
+    const savedPath = process.env.PATH;
+    try {
+      process.env.PATH = join(tmpdir(), "mksync-no-such-folder");
+
+      expect(await textDiff(encodeText("a\n"), undefined)).toBeUndefined();
+    } finally {
+      process.env.PATH = savedPath;
+    }
+    expect(conflictFolders()).toEqual(foldersBefore);
+  });
+});
+
+describe("restoreFiles", () => {
+  const PATHS = ["dotfiles", "packages"] as const;
+
+  test("should put back only the push paths and keep ignored files", async () => {
+    const root = previewRepo();
+    const added = "dotfiles/new folder/ünew.conf";
+    const ignored = "dotfiles/x.bak";
+    const bracketed = "dotfiles/[a].conf";
+    writeFileSync(join(root, ".gitignore"), "*.bak\n");
+    writeFileSync(join(root, "outside.txt"), "kept\n");
+    writeFileSync(join(root, ignored), "kept\n");
+    expect(await pathsClean(root, PATHS)).toBe(true);
+    writeFileSync(join(root, PREVIEW_A), "changed\n");
+    rmSync(join(root, PREVIEW_B));
+    mkdirSync(join(root, "dotfiles/new folder"));
+    writeFileSync(join(root, added), "n\n");
+    writeFileSync(join(root, bracketed), "n\n");
+    expect(await pathsClean(root, PATHS)).toBe(false);
+
+    const files = await changedFiles(root, PATHS);
+    if (files === undefined) {
+      throw new Error("git could not list the files");
+    }
+    expect([...files.tracked].sort()).toEqual([PREVIEW_A, PREVIEW_B]);
+    expect([...files.untracked].sort()).toEqual([bracketed, added].sort());
+    expect(await restoreFiles(root, files, PATHS)).toBeUndefined();
+
+    expect(await pathsClean(root, PATHS)).toBe(true);
+    expect(existsSync(join(root, PREVIEW_B))).toBe(true);
+    expect(existsSync(join(root, "dotfiles/new folder"))).toBe(false);
+    expect(readFileSync(join(root, ignored), "utf8")).toBe("kept\n");
+    expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("kept\n");
+  });
+
+  test("should keep a file that was not listed and say so", async () => {
+    const root = previewRepo();
+    writeFileSync(join(root, PREVIEW_A), "changed\n");
+    const files = await changedFiles(root, PATHS);
+    if (files === undefined) {
+      throw new Error("git could not list the files");
+    }
+    writeFileSync(join(root, "dotfiles/late.conf"), "late\n");
+
+    expect(await restoreFiles(root, files, PATHS)).toBe(
+      "ERROR: the repo folder still has changes.\n",
+    );
+    expect(existsSync(join(root, "dotfiles/late.conf"))).toBe(true);
+  });
+
+  test("should return git's error when a restore fails", async () => {
+    const root = previewRepo();
+
+    const error = await restoreFiles(
+      root,
+      { tracked: ["dotfiles/no-such-file"], untracked: [] },
+      PATHS,
+    );
+
+    expect(error).toContain("dotfiles/no-such-file");
   });
 });

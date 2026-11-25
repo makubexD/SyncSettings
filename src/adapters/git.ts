@@ -4,10 +4,12 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  rmdirSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { RepoFiles } from "../core/plan/types.ts";
 import { decode, run } from "./process.ts";
 import { originUrls } from "./visibility.ts";
@@ -988,4 +990,183 @@ export async function previewDiff(
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/** The temp folder prefix `textDiff` makes, removed again on every path. */
+const TEXT_DIFF_TMP_PREFIX = "mksync-conflict-";
+
+/** `git diff --no-index` exits 1 when the files differ; above is a failure. */
+const MAX_DIFF_EXIT = 1;
+
+/** No user, system or attribute setting may change the diff's lines. */
+const TEXT_DIFF_ARGS = [
+  "-c",
+  "core.attributesFile=/dev/null",
+  "-c",
+  "core.autocrlf=false",
+  "diff",
+  "--no-index",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-color",
+  "--unified=3",
+  "--",
+] as const;
+
+/**
+ * Git's unified diff from `before` to `after`, header included, with the user's
+ * git settings left out. A missing side diffs as an empty file. The bytes go
+ * through a private temp folder, removed on failure too. `undefined` when git
+ * cannot tell.
+ */
+export async function textDiff(
+  before: Uint8Array | undefined,
+  after: Uint8Array | undefined,
+): Promise<string | undefined> {
+  const tmp = mkdtempSync(join(tmpdir(), TEXT_DIFF_TMP_PREFIX));
+  try {
+    const missing = new Uint8Array(0);
+    writeFileSync(join(tmp, "theirs"), before ?? missing);
+    writeFileSync(join(tmp, "mine"), after ?? missing);
+    const output = await runGit(
+      tmp,
+      [...TEXT_DIFF_ARGS, "theirs", "mine"],
+      undefined,
+      {
+        GIT_ATTR_NOSYSTEM: "1",
+        GIT_CEILING_DIRECTORIES: dirname(tmp),
+        // A git hook's own settings must not reach this diff.
+        GIT_CONFIG_COUNT: "0",
+        GIT_CONFIG_PARAMETERS: "",
+        GIT_DIR: join(tmp, "none"),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        // Git lets this one win over `--unified`.
+        GIT_DIFF_OPTS: "",
+      },
+    );
+    return output === undefined ||
+      output.code < 0 ||
+      output.code > MAX_DIFF_EXIT
+      ? undefined
+      : decodeText(output.stdout);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/** The files under some pathspecs that differ from `HEAD`, relative to the
+ * folder git ran in. */
+export interface ChangedFiles {
+  readonly tracked: readonly string[];
+  /** Never an ignored file. */
+  readonly untracked: readonly string[];
+}
+
+/** Whether nothing under `pathspecs` differs from `HEAD`, untracked files
+ * included whatever the user's git settings show; false when git can't tell. */
+export async function pathsClean(
+  repoRoot: string,
+  pathspecs: readonly string[],
+): Promise<boolean> {
+  const status = await runGitResult(repoRoot, [
+    "status",
+    "--porcelain",
+    "--untracked-files=all",
+    "--",
+    ...pathspecs,
+  ]);
+  return status.ok && status.stdout === "";
+}
+
+/**
+ * The tracked files changed or deleted in the work tree under `pathspecs`, and
+ * the untracked ones that aren't ignored. `ls-files` prints paths relative to
+ * `repoRoot`, where `status -z` prints them relative to the top of the clone.
+ * `undefined` when git can't tell.
+ */
+export async function changedFiles(
+  repoRoot: string,
+  pathspecs: readonly string[],
+): Promise<ChangedFiles | undefined> {
+  const list = (flags: readonly string[]): Promise<GitResult> =>
+    runGitResult(repoRoot, ["ls-files", "-z", ...flags, "--", ...pathspecs]);
+  const [tracked, untracked] = await Promise.all([
+    list(["--modified", "--deleted"]),
+    list(["--others", "--exclude-standard"]),
+  ]);
+  if (!tracked.ok || !untracked.ok) {
+    return undefined;
+  }
+  return {
+    tracked: [...new Set(splitNulRecords(tracked.stdout))],
+    untracked: splitNulRecords(untracked.stdout),
+  };
+}
+
+/** What `restoreFiles` says when something under the paths still differs. */
+const STILL_CHANGED = "ERROR: the repo folder still has changes.\n";
+
+/** Remove the empty folders above a removed file, `path`'s top folder kept. */
+function removeEmptyParents(repoRoot: string, path: string): void {
+  let parent = dirname(path);
+  while (parent.includes("/")) {
+    try {
+      rmdirSync(join(repoRoot, parent));
+    } catch {
+      // Not empty, or already gone: a folder git doesn't track changes nothing.
+      return;
+    }
+    parent = dirname(parent);
+  }
+}
+
+/**
+ * Put `files` back as `HEAD` has them: restore the tracked ones and remove the
+ * untracked ones, nothing else. `undefined` when everything under `pathspecs`
+ * is clean again, else the error text to print.
+ */
+export async function restoreFiles(
+  repoRoot: string,
+  files: ChangedFiles,
+  pathspecs: readonly string[],
+): Promise<string | undefined> {
+  if (files.tracked.length > 0) {
+    // Literal paths on stdin: no glob, and no command line length limit.
+    const restored = await run(
+      [
+        "git",
+        "--literal-pathspecs",
+        "restore",
+        "--worktree",
+        "--pathspec-from-file=-",
+        "--pathspec-file-nul",
+      ],
+      { cwd: repoRoot, input: files.tracked.join("\u0000") },
+    );
+    if (restored.code !== 0) {
+      return decode(restored.stderr);
+    }
+  }
+  for (const path of files.untracked) {
+    if (path.endsWith("/")) {
+      // A clone inside the repo folder: no export wrote it.
+      continue;
+    }
+    try {
+      unlinkSync(join(repoRoot, path));
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      const code = "code" in error ? error.code : undefined;
+      if (code === "ENOENT" || code === "ENOTDIR") {
+        // Already gone: git put a file back where its folder was.
+        continue;
+      }
+      return `ERROR: ${error.message}\n`;
+    }
+    removeEmptyParents(repoRoot, path);
+  }
+  return (await pathsClean(repoRoot, pathspecs)) ? undefined : STILL_CHANGED;
 }

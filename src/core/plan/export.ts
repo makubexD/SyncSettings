@@ -23,10 +23,12 @@ import { entryDestinations } from "./newsettings.ts";
 import {
   compileExcludes,
   entrySelected,
+  entrySkipped,
   errorPlan,
   isJsonEntry,
   joinPath,
   onlySelected,
+  pathSkipped,
   primaryRepoPath,
   resolvedLocal,
   resolveOnly,
@@ -545,7 +547,10 @@ function planDir(state: State, selected: SelectedEntry): void {
     }
 
     files++;
-    if (!onlySelected(label, state.only)) {
+    if (
+      !onlySelected(label, state.only) ||
+      pathSkipped(label, state.snapshot.skip)
+    ) {
       continue;
     }
     if (local.kind === "unreadable") {
@@ -617,7 +622,10 @@ function planDir(state: State, selected: SelectedEntry): void {
     ) {
       continue;
     }
-    if (!onlySelected(repoName, state.only)) {
+    if (
+      !onlySelected(repoName, state.only) ||
+      pathSkipped(repoName, state.snapshot.skip)
+    ) {
       continue;
     }
     state.pending.push({
@@ -758,7 +766,10 @@ export function planExport(
 
   const rules: SanitizeRule[] = [];
   for (const entry of selected.value) {
-    if (!entrySelected(entry, only.paths)) {
+    if (
+      !entrySelected(entry, only.paths) ||
+      entrySkipped(entry, snapshot.skip)
+    ) {
       continue;
     }
     if (entry.entry.merge === "dir" || entry.entry.merge === "dconf") {
@@ -805,7 +816,10 @@ export function planExport(
   };
 
   for (const entry of selected.value) {
-    if (!entrySelected(entry, only.paths)) {
+    if (
+      !entrySelected(entry, only.paths) ||
+      entrySkipped(entry, snapshot.skip)
+    ) {
       continue;
     }
     switch (entry.entry.merge) {
