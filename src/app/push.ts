@@ -55,6 +55,12 @@ export interface OriginState {
   readonly behind: number;
 }
 
+/** The files an export changed and added in the repo folder. */
+export interface PushedFiles {
+  readonly tracked: readonly string[];
+  readonly untracked: readonly string[];
+}
+
 /** What a push runs; `only` is the push's picked paths. */
 export interface PushDeps {
   /** The record's refusal (pull-only, retired, moved), before the guard. */
@@ -74,6 +80,13 @@ export interface PushDeps {
   ) => Promise<Result>;
   /** `git status --short` over the sync paths. */
   readonly statusShort: () => Promise<StatusResult>;
+  /** Nothing under the push paths differs from the last commit. */
+  readonly pathsClean: () => Promise<boolean>;
+  /** The files under the push paths that differ; `undefined` when git can't
+   * tell. */
+  readonly changedFiles: () => Promise<PushedFiles | undefined>;
+  /** Put those files back; the error to print when it failed. */
+  readonly restoreFiles: (files: PushedFiles) => Promise<string | undefined>;
   /** Print `question` and read one answer; an empty answer or end of input
    * takes `defaultYes`. */
   readonly ask: (question: string, defaultYes: boolean) => Promise<boolean>;
@@ -121,7 +134,10 @@ function bothError(count: number): string {
   );
 }
 
-/** `front_push`'s line when the question is declined. */
+/** A declined question, after the repo folder was put back. */
+const NOTHING_SENT = "  Nothing sent; the repo folder is as it was.\n";
+
+/** A declined question, when the repo folder already had changes. */
 const KEPT_IN_REPO =
   "  Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.\n";
 
@@ -304,6 +320,21 @@ async function guardPush(
   };
 }
 
+/** Contract "Front door": a declined push leaves no trace, unless the push
+ * paths had changes before it (`changed` is then absent). */
+async function declined(
+  changed: PushedFiles | undefined,
+  deps: PushDeps,
+): Promise<Result> {
+  if (changed === undefined) {
+    return { code: 0, stdout: KEPT_IN_REPO, stderr: "" };
+  }
+  const failed = await deps.restoreFiles(changed);
+  return failed === undefined
+    ? { code: 0, stdout: NOTHING_SENT, stderr: "" }
+    : { code: 1, stdout: KEPT_IN_REPO, stderr: failed };
+}
+
 /**
  * Run `mksync push` end to end, stopping at the export's first failure. The
  * export's output prints before the repo's changes, and the commit's output
@@ -339,6 +370,7 @@ export async function executePush(
     deps.print({ code: 0, stdout: guard.shown, stderr: "" });
   }
 
+  const cleanBefore = await deps.pathsClean();
   const exported = await deps.runExport(only, input.yes, guard.skip);
   if (exported.code !== 0) {
     return exported;
@@ -374,8 +406,13 @@ export async function executePush(
     stdout: exported.stdout + status.stdout,
     stderr: exported.stderr,
   });
-  if (!input.yes && !(await deps.ask(PR_QUESTION, false))) {
-    return { code: 0, stdout: KEPT_IN_REPO, stderr: "" };
+  if (input.yes) {
+    return deps.runCommit(only.length > 0 || guard.partial, input.message);
+  }
+  // Listed before the question: a file made while it waits isn't this push's.
+  const changed = cleanBefore ? await deps.changedFiles() : undefined;
+  if (!(await deps.ask(PR_QUESTION, false))) {
+    return declined(changed, deps);
   }
   return deps.runCommit(only.length > 0 || guard.partial, input.message);
 }

@@ -4,6 +4,8 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  rmdirSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1047,4 +1049,115 @@ export async function textDiff(
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/** The files under some pathspecs that differ from `HEAD`, relative to the
+ * folder git ran in. */
+export interface ChangedFiles {
+  readonly tracked: readonly string[];
+  /** Never an ignored file. */
+  readonly untracked: readonly string[];
+}
+
+/** Whether nothing under `pathspecs` differs from `HEAD`, untracked files
+ * included whatever the user's git settings show; false when git can't tell. */
+export async function pathsClean(
+  repoRoot: string,
+  pathspecs: readonly string[],
+): Promise<boolean> {
+  const status = await runGitResult(repoRoot, [
+    "status",
+    "--porcelain",
+    "--untracked-files=all",
+    "--",
+    ...pathspecs,
+  ]);
+  return status.ok && status.stdout === "";
+}
+
+/**
+ * The tracked files changed or deleted in the work tree under `pathspecs`, and
+ * the untracked ones that aren't ignored. `ls-files` prints paths relative to
+ * `repoRoot`, where `status -z` prints them relative to the top of the clone.
+ * `undefined` when git can't tell.
+ */
+export async function changedFiles(
+  repoRoot: string,
+  pathspecs: readonly string[],
+): Promise<ChangedFiles | undefined> {
+  const list = (flags: readonly string[]): Promise<GitResult> =>
+    runGitResult(repoRoot, ["ls-files", "-z", ...flags, "--", ...pathspecs]);
+  const [tracked, untracked] = await Promise.all([
+    list(["--modified", "--deleted"]),
+    list(["--others", "--exclude-standard"]),
+  ]);
+  if (!tracked.ok || !untracked.ok) {
+    return undefined;
+  }
+  return {
+    tracked: [...new Set(splitNulRecords(tracked.stdout))],
+    untracked: splitNulRecords(untracked.stdout),
+  };
+}
+
+/** What `restoreFiles` says when something under the paths still differs. */
+const STILL_CHANGED = "ERROR: the repo folder still has changes.\n";
+
+/** Remove the empty folders above a removed file, `path`'s top folder kept. */
+function removeEmptyParents(repoRoot: string, path: string): void {
+  let parent = dirname(path);
+  while (parent.includes("/")) {
+    try {
+      rmdirSync(join(repoRoot, parent));
+    } catch {
+      // Not empty, or already gone: a folder git doesn't track changes nothing.
+      return;
+    }
+    parent = dirname(parent);
+  }
+}
+
+/**
+ * Put `files` back as `HEAD` has them: restore the tracked ones and remove the
+ * untracked ones, nothing else. `undefined` when everything under `pathspecs`
+ * is clean again, else the error text to print.
+ */
+export async function restoreFiles(
+  repoRoot: string,
+  files: ChangedFiles,
+  pathspecs: readonly string[],
+): Promise<string | undefined> {
+  if (files.tracked.length > 0) {
+    // Literal paths on stdin: no glob, and no command line length limit.
+    const restored = await run(
+      [
+        "git",
+        "--literal-pathspecs",
+        "restore",
+        "--worktree",
+        "--pathspec-from-file=-",
+        "--pathspec-file-nul",
+      ],
+      { cwd: repoRoot, input: files.tracked.join("\u0000") },
+    );
+    if (restored.code !== 0) {
+      return decode(restored.stderr);
+    }
+  }
+  for (const path of files.untracked) {
+    if (path.endsWith("/")) {
+      // A clone inside the repo folder: no export wrote it.
+      continue;
+    }
+    try {
+      unlinkSync(join(repoRoot, path));
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      return `ERROR: ${error.message}\n`;
+    }
+    removeEmptyParents(repoRoot, path);
+  }
+  return (await pathsClean(repoRoot, pathspecs)) ? undefined : STILL_CHANGED;
 }

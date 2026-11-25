@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,10 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  changedFiles,
   changedSyncPaths,
   commitExists,
   commitStaged,
   deleteBranch,
+  pathsClean,
   previewDiff,
   pushBranch,
   readAheadBehind,
@@ -26,6 +29,7 @@ import {
   readPorcelain,
   readSyncPoint,
   readUnpushedHistory,
+  restoreFiles,
   runGitResult,
   stagePaths,
   statusPorcelain,
@@ -1192,5 +1196,67 @@ describe("textDiff", () => {
       process.env.PATH = savedPath;
     }
     expect(conflictFolders()).toEqual(foldersBefore);
+  });
+});
+
+describe("restoreFiles", () => {
+  const PATHS = ["dotfiles", "packages"] as const;
+
+  test("should put back only the push paths and keep ignored files", async () => {
+    const root = previewRepo();
+    const added = "dotfiles/new folder/ünew.conf";
+    const ignored = "dotfiles/x.bak";
+    const bracketed = "dotfiles/[a].conf";
+    writeFileSync(join(root, ".gitignore"), "*.bak\n");
+    writeFileSync(join(root, "outside.txt"), "kept\n");
+    writeFileSync(join(root, ignored), "kept\n");
+    expect(await pathsClean(root, PATHS)).toBe(true);
+    writeFileSync(join(root, PREVIEW_A), "changed\n");
+    rmSync(join(root, PREVIEW_B));
+    mkdirSync(join(root, "dotfiles/new folder"));
+    writeFileSync(join(root, added), "n\n");
+    writeFileSync(join(root, bracketed), "n\n");
+    expect(await pathsClean(root, PATHS)).toBe(false);
+
+    const files = await changedFiles(root, PATHS);
+    if (files === undefined) {
+      throw new Error("git could not list the files");
+    }
+    expect([...files.tracked].sort()).toEqual([PREVIEW_A, PREVIEW_B]);
+    expect([...files.untracked].sort()).toEqual([bracketed, added].sort());
+    expect(await restoreFiles(root, files, PATHS)).toBeUndefined();
+
+    expect(await pathsClean(root, PATHS)).toBe(true);
+    expect(existsSync(join(root, PREVIEW_B))).toBe(true);
+    expect(existsSync(join(root, "dotfiles/new folder"))).toBe(false);
+    expect(readFileSync(join(root, ignored), "utf8")).toBe("kept\n");
+    expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("kept\n");
+  });
+
+  test("should keep a file that was not listed and say so", async () => {
+    const root = previewRepo();
+    writeFileSync(join(root, PREVIEW_A), "changed\n");
+    const files = await changedFiles(root, PATHS);
+    if (files === undefined) {
+      throw new Error("git could not list the files");
+    }
+    writeFileSync(join(root, "dotfiles/late.conf"), "late\n");
+
+    expect(await restoreFiles(root, files, PATHS)).toBe(
+      "ERROR: the repo folder still has changes.\n",
+    );
+    expect(existsSync(join(root, "dotfiles/late.conf"))).toBe(true);
+  });
+
+  test("should return git's error when a restore fails", async () => {
+    const root = previewRepo();
+
+    const error = await restoreFiles(
+      root,
+      { tracked: ["dotfiles/no-such-file"], untracked: [] },
+      PATHS,
+    );
+
+    expect(error).toContain("dotfiles/no-such-file");
   });
 });

@@ -823,7 +823,7 @@ A declined PR question leaves no trace when the push paths had no changes before
 restored and the untracked files the export added are removed, never an ignored file and never one outside the push
 paths. Moves made in that run are lost with them. It prints `  Nothing sent; the repo folder is as it was.`, exit 0. If
 the push paths had changes before the export, every file stays and the `Kept in the repo.` line prints, exit 0. A
-restore that fails prints git's error and the `Kept in the repo.` line, exit 1.
+restore that fails, or that leaves a change behind (`ERROR: the repo folder still has changes.`), prints the error and the `Kept in the repo.` line, exit 1.
 
 `pull` and `push` need the clone on `master` with an `origin` remote. The status fetch has a 15-second timeout. The
 status's OS name is `PRETTY_NAME` from `/etc/os-release` (or the file `SYNC_OS_RELEASE` names) on Linux, the

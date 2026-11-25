@@ -2,9 +2,12 @@ import { unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import {
+  changedFiles,
+  pathsClean,
   readAheadBehind,
   readSyncPoint,
   readUpstreamFacts,
+  restoreFiles,
   runGitResult,
   statusPorcelain,
 } from "./adapters/git.ts";
@@ -381,6 +384,10 @@ async function execute(
                 moves: true,
                 terminal,
               }),
+            pathsClean: () => pathsClean(repoRoot, PUSH_STATUS_PATHS),
+            changedFiles: () => changedFiles(repoRoot, PUSH_STATUS_PATHS),
+            restoreFiles: (files) =>
+              restoreFiles(repoRoot, files, PUSH_STATUS_PATHS),
             statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
             ask: (question, defaultYes) =>
               askTerminalQuestion(terminal.io, question, defaultYes),

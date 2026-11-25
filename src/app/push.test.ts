@@ -128,6 +128,9 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     runDiff: async () => diffOf(),
     runExport: async () => EXPORTED,
     statusShort: async () => ({ ok: true, stdout: STATUS }),
+    pathsClean: async () => true,
+    changedFiles: async () => ({ tracked: [A], untracked: [] }),
+    restoreFiles: async () => undefined,
     ask: async () => true,
     print: () => {},
     runCommit: async () => ({ code: 0, stdout: "committed\n", stderr: "" }),
@@ -504,5 +507,83 @@ describe("executePush guard", () => {
     expect(run.result).toEqual(refused);
     expect(run.diffs).toEqual([]);
     expect(run.exports).toEqual([]);
+  });
+});
+
+describe("executePush declined", () => {
+  const CHANGED = { tracked: [A], untracked: [B] };
+  const KEPT =
+    "  Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.\n";
+
+  /** Run a declined push, recording what it asked git to put back. */
+  async function decline(overrides: Partial<PushDeps> = {}) {
+    const restored: unknown[] = [];
+    const order: string[] = [];
+    const result = await executePush(
+      pushInput(),
+      baseDeps({
+        pathsClean: async () => {
+          order.push("clean");
+          return true;
+        },
+        runExport: async () => {
+          order.push("export");
+          return EXPORTED;
+        },
+        changedFiles: async () => {
+          order.push("list");
+          return CHANGED;
+        },
+        ask: async () => {
+          order.push("ask");
+          return false;
+        },
+        restoreFiles: async (files) => {
+          restored.push(files);
+          return undefined;
+        },
+        ...overrides,
+      }),
+    );
+    return { result, restored, order };
+  }
+
+  test("a clean repo folder is put back", async () => {
+    const run = await decline();
+
+    expect(run.result).toEqual({
+      code: 0,
+      stdout: "  Nothing sent; the repo folder is as it was.\n",
+      stderr: "",
+    });
+    expect(run.restored).toEqual([CHANGED]);
+    expect(run.order).toEqual(["clean", "export", "list", "ask"]);
+  });
+
+  test("a repo folder with changes keeps every file", async () => {
+    const run = await decline({ pathsClean: async () => false });
+
+    expect(run.result).toEqual({ code: 0, stdout: KEPT, stderr: "" });
+    expect(run.restored).toEqual([]);
+  });
+
+  test("files git can't list are kept", async () => {
+    const run = await decline({ changedFiles: async () => undefined });
+
+    expect(run.result).toEqual({ code: 0, stdout: KEPT, stderr: "" });
+    expect(run.restored).toEqual([]);
+  });
+
+  test("a failed restore prints git's error and exits 1", async () => {
+    const run = await decline({ restoreFiles: async () => "fatal: no\n" });
+
+    expect(run.result).toEqual({ code: 1, stdout: KEPT, stderr: "fatal: no\n" });
+  });
+
+  test("a yes restores nothing", async () => {
+    const run = await decline({ ask: async () => true });
+
+    expect(run.restored).toEqual([]);
+    expect(run.result.stdout).toBe("committed\n");
   });
 });
