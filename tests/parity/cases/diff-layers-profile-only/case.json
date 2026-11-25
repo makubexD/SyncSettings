@@ -1,0 +1,34 @@
+{
+  "description": "Diff with --only the Linux label of a json entry whose profile layer holds a new item still labels that entry's one OUT, exit 3 (Diff, Picking files, Layers).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "diff",
+      "options": {
+        "only": [
+          "dotfiles/linux/parity/settings.json"
+        ]
+      }
+    }
+  ]
+}

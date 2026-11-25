@@ -1,0 +1,5 @@
+{
+  "theme": "dark",
+  "hooks": ["a", "mine"],
+  "font": 12
+}

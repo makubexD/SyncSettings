@@ -444,6 +444,16 @@
       "description": "Hook: heals the context-mode plugin cache"
     },
     {
+      "file": "claude/hooks/ctx-print-guard.sh",
+      "module": "claude",
+      "merge": "whole",
+      "localPath": "~/.claude/hooks/ctx-print-guard.sh",
+      "os": [
+        "linux"
+      ],
+      "description": "Hook: denies ctx_execute used only to print a file or diff"
+    },
+    {
       "file": "claude/hooks/node.sh",
       "module": "claude",
       "merge": "whole",

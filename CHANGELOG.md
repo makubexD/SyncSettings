@@ -2,6 +2,15 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.2 (2026-11-25)
+
+- `mksync diff` sees every layer of a JSON file (common, OS, profile and machine), not only the last one. Before, it
+  could say `This machine and the repo agree.` when `mksync check` said a pull would drop a new item, and the pull
+  guard, setup's "keep mine" and the status line agreed with it. They now stop, or keep the item.
+- Such a file still prints one line. A change in the repo and one on this machine in different layers is `BOTH`.
+- `--only` accepts the path the diff prints when the file also has a profile or machine layer.
+- The `ctx-print-guard` hook is synced for Linux.
+
 ## v1.1.1 (2026-11-23)
 
 - "Keep mine" in `mksync setup` no longer undoes the repo's newer files. After a first sync it sends only the files

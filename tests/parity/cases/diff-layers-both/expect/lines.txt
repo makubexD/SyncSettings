@@ -1,0 +1,2 @@
+BOTH dotfiles/linux/parity/settings.json
+1 file(s) differ: 0 in, 0 out, 1 both.

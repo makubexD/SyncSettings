@@ -1,0 +1,43 @@
+{
+  "description": "Setup with a sync point and a personal record, --existing keep and --yes exports the OUT layered entry into the repo folder's base file (the suggestion for personal), prints Pushed into the repo folder, then imports it over this machine's copy with a .bak while mine stays, exit 0 (mksync setup, What differs, Then; Layers, New settings).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "replace": "wk1-laptop",
+        "claude": "none",
+        "mode": "push",
+        "existing": "keep",
+        "yes": true
+      }
+    }
+  ]
+}

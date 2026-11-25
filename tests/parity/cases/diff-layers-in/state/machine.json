@@ -1,0 +1,13 @@
+{
+  "name": "wk1-laptop",
+  "profile": "personal",
+  "os": "linux",
+  "hostname": "wk1-laptop",
+  "domain": null,
+  "claude": "claude-deepseek",
+  "pullOnly": false,
+  "modules": { "add": [], "remove": [] },
+  "values": {},
+  "replaced": [],
+  "retired": false
+}

@@ -120,6 +120,23 @@ export function primaryRepoPath(selected: SelectedEntry): string {
   );
 }
 
+/**
+ * Contract "Diff": the `dotfiles/` label the diff prints for an entry: the OS
+ * file if it exists, else the base file, else the file the OS layer would
+ * have. A private layer's path, or a write root outside `dotfiles/`, has no
+ * such label.
+ */
+export function printedLabel(selected: SelectedEntry): string | undefined {
+  for (let index = selected.layers.length - 1; index >= 0; index--) {
+    const layer = selected.layers[index];
+    if (layer !== undefined && (layer.name === "os" || layer.name === "base")) {
+      return layer.repoPath;
+    }
+  }
+  const fallback = `${selected.writeRoot}${selected.entry.file}`;
+  return fallback.startsWith("dotfiles/") ? fallback : undefined;
+}
+
 export function onlySelected(
   repoPath: string,
   only: readonly string[],
@@ -190,10 +207,20 @@ export function resolveOnly(
           (entry.entry.merge === "dir" && path.startsWith(`${repoPath}/`))
         );
       });
-      if (!found) {
+      if (found) {
+        paths.push(path);
+        continue;
+      }
+      // A `json` entry whose label is a `dotfiles/` path, while its primary
+      // path is a private layer, accepts the label the diff prints.
+      const byLabel = selected.find(
+        (entry) =>
+          entry.entry.merge === "json" && printedLabel(entry) === path,
+      );
+      if (byLabel === undefined) {
         return { ok: false, plan: onlyFailure(argument) };
       }
-      paths.push(path);
+      paths.push(primaryRepoPath(byLabel));
       continue;
     }
 
