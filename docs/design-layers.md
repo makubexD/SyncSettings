@@ -1541,6 +1541,15 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - Since `v1.1.2` the diff covers every layer of a `json` entry. `import`, `whole` and `dir` entries still compare the
     one `dotfiles/` path they label, so a profile or machine layer of theirs is in no tree, and a change bound for one
     shows as `OUT`, or a base change under an OS file is missed, as before.
+  - The diff says `This machine and the repo agree.` for a file its export plan reports as `ERROR`: invalid JSON (a
+    comment, say), or a new setting on a machine with no record. `mksync pull --yes` then replaces it, keeping a backup.
+    Older than `v1.1.2`, found in its review. Options: exit 1, so the guard can't tell and stops, or label it `OUT`.
+  - A private layer's setting deleted or reverted on this machine gives no label since it can't be told from one never
+    applied, so a pull brings it back. When the same file also has a real change, keep and push still remove it.
+  - `BOTH` made of an `OUT` and an `IN` in two layers: keep exports this machine's file, so it reverts the repo's change,
+    as with any `BOTH`, though the two don't overlap. The PR shows it.
+  - A label depends on the layer files in the compared tree, and `--only` on the working copy: when `origin` adds an
+    entry's first OS file, the diff prints the base path and `--only` takes the OS one until the pull. It fails safe.
   - Replace asks each machine value as `<KEY> [<old value>] ` in the record's key order; no shared case has a value
     yet.
   - Retire: a missing name is `ERROR: machine retire needs a name.` (`profile retire …`), exit 1.

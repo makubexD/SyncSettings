@@ -6,7 +6,9 @@ import {
 } from "../adapters/git.ts";
 import type { EntryType, MergeType, Os } from "../core/config/types.ts";
 import { selectEntries } from "../core/layers/select.ts";
-import type { SelectedEntry } from "../core/layers/select.ts";
+import type { Layer, SelectedEntry } from "../core/layers/select.ts";
+import { onlyRemoves } from "../core/json/removal.ts";
+import { parseJsonBytes } from "../core/merge/json.ts";
 import { diffText, labelDiff, ownedPaths } from "../core/plan/diff.ts";
 import type {
   DiffHeader,
@@ -47,7 +49,11 @@ function title(os: Os): string {
 }
 
 function treeFailure(ref: string): Result {
-  return { code: 1, stdout: "", stderr: `ERROR: cannot read ${ref} from git.\n` };
+  return {
+    code: 1,
+    stdout: "",
+    stderr: `ERROR: cannot read ${ref} from git.\n`,
+  };
 }
 
 /** The type `ownedPaths` reads: a v2 merge type folded to an entry type. */
@@ -63,10 +69,14 @@ function narrowOwned(owned: OwnedPaths, only: readonly string[]): OwnedPaths {
   return {
     exact: owned.exact,
     prefixes: owned.prefixes,
-    owns: (path) =>
-      owned.owns(path) && onlySelected(owned.labelOf(path), only),
+    owns: (path) => owned.owns(path) && onlySelected(owned.labelOf(path), only),
     labelOf: owned.labelOf,
   };
+}
+
+/** A layer stored in local state, which no git tree holds. */
+function isPrivate(slot: Layer): boolean {
+  return slot.name === "profile" || slot.name === "machine";
 }
 
 /**
@@ -86,7 +96,7 @@ function withPrivateLayers(
       continue;
     }
     for (const slot of entry.slots) {
-      if (slot.name !== "profile" && slot.name !== "machine") {
+      if (!isPrivate(slot)) {
         continue;
       }
       const bytes = repoFiles.get(slot.repoPath);
@@ -111,6 +121,72 @@ function appliedTree(base: RepoFiles, plan: RunPlan): RepoFiles {
         tree.set(action.path, action.bytes);
       } else if (action.kind === "removeRepo") {
         tree.delete(action.path);
+      }
+    }
+  }
+  return tree;
+}
+
+/**
+ * The export plan for `files`. The diff never asks, so a new setting takes the
+ * suggestion, as `--yes` does; the plan is made again with those answers.
+ */
+function planSuggested(snapshot: Snapshot, files: RepoFiles): RunPlan {
+  const atFiles = { ...snapshot, repoFiles: files };
+  const planned = planExport(atFiles);
+  const settings = planned.newSettings ?? [];
+  const question =
+    settings.length > 0
+      ? newSettingChoices(snapshot.record, snapshot.os)
+      : undefined;
+  return question === undefined
+    ? planned
+    : planExport(atFiles, suggestionAnswers(settings, question));
+}
+
+function sameFile(
+  a: Uint8Array | undefined,
+  b: Uint8Array | undefined,
+): boolean {
+  return a === undefined || b === undefined
+    ? a === b
+    : Buffer.compare(a, b) === 0;
+}
+
+function removesOnly(
+  before: Uint8Array,
+  after: Uint8Array | undefined,
+): boolean {
+  if (after === undefined) {
+    return true;
+  }
+  const old = parseJsonBytes(before);
+  const now = parseJsonBytes(after);
+  return old !== undefined && now !== undefined && onlyRemoves(old, now);
+}
+
+/**
+ * Contract "Diff": a private layer has no history, so what it holds and the
+ * local file lacks may never have been applied here. Such a layer file goes
+ * back to its stored version: when the export would only remove from it, or
+ * when the local file is what git's layers alone build.
+ */
+function withoutUnapplied(
+  mine: RepoFiles,
+  base: RepoFiles,
+  jsonEntries: readonly SelectedEntry[],
+  gitUnchanged: (path: string) => boolean,
+): RepoFiles {
+  const tree = new Map(mine);
+  for (const { slots } of jsonEntries) {
+    const untouched = slots.every(({ repoPath }) => gitUnchanged(repoPath));
+    for (const slot of slots) {
+      const stored = base.get(slot.repoPath);
+      if (!isPrivate(slot) || stored === undefined) {
+        continue;
+      }
+      if (untouched || removesOnly(stored, mine.get(slot.repoPath))) {
+        tree.set(slot.repoPath, stored);
       }
     }
   }
@@ -207,21 +283,7 @@ export async function diffExport(
     snapshot.repoFiles,
   );
 
-  // The diff never asks, so a new setting takes the suggestion, as `--yes`
-  // does; the plan is made again with those answers.
-  const planned = planExport({ ...snapshot, repoFiles: baseTree });
-  const settings = planned.newSettings ?? [];
-  const question =
-    settings.length > 0
-      ? newSettingChoices(snapshot.record, snapshot.os)
-      : undefined;
-  const exportPlan =
-    question === undefined
-      ? planned
-      : planExport(
-          { ...snapshot, repoFiles: baseTree },
-          suggestionAnswers(settings, question),
-        );
+  const exportPlan = planSuggested(snapshot, baseTree);
   if (exportPlan.code !== 0) {
     return {
       code: 1,
@@ -230,7 +292,16 @@ export async function diffExport(
     };
   }
 
-  const mine = appliedTree(baseTree, exportPlan);
+  // What the export would write with no private layer at all. `--only` was
+  // resolved above and can name a label git's layers alone don't have here.
+  const gitPlan = planSuggested({ ...snapshot, only: [] }, base);
+  const gitMine = appliedTree(base, gitPlan);
+  const mine = withoutUnapplied(
+    appliedTree(baseTree, exportPlan),
+    baseTree,
+    selected.value.filter(({ entry }) => entry.merge === "json"),
+    (path) => gitPlan.code === 0 && sameFile(gitMine.get(path), base.get(path)),
+  );
   const allOwned = ownedPaths(
     selected.value.map((entry) => ({
       repoPath: primaryRepoPath(entry),

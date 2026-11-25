@@ -650,7 +650,9 @@ three versions of `dotfiles/`, read from git objects, with no temp folder:
 The private layers are the profile's and the machine's layer files of the `json` entries ([Layers](#layers)). No git tree holds them, so
 the diff reads the stored ones and adds the same content to `base` and `theirs`, and so to `mine` before the export's
 writes. They never give `IN`: a private layer the export would leave alone gives nothing, and a setting the export
-would write into one gives `OUT`.
+would write into one gives `OUT`. They have no history, so what one holds and the local file lacks may never have been
+applied here (a profile just chosen): it gives nothing, and a pull applies it. That is the case when the export would
+only remove from the layer file, or when the local file is exactly what git's layers alone build.
 
 Only paths this OS's entries own are compared: a `json` entry owns the file of each of its
 [layers](#layers) (base, OS, profile and machine), any other file or dconf entry owns its label, and a dir entry owns
@@ -667,8 +669,8 @@ as a version, and each owned path in the union of the three trees gets at most o
 | no sync point, `mine` ≠ `theirs` |                            | `?`                                               |
 
 A `json` entry prints one line, however many of its layer files changed, so `--only` and the counts see the entry
-once. Its label is always a `dotfiles/` path: the OS file if it exists, else the base file, else the file the OS layer
-would have. A private layer's path is never printed. The verdicts of its layer files fold into that line:
+once. Its label is always a `dotfiles/` path: the OS file if it exists, else the base file, else the file under
+the entry's write root. A private layer's path is never printed. The verdicts of its layer files fold into that line:
 
 | Verdicts of the entry's layer files | Label  |
 | ----------------------------------- | ------ |
