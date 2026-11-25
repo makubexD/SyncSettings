@@ -321,6 +321,20 @@ const JSON_MERGED_TEXT = `{
 }
 `;
 
+const JSON_MERGED_CHANGED_TEXT = `{
+  "a": 1,
+  "list": [
+    "x",
+    "y"
+  ],
+  "obj": {
+    "k": "base",
+    "k2": "os"
+  },
+  "b": 5
+}
+`;
+
 const JSON_NEW_SETTING_TEXT = `{
   "a": 1,
   "list": [
@@ -2107,5 +2121,277 @@ describe("planExport dconf", () => {
       onlyMatchedNothing: false,
       skipped: 1,
     });
+  });
+});
+
+describe("planExport skip", () => {
+  test("should leave a skipped whole file alone and write another", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        wholeEntry("parity/a.conf", "~/.config/parity/a.conf"),
+        wholeEntry("parity/b.conf", "~/.config/parity/b.conf"),
+      ],
+      repo: {
+        "dotfiles/common/parity/a.conf": "old\n",
+        "dotfiles/common/parity/b.conf": "old\n",
+      },
+      local: {
+        ".config/parity/a.conf": "new\n",
+        ".config/parity/b.conf": "new\n",
+      },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/parity/a.conf"],
+    });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/common/parity/b.conf",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      {
+        kind: "writeRepo",
+        path: "dotfiles/common/parity/b.conf",
+        text: "new\n",
+      },
+      { kind: "chmod", path: "dotfiles/common/parity/b.conf", mode: MODE },
+    ]);
+  });
+
+  test("should leave a skipped dir file alone and write its neighbour", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [dirEntry()],
+      repo: {
+        "dotfiles/common/dir/a.txt": "old\n",
+        "dotfiles/common/dir/b.txt": "old\n",
+      },
+      local: {
+        ".config/parity/dir/a.txt": "new\n",
+        ".config/parity/dir/b.txt": "new\n",
+      },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/dir/a.txt"],
+    });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/common/dir/b.txt",
+    ]);
+    expect(shownActions(result.actions)).toEqual([
+      { kind: "writeRepo", path: "dotfiles/common/dir/b.txt", text: "new\n" },
+      { kind: "chmod", path: "dotfiles/common/dir/b.txt", mode: MODE },
+    ]);
+  });
+
+  test("should keep a skipped repo file a dir entry no longer holds locally", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [dirEntry()],
+      repo: {
+        "dotfiles/common/dir/a.txt": "a\n",
+        "dotfiles/common/dir/b.txt": "b\n",
+        "dotfiles/common/dir/c.txt": "c\n",
+      },
+      local: { ".config/parity/dir/c.txt": "c\n" },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/dir/a.txt"],
+    });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/dir/c.txt",
+      "REMOVED dotfiles/common/dir/b.txt",
+    ]);
+    expect(result.actions).toEqual([
+      {
+        kind: "removeRepo",
+        path: "dotfiles/common/dir/b.txt",
+        pruneUpTo: "dotfiles/common/dir",
+      },
+    ]);
+  });
+
+  test("should not report an empty folder when its only local file is skipped", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [dirEntry()],
+      repo: { "dotfiles/common/dir/a.txt": "repo\n" },
+      local: { ".config/parity/dir/a.txt": "local\n" },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/dir/a.txt"],
+    });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([]);
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should skip a json entry named by its base path when its primary is the os path", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": JSON_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": JSON_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": JSON_MERGED_CHANGED_TEXT },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/parity/settings.json"],
+    });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([]);
+    expect(result.actions).toEqual([]);
+    expect(result.newSettings).toBeUndefined();
+  });
+
+  test("should not list a new setting for a skipped json entry", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [jsonEntry()],
+      repo: {
+        "dotfiles/common/parity/settings.json": NEW_SETTING_BASE_TEXT,
+        "dotfiles/linux/parity/settings.json": NEW_SETTING_OS_TEXT,
+      },
+      local: { ".config/parity/settings.json": NEW_SETTING_LOCAL_TEXT },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/parity/settings.json"],
+    });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([]);
+    expect(result.newSettings).toBeUndefined();
+    expect(result.actions).toEqual([]);
+  });
+
+  test("should leave a skipped dconf entry alone", () => {
+    // Arrange
+    const snapshot = dconfSnapshot({
+      keys: DCONF_KEYS,
+      repo: "[/]\nfont-name=Old 10\n",
+      dump: { kind: "ok", text: DCONF_DUMP_TEXT },
+    });
+
+    // Act
+    const plan = planExport({ ...snapshot, skip: [DCONF_REPO_PATH] });
+
+    // Assert
+    expect(statusLines(plan.lines)).toEqual([]);
+    expect(plan.steps).toEqual([]);
+    expect(plan.summary).toEqual({
+      kind: "export",
+      onlyMatchedNothing: false,
+      skipped: 0,
+    });
+  });
+
+  test("should not ask for a skipped entry's values", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        {
+          ...wholeEntry("parity/a.conf", "~/.config/parity/a.conf"),
+          sanitize: [{ placeholder: "<NAME>", prompt: "Full name" }],
+        },
+        wholeEntry("parity/b.conf", "~/.config/parity/b.conf"),
+      ],
+      repo: {
+        "dotfiles/common/parity/a.conf": "<NAME>\n",
+        "dotfiles/common/parity/b.conf": "same\n",
+      },
+      local: {
+        ".config/parity/a.conf": "Parity User\n",
+        ".config/parity/b.conf": "same\n",
+      },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/parity/a.conf"],
+    });
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(statusLines(result.lines)).toEqual([
+      "UNCHANGED dotfiles/common/parity/b.conf",
+    ]);
+    expect(result.lines.some((line) => line.includes("missing value"))).toBe(
+      false,
+    );
+  });
+
+  test("should not skip a path that only starts with a skipped one", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [
+        wholeEntry("parity/a", "~/.config/parity/a"),
+        wholeEntry("parity/a/b", "~/.config/parity/a/b"),
+        wholeEntry("parity/a.conf", "~/.config/parity/a.conf"),
+      ],
+      repo: {
+        "dotfiles/common/parity/a": "old\n",
+        "dotfiles/common/parity/a/b": "old\n",
+        "dotfiles/common/parity/a.conf": "old\n",
+      },
+      local: {
+        ".config/parity/a": "new\n",
+        ".config/parity/a/b": "new\n",
+        ".config/parity/a.conf": "new\n",
+      },
+    });
+
+    // Act
+    const result = observe({
+      ...snapshot,
+      skip: ["dotfiles/common/parity/a"],
+    });
+
+    // Assert
+    expect(statusLines(result.lines)).toEqual([
+      "MODIFIED dotfiles/common/parity/a/b",
+      "MODIFIED dotfiles/common/parity/a.conf",
+    ]);
+  });
+
+  test("should give the same plan for an empty skip list", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [wholeEntry("parity/a.conf", "~/.config/parity/a.conf")],
+      repo: { "dotfiles/common/parity/a.conf": "old\n" },
+      local: { ".config/parity/a.conf": "new\n" },
+    });
+
+    // Act
+    const withEmpty = planExport({ ...snapshot, skip: [] });
+    const without = planExport(snapshot);
+
+    // Assert
+    expect(withEmpty).toEqual(without);
   });
 });

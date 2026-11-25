@@ -119,6 +119,12 @@ export interface Snapshot {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Raw `--only` arguments, before they are resolved to repo paths. */
   readonly only: readonly string[];
+  /**
+   * Repo paths this export leaves alone (contract "Front door", push: the `IN`
+   * files): no write, no removal, no status line, no count. Undefined or empty
+   * skips nothing.
+   */
+  readonly skip?: readonly string[];
   /** `--force`: overwrite without asking. Never skips the `.bak` backup. */
   readonly force?: boolean;
   /**
