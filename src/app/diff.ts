@@ -133,15 +133,43 @@ function appliedTree(base: RepoFiles, plan: RunPlan): RepoFiles {
  */
 function planSuggested(snapshot: Snapshot, files: RepoFiles): RunPlan {
   const atFiles = { ...snapshot, repoFiles: files };
-  const planned = planExport(atFiles);
-  const settings = planned.newSettings ?? [];
+  const first = planExport(atFiles);
+  const settings = first.newSettings ?? [];
   const question =
     settings.length > 0
       ? newSettingChoices(snapshot.record, snapshot.os)
       : undefined;
   return question === undefined
-    ? planned
+    ? first
     : planExport(atFiles, suggestionAnswers(settings, question));
+}
+
+/** Whether every file was planned: an `ERROR` file leaves `mine` unknown. */
+function planned(plan: RunPlan): boolean {
+  return plan.code === 0 && plan.errorLines === undefined;
+}
+
+/**
+ * Contract "Diff": the labels of the `json` entries whose local file is what
+ * `theirs` already builds. The same change can sit in other layers there than
+ * the ones an export would pick, so no layer file alone shows it.
+ */
+function settledLabels(
+  snapshot: Snapshot,
+  theirs: RepoFiles,
+  jsonEntries: readonly SelectedEntry[],
+): ReadonlySet<string> {
+  const plan = planSuggested(snapshot, theirs);
+  if (!planned(plan)) {
+    return new Set();
+  }
+  const after = appliedTree(theirs, plan);
+  const settled = jsonEntries.filter(({ slots }) =>
+    slots.every(({ repoPath }) =>
+      sameFile(after.get(repoPath), theirs.get(repoPath)),
+    ),
+  );
+  return new Set(settled.map(primaryRepoPath));
 }
 
 function sameFile(
@@ -284,10 +312,11 @@ export async function diffExport(
   );
 
   const exportPlan = planSuggested(snapshot, baseTree);
-  if (exportPlan.code !== 0) {
+  if (!planned(exportPlan)) {
     return {
       code: 1,
-      stdout: writeLines(exportPlan.lines),
+      // A plan that stopped has only its message; else only the failed files.
+      stdout: writeLines(exportPlan.errorLines ?? exportPlan.lines),
       stderr: `${EXPORT_FAILED}\n`,
     };
   }
@@ -296,11 +325,14 @@ export async function diffExport(
   // resolved above and can name a label git's layers alone don't have here.
   const gitPlan = planSuggested({ ...snapshot, only: [] }, base);
   const gitMine = appliedTree(base, gitPlan);
+  const jsonEntries = selected.value.filter(
+    ({ entry }) => entry.merge === "json",
+  );
   const mine = withoutUnapplied(
     appliedTree(baseTree, exportPlan),
     baseTree,
-    selected.value.filter(({ entry }) => entry.merge === "json"),
-    (path) => gitPlan.code === 0 && sameFile(gitMine.get(path), base.get(path)),
+    jsonEntries,
+    (path) => planned(gitPlan) && sameFile(gitMine.get(path), base.get(path)),
   );
   const allOwned = ownedPaths(
     selected.value.map((entry) => ({
@@ -313,13 +345,25 @@ export async function diffExport(
   );
   const owned =
     only.paths.length === 0 ? allOwned : narrowOwned(allOwned, only.paths);
-  const labels = labelDiff({
+  const verdicts = labelDiff({
     owned,
     base: baseTree,
     theirs: theirsTree,
     mine,
     hasSyncPoint: syncPoint !== undefined,
   });
+  // Only a `BOTH` can be settled: its export changed the base, so the local
+  // file was there to compare.
+  const settled = verdicts.some(({ label }) => label === "BOTH")
+    ? settledLabels(
+        { ...snapshot, only: [] },
+        theirsTree,
+        jsonEntries,
+      )
+    : new Set<string>();
+  const labels = verdicts.filter(
+    ({ label, path }) => label !== "BOTH" || !settled.has(path),
+  );
   const text = diffText(
     labels,
     headerOf(repoRef, repoStamp.short, lastSync),

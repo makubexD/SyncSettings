@@ -681,6 +681,9 @@ the entry's write root. A private layer's path is never printed. The verdicts of
 | `?` (no sync point)                 | `?`    |
 | none                                | none   |
 
+A `BOTH` gives no label when an export planned with `theirs` as the repo side would change none of the entry's layer
+files: the local file is what `theirs` already builds, only with the same change in other layers.
+
 A `BOTH` made of an `OUT` and an `IN` in two layers is still one entry: pulling it would drop this machine's change.
 
 The lines print through the normal status formatter (`OUT        dotfiles/…`), sorted by code unit.
@@ -707,7 +710,8 @@ point the summary reads `N file(s) differ. No sync is recorded on this machine, 
 `Run mksync pull or mksync push once to record one.` When nothing differs it prints `This machine and the repo agree.`
 
 The exit code is 0 when nothing differs, 3 when something does, and 1 on an error: a failed export plan prints its
-lines and `ERROR: the export for the diff failed; see above.`; a tree git can't read stops it with
+lines and `ERROR: the export for the diff failed; see above.` (a plan that only fails for some files, such as invalid
+JSON or a new setting with no machine record, prints their `ERROR` lines); a tree git can't read stops it with
 `ERROR: cannot read <ref> from git.`, and a clone with no commit with `ERROR: --diff needs a git repo with a commit.`
 `--diff` cannot be combined with `--preview` or `--yes` (error, exit 1). The diff writes no repo
 file, no sync point and no `.user-values.json`.

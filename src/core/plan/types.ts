@@ -311,6 +311,8 @@ export interface RunPlan {
    * split's order. Absent when the plan lists none.
    */
   readonly newSettings?: readonly NewSettingLine[];
+  /** An export plan's `ERROR` lines, one per file it couldn't plan. */
+  readonly errorLines?: readonly string[];
 }
 
 /**

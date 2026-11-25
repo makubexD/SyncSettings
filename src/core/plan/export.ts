@@ -89,6 +89,7 @@ interface State {
   readonly steps: FileStep[];
   readonly lines: string[];
   readonly newSettings: NewSettingLine[];
+  readonly errorLines: string[];
   pending: StepAction[];
   changed: number;
   skipped: number;
@@ -133,7 +134,11 @@ function pushStatus(
   label: string,
   note?: string,
 ): number {
-  state.lines.push(formatLine(word, label, note));
+  const text = formatLine(word, label, note);
+  state.lines.push(text);
+  if (word === "ERROR") {
+    state.errorLines.push(text);
+  }
   state.hits++;
   return state.lines.length - 1;
 }
@@ -791,6 +796,7 @@ export function planExport(
     steps: [],
     lines: [],
     newSettings: [],
+    errorLines: [],
     pending: [],
     changed: 0,
     skipped: 0,
@@ -832,5 +838,6 @@ export function planExport(
     summary,
     code: 0,
     ...(state.newSettings.length > 0 ? { newSettings: state.newSettings } : {}),
+    ...(state.errorLines.length > 0 ? { errorLines: state.errorLines } : {}),
   };
 }
