@@ -128,6 +128,8 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     runDiff: async () => diffOf(),
     runExport: async () => EXPORTED,
     statusShort: async () => ({ ok: true, stdout: STATUS }),
+    stateStamp: () => "same",
+    guardedClean: async () => true,
     pathsClean: async () => true,
     changedFiles: async () => ({ tracked: [A], untracked: [] }),
     restoreFiles: async () => undefined,
@@ -385,6 +387,32 @@ describe("executePush guard", () => {
     expect(run.commits).toEqual([true]);
   });
 
+  test("an IN file stops a push from a repo folder with changes", async () => {
+    const run = await runGuarded(
+      diffOf(["OUT", A], ["IN", B]),
+      pushInput({ yes: true, force: true }),
+      { guardedClean: async () => false },
+    );
+
+    expect(run.result).toEqual({
+      code: 1,
+      stdout: "",
+      stderr:
+        "  ERROR: the repo folder has changes not sent yet, and they can hold older versions of these files; run git stash -u, then push again.\n",
+    });
+    expect(run.printed).toBe(IN_LINES);
+    expect(run.exports).toEqual([]);
+    expect(run.commits).toEqual([]);
+  });
+
+  test("changes in the repo folder pass without an IN file", async () => {
+    const run = await runGuarded(diffOf(["OUT", A]), pushInput(), {
+      guardedClean: async () => false,
+    });
+
+    expect(run.commits).toEqual([false]);
+  });
+
   test("only an IN file leaves nothing to send", async () => {
     const run = await runGuarded(diffOf(["IN", B]), pushInput(), {
       statusShort: async () => ({ ok: true, stdout: "" }),
@@ -528,7 +556,7 @@ describe("executePush declined", () => {
         },
         runExport: async () => {
           order.push("export");
-          return EXPORTED;
+          return { ...EXPORTED, repoPaths: [A, B] };
         },
         changedFiles: async () => {
           order.push("list");
@@ -558,6 +586,27 @@ describe("executePush declined", () => {
     });
     expect(run.restored).toEqual([CHANGED]);
     expect(run.order).toEqual(["clean", "export", "list", "ask"]);
+  });
+
+  test("only what the export wrote is put back", async () => {
+    const run = await decline({
+      changedFiles: async () => ({
+        tracked: [A, "packages/linux/apt.txt"],
+        untracked: ["dotfiles/mine.txt", "profiles/work-1.json"],
+      }),
+    });
+
+    expect(run.restored).toEqual([
+      { tracked: [A], untracked: ["profiles/work-1.json"] },
+    ]);
+  });
+
+  test("an export that changed local state keeps every file", async () => {
+    const stamps = ["before", "after"];
+    const run = await decline({ stateStamp: () => stamps.shift() ?? "" });
+
+    expect(run.result).toEqual({ code: 0, stdout: KEPT, stderr: "" });
+    expect(run.restored).toEqual([]);
   });
 
   test("a repo folder with changes keeps every file", async () => {

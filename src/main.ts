@@ -12,6 +12,7 @@ import {
   statusPorcelain,
 } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
+import { layerStateStamp } from "./adapters/store.ts";
 import { readAllStdin } from "./adapters/process.ts";
 import { readIdentity } from "./adapters/scan.ts";
 import {
@@ -121,6 +122,9 @@ const PUSH_STATUS_PATHS = [
   "profiles",
   "machines",
 ] as const;
+
+/** The push paths whose files the diff guard can call `IN`. */
+const GUARDED_PATHS = ["dotfiles", "profiles", "machines"] as const;
 
 /** The record check that stops a push, before its diff guard. */
 function pushRefusal(
@@ -384,6 +388,8 @@ async function execute(
                 moves: true,
                 terminal,
               }),
+            stateStamp: () => layerStateStamp(state),
+            guardedClean: () => pathsClean(repoRoot, GUARDED_PATHS),
             pathsClean: () => pathsClean(repoRoot, PUSH_STATUS_PATHS),
             changedFiles: () => changedFiles(repoRoot, PUSH_STATUS_PATHS),
             restoreFiles: (files) =>

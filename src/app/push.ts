@@ -80,6 +80,11 @@ export interface PushDeps {
   ) => Promise<Result>;
   /** `git status --short` over the sync paths. */
   readonly statusShort: () => Promise<StatusResult>;
+  /** A fingerprint of the record, profiles and layers in local state. */
+  readonly stateStamp: () => string;
+  /** Nothing the diff guard compares (`dotfiles`, `profiles`, `machines`)
+   * differs from the last commit. */
+  readonly guardedClean: () => Promise<boolean>;
   /** Nothing under the push paths differs from the last commit. */
   readonly pathsClean: () => Promise<boolean>;
   /** The files under the push paths that differ; `undefined` when git can't
@@ -133,6 +138,10 @@ function bothError(count: number): string {
     "  Merge by hand, then run mksync push --force <path>; or mksync pull --force <path> takes the repo's version (keeps a .bak).\n"
   );
 }
+
+/** An older version already in the repo folder would go out with the commit. */
+const IN_BUT_DIRTY =
+  "  ERROR: the repo folder has changes not sent yet, and they can hold older versions of these files; run git stash -u, then push again.\n";
 
 /** A declined question, after the repo folder was put back. */
 const NOTHING_SENT = "  Nothing sent; the repo folder is as it was.\n";
@@ -320,8 +329,25 @@ async function guardPush(
   };
 }
 
+/** The changed files the export itself wrote or removed. Any other one was
+ * edited, added or ignored before, and isn't the push's to put back. */
+function exportedOnly(
+  changed: PushedFiles,
+  repoPaths: readonly string[] | undefined,
+): PushedFiles {
+  const written = new Set(repoPaths ?? []);
+  // Only the program writes the store's folders, some of it outside the plan.
+  const isExported = (path: string): boolean =>
+    written.has(path) || /^(machines|profiles)\//.test(path);
+  return {
+    tracked: changed.tracked.filter(isExported),
+    untracked: changed.untracked.filter(isExported),
+  };
+}
+
 /** Contract "Front door": a declined push leaves no trace, unless the push
- * paths had changes before it (`changed` is then absent). */
+ * paths had changes before it, or the export also wrote local state
+ * (`changed` is then absent). */
 async function declined(
   changed: PushedFiles | undefined,
   deps: PushDeps,
@@ -370,6 +396,12 @@ export async function executePush(
     deps.print({ code: 0, stdout: guard.shown, stderr: "" });
   }
 
+  // The commit stages every push path, so a stale `IN` file would be sent.
+  if (guard.skip.length > 0 && !(await deps.guardedClean())) {
+    return { code: 1, stdout: "", stderr: IN_BUT_DIRTY };
+  }
+
+  const stateBefore = deps.stateStamp();
   const cleanBefore = await deps.pathsClean();
   const exported = await deps.runExport(only, input.yes, guard.skip);
   if (exported.code !== 0) {
@@ -410,7 +442,12 @@ export async function executePush(
     return deps.runCommit(only.length > 0 || guard.partial, input.message);
   }
   // Listed before the question: a file made while it waits isn't this push's.
-  const changed = cleanBefore ? await deps.changedFiles() : undefined;
+  // A record or layer the export moved out of local state is only in the repo
+  // folder now, so putting the folder back would lose it.
+  const restorable = cleanBefore && deps.stateStamp() === stateBefore;
+  const listed = restorable ? await deps.changedFiles() : undefined;
+  const changed =
+    listed === undefined ? undefined : exportedOnly(listed, exported.repoPaths);
   if (!(await deps.ask(PR_QUESTION, false))) {
     return declined(changed, deps);
   }

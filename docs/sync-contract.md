@@ -633,7 +633,8 @@ that failed before that (commit, push or PR) writes nothing. A PR that `gh` fail
 `mksync push` uses when it is given paths, when it left an `IN` file alone, or when `--force` passed a failed diff)
 writes nothing either, for the same reason as a partial import: the machine agrees with only part of the repo. After a
 push that left an `IN` file, a recorded point would make that file read as `OUT`, and the next push would undo the
-repo's change.
+repo's change. A commit that fast-forwarded the clone first writes nothing either: no diff compared the commits it
+brought with this machine.
 
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
@@ -657,8 +658,9 @@ applied here (a profile just chosen): it gives nothing, and a pull applies it. T
 only remove from the layer file, or when the local file is exactly what git's layers alone build.
 
 Only paths this OS's entries own are compared: a `json` entry owns the file of each of its
-[layers](#layers) (base, OS, profile and machine), any other file or dconf entry owns its label, and a dir entry owns
-the `<label>/` prefix. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
+[layers](#layers) (base, OS, profile and machine), an `import` entry its base and OS layer files, any other file or
+dconf entry the layer file it reads in `base` and the one it reads in `theirs`, and a dir entry the `<label>/` prefix of
+both. Every file of one entry folds into one line at its label, except a dir entry's. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
 as a version, and each owned path in the union of the three trees gets at most one verdict:
 
 | `mine` vs `base`                 | `theirs` vs `base`         | Label                                             |
@@ -734,11 +736,13 @@ no block. One block per `BOTH` file, in the order of the label lines, after the 
 
 - The body is git's unified diff from `theirs` to `mine`, with git's own header dropped and two spaces in front of each
   line. Both sides are the sanitized repo form. The user's git diff settings (external diff, color) don't apply.
+- A control or text-direction character (tab excepted), in a line or a path, prints as `\u` and its four-digit hex
+  code. A body line over 200 characters is cut there, ending in `…`.
 - Over 40 body lines: the first 40, then `  … <n> more line(s)`.
 - A binary file's body is `  binary files differ`.
 - A side that doesn't have the file has ` (missing)` at the end of its header line.
 - A `json` entry gets one block per `dotfiles/` layer file where `theirs` and `mine` differ. A private layer is never
-  printed.
+  printed, and a file of any other merge type that has one gets no block: its local content is the private layer's.
 
 ## Front door
 
@@ -816,13 +820,23 @@ and before the export; a failed fetch leaves it comparing with the last one. Pic
     WARNING: no sync is recorded on this machine, so this sends every file that differs.
   ```
 
-The export skips the `IN` files instead of picking the `OUT` ones, so a file an earlier export left stale in the repo
-folder is rewritten, and a [linked folder](#linked-folders)'s files, which `--only` refuses, are still sent.
+The export skips the `IN` files instead of picking the `OUT` ones, so any other file an earlier export left stale in the
+repo folder is rewritten, and a [linked folder](#linked-folders)'s files, which `--only` refuses, are still sent.
 
-A declined PR question leaves no trace when the push paths had no changes before the export: the tracked files are
-restored and the untracked files the export added are removed, never an ignored file and never one outside the push
-paths. Moves made in that run are lost with them. It prints `  Nothing sent; the repo folder is as it was.`, exit 0. If
-the push paths had changes before the export, every file stays and the `Kept in the repo.` line prints, exit 0. A
+The commit stages every push path, so a stale `IN` file would still be sent. A push that would leave an `IN` file alone,
+while `dotfiles/`, `profiles/` or `machines/` has changes not committed, stops before the export with this line on
+stderr after the `IN` lines, exit 1, `--force` included:
+
+```text
+  ERROR: the repo folder has changes not sent yet, and they can hold older versions of these files; run git stash -u, then push again.
+```
+
+A declined PR question leaves no trace when the push paths had no changes before the export: the tracked files the
+export changed are restored and the untracked files it added are removed, and no other file is touched. Moves made in
+that run are lost with them. It prints `  Nothing sent; the repo folder is as it was.`, exit 0. If the push paths had
+changes before the export, or the export also changed the record, a profile or a layer in local state (the first
+backup, a move or an answer kept there), every file stays and the `Kept in the repo.` line prints, exit 0: what moved
+out of local state is only in the repo folder. A
 restore that fails, or that leaves a change behind (`ERROR: the repo folder still has changes.`), prints the error and the `Kept in the repo.` line, exit 1.
 
 `pull` and `push` need the clone on `master` with an `origin` remote. The status fetch has a 15-second timeout. The
@@ -875,7 +889,7 @@ origin remote.`, `ERROR: the repo has changes not sent yet; run mksync push firs
   `Nothing applied.` after a declined apply, `Nothing to send: the repo matches this machine.` (`Nothing to send.` when
   an `IN` file was left alone), and after a declined PR question `Nothing sent; the repo folder is as it was.`, or
   `Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.` when the repo folder already had
-  changes. Both questions, `Apply these changes? [y/N]` and `Open a PR with these changes? [y/N]`, take only an answer
+  changes or the export changed local state. Both questions, `Apply these changes? [y/N]` and `Open a PR with these changes? [y/N]`, take only an answer
   starting with `y` or `Y` as yes.
 - **`diff`** stops on a clone with no commit with `ERROR: --diff needs a git repo with a commit.`, and on a tree git
   can't read with `ERROR: cannot read <ref> from git.`, exit 1.

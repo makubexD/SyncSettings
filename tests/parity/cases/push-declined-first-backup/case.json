@@ -1,0 +1,30 @@
+{
+  "description": "A declined push whose export made the first backup keeps the repo folder: the record is only there now (Front door, push; The first backup).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "work-base": {
+        "description": "Rules every job shares"
+      }
+    },
+    "entries": []
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "remote",
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "\n"
+    }
+  ],
+  "stubs": [
+    "gh"
+  ]
+}

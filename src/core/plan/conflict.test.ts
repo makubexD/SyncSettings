@@ -205,3 +205,34 @@ describe("conflictBlock", () => {
     expect(lines).toEqual([REPO_HEADER, MINE_HEADER]);
   });
 });
+
+describe("conflictBlock on a terminal", () => {
+  const SIDES = { theirs: true, mine: true };
+
+  test("control and direction characters are shown, not sent", () => {
+    const lines = conflictBlock(
+      "a\u001b.conf",
+      SIDES,
+      "@@ -1 +1 @@\n-x\u001b]52;c;Zg==\u0007\n+\ty\rz\u202e\u009b\r\n",
+    );
+
+    expect(lines).toEqual([
+      "  --- repo           a\\u001b.conf",
+      "  +++ this machine   a\\u001b.conf",
+      "  @@ -1 +1 @@",
+      "  -x\\u001b]52;c;Zg==\\u0007",
+      "  +\ty\\u000dz\\u202e\\u009b",
+    ]);
+  });
+
+  test("a very long line is cut at 200 characters", () => {
+    const lines = conflictBlock(
+      "a.conf",
+      SIDES,
+      `@@ -1 +1 @@\n-${"x".repeat(199)}\n+${"y".repeat(5000)}\n`,
+    );
+
+    expect(lines[3]).toBe(`  -${"x".repeat(199)}`);
+    expect(lines[4]).toBe(`  +${"y".repeat(199)}…`);
+  });
+});

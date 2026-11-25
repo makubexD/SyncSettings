@@ -16,6 +16,7 @@ import type {
   DiffHeader,
   DiffLine,
   LastSync,
+  OwnedEntry,
   OwnedPaths,
   RepoRef,
 } from "../core/plan/diff.ts";
@@ -68,6 +69,35 @@ function ownedType(merge: MergeType): EntryType {
     return "dir";
   }
   return merge === "dconf" ? "dconf" : "file";
+}
+
+/**
+ * Contract "Diff": what one entry owns. `json` and `import` read several
+ * layers at once, so each layer's file counts. Any other entry reads one layer,
+ * and `theirs` can read another one than `base`: both count.
+ */
+function ownedEntries(
+  entry: SelectedEntry,
+  inTheirs: SelectedEntry | undefined,
+): readonly OwnedEntry[] {
+  const { merge } = entry.entry;
+  const repoPath = primaryRepoPath(entry);
+  const own = { repoPath, type: ownedType(merge) };
+  if (merge === "json") {
+    return [{ ...own, layerPaths: entry.slots.map((slot) => slot.repoPath) }];
+  }
+  if (merge === "import") {
+    const git = entry.slots.filter((slot) => !isPrivate(slot));
+    return [{ ...own, layerPaths: git.map((slot) => slot.repoPath) }];
+  }
+  const theirsPath =
+    inTheirs === undefined ? repoPath : primaryRepoPath(inTheirs);
+  if (theirsPath === repoPath) {
+    return [own];
+  }
+  return merge === "dir"
+    ? [own, { ...own, repoPath: theirsPath }]
+    : [{ ...own, layerPaths: [theirsPath] }];
 }
 
 /** The owned set narrowed by `--only`: the paths the diff labels and counts. */
@@ -388,14 +418,22 @@ export async function diffExport(
     jsonEntries,
     (path) => planned(gitPlan) && sameFile(gitMine.get(path), base.get(path)),
   );
+  const selectedTheirs = selectEntries(
+    snapshot.config,
+    scopeFor(snapshot),
+    new Set(theirs.keys()),
+  );
+  if (!selectedTheirs.ok) {
+    return {
+      code: selectedTheirs.error.code,
+      stdout: "",
+      stderr: `${selectedTheirs.error.message}\n`,
+    };
+  }
   const allOwned = ownedPaths(
-    selected.value.map((entry) => ({
-      repoPath: primaryRepoPath(entry),
-      type: ownedType(entry.entry.merge),
-      ...(entry.entry.merge === "json"
-        ? { layerPaths: entry.slots.map((slot) => slot.repoPath) }
-        : {}),
-    })),
+    selected.value.flatMap((entry, index) =>
+      ownedEntries(entry, selectedTheirs.value[index]),
+    ),
   );
   const owned =
     only.paths.length === 0 ? allOwned : narrowOwned(allOwned, only.paths);
@@ -423,10 +461,18 @@ export async function diffExport(
     headerOf(repoRef, repoStamp.short, lastSync),
     snapshot.only.length > 0,
   );
+  // Outside `json`, the local file can hold a private layer's content.
   const privatePaths = new Set(
-    selected.value.flatMap(({ slots }) =>
-      slots.filter(isPrivate).map(({ repoPath }) => repoPath),
-    ),
+    selected.value.flatMap(({ entry, slots }) => {
+      const overridden =
+        entry.merge !== "json" &&
+        slots.some(
+          (slot) => isPrivate(slot) && snapshot.repoFiles.has(slot.repoPath),
+        );
+      return slots
+        .filter((slot) => overridden || isPrivate(slot))
+        .map(({ repoPath }) => repoPath);
+    }),
   );
   return {
     code: text.exit,

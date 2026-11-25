@@ -1,0 +1,62 @@
+{
+  "description": "An import entry with an OS layer reads IN under its label when the repo changes its base file, and push leaves every layer alone (Diff; Front door, push).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": [
+    "gh"
+  ],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "First parity case file"
+      },
+      {
+        "file": "parity/b.md",
+        "module": "unsorted",
+        "merge": "import",
+        "localPath": "~/.config/parity/b.md",
+        "description": "Second parity case file",
+        "importName": "b.{layer}.md"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "paths": [
+          "dotfiles/common/parity/a.conf"
+        ],
+        "yes": true
+      }
+    },
+    {
+      "command": "push",
+      "options": {
+        "yes": true
+      }
+    },
+    {
+      "command": "front-diff"
+    }
+  ]
+}

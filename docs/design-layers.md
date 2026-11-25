@@ -1372,6 +1372,11 @@ Enterprise. Every section ran:
 
 ### Design
 
+- **A private layer that isn't `json` reads `BOTH` (safe-push review).** A `whole` file overridden by a profile or
+  machine layer reads `OUT`, or `BOTH` when the repo changes the shared file, because only `json` entries' private
+  layers join the diff (decided in the diff-layers plan). Pull and push then stop on it, and the printed
+  `--force <path>` fails with `is not synced on this machine`; `--force` without a path works. No entry has such a
+  layer in the repo today. Options: let every merge type's private layers join the diff, or accept the label as a path.
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
   new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
   plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").

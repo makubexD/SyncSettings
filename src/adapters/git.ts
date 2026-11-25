@@ -1035,6 +1035,10 @@ export async function textDiff(
       {
         GIT_ATTR_NOSYSTEM: "1",
         GIT_CEILING_DIRECTORIES: dirname(tmp),
+        // A git hook's own settings must not reach this diff.
+        GIT_CONFIG_COUNT: "0",
+        GIT_CONFIG_PARAMETERS: "",
+        GIT_DIR: join(tmp, "none"),
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
         // Git lets this one win over `--unified`.
@@ -1154,6 +1158,11 @@ export async function restoreFiles(
     } catch (error) {
       if (!(error instanceof Error)) {
         throw error;
+      }
+      const code = "code" in error ? error.code : undefined;
+      if (code === "ENOENT" || code === "ENOTDIR") {
+        // Already gone: git put a file back where its folder was.
+        continue;
       }
       return `ERROR: ${error.message}\n`;
     }

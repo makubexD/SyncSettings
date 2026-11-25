@@ -25,6 +25,30 @@ const BINARY_BODY = "binary files differ";
 
 const MAX_BODY_LINES = 40;
 
+const MAX_LINE_LENGTH = 200;
+
+/** Control and text-direction characters, tab excepted: a terminal would act
+ * on them instead of showing them. */
+const UNSAFE =
+  /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u200e\u200f\u061c\u2028-\u202e\u2066-\u2069]/g;
+
+/** `text` with every unsafe character as `\u` and its four-digit code. */
+function visible(text: string): string {
+  return text.replace(
+    UNSAFE,
+    (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+/** A body line as it is shown: visible, and cut when it is very long. */
+function shownLine(line: string): string {
+  const characters = [...line.slice(0, 2 * MAX_LINE_LENGTH + 2)];
+  return characters.length > MAX_LINE_LENGTH
+    ? `${INDENT}${visible(characters.slice(0, MAX_LINE_LENGTH).join(""))}…`
+    : `${INDENT}${visible(line)}`;
+}
+
 function headerLine(
   mark: "---" | "+++",
   label: string,
@@ -32,7 +56,7 @@ function headerLine(
   present: boolean,
 ): string {
   const missing = present ? "" : MISSING_SUFFIX;
-  return `${INDENT}${mark} ${label.padEnd(HEADER_LABEL_WIDTH)}${path}${missing}`;
+  return `${INDENT}${mark} ${label.padEnd(HEADER_LABEL_WIDTH)}${visible(path)}${missing}`;
 }
 
 /** The diff lines from the first hunk on, or git's binary notice. */
@@ -65,9 +89,7 @@ export function conflictBlock(
     headerLine("+++", MINE_LABEL, path, sides.mine),
   ];
   const body = bodyLines(diff);
-  const shown = body
-    .slice(0, MAX_BODY_LINES)
-    .map((line) => `${INDENT}${line}`);
+  const shown = body.slice(0, MAX_BODY_LINES).map(shownLine);
   const leftOut = body.length - shown.length;
   return leftOut > 0
     ? [...headers, ...shown, `${INDENT}… ${leftOut} more line(s)`]

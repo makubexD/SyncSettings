@@ -33,6 +33,9 @@ With some files `IN` and others `OUT`, push first. It sends the `OUT` files and 
 
 Once that PR is merged, `mksync pull` takes the rest. To take an `IN` file sooner, name it: `mksync pull <path>`.
 
+A push that would leave an `IN` file stops when the repo folder has changes not sent yet, since they can hold its older
+version. Run `git stash -u` in the clone, then push again; the export writes your settings anew.
+
 A push also stops while the repo on GitHub has commits this clone lacks (`origin has updates; run mksync pull first.`).
 That pull brings the clone up to date before it checks any file, so run it even if it then stops on your own edits:
 the next push gets past that line.
@@ -48,7 +51,7 @@ the next push gets past that line.
 | `mksync push`         | yes     | `BOTH`, a failed diff                      | Opens a PR with the `OUT` files                                                              |
 | `mksync push --yes`   | no      | the same                                   | The same, for scripts. It also works with no sync point: a PR is reviewed before it's merged |
 | `mksync push --force` | yes     | nothing above                              | Sends `BOTH` files too, as this machine has them. `IN` files are still left alone            |
-| `mksync push <path>…` | yes     | the same, for those files only             | Sends only those files                                                                       |
+| `mksync push <path>…` | yes     | the same, for those files only             | Exports only those files. Changes already in the repo folder go out with them                |
 
 - `--force` never answers the question; add `--yes` for that.
 - Only an answer starting with `y` or `Y` is yes. Enter, or no input at all, is No.
@@ -79,7 +82,8 @@ A `BOTH` file stops pull and push, and both print its lines. `-` is the repo's v
   +machine line
 ```
 
-The lines show placeholders, not your real values. Over 40 lines, the rest is counted (`… 12 more line(s)`). Then pick
+Values a `sanitize` rule covers show as placeholders. Over 40 lines, the rest is counted (`… 12 more line(s)`), and a
+very long line is cut. Then pick
 one:
 
 | You want               | Do this                                                                                     |
@@ -96,20 +100,24 @@ matches neither side; that is why the push needs `--force`. The PR shows what ch
 - **Pull:** `Nothing applied.` No file on this machine changed. The clone was already brought up to date, so the next
   pull has nothing to download.
 - **Push:** `Nothing sent; the repo folder is as it was.` The export had written your files into the repo folder, and
-  No puts them back, with any moves between groups you made in that run.
+  No puts them back, and drops the moves between groups you made in that run.
 - **Push, when the repo folder already had changes:** `Kept in the repo. Run mksync push again, or git restore dotfiles
 to drop them.` Nothing is put back, because mksync can't tell those changes from its own.
+- **Push, when the export also changed local state** (the first push after the repo went private, or a move of a setting
+  kept on this machine): the same `Kept` line. Don't drop those files: run `mksync push` again, since what moved may
+  now be only in the repo folder.
 
 ## When the sync point moves
 
-| What ran                                                | Sync point                                                    |
-| ------------------------------------------------------- | ------------------------------------------------------------- |
-| A pull of everything, with no error and no file skipped | Moves to the commit it applied, even if no file had to change |
-| A push of everything, once its PR is open               | Moves to the `master` commit the PR starts from               |
-| A pull or push with paths                               | Stays                                                         |
-| A push that left an `IN` file alone                     | Stays                                                         |
-| `mksync push --force` after a failed diff               | Stays                                                         |
-| A No, an error, `diff`, `check` or `preview`            | Stays                                                         |
+| What ran                                                      | Sync point                                                    |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
+| A pull of everything, with no error and no file skipped       | Moves to the commit it applied, even if no file had to change |
+| A push of everything, once its PR is open                     | Moves to the `master` commit the PR starts from               |
+| A push that brought the clone up to date while opening its PR | Stays                                                         |
+| A pull or push with paths                                     | Stays                                                         |
+| A push that left an `IN` file alone                           | Stays                                                         |
+| `mksync push --force` after a failed diff                     | Stays                                                         |
+| A No, an error, `diff`, `check` or `preview`                  | Stays                                                         |
 
 A partial run leaves it where it was because the machine agrees with only part of the repo. If a push that left an `IN`
 file moved it, that file would read `OUT` next time, and a push would undo the repo's change. Files you pushed read
