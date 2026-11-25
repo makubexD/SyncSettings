@@ -1,0 +1,34 @@
+{
+  "description": "An empty answer to pull's question is No, and the clone still fast-forwards: nothing is applied, exit 0 (Front door, pull).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "stdin": "\n"
+    }
+  ],
+  "syncPoint": true
+}

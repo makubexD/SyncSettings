@@ -1,5 +1,5 @@
 {
-  "description": "Pull with a sync point stops on a json entry changed on both sides, a local array item and a repo key: the BOTH line, then the pull guard's ERROR pair, exit 1 and nothing written here (plan-setup-hotfix decided 4; Front door, pull guard; json entries, import).",
+  "description": "Pull with a sync point stops on a json entry changed on both sides, a local array item and a repo key: the BOTH line, the conflict block, then the pull guard's ERROR pair, exit 1 and nothing written here (plan-setup-hotfix decided 4; Front door, pull guard; Conflict block; json entries, import).",
   "os": [
     "linux",
     "windows"
@@ -30,7 +30,8 @@
       "command": "pull",
       "options": {
         "yes": true
-      }
+      },
+      "stderr": true
     }
   ],
   "syncPoint": true

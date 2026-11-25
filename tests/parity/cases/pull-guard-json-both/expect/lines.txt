@@ -1,2 +1,6 @@
-ERROR: 1 file(s) changed on this machine since the last sync, and a pull would overwrite them.
-Run mksync push first, or mksync pull --force to overwrite them (each keeps a .bak).
+BOTH dotfiles/common/parity/settings.json
+--- repo           dotfiles/common/parity/settings.json
++++ this machine   dotfiles/common/parity/settings.json
+@@ -4,8 +4,12 @@
+-  "theme": "light"
++  "theme": "dark"
