@@ -366,6 +366,12 @@ function exportCommand(): RunCommand {
   };
 }
 
+/** An `export` run that leaves `skip` alone, so `buildSnapshot` stops before
+ * the git reads. */
+function exportCommandSkipping(skip: readonly string[]): RunCommand {
+  return { ...exportCommand(), skip };
+}
+
 /** The local store's paths, as `readStore` reports them. */
 function stateLocation(fixture: StateFixture): StoreLocation {
   return {
@@ -562,6 +568,48 @@ describe("readSnapshot with layers", () => {
     expect(textOfBytes(snapshot.repoFiles.get(MACHINE_LAYER_FILE))).toBe(
       LAYER_BYTES,
     );
+  });
+});
+
+describe("buildSnapshot's skip list", () => {
+  test("should carry a command's skip into the snapshot", async () => {
+    // Arrange
+    const fixture = stateFixture();
+
+    // Act
+    const snapshot = await buildSnapshot(
+      fixture.repo,
+      baseConfig(),
+      "linux",
+      fixture.home,
+      exportCommandSkipping([REPO_FILE]),
+      fixture.home,
+      {},
+      { location: stateLocation(fixture) },
+    );
+
+    // Assert
+    expect(snapshot.skip).toEqual([REPO_FILE]);
+  });
+
+  test("should leave no skip key when the command has none", async () => {
+    // Arrange
+    const fixture = stateFixture();
+
+    // Act
+    const snapshot = await buildSnapshot(
+      fixture.repo,
+      baseConfig(),
+      "linux",
+      fixture.home,
+      exportCommand(),
+      fixture.home,
+      {},
+      { location: stateLocation(fixture) },
+    );
+
+    // Assert
+    expect("skip" in snapshot).toBe(false);
   });
 });
 

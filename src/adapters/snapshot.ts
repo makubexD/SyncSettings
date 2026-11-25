@@ -245,6 +245,7 @@ export async function buildSnapshot(
     values,
     env,
     only: command.only,
+    ...(command.skip !== undefined ? { skip: command.skip } : {}),
     force: command.force,
     ...(layers.profile !== undefined ? { profile: layers.profile } : {}),
     ...(layers.machine !== undefined ? { machine: layers.machine } : {}),

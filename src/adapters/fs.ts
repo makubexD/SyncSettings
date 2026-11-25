@@ -70,6 +70,7 @@ export interface SnapshotInput {
   readonly values: Values;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly only: readonly string[];
+  readonly skip?: readonly string[];
   readonly force?: boolean;
 }
 
@@ -419,6 +420,7 @@ export function readSnapshot(input: SnapshotInput): Snapshot {
     values: input.values,
     env: input.env,
     only: input.only,
+    ...(input.skip !== undefined ? { skip: input.skip } : {}),
     ...(input.profile !== undefined ? { profile: input.profile } : {}),
     ...(input.machine !== undefined ? { machine: input.machine } : {}),
     ...(input.record !== undefined ? { record: input.record } : {}),
