@@ -1,0 +1,47 @@
+{
+  "description": "export refuses a base change holding a profile value the run inferred from another file, as it refuses a saved one: the two refused: lines after the grouped block, exit 1, nothing written (Profile values (program only); Sanitize and hydrate, Inference).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/git.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/git.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_EMAIL>",
+            "prompt": "Email for git commits"
+          }
+        ]
+      },
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "commands": [
+    {
+      "command": "export",
+      "output": "all"
+    }
+  ]
+}

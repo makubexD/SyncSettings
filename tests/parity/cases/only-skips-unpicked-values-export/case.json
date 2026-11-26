@@ -1,5 +1,5 @@
 {
-  "description": "Export with --only writes the picked file without asking for an unpicked entry's missing value, and the same run without --only stops with exit 1 and writes nothing (Picking files, Values). Ported from only-skips-unpicked-values-export.",
+  "description": "Export with --only writes the picked file without asking for an unpicked entry's missing value, and the same run without --only stops with exit 1 and writes nothing; the local san.conf has no line that pairs with name=<MISSING>, so inference finds no value (Picking files, Values). Ported from only-skips-unpicked-values-export.",
   "configV2": {
     "schemaVersion": 2,
     "excludePatterns": [

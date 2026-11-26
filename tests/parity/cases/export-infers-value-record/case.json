@@ -1,0 +1,43 @@
+{
+  "description": "Export with a record infers each value from the local file and saves it by the Values on a machine table: the email on the profile, <HOME> on the record (Sanitize and hydrate, Inference; Values on a machine).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/git.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/git.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_EMAIL>",
+            "prompt": "Email for git commits"
+          },
+          {
+            "placeholder": "<HOME>",
+            "prompt": "Home folder"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}
