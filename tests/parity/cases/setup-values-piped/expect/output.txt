@@ -18,4 +18,4 @@ Profiles on this machine:
 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing stop
-Write the record and apply? [Y/n] <OTHER>: kept on 1) this profile 2) this machine [1] Stopped: the record is written, no file was changed.
+Write the record? [Y/n] <OTHER>: kept on 1) this profile 2) this machine [1] Stopped: the record is written, no file was changed.
