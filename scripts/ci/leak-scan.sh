@@ -25,14 +25,27 @@ done
 HITS=0
 HIT_RULES=
 
+# split_hit <grep line>: sets HIT_FILE, HIT_LINE and HIT_TEXT from
+# "<file>:<line>:<text>". A Windows path starts with a drive ("C:\" or "C:/"),
+# whose colon is part of the file name, not the separator.
+split_hit() {
+    local hit=$1 drive=
+    if [[ $hit =~ ^[A-Za-z]:[\\/] ]]; then
+        drive=${hit:0:2}
+        hit=${hit:2}
+    fi
+    HIT_FILE=$drive${hit%%:*}
+    local rest=${hit#*:}
+    HIT_LINE=${rest%%:*}
+    HIT_TEXT=${rest#*:}
+}
+
 # Print one hit as "<file>:<line>: <rule>" and count it, recording the rule's
 # first hit so its hint prints once, after all rules ran.
 emit() {
-    local rule=$1 hit=$2
-    local file=${hit%%:*}
-    local rest=${hit#*:}
-    local lineno=${rest%%:*}
-    printf '%s:%s: %s\n' "$file" "$lineno" "$rule"
+    local rule=$1
+    split_hit "$2"
+    printf '%s:%s: %s\n' "$HIT_FILE" "$HIT_LINE" "$rule"
     HITS=$(( HITS + 1 ))
     case " $HIT_RULES " in
         *" $rule "*) ;;
@@ -59,7 +72,7 @@ scan_rule() {
 # One disallowed address is enough, even when the line also has an allowed one.
 scan_email() {
     local pattern=$1
-    local out status=0 hit file rest addr text bad
+    local out status=0 hit file addr text bad
     out=$(grep -rnIE -- "$pattern" "${PATHS[@]}") || status=$?
     if (( status > 1 )); then
         printf 'ERROR: scan failed for rule email\n' >&2
@@ -67,9 +80,10 @@ scan_email() {
     fi
     [[ -n $out ]] || return 0
     while IFS= read -r hit; do
-        file=${hit%%:*}
-        rest=${hit#*:}
-        text=${rest#*:}
+        split_hit "$hit"
+        # Path rules compare with "/" whatever the OS: fold Windows's "\".
+        file=${HIT_FILE//\\//}
+        text=$HIT_TEXT
         # Extension UUIDs look like addresses; only these two keys hold them.
         if [[ $file == *dotfiles/linux/gnome/dconf/*.ini && $text =~ ^(enabled|disabled)-extensions= ]]; then
             continue

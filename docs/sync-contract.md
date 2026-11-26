@@ -442,7 +442,8 @@ ERROR: commit or stash changes outside dotfiles/ first.
 **Leak scan.** `scripts/ci/leak-scan.sh` runs on the sync paths. Skipping it is not an option: a scan that cannot run stops
 the commit the same way a hit does. A rule that tests a file's path compares it with `/` as the separator, whatever the
 OS: a Windows path given with `\` is folded to `/` first, so an allowance (such as the dconf extension lines below)
-matches on Windows as on Linux.
+matches on Windows as on Linux. A hit's
+file keeps its drive (`C:\…`): the drive's colon is part of the path, so the line number after it is still right.
 
 | Scan result                                    | Message                                                              |
 | ---------------------------------------------- | -------------------------------------------------------------------- |
