@@ -1487,6 +1487,12 @@ install").
   `<HOME>`), and the Windows VM showed the push questions read PowerShell's byte order mark as an answer
   (`setupTerminal` now drops it). The shared cases can't put the temp home's path inside a fixture, so the
   forward-slash rule is covered by unit cases and checked on work #2's push.
+- **Other spellings of a Windows home (values-ask re-review).** Sanitize and the leak scan cover `C:/Users/…` and
+  `C:\Users\…`, but not Git Bash's `/c/Users/<name>` nor a JSON writer's `C:\/Users\/…` (the leak scan does catch the
+  second). Add `/[a-z]/Users/` to the leak scan and the `/c/…` form to `formsFor` for a drive value. A `<HOME>` file
+  read by cmd.exe would also need backslashes (`C:/…/x.exe` unquoted is a switch there); no such rule exists today.
+- **Placeholder-like text in a value (values-ask re-review).** A value holding `<CAPS>` text is no value, so a future
+  rule whose `default` or variable holds such text (a git format string, `Name <JD>`) would stop the run.
 - **A typed value that doesn't match the file (values-ask review).** Push sanitizes with the answer it is given; a typo
   or a different case leaves the real value in the file, and only `leak-scan`'s generic patterns stand between it and
   the repo. The same holds for a value saved by hand or asked by setup. Push could require the answer to appear in an
