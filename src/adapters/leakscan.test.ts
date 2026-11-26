@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findBash, runLeakScan } from "./leakscan.ts";
+import { findBash, hasScanBash, runLeakScan } from "./leakscan.ts";
 
 const SYNC_PATHS = ["dotfiles", "sync-config.json"];
 
@@ -167,6 +167,71 @@ describe("findBash", () => {
 
     // Assert
     expect(bash).toBeUndefined();
+  });
+});
+
+describe("hasScanBash", () => {
+  const GIT_ROOT = "C:\\Git";
+  const GIT_BASH = `${GIT_ROOT}\\bin\\bash.exe`;
+  const GIT_IN_CMD = `${GIT_ROOT}\\cmd\\git.exe`;
+  const GIT_IN_MINGW = `${GIT_ROOT}\\mingw64\\bin\\git.exe`;
+  const hasGitBash = (path: string): boolean => path === GIT_BASH;
+  const bashOnPath = (): boolean => true;
+  const noBashOnPath = (): boolean => false;
+
+  test("should find Git's bash from git in cmd without asking PATH on Windows", () => {
+    // Arrange
+    const asked: string[] = [];
+    const onPath = (command: string): boolean => {
+      asked.push(command);
+      return false;
+    };
+
+    // Act
+    const found = hasScanBash("win32", GIT_IN_CMD, hasGitBash, onPath);
+
+    // Assert
+    expect({ found, asked }).toEqual({ found: true, asked: [] });
+  });
+
+  test("should find Git's bash from git in mingw64 bin on Windows", () => {
+    // Act
+    const found = hasScanBash("win32", GIT_IN_MINGW, hasGitBash, noBashOnPath);
+
+    // Assert
+    expect(found).toBe(true);
+  });
+
+  test("should find no bash on Windows without git", () => {
+    // Act
+    const found = hasScanBash("win32", null, hasGitBash, bashOnPath);
+
+    // Assert
+    expect(found).toBe(false);
+  });
+
+  test("should not count a bash on PATH when Git has no bash.exe on Windows", () => {
+    // Act
+    const found = hasScanBash("win32", GIT_IN_CMD, () => false, bashOnPath);
+
+    // Assert
+    expect(found).toBe(false);
+  });
+
+  test.each([
+    [true, true],
+    [false, false],
+  ])("should answer bash on PATH %p as %p on Linux", (onPath, expected) => {
+    // Act
+    const found = hasScanBash(
+      "linux",
+      null,
+      () => false,
+      () => onPath,
+    );
+
+    // Assert
+    expect(found).toBe(expected);
   });
 });
 

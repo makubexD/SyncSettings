@@ -53,6 +53,23 @@ export function findBash(
     .find((candidate) => exists(candidate));
 }
 
+/**
+ * Whether a bash for the scan is there, for `mksync doctor`'s `bash` line: on
+ * Windows the Git Bash `findBash` finds from `git` (a `bash` on `PATH` may be
+ * WSL's launcher, which the scan never runs); elsewhere `bash` on `PATH`.
+ */
+export function hasScanBash(
+  platform: NodeJS.Platform,
+  gitPath: string | null,
+  exists: (path: string) => boolean,
+  onPath: (command: string) => boolean,
+): boolean {
+  if (platform === "win32") {
+    return findBash(platform, gitPath, exists) !== undefined;
+  }
+  return onPath("bash");
+}
+
 /** The kind a scan's exit code names; any other code could not run. */
 function kindOf(code: number): LeakScanKind {
   if (code === 0) {
