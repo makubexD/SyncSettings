@@ -1098,6 +1098,69 @@ describe("import value questions", () => {
     ]);
   });
 
+  test("should show a suggestion as the question's default", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name" }],
+    };
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+      }),
+      suggested: { "<YOUR_NAME>": "Ana Lopez" },
+    };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Ana Lopez]: `,
+        hasDefault: false,
+        suggestion: "Ana Lopez",
+      },
+    ]);
+  });
+
+  test("should show the cached value over a suggestion under --reset-values", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [
+        { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+        { placeholder: "<HOME>", prompt: "Home folder" },
+      ],
+    };
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+        values: { "<YOUR_NAME>": "Old Name" },
+      }),
+      resetValues: true,
+      suggested: { "<YOUR_NAME>": "Ana Lopez", "<HOME>": "/home/ana" },
+    };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Old Name]: `,
+        hasDefault: true,
+      },
+      {
+        text: `  Home folder (${VALUE_FILE}) [/home/ana]: `,
+        hasDefault: false,
+        suggestion: "/home/ana",
+      },
+    ]);
+  });
+
   test("should ask no question when the check path plans a missing value", () => {
     // Arrange
     const snapshot = validSnapshot("missing-value-stops");

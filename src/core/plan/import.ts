@@ -813,12 +813,43 @@ function promptFallback(
   return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : "";
 }
 
+/** The suggestion a question shows for `rule`, when the run has one. */
+function suggestionFor(
+  rule: SanitizeRule,
+  suggested: Values | undefined,
+): string | undefined {
+  const value = suggested?.[rule.placeholder];
+  return value !== undefined && value.length > 0 ? value : undefined;
+}
+
+/** A `--reset-values` question's bracket: the cached value, then the
+ * suggestion, then the rule's default and `defaultEnv`. */
+function resetShown(
+  rule: SanitizeRule,
+  cached: Values,
+  suggested: Values | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): { readonly shown: string; readonly suggestion?: string } {
+  const cachedValue = cached[rule.placeholder];
+  if (cachedValue !== undefined && cachedValue.length > 0) {
+    return { shown: cachedValue };
+  }
+  const suggestion = suggestionFor(rule, suggested);
+  if (suggestion !== undefined) {
+    return { shown: suggestion, suggestion };
+  }
+  return { shown: promptFallback(rule, cached, env) };
+}
+
 /** One value question an import prints, and whether its answer may be empty:
  * a `--reset-values` question that shows a default in brackets takes the
- * default, while every other question stops the run on an empty answer. */
+ * default, while every other question stops the run on an empty answer.
+ * `suggestion` is the bracket's value when it came from the rule's `suggest`:
+ * the app answers an empty line with it, never end of input. */
 export interface ImportValueQuestion {
   readonly text: string;
   readonly hasDefault: boolean;
+  readonly suggestion?: string;
 }
 
 /** The `--reset-values` questions, one per placeholder, as `askValues` prints
@@ -836,16 +867,19 @@ function resetValueQuestions(
       continue;
     }
     seen.add(placeholder);
-    const fallback = promptFallback(
+    const env = valueEnv(snapshot.env, snapshot.home, snapshot.os);
+    const { shown, suggestion } = resetShown(
       rule,
       snapshot.values,
-      valueEnv(snapshot.env, snapshot.home, snapshot.os),
+      snapshot.suggested,
+      env,
     );
     const prompt = rule.prompt ?? "";
-    const hasDefault = fallback.length > 0;
     questions.push({
-      text: valueQuestion(prompt, files.get(placeholder) ?? [], fallback),
-      hasDefault,
+      text: valueQuestion(prompt, files.get(placeholder) ?? [], shown),
+      // End of input still takes the cached value, default or defaultEnv.
+      hasDefault: promptFallback(rule, snapshot.values, env).length > 0,
+      ...(suggestion !== undefined ? { suggestion } : {}),
     });
   }
   return questions;
@@ -884,21 +918,46 @@ export function importValueQuestions(
           snapshot.values,
           prepared.gathered.inferred,
           valueEnv(snapshot.env, snapshot.home, snapshot.os),
-        ).map((rule) => ({
-          text: valueQuestion(
-            rule.prompt ?? "",
-            prepared.gathered.files.get(rule.placeholder) ?? [],
-          ),
-          hasDefault: false,
-        }));
+        ).map((rule) => {
+          const suggestion = suggestionFor(rule, snapshot.suggested);
+          return {
+            text: valueQuestion(
+              rule.prompt ?? "",
+              prepared.gathered.files.get(rule.placeholder) ?? [],
+              suggestion,
+            ),
+            hasDefault: false,
+            ...(suggestion !== undefined ? { suggestion } : {}),
+          };
+        });
   const first = questions[0];
   if (first !== undefined) {
-    questions[0] = {
-      text: `${ASK_HEADER}${first.text}`,
-      hasDefault: first.hasDefault,
-    };
+    questions[0] = { ...first, text: `${ASK_HEADER}${first.text}` };
   }
   return questions;
+}
+
+/**
+ * The rules an import's value questions ask for, in question order: every
+ * rule under `--reset-values`, else the ones nothing else fills. Empty when
+ * nothing is asked or the config or `--only` stops the import. The app runs
+ * the `suggest` sources of these only.
+ */
+export function importAskedRules(snapshot: Snapshot): readonly SanitizeRule[] {
+  const prepared = prepareImport(snapshot);
+  if (!isPrepared(prepared)) {
+    return [];
+  }
+  const rules = prepared.gathered.rules;
+  if (snapshot.resetValues === true) {
+    return rules;
+  }
+  return missingPlaceholders(
+    rules,
+    snapshot.values,
+    prepared.gathered.inferred,
+    valueEnv(snapshot.env, snapshot.home, snapshot.os),
+  );
 }
 
 /** Whether `importValueQuestions` returned questions rather than an early-error plan. */

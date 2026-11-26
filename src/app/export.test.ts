@@ -6,8 +6,10 @@ import type { PreviewDiff } from "../adapters/git.ts";
 import type { LeakScanResult } from "../adapters/leakscan.ts";
 import { MATCHES_HEAD, NOTHING_WRITTEN } from "../core/plan/preview.ts";
 import type { PreviewPlan } from "../core/plan/preview.ts";
-import type { RepoFiles } from "../core/plan/types.ts";
-import { previewTail } from "./export.ts";
+import type { SanitizeRule } from "../core/config/types.ts";
+import type { LocalEntry, RepoFiles, Snapshot } from "../core/plan/types.ts";
+import type { Values } from "../core/values/sanitize.ts";
+import { askExportValues, previewTail } from "./export.ts";
 import type { PreviewTailDeps } from "./export.ts";
 
 /** The prefix `previewTail` gives its temp folder, counted around each run. */
@@ -234,11 +236,7 @@ describe("previewTail", () => {
     }));
 
     // Act
-    const result = await previewTail(
-      REPO_ROOT,
-      preview(CHANGED_LINES),
-      stub,
-    );
+    const result = await previewTail(REPO_ROOT, preview(CHANGED_LINES), stub);
 
     // Assert
     const lines = result.stdout.split("\n").slice(0, -1);
@@ -264,11 +262,7 @@ describe("previewTail", () => {
     }));
 
     // Act
-    const result = await previewTail(
-      REPO_ROOT,
-      preview(CHANGED_LINES),
-      stub,
-    );
+    const result = await previewTail(REPO_ROOT, preview(CHANGED_LINES), stub);
 
     // Assert
     const lines = result.stdout.split("\n").slice(0, -1);
@@ -307,7 +301,11 @@ describe("previewTail", () => {
     const result = await previewTail(
       REPO_ROOT,
       preview(CHANGED_LINES),
-      deps(calls, () => CLEAN, () => undefined),
+      deps(
+        calls,
+        () => CLEAN,
+        () => undefined,
+      ),
     );
 
     // Assert
@@ -334,5 +332,144 @@ describe("previewTail", () => {
     expect(result.code).toBe(0);
     expect(calls.scanPaths).toEqual([]);
     expect(calls.diffs).toBe(0);
+  });
+});
+
+describe("askExportValues", () => {
+  const ASK_HOME = "/home/user";
+  const LOGIN = "<YOUR_GH_USERNAME>";
+  const SUGGESTED = "parity-user";
+  const TYPED = "other-user";
+  const LOCAL = `${ASK_HOME}/.config/parity/a.conf`;
+  const QUESTION =
+    "  GitHub username (~/.config/parity/a.conf) [parity-user]: ";
+  const RULE: SanitizeRule = {
+    placeholder: LOGIN,
+    prompt: "GitHub username",
+    suggest: "gh-login",
+  };
+
+  function local(): LocalEntry {
+    return {
+      kind: "file",
+      path: LOCAL,
+      bytes: new TextEncoder().encode("color = blue\n"),
+      mode: 0o644,
+    };
+  }
+
+  function askSnapshot(): Snapshot {
+    return {
+      config: {
+        schemaVersion: 2,
+        modules: { parity: { description: "Parity case files" } },
+        entries: [
+          {
+            file: "parity/a.conf",
+            module: "parity",
+            merge: "whole",
+            localPath: "~/.config/parity/a.conf",
+            sanitize: [RULE],
+          },
+        ],
+      },
+      os: "linux",
+      home: ASK_HOME,
+      cwd: ASK_HOME,
+      repoFiles: new Map(),
+      localFiles: new Map([[LOCAL, local()]]),
+      localDirs: new Set(),
+      values: {},
+      env: {},
+      only: [],
+    };
+  }
+
+  /** A terminal answering with `lines`, then end of input; records what it printed. */
+  function terminal(lines: readonly string[]): {
+    readonly io: {
+      write(text: string): void;
+      readLine(): Promise<string | undefined>;
+    };
+    readonly printed: string[];
+  } {
+    const printed: string[] = [];
+    const left = [...lines];
+    return {
+      printed,
+      io: {
+        write: (text) => {
+          printed.push(text);
+        },
+        readLine: async () => left.shift(),
+      },
+    };
+  }
+
+  /** A suggestion source that records each run. */
+  function suggesting(): {
+    readonly suggest: (rules: readonly SanitizeRule[]) => Promise<Values>;
+    readonly runs: number[];
+  } {
+    const runs: number[] = [];
+    return {
+      runs,
+      suggest: async (rules) => {
+        runs.push(rules.length);
+        return { [LOGIN]: SUGGESTED };
+      },
+    };
+  }
+
+  test("should show the suggestion and take it on Enter", async () => {
+    // Arrange
+    const { io, printed } = terminal([""]);
+    const { suggest } = suggesting();
+
+    // Act
+    const asked = await askExportValues(askSnapshot(), io, false, suggest);
+
+    // Assert
+    expect(printed).toContain(QUESTION);
+    expect(asked.ok && asked.snapshot.values[LOGIN]).toBe(SUGGESTED);
+  });
+
+  test("should take a typed answer over the suggestion", async () => {
+    const { io } = terminal([TYPED]);
+    const { suggest } = suggesting();
+
+    const asked = await askExportValues(askSnapshot(), io, false, suggest);
+
+    expect(asked.ok && asked.snapshot.values[LOGIN]).toBe(TYPED);
+  });
+
+  test("should never take the suggestion at end of input", async () => {
+    const { io } = terminal([]);
+    const { suggest } = suggesting();
+
+    const asked = await askExportValues(askSnapshot(), io, false, suggest);
+
+    expect(asked.ok).toBe(false);
+  });
+
+  test("should ask nothing and run no source under --yes", async () => {
+    const { io, printed } = terminal([""]);
+    const { suggest, runs } = suggesting();
+
+    const asked = await askExportValues(askSnapshot(), io, true, suggest);
+
+    expect(asked.ok && asked.snapshot.values).toEqual({});
+    expect(printed).toEqual([]);
+    expect(runs).toEqual([]);
+  });
+
+  test("should run no source when nothing is asked", async () => {
+    const { io } = terminal([]);
+    const { suggest, runs } = suggesting();
+    const filled = { ...askSnapshot(), values: { [LOGIN]: TYPED } };
+
+    await askExportValues(filled, io, false, suggest);
+
+    expect(runs).toEqual([]);
   });
 });

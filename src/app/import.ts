@@ -7,12 +7,14 @@
 import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
 import { stdinLines } from "../adapters/process.ts";
+import { suggestions } from "../adapters/suggest.ts";
 import type { RunCommand } from "../cli/parse.ts";
 import { trimAnswer } from "../core/answer.ts";
 import { planCheck } from "../core/plan/check.ts";
 import {
   importOverwriteQuestions,
   importPlan,
+  importAskedRules,
   importValueQuestions,
   isQuestionList,
   resolveImportValues,
@@ -20,7 +22,7 @@ import {
 import { renderRun } from "../core/plan/run.ts";
 import type { Action, RunPlan, Snapshot } from "../core/plan/types.ts";
 import { renderStatic, writeLines } from "./export.ts";
-import type { AppliedPlan, Result } from "./export.ts";
+import type { AppliedPlan, Result, SuggestValues } from "./export.ts";
 import { buildRun, endRun, startRun } from "./run.ts";
 import type { RunEnvironment } from "./run.ts";
 
@@ -124,7 +126,13 @@ function overwritePrompt(name: string): string {
 async function planWithAnswers(
   snapshot: Snapshot,
   io: ImportIo,
+  suggest: SuggestValues,
 ): Promise<RunPlan> {
+  // The sources run only when a question is about to be asked.
+  const asked = importAskedRules(snapshot);
+  if (asked.length > 0) {
+    snapshot = { ...snapshot, suggested: await suggest(asked) };
+  }
   const questions = importValueQuestions(snapshot);
   if (!isQuestionList(questions)) {
     return questions;
@@ -133,7 +141,14 @@ async function planWithAnswers(
   let stopped = false;
   for (const question of questions) {
     io.write(question.text);
-    const answer = (await io.readLine()) ?? "";
+    const raw = await io.readLine();
+    // Enter takes the suggestion; end of input never does.
+    const answer =
+      raw !== undefined &&
+      trimAnswer(raw) === "" &&
+      question.suggestion !== undefined
+        ? question.suggestion
+        : (raw ?? "");
     valueAnswers.push(answer);
     if (!question.hasDefault && trimAnswer(answer) === "") {
       stopped = true;
@@ -162,6 +177,7 @@ export async function runImport(
   env: RunEnvironment,
   command: RunCommand,
   io: ImportIo = defaultImportIo(),
+  suggest: SuggestValues = suggestions,
 ): Promise<Result> {
   const started = await startRun(env, command);
   if (started.kind === "stop") {
@@ -170,6 +186,6 @@ export async function runImport(
   const { snapshot, context } = await buildRun(env, command);
   const result = command.check
     ? renderStatic(planCheck(snapshot))
-    : applyPlan(await planWithAnswers(snapshot, io), context);
+    : applyPlan(await planWithAnswers(snapshot, io, suggest), context);
   return endRun(result, started.check, started.finish);
 }
