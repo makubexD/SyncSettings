@@ -32,6 +32,13 @@ tests/windows-vm/vm.sh snapshot           # after the first install, with the VM
   run's leftovers. Without a snapshot the disk is reused.
 - The screen is at <http://127.0.0.1:8006> while the VM runs (local only).
 
+## Lookup check
+
+`lookup-check.ps1` runs after the shared cases in `tests/all.sh`'s Windows layer. In a throwaway clone with a local
+bare origin, it runs `mksync status`, puts `whoami.exe` in the clone as `git.exe` and runs it again: the outputs must
+match, with no `not a git clone` (commands are found on `PATH` only; work #1 found the clone's `git.exe` ran). It
+also checks that the statusline prints a Windows directory's last part. A build from before `v1.1.4` fails both.
+
 ## Limits
 
 - The evaluation licence lasts 90 days from install. When it runs out, delete `storage/` and `snapshot/` and run
