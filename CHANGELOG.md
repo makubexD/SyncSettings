@@ -2,6 +2,15 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.4 (2026-11-26)
+
+- `mksync push` no longer puts the machine's hostname in the branch name. A machine's record keeps a public name
+  (`alias`), asked once on its first push from a terminal: the login is suggested and the hostname is refused. Without
+  a terminal and with no public name, push stops before committing and says so.
+- The status line shows only the last part of a Windows directory (`C:\…\SyncSettings` → `SyncSettings`).
+- Commands (`git`, `gh`, `bash`) are found on `PATH` only. On Windows a `git.exe` in the clone used to run in place of
+  git; relative `PATH` folders are now skipped on every OS.
+
 ## v1.1.3 (2026-11-25)
 
 - A new key in a JSON file the repo holds in one layer only (Claude's `settings.json`) no longer goes to "All

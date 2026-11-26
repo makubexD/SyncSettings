@@ -113,6 +113,7 @@ in the answer block, with names replaced as in step 6.
    ```
 
    Paste: the status output and the `exit` line (a `whoami`-style line or a git error means the clone's file ran).
+   From `v1.1.4` the status output must be the same as without the file.
 
 4. **WSL's `bash` before Git Bash.**
 

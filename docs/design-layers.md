@@ -1446,10 +1446,13 @@ from work #1 (the Claude keys are in profile `work1`, Windows Terminal in the Wi
   kept in the record;** push names the branch `sync/<os>-<alias>-<stamp>`. The prompt suggests the login from
   `whoami` without its domain; it never suggests or accepts the hostname. The user chose the login as the suggestion
   knowing it is their real name, against rule 1's "no names while public" (a branch is public, though not a commit).
-  To fix in a hotfix before work #2, with the statusline directory and the `PATH`-only lookup.
+  **Done in `v1.1.4` (`docs/plan-windows-hotfix.md`):** the record's `alias`, asked on the first push from a
+  terminal; the hostname is refused, and without a terminal push stops before committing. Open: once the repo is
+  private the record is in the repo store, so the first push writes it into the clone during the commit; check that it
+  lands in that commit or stays out of it cleanly.
 - **Statusline directory on Windows (work #1, 2026-11-26).** The directory section takes the text after the last `/`
   (`src/core/statusline/format.ts`), so Claude Code's Windows `cwd` (`C:\…\SyncSettings`) shows in full. The contract
-  says "the directory's last part": split on `\` too. To fix with the push branch name, before work #2.
+  says "the directory's last part": split on `\` too. **Done in `v1.1.4`:** split on `/` or `\` on every OS.
 - **Push's first `git push` failure on work #1 (2026-11-25).** The cause wasn't kept; the same push run by hand from the
   renamed branch went through. Watch for it on the next work-machine push and keep git's lines.
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
@@ -1795,8 +1798,9 @@ each with its command and what to paste back, for work #2 and #3 when the user i
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
   the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
   the repo would run; if so, resolve through `PATH` only. **Work #1 (2026-11-26): it does.** A `whoami.exe` copied to
-  the clone as `git.exe` ran in place of git (`Origin : not a git clone`). To fix before work #2: resolve `git`, `gh`
-  and `cmd.exe` through `PATH` only.
+  the clone as `git.exe` ran in place of git (`Origin : not a git clone`). **Done in `v1.1.4`:** `run` and `runSync`
+  resolve every bare name through `PATH` only, skipping relative folders on every OS; `tests/windows-vm/lookup-check.ps1`
+  repeats work #1's check in the VM.
 - **Leak scan's `bash` (phase 8 review).** The program runs bare `bash`; with WSL installed, `System32\bash.exe` can
   come before Git Bash on `PATH` and can't open the script, so every push stops at "could not run". Find Git Bash
   explicitly and pass the script path with `/`. Work #1 (2026-11-26): WSL's `bash.exe` is first on `PATH` and `doctor`

@@ -103,13 +103,14 @@ The install through a signed-in `gh` (run sheet, "Work #2 and #3"), the run shee
 and the survey questions work #1 answered (`docs/design-layers.md`, "Confirm on Windows": shell, Git Bash and `jq`,
 current Claude layout, `$HOME` in commands).
 
-Test: `mksync --version` prints `1.1.3`; the report and the answers are pasted, redacted, and recorded under
-"Work #2" in the run sheet and design.
+Test: `mksync --version` prints `1.1.4` (`docs/plan-windows-hotfix.md`, released before work #2); the report and the
+answers are pasted, redacted, and recorded under "Work #2" in the run sheet and design.
 
 ## Step 9: Set up and push work #2 `[inline: the user's machine and a public-repo review]`
 
 `mksync setup` with profile `work2` (answer `3`, stop, when it finds existing settings), then `mksync preview`, then
-`mksync push`, answering `3` (this profile) for each machine-only key.
+`mksync push` from a terminal, answering the public-name question (not the hostname) and `3` (this profile) for each
+machine-only key.
 
 Test: `mksync doctor` shows the record and profile; Claude reviews any PR as in step 3; `mksync diff` agrees.
 
@@ -131,7 +132,10 @@ Test: as step 9.
 
 On each machine: `mksync --version` and `mksync diff`. Pull where it lists `IN`.
 
-Test: every machine prints `mksync 1.1.3` (or the latest release) and "This machine and the repo agree".
+Work #1 and the personal machine get their public name (`alias`) on their next push from a terminal, as `v1.1.4`
+asks once per record.
+
+Test: every machine prints `mksync 1.1.4` (or the latest release) and "This machine and the repo agree".
 
 ## Step 13: The private switch `[inline: the user's switch]`
 
