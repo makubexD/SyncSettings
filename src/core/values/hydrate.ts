@@ -157,6 +157,71 @@ export function inferValues(
 }
 
 /**
+ * Contract "Inference", export: the values a local file holds, read without
+ * trusting line positions, since export runs on a file that has drifted from
+ * the repo. A repo line holding a placeholder gives a value only when exactly
+ * one local line, anywhere in the file, fits its prefix and suffix. A
+ * placeholder is `null` (ambiguous, never inferred) when a repo line fits more
+ * than one local line or two repo lines give different values. A repo line no
+ * local line fits gives nothing.
+ */
+export function inferValuesUnique(
+  local: Uint8Array,
+  repo: Uint8Array,
+  rules: readonly SanitizeRule[],
+): ReadonlyMap<string, string | null> {
+  const localLines = splitLines(local).map(stripCarriageReturn);
+  const repoLines = splitLines(repo).map(stripCarriageReturn);
+  const inferred = new Map<string, string | null>();
+
+  for (const rule of rules) {
+    const placeholder = rule.placeholder;
+    const placeholderBytes = encodeUtf8(placeholder);
+    if (placeholderBytes.length === 0 || inferred.get(placeholder) === null) {
+      continue;
+    }
+    for (const repoLine of repoLines) {
+      const at = indexOfBytes(repoLine, placeholderBytes, 0);
+      if (at === -1) {
+        continue;
+      }
+      const prefix = repoLine.subarray(0, at);
+      const suffix = repoLine.subarray(at + placeholderBytes.length);
+      const fits = new Set<string>();
+      for (const localLine of localLines) {
+        if (
+          localLine.length <= prefix.length + suffix.length ||
+          indexOfBytes(localLine, placeholderBytes, 0) !== -1 ||
+          !startsWithBytes(localLine, prefix) ||
+          !endsWithBytes(localLine, suffix)
+        ) {
+          continue;
+        }
+        let value = new TextDecoder().decode(
+          localLine.subarray(prefix.length, localLine.length - suffix.length),
+        );
+        if (rule.escapeBackslashes === true) {
+          value = value.replaceAll("\\\\", "\\");
+        }
+        fits.add(value);
+      }
+      if (fits.size === 0) {
+        continue;
+      }
+      const [value] = fits;
+      const known = inferred.get(placeholder);
+      if (fits.size > 1 || (known !== undefined && known !== value)) {
+        inferred.set(placeholder, null);
+        break;
+      }
+      inferred.set(placeholder, value ?? null);
+    }
+  }
+
+  return inferred;
+}
+
+/**
  * The non-interactive path of the bash engine's `request_values`: a cached
  * value wins, then one inferred from the local file, then the rule's `default`,
  * then the environment variable its `defaultEnv` names. A missing value stops

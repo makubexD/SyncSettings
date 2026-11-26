@@ -1,0 +1,35 @@
+{
+  "description": "On export a placeholder whose defaultEnv is set takes the environment's value over one inferred from the local file, so a reordered line can't give a wrong base path (Sanitize and hydrate, Inference).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<PARITY_BASE>",
+            "prompt": "Value",
+            "defaultEnv": "PARITY_BASE"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "PARITY_BASE": "/srv/base"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}

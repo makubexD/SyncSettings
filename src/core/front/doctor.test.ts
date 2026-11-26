@@ -147,7 +147,10 @@ describe("doctorLines gh line", () => {
 
   test("WARN when missing on windows with winget names the exact id", () => {
     expect(
-      line(facts({ os: "windows", packageManager: "winget", gh: "missing" }), 1),
+      line(
+        facts({ os: "windows", packageManager: "winget", gh: "missing" }),
+        1,
+      ),
     ).toBe(
       "  WARN     gh: needed for push; install with winget install --id GitHub.cli -e",
     );
@@ -155,7 +158,10 @@ describe("doctorLines gh line", () => {
 
   test("WARN when missing on windows without winget names cli.github.com", () => {
     expect(
-      line(facts({ os: "windows", packageManager: undefined, gh: "missing" }), 1),
+      line(
+        facts({ os: "windows", packageManager: undefined, gh: "missing" }),
+        1,
+      ),
     ).toBe("  WARN     gh: needed for push; see https://cli.github.com");
   });
 });
@@ -189,9 +195,19 @@ describe("doctorLines values line", () => {
     expect(line(facts({}), 4)).toBe("  OK       values");
   });
 
-  test("WARN names the unset count", () => {
-    expect(line(facts({ unsetValues: 2 }), 4)).toBe(
+  test("OK without a record when every value is set", () => {
+    expect(line(facts({ record: false }), 4)).toBe("  OK       values");
+  });
+
+  test("WARN without a record names setup", () => {
+    expect(line(facts({ unsetValues: 2, record: false }), 4)).toBe(
       "  WARN     2 value(s) not set; mksync setup asks for them",
+    );
+  });
+
+  test("WARN with a record names push and pull", () => {
+    expect(line(facts({ unsetValues: 2 }), 4)).toBe(
+      "  WARN     2 value(s) not saved yet; mksync push or pull reads them from this machine's files; pull asks for the rest",
     );
   });
 });
@@ -223,10 +239,7 @@ describe("doctorLines bash line", () => {
 
   test("WARN on windows with winget names Git.Git", () => {
     expect(
-      line(
-        facts({ os: "windows", packageManager: "winget", bash: false }),
-        5,
-      ),
+      line(facts({ os: "windows", packageManager: "winget", bash: false }), 5),
     ).toBe(
       "  WARN     bash: needed by the leak scan; install with winget install --id Git.Git -e",
     );
@@ -272,9 +285,8 @@ describe("doctorLines drift line", () => {
 
   test("macos with a report has no line", () => {
     expect(
-      doctorLines(
-        facts({ os: "macos", packageManager: "brew", drift: 2 }),
-      ).lines,
+      doctorLines(facts({ os: "macos", packageManager: "brew", drift: 2 }))
+        .lines,
     ).toHaveLength(8);
   });
 });
@@ -340,8 +352,6 @@ describe("installHint", () => {
   });
 
   test("no package manager found", () => {
-    expect(installHint("linux", undefined, "git")).toBe(
-      "your package manager",
-    );
+    expect(installHint("linux", undefined, "git")).toBe("your package manager");
   });
 });

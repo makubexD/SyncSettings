@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Profile } from "../config/profile.ts";
+import type { MachineRecord } from "../machine/record.ts";
 import type { ConfigV2, ConfigV2Entry } from "../config/types.ts";
 import { changeLines } from "./changes.ts";
 import { profileValueHits, refusedLines } from "./profilevalues.ts";
@@ -357,5 +358,60 @@ describe("refusedLines", () => {
     expect(lines[0]).toBe(
       "refused: change 1 (parity settings.json) holds a value of profile work-1 (<YOUR_EMAIL>) and would reach linux machines.",
     );
+  });
+});
+
+const SAVING_RECORD: MachineRecord = {
+  name: "wk1-laptop",
+  profile: PROFILE_NAME,
+  os: "linux",
+  hostname: "wk1-laptop",
+  domain: null,
+  claude: "claude",
+  pullOnly: false,
+  modules: { add: [], remove: [] },
+  values: {},
+  replaced: [],
+  retired: false,
+};
+
+describe("profileValueHits with the values the run saves", () => {
+  test("should find a value only the run's profile write holds", () => {
+    // Arrange
+    const plan: RunPlan = {
+      ...planOf(writeRepo(BASE_JSON, NEW_JSON)),
+      prepare: [
+        {
+          kind: "writeMachineValues",
+          record: SAVING_RECORD,
+          profile: profileOf({ [PLACEHOLDER]: PROFILE_VALUE }),
+        },
+      ],
+    };
+    const snapshot = {
+      ...snapshotOf({ [BASE_JSON]: OLD_JSON }),
+      profile: profileOf({}),
+    };
+
+    // Act
+    const hits = profileValueHits(plan, snapshot, changeLines(plan, snapshot));
+
+    // Assert
+    expect(hits.map((hit) => hit.placeholder)).toEqual([PLACEHOLDER]);
+  });
+
+  test("should find nothing when neither the profile nor the run holds the value", () => {
+    // Arrange
+    const plan = planOf(writeRepo(BASE_JSON, NEW_JSON));
+    const snapshot = {
+      ...snapshotOf({ [BASE_JSON]: OLD_JSON }),
+      profile: profileOf({}),
+    };
+
+    // Act
+    const hits = profileValueHits(plan, snapshot, changeLines(plan, snapshot));
+
+    // Assert
+    expect(hits).toEqual([]);
   });
 });

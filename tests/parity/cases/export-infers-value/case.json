@@ -1,0 +1,31 @@
+{
+  "description": "Export infers a placeholder value from the local file against the repo's placeholder text, sanitizes with it and saves it to .user-values.json (Sanitize and hydrate, Inference).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}

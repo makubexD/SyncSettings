@@ -2,6 +2,22 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.6 (2026-11-26)
+
+- `mksync push` and `mksync preview` read each placeholder's value from this machine's own files, as `pull` does, and
+  push saves it (on the profile or the machine record). A machine set up with "stop" no longer stops at
+  `missing value for <YOUR_NAME>` with nothing to fill it in. Export reads a value only from a line nothing else
+  could be taken for: exactly one local line fits the repo line, and every file agrees. A `defaultEnv` that is set,
+  such as `HOME`, wins. Anything less certain still stops, so a shifted line can't leave a real value unsanitized.
+- Push refuses a profile's value in a shared file also when the value was just read from this machine, not only when
+  it was saved before.
+- With a machine record, `mksync doctor`'s values line reads
+  `<n> value(s) not saved yet; mksync push or pull reads them from this machine's files; pull asks for the rest`; setup no longer asks for
+  them there.
+- `mksync setup` suggests `3) no` for a linked folder in or under a hidden one, such as `~/.nvm` or `~/.cargo/bin` (`~/.config` aside):
+  Enter no longer
+  syncs a tool's install folder.
+
 ## v1.1.5 (2026-11-26)
 
 - `mksync doctor` on Windows reads `OK bash` when Git Bash is found from `git`, as the leak scan finds it. Before, it

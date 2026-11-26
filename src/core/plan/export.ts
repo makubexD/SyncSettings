@@ -18,6 +18,7 @@ import { hydrate, resolveValues } from "../values/hydrate.ts";
 import { encodeUtf8, sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import { compactJson, fileLabel, valueText } from "./changes.ts";
+import { exportInferredValues } from "./infer.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import { entryDestinations } from "./newsettings.ts";
 import {
@@ -782,10 +783,12 @@ export function planExport(
       rules.push(...(entry.entry.sanitize ?? []));
     }
   }
+  // Contract "Inference": export reads the values from this machine's files
+  // as import does, so a machine with no saved value can still push.
   const values = resolveValues(
     rules,
     snapshot.values,
-    {},
+    exportInferredValues(snapshot, selected.value),
     snapshot.env,
     valueOwner(snapshot),
   );

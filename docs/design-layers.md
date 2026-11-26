@@ -1451,6 +1451,25 @@ install").
   **Done in `v1.1.5`** (`docs/plan-doctor-hotfix.md`): `hasScanBash` (`src/adapters/leakscan.ts`) is the doctor's
   answer, Git Bash from `git` on Windows and `bash` on `PATH` elsewhere; `which` counts a link `stat` can't follow as a
   command on Windows only (`isCommandEntry`, `src/adapters/process.ts`). The VM's `lookup-check.ps1` checks both.
+- **Values on a machine set up with "stop" (work #2, 2026-11-26).** Setup answered `3) stop` writes the record and asks
+  no value (only its import asks), and export never inferred, so `mksync preview` stopped at
+  `missing value for <YOUR_NAME>` though the machine's files held it. **Done in `v1.1.6`**
+  (`docs/plan-values-hotfix.md`): export infers as import does (`inferredValues`, `src/core/plan/infer.ts`) and push
+  saves the values; the profile guard searches the values the run saves; the doctor's hint names push and pull with a
+  record; a linked folder in or under a hidden one is suggested `3) no` (`~/.nvm` was suggested `1`). The review made
+  export infer only a certain value: one local line fits, files agree, a set `defaultEnv` wins
+  (`exportInferredValues`). Import keeps its line-by-line rule.
+- **A cached value that no longer matches the file (values hotfix review).** A cached value wins over the local file,
+  so when the real value changed (a new email in `.gitconfig`) export sanitizes the old one and the new one goes out
+  as it is; only `leak-scan`'s generic patterns stand between it and the repo. Push could compare the cached value
+  with a certain inferred one and stop, naming both, when they differ. This was true before inference too.
+- **Import's inference pairs lines by position.** On a drifted file a shifted line can give import a wrong value,
+  which it hydrates and saves. It leaks nothing, but the next export sanitizes with that value. Import could use
+  export's unique-match rule.
+- **Push asks for a value nothing fills (values hotfix, decision 6).** Export still never asks: a value that neither
+  the record, the profile, the local files, `default` nor `defaultEnv` fills stops push with the missing-value line,
+  whose "add it to profile … or machine …" names no command. Push in a terminal could ask, as import does, and save the
+  answer by the "Values on a machine" table.
 - **The working folder after install (work #2, 2026-11-26).** The installer ends with `Installed. Run mksync any time.`
   and puts `mksync` on `PATH`, but every command except `statusline` finds the repo from the working folder, so run
   from the home folder they stop with `no sync-config.json … in this folder or its parents.` Options: fall back to

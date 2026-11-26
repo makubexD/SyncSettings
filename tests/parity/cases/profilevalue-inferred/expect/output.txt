@@ -1,0 +1,13 @@
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  parity  settings.json  email: "old@example.com" -> "jane@work1.example.com"
+Linux machines
+     (none)
+Profile work-1
+     (none)
+This machine only
+     (none)
+
+refused: change 1 (parity settings.json) holds a value of profile work-1 (<YOUR_EMAIL>) and would reach all machines.
+Move it to "profile work-1", or put <YOUR_EMAIL> in the file instead.
