@@ -112,7 +112,11 @@ value in the file, and import puts it back, so pick values specific enough not t
   "localPath": "~/.gitconfig.local",
   "os": ["windows"],
   "sanitize": [
-    { "placeholder": "<YOUR_GH_USERNAME>", "prompt": "GitHub username" },
+    {
+      "placeholder": "<YOUR_GH_USERNAME>",
+      "prompt": "GitHub username",
+      "suggest": "gh-login"
+    },
     {
       "placeholder": "<GH_CLI_PATH>",
       "prompt": "Path to GitHub CLI executable",
@@ -130,16 +134,26 @@ value in the file, and import puts it back, so pick values specific enough not t
 | `default`           | no       | The value offered at the prompt                                                                                                            |
 | `defaultEnv`        | no       | Name of an environment variable to offer instead, used when `default` is not set                                                           |
 | `escapeBackslashes` | no       | `true` if the file stores the value with doubled backslashes (`C:\\Tools`), as `.gitconfig` does                                           |
+| `suggest`           | no       | A command whose output is shown as the prompt's suggested answer: `gh-login`, `git-user-name` or `git-user-email` (below)                  |
 
 - `defaultEnv` reads the variable on the machine running the sync. `"defaultEnv": "HOME"` is the home folder on every
   system: `$HOME` on Linux and macOS, `%USERPROFILE%` on Windows with forward slashes (`C:/Users/you`), where `HOME`
   is usually unset. Export also replaces its backslash forms (`C:\Users\you`).
-- A placeholder used by several entries has one value.
+- A placeholder used by several entries has one value, so give two meanings two placeholders. `<YOUR_GH_USERNAME>` is
+  the account git signs in with (`[credential] username` in Windows' `.gitconfig.local`); `<YOUR_GH_OWNER>` is the
+  owner of your own repos, as `~/.claude/settings.json` names them. On a work machine the two differ.
+- `suggest` runs, only when push or pull is about to ask: `gh-login` is `gh api user --jq .login`, `git-user-name`
+  `git config --global user.name`, `git-user-email` `git config --global user.email`. Enter takes the suggestion,
+  shown as `GitHub username (~/.gitconfig.local) [you]:`; end of input never takes it. A source that fails, prints
+  nothing, or prints more than one line or a control character shows none. `--yes` (push and pull), `preview` and `diff`
+  never use one. Any other value stops every command with
+  `ERROR: sync-config.json: entry <file> has an invalid suggest.`, exit 1, as an invalid `defaultEnv` does.
 - With a machine record, values are saved in the record or the profile ([below](#profiles-and-machines)). Without one,
   they are cached in `.user-values.json`, which is gitignored, with placeholders as keys.
-- `mksync push` and `mksync pull` ask for a value nothing fills and save the answer. An answer that holds a
-  placeholder (`<HOME>`) is refused. With `--yes`, with no input, or in `preview` and `diff`, a placeholder with no
-  value stops the run with
+- `mksync push` and `mksync pull` ask for a value nothing fills and save the answer. The question names the files
+  that need it (`GitHub username (~/.gitconfig.local):`). An answer that holds a
+  placeholder (`<HOME>`) is refused. `preview` and `check` mark a file that needs a missing value `SKIPPED` and carry
+  on. With `--yes`, with no input, or in `diff`, a placeholder with no value stops the run with
   `missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it`.
 - Export compares the sanitized text, so a change to a value alone (a new email) is not a change. A new line is.
 - `sanitize` isn't allowed on a `dir` or `dconf` entry.

@@ -2503,6 +2503,8 @@ describe("exportMissingRules", () => {
   };
   const ENTRY_LOCAL = `${HOME}/.config/parity/a.conf`;
   const OTHER_LOCAL = `${HOME}/.config/parity/b.conf`;
+  const ENTRY_CONFIGURED = "~/.config/parity/a.conf";
+  const OTHER_CONFIGURED = "~/.config/parity/b.conf";
 
   function entry(file: string): ConfigV2["entries"][number] {
     return {
@@ -2549,7 +2551,62 @@ describe("exportMissingRules", () => {
     const missing = exportMissingRules(snapshotWith({}));
 
     // Assert
-    expect(missing.map((rule) => rule.placeholder)).toEqual([NAME_PLACEHOLDER]);
+    expect(missing.map(({ rule }) => rule.placeholder)).toEqual([
+      NAME_PLACEHOLDER,
+    ]);
+  });
+
+  test("should name the one file that needs the value", () => {
+    // Act
+    const missing = exportMissingRules(snapshotWith({}));
+
+    // Assert
+    expect(missing.map(({ files }) => files)).toEqual([[ENTRY_CONFIGURED]]);
+  });
+
+  test("should name both files that need the value in entry order", () => {
+    // Arrange
+    const snapshot = snapshotWith({
+      config: {
+        schemaVersion: 2,
+        modules: { parity: { description: "Parity case files" } },
+        entries: [entry("b.conf"), entry("a.conf")],
+      },
+      localFiles: new Map([
+        [ENTRY_LOCAL, localFile(ENTRY_LOCAL)],
+        [OTHER_LOCAL, localFile(OTHER_LOCAL)],
+      ]),
+    });
+
+    // Act
+    const missing = exportMissingRules(snapshot);
+
+    // Assert
+    expect(missing.map(({ files }) => files)).toEqual([
+      [OTHER_CONFIGURED, ENTRY_CONFIGURED],
+    ]);
+  });
+
+  test("should leave out a file --only leaves out", () => {
+    // Arrange
+    const snapshot = snapshotWith({
+      config: {
+        schemaVersion: 2,
+        modules: { parity: { description: "Parity case files" } },
+        entries: [entry("a.conf"), entry("b.conf")],
+      },
+      localFiles: new Map([
+        [ENTRY_LOCAL, localFile(ENTRY_LOCAL)],
+        [OTHER_LOCAL, localFile(OTHER_LOCAL)],
+      ]),
+      only: [OTHER_LOCAL],
+    });
+
+    // Act
+    const missing = exportMissingRules(snapshot);
+
+    // Assert
+    expect(missing.map(({ files }) => files)).toEqual([[OTHER_CONFIGURED]]);
   });
 
   test("should list nothing when the value is saved", () => {

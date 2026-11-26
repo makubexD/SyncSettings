@@ -11,12 +11,22 @@ export type Os = "windows" | "linux" | "macos";
 
 export type EntryType = "file" | "dir" | "dconf";
 
+/** Where a prompt's suggested default comes from (contract "Sanitize and hydrate"). */
+export const SUGGEST_SOURCES = [
+  "gh-login",
+  "git-user-name",
+  "git-user-email",
+] as const;
+
+export type SuggestSource = (typeof SUGGEST_SOURCES)[number];
+
 export interface SanitizeRule {
   readonly placeholder: string;
   readonly prompt: string;
   readonly default?: string;
   readonly defaultEnv?: string;
   readonly escapeBackslashes?: boolean;
+  readonly suggest?: SuggestSource;
 }
 
 export type MergeType = "whole" | "json" | "import" | "dconf" | "dir";

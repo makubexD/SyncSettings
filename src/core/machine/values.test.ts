@@ -8,6 +8,7 @@ const TABLE: (readonly [string, ValuePlace])[] = [
   ["<YOUR_NAME>", "profile"],
   ["<YOUR_EMAIL>", "profile"],
   ["<YOUR_GH_USERNAME>", "profile"],
+  ["<YOUR_GH_OWNER>", "profile"],
   ["<YOUR_GH_ORG>", "profile"],
   ["<YOUR_WORK_MARKETPLACE>", "profile"],
   ["<HOME>", "machine"],

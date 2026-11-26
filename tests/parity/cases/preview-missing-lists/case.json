@@ -1,0 +1,39 @@
+{
+  "description": "A preview with a missing value still lists every other file: the file that needs it is SKIPPED, the rest show their status, the leak scan runs on them, and the preview exits 1 with nothing written (Export preview).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ],
+  "git": "committed"
+}

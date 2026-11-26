@@ -13,6 +13,20 @@ export type PackageManager = "brew" | "apt-get" | "dnf" | "pacman" | "winget";
 /** What `gh auth status` said. */
 export type GhFact = "missing" | "signed-out" | "signed-in";
 
+/** Git's own view of its config (contract "Front door", doctor). */
+export interface GitFacts {
+  /** `~/.config/git/config` exists. */
+  readonly xdgConfig: boolean;
+  /** Every `include.path` and `includeIf.*.path` value, home written as `~`. */
+  readonly includes: readonly string[];
+  /** This OS has a repo copy of `~/.gitconfig.local` and the file is missing. */
+  readonly localMissing: boolean;
+  /** The `gh` found on `PATH`. */
+  readonly ghPath?: string;
+  /** The `<GH_CLI_PATH>` value pull would write. */
+  readonly ghCliValue?: string;
+}
+
 /** Everything the doctor lines read. */
 export interface DoctorFacts {
   readonly os: Os;
@@ -27,6 +41,8 @@ export interface DoctorFacts {
   readonly bash: boolean;
   /** Packages that differ; undefined = no report (not linux, or no packages/linux). */
   readonly drift: number | undefined;
+  /** Git's own view; undefined = not read, so no git config line. */
+  readonly gitFacts?: GitFacts;
 }
 
 /** The doctor output lines, without line endings, and its exit code. */
@@ -164,6 +180,69 @@ function valuesLine(unsetValues: number, record: boolean): string {
   );
 }
 
+/** The includes mksync syncs itself, so the doctor never warns about them. */
+const SYNCED_INCLUDES: ReadonlySet<string> = new Set([
+  "~/.gitconfig.local",
+  "~/.gitconfig.machine",
+]);
+
+/** Windows paths compare without case and with either separator. */
+function samePath(a: string, b: string): boolean {
+  const norm = (path: string): string =>
+    path.replaceAll("\\", "/").toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/** Contract "Front door": the `gh` path line, Windows only, compared as `samePath` does. */
+function ghPathLine(os: Os, g: GitFacts): string[] {
+  const { ghPath, ghCliValue } = g;
+  if (os !== "windows" || ghPath === undefined || ghCliValue === undefined) {
+    return [];
+  }
+  if (samePath(ghPath, ghCliValue)) {
+    return [];
+  }
+  return [
+    checkLine(
+      "WARN",
+      `gh is ${ghPath}, not ${ghCliValue}; mksync pull would point git at the wrong gh`,
+    ),
+  ];
+}
+
+/** Contract "Front door": git's own view, up to four WARN lines in order. */
+function gitConfigLines(os: Os, g: GitFacts | undefined): string[] {
+  if (g === undefined) {
+    return [];
+  }
+  const lines: string[] = [];
+  if (g.xdgConfig) {
+    lines.push(
+      checkLine(
+        "WARN",
+        "git also reads ~/.config/git/config; mksync syncs ~/.gitconfig only",
+      ),
+    );
+  }
+  for (const path of g.includes) {
+    if (!SYNCED_INCLUDES.has(path)) {
+      lines.push(
+        checkLine("WARN", `git includes ${path}, which mksync doesn't sync`),
+      );
+    }
+  }
+  if (g.localMissing) {
+    lines.push(
+      checkLine(
+        "WARN",
+        "~/.gitconfig.local is missing; mksync pull creates it from the repo",
+      ),
+    );
+  }
+  lines.push(...ghPathLine(os, g));
+  return lines;
+}
+
 /** Contract "Front door": the doctor lines in order, then the verdict line. */
 export function doctorLines(f: DoctorFacts): DoctorReport {
   const lines: string[] = [gitLine(f)];
@@ -179,6 +258,7 @@ export function doctorLines(f: DoctorFacts): DoctorReport {
       ? checkLine("OK", "machine record")
       : checkLine("WARN", "no machine record; run mksync setup"),
     valuesLine(f.unsetValues, f.record),
+    ...gitConfigLines(f.os, f.gitFacts),
     bashLine(f),
   );
   if (f.os === "linux" && f.drift !== undefined && f.drift > 0) {

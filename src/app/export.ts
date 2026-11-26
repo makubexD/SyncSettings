@@ -10,6 +10,7 @@ import { runLeakScan } from "../adapters/leakscan.ts";
 import type { DiffLine } from "../core/plan/diff.ts";
 import type { LeakScanResult } from "../adapters/leakscan.ts";
 import { previewWorkingTree } from "../adapters/snapshot.ts";
+import { suggestions } from "../adapters/suggest.ts";
 import {
   firstBackupFiles,
   readBackupSides,
@@ -22,7 +23,7 @@ import { readVisibility } from "../adapters/visibility.ts";
 import { askNewSettings } from "../cli/ask.ts";
 import type { RunCommand } from "../cli/parse.ts";
 import { trimAnswer } from "../core/answer.ts";
-import type { ConfigV2, Os } from "../core/config/types.ts";
+import type { ConfigV2, Os, SanitizeRule } from "../core/config/types.ts";
 import { guard, PROFILES_FOLDER } from "../core/guard.ts";
 import type { GuardDecision, Visibility } from "../core/guard.ts";
 import type { LayerName } from "../core/layers/select.ts";
@@ -77,7 +78,9 @@ import {
   ASK_HEADER,
   holdsPlaceholder,
   missingValueLine,
+  valueQuestion,
 } from "../core/values/hydrate.ts";
+import type { Values } from "../core/values/sanitize.ts";
 import type { SetupIo } from "../wizard/setup.ts";
 import { setupTerminal, writeLines } from "./terminal.ts";
 import type { SetupTerminal } from "./terminal.ts";
@@ -946,30 +949,47 @@ function applyExportPlan(
   };
 }
 
-type AskedValues =
+/** The suggestion sources a run asks for, injected so the tests run none. */
+export type SuggestValues = (rules: readonly SanitizeRule[]) => Promise<Values>;
+
+export type AskedValues =
   | { readonly ok: true; readonly snapshot: Snapshot }
   | { readonly ok: false; readonly line: string };
 
 /**
  * Contract "Push asks": ask for each value nothing fills, as import does, with
- * its header and one `<prompt>: ` line each, before the change list. The
+ * its header and one `<prompt> (<file>, …): ` line each, before the change list. The
  * answers join the snapshot's saved values, so the plan sanitizes with them
  * and saves them where inferred values go. An empty answer or end of input
  * stops at once with the missing-value line.
  */
-async function askExportValues(
+export async function askExportValues(
   snapshot: Snapshot,
   io: SetupIo,
+  yes: boolean,
+  suggest: SuggestValues = suggestions,
 ): Promise<AskedValues> {
+  // `--yes` asks nothing, so no source runs and no suggestion is taken.
+  if (yes) {
+    return { ok: true, snapshot };
+  }
   const missing = exportMissingRules(snapshot);
   if (missing.length === 0) {
     return { ok: true, snapshot };
   }
+  const suggested = await suggest(missing.map(({ rule }) => rule));
   const values: Record<string, string> = { ...snapshot.values };
   io.write(ASK_HEADER);
-  for (const rule of missing) {
-    io.write(`  ${rule.prompt ?? ""}: `);
-    const answer = trimAnswer((await io.readLine()) ?? "");
+  for (const { rule, files } of missing) {
+    const suggestion = suggested[rule.placeholder];
+    io.write(valueQuestion(rule.prompt ?? "", files, suggestion));
+    const raw = await io.readLine();
+    const typed = trimAnswer(raw ?? "");
+    // Enter takes the suggestion; end of input never does.
+    const answer =
+      typed === "" && raw !== undefined && suggestion !== undefined
+        ? suggestion
+        : typed;
     if (answer === "" || holdsPlaceholder(answer)) {
       return { ok: false, line: missingValueLine(rule.placeholder) };
     }
@@ -1004,13 +1024,11 @@ export async function executeExport(
   // reader closes.
   const terminal = shared ?? setupTerminal();
   try {
-    if (!command.yes) {
-      const asked = await askExportValues(snapshot, terminal.io);
-      if (!asked.ok) {
-        return { code: 1, stdout: "", stderr: `${asked.line}\n` };
-      }
-      snapshot = asked.snapshot;
+    const asked = await askExportValues(snapshot, terminal.io, command.yes);
+    if (!asked.ok) {
+      return { code: 1, stdout: "", stderr: `${asked.line}\n` };
     }
+    snapshot = asked.snapshot;
     const planned = planExport(snapshot);
     const settings = planned.newSettings ?? [];
     const question = newSettingChoices(snapshot.record, snapshot.os);
@@ -1202,6 +1220,10 @@ export async function runExport(
   const { snapshot, context } = await buildRun(env, command);
 
   let result: Result;
+  // A preview that left out a file for a missing value prints its tail and
+  // the held block as a clean one does, then exits 1 (contract "Export
+  // preview").
+  let previewSkipped = false;
   if (command.preview) {
     const firstBackup =
       backupSides === undefined
@@ -1213,9 +1235,10 @@ export async function runExport(
       firstBackup,
     );
     result =
-      preview.code === 0 && preview.tree !== undefined
+      preview.tree !== undefined
         ? await previewTail(env.repoRoot, preview)
         : renderStatic(preview);
+    previewSkipped = preview.skipped === true;
   } else {
     const firstBackup: FirstBackupRun | undefined =
       backupSides === undefined
@@ -1246,6 +1269,9 @@ export async function runExport(
       ...result,
       stdout: result.stdout + heldText(exportGuardResult.decision.held),
     };
+  }
+  if (previewSkipped && result.code === 0) {
+    result = { ...result, code: 1 };
   }
   return endRun(result, check, finish);
 }

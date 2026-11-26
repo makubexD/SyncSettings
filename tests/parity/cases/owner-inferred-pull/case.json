@@ -1,0 +1,41 @@
+{
+  "description": "Import infers <YOUR_GH_OWNER> from the unchanged local line against the repo's new placeholder, next to a saved <YOUR_GH_USERNAME> with another value, and asks nothing: the split placeholder needs no migration (Sanitize and hydrate, Inference on import).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Sanitized parity settings",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_USERNAME>",
+            "prompt": "GitHub username"
+          },
+          {
+            "placeholder": "<YOUR_GH_OWNER>",
+            "prompt": "GitHub owner of your own repos"
+          }
+        ]
+      }
+    ]
+  },
+  "values": {
+    "<YOUR_GH_USERNAME>": "work-login"
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      }
+    }
+  ]
+}

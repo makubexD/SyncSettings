@@ -1,0 +1,45 @@
+{
+  "description": "Pull --yes runs no suggest source: the question shows no default and the typed answer fills the value (Sanitize and hydrate, Suggested answers).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_USERNAME>",
+            "prompt": "GitHub username",
+            "suggest": "gh-login"
+          }
+        ]
+      }
+    ]
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true
+      },
+      "stdin": "Ana\n"
+    }
+  ],
+  "os": [
+    "linux",
+    "windows"
+  ],
+  "git": "remote",
+  "syncPoint": true
+}

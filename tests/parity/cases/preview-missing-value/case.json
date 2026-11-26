@@ -1,5 +1,5 @@
 {
-  "description": "preview never asks: a placeholder nothing fills stops with the missing-value line naming push and pull, exit 1, and saves no value (Sanitize and hydrate, Missing value; Export preview).",
+  "description": "A preview never asks: a file whose placeholder has no value is SKIPPED with the placeholder it needs, nothing is written, and the preview exits 1 (Export preview).",
   "configV2": {
     "schemaVersion": 2,
     "modules": {

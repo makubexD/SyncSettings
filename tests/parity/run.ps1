@@ -895,7 +895,8 @@ function Setup-Git {
 }
 
 # The gh stub as a program: it appends its arguments joined by spaces, one call
-# per line, to gh.log one folder above its own, prints nothing and exits 0.
+# per line, to gh.log one folder above its own and exits 0. It prints nothing,
+# except `parity-user` for `api user --jq .login`, the gh-login suggestion's source.
 # The program runs only .com and .exe commands on Windows (contract "The
 # program"), so it needs this one. Built once per run with the C# compiler
 # Windows PowerShell already carries.
@@ -912,6 +913,10 @@ public static class GhStub
         string bin = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
         string log = Path.Combine(Path.GetDirectoryName(bin), "gh.log");
         File.AppendAllText(log, string.Join(" ", args) + "\r\n");
+        if (string.Join(" ", args) == "api user --jq .login")
+        {
+            Console.Out.Write("parity-user\r\n");
+        }
         return 0;
     }
 }

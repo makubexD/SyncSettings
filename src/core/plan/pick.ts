@@ -61,8 +61,13 @@ export function resolvedLocal(
   os: Os,
   home: string,
 ): string {
-  const raw = entry.localPaths?.[os] ?? entry.localPath ?? "";
-  return expandHome(raw, os, home);
+  return expandHome(configuredLocal(entry, os), os, home);
+}
+
+/** The entry's local path on this system as `sync-config.json` writes it
+ * (`~/.claude/settings.json`), `localPaths` first: what a value question names. */
+export function configuredLocal(entry: ConfigV2Entry, os: Os): string {
+  return entry.localPaths?.[os] ?? entry.localPath ?? "";
 }
 
 /** Whether the entry's values are JSON string bodies: `merge: "json"`, or a
@@ -259,8 +264,7 @@ export function resolveOnly(
       // A `json` entry whose label is a `dotfiles/` path, while its primary
       // path is a private layer, accepts the label the diff prints.
       const byLabel = selected.find(
-        (entry) =>
-          entry.entry.merge === "json" && printedLabel(entry) === path,
+        (entry) => entry.entry.merge === "json" && printedLabel(entry) === path,
       );
       if (byLabel === undefined) {
         return { ok: false, plan: onlyFailure(argument) };

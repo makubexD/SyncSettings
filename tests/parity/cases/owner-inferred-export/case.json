@@ -1,0 +1,38 @@
+{
+  "description": "Export infers <YOUR_GH_OWNER> from the local file next to a saved <YOUR_GH_USERNAME> with another value, asks nothing, and sanitizes the owner without ever writing the username (Sanitize and hydrate, Inference on export).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Sanitized parity settings",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_USERNAME>",
+            "prompt": "GitHub username"
+          },
+          {
+            "placeholder": "<YOUR_GH_OWNER>",
+            "prompt": "GitHub owner of your own repos"
+          }
+        ]
+      }
+    ]
+  },
+  "values": {
+    "<YOUR_GH_USERNAME>": "work-login"
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}

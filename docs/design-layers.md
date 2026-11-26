@@ -99,7 +99,7 @@ Every entry in `sync-config.json` today, and where it lands. The columns:
 | `dotfiles/windows/windows-terminal/settings.json`       | `windows-terminal` | OS (Windows)                                                                           | Windows                          | whole file |                                                                          |
 | `dotfiles/common/claude/CLAUDE.md`                      | `claude`           | base, profile adds one                                                                 | Linux, macOS; Windows in phase 7 | `@import`  |                                                                          |
 | `dotfiles/common/claude/RTK.md`                         | `claude`           | base                                                                                   | all with Claude                  | whole file |                                                                          |
-| `dotfiles/linux/claude/settings.json`                   | `claude`           | OS (Linux) today; a base part moves to `dotfiles/common/` when Windows joins (phase 7) | Linux                            | JSON       | `<HOME>`: machine; `<YOUR_GH_USERNAME>`: profile                         |
+| `dotfiles/linux/claude/settings.json`                   | `claude`           | OS (Linux) today; a base part moves to `dotfiles/common/` when Windows joins (phase 7) | Linux                            | JSON       | `<HOME>`: machine; `<YOUR_GH_OWNER>`: profile                            |
 | `dotfiles/linux/claude/statusline.sh`                   | `claude`           | none: replaced by `mksync statusline`                                                  | Linux until cut-over             | whole file |                                                                          |
 | `dotfiles/common/claude/sampleGrok.md`                  | `claude`           | none (see Open)                                                                        | Linux, macOS                     | whole file |                                                                          |
 | `dotfiles/linux/claude/hooks`                           | `claude`           | OS (Linux)                                                                             | Linux                            | dir        |                                                                          |
@@ -237,6 +237,7 @@ A value fills a `<PLACEHOLDER>` on pull and turns back into it on push, as today
 | `<YOUR_NAME>`             | profile | the name on the job's accounts |
 | `<YOUR_EMAIL>`            | profile | an account                     |
 | `<YOUR_GH_USERNAME>`      | profile | an account                     |
+| `<YOUR_GH_OWNER>`         | profile | an account                     |
 | `<YOUR_GH_ORG>`           | profile | an account                     |
 | `<YOUR_WORK_MARKETPLACE>` | profile | the job's service              |
 | `<HOME>`                  | machine | a path                         |
@@ -1487,6 +1488,31 @@ install").
   `<HOME>`), and the Windows VM showed the push questions read PowerShell's byte order mark as an answer
   (`setupTerminal` now drops it). The shared cases can't put the temp home's path inside a fixture, so the
   forward-slash rule is covered by unit cases and checked on work #2's push.
+- **Git values (work #2, 2026-11-26).** On `v1.1.7` push asked `GitHub username:` with no file named, for
+  `~/.claude/settings.json`, which uses `<YOUR_GH_USERNAME>` as the owner of the user's own repos while Windows'
+  `.gitconfig.local` uses it as git's credential account; on a work machine the two differ. Git also reads
+  `~/.config/git/config` and include targets, which `mksync` doesn't see. **Done in `v1.1.8`**
+  (`docs/plan-git-values.md`): `<YOUR_GH_OWNER>` takes the owner's meaning in `claude/settings.json` (inferred from
+  the unchanged local line, so no migration); the value question names its files and may show a `suggest`ed answer
+  (`gh-login`, `git-user-name`, `git-user-email`) that only Enter takes; `preview` marks a file that needs a missing
+  value `SKIPPED` and goes on, exit 1; the doctor warns about `~/.config/git/config`, include targets it doesn't
+  sync, a missing `~/.gitconfig.local`, and on Windows a `gh` that differs from `<GH_CLI_PATH>`.
+- **Suggestions without a terminal (`v1.1.8`, decided at run time).** Push runs no source under `--yes`. Pull's
+  import has no `--yes` of its own and prints its value questions even with piped or no input, so it runs the sources
+  then; only an empty line takes a suggestion, never end of input, so nothing is filled unseen. Under
+  `--reset-values` the bracket shows the cached value first, then the suggestion, then the rule's `default`. The app
+  turns Enter into the suggestion; `askValues` itself is unchanged. Whether pull should skip the sources when stdin
+  is not a terminal is open.
+- **Syncing git's other config files.** `~/.config/git/config` and `include.path` / `includeIf.*.path` targets other
+  than `~/.gitconfig.local` and `~/.gitconfig.machine` aren't synced; `v1.1.8`'s doctor only names them. Whether they
+  become entries, and on which layer, is open.
+- **Export inference and a JSON comma.** Export infers a value only from a local line that fits the repo line's text
+  before and after the placeholder. A key added after the placeholder's key gives the local line a trailing comma the
+  repo line lacks, so nothing is inferred and push asks (found writing `owner-inferred-export`, `v1.1.8`). It fails
+  safe; a `json` entry could compare values by key instead.
+- **Checking a typed answer against the files.** A value typed at the question isn't checked against the local files
+  that need it, so a typo is hydrated and saved. The program could warn when the answer appears in none of them,
+  where it can read them.
 - **Other spellings of a Windows home (values-ask re-review).** Sanitize and the leak scan cover `C:/Users/…` and
   `C:\Users\…`, but not Git Bash's `/c/Users/<name>` nor a JSON writer's `C:\/Users\/…` (the leak scan does catch the
   second). Add `/[a-z]/Users/` to the leak scan and the `/c/…` form to `formsFor` for a drive value. A `<HOME>` file
@@ -1866,9 +1892,28 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
 - **Workflow keys in phase 10.** Claude's `settings.json` keeps the workflow's `hooks` wiring in the Linux OS layer, and
   `CLAUDE.md`'s workflow text is base text, because a `personal` profile layer can't be committed while the repo is
   public. Phase 10 moves both to the `personal` profile layer, so a work machine on Linux wouldn't get them either.
+- **Suggested answers (git-values review, v1.1.8).** Left open by the finish review:
+  - A push sanitizes with the answer it is given, so a suggestion taken with Enter can differ from the value in the
+    synced file: `git config --global user.name` merges `~/.gitconfig` and `~/.config/git/config` (the last one wins)
+    and doesn't follow includes. The real name then stays in the export, and only the leak scan stops it. A fix: after
+    sanitizing, check that a rule answered from a suggestion matched in its files, and ask again if it didn't.
+  - The sources run before the first prompt even when stdin is already at end of input (CI, `< /dev/null`), so such a
+    run waits up to 5 seconds for `gh api user` and then stops as it would without one. The contract says so.
+  - `--reset-values` runs the sources for every rule, including ones whose bracket shows the cached value.
+  - Nothing is printed during the up-to-5-second wait before the header.
+- **The doctor's `GH_CLI_PATH` value (git-values review).** The doctor compares `gh` with the saved value, else the
+  rule's `default`; it ignores `defaultEnv` and inferred values, which pull would also use.
 
 ### Confirm on Windows
 
+- **End of input with a suggestion (git-values review).** `run.ps1` pipes a case with no `stdin` as `'' | mksync`,
+  which Windows PowerShell sends as one empty line, so a prompt there gets Enter, never end of input.
+  `pull-suggest-eof` is Linux-only for that reason; the code path has no OS branch. Fix the runner to send no input
+  for such a case, check every case still passes in the VM, then widen `pull-suggest-eof`.
+- **A planted `git.exe` or `gh.exe` (git-values review).** Bun's process spawn on Windows searches the current folder
+  before `Path`, so `mksync` run from a folder holding a `git.exe` or `gh.exe` would run that file. All git calls share
+  this, not only the new sources. A fix: resolve each binary with the doctor's `which()` and pass the absolute path.
+  Confirm the search order in the VM first.
 - **The doctor's `defaultEnv` lookup (values-ask review).** The doctor now reads a copy of the environment
   (`valueEnv`), as import and export do, so a rule naming `AppData` no longer matches `APPDATA` case-insensitively
   there. No rule in `sync-config.json` names a mixed-case variable; confirm nothing on the work machines relies on it.

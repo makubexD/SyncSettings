@@ -86,11 +86,13 @@
       "sanitize": [
         {
           "placeholder": "<YOUR_NAME>",
-          "prompt": "Full name for git commits"
+          "prompt": "Full name for git commits",
+          "suggest": "git-user-name"
         },
         {
           "placeholder": "<YOUR_EMAIL>",
-          "prompt": "Email for git commits"
+          "prompt": "Email for git commits",
+          "suggest": "git-user-email"
         }
       ],
       "description": "Git global configuration"
@@ -113,7 +115,8 @@
       "sanitize": [
         {
           "placeholder": "<YOUR_GH_USERNAME>",
-          "prompt": "GitHub username"
+          "prompt": "GitHub username",
+          "suggest": "gh-login"
         },
         {
           "placeholder": "<YOUR_GH_ORG>",
@@ -427,8 +430,8 @@
           "defaultEnv": "HOME"
         },
         {
-          "placeholder": "<YOUR_GH_USERNAME>",
-          "prompt": "GitHub username"
+          "placeholder": "<YOUR_GH_OWNER>",
+          "prompt": "GitHub owner of your own repos"
         }
       ],
       "description": "Claude Code user settings (hooks, plugins, permissions)"

@@ -115,9 +115,16 @@ stopped on a missing value: the values hotfix (`docs/plan-values-hotfix.md`, `v1
 machine's files, so after a second `git pull` (`mksync --version` prints `1.1.6`) nothing is filled by hand. `1.1.6`
 still stopped at `missing value for <HOME>` (Windows sets no `HOME`): the values-ask release
 (`docs/plan-values-ask.md`, `v1.1.7`) takes the home folder for it and makes push ask for any value nothing fills, so
-after a third `git pull` (`mksync --version` prints `1.1.7`) push needs no shell variable. Then `mksync preview`, then
-`mksync push` from a terminal, answering the public-name question (not the hostname) and `3` (this profile) for each
+after a third `git pull` (`mksync --version` prints `1.1.7`) push needs no shell variable. Before the push, the git
+values release (`docs/plan-git-values.md`, `v1.1.8`): a fourth `git pull` (`mksync --version` prints `1.1.8`), then
+`mksync doctor` for git's own `WARN` lines (an extra git config file, an include mksync doesn't sync, a different
+`gh`). Then `mksync preview`, which lists every file and marks one still waiting for a value as `SKIPPED … needs`,
+then `mksync push` from a terminal, answering each value question (it names its files and may suggest the `gh` login
+or git's name and email: Enter takes it), the public-name question (not the hostname) and `3` (this profile) for each
 machine-only key.
+
+The Linux machine and work #1 then run `git pull`, `mksync update` and `mksync pull` once: `v1.1.8` splits the repo
+owner out as `<YOUR_GH_OWNER>`, and the pull writes it back from their own files.
 
 Test: `mksync doctor` shows the record and profile; Claude reviews any PR as in step 3; `mksync diff` agrees.
 
@@ -129,7 +136,7 @@ Test: as step 8, recorded under "Work #3".
 
 ## Step 11: Set up and push work #3 `[inline: the user's machine and a public-repo review]`
 
-As step 9, with profile `work3`.
+As step 9, with profile `work3`, on `1.1.8` from the start.
 
 Test: as step 9.
 
@@ -142,7 +149,7 @@ On each machine: `mksync --version` and `mksync diff`. Pull where it lists `IN`.
 Work #1 and the personal machine get their public name (`alias`) on their next push from a terminal, as `v1.1.4`
 asks once per record.
 
-Test: every machine prints `mksync 1.1.7` (or the latest release) and "This machine and the repo agree".
+Test: every machine prints `mksync 1.1.8` (or the latest release) and "This machine and the repo agree".
 
 ## Step 13: The private switch `[inline: the user's switch]`
 

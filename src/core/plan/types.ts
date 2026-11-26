@@ -116,6 +116,12 @@ export interface Snapshot {
    */
   readonly localDirs: ReadonlySet<string>;
   readonly values: Values;
+  /**
+   * Suggested answers by placeholder, from each rule's `suggest` source (contract
+   * "Sanitize and hydrate"): shown as a question's default, never a value on
+   * their own. The app reads them only when a run is about to ask.
+   */
+  readonly suggested?: Values;
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Raw `--only` arguments, before they are resolved to repo paths. */
   readonly only: readonly string[];

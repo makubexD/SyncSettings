@@ -954,6 +954,50 @@ describe("import value questions", () => {
     sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name" }],
   };
   const NAME_VALUES = '{\n  "<YOUR_NAME>": "Jane Doe"\n}\n';
+  const VALUE_FILE = "~/.config/parity/a.conf";
+  const OTHER_FILE = "~/.config/parity/b.conf";
+  const OTHER_REPO = "dotfiles/common/parity/b.conf";
+  const OTHER_ENTRY: ConfigV2Entry = {
+    ...VALUE_ENTRY,
+    file: "parity/b.conf",
+    localPath: OTHER_FILE,
+  };
+
+  function twoEntrySnapshot(): Snapshot {
+    return layeredSnapshot("linux", {
+      entries: [OTHER_ENTRY, VALUE_ENTRY],
+      repo: { [VALUE_REPO]: VALUE_REPO_TEXT, [OTHER_REPO]: VALUE_REPO_TEXT },
+    });
+  }
+
+  test("should name both files that need the value in entry order", () => {
+    // Arrange
+    const snapshot = twoEntrySnapshot();
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        text: `${ASK_HEADER}  Full name (${OTHER_FILE}, ${VALUE_FILE}): `,
+        hasDefault: false,
+      },
+    ]);
+  });
+
+  test("should leave out a file --only leaves out", () => {
+    // Arrange
+    const snapshot: Snapshot = { ...twoEntrySnapshot(), only: [VALUE_LOCAL] };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      { text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `, hasDefault: false },
+    ]);
+  });
 
   function valueSnapshot(entry: ConfigV2Entry): Snapshot {
     return layeredSnapshot("linux", {
@@ -972,7 +1016,7 @@ describe("import value questions", () => {
 
     // Assert
     expect(questions).toEqual([
-      { text: `${ASK_HEADER}  Full name: `, hasDefault: false },
+      { text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `, hasDefault: false },
     ]);
     expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
     expect(
@@ -1018,7 +1062,7 @@ describe("import value questions", () => {
 
     // Assert
     expect(questions).toEqual([
-      { text: `${ASK_HEADER}  Full name: `, hasDefault: false },
+      { text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `, hasDefault: false },
     ]);
     expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
   });
@@ -1046,8 +1090,108 @@ describe("import value questions", () => {
 
     // Assert
     expect(questions).toEqual([
-      { text: `${ASK_HEADER}  Full name [Old Name]: `, hasDefault: true },
-      { text: "  Home folder: ", hasDefault: false },
+      {
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Old Name]: `,
+        hasDefault: true,
+      },
+      { text: `  Home folder (${VALUE_FILE}): `, hasDefault: false },
+    ]);
+  });
+
+  test("should show a suggestion as the question's default", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name" }],
+    };
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+      }),
+      suggested: { "<YOUR_NAME>": "Ana Lopez" },
+    };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Ana Lopez]: `,
+        hasDefault: false,
+        suggestion: "Ana Lopez",
+      },
+    ]);
+  });
+
+  test("should show the cached value over a suggestion under --reset-values", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [
+        { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+        { placeholder: "<HOME>", prompt: "Home folder" },
+      ],
+    };
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+        values: { "<YOUR_NAME>": "Old Name" },
+      }),
+      resetValues: true,
+      suggested: { "<YOUR_NAME>": "Ana Lopez", "<HOME>": "/home/ana" },
+    };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Old Name]: `,
+        hasDefault: true,
+      },
+      {
+        text: `  Home folder (${VALUE_FILE}) [/home/ana]: `,
+        hasDefault: false,
+        suggestion: "/home/ana",
+      },
+    ]);
+  });
+
+  test("should stop at end of input when a reset question shows a suggestion over a default", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [
+        {
+          placeholder: "<YOUR_NAME>",
+          prompt: "Full name",
+          default: "Rule Name",
+        },
+      ],
+    };
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+      }),
+      resetValues: true,
+      suggested: { "<YOUR_NAME>": "Ana Lopez" },
+    };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Ana Lopez]: `,
+        hasDefault: false,
+        suggestion: "Ana Lopez",
+      },
     ]);
   });
 

@@ -143,6 +143,7 @@ ERROR: <config file>: entry <file> has an unsafe path.
 ERROR: <config file>: entry <file> has a backslash in localPath.
 ERROR: <config file>: entry <file> has an unknown localPaths key <key>.
 ERROR: <config file>: entry <file> has an invalid defaultEnv.
+ERROR: <config file>: entry <file> has an invalid suggest.
 ERROR: <config file>: entry <file> needs a dconfPath like /org/gnome/shell/.
 ```
 
@@ -152,6 +153,8 @@ ERROR: <config file>: entry <file> needs a dconfPath like /org/gnome/shell/.
 - `localPath` and every [`localPaths`](#localpath) value use forward slashes; its keys are `linux`, `macos` or
   `windows`.
 - A `sanitize` rule's `defaultEnv` matches `^[A-Za-z_][A-Za-z0-9_]*$`, because it names an environment variable.
+- A `sanitize` rule's `suggest`, when present, is `gh-login`, `git-user-name` or `git-user-email`
+  ([Sanitize and hydrate](#sanitize-and-hydrate)).
 - A `dconf` entry has no `localPath`. Its `dconfPath` must start and end with `/`, hold at least one segment of
   letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody dumps the whole
   database by accident.
@@ -270,21 +273,34 @@ counts as no value, wherever it comes from, so hydrate never writes a placeholde
 value. 4. A prompt, only for a placeholder none of these fills.
 
 Before the first question it prints
-`\n  Enter values to fill the placeholders in the config files:\n\n`, then ` <prompt>:` for each, and a newline after
-the last answer. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
+`\n  Enter values to fill the placeholders in the config files:\n\n`, then ` <prompt> (<file>, …):` for each, and a
+newline after the last answer. The files are the `localPath` of each entry being written (pull) or sent (push) that
+has the rule, as `sync-config.json` writes it (`~/.claude/settings.json`), de-duplicated, in entry order. A value that
+appears in none of those files is still asked: the program can't tell without the value, and skipping would fail open.
+
+**Suggested answers.** A rule may name a `suggest` source ([configuration](configuration.md#sanitize)). When push or
+pull is about to ask for that placeholder, it runs the source once and shows its trimmed output before the colon:
+` <prompt> (<file>, …) [<value>]:`. An empty answer then takes the suggestion; a typed answer wins. The sources are
+`gh-login` (`gh api user --jq .login`), `git-user-name` (`git config --global user.name`) and `git-user-email`
+(`git config --global user.email`). A source that fails, runs past 5 seconds, prints nothing, prints more than one
+line, prints a control character or prints placeholder text gives no suggestion, and the prompt reads as without one. A
+suggestion is never used without its prompt: `--yes` (push and pull), `preview`, `diff`, `check` and `status` run no
+source, and end of input never takes a suggestion, so a suggestion can't fill a value unseen. With no input the source
+still runs before the first prompt, and the run stops there as below. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
 missing, so the run stops as below, after the prompts printed so far; with no input at all a run stops as it did
 before. An answer that holds placeholder text stops the run at once with the missing-value line. Answers are read from
 stdin after a leading byte order mark (`U+FEFF`, which Windows PowerShell puts before piped text) is dropped. `--check`, `preview`, `export --preview`, `status` and `diff` never ask.
 
 **Push asks.** Export (push) without `--yes` asks for each value nothing above fills, on stdin, as import does:
-the same header and ` <prompt>:` lines, in rule order, before the change list. It asks only for the placeholders of the
+the same header and ` <prompt> (<file>, …):` lines, in rule order, before the change list. It asks only for the placeholders of the
 entries it exports (`--only` and skips respected). An empty answer or end of input stops the run at once with the
 missing-value line, and so does an answer that holds placeholder text. The answers are saved as inferred values are:
 on the record and the profile by [Values on a machine](#values-on-a-machine), else in `.user-values.json`. `--yes`
 asks nothing; with no input (`< /dev/null`) the header is printed and the run stops at the first question.
 
 `mksync import --reset-values` prompts again for every placeholder and skips inference.
-The cached value is only the prompt's default. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
+The cached value is only the prompt's default. With no cached value, a suggestion comes before the rule's `default`
+and `defaultEnv`, and a prompt that shows one stops the run at end of input, as one with no default does. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
 profile's value replaces it there; a new one is placed as in [Values on a machine](#values-on-a-machine). The program
 takes the flag on `import` only so far.
 New values are saved back to `.user-values.json`. Each save leaves the file readable by the current user only: mode 600
@@ -327,7 +343,8 @@ the result, so a synced file holding that byte run is not supported.
 **Missing value.** If a placeholder has no value after all of the above, with or without a terminal, `mksync` prints
 `missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it` and exits 1 before writing any
 file. The line is the same with or without a machine record. Output names the
-placeholder, never its value.
+placeholder, never its value. `preview` and `check` don't stop: they mark the files that need the value `SKIPPED`
+and carry on ([Export preview](#export-preview), [Import check](#import-check)).
 
 ## Compare
 
@@ -621,6 +638,14 @@ the machine.
   `WARNING: the leak scan found the lines above. Fix them before committing.`, leaves the diff out so the leaked text
   stays off the screen, and the preview exits 1. A scan that cannot run prints `ERROR: leak scan could not run; nothing
 was committed.`, prints no diff and exits 1.
+- A file whose placeholder has no value (after the cached value, inference, `default` and `defaultEnv`; a preview
+  never asks and runs no `suggest` source) prints `SKIPPED <file>  (needs <PLACEHOLDER>: mksync push asks for it)`,
+  `<file>` its repo path, one line per file, naming the first such placeholder in rule order. These lines come first,
+  in entry order, before the other status lines. The preview goes on with the other files: their status lines, the
+  summary, the leak scan and the diff. A skipped file is left out of the export as a push's `IN` file is, so the temp
+  tree holds its repo copy unchanged: it shows no diff and adds nothing new to scan. The guard's held block still
+  follows. The preview then exits 1, after
+  `Nothing was written. Run mksync push to send it.`, so a script still sees it.
 - With no differences: `Nothing would be sent: the repo matches HEAD.` A file deleted from `dotfiles/` but still in
   `HEAD`, and an edit to `sync-config.json`, are differences.
 - `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
@@ -635,7 +660,8 @@ backup, mode, `.user-values.json` or dconf key, and no prompt.
 - The header says `IMPORT CHECK`. The up-to-date check doesn't run.
 - Values come from `.user-values.json` and inference from the local files, as in an import. A placeholder still
   without a value takes the rule's `default`, then its `defaultEnv` value, in memory only. An entry with a placeholder
-  that still has no value is `SKIPPED` with `needs values: run mksync setup`, and counts as a change.
+  that still has no value is `SKIPPED` with `needs <PLACEHOLDER>: mksync push or pull asks for it`, naming the first
+  such placeholder in rule order, and counts as a change.
 - A file import would create is `CREATE`, one it would overwrite is `UPDATE`; both count as changes. A file in a
   missing folder is a `CREATE`. `UNCHANGED`, `SKIPPED` and `EXTRA` are as in an import.
 - dconf runs the import's checks and `dconf dump`, which only reads. An empty dump is `CREATE`, keys the repo would
@@ -912,7 +938,14 @@ More rules per command:
   `the machine check failed; run mksync check to see why.`
 - **`doctor`** checks what the program needs, in this order: `git`; on macOS `brew` (`MISSING brew: install from
 https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
-  (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull fills them from this machine's files or asks for them` with one); `bash` (`WARN bash: needed by the leak scan; install with
+  (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull fills them from this machine's files or asks for them` with one); then git's own view of its config, up to four `WARN` lines in this order, none of which changes the exit code:
+  `WARN git also reads ~/.config/git/config; mksync syncs ~/.gitconfig only` when that file exists;
+  `WARN git includes <path>, which mksync doesn't sync` for each `include.path` or `includeIf.*.path` value in the
+  global config (`git config --global`) other than `~/.gitconfig.local` and `~/.gitconfig.machine`, the home folder
+  written as `~` with `/` after it; `WARN ~/.gitconfig.local is missing; mksync pull creates it from the repo` when this OS has a repo
+  copy of it and the file is missing; and on Windows only,
+  `WARN gh is <found path>, not <GH_CLI_PATH value>; mksync pull would point git at the wrong gh` when both are known
+  and differ, compared without case and with `\` and `/` taken as one; `bash` (`WARN bash: needed by the leak scan; install with
 <command>`; on Windows `install with winget install --id Git.Git -e`, or `install Git for Windows from
 https://git-scm.com` without `winget`; on Windows the line is `OK` when Git's own `bash.exe` is found from `git`, as
   the leak scan ([Checks before pushing](#checks-before-pushing)) finds it, and a `bash` elsewhere on `PATH`, such as
@@ -1323,10 +1356,10 @@ where it belongs, in the state folder — or, with a pointer record, in the clon
 `profiles/<name>.json`, a write that prints no status line — the way `setup` writes the record and the profile
 (profile first):
 
-| Placeholder                                                                                     | Kept on |
-| ----------------------------------------------------------------------------------------------- | ------- |
-| `<YOUR_NAME>`, `<YOUR_EMAIL>`, `<YOUR_GH_USERNAME>`, `<YOUR_GH_ORG>`, `<YOUR_WORK_MARKETPLACE>` | profile |
-| `<HOME>`, `<GH_CLI_PATH>`                                                                       | machine |
+| Placeholder                                                                                                        | Kept on |
+| ------------------------------------------------------------------------------------------------------------------ | ------- |
+| `<YOUR_NAME>`, `<YOUR_EMAIL>`, `<YOUR_GH_USERNAME>`, `<YOUR_GH_OWNER>`, `<YOUR_GH_ORG>`, `<YOUR_WORK_MARKETPLACE>` | profile |
+| `<HOME>`, `<GH_CLI_PATH>`                                                                                          | machine |
 
 On `import` and `export`, any other placeholder goes on the profile. `setup` asks about it once, and saves the answer
 with it:

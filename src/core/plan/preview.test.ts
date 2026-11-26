@@ -531,3 +531,131 @@ describe("planPreview", () => {
     expect(result.tree).toBeUndefined();
   });
 });
+
+describe("planPreview with a missing value", () => {
+  const NAME_PLACEHOLDER = "<YOUR_NAME>";
+  const EMAIL_PLACEHOLDER = "<YOUR_EMAIL>";
+  const NAME_REPO = "dotfiles/common/test/name.conf";
+  const EMAIL_REPO = "dotfiles/common/test/email.conf";
+  const PLAIN_REPO = "dotfiles/common/test/plain.conf";
+  const NAME_LOCAL = `${HOME}/.config/test/name.conf`;
+  const EMAIL_LOCAL = `${HOME}/.config/test/email.conf`;
+  const PLAIN_LOCAL = `${HOME}/.config/test/plain.conf`;
+  const NAME_REPO_TEXT = "name = <YOUR_NAME>\n";
+  const EMAIL_REPO_TEXT = "email = <YOUR_EMAIL>\n";
+  const PLAIN_REPO_TEXT = "color = red\n";
+  const NAME_LOCAL_TEXT = "name: Ana Lopez\n";
+  const EMAIL_LOCAL_TEXT = "email: ana@example.com\n";
+  const PLAIN_LOCAL_TEXT = "color = blue\n";
+  const NAME_SKIPPED = `  SKIPPED    ${NAME_REPO}  (needs ${NAME_PLACEHOLDER}: mksync push asks for it)`;
+  const EMAIL_SKIPPED = `  SKIPPED    ${EMAIL_REPO}  (needs ${EMAIL_PLACEHOLDER}: mksync push asks for it)`;
+  const PLAIN_MODIFIED = `  MODIFIED   ${PLAIN_REPO}`;
+
+  function fileEntry(
+    name: string,
+    placeholder?: string,
+  ): ConfigV2["entries"][number] {
+    return {
+      file: `test/${name}`,
+      module: "test",
+      merge: "whole",
+      localPath: `~/.config/test/${name}`,
+      ...(placeholder === undefined
+        ? {}
+        : { sanitize: [{ placeholder, prompt: "Value" }] }),
+    };
+  }
+
+  function localFile(path: string, content: string): [string, LocalEntry] {
+    return [path, { kind: "file", path, bytes: bytes(content), mode: 0o644 }];
+  }
+
+  function gapSnapshot(withEmail: boolean): Snapshot {
+    const repoFiles = new Map([
+      [NAME_REPO, bytes(NAME_REPO_TEXT)],
+      [PLAIN_REPO, bytes(PLAIN_REPO_TEXT)],
+      ...(withEmail ? [[EMAIL_REPO, bytes(EMAIL_REPO_TEXT)] as const] : []),
+    ]);
+    return {
+      config: {
+        schemaVersion: 2,
+        modules: {},
+        entries: [
+          fileEntry("name.conf", NAME_PLACEHOLDER),
+          ...(withEmail ? [fileEntry("email.conf", EMAIL_PLACEHOLDER)] : []),
+          fileEntry("plain.conf"),
+        ],
+      },
+      os: "linux",
+      home: HOME,
+      cwd: HOME,
+      repoFiles,
+      localFiles: new Map([
+        localFile(NAME_LOCAL, NAME_LOCAL_TEXT),
+        localFile(PLAIN_LOCAL, PLAIN_LOCAL_TEXT),
+        ...(withEmail ? [localFile(EMAIL_LOCAL, EMAIL_LOCAL_TEXT)] : []),
+      ]),
+      localDirs: new Set(),
+      values: {},
+      env: {},
+      only: [],
+      headFiles: new Map(repoFiles),
+    };
+  }
+
+  test("should skip only the file that needs the value and exit 1", () => {
+    // Arrange
+    const preview = gapSnapshot(false);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.skipped).toBe(true);
+    expect(result.lines.slice(0, 2)).toEqual([NAME_SKIPPED, PLAIN_MODIFIED]);
+  });
+
+  test("should leave the skipped file out of the tree", () => {
+    // Arrange
+    const preview = gapSnapshot(false);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(text(result.tree?.get(NAME_REPO))).toBe(NAME_REPO_TEXT);
+    expect(text(result.tree?.get(PLAIN_REPO))).toBe(PLAIN_LOCAL_TEXT);
+  });
+
+  test("should name each missing placeholder on its own file", () => {
+    // Arrange
+    const preview = gapSnapshot(true);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.lines.slice(0, 3)).toEqual([
+      NAME_SKIPPED,
+      EMAIL_SKIPPED,
+      PLAIN_MODIFIED,
+    ]);
+  });
+
+  test("should preview as before when no value is missing", () => {
+    // Arrange
+    const preview: Snapshot = {
+      ...gapSnapshot(false),
+      values: { [NAME_PLACEHOLDER]: "Ana Lopez" },
+    };
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.skipped).toBe(false);
+    expect(result.lines.some((line) => line.includes("SKIPPED"))).toBe(false);
+  });
+});

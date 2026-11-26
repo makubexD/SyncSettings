@@ -37,8 +37,10 @@ export interface PrCreateOptions {
  * The gh binary: `GH` names another, as `commit.sh` allows (`GH=${GH:-gh}`),
  * so the parity runners' stub can answer. Unset or empty means `gh` on PATH.
  */
-function ghBinary(): string {
-  const override = process.env.GH;
+export function ghBinary(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const override = env.GH;
   return override === undefined || override === "" ? "gh" : override;
 }
 

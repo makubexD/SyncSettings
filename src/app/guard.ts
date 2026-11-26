@@ -63,11 +63,13 @@ export function diffCounts(diff: Result): DiffCounts {
 }
 
 /** A pull child's `import`: the check (`--check`) or the forced apply. Setup's
- * differ line runs the same check. */
+ * differ line runs the same check. `yes` carries pull's `--yes`, under which no
+ * suggest source runs. */
 export function pullImportCommand(
   check: boolean,
   force: boolean,
   only: readonly string[],
+  yes = false,
 ): RunCommand {
   return {
     kind: "run",
@@ -76,7 +78,7 @@ export function pullImportCommand(
     preview: false,
     check,
     resetValues: false,
-    yes: false,
+    yes,
     only,
   };
 }
