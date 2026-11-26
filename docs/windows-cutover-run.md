@@ -132,6 +132,22 @@ in the answer block, with names replaced as in step 6.
 
 ## Answer
 
+### Work #1: extra checks
+
+Run 2026-11-26 on `mksync 1.1.3` (downloaded `mksync.exe`), PowerShell 7.6, from the clone (not in the home folder).
+
+1. `ERROR: the home folder is not set (USERPROFILE).`, `exit 1`. The program stops; nothing is written.
+2. `icacls` lists one entry, `DOMAIN\USER:(F)`: no inherited access.
+3. **The clone's `git.exe` ran.** `mksync status` printed `Origin : not a git clone` and `Unsent : not checked`,
+   `exit 0`: the lookup searched the working folder (the clone) before `PATH`.
+4. `bash` on `PATH`, in order: `C:\Windows\system32\bash.exe` (WSL), `C:\Program Files\Git\bin\bash.exe`,
+   `…\WindowsApps\bash.exe`. `doctor` reads `OK bash`: the program finds Git Bash from `git`, not WSL's first entry.
+5. Caption `Microsoft Windows 11 Enterprise`, code page `437`, status `windows (Microsoft Windows 11 Enterprise)`:
+   they match (an English caption, no accents to garble).
+6. `cmd /c "mksync setup < NUL"` printed the doctor block, then
+   `ERROR: this machine is already HOST; use --replace to take over another record.`, `exit 1`, as the contract says
+   for a machine with a record. The no-terminal path wasn't reached; it is checked on work #2, which has no record.
+
 ### Work #2: extra checks
 
 1. (unset `USERPROFILE`)

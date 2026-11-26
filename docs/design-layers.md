@@ -1775,22 +1775,29 @@ each with its command and what to paste back, for work #2 and #3 when the user i
 
 - **Unset `USERPROFILE` (phase 4).** The PowerShell engine doesn't stop when `USERPROFILE` is unset (paths become
   `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or
-  record it as a known difference.
+  record it as a known difference. Work #1 (2026-11-26): the program stops, `ERROR: the home folder is not set
+(USERPROFILE).`, exit 1.
 
 - **End of input at setup's confirm (v1.1.1).** `run.ps1` pipes a case's stdin with `$text | & exe`, which adds a
   newline, so no Windows case can end at end of input: the confirm reads an empty line (yes). `setup-confirm-eof` is
   Linux only. Check on a work machine that `mksync setup` with no console stops with `Stopped: nothing was written.`
+  Work #1 (2026-11-26) has a record, so setup stopped earlier (`already <name>`, exit 1); left for work #2.
 - **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
-  access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
+  access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM. Work #1 (2026-11-26):
+  one entry, the user's own `(F)`.
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
   the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
-  the repo would run; if so, resolve through `PATH` only.
+  the repo would run; if so, resolve through `PATH` only. **Work #1 (2026-11-26): it does.** A `whoami.exe` copied to
+  the clone as `git.exe` ran in place of git (`Origin : not a git clone`). To fix before work #2: resolve `git`, `gh`
+  and `cmd.exe` through `PATH` only.
 - **Leak scan's `bash` (phase 8 review).** The program runs bare `bash`; with WSL installed, `System32\bash.exe` can
   come before Git Bash on `PATH` and can't open the script, so every push stops at "could not run". Find Git Bash
-  explicitly and pass the script path with `/`.
+  explicitly and pass the script path with `/`. Work #1 (2026-11-26): WSL's `bash.exe` is first on `PATH` and `doctor`
+  reads `OK bash`.
 - **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
   the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
-  `[Console]::OutputEncoding` first, and give the call a timeout.
+  `[Console]::OutputEncoding` first, and give the call a timeout. Work #1 (2026-11-26): an English caption, code page
+  437, matches; a localized caption is still unchecked.
 - **The survey (step 27).** Work machine #1's answer (`docs/archive/windows-survey.md`, "Answer", 2026-11-16) settled the
   next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
 
