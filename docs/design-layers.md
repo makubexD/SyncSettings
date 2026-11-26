@@ -1448,8 +1448,11 @@ from work #1 (the Claude keys are in profile `work1`, Windows Terminal in the Wi
   knowing it is their real name, against rule 1's "no names while public" (a branch is public, though not a commit).
   **Done in `v1.1.4` (`docs/plan-windows-hotfix.md`):** the record's `alias`, asked on the first push from a
   terminal; the hostname is refused, and without a terminal push stops before committing. Open: once the repo is
-  private the record is in the repo store, so the first push writes it into the clone during the commit; check that it
-  lands in that commit or stays out of it cleanly.
+  private the record is in the repo store, so the first push writes `machines/<name>.json` into the clone during the
+  commit; today it would stay uncommitted (the commit stages `dotfiles/` and `packages/` only) and the next push would
+  stop on a dirty tree outside `dotfiles/`. Decide before the private switch: stage it with the push, or write it after.
+  Also open: the PR body's `Profile: <p>` line names the job profile (`work1`) in a public PR; harmless while profile
+  names are generic, but a profile named after an employer would publish it.
 - **Statusline directory on Windows (work #1, 2026-11-26).** The directory section takes the text after the last `/`
   (`src/core/statusline/format.ts`), so Claude Code's Windows `cwd` (`C:\…\SyncSettings`) shows in full. The contract
   says "the directory's last part": split on `\` too. **Done in `v1.1.4`:** split on `/` or `\` on every OS.

@@ -14,6 +14,7 @@ import {
   isSpawnable,
   run,
   runSync,
+  searchFolders,
   stdinLines,
   which,
 } from "./process.ts";
@@ -55,6 +56,14 @@ const RELATIVE_FOLDER = ".";
 
 const EXECUTABLE_MODE = 0o755;
 
+/** The test process's own folder, restored after a test that moves into
+ * another, since `which` resolves a relative PATH entry against it. */
+const ORIGINAL_CWD = process.cwd();
+
+const WINDOWS_FOLDER = "C:\\Program Files\\Git\\cmd";
+
+const OTHER_WINDOWS_FOLDER = "C:\\Tools";
+
 const tempFolders: string[] = [];
 
 function tempFolder(): string {
@@ -73,6 +82,7 @@ function fakeCommandFolder(): string {
 }
 
 afterEach(() => {
+  process.chdir(ORIGINAL_CWD);
   while (tempFolders.length > 0) {
     const folder = tempFolders.pop();
     if (folder !== undefined) {
@@ -306,6 +316,7 @@ describe("PATH only", () => {
   test("should skip a relative PATH folder when it names the working folder", async () => {
     // Arrange
     const folder = fakeCommandFolder();
+    process.chdir(folder);
 
     // Act
     const result = await run([FAKE_COMMAND], {
@@ -315,6 +326,19 @@ describe("PATH only", () => {
 
     // Assert
     expect(result.code).toBe(MISSING_CODE);
+  });
+
+  test("should skip an empty PATH entry when the working folder holds the command", () => {
+    // Arrange
+    const folder = fakeCommandFolder();
+    process.chdir(folder);
+    const emptyEntryFirst = ["", "/nonexistent-folder"].join(delimiter);
+
+    // Act
+    const found = which(FAKE_COMMAND, { PATH: emptyEntryFirst });
+
+    // Assert
+    expect(found).toBeNull();
   });
 
   test("should run the command when an absolute PATH folder holds it", async () => {
@@ -353,6 +377,52 @@ describe("PATH only", () => {
     // Assert
     expect(result.code).toBe(0);
     expect(decode(result.stdout)).toBe(FAKE_OUTPUT);
+  });
+});
+
+describe("searchFolders", () => {
+  test("should drop one pair of quotes around a Windows folder when PATH quotes it", () => {
+    // Arrange
+    const env = { PATH: `"${WINDOWS_FOLDER}";${OTHER_WINDOWS_FOLDER}` };
+
+    // Act
+    const folders = searchFolders(env, true);
+
+    // Assert
+    expect(folders).toEqual([WINDOWS_FOLDER, OTHER_WINDOWS_FOLDER]);
+  });
+
+  test("should read the exact PATH key on Windows when the env also holds Path", () => {
+    // Arrange
+    const env = { Path: OTHER_WINDOWS_FOLDER, PATH: WINDOWS_FOLDER };
+
+    // Act
+    const folders = searchFolders(env, true);
+
+    // Assert
+    expect(folders).toEqual([WINDOWS_FOLDER]);
+  });
+
+  test("should read Path on Windows when the env holds no PATH key", () => {
+    // Arrange
+    const env = { Path: OTHER_WINDOWS_FOLDER };
+
+    // Act
+    const folders = searchFolders(env, true);
+
+    // Assert
+    expect(folders).toEqual([OTHER_WINDOWS_FOLDER]);
+  });
+
+  test("should ignore Path when not on Windows", () => {
+    // Arrange
+    const env = { Path: "/usr/bin" };
+
+    // Act
+    const folders = searchFolders(env, false);
+
+    // Assert
+    expect(folders).toEqual([]);
   });
 });
 

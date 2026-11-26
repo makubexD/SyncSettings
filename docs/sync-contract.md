@@ -483,10 +483,15 @@ scan, the cached values. Besides:
 - **On `master`.** After the checks, commit runs only from `master`: any other branch stops it with
   `ERROR: run mksync commit from master (current: <branch>).`, exit 1, before the fetch.
 - **The PR.** Branch `sync/<os>-<alias>-<stamp>`, naming the record's `alias`. A record without one asks for it once,
-  on the first push from a terminal: the prompt suggests the login made into an alias, an empty answer takes the
-  suggestion, an answer equal to the machine's hostname is refused with `ERROR: '<answer>' is this machine's hostname;
+  on the first push from a terminal: the prompt suggests the login without a `DOMAIN\` prefix or an `@domain` suffix,
+  made into an alias (lowercased, each run of other characters a `-`), and no suggestion when the login can't be read
+  or equals the hostname. An empty answer takes the suggestion; an answer equal to the machine's hostname or its short
+  form, compared in alias form (`WORK_PC01` matches `work-pc01`), is refused with `ERROR: '<answer>' is this machine's hostname;
 pick another public name.`, any other invalid answer with `ERROR: invalid machine alias '<answer>' (use a-z, 0-9, -).`,
-  and a usable answer is saved in the record and followed by `Saved public name: <alias>` on stderr. Without a
+  and a usable answer is saved in the record and followed by `Saved public name: <alias>` on stderr. A save that fails
+  (a read-only state folder) stops with `ERROR: could not save the public name in <file>; nothing was committed.`,
+  exit 1. A stored `alias` is checked the same way on every push, so one edited by hand or carried to a machine with
+  that hostname stops with the same errors. Without a
   terminal, push stops before any commit with
   `ERROR: machine <name> has no public name yet; run mksync push in a terminal to set one.`, exit 1.
   Without a record, the `git config syncsettings.machine` alias is asked once and saved as before. The PR body adds
@@ -1045,8 +1050,10 @@ as missing and gets that command's "not found" error.
 
 Every command the program starts by name (`git`, `gh`, `bash`, …) is found on `PATH` only, never in the working folder
 or the repo, so a `git.exe` committed to the repo never runs. Empty and relative `PATH` folders are skipped, on every
-OS. A command not on `PATH` gets its "not found" error, as a missing one does; a name holding a path separator (`GH`
-naming a file) runs as given.
+OS; on Windows one pair of double quotes around a folder (`"C:\Program Files\Git\cmd"`) is dropped first, as Windows
+does, and an exact `PATH` key wins over another spelling such as `Path`. A command not on `PATH` gets its "not found"
+error, as a missing one does, and so does every command when the environment has no `PATH` at all (exit 127, never the
+working folder); a name holding a path separator (`GH` naming a file) runs as given.
 
 The clone can also run the program from its source, with no build and no `npm install`: `mksync` (sh) and `mksync.cmd`
 at the repo root run `bun src/main.ts` or `node src/main.ts` with the arguments
