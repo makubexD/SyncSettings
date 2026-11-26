@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
 import {
   decode,
@@ -39,11 +45,30 @@ const TIMEOUT_LIMIT_MS = 2_000;
 
 const SLEEP_SECONDS = "5";
 
+/** A command name no system has, written as a script by `fakeCommand`. */
+const FAKE_COMMAND = "mk-fake-cmd";
+
+const FAKE_OUTPUT = "fake ran";
+
+/** A relative PATH entry, which the search must skip. */
+const RELATIVE_FOLDER = ".";
+
+const EXECUTABLE_MODE = 0o755;
+
 const tempFolders: string[] = [];
 
 function tempFolder(): string {
   const folder = mkdtempSync(join(tmpdir(), "mksync-process-"));
   tempFolders.push(folder);
+  return folder;
+}
+
+/** A folder holding an executable `FAKE_COMMAND` that prints `FAKE_OUTPUT`. */
+function fakeCommandFolder(): string {
+  const folder = tempFolder();
+  const file = join(folder, FAKE_COMMAND);
+  writeFileSync(file, `#!/bin/sh\nprintf '${FAKE_OUTPUT}'\n`);
+  chmodSync(file, EXECUTABLE_MODE);
   return folder;
 }
 
@@ -250,6 +275,84 @@ describe("which", () => {
 
     // Assert
     expect(found).toBeNull();
+  });
+});
+
+describe("PATH only", () => {
+  test("should not run a command from the working folder when run is given a bare name", async () => {
+    // Arrange
+    const folder = fakeCommandFolder();
+
+    // Act
+    const result = await run([FAKE_COMMAND], { cwd: folder });
+
+    // Assert
+    expect(result.code).toBe(MISSING_CODE);
+    expect(result.missing).toBe(true);
+  });
+
+  test("should not run a command from the working folder when runSync is given a bare name", () => {
+    // Arrange
+    const folder = fakeCommandFolder();
+
+    // Act
+    const result = runSync([FAKE_COMMAND], { cwd: folder });
+
+    // Assert
+    expect(result.code).toBe(MISSING_CODE);
+    expect(result.missing).toBe(true);
+  });
+
+  test("should skip a relative PATH folder when it names the working folder", async () => {
+    // Arrange
+    const folder = fakeCommandFolder();
+
+    // Act
+    const result = await run([FAKE_COMMAND], {
+      cwd: folder,
+      env: { PATH: RELATIVE_FOLDER },
+    });
+
+    // Assert
+    expect(result.code).toBe(MISSING_CODE);
+  });
+
+  test("should run the command when an absolute PATH folder holds it", async () => {
+    // Arrange
+    const folder = fakeCommandFolder();
+
+    // Act
+    const result = await run([FAKE_COMMAND], { env: { PATH: folder } });
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(decode(result.stdout)).toBe(FAKE_OUTPUT);
+  });
+
+  test("should return only the absolute folder's match when PATH also holds a relative one", () => {
+    // Arrange
+    const folder = fakeCommandFolder();
+    const path = [RELATIVE_FOLDER, folder].join(delimiter);
+
+    // Act
+    const found = which(FAKE_COMMAND, { PATH: path });
+
+    // Assert
+    expect(found).toBe(join(folder, FAKE_COMMAND));
+  });
+
+  test("should run a name holding a path separator as given when it is not on PATH", async () => {
+    // Arrange
+    const folder = fakeCommandFolder();
+
+    // Act
+    const result = await run([join(folder, FAKE_COMMAND)], {
+      env: { PATH: "" },
+    });
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(decode(result.stdout)).toBe(FAKE_OUTPUT);
   });
 });
 

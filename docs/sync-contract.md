@@ -1043,6 +1043,11 @@ On Windows the program starts only `.exe` and `.com` commands, never through cmd
 text such as a PR body safely. A tool that is only a `.cmd` or `.bat` (a `gh.cmd` on `PATH`, or `GH` naming one) counts
 as missing and gets that command's "not found" error.
 
+Every command the program starts by name (`git`, `gh`, `bash`, …) is found on `PATH` only, never in the working folder
+or the repo, so a `git.exe` committed to the repo never runs. Empty and relative `PATH` folders are skipped, on every
+OS. A command not on `PATH` gets its "not found" error, as a missing one does; a name holding a path separator (`GH`
+naming a file) runs as given.
+
 The clone can also run the program from its source, with no build and no `npm install`: `mksync` (sh) and `mksync.cmd`
 at the repo root run `bun src/main.ts` or `node src/main.ts` with the arguments
 ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decisions 1 and 2). `MKSYNC_RUNTIME=bun|node`

@@ -15,7 +15,7 @@ import type {
 } from "node:child_process";
 import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline";
 
 /** A command that is not there, as a shell reports it and the contract prints it. */
@@ -238,6 +238,10 @@ export async function run(
   if (file === undefined) {
     return failedResult();
   }
+  const command = resolveCommand(file, options.env);
+  if (command === null) {
+    return missingResult();
+  }
   if (options.inherit === true) {
     await flushStdout();
   }
@@ -252,7 +256,7 @@ export async function run(
   };
   let child: ChildProcess;
   try {
-    child = spawn(file, args, spawnOptions);
+    child = spawn(command, args, spawnOptions);
   } catch {
     // A command line the system refuses outright (a NUL in an argument) never
     // starts at all.
@@ -324,6 +328,10 @@ export function runSync(
   if (file === undefined) {
     return failedResult();
   }
+  const command = resolveCommand(file, options.env);
+  if (command === null) {
+    return missingResult();
+  }
   const stdinMode: StreamMode = options.input === undefined ? "ignore" : "pipe";
   const spawnOptions: SpawnSyncOptions = {
     stdio: [stdinMode, options.stdout ?? "pipe", options.stderr ?? "pipe"],
@@ -336,7 +344,7 @@ export function runSync(
   };
   let result: ReturnType<typeof spawnSync>;
   try {
-    result = spawnSync(file, args, spawnOptions);
+    result = spawnSync(command, args, spawnOptions);
   } catch {
     // As in `run`: a command line the system refuses never starts.
     return failedResult();
@@ -425,7 +433,9 @@ export function isSpawnable(
   return WINDOWS_SUFFIXES.some((suffix) => lower.endsWith(suffix));
 }
 
-/** The PATH entries to search, split on the platform's delimiter. */
+/** The PATH entries to search, split on the platform's delimiter. Empty and
+ * relative entries are skipped, so the working folder is never searched
+ * (contract "The program"). */
 function searchFolders(
   env: Readonly<Record<string, string | undefined>>,
 ): readonly string[] {
@@ -433,7 +443,23 @@ function searchFolders(
   if (value === undefined) {
     return [];
   }
-  return value.split(delimiter).filter((folder) => folder !== "");
+  return value.split(delimiter).filter((folder) => isAbsolute(folder));
+}
+
+/**
+ * The file `spawn` is given: a bare name resolved on `PATH` only, since
+ * Windows would otherwise search the working folder first and run a `git.exe`
+ * committed to the repo; a name holding a path separator as given. `null`
+ * when a bare name isn't on `PATH`.
+ */
+function resolveCommand(
+  file: string,
+  env: Readonly<Record<string, string | undefined>> | undefined,
+): string | null {
+  if (hasPathSeparator(file)) {
+    return file;
+  }
+  return which(file, env ?? process.env);
 }
 
 /**
