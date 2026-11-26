@@ -1,4 +1,5 @@
 import { containsNul, foldCrlf, same } from "../compare.ts";
+import { valueEnv } from "../values/env.ts";
 import type {
   ConfigV2,
   ConfigV2Entry,
@@ -789,7 +790,7 @@ export function planExport(
     rules,
     snapshot.values,
     exportInferredValues(snapshot, selected.value),
-    snapshot.env,
+    valueEnv(snapshot.env, snapshot.home),
     valueOwner(snapshot),
   );
   if (!values.ok) {

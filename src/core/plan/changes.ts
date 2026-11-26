@@ -1,4 +1,5 @@
 import type { SanitizeRule } from "../config/types.ts";
+import { valueEnv } from "../values/env.ts";
 import { jsonEqual, parseJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
 import { selectEntries } from "../layers/select.ts";
@@ -792,7 +793,12 @@ function importActionLines(
     const resolved =
       rules.length === 0
         ? undefined
-        : resolveValues(rules, snapshot.values, inferred, snapshot.env);
+        : resolveValues(
+            rules,
+            snapshot.values,
+            inferred,
+            valueEnv(snapshot.env, snapshot.home),
+          );
     const newValues: Values =
       resolved !== undefined && resolved.ok
         ? resolved.value

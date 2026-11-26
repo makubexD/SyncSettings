@@ -2390,3 +2390,66 @@ describe("planExport skip", () => {
     expect(withEmpty).toEqual(without);
   });
 });
+
+describe("planExport <HOME> on Windows", () => {
+  const HOME_PLACEHOLDER = "<HOME>";
+  const HOME_ENTRY: ConfigV2 = {
+    schemaVersion: 2,
+    modules: { parity: { description: "Parity case files" } },
+    entries: [
+      {
+        file: "parity/a.conf",
+        module: "parity",
+        merge: "whole",
+        localPath: "~/.config/parity/a.conf",
+        description: "Sanitized parity file",
+        sanitize: [
+          {
+            placeholder: HOME_PLACEHOLDER,
+            prompt: "Home directory",
+            defaultEnv: "HOME",
+          },
+        ],
+      },
+    ],
+  };
+  const LOCAL_PATH = `${WINDOWS_HOME}\\.config\\parity\\a.conf`;
+  const LOCAL_TEXT = `hook = ${WINDOWS_HOME}\\.claude\\hook.ps1\n`;
+
+  test("should take the home folder for defaultEnv HOME when HOME is unset", () => {
+    // Arrange
+    const snapshot: Snapshot = {
+      config: HOME_ENTRY,
+      os: "windows",
+      home: WINDOWS_HOME,
+      cwd: WINDOWS_HOME,
+      repoFiles: new Map(),
+      localFiles: new Map([
+        [
+          LOCAL_PATH,
+          {
+            kind: "file",
+            path: LOCAL_PATH,
+            bytes: new TextEncoder().encode(LOCAL_TEXT),
+            mode: MODE,
+          },
+        ],
+      ]),
+      localDirs: new Set(),
+      values: {},
+      env: { USERPROFILE: WINDOWS_HOME },
+      only: [],
+    };
+
+    // Act
+    const plan = planExport(snapshot);
+    const written = shownActions(
+      plan.steps.flatMap((step) => step.actions.map((entry) => entry.action)),
+    ).find((action) => action.kind === "writeRepo");
+
+    // Assert
+    expect(written?.text).toBe(
+      `hook = ${HOME_PLACEHOLDER}\\.claude\\hook.ps1\n`,
+    );
+  });
+});

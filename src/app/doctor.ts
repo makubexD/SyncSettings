@@ -20,13 +20,18 @@ import type { Layers } from "../adapters/snapshot.ts";
 import { readText } from "../adapters/store.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
 import { driftLines, parsePackageLists } from "../core/drift.ts";
-import type { DoctorFacts, GhFact, PackageManager } from "../core/front/doctor.ts";
+import type {
+  DoctorFacts,
+  GhFact,
+  PackageManager,
+} from "../core/front/doctor.ts";
 import { doctorLines } from "../core/front/doctor.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectScope } from "../core/layers/select.ts";
 import { machineScope, machineValues } from "../core/machine/scope.ts";
 import { parseValuesFile } from "../core/values/file.ts";
 import { resolveValues } from "../core/values/hydrate.ts";
+import { valueEnv } from "../core/values/env.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { writeLines } from "./export.ts";
 import type { Result } from "./export.ts";
@@ -86,7 +91,9 @@ function packageManager(os: Os): PackageManager | undefined {
 /** The `gh` binary: `GH` when set and not empty, as bash's `${GH:-gh}`. */
 function ghBinary(env: Readonly<Record<string, string | undefined>>): string {
   const configured = env.GH;
-  return configured === undefined || configured === "" ? DEFAULT_GH : configured;
+  return configured === undefined || configured === ""
+    ? DEFAULT_GH
+    : configured;
 }
 
 /**
@@ -201,7 +208,12 @@ function unsetValueCount(input: DoctorInput): number {
   );
   let count = 0;
   for (;;) {
-    const resolved = resolveValues(rules, values, {}, process.env);
+    const resolved = resolveValues(
+      rules,
+      values,
+      {},
+      valueEnv(process.env, input.home),
+    );
     if (resolved.ok) {
       return count;
     }

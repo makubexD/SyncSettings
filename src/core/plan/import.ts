@@ -18,6 +18,7 @@ import {
   missingPlaceholders,
   resolveValues,
 } from "../values/hydrate.ts";
+import { valueEnv } from "../values/env.ts";
 import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { inferredValues } from "./infer.ts";
@@ -825,7 +826,11 @@ function resetValueQuestions(
       continue;
     }
     seen.add(placeholder);
-    const fallback = promptFallback(rule, snapshot.values, snapshot.env);
+    const fallback = promptFallback(
+      rule,
+      snapshot.values,
+      valueEnv(snapshot.env, snapshot.home),
+    );
     const prompt = rule.prompt ?? "";
     const hasDefault = fallback.length > 0;
     questions.push({
@@ -868,7 +873,7 @@ export function importValueQuestions(
           rules,
           snapshot.values,
           prepared.gathered.inferred,
-          snapshot.env,
+          valueEnv(snapshot.env, snapshot.home),
         ).map((rule) => ({
           text: `  ${rule.prompt ?? ""}: `,
           hasDefault: false,
@@ -911,7 +916,7 @@ export function resolveImportValues(
     const asked = askValues(
       prepared.gathered.rules,
       snapshot.values,
-      snapshot.env,
+      valueEnv(snapshot.env, snapshot.home),
       valueAnswers,
       prepared.owner,
     );
@@ -933,7 +938,7 @@ export function resolveImportValues(
     rules,
     snapshot.values,
     prepared.gathered.inferred,
-    snapshot.env,
+    valueEnv(snapshot.env, snapshot.home),
   );
   const answered = new Map<string, string>(Object.entries(snapshot.values));
   for (const [index, rule] of missing.entries()) {
@@ -948,7 +953,7 @@ export function resolveImportValues(
     rules,
     Object.fromEntries(answered),
     prepared.gathered.inferred,
-    snapshot.env,
+    valueEnv(snapshot.env, snapshot.home),
     prepared.owner,
   );
   if (!resolved.ok) {

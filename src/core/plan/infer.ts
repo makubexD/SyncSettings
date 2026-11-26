@@ -1,4 +1,5 @@
 import type { SelectedEntry } from "../layers/select.ts";
+import { valueEnv } from "../values/env.ts";
 import { inferValues, inferValuesUnique } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { resolvedLocal } from "./pick.ts";
@@ -80,7 +81,7 @@ export function exportInferredValues(
       const env =
         rule.defaultEnv === undefined
           ? undefined
-          : snapshot.env[rule.defaultEnv];
+          : valueEnv(snapshot.env, snapshot.home)[rule.defaultEnv];
       if (env !== undefined && env.length > 0) {
         fromEnv.add(rule.placeholder);
       }
