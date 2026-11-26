@@ -612,8 +612,8 @@ describe("planExport", () => {
     );
   });
 
-  test("should stop with the missing-value message when no value is cached", () => {
-    // Arrange
+  test("should stop with the missing-value message when no value is cached or found locally", () => {
+    // Arrange: no local line pairs with the placeholder's, so nothing is inferred
     const snapshot = layeredSnapshot("linux", {
       entries: [
         jsonEntry({
@@ -621,7 +621,7 @@ describe("planExport", () => {
         }),
       ],
       repo: { "dotfiles/common/parity/settings.json": '{"name": "<NAME>"}' },
-      local: { ".config/parity/settings.json": '{"name": "Parity User"}' },
+      local: { ".config/parity/settings.json": '{"user": "Parity User"}' },
     });
 
     // Act
@@ -961,11 +961,7 @@ describe("planExport", () => {
       formatLine("SKIPPED", "dotfiles/common/dir/c.txt", "symlink"),
     );
     expect(result.lines).toContain(
-      formatLine(
-        "REMOVED",
-        "dotfiles/common/dir/c.txt",
-        "no longer in source",
-      ),
+      formatLine("REMOVED", "dotfiles/common/dir/c.txt", "no longer in source"),
     );
     expect(result.actions).toEqual([
       {
@@ -1217,7 +1213,6 @@ describe("planExport", () => {
       { kind: "chmod", path: "dotfiles/common/dir/new.txt", mode: MODE },
     ]);
   });
-
 });
 
 describe("planExport values file", () => {

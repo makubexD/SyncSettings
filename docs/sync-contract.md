@@ -258,7 +258,7 @@ placeholders. On import, hydrating puts the values back.
 1. The cached value: the machine record's or its profile's ([Values on a machine](#values-on-a-machine)), or without a
    record `.user-values.json` next to `sync-config.json` (gitignored, keys are placeholders). A value that isn't a
    string is read as its JSON text (`8080` is `"8080"`, `null` is `"null"`) and saved back as that string.
-2. Import only: values inferred from the existing local file (below). They are never used for a placeholder that
+2. Values inferred from the existing local file (below), on import and export alike. They are never used for a placeholder that
    already has a cached value.
 3. The rule's `default`, then the environment variable named by `defaultEnv`, taken without a prompt.
 4. A prompt, only for a placeholder none of these fills.
@@ -277,7 +277,7 @@ New values are saved back to `.user-values.json`. Each save leaves the file read
 on Linux, also tightening an existing file, and no inherited access on Windows. The Windows save doesn't need a domain
 controller, so it works on a domain laptop that's off the network.
 
-**Inference on import.** For each entry with rules whose local and repo files both exist, also entries left out by
+**Inference.** Import and export (push, `preview`) read values the same way. For each entry with rules whose local and repo files both exist, also entries left out by
 `--only`, `mksync` compares the
 two files line by line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder,
 paired with a local line that doesn't. If the local line starts with the text before the placeholder and ends with
@@ -1746,7 +1746,8 @@ Move a change? Type its number, or press Enter to go on:
 ### Profile values
 
 A profile's values don't leave the profile. Before the push side writes anything, each layer text bound for the base
-or an OS layer is searched, after sanitize, for every non-empty value of the record's profile, ignoring case. A hit
+or an OS layer is searched, after sanitize, for every non-empty value of the record's profile, ignoring case. The values searched are the profile's
+with those the run saves to it, so a value [inferred](#sanitize-and-hydrate) in this run is searched like a saved one. A hit
 stops the run with exit 1 before any write, two lines per hit, ordered by change number then placeholder:
 
 ```text

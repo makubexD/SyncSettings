@@ -15,12 +15,12 @@ import {
   ASK_HEADER,
   askValues,
   hydrate,
-  inferValues,
   missingPlaceholders,
   resolveValues,
 } from "../values/hydrate.ts";
 import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
+import { inferredValues } from "./infer.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import {
   basename,
@@ -721,45 +721,23 @@ function collectRules(
   only: readonly string[],
 ): { readonly rules: readonly SanitizeRule[]; readonly inferred: Values } {
   const rules: SanitizeRule[] = [];
-  const inferred = new Map<string, string>();
-
   for (const entry of selected) {
     if (entry.entry.merge === "dir" || entry.entry.merge === "dconf") {
       continue;
     }
-    const entryRules = entry.entry.sanitize ?? [];
-    if (entryRules.length === 0) {
-      continue;
-    }
     const source = entry.source;
-    const repoBytes =
-      source === undefined
-        ? undefined
-        : snapshot.repoFiles.get(source.repoPath);
-    if (repoBytes === undefined) {
+    if (
+      source === undefined ||
+      !snapshot.repoFiles.has(source.repoPath) ||
+      !entrySelected(entry, only)
+    ) {
       continue;
     }
-    if (entrySelected(entry, only)) {
-      rules.push(...entryRules);
-    }
-
-    // Inference ignores --only: every selected entry whose repo and local file
-    // exist can contribute a value, and it is saved like any other.
-    const localPath = resolvedLocal(entry.entry, snapshot.os, snapshot.home);
-    const local = snapshot.localFiles.get(localPath);
-    if (local === undefined || local.kind !== "file") {
-      continue;
-    }
-    for (const [placeholder, value] of Object.entries(
-      inferValues(local.bytes, repoBytes, entryRules),
-    )) {
-      if (!inferred.has(placeholder)) {
-        inferred.set(placeholder, value);
-      }
-    }
+    rules.push(...(entry.entry.sanitize ?? []));
   }
-
-  return { rules, inferred: Object.fromEntries(inferred) };
+  // Inference ignores --only: every selected entry whose repo and local file
+  // exist can contribute a value, and it is saved like any other.
+  return { rules, inferred: inferredValues(snapshot, selected) };
 }
 
 /** What `prepareImport` resolved before any answer is read. */

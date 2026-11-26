@@ -4,6 +4,7 @@ import { formsFor } from "../values/sanitize.ts";
 import { exportFileLabel, matchExportEntry } from "./changes.ts";
 import { OS_TITLES, changeLineNumbers } from "./groups.ts";
 import { isJsonEntry, scopeFor } from "./pick.ts";
+import type { Profile } from "../config/profile.ts";
 import type { ChangeLine, RunPlan, Snapshot } from "./types.ts";
 
 /** One profile value found in a text bound for a shared layer: the change the
@@ -106,8 +107,22 @@ function compareHits(left: ProfileValueHit, right: ProfileValueHit): number {
 }
 
 /**
+ * The profile as this run saves it: the `writeMachineValues` prepare action's,
+ * which holds the values the run inferred, or undefined when the run saves no
+ * profile value.
+ */
+function savedProfile(plan: RunPlan): Profile | undefined {
+  for (const action of plan.prepare ?? []) {
+    if (action.kind === "writeMachineValues" && action.profile !== undefined) {
+      return action.profile;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Contract "Profile values (program only)": every non-empty value of the run's
- * profile found, ignoring case, in a repo text bound for the base or an OS
+ * profile, with the values the run saves to it, found, ignoring case, in a repo text bound for the base or an OS
  * layer, with the number the block gives its change. Profile and machine layer
  * writes are not searched, and neither are machine values.
  */
@@ -117,7 +132,7 @@ export function profileValueHits(
   lines: readonly ChangeLine[],
   select: EntrySelector = selectEntries,
 ): readonly ProfileValueHit[] {
-  const profile = snapshot.profile;
+  const profile = savedProfile(plan) ?? snapshot.profile;
   if (profile === undefined) {
     return [];
   }

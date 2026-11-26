@@ -1,5 +1,5 @@
 {
-  "description": "Diff whose preview export has no value for a sanitized placeholder prints the export log and the diff ERROR line, exit 1 (Diff, Sanitize and hydrate). Ported from diff-export-fails.",
+  "description": "Diff whose preview export has no value for a sanitized placeholder (no local line pairs with it, so none is inferred) prints the export log and the diff ERROR line, exit 1 (Diff, Sanitize and hydrate). Ported from diff-export-fails.",
   "git": "remote",
   "syncPoint": true,
   "configV2": {

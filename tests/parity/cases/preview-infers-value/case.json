@@ -35,6 +35,7 @@
     "SYNC_DOMAIN": "",
     "MKSYNC_VISIBILITY": "public"
   },
+  "git": "committed",
   "commands": [
     {
       "command": "preview"
