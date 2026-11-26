@@ -1387,6 +1387,12 @@ similar keys, the keybindings reordered, and a new `Ubuntu-24.04` WSL profile). 
 `machines/HOST.json` and `profiles/work1.json`. `%LOCALAPPDATA%\mksync` holds only `mksync.exe`: no `mksync.old.exe`
 after the update, so checklist item 9 holds in full.
 
+Step 3: `mksync push --force dotfiles/common/claude/settings.json` asked the 4 new settings
+(`Where does it go? 1) all machines  2) Windows machines  3) profile work1  4) this machine [3]`), each answered `3`,
+wrote `<state>/profiles/work1/claude/settings.json`, and ended `Nothing to send: the repo matches this machine.`, exit
+0, with no PR. `mksync diff` then lists only `OUT dotfiles/windows/windows-terminal/settings.json`; the Claude file
+agrees though `Last sync` is still the 11-10 point (a push with paths records none).
+
 ## Open
 
 ### Design
@@ -1409,6 +1415,11 @@ after the update, so checklist item 9 holds in full.
   `profiles/<profile>.json`), though the same run writes `profiles/work1/claude/settings.json` to the state folder and
   the first backup will add it. Options: list every layer file, as "First backup" does, or keep the short list and say
   so in the contract's "Held".
+- **"Copied to the repo" for a state-only export (work #1, 2026-11-25).** A push whose only change is a new profile
+  layer file prints the export's `1 file(s) copied to the repo.` and `Review the changes, then run  mksync push`, then
+  `Nothing to send: the repo matches this machine.`: the file went to the state folder, not the repo, and the push is
+  already running. Options: count state-folder writes apart (`1 file(s) saved on this machine.`), and leave out the
+  "run mksync push" hint when push runs the export.
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
   new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
   plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").
