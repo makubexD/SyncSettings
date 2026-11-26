@@ -2,6 +2,7 @@
  * module, so `run.ts` and `export.ts` both use it without importing each other. */
 import { createInterface } from "node:readline";
 import type { Interface } from "node:readline";
+import { withoutBom } from "../adapters/process.ts";
 import type { SetupIo } from "../wizard/setup.ts";
 
 /** Lines joined for printing, each ending in a newline; none prints nothing. */
@@ -25,7 +26,12 @@ export function setupTerminal(): SetupTerminal {
   const queued: string[] = [];
   const waiting: ((line: string | undefined) => void)[] = [];
   let ended = false;
-  const push = (line: string): void => {
+  let first = true;
+  // Windows PowerShell puts a byte order mark before text it pipes in; it is
+  // never part of the first answer (contract "Sanitize and hydrate").
+  const push = (raw: string): void => {
+    const line = first ? withoutBom(raw) : raw;
+    first = false;
     const resolve = waiting.shift();
     if (resolve === undefined) {
       queued.push(line);

@@ -21,6 +21,7 @@ import type { BackupSides, FirstBackupFile } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
 import { askNewSettings } from "../cli/ask.ts";
 import type { RunCommand } from "../cli/parse.ts";
+import { trimAnswer } from "../core/answer.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
 import { guard, PROFILES_FOLDER } from "../core/guard.ts";
 import type { GuardDecision, Visibility } from "../core/guard.ts";
@@ -34,7 +35,7 @@ import type {
   RepoBackup,
 } from "../core/machine/backup.ts";
 import { changeLines } from "../core/plan/changes.ts";
-import { planExport } from "../core/plan/export.ts";
+import { exportMissingRules, planExport } from "../core/plan/export.ts";
 import {
   changeLineNumbers,
   groupBlock,
@@ -72,6 +73,11 @@ import type {
   Snapshot,
 } from "../core/plan/types.ts";
 import { formatLine } from "../core/status.ts";
+import {
+  ASK_HEADER,
+  holdsPlaceholder,
+  missingValueLine,
+} from "../core/values/hydrate.ts";
 import type { SetupIo } from "../wizard/setup.ts";
 import { setupTerminal, writeLines } from "./terminal.ts";
 import type { SetupTerminal } from "./terminal.ts";
@@ -898,8 +904,7 @@ function applyExportPlan(
   });
   let prepared: FirstBackupPrepared | undefined;
   let code = stored.result.code;
-  let stderr =
-    refused === undefined ? stored.result.stderr : `${refused}\n`;
+  let stderr = refused === undefined ? stored.result.stderr : `${refused}\n`;
   if (backup !== undefined && answers !== undefined && code === 0) {
     const sides = readBackupSides(
       backup.stateFolder,
@@ -941,6 +946,39 @@ function applyExportPlan(
   };
 }
 
+type AskedValues =
+  | { readonly ok: true; readonly snapshot: Snapshot }
+  | { readonly ok: false; readonly line: string };
+
+/**
+ * Contract "Push asks": ask for each value nothing fills, as import does, with
+ * its header and one `<prompt>: ` line each, before the change list. The
+ * answers join the snapshot's saved values, so the plan sanitizes with them
+ * and saves them where inferred values go. An empty answer or end of input
+ * stops at once with the missing-value line.
+ */
+async function askExportValues(
+  snapshot: Snapshot,
+  io: SetupIo,
+): Promise<AskedValues> {
+  const missing = exportMissingRules(snapshot);
+  if (missing.length === 0) {
+    return { ok: true, snapshot };
+  }
+  const values: Record<string, string> = { ...snapshot.values };
+  io.write(ASK_HEADER);
+  for (const rule of missing) {
+    io.write(`  ${rule.prompt ?? ""}: `);
+    const answer = trimAnswer((await io.readLine()) ?? "");
+    if (answer === "" || holdsPlaceholder(answer)) {
+      return { ok: false, line: missingValueLine(rule.placeholder) };
+    }
+    values[rule.placeholder] = answer;
+  }
+  io.write("\n");
+  return { ok: true, snapshot: { ...snapshot, values } };
+}
+
 /**
  * The push side with a record: ask where each new setting goes, plan with the
  * answers, run, then store an array item's answer in the profile (contract
@@ -966,6 +1004,13 @@ export async function executeExport(
   // reader closes.
   const terminal = shared ?? setupTerminal();
   try {
+    if (!command.yes) {
+      const asked = await askExportValues(snapshot, terminal.io);
+      if (!asked.ok) {
+        return { code: 1, stdout: "", stderr: `${asked.line}\n` };
+      }
+      snapshot = asked.snapshot;
+    }
     const planned = planExport(snapshot);
     const settings = planned.newSettings ?? [];
     const question = newSettingChoices(snapshot.record, snapshot.os);
@@ -994,7 +1039,8 @@ export async function executeExport(
           plan = loop.plan;
         }
       }
-      // A refused export writes nothing, so its questions are not asked.
+      // A refused export writes nothing, so its later questions are not asked;
+      // the value questions above come first, since the plan needs the values.
       const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
       const refused = exportRefusal(plan, snapshot, lines);
       let answers: ReadonlyMap<string, BackupSide> | undefined;

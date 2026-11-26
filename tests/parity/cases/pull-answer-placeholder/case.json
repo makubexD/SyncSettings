@@ -1,0 +1,42 @@
+{
+  "description": "Import with a record asks for <YOUR_NAME>; an answer that holds placeholder text (<YOUR_NAME>) stops at once with the missing-value line, exit 1, writes no file and saves nothing (Sanitize and hydrate, Where values come from).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      },
+      "output": "all",
+      "stderr": true,
+      "stdin": "<YOUR_NAME>\n"
+    }
+  ]
+}

@@ -2,6 +2,26 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.7 (2026-11-26)
+
+- A rule's `defaultEnv: "HOME"` is the home folder on every OS. On Windows, which sets no `HOME`, it is `%USERPROFILE%`
+  with forward slashes (`C:/Users/you`), the form Git Bash and Claude Code's hook commands read. A Windows machine no
+  longer stops at `missing value for <HOME>` (Claude's `settings.json`), and pull no longer asks for it. Other
+  variables are read as they are.
+- Sanitize also replaces a Windows path value written with the other slash: `C:/Users/you` in its backslash forms
+  (`C:\Users\you`, `C:\\Users\\you`), and a saved `C:\Users\you` as `C:/Users/you`. The leak scan's `windows-profile` rule now also finds `C:/Users/…`.
+- `mksync push` asks for a value nothing fills (saved, read from this machine's files, `default`, `defaultEnv`), as
+  `pull` does, and saves the answer on the profile or the machine record (`.user-values.json` without one). An empty
+  answer or end of input stops the run. `--yes`, `preview`, `diff` and `check` never ask.
+- A value that holds placeholder text, such as a pasted `<HOME>`, counts as no value: push and pull refuse it as an
+  answer, and a saved one is never written into a file.
+- On Windows, answers piped from PowerShell no longer read its byte order mark as the first answer.
+- The missing-value stop names the way out:
+  `missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it`. It replaces
+  "add it to profile … or machine …" and "add it to .user-values.json".
+- On Windows, `mksync doctor` no longer counts `<HOME>` as unset. With a machine record, its values line reads
+  `<n> value(s) not saved yet; mksync push or pull fills them from this machine's files or asks for them`.
+
 ## v1.1.6 (2026-11-26)
 
 - `mksync push` and `mksync preview` read each placeholder's value from this machine's own files, as `pull` does, and

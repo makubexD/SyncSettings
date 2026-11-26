@@ -1,0 +1,33 @@
+{
+  "description": "preview never asks: a placeholder nothing fills stops with the missing-value line naming push and pull, exit 1, and saves no value (Sanitize and hydrate, Missing value; Export preview).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "preview",
+      "stdin": "Ana Lopez\n"
+    }
+  ],
+  "git": "committed"
+}

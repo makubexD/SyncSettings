@@ -109,7 +109,7 @@ scan_email() {
 }
 
 scan_rule home-path '/home/[a-z_][a-z0-9_-]*'
-scan_rule windows-profile '[A-Za-z]:\\+Users\\+[^<%\\"]+'
+scan_rule windows-profile '[A-Za-z]:(\\+|/+)Users(\\+|/+)[^<%\\/"]+'
 scan_email '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 scan_rule private-key '-----BEGIN [A-Z ]*PRIVATE KEY-----'
 scan_rule github-token 'gh[pousr]_[A-Za-z0-9]{30,}'

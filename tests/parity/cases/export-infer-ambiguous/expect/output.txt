@@ -1,1 +1,5 @@
-missing value for <YOUR_WORK_MARKETPLACE>: add it to .user-values.json
+
+  Enter values to fill the placeholders in the config files:
+
+  Value: 
+missing value for <YOUR_WORK_MARKETPLACE>: run mksync push or pull in a terminal to enter it

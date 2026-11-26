@@ -159,7 +159,7 @@ function valuesLine(unsetValues: number, record: boolean): string {
   return checkLine(
     "WARN",
     record
-      ? `${unsetValues} value(s) not saved yet; mksync push or pull reads them from this machine's files; pull asks for the rest`
+      ? `${unsetValues} value(s) not saved yet; mksync push or pull fills them from this machine's files or asks for them`
       : `${unsetValues} value(s) not set; mksync setup asks for them`,
   );
 }

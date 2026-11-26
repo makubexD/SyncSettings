@@ -261,13 +261,27 @@ placeholders. On import, hydrating puts the values back.
 2. Values inferred from the existing local file (below), on import and export alike. They are never used for a placeholder that
    already has a cached value.
 3. The rule's `default`, then the environment variable named by `defaultEnv`, taken without a prompt.
-4. A prompt, only for a placeholder none of these fills.
+   `defaultEnv: "HOME"` is the program's home folder on every OS: `$HOME` on Linux and macOS, `%USERPROFILE%` with
+   forward slashes on Windows (`C:/Users/user`), where `HOME` is usually unset; Git Bash and Claude Code's commands
+   read that form. Any other name is read from the environment as it is.
+
+A value that holds placeholder text (`<`, a capital letter, then capitals, digits or `_`, then `>`, such as `<HOME>`)
+counts as no value, wherever it comes from, so hydrate never writes a placeholder and sanitize never keeps one as a
+value. 4. A prompt, only for a placeholder none of these fills.
 
 Before the first question it prints
 `\n  Enter values to fill the placeholders in the config files:\n\n`, then ` <prompt>:` for each, and a newline after
 the last answer. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
 missing, so the run stops as below, after the prompts printed so far; with no input at all a run stops as it did
-before. `--check`, `preview`, `status`, `diff` and export never ask.
+before. An answer that holds placeholder text stops the run at once with the missing-value line. Answers are read from
+stdin after a leading byte order mark (`U+FEFF`, which Windows PowerShell puts before piped text) is dropped. `--check`, `preview`, `export --preview`, `status` and `diff` never ask.
+
+**Push asks.** Export (push) without `--yes` asks for each value nothing above fills, on stdin, as import does:
+the same header and ` <prompt>:` lines, in rule order, before the change list. It asks only for the placeholders of the
+entries it exports (`--only` and skips respected). An empty answer or end of input stops the run at once with the
+missing-value line, and so does an answer that holds placeholder text. The answers are saved as inferred values are:
+on the record and the profile by [Values on a machine](#values-on-a-machine), else in `.user-values.json`. `--yes`
+asks nothing; with no input (`< /dev/null`) the header is printed and the run stops at the first question.
 
 `mksync import --reset-values` prompts again for every placeholder and skips inference.
 The cached value is only the prompt's default. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
@@ -281,11 +295,11 @@ controller, so it works on a domain laptop that's off the network.
 cached value still wins, and an inferred one comes before `default` and `defaultEnv`, except as below. Entries left out
 by `--only` or skipped still count.
 
-- *Import.* For each entry with rules whose local and repo files both exist, `mksync` compares the two files line by
+- _Import._ For each entry with rules whose local and repo files both exist, `mksync` compares the two files line by
   line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder, paired with a local
   line that doesn't. If the local line starts with the text before the placeholder and ends with the text after it,
   the text in between is the value. The first value found wins.
-- *Export.* Export runs on files that have drifted, and a wrong value would leave the real one unsanitized in the
+- _Export._ Export runs on files that have drifted, and a wrong value would leave the real one unsanitized in the
   repo, so it reads a value only from a line nothing else could be taken for. A repo line that contains a placeholder gives a value only
   when exactly one local line, anywhere in the file, fits the text before and after it. The placeholder is not
   inferred when a repo line fits two local lines with different values, when two repo lines or two entries give
@@ -297,18 +311,22 @@ because the file holds the doubled form.
 
 **Sanitize (export).** Values are replaced longest first, so a value that contains a shorter one is replaced whole.
 For each value that contains `\`, its backslash-doubled form (`C:\\Tools`) is replaced before the plain form
-(`C:\Tools`), so files that escape backslashes sanitize too.
+(`C:\Tools`), so files that escape backslashes sanitize too. A value that starts with a drive and a slash is also
+replaced written with the other slash, after the forms above: `C:/Users/user` in its backslash forms
+(`C:\\Users\\user`, `C:\Users\user`), and `C:\Users\user` as `C:/Users/user`, so a file that writes the home folder
+either way sanitizes.
 
 **Hydrate (import).** Each placeholder gets its value. If the rule has `escapeBackslashes: true` and the value
 contains `\`, the placeholder gets the backslash-doubled value instead.
 
 **No rescan.** Neither side scans text it has already put in. A short value that also appears in another placeholder's
-name (`SER` in `<USER_NAME>`) leaves that placeholder whole, and a value that holds a placeholder (`x<B>y`) is written
-as it is. `mksync` replaces in two passes, first with tokens made of the control bytes `\x01`-`\x03` and then with
+name (`SER` in `<USER_NAME>`) leaves that placeholder whole. A value that holds a placeholder (`x<B>y`) counts as no
+value (above), so it is never written. `mksync` replaces in two passes, first with tokens made of the control bytes `\x01`-`\x03` and then with
 the result, so a synced file holding that byte run is not supported.
 
 **Missing value.** If a placeholder has no value after all of the above, with or without a terminal, `mksync` prints
-`missing value for <PLACEHOLDER>: add it to .user-values.json` and exits 1 before writing any file. Output names the
+`missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it` and exits 1 before writing any
+file. The line is the same with or without a machine record. Output names the
 placeholder, never its value.
 
 ## Compare
@@ -894,7 +912,7 @@ More rules per command:
   `the machine check failed; run mksync check to see why.`
 - **`doctor`** checks what the program needs, in this order: `git`; on macOS `brew` (`MISSING brew: install from
 https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
-  (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull reads them from this machine's files; pull asks for the rest` with one); `bash` (`WARN bash: needed by the leak scan; install with
+  (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull fills them from this machine's files or asks for them` with one); `bash` (`WARN bash: needed by the leak scan; install with
 <command>`; on Windows `install with winget install --id Git.Git -e`, or `install Git for Windows from
 https://git-scm.com` without `winget`; on Windows the line is `OK` when Git's own `bash.exe` is found from `git`, as
   the leak scan ([Checks before pushing](#checks-before-pushing)) finds it, and a `bash` elsewhere on `PATH`, such as
@@ -1318,7 +1336,7 @@ with it:
 ```
 
 An empty answer, end of input or `--yes` takes `1`. With no value after all of this, the run prints
-`missing value for <PLACEHOLDER>: add it to profile <profile> or machine <name>` and exits 1 before writing any file. A
+`missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it` and exits 1 before writing any file. A
 preview saves nothing ([Export preview](#export-preview)). Without a record, values work as in
 [Sanitize and hydrate](#sanitize-and-hydrate), `.user-values.json` included.
 

@@ -406,7 +406,7 @@ describe("runImport value questions", () => {
 
   /** The missing-value line for the fixture's first placeholder, no record. */
   const NAME_MISSING =
-    "missing value for <YOUR_NAME>: add it to .user-values.json\n";
+    "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it\n";
 
   /** A state folder for this fixture, so the sync point never reaches the
    * real one. */

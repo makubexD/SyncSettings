@@ -51,7 +51,58 @@ function expectHydrated(
   }
 }
 
+const HOME_KEY = "<HOME>";
+
+const HOME_RULES: readonly SanitizeRule[] = [
+  { placeholder: HOME_KEY, prompt: "Home directory" },
+];
+
+const FORWARD_HOME = "C:/Users/u";
+
+const BACKSLASH_HOME = "C:\\Users\\u";
+
+const PASTED_PLACEHOLDER = "<HOME>/x";
+
 describe("sanitize", () => {
+  test("should replace a backslash Windows value written with forward slashes", () => {
+    // Act
+    const actual = new TextDecoder().decode(
+      sanitize(
+        encodeUtf8(`cmd = ${FORWARD_HOME}/a\n`),
+        HOME_RULES,
+        { [HOME_KEY]: BACKSLASH_HOME },
+        { json: false },
+      ),
+    );
+
+    // Assert
+    expect(actual).toBe(`cmd = ${HOME_KEY}/a\n`);
+  });
+
+  test.each([
+    ["as it is", `cmd = ${FORWARD_HOME}/a\n`, false],
+    ["with backslashes", "cmd = C:\\Users\\u\\a\n", false],
+    ["JSON-escaped", '{"cmd": "C:\\\\Users\\\\u\\\\a"}\n', true],
+  ])(
+    "should replace a forward-slash Windows value written %s",
+    (_label, text, json) => {
+      // Act
+      const actual = new TextDecoder().decode(
+        sanitize(
+          encodeUtf8(text),
+          HOME_RULES,
+          { [HOME_KEY]: FORWARD_HOME },
+          {
+            json,
+          },
+        ),
+      );
+
+      // Assert
+      expect(actual).toContain(HOME_KEY);
+    },
+  );
+
   test("sanitize-longest-first", () => {
     // Arrange
     const rules = caseRules("sanitize-longest-first");
@@ -188,6 +239,19 @@ describe("sanitize", () => {
 });
 
 describe("hydrate", () => {
+  test("should stop rather than write a value that holds a placeholder", () => {
+    // Act
+    const actual = hydrate(
+      encodeUtf8(`cmd = ${HOME_KEY}\n`),
+      HOME_RULES,
+      { [HOME_KEY]: PASTED_PLACEHOLDER },
+      { json: false },
+    );
+
+    // Assert
+    expect(actual.ok).toBe(false);
+  });
+
   test("hydrate-creates", () => {
     // Arrange
     const rules = caseRules("hydrate-creates");
@@ -246,7 +310,8 @@ describe("hydrate", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message:
+          "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<YOUR_NAME>",
       },
@@ -267,60 +332,12 @@ describe("hydrate", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <HOME>: add it to .user-values.json",
-        code: 1,
-        placeholder: "<HOME>",
-      },
-    });
-  });
-
-  test("should name the owner when options.owner is set", () => {
-    // Arrange
-    const rules: readonly SanitizeRule[] = [
-      { placeholder: "<HOME>", prompt: "Home directory" },
-    ];
-    const content = encodeUtf8("home=<HOME>");
-
-    // Act
-    const actual = hydrate(
-      content,
-      rules,
-      {},
-      {
-        json: false,
-        owner: { profile: "work", machine: "wk1-laptop" },
-      },
-    );
-
-    // Assert
-    expect(actual).toEqual({
-      ok: false,
-      error: {
         message:
-          "missing value for <HOME>: add it to profile work or machine wk1-laptop",
+          "missing value for <HOME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<HOME>",
       },
     });
-  });
-
-  test("should not rescan a value it inserted when the value holds a placeholder", () => {
-    // Arrange
-    const rules: readonly SanitizeRule[] = [
-      { placeholder: "<A>", prompt: "Value that looks like a placeholder" },
-      { placeholder: "<B>", prompt: "Plain value" },
-    ];
-    const values: Values = { "<A>": "x<B>y", "<B>": "Z" };
-    const content = encodeUtf8("a=<A> b=<B>");
-
-    // Act
-    const actual = hydrate(content, rules, values, { json: false });
-
-    // Assert
-    expect(actual.ok).toBe(true);
-    if (actual.ok) {
-      expect(new TextDecoder().decode(actual.value)).toBe("a=x<B>y b=Z");
-    }
   });
 
   test("bytes 0xff 0xfe around a placeholder survive sanitize then hydrate", () => {
@@ -429,6 +446,19 @@ describe("inferValues", () => {
 });
 
 describe("resolveValues", () => {
+  test("should count a cached value that holds a placeholder as missing", () => {
+    // Act
+    const actual = resolveValues(
+      HOME_RULES,
+      { [HOME_KEY]: PASTED_PLACEHOLDER },
+      {},
+      {},
+    );
+
+    // Assert
+    expect(actual.ok).toBe(false);
+  });
+
   test("missing-value-stops", () => {
     // Arrange
     const rules = caseRules("missing-value-stops");
@@ -440,7 +470,8 @@ describe("resolveValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message:
+          "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<YOUR_NAME>",
       },
@@ -460,37 +491,8 @@ describe("resolveValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <HOME>: add it to .user-values.json",
-        code: 1,
-        placeholder: "<HOME>",
-      },
-    });
-  });
-
-  test("should name the owner when one is given", () => {
-    // Arrange
-    const rules: readonly SanitizeRule[] = [
-      { placeholder: "<HOME>", prompt: "Home directory" },
-    ];
-
-    // Act
-    const actual = resolveValues(
-      rules,
-      {},
-      {},
-      {},
-      {
-        profile: "work",
-        machine: "wk1-laptop",
-      },
-    );
-
-    // Assert
-    expect(actual).toEqual({
-      ok: false,
-      error: {
         message:
-          "missing value for <HOME>: add it to profile work or machine wk1-laptop",
+          "missing value for <HOME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<HOME>",
       },
@@ -561,7 +563,8 @@ describe("resolveValues", () => {
     expect(noValue).toEqual({
       ok: false,
       error: {
-        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message:
+          "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<YOUR_NAME>",
       },
@@ -574,6 +577,16 @@ describe("resolveValues", () => {
 });
 
 describe("askValues", () => {
+  test("should stop when an answer holds a placeholder", () => {
+    // Act
+    const actual = askValues(HOME_RULES, { [HOME_KEY]: "/old" }, {}, [
+      PASTED_PLACEHOLDER,
+    ]);
+
+    // Assert
+    expect(actual.ok).toBe(false);
+  });
+
   test("should replace a cached value with the answer", () => {
     // Arrange
     const rules: readonly SanitizeRule[] = [
@@ -639,7 +652,8 @@ describe("askValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <HOME>: add it to .user-values.json",
+        message:
+          "missing value for <HOME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<HOME>",
       },
@@ -660,7 +674,8 @@ describe("askValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <NAME>: add it to .user-values.json",
+        message:
+          "missing value for <NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<NAME>",
       },

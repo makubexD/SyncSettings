@@ -28,7 +28,7 @@ import type { LayerName } from "../layers/select.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import { formatLine, STATUS_WORDS } from "../status.ts";
 import { valuesFileText } from "../values/file.ts";
-import { planExport } from "./export.ts";
+import { exportMissingRules, planExport } from "./export.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
 import type {
@@ -630,7 +630,7 @@ describe("planExport", () => {
     // Assert
     expect(result.code).toBe(1);
     expect(result.lines).toEqual([
-      "missing value for <NAME>: add it to .user-values.json",
+      "missing value for <NAME>: run mksync push or pull in a terminal to enter it",
     ]);
     expect(result.actions.some((action) => action.kind === "writeRepo")).toBe(
       false,
@@ -2388,5 +2388,207 @@ describe("planExport skip", () => {
 
     // Assert
     expect(withEmpty).toEqual(without);
+  });
+});
+
+describe("planExport <HOME> on Windows", () => {
+  const HOME_PLACEHOLDER = "<HOME>";
+  const HOME_ENTRY: ConfigV2 = {
+    schemaVersion: 2,
+    modules: { parity: { description: "Parity case files" } },
+    entries: [
+      {
+        file: "parity/a.conf",
+        module: "parity",
+        merge: "whole",
+        localPath: "~/.config/parity/a.conf",
+        description: "Sanitized parity file",
+        sanitize: [
+          {
+            placeholder: HOME_PLACEHOLDER,
+            prompt: "Home directory",
+            defaultEnv: "HOME",
+          },
+        ],
+      },
+    ],
+  };
+  const LOCAL_PATH = `${WINDOWS_HOME}\\.config\\parity\\a.conf`;
+  const LOCAL_TEXT = `hook = ${WINDOWS_HOME}\\.claude\\hook.ps1\n`;
+  const FORWARD_TEXT = "hook = bash C:/Users/user/.claude/hook.sh\n";
+
+  test("should sanitize the Windows home written with forward slashes", () => {
+    // Arrange
+    const snapshot: Snapshot = {
+      config: HOME_ENTRY,
+      os: "windows",
+      home: WINDOWS_HOME,
+      cwd: WINDOWS_HOME,
+      repoFiles: new Map(),
+      localFiles: new Map([
+        [
+          LOCAL_PATH,
+          {
+            kind: "file",
+            path: LOCAL_PATH,
+            bytes: new TextEncoder().encode(FORWARD_TEXT),
+            mode: MODE,
+          },
+        ],
+      ]),
+      localDirs: new Set(),
+      values: {},
+      env: { USERPROFILE: WINDOWS_HOME },
+      only: [],
+    };
+
+    // Act
+    const plan = planExport(snapshot);
+    const written = shownActions(
+      plan.steps.flatMap((step) => step.actions.map((entry) => entry.action)),
+    ).find((action) => action.kind === "writeRepo");
+
+    // Assert
+    expect(written?.text).toBe(
+      `hook = bash ${HOME_PLACEHOLDER}/.claude/hook.sh\n`,
+    );
+  });
+
+  test("should take the home folder for defaultEnv HOME when HOME is unset", () => {
+    // Arrange
+    const snapshot: Snapshot = {
+      config: HOME_ENTRY,
+      os: "windows",
+      home: WINDOWS_HOME,
+      cwd: WINDOWS_HOME,
+      repoFiles: new Map(),
+      localFiles: new Map([
+        [
+          LOCAL_PATH,
+          {
+            kind: "file",
+            path: LOCAL_PATH,
+            bytes: new TextEncoder().encode(LOCAL_TEXT),
+            mode: MODE,
+          },
+        ],
+      ]),
+      localDirs: new Set(),
+      values: {},
+      env: { USERPROFILE: WINDOWS_HOME },
+      only: [],
+    };
+
+    // Act
+    const plan = planExport(snapshot);
+    const written = shownActions(
+      plan.steps.flatMap((step) => step.actions.map((entry) => entry.action)),
+    ).find((action) => action.kind === "writeRepo");
+
+    // Assert
+    expect(written?.text).toBe(
+      `hook = ${HOME_PLACEHOLDER}\\.claude\\hook.ps1\n`,
+    );
+  });
+});
+
+describe("exportMissingRules", () => {
+  const NAME_PLACEHOLDER = "<YOUR_NAME>";
+  const NAME_RULE = { placeholder: NAME_PLACEHOLDER, prompt: "Full name" };
+  const DEFAULT_PLACEHOLDER = "<GH_CLI_PATH>";
+  const DEFAULT_RULE = {
+    placeholder: DEFAULT_PLACEHOLDER,
+    prompt: "gh path",
+    default: "/usr/bin/gh",
+  };
+  const ENTRY_LOCAL = `${HOME}/.config/parity/a.conf`;
+  const OTHER_LOCAL = `${HOME}/.config/parity/b.conf`;
+
+  function entry(file: string): ConfigV2["entries"][number] {
+    return {
+      file: `parity/${file}`,
+      module: "parity",
+      merge: "whole",
+      localPath: `~/.config/parity/${file}`,
+      description: "Sanitized parity file",
+      sanitize: file === "a.conf" ? [NAME_RULE, DEFAULT_RULE] : [NAME_RULE],
+    };
+  }
+
+  function localFile(path: string): LocalEntry {
+    return {
+      kind: "file",
+      path,
+      bytes: new TextEncoder().encode("name: Ana Lopez\n"),
+      mode: MODE,
+    };
+  }
+
+  function snapshotWith(overrides: Partial<Snapshot>): Snapshot {
+    return {
+      config: {
+        schemaVersion: 2,
+        modules: { parity: { description: "Parity case files" } },
+        entries: [entry("a.conf")],
+      },
+      os: "linux",
+      home: HOME,
+      cwd: HOME,
+      repoFiles: new Map(),
+      localFiles: new Map([[ENTRY_LOCAL, localFile(ENTRY_LOCAL)]]),
+      localDirs: new Set(),
+      values: {},
+      env: {},
+      only: [],
+      ...overrides,
+    };
+  }
+
+  test("should list only a placeholder nothing fills", () => {
+    // Act
+    const missing = exportMissingRules(snapshotWith({}));
+
+    // Assert
+    expect(missing.map((rule) => rule.placeholder)).toEqual([NAME_PLACEHOLDER]);
+  });
+
+  test("should list nothing when the value is saved", () => {
+    // Act
+    const missing = exportMissingRules(
+      snapshotWith({ values: { [NAME_PLACEHOLDER]: "Ana Lopez" } }),
+    );
+
+    // Assert
+    expect(missing).toEqual([]);
+  });
+
+  test("should list nothing for an entry with no local file", () => {
+    // Act
+    const missing = exportMissingRules(snapshotWith({ localFiles: new Map() }));
+
+    // Assert
+    expect(missing).toEqual([]);
+  });
+
+  test("should list nothing for an entry --only leaves out", () => {
+    // Arrange
+    const snapshot = snapshotWith({
+      config: {
+        schemaVersion: 2,
+        modules: { parity: { description: "Parity case files" } },
+        entries: [{ ...entry("a.conf"), sanitize: [] }, entry("b.conf")],
+      },
+      localFiles: new Map([
+        [ENTRY_LOCAL, localFile(ENTRY_LOCAL)],
+        [OTHER_LOCAL, localFile(OTHER_LOCAL)],
+      ]),
+      only: [ENTRY_LOCAL],
+    });
+
+    // Act
+    const missing = exportMissingRules(snapshot);
+
+    // Assert
+    expect(missing).toEqual([]);
   });
 });

@@ -18,10 +18,10 @@ import {
   missingPlaceholders,
   resolveValues,
 } from "../values/hydrate.ts";
-import type { ValueOwner } from "../values/hydrate.ts";
+import { valueEnv } from "../values/env.ts";
 import type { Values } from "../values/sanitize.ts";
 import { inferredValues } from "./infer.ts";
-import { valueOwner, valuesPrepare } from "./machine-values.ts";
+import { valuesPrepare } from "./machine-values.ts";
 import {
   basename,
   compileExcludes,
@@ -275,7 +275,6 @@ function hydratedLayers(
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
-  const owner = valueOwner(state.snapshot);
   const layers: LayerFile[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -286,10 +285,7 @@ function hydratedLayers(
       layers.push({ repoPath: layer.repoPath, bytes });
       continue;
     }
-    const hydrated = hydrate(bytes, rules, state.values, {
-      json,
-      ...(owner !== undefined ? { owner } : {}),
-    });
+    const hydrated = hydrate(bytes, rules, state.values, { json });
     if (!hydrated.ok) {
       const line = pushStatus(state, "ERROR", label, hydrated.error.message);
       recordStep(state, label, line, false);
@@ -749,11 +745,10 @@ interface PreparedImport {
     readonly rules: readonly SanitizeRule[];
     readonly inferred: Values;
   };
-  readonly owner: ValueOwner | undefined;
 }
 
 /**
- * The entries, `--only` paths, sanitize rules and value owner an import reads
+ * The entries, `--only` paths, and sanitize rules an import reads
  * from its snapshot, or the plan of an early error (config or `--only`).
  */
 function prepareImport(snapshot: Snapshot): PreparedImport | RunPlan {
@@ -776,7 +771,6 @@ function prepareImport(snapshot: Snapshot): PreparedImport | RunPlan {
     selected: selected.value,
     only: only.paths,
     gathered: collectRules(snapshot, selected.value, only.paths),
-    owner: valueOwner(snapshot),
   };
 }
 
@@ -825,7 +819,11 @@ function resetValueQuestions(
       continue;
     }
     seen.add(placeholder);
-    const fallback = promptFallback(rule, snapshot.values, snapshot.env);
+    const fallback = promptFallback(
+      rule,
+      snapshot.values,
+      valueEnv(snapshot.env, snapshot.home, snapshot.os),
+    );
     const prompt = rule.prompt ?? "";
     const hasDefault = fallback.length > 0;
     questions.push({
@@ -868,7 +866,7 @@ export function importValueQuestions(
           rules,
           snapshot.values,
           prepared.gathered.inferred,
-          snapshot.env,
+          valueEnv(snapshot.env, snapshot.home, snapshot.os),
         ).map((rule) => ({
           text: `  ${rule.prompt ?? ""}: `,
           hasDefault: false,
@@ -911,9 +909,8 @@ export function resolveImportValues(
     const asked = askValues(
       prepared.gathered.rules,
       snapshot.values,
-      snapshot.env,
+      valueEnv(snapshot.env, snapshot.home, snapshot.os),
       valueAnswers,
-      prepared.owner,
     );
     if (!asked.ok) {
       const placeholder = asked.error.placeholder;
@@ -933,7 +930,7 @@ export function resolveImportValues(
     rules,
     snapshot.values,
     prepared.gathered.inferred,
-    snapshot.env,
+    valueEnv(snapshot.env, snapshot.home, snapshot.os),
   );
   const answered = new Map<string, string>(Object.entries(snapshot.values));
   for (const [index, rule] of missing.entries()) {
@@ -948,8 +945,7 @@ export function resolveImportValues(
     rules,
     Object.fromEntries(answered),
     prepared.gathered.inferred,
-    snapshot.env,
-    prepared.owner,
+    valueEnv(snapshot.env, snapshot.home, snapshot.os),
   );
   if (!resolved.ok) {
     const placeholder = resolved.error.placeholder;

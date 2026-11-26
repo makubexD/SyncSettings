@@ -13,39 +13,43 @@ import type { Values } from "./sanitize.ts";
 const NEWLINE = 0x0a;
 const CARRIAGE_RETURN = 0x0d;
 
-export interface ValueOwner {
-  readonly profile: string;
-  readonly machine: string;
-}
-
 export interface HydrateOptions {
   readonly json: boolean;
-  readonly owner?: ValueOwner;
 }
 
-function missingValueMessage(placeholder: string, owner?: ValueOwner): string {
-  if (owner !== undefined) {
-    return `missing value for ${placeholder}: add it to profile ${owner.profile} or machine ${owner.machine}`;
-  }
-  return `missing value for ${placeholder}: add it to .user-values.json`;
+/**
+ * Contract "Missing value": the stop names the commands that ask for the
+ * value, the same line with or without a record.
+ */
+export function missingValueLine(placeholder: string): string {
+  return `missing value for ${placeholder}: run mksync push or pull in a terminal to enter it`;
 }
 
-function missingValue(
-  placeholder: string,
-  owner?: ValueOwner,
-): Result<never, ConfigError> {
+function missingValue(placeholder: string): Result<never, ConfigError> {
   return {
     ok: false,
     error: {
-      message: missingValueMessage(placeholder, owner),
+      message: missingValueLine(placeholder),
       code: 1,
       placeholder,
     },
   };
 }
 
+/** Placeholder text: `<`, a capital letter, capitals, digits or `_`, `>`. */
+const PLACEHOLDER_TEXT = /<[A-Z][A-Z0-9_]*>/;
+
+/**
+ * Contract "Sanitize and hydrate": a value that holds placeholder text, such
+ * as a pasted `<HOME>`, is no value. Hydrate would write the placeholder into
+ * the file, and sanitize would leave the real value in the repo.
+ */
+export function holdsPlaceholder(value: string): boolean {
+  return PLACEHOLDER_TEXT.test(value);
+}
+
 function hasValue(value: string | undefined): value is string {
-  return value !== undefined && value.length > 0;
+  return value !== undefined && value.length > 0 && !holdsPlaceholder(value);
 }
 
 /** Lines as bash `mapfile -t` reads them: no extra element after a final newline. */
@@ -233,7 +237,6 @@ export function resolveValues(
   cached: Values,
   inferred: Values,
   env: Readonly<Record<string, string | undefined>>,
-  owner?: ValueOwner,
 ): Result<Values, ConfigError> {
   const resolved = new Map<string, string>(Object.entries(cached));
   for (const [placeholder, value] of Object.entries(inferred)) {
@@ -253,17 +256,17 @@ export function resolveValues(
       continue;
     }
     const ruleDefault = rule.default;
-    if (ruleDefault !== undefined && ruleDefault.length > 0) {
+    if (hasValue(ruleDefault)) {
       resolved.set(placeholder, ruleDefault);
       continue;
     }
     const fromEnv =
       rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
-    if (fromEnv !== undefined && fromEnv.length > 0) {
+    if (hasValue(fromEnv)) {
       resolved.set(placeholder, fromEnv);
       continue;
     }
-    return missingValue(placeholder, owner);
+    return missingValue(placeholder);
   }
 
   return { ok: true, value: Object.fromEntries(resolved) };
@@ -323,7 +326,6 @@ export function askValues(
   cached: Values,
   env: Readonly<Record<string, string | undefined>>,
   answers: readonly string[],
-  owner?: ValueOwner,
 ): Result<Values, ConfigError> {
   const values = new Map<string, string>(Object.entries(cached));
   const seen = new Set<string>();
@@ -349,9 +351,12 @@ export function askValues(
     const raw = index < answers.length ? answers[index] : undefined;
     index++;
     const answer = trimAnswer(raw ?? "");
+    if (holdsPlaceholder(answer)) {
+      return missingValue(placeholder);
+    }
     const chosen = answer.length > 0 ? answer : fallback;
     if (chosen.length === 0) {
-      return missingValue(placeholder, owner);
+      return missingValue(placeholder);
     }
     values.set(placeholder, chosen);
   }
@@ -415,7 +420,7 @@ export function hydrate(
 ): Result<Uint8Array, ConfigError> {
   const missing = firstMissingInContent(content, rules, values);
   if (missing !== undefined) {
-    return missingValue(missing, options.owner);
+    return missingValue(missing);
   }
 
   const escaped = escapedPlaceholders(rules);

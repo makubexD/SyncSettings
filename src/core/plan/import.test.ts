@@ -479,7 +479,7 @@ describe("planImport", () => {
     expect(result.code).toBe(1);
     expect(result.actions).toEqual([]);
     expect(result.lines).toEqual([
-      "missing value for <YOUR_NAME>: add it to .user-values.json",
+      "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
     ]);
   });
 
@@ -996,7 +996,7 @@ describe("import value questions", () => {
     expect(plan.code).toBe(1);
     expect(plan.missing).toBe("<YOUR_NAME>");
     expect(plan.lines).toEqual([
-      "missing value for <YOUR_NAME>: add it to .user-values.json",
+      "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
     ]);
     expect(plan.steps).toEqual([]);
   });
@@ -1059,9 +1059,9 @@ describe("import value questions", () => {
     const plan = planCheck(snapshot);
 
     // Assert
-    expect(plan.lines.some((line) => line.includes("Enter values to fill"))).toBe(
-      false,
-    );
+    expect(
+      plan.lines.some((line) => line.includes("Enter values to fill")),
+    ).toBe(false);
   });
 });
 
