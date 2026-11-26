@@ -10,7 +10,10 @@ import type { Plan, RunPlan, Snapshot } from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
 
-const NEEDS_VALUES_NOTE = "needs values: run mksync setup";
+/** The note of a file whose placeholder has no value (contract "Import check"). */
+function needsValueNote(placeholder: string): string {
+  return `needs ${placeholder}: mksync push or pull asks for it`;
+}
 
 const ERROR_HINT = "see the ERROR lines above";
 
@@ -66,14 +69,15 @@ function importForCheck(snapshot: Snapshot): ImportForCheck {
 }
 
 /**
- * The repo paths of the file entries holding a placeholder with no value.
- * Directory entries carry no rules on import, so they are never flagged.
+ * The repo paths of the file entries holding a placeholder with no value, each
+ * with the first such placeholder in its rule order. Directory entries carry
+ * no rules on import, so they are never flagged.
  */
 function labelsNeedingValues(
   snapshot: Snapshot,
   unresolved: ReadonlySet<string>,
-): ReadonlySet<string> {
-  const labels = new Set<string>();
+): ReadonlyMap<string, string> {
+  const labels = new Map<string, string>();
   if (unresolved.size === 0) {
     return labels;
   }
@@ -90,19 +94,19 @@ function labelsNeedingValues(
       continue;
     }
     const rules = item.entry.sanitize ?? [];
-    const holds = rules.some(
+    const needed = rules.find(
       (rule) => rule.placeholder !== "" && unresolved.has(rule.placeholder),
     );
-    if (!holds) {
+    if (needed === undefined) {
       continue;
     }
     // Every layer a status line can name, so a layered file is skipped whole.
     if (item.layers.length === 0) {
-      labels.add(`${item.writeRoot}${item.entry.file}`);
+      labels.set(`${item.writeRoot}${item.entry.file}`, needed.placeholder);
       continue;
     }
     for (const layer of item.layers) {
-      labels.add(layer.repoPath);
+      labels.set(layer.repoPath, needed.placeholder);
     }
   }
   return labels;
@@ -111,7 +115,7 @@ function labelsNeedingValues(
 /** Turn the import's status lines into the check's, keeping their order. */
 function checkedBody(
   imported: readonly string[],
-  needsValues: ReadonlySet<string>,
+  needsValues: ReadonlyMap<string, string>,
 ): CheckedBody {
   const lines: string[] = [];
   let changes = 0;
@@ -133,11 +137,12 @@ function checkedBody(
       continue;
     }
 
+    const needed = needsValues.get(label);
     if (
-      needsValues.has(label) &&
+      needed !== undefined &&
       (word === "CREATED" || word === "UPDATED" || word === "UNCHANGED")
     ) {
-      lines.push(formatLine("SKIPPED", label, NEEDS_VALUES_NOTE));
+      lines.push(formatLine("SKIPPED", label, needsValueNote(needed)));
       changes++;
       continue;
     }

@@ -746,36 +746,85 @@ function orphanReport(state: State): void {
 }
 
 /**
+ * The file entries this export sends and their rules can apply to: picked by
+ * `--only`, not skipped, not `dir` or `dconf`, with a local file.
+ */
+function sentEntries(
+  snapshot: Snapshot,
+  selected: readonly SelectedEntry[],
+  onlyPaths: readonly string[],
+): readonly SelectedEntry[] {
+  return selected.filter((entry) => {
+    if (
+      !entrySelected(entry, onlyPaths) ||
+      entrySkipped(entry, snapshot.skip) ||
+      entry.entry.merge === "dir" ||
+      entry.entry.merge === "dconf"
+    ) {
+      return false;
+    }
+    const localPath = resolvedLocal(entry.entry, snapshot.os, snapshot.home);
+    return snapshot.localFiles.get(localPath)?.kind === "file";
+  });
+}
+
+/**
  * The sanitize rules of the entries this export sends, each with the entry's
- * configured local path: picked by `--only`, not skipped, not `dir` or
- * `dconf`, with a local file.
+ * configured local path.
  */
 function exportRules(
   snapshot: Snapshot,
   selected: readonly SelectedEntry[],
   onlyPaths: readonly string[],
 ): readonly RuleSource[] {
-  const sources: RuleSource[] = [];
-  for (const entry of selected) {
-    if (
-      !entrySelected(entry, onlyPaths) ||
-      entrySkipped(entry, snapshot.skip)
-    ) {
-      continue;
-    }
-    if (entry.entry.merge === "dir" || entry.entry.merge === "dconf") {
-      continue;
-    }
-    const localPath = resolvedLocal(entry.entry, snapshot.os, snapshot.home);
-    const local = snapshot.localFiles.get(localPath);
-    if (local?.kind === "file") {
-      sources.push({
-        rules: entry.entry.sanitize ?? [],
-        file: configuredLocal(entry.entry, snapshot.os),
-      });
+  return sentEntries(snapshot, selected, onlyPaths).map((entry) => ({
+    rules: entry.entry.sanitize ?? [],
+    file: configuredLocal(entry.entry, snapshot.os),
+  }));
+}
+
+/** A file an export can't sanitize yet: its repo path and the first
+ * placeholder of its rules that has no value. */
+export interface ValueGap {
+  readonly label: string;
+  readonly placeholder: string;
+}
+
+/**
+ * Contract "Export preview": the entries this export sends that hold a
+ * placeholder nothing fills, in entry order, each with the first such
+ * placeholder in its rule order. Empty when nothing is missing, or when the
+ * config or `--only` stops the export.
+ */
+export function exportValueGaps(snapshot: Snapshot): readonly ValueGap[] {
+  const missing = new Set(
+    exportMissingRules(snapshot).map(({ rule }) => rule.placeholder),
+  );
+  if (missing.size === 0) {
+    return [];
+  }
+  const selected = selectEntries(
+    snapshot.config,
+    scopeFor(snapshot),
+    new Set(snapshot.repoFiles.keys()),
+  );
+  if (!selected.ok) {
+    return [];
+  }
+  const only = resolveOnly(snapshot, selected.value);
+  if (!only.ok) {
+    return [];
+  }
+  const gaps: ValueGap[] = [];
+  for (const entry of sentEntries(snapshot, selected.value, only.paths)) {
+    const rule = (entry.entry.sanitize ?? []).find((candidate) =>
+      missing.has(candidate.placeholder),
+    );
+    if (rule !== undefined) {
+      gaps.push({ label: primaryRepoPath(entry), placeholder: rule.placeholder });
     }
   }
-  return sources;
+  return gaps;
 }
 
 /**

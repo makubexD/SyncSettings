@@ -1203,6 +1203,10 @@ export async function runExport(
   const { snapshot, context } = await buildRun(env, command);
 
   let result: Result;
+  // A preview that left out a file for a missing value prints its tail and
+  // the held block as a clean one does, then exits 1 (contract "Export
+  // preview").
+  let previewSkipped = false;
   if (command.preview) {
     const firstBackup =
       backupSides === undefined
@@ -1214,9 +1218,10 @@ export async function runExport(
       firstBackup,
     );
     result =
-      preview.code === 0 && preview.tree !== undefined
+      preview.tree !== undefined
         ? await previewTail(env.repoRoot, preview)
         : renderStatic(preview);
+    previewSkipped = preview.skipped === true;
   } else {
     const firstBackup: FirstBackupRun | undefined =
       backupSides === undefined
@@ -1247,6 +1252,9 @@ export async function runExport(
       ...result,
       stdout: result.stdout + heldText(exportGuardResult.decision.held),
     };
+  }
+  if (previewSkipped && result.code === 0) {
+    result = { ...result, code: 1 };
   }
   return endRun(result, check, finish);
 }

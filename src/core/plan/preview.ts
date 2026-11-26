@@ -1,6 +1,8 @@
 import { STATE_FOLDER_ROOTS } from "../guard.ts";
+import { formatLine } from "../status.ts";
 import { changeLines } from "./changes.ts";
-import { planExport } from "./export.ts";
+import { exportValueGaps, planExport } from "./export.ts";
+import type { ValueGap } from "./export.ts";
 import { groupBlock, withoutNewSettings } from "./groups.ts";
 import {
   newSettingChoices,
@@ -25,6 +27,16 @@ const DASHES = "  --------------------------------------------------";
 const ONLY_ERROR = "ERROR: --preview cannot be combined with --only.";
 
 const NO_COMMIT_ERROR = "ERROR: --preview needs a git repo with a commit.";
+
+/** The `SKIPPED` line of a file whose placeholder has no value: a preview
+ * never asks, and push would (contract "Export preview"). */
+function valueGapLine(gap: ValueGap): string {
+  return formatLine(
+    "SKIPPED",
+    gap.label,
+    `needs ${gap.placeholder}: mksync push asks for it`,
+  );
+}
 
 /** The line the preview prints when the exported result equals `HEAD`. */
 export const MATCHES_HEAD = "  Nothing would be sent: the repo matches HEAD.";
@@ -175,8 +187,9 @@ function previewSummary(
   repo: RepoFiles,
   head: RepoFiles,
   block: readonly string[],
+  gapLines: readonly string[],
 ): readonly string[] {
-  const body = statusBody(rendered);
+  const body = [...gapLines, ...statusBody(rendered)];
   const actions = plan.steps.flatMap((step) =>
     step.actions.map((entry) => entry.action),
   );
@@ -227,6 +240,12 @@ export interface PreviewPlan extends Plan {
    * export would happen.
    */
   readonly tree?: RepoFiles;
+  /**
+   * Whether a file was left out for a placeholder with no value. The plan's
+   * code is then 1, though `tree` is there: the app still leak-scans and
+   * diffs the other files, then exits 1.
+   */
+  readonly skipped?: boolean;
 }
 
 /**
@@ -254,7 +273,19 @@ export function planPreview(
     return { actions: [], lines: [NO_COMMIT_ERROR], code: 1 };
   }
 
-  const exported = planExport(snapshot);
+  // A file whose placeholder has no value is left out of the export, so the
+  // rest still show; sanitizing it with a stand-in would put the real value
+  // in the tree (contract "Export preview").
+  const gaps = exportValueGaps(snapshot);
+  const gapLines = gaps.map(valueGapLine);
+  const scoped: Snapshot =
+    gaps.length === 0
+      ? snapshot
+      : {
+          ...snapshot,
+          skip: [...(snapshot.skip ?? []), ...gaps.map((gap) => gap.label)],
+        };
+  const exported = planExport(scoped);
   const settings = exported.newSettings ?? [];
   // The preview never asks: it plans the export again with every new setting
   // answered by the suggestion, so its status lines and summary show the
@@ -266,12 +297,12 @@ export function planPreview(
   const plan =
     question === undefined
       ? exported
-      : planExport(snapshot, suggestionAnswers(settings, question));
+      : planExport(scoped, suggestionAnswers(settings, question));
   const rendered = renderRun(plan, NO_FAILURES);
   if (rendered.code !== 0) {
     return { actions: [], lines: rendered.lines, code: rendered.code };
   }
-  const changes = changeLines(plan, snapshot);
+  const changes = changeLines(plan, scoped);
   const lines =
     question === undefined ? changes : withoutNewSettings(changes, settings);
   const block =
@@ -289,12 +320,13 @@ export function planPreview(
         );
   // Contract "Profile values (program only)": a hit stops the preview with the
   // refused lines after the block, instead of the summary and exit 0.
-  const hits = profileValueHits(plan, snapshot, lines);
+  const hits = profileValueHits(plan, scoped, lines);
   const profileName = snapshot.record?.profile ?? snapshot.profile?.name;
   if (hits.length > 0 && profileName !== undefined) {
     return {
       actions: [],
       lines: [
+        ...gapLines,
         ...statusBody(rendered.lines),
         "",
         ...block,
@@ -309,6 +341,7 @@ export function planPreview(
     workingTree ?? snapshot.repoFiles,
     head,
     block,
+    gapLines,
   );
   const actions = plan.steps.flatMap((step) =>
     step.actions.map((entry) => entry.action),
@@ -319,7 +352,8 @@ export function planPreview(
       firstBackup.length === 0
         ? previewed
         : [...previewed, ...firstBackupLines(firstBackup)],
-    code: 0,
+    code: gaps.length === 0 ? 0 : 1,
     tree: exportResultTree(workingTree ?? snapshot.repoFiles, actions),
+    skipped: gaps.length > 0,
   };
 }

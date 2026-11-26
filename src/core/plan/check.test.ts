@@ -39,7 +39,7 @@ const MISSING_VALUE_CASE = "missing-value-stops";
 
 const MISSING_VALUE_LABEL = "dotfiles/common/parity/a.conf";
 
-const NEEDS_VALUES_NOTE = "needs values: run mksync setup";
+const NEEDS_VALUES_NOTE = "needs <YOUR_NAME>: mksync push or pull asks for it";
 
 const CHECK_CASE = "check-one-change";
 

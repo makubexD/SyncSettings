@@ -637,9 +637,11 @@ the machine.
 was committed.`, prints no diff and exits 1.
 - A file whose placeholder has no value (after the cached value, inference, `default` and `defaultEnv`; a preview
   never asks and runs no `suggest` source) prints `SKIPPED <file>  (needs <PLACEHOLDER>: mksync push asks for it)`,
-  `<file>` its repo path, one line per file, naming the first such placeholder in rule order. The preview goes on
-  with the other files: their status lines, the summary, the leak scan and the diff. A skipped file writes nothing to
-  the temp tree, so it shows no diff and isn't leak-scanned. The preview then exits 1, after
+  `<file>` its repo path, one line per file, naming the first such placeholder in rule order. These lines come first,
+  in entry order, before the other status lines. The preview goes on with the other files: their status lines, the
+  summary, the leak scan and the diff. A skipped file is left out of the export as a push's `IN` file is, so the temp
+  tree holds its repo copy unchanged: it shows no diff and adds nothing new to scan. The guard's held block still
+  follows. The preview then exits 1, after
   `Nothing was written. Run mksync push to send it.`, so a script still sees it.
 - With no differences: `Nothing would be sent: the repo matches HEAD.` A file deleted from `dotfiles/` but still in
   `HEAD`, and an edit to `sync-config.json`, are differences.
