@@ -38,6 +38,10 @@ tests/windows-vm/vm.sh snapshot           # after the first install, with the VM
 bare origin, it runs `mksync status`, puts `whoami.exe` in the clone as `git.exe` and runs it again: the outputs must
 match, with no `not a git clone` (commands are found on `PATH` only; work #1 found the clone's `git.exe` ran). It
 also checks that the statusline prints a Windows directory's last part. A build from before `v1.1.4` fails both.
+Then `mksync doctor`, with the VM's `PATH` (Git's `cmd` folder only, as on work #2), must read `OK bash`, since the
+leak scan finds Git Bash from `git`; and with only `System32` and `WindowsApps` on `PATH` (no git), the `bash` line must
+name `winget install --id Git.Git -e`, which needs winget's app execution alias found. A build from before `v1.1.5`
+fails both.
 
 ## Limits
 

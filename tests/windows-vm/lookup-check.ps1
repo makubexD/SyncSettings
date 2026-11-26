@@ -11,7 +11,11 @@
     git.exe ran in place of git (`Origin : not a git clone`). This makes a
     throwaway clone with a local bare origin, runs `mksync status` in it, then
     plants the same git.exe and runs it again: the two outputs must match and
-    neither may say `not a git clone`. HOME and USERPROFILE point at a
+    neither may say `not a git clone`. Work #2 (2026-11-26) found the doctor
+    warning about bash with Git's cmd folder alone on PATH, and missing
+    winget's app execution alias: `mksync doctor` must read `OK bash` with the
+    VM's PATH, and name the winget install with only System32 and
+    WindowsApps on PATH. HOME and USERPROFILE point at a
     throwaway folder, so nothing outside it is read or written.
 #>
 param(
@@ -104,6 +108,44 @@ if ($line -notmatch 'parity-clone') {
 }
 if ($line.Contains($T)) {
     Stop-Check "statusline printed the whole directory: $line"
+}
+
+# mksync doctor in the clone, with PATH as given (the caller's when empty).
+function Invoke-Doctor([string]$Path) {
+    # Into the clone first, failing hard, so finally never pops the caller's
+    # folder or leaves PATH changed.
+    Push-Location -LiteralPath $Clone -ErrorAction Stop
+    $savedPath = $env:PATH
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($Path) {
+            $env:PATH = $Path
+        }
+        $lines = & $Exe doctor 2>&1 | ForEach-Object { "$_" }
+    } finally {
+        $env:PATH = $savedPath
+        Pop-Location
+    }
+    return ($lines -join "`n")
+}
+
+# 4. The doctor finds Git Bash from git, as the leak scan does: the VM's PATH
+#    has Git's cmd folder only, as work #2's has (2026-11-26).
+$doctor = Invoke-Doctor ''
+if ($doctor -notmatch '(?m)^\s*OK\s+bash\s*$') {
+    Stop-Check "doctor misses the Git Bash found from git:`n$doctor"
+}
+
+# 5. The doctor finds winget's app execution alias: with no git on PATH, the
+#    bash line names the winget install, not git-scm.com.
+$apps = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+if (Test-Path -LiteralPath (Join-Path $apps 'winget.exe')) {
+    $doctor = Invoke-Doctor ((Join-Path $env:SystemRoot 'System32') + ';' + $apps)
+    if ($doctor -notmatch 'install with winget install --id Git\.Git -e' -or $doctor -match 'git-scm\.com') {
+        Stop-Check "doctor misses winget's app execution alias:`n$doctor"
+    }
+} else {
+    Write-Output 'lookup-check: no winget in this VM, check 5 skipped'
 }
 
 $env:HOME = $SavedHome

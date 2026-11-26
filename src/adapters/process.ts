@@ -13,7 +13,12 @@ import type {
   SpawnOptions,
   SpawnSyncOptions,
 } from "node:child_process";
-import { accessSync, constants as fsConstants, statSync } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  lstatSync,
+  statSync,
+} from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline";
@@ -404,13 +409,82 @@ function hasPathSeparator(name: string): boolean {
   return name.includes("/") || (IS_WINDOWS && name.includes("\\"));
 }
 
-function isFile(file: string): boolean {
-  try {
-    return statSync(file).isFile();
-  } catch {
-    // Missing, unreadable or not a plain file: not a match.
+/** The part of `fs.Stats` that `isCommandEntry` reads. */
+export interface EntryKind {
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+}
+
+/** `statSync` codes for a target that isn't there: a dangling link, not an alias. */
+const TARGET_MISSING_CODES: readonly string[] = ["ENOENT", "ENOTDIR"];
+
+/** One `statSync` or `lstatSync` call: the entry, or the code it threw. */
+export type StatAnswer =
+  { readonly entry: EntryKind } | { readonly code: string | undefined };
+
+/**
+ * Whether a lookup candidate is a command, from its `statSync` answer
+ * (`followed`) and, on Windows, its `lstatSync` answer (`linked`). A file is;
+ * a folder never is. On Windows a link that `stat` can't follow counts too:
+ * an app execution alias such as `WindowsApps\winget.exe` is a 0-byte reparse
+ * point that `stat` fails on (Bun: `EACCES`) or reports as a link, while
+ * Windows starts it like any program. A link whose target is missing
+ * (`ENOENT`, `ENOTDIR`) never counts, so a dangling link can't hide a working
+ * copy later on `PATH`; off Windows no link counts on its own.
+ */
+export function isCommandEntry(
+  followed: StatAnswer,
+  linked: StatAnswer | undefined,
+  windows: boolean,
+): boolean {
+  if ("entry" in followed) {
+    if (followed.entry.isFile()) {
+      return true;
+    }
+    if (followed.entry.isDirectory()) {
+      return false;
+    }
+  } else if (
+    followed.code !== undefined &&
+    TARGET_MISSING_CODES.includes(followed.code)
+  ) {
     return false;
   }
+  return (
+    windows &&
+    linked !== undefined &&
+    "entry" in linked &&
+    linked.entry.isSymbolicLink()
+  );
+}
+
+function statAnswer(
+  file: string,
+  read: (path: string) => EntryKind,
+): StatAnswer {
+  try {
+    return { entry: read(file) };
+  } catch (error) {
+    // Missing or unreadable (an alias stat can't follow): the code says which.
+    return { code: (error as NodeJS.ErrnoException).code };
+  }
+}
+
+/** Whether a `statSync` answer settles the lookup without `lstatSync`. */
+function isSettled(answer: StatAnswer): boolean {
+  return (
+    "entry" in answer && (answer.entry.isFile() || answer.entry.isDirectory())
+  );
+}
+
+function isFile(file: string): boolean {
+  const followed = statAnswer(file, statSync);
+  const linked =
+    IS_WINDOWS && !isSettled(followed)
+      ? statAnswer(file, lstatSync)
+      : undefined;
+  return isCommandEntry(followed, linked, IS_WINDOWS);
 }
 
 function isExecutableFile(file: string): boolean {

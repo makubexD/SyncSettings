@@ -885,7 +885,9 @@ More rules per command:
 https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
   (`WARN no machine record; run mksync setup`); `values`; `bash` (`WARN bash: needed by the leak scan; install with
 <command>`; on Windows `install with winget install --id Git.Git -e`, or `install Git for Windows from
-https://git-scm.com` without `winget`); on Linux the `drift` line of [Package drift](#package-drift). A `MISSING` line
+https://git-scm.com` without `winget`; on Windows the line is `OK` when Git's own `bash.exe` is found from `git`, as
+  the leak scan ([Checks before pushing](#checks-before-pushing)) finds it, and a `bash` elsewhere on `PATH`, such as
+  WSL's launcher, doesn't count); on Linux the `drift` line of [Package drift](#package-drift). A `MISSING` line
   names the install command (`sudo apt-get install …`, `brew install …`, `winget install --id …`) and is followed by
   `Fix the MISSING items, then run mksync doctor again.`
 - **`pull`** fetches, then counts `HEAD..origin/master`: at 0 it runs no merge; at `n` it fast-forwards, prints

@@ -5,9 +5,10 @@
  * the values no layer sets, and, on Linux, package drift. Writes nothing.
  */
 
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { runGitResult } from "../adapters/git.ts";
+import { hasScanBash } from "../adapters/leakscan.ts";
 import {
   driftRoot,
   readDriftIgnore,
@@ -227,15 +228,16 @@ export async function executeDoctor(input: DoctorInput): Promise<Result> {
     ghFact(process.env),
     hasOrigin(input.repoRoot),
   ]);
+  const gitPath = which("git");
   const facts: DoctorFacts = {
     os: input.os,
     packageManager: packageManager(input.os),
-    git: onPath("git"),
+    git: gitPath !== null,
     gh,
     origin,
     record: input.layers.record !== undefined,
     unsetValues: unsetValueCount(input),
-    bash: onPath("bash"),
+    bash: hasScanBash(process.platform, gitPath, existsSync, onPath),
     drift: driftCount(input.repoRoot, input.os, input.home, process.env),
   };
   const report = doctorLines(facts);

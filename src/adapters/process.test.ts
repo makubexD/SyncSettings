@@ -11,6 +11,9 @@ import { delimiter, isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
 import {
   decode,
+  type EntryKind,
+  isCommandEntry,
+  type StatAnswer,
   isSpawnable,
   run,
   runSync,
@@ -423,6 +426,55 @@ describe("searchFolders", () => {
 
     // Assert
     expect(folders).toEqual([]);
+  });
+});
+
+/** A `stat` answer that found an entry of one kind, as `isCommandEntry` reads it. */
+function found(kind: "file" | "folder" | "link"): StatAnswer {
+  const entry: EntryKind = {
+    isFile: () => kind === "file",
+    isDirectory: () => kind === "folder",
+    isSymbolicLink: () => kind === "link",
+  };
+  return { entry };
+}
+
+const FILE = found("file");
+const FOLDER = found("folder");
+const LINK = found("link");
+/** What Bun's `statSync` throws on an app execution alias. */
+const ALIAS_DENIED: StatAnswer = { code: "EACCES" };
+/** What `statSync` throws on a link whose target is gone. */
+const TARGET_GONE: StatAnswer = { code: "ENOENT" };
+const PARENT_NOT_FOLDER: StatAnswer = { code: "ENOTDIR" };
+const NOT_ASKED = undefined;
+
+describe("isCommandEntry", () => {
+  test.each([
+    ["a file on Linux", FILE, NOT_ASKED, false, true],
+    ["a file on Windows", FILE, NOT_ASKED, true, true],
+    ["a folder on Linux", FOLDER, NOT_ASKED, false, false],
+    ["a folder on Windows, even with a link lstat", FOLDER, LINK, true, false],
+    ["an alias stat can't follow on Windows", ALIAS_DENIED, LINK, true, true],
+    ["an alias stat reports as a link on Windows", LINK, LINK, true, true],
+    ["a link stat reports as a link on Linux", LINK, NOT_ASKED, false, false],
+    ["a denied link on Linux", ALIAS_DENIED, LINK, false, false],
+    ["a dangling link on Windows", TARGET_GONE, LINK, true, false],
+    ["a link under a file on Windows", PARENT_NOT_FOLDER, LINK, true, false],
+    ["nothing on Windows", TARGET_GONE, TARGET_GONE, true, false],
+    [
+      "a plain file lstat after a denied stat on Windows",
+      ALIAS_DENIED,
+      FILE,
+      true,
+      false,
+    ],
+  ])("should answer %s", (_label, followed, linked, windows, expected) => {
+    // Act
+    const isCommand = isCommandEntry(followed, linked, windows);
+
+    // Assert
+    expect(isCommand).toBe(expected);
   });
 });
 

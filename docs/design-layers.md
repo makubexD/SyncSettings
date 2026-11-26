@@ -1412,10 +1412,50 @@ Step 7, personal Linux (2026-11-26), after PR #95: `mksync diff` against `origin
 and the repo agree." and `mksync check` "This machine matches the repo.": no `IN` file, so no pull. Linux gets nothing
 from work #1 (the Claude keys are in profile `work1`, Windows Terminal in the Windows layer).
 
+**Work #2 (Windows), 2026-11-26, release v1.1.4, run from the clone** (`docs/plan-work-machines.md`, step 8). A fresh
+machine: `gh` installed with winget and signed in, then `install.ps1` through `gh api` with
+`SYNCSETTINGS_RUNTIME=node` and `SYNCSETTINGS_NO_SETUP=1` cloned to `%USERPROFILE%\SyncSettings`, put
+`%LOCALAPPDATA%\mksync` on the user `Path` and printed `Installed. Run mksync any time.`; `mksync --version` prints
+`mksync 1.1.4`. `tools/windows-cutover-check.ps1` (also through `gh api`), in Windows PowerShell 5.1.26100 (full
+language mode), git 2.56.0, Node 25.9.0, Bun 1.3.14, jq 1.8.1, Windows 11 Enterprise:
+
+- Location: `mksync.cmd` (and the extensionless shim) in `%LOCALAPPDATA%\mksync`, no `mksync.exe`, the folder on the
+  user `Path`, no old launcher.
+- Git Bash: `HOME=/c/Users/USER`; `mksync --version` and `mksync.cmd --version` both print `mksync 1.1.4`, exit 0 (the
+  cut-over step 9 shim). PowerShell: `~` and `$HOME` are `C:\Users\USER`.
+- `mksync statusline` on the sample payload: one line with the bar, exit 0; `MKSYNC_RUNTIME=bun` runs the launcher.
+- `status` exits 0 (`Origin : up to date`, 9 files differ, `~/.nvm` named as a linked folder setup asks about);
+  `check` exits 3 with 9 files to change and 2 `SKIPPED` for values; `update` prints the `git pull` error, exit 2. No
+  `.user-values.json`.
+- `doctor` exits 0 but reads `WARN bash: needed by the leak scan; install Git for Windows from https://git-scm.com`:
+  the doctor looks for `bash` on `PATH` only, and this machine has only `Git\cmd` there and no WSL, while the leak scan
+  finds `Git\bin\bash.exe` from `git` ("Open", "The doctor's bash and winget lookups").
+- Section 8 still runs `mksync shadow`, removed at the cut-over: usage text, exit 2. The section is stale, not a fault.
+
+The extra checks and the survey are in "Confirm on Windows". The first run of the extra checks was from the home
+folder, where every command but `statusline` stops with `ERROR: no sync-config.json or sync-config.v2.json in this
+folder or its parents.`, as the contract says; they ran again from the clone ("Open", "The working folder after
+install").
+
 ## Open
 
 ### Design
 
+- **The doctor's bash and winget lookups (work #2, 2026-11-26).** `mksync doctor` checks `bash` with a bare `PATH`
+  lookup (`src/app/doctor.ts`), but on Windows the leak scan runs Git's own `bash.exe`, found from `git`
+  (`findBash`, `src/adapters/leakscan.ts`). Work #2 has only `Git\cmd` on `PATH` and no WSL, so the doctor warns while a
+  push would scan fine; work #1 read `OK` only because WSL's `System32\bash.exe` is first there. The doctor should ask
+  `findBash` on Windows. The same line gives the git-scm.com hint instead of the winget one though
+  `WindowsApps\winget.exe` is on `PATH`: that file is an app execution alias, which the program's `which` most likely
+  doesn't take as a file (`isFile` uses `statSync`). Fix both, with unit cases, before work #2's setup.
+  **Done in `v1.1.5`** (`docs/plan-doctor-hotfix.md`): `hasScanBash` (`src/adapters/leakscan.ts`) is the doctor's
+  answer, Git Bash from `git` on Windows and `bash` on `PATH` elsewhere; `which` counts a link `stat` can't follow as a
+  command on Windows only (`isCommandEntry`, `src/adapters/process.ts`). The VM's `lookup-check.ps1` checks both.
+- **The working folder after install (work #2, 2026-11-26).** The installer ends with `Installed. Run mksync any time.`
+  and puts `mksync` on `PATH`, but every command except `statusline` finds the repo from the working folder, so run
+  from the home folder they stop with `no sync-config.json … in this folder or its parents.` Options: fall back to
+  `%USERPROFILE%\SyncSettings` (`~/SyncSettings`) when the working folder has no repo, or name the clone folder in the
+  error and in the install's last line.
 - **A private layer that isn't `json` reads `BOTH` (safe-push review).** A `whole` file overridden by a profile or
   machine layer reads `OUT`, or `BOTH` when the repo changes the shared file, because only `json` entries' private
   layers join the diff (decided in the diff-layers plan). Pull and push then stop on it, and the printed
@@ -1789,46 +1829,63 @@ each with its command and what to paste back, for work #2 and #3 when the user i
 - **Unset `USERPROFILE` (phase 4).** The PowerShell engine doesn't stop when `USERPROFILE` is unset (paths become
   `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or
   record it as a known difference. Work #1 (2026-11-26): the program stops, `ERROR: the home folder is not set
-(USERPROFILE).`, exit 1.
+(USERPROFILE).`, exit 1. Work #2 (2026-11-26, Windows PowerShell 5.1): the same.
 
 - **End of input at setup's confirm (v1.1.1).** `run.ps1` pipes a case's stdin with `$text | & exe`, which adds a
   newline, so no Windows case can end at end of input: the confirm reads an empty line (yes). `setup-confirm-eof` is
   Linux only. Check on a work machine that `mksync setup` with no console stops with `Stopped: nothing was written.`
   Work #1 (2026-11-26) has a record, so setup stopped earlier (`already <name>`, exit 1); left for work #2.
+  **Work #2 (2026-11-26, no record): settled.** `cmd /c "mksync setup < NUL"` stops at the profile question with
+  `ERROR: missing --profile`, exit 2 (the contract's "No suggestion"); with every flag given
+  (`--profile <p> --claude claude --mode push --existing keep`) it reaches the confirm and prints
+  `Stopped: nothing was written.`, exit 0. No `.user-values.json` either time.
 - **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
   access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM. Work #1 (2026-11-26):
-  one entry, the user's own `(F)`.
+  one entry, the user's own `(F)`. Work #2 has no values file before setup; checked at step 9.
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
   the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
   the repo would run; if so, resolve through `PATH` only. **Work #1 (2026-11-26): it does.** A `whoami.exe` copied to
   the clone as `git.exe` ran in place of git (`Origin : not a git clone`). **Done in `v1.1.4`:** `run` and `runSync`
   resolve every bare name through `PATH` only, skipping relative folders on every OS; `tests/windows-vm/lookup-check.ps1`
-  repeats work #1's check in the VM.
+  repeats work #1's check in the VM. Work #2 (2026-11-26, v1.1.4): with `whoami.exe` copied to the clone as `git.exe`,
+  `mksync status` is the same as without it (`Origin : up to date`), exit 0: the fix holds on a real machine.
 - **Leak scan's `bash` (phase 8 review).** The program runs bare `bash`; with WSL installed, `System32\bash.exe` can
   come before Git Bash on `PATH` and can't open the script, so every push stops at "could not run". Find Git Bash
   explicitly and pass the script path with `/`. Work #1 (2026-11-26): WSL's `bash.exe` is first on `PATH` and `doctor`
-  reads `OK bash`.
+  reads `OK bash`. Work #2 (2026-11-26): no `bash` on `PATH` at all (only `Git\cmd`, no WSL), so `doctor` reads
+  `WARN bash` though the leak scan would find `Git\bin\bash.exe` ("Open", "The doctor's bash and winget lookups"). From
+  `v1.1.5` the doctor asks the same lookup as the leak scan, so the two agree.
 - **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
   the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
   `[Console]::OutputEncoding` first, and give the call a timeout. Work #1 (2026-11-26): an English caption, code page
-  437, matches; a localized caption is still unchecked.
+  437, matches; a localized caption is still unchecked. Work #2 (2026-11-26): the same (English, 437, matches).
 - **The survey (step 27).** Work machine #1's answer (`docs/archive/windows-survey.md`, "Answer", 2026-11-16) settled the
   next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
 
 - **Shell (work #1: Git Bash).** Claude Code's Bash tool is Git Bash (MSYS2 bash 5.2, `MINGW64`), and neither hook
   sets `"shell"`, so hooks and the statusline command start under Git Bash, as the documentation says. Its
   PowerShell tool is PowerShell 7.6; the current statusline command launches `powershell.exe` (5.1) itself.
+  Work #2 (2026-11-26): the same (MSYS bash, `MINGW64`; PowerShell 7.6; Claude Code 2.1.332).
 - **Git Bash and `jq` (work #1: both).** Git for Windows 2.50 with Git Bash, `jq` 1.6, PowerShell 5.1 and 7;
   `CLAUDE_CODE_GIT_BASH_PATH` unset. So decision 4 holds there: the program's leak scan runs `bash`, and `mksync
-doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push until it has one.
+doctor`'s `bash` line is `OK`. A work machine without Git Bash still can't push until it has one. Work #2
+  (2026-11-26): Git for Windows 2.56 with Git Bash (`Git\bin\bash.exe`, only `Git\cmd` on `PATH`), `jq` 1.8.1,
+  PowerShell 5.1 and 7.6, `CLAUDE_CODE_GIT_BASH_PATH` unset; the doctor's `bash` line is wrong there (see above).
 - **Current layout (work #1).** `settings.json` holds `hooks` (a `PreToolUse` hook with a matcher and a
   `SessionStart` hook that runs `node.exe`, the work tool's own `hooks/work-tool-1-cache-heal.mjs`), `statusLine`
   (`powershell.exe` running `~/.claude/statusline.ps1`), `enabledPlugins` and `extraKnownMarketplaces` (two work
   marketplaces), `effortLevel`, `modelSettings`, `autoUpdatesChannel`, `tui`, the two notification flags, `autoMode`
   (`environment`, 25 items) and `model`. `CLAUDE.md` is 69 lines with one import line, `@WORK-TOOL-3.md`. Three skills
-  are links, not folders. None of the Linux hooks is there.
+  are links, not folders. None of the Linux hooks is there. Work #2 (2026-11-26): the same keys, plus `permissions`
+  (`allow`, `defaultMode`) and `skipWorkflowUsageWarning`, without `tui`; `autoMode.environment` has 41 items;
+  `enabledPlugins` has 4 (one from a `synced` marketplace) and `extraKnownMarketplaces` 2 work marketplaces. Hooks: a
+  `PreToolUse` hook with a matcher that runs a work tool's own program, and the same `SessionStart` hook running
+  `node.exe` (`hooks/work-tool-1-cache-heal.mjs`); neither sets `"shell"`. `statusLine` runs `powershell.exe` with
+  `~/.claude/statusline.ps1`. `CLAUDE.md` is 5 lines with one import, `@WORK-TOOL-5.md`. Skills: one folder
+  (`feature/`) and a `synced/` bucket.
 - **`$HOME` in commands (work #1: both work).** `$HOME/.claude` and `~/.claude` list the same folder under Git Bash
-  and under Windows PowerShell 5.1 (`-NoProfile`); PowerShell 7 wasn't tested on its own.
+  and under Windows PowerShell 5.1 (`-NoProfile`); PowerShell 7 wasn't tested on its own. Work #2 (2026-11-26): the
+  same under Git Bash, PowerShell 5.1 and PowerShell 7.6 (`pwsh -NoProfile`).
 - **Hooks on Windows (confirmed by the user, 2026-11-16).** The work machines get none of the Linux hooks: they serve
   the plan workflow and its worker, which run on personal Linux only. So no PowerShell twins, `hooks` stays in the
   Linux overlay, and `WINDOWS_OVERLAY_KEYS` in `tools/claude-layout.ts` stays empty: every other key is in the base
