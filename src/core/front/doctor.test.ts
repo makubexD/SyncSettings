@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { doctorLines, installHint } from "./doctor.ts";
-import type { DoctorFacts } from "./doctor.ts";
+import type { DoctorFacts, GitFacts } from "./doctor.ts";
 
 const MISSING_NEXT = "  Fix the MISSING items, then run mksync doctor again.";
 
@@ -315,6 +315,129 @@ describe("doctorLines", () => {
       "  OK       bash",
       "  Ready.",
     ]);
+  });
+});
+
+/** Git's own view with nothing to report. */
+const NO_GIT_FACTS: GitFacts = {
+  xdgConfig: false,
+  includes: [],
+  localMissing: false,
+};
+
+const XDG_LINE =
+  "  WARN     git also reads ~/.config/git/config; mksync syncs ~/.gitconfig only";
+
+const WORK_INCLUDE = "~/work/.gitconfig";
+
+const INCLUDE_LINE = `  WARN     git includes ${WORK_INCLUDE}, which mksync doesn't sync`;
+
+const LOCAL_MISSING_LINE =
+  "  WARN     ~/.gitconfig.local is missing; mksync pull creates it from the repo";
+
+const FOUND_GH = "C:\\Users\\u\\AppData\\Local\\gh\\gh.exe";
+
+const SAVED_GH = "C:\\Program Files\\GitHub CLI\\gh.exe";
+
+const GH_PATH_LINE = `  WARN     gh is ${FOUND_GH}, not ${SAVED_GH}; mksync pull would point git at the wrong gh`;
+
+/** The healthy Linux machine with these git facts. */
+function withGit(
+  changes: Partial<GitFacts>,
+  os: DoctorFacts["os"] = "linux",
+): DoctorFacts {
+  return facts({ os, gitFacts: { ...NO_GIT_FACTS, ...changes } });
+}
+
+/** The lines between `values` and `bash`, where the git lines go. */
+function gitLines(f: DoctorFacts): readonly string[] {
+  const lines = doctorLines(f).lines;
+  const values = lines.findIndex((value) => value.includes("values"));
+  const bash = lines.findIndex((value) => value.includes("bash"));
+  return lines.slice(values + 1, bash);
+}
+
+describe("doctorLines git config lines", () => {
+  test("should warn about ~/.config/git/config when it exists", () => {
+    expect(gitLines(withGit({ xdgConfig: true }))).toEqual([XDG_LINE]);
+  });
+
+  test("should warn once per include other than the synced two", () => {
+    const includes = [
+      "~/.gitconfig.local",
+      "~/.gitconfig.machine",
+      WORK_INCLUDE,
+    ];
+
+    expect(gitLines(withGit({ includes }))).toEqual([INCLUDE_LINE]);
+  });
+
+  test("should warn when ~/.gitconfig.local is missing", () => {
+    expect(gitLines(withGit({ localMissing: true }))).toEqual([
+      LOCAL_MISSING_LINE,
+    ]);
+  });
+
+  test("should warn on windows when gh differs from GH_CLI_PATH", () => {
+    const f = withGit({ ghPath: FOUND_GH, ghCliValue: SAVED_GH }, "windows");
+
+    expect(gitLines(f)).toEqual([GH_PATH_LINE]);
+  });
+
+  test("should not warn on windows when the paths match without case", () => {
+    const f = withGit(
+      { ghPath: SAVED_GH.toLowerCase(), ghCliValue: SAVED_GH },
+      "windows",
+    );
+
+    expect(gitLines(f)).toEqual([]);
+  });
+
+  test("should not warn on windows when only one path is known", () => {
+    expect(gitLines(withGit({ ghPath: FOUND_GH }, "windows"))).toEqual([]);
+  });
+
+  test("should never print the gh path line on linux", () => {
+    const f = withGit({ ghPath: FOUND_GH, ghCliValue: SAVED_GH });
+
+    expect(gitLines(f)).toEqual([]);
+  });
+
+  test("should print the lines in the contract's order", () => {
+    const f = withGit(
+      {
+        xdgConfig: true,
+        includes: [WORK_INCLUDE],
+        localMissing: true,
+        ghPath: FOUND_GH,
+        ghCliValue: SAVED_GH,
+      },
+      "windows",
+    );
+
+    expect(gitLines(f)).toEqual([
+      XDG_LINE,
+      INCLUDE_LINE,
+      LOCAL_MISSING_LINE,
+      GH_PATH_LINE,
+    ]);
+  });
+
+  test("should print no git line without facts or with nothing to report", () => {
+    expect(gitLines(facts({}))).toEqual([]);
+    expect(gitLines(withGit({}))).toEqual([]);
+  });
+
+  test("should keep the exit code whatever the git lines say", () => {
+    const all = withGit({
+      xdgConfig: true,
+      includes: [WORK_INCLUDE],
+      localMissing: true,
+    });
+
+    expect(doctorLines(all).code).toBe(0);
+    expect(doctorLines({ ...all, git: false }).code).toBe(1);
+    expect(doctorLines(all).lines.at(-1)).toBe(READY);
   });
 });
 
