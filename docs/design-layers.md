@@ -1500,6 +1500,10 @@ install").
 - **Syncing git's other config files.** `~/.config/git/config` and `include.path` / `includeIf.*.path` targets other
   than `~/.gitconfig.local` and `~/.gitconfig.machine` aren't synced; `v1.1.8`'s doctor only names them. Whether they
   become entries, and on which layer, is open.
+- **Export inference and a JSON comma.** Export infers a value only from a local line that fits the repo line's text
+  before and after the placeholder. A key added after the placeholder's key gives the local line a trailing comma the
+  repo line lacks, so nothing is inferred and push asks (found writing `owner-inferred-export`, `v1.1.8`). It fails
+  safe; a `json` entry could compare values by key instead.
 - **Checking a typed answer against the files.** A value typed at the question isn't checked against the local files
   that need it, so a typo is hydrated and saved. The program could warn when the answer appears in none of them,
   where it can read them.

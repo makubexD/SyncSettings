@@ -81,9 +81,10 @@ and `<YOUR_GH_OWNER>` (prompt `GitHub owner of your own repos`). Values: `{"<YOU
 - `owner-inferred-pull`: the repo file is `{"repo": "<YOUR_GH_OWNER>/sigil"}`, and the local file is
   `{"repo": "parity-owner/sigil"}`. `import --force`, no stdin: no question, exit 0, the local file unchanged, and
   `expect/values.json` holds `"<YOUR_GH_OWNER>": "parity-owner"` next to the saved username.
-- `owner-inferred-export`: the same files, then a local change to `{"repo": "parity-owner/sigil", "x": 1}`. `export`:
-  no question, exit 0, and the repo file is `{"repo": "<YOUR_GH_OWNER>/sigil", "x": 1}`. `work-login` appears in no
-  file.
+- `owner-inferred-export`: the repo file `{"repo": "<YOUR_GH_OWNER>/sigil", "x": 1}`, the local file
+  `{"repo": "parity-owner/sigil", "x": 2}`. `export`: no question, exit 0, and the repo file is
+  `{"repo": "<YOUR_GH_OWNER>/sigil", "x": 2}`. `work-login` appears in no file. (Step 2 moved `x` into both files: a key
+  added after `repo` gives the local line a trailing comma, and export infers from whole lines only.)
 
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync owner-inferred` passes: today's program already infers
 a placeholder by name, so these cases pin that before the config changes.
