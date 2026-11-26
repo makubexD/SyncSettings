@@ -3,7 +3,7 @@ import type { Values } from "../values/sanitize.ts";
 
 /** `commit.sh`'s machine alias: lowercase letters, digits and `-`, at most 24
  * characters and no leading `-` (`resolve_machine_alias`). */
-const MACHINE_ALIAS = /^[a-z0-9][a-z0-9-]{0,23}$/;
+export const MACHINE_ALIAS = /^[a-z0-9][a-z0-9-]{0,23}$/;
 
 /** Past this many characters `commit.sh` shortens the default message. */
 const MESSAGE_LIMIT = 72;
