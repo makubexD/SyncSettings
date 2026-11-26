@@ -1400,6 +1400,13 @@ failed (git's error wasn't kept). The clone stayed on that branch, as the contra
 `sync/windows-work1-<stamp>` and pushed (`OK guard every commit in this push carries this clone's identity`; the
 author was already the GitHub noreply address), giving PR #95: 20 lines, trailing spaces after keys, the keybindings
 reordered and an `Ubuntu-24.04` WSL profile, nothing machine-specific. Merged 2026-11-25.
+After `git pull`, `mksync diff` prints "This machine and the repo agree." (repo `5f6d438`).
+
+Step 5: from Git Bash, `command -v mksync` finds the extensionless shim in `%LOCALAPPDATA%\mksync`, and
+`mksync --version` prints `mksync 1.1.3`, exit 0 (real-Windows checklist item 2 holds). Claude Code's bar shows
+`mksync statusline`'s line: time, model, `Node.js`, the directory, `master 2m` and `Cost: $0.00`, with Load and Memory
+left out as the contract says for Windows. The directory section shows the whole path (`C:\…\SyncSettings`), not its
+last part (see "Open").
 
 ## Open
 
@@ -1433,6 +1440,9 @@ reordered and an `Ubuntu-24.04` WSL profile, nothing machine-specific. Merged 20
   public a work machine's push publishes its hostname in the branch and the PR (v1 used an alias, `sync/windows-laptop`).
   Must be settled before work #2 and #3 push. Options: name the branch after the profile while public
   (`sync/windows-work1-…`), or ask for a public alias once and keep it in the record.
+- **Statusline directory on Windows (work #1, 2026-11-26).** The directory section takes the text after the last `/`
+  (`src/core/statusline/format.ts`), so Claude Code's Windows `cwd` (`C:\…\SyncSettings`) shows in full. The contract
+  says "the directory's last part": split on `\` too. To fix with the push branch name, before work #2.
 - **Push's first `git push` failure on work #1 (2026-11-25).** The cause wasn't kept; the same push run by hand from the
   renamed branch went through. Watch for it on the next work-machine push and keep git's lines.
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
