@@ -482,8 +482,20 @@ scan, the cached values. Besides:
   holds them without one.
 - **On `master`.** After the checks, commit runs only from `master`: any other branch stops it with
   `ERROR: run mksync commit from master (current: <branch>).`, exit 1, before the fetch.
-- **The PR.** Branch `sync/<os>-<machine>-<stamp>`, the machine from the record when there is one, else a machine alias
-  asked once and saved; the PR body adds `Profile: <p>` when there is a record.
+- **The PR.** Branch `sync/<os>-<alias>-<stamp>`, naming the record's `alias`. A record without one asks for it once,
+  on the first push from a terminal: the prompt suggests the login without a `DOMAIN\` prefix or an `@domain` suffix,
+  made into an alias (lowercased, each run of other characters a `-`), and no suggestion when the login can't be read
+  or equals the hostname. An empty answer takes the suggestion; an answer equal to the machine's hostname or its short
+  form, compared in alias form (`WORK_PC01` matches `work-pc01`), is refused with `ERROR: '<answer>' is this machine's hostname;
+pick another public name.`, any other invalid answer with `ERROR: invalid machine alias '<answer>' (use a-z, 0-9, -).`,
+  and a usable answer is saved in the record and followed by `Saved public name: <alias>` on stderr. A save that fails
+  (a read-only state folder) stops with `ERROR: could not save the public name in <file>; nothing was committed.`,
+  exit 1. A stored `alias` is checked the same way on every push, so one edited by hand or carried to a machine with
+  that hostname stops with the same errors. Without a
+  terminal, push stops before any commit with
+  `ERROR: machine <name> has no public name yet; run mksync push in a terminal to set one.`, exit 1.
+  Without a record, the `git config syncsettings.machine` alias is asked once and saved as before. The PR body adds
+  `Profile: <p>` when there is a record.
 - **Git failures.** A git step that fails (reading the branch, the fetch, the counts, creating the branch, reading the
   new commit, switching back) prints git's own error lines and exits 1. A commit that succeeded is never undone: when reading it back fails, the branch and its commit stay.
 
@@ -1036,6 +1048,13 @@ On Windows the program starts only `.exe` and `.com` commands, never through cmd
 text such as a PR body safely. A tool that is only a `.cmd` or `.bat` (a `gh.cmd` on `PATH`, or `GH` naming one) counts
 as missing and gets that command's "not found" error.
 
+Every command the program starts by name (`git`, `gh`, `bash`, …) is found on `PATH` only, never in the working folder
+or the repo, so a `git.exe` committed to the repo never runs. Empty and relative `PATH` folders are skipped, on every
+OS; on Windows one pair of double quotes around a folder (`"C:\Program Files\Git\cmd"`) is dropped first, as Windows
+does, and an exact `PATH` key wins over another spelling such as `Path`. A command not on `PATH` gets its "not found"
+error, as a missing one does, and so does every command when the environment has no `PATH` at all (exit 127, never the
+working folder); a name holding a path separator (`GH` naming a file) runs as given.
+
 The clone can also run the program from its source, with no build and no `npm install`: `mksync` (sh) and `mksync.cmd`
 at the repo root run `bun src/main.ts` or `node src/main.ts` with the arguments
 ([design, "Decided in phase 9"](design-layers.md#decided-in-phase-9), decisions 1 and 2). `MKSYNC_RUNTIME=bun|node`
@@ -1205,6 +1224,7 @@ Each machine has one record, written by `mksync setup` ([design, "Machine record
 ```json
 {
   "name": "wk1-laptop",
+  "alias": "work-user",
   "profile": "work-1",
   "os": "windows",
   "hostname": "wk1-laptop",
@@ -1218,8 +1238,9 @@ Each machine has one record, written by `mksync setup` ([design, "Machine record
 }
 ```
 
-Every field is required and no other is allowed. `name` and `profile` are names (lowercase letters, digits and `-`,
-not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or `windows`; `hostname` a string;
+Every field is required except `alias`, and no other is allowed. `alias` is a machine alias (lowercase letters, digits
+and `-`, at most 24 characters), the public name push branches use, written only when set. `name` and `profile` are
+names (lowercase letters, digits and `-`, not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or `windows`; `hostname` a string;
 `domain` a string or `null`; `claude` is `none`, `claude` or `claude-deepseek`; `pullOnly` and `retired` booleans;
 `modules.add` and `modules.remove` lists of the config's module names; `values` maps placeholders to strings;
 `replaced` lists `{"hostname": <string>, "domain": <string or null>, "date": "<YYYY-MM-DD>"}`, oldest first. The program
@@ -1764,7 +1785,7 @@ left out when empty or when what it reads fails. Colors: gray `ESC[90m`, cyan `E
 | Model            | the display name                                                                                                                                                                                                                                                                                      | cyan                                      |
 | Virtual env      | `.venv` when the project folder has a `.venv` folder and a `pyproject.toml`; else the last part of `VIRTUAL_ENV`; else `conda:<CONDA_DEFAULT_ENV>`                                                                                                                                                    | green                                     |
 | Project type     | the first of `pyproject.toml` `Python`, `package.json` `Node.js`, `Cargo.toml` `Rust`, `go.mod` `Go`, a `*.csproj` or `*.sln` `.NET`, in the project folder                                                                                                                                           | blue                                      |
-| Directory        | the directory's last part (a trailing `/` dropped)                                                                                                                                                                                                                                                    | yellow                                    |
+| Directory        | the directory's last part, split on `/` or `\` (one trailing separator dropped)                                                                                                                                                                                                                       | yellow                                    |
 | Git branch       | in the directory (or the working folder when there's none): the branch, `*` when `git status --porcelain` lists anything, ` ↑<n>` and ` ↓<n>` against the upstream when not 0, then a space and the last commit's age from `%cr` shortened (`3 hours ago` → `3h`; `y`, `mo`, `w`, `d`, `h`, `m`, `s`) | magenta                                   |
 | Git changes      | `(+<ins>,-<del>)` summed over staged and unstaged `--numstat` (binary files skipped) when either is not 0, then `<n>?` for untracked files, space-separated                                                                                                                                           | yellow                                    |
 | Cost and context | `Cost: $<cost to 2 places>` (green under 0.5, dim yellow to 2, red above), then ` ESC[90m                                                                                                                                                                                                             | ESC[0m ` when both, then the context part | per part |

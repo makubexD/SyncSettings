@@ -1368,6 +1368,50 @@ Enterprise. Every section ran:
   target folder missing"); the `.bashrc.linked/…/vs.bat` linked path is in the old engine only, which cut-over step 11
   replaces with a `dir` entry.
 
+**Work #1 (Windows), 2026-11-25, release v1.1.3** (`docs/plan-work-machines.md`, step 1). This machine runs the
+downloaded `mksync.exe` (installed 1.1.2 with `SYNCSETTINGS_DIR` set to its existing clone), not the clone launcher.
+`mksync update` printed `mksync updated: 1.1.2 -> 1.1.3.` and `--version` then `mksync 1.1.3`: checklist item 9 holds
+on a work machine, with no SmartScreen or policy block. `doctor` is all `OK` (`gh` signed in, record, values, `bash`).
+`diff` against `origin/master` lists `BOTH dotfiles/common/claude/settings.json` (the 4 machine-only keys plus the
+repo's change since the 11-10 sync point) and `OUT dotfiles/windows/windows-terminal/settings.json`; `check` reads
+`UPDATE` for the same two files, and the old `.bashrc.linked/…/vs.bat` `IN` line is gone (`MakuCustomAlias/vs.bat`
+`UNCHANGED`). The clone was 12 commits behind `origin` at the time (an older second clone in the home folder was the
+one pulled).
+
+Step 2, after `git pull --ff-only` (`Origin : up to date`): `mksync preview` exits 0 with `Leak scan: clean.` (no hit
+on the dconf extension UUID). The 4 machine-only Claude keys are under "New settings", each
+`goes to: profile work1 (asked by mksync export)`, nothing under "All machines"; the export line is
+`ADDED profiles/work1/claude/settings.json (sanitized)`, a state-folder file, and the repo's common `settings.json`
+isn't touched. The one file sent is Windows Terminal (Windows layer, 20 lines: whitespace after `"actions":` and
+similar keys, the keybindings reordered, and a new `Ubuntu-24.04` WSL profile). The held list names
+`machines/HOST.json` and `profiles/work1.json`. `%LOCALAPPDATA%\mksync` holds only `mksync.exe`: no `mksync.old.exe`
+after the update, so checklist item 9 holds in full.
+
+Step 3: `mksync push --force dotfiles/common/claude/settings.json` asked the 4 new settings
+(`Where does it go? 1) all machines  2) Windows machines  3) profile work1  4) this machine [3]`), each answered `3`,
+wrote `<state>/profiles/work1/claude/settings.json`, and ended `Nothing to send: the repo matches this machine.`, exit
+0, with no PR. `mksync diff` then lists only `OUT dotfiles/windows/windows-terminal/settings.json`; the Claude file
+agrees though `Last sync` is still the 11-10 point (a push with paths records none).
+
+Step 4: the user put Windows Terminal in the Windows layer. `mksync push dotfiles/windows/windows-terminal/settings.json`
+listed the file under "Windows machines", copied it and committed it on `sync/windows-HOST-<stamp>`, then `git push`
+failed (git's error wasn't kept). The clone stayed on that branch, as the contract says, and a second run stopped with
+`ERROR: push needs the repo clone on master with an origin remote.`. The branch was renamed by hand to
+`sync/windows-work1-<stamp>` and pushed (`OK guard every commit in this push carries this clone's identity`; the
+author was already the GitHub noreply address), giving PR #95: 20 lines, trailing spaces after keys, the keybindings
+reordered and an `Ubuntu-24.04` WSL profile, nothing machine-specific. Merged 2026-11-25.
+After `git pull`, `mksync diff` prints "This machine and the repo agree." (repo `5f6d438`).
+
+Step 5: from Git Bash, `command -v mksync` finds the extensionless shim in `%LOCALAPPDATA%\mksync`, and
+`mksync --version` prints `mksync 1.1.3`, exit 0 (real-Windows checklist item 2 holds). Claude Code's bar shows
+`mksync statusline`'s line: time, model, `Node.js`, the directory, `master 2m` and `Cost: $0.00`, with Load and Memory
+left out as the contract says for Windows. The directory section shows the whole path (`C:\…\SyncSettings`), not its
+last part (see "Open").
+
+Step 7, personal Linux (2026-11-26), after PR #95: `mksync diff` against `origin/master 5f6d438` prints "This machine
+and the repo agree." and `mksync check` "This machine matches the repo.": no `IN` file, so no pull. Linux gets nothing
+from work #1 (the Claude keys are in profile `work1`, Windows Terminal in the Windows layer).
+
 ## Open
 
 ### Design
@@ -1385,6 +1429,35 @@ Enterprise. Every section ran:
   written, so it plans a new key in a one-layer JSON file into the base and labels the file `OUT`; the keep export then
   runs with the record and sends the key to the profile layer. The base file is unchanged, yet `Pushed into` still
   names it. Options: plan setup's diff with the record about to be written, or word the line as "exported".
+- **The held list leaves out layer files (work #1, 2026-11-25).** While public, the preview's
+  `held until the repo is private` lists only the record and the profile (`machines/<name>.json`,
+  `profiles/<profile>.json`), though the same run writes `profiles/work1/claude/settings.json` to the state folder and
+  the first backup will add it. Options: list every layer file, as "First backup" does, or keep the short list and say
+  so in the contract's "Held".
+- **"Copied to the repo" for a state-only export (work #1, 2026-11-25).** A push whose only change is a new profile
+  layer file prints the export's `1 file(s) copied to the repo.` and `Review the changes, then run  mksync push`, then
+  `Nothing to send: the repo matches this machine.`: the file went to the state folder, not the repo, and the push is
+  already running. Options: count state-folder writes apart (`1 file(s) saved on this machine.`), and leave out the
+  "run mksync push" hint when push runs the export.
+- **The machine name is in the push branch (work #1, 2026-11-25).** Push names its branch
+  `sync/<os>-<machine>-<stamp>` after the record, and setup names the record after the hostname, so while the repo is
+  public a work machine's push publishes its hostname in the branch and the PR (v1 used an alias, `sync/windows-laptop`).
+  Must be settled before work #2 and #3 push. **Decided 2026-11-26 (user): a public alias, asked once per machine and
+  kept in the record;** push names the branch `sync/<os>-<alias>-<stamp>`. The prompt suggests the login from
+  `whoami` without its domain; it never suggests or accepts the hostname. The user chose the login as the suggestion
+  knowing it is their real name, against rule 1's "no names while public" (a branch is public, though not a commit).
+  **Done in `v1.1.4` (`docs/plan-windows-hotfix.md`):** the record's `alias`, asked on the first push from a
+  terminal; the hostname is refused, and without a terminal push stops before committing. Open: once the repo is
+  private the record is in the repo store, so the first push writes `machines/<name>.json` into the clone during the
+  commit; today it would stay uncommitted (the commit stages `dotfiles/` and `packages/` only) and the next push would
+  stop on a dirty tree outside `dotfiles/`. Decide before the private switch: stage it with the push, or write it after.
+  Also open: the PR body's `Profile: <p>` line names the job profile (`work1`) in a public PR; harmless while profile
+  names are generic, but a profile named after an employer would publish it.
+- **Statusline directory on Windows (work #1, 2026-11-26).** The directory section takes the text after the last `/`
+  (`src/core/statusline/format.ts`), so Claude Code's Windows `cwd` (`C:\…\SyncSettings`) shows in full. The contract
+  says "the directory's last part": split on `\` too. **Done in `v1.1.4`:** split on `/` or `\` on every OS.
+- **Push's first `git push` failure on work #1 (2026-11-25).** The cause wasn't kept; the same push run by hand from the
+  renamed branch went through. Watch for it on the next work-machine push and keep git's lines.
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
   new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
   plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").
@@ -1715,22 +1788,30 @@ each with its command and what to paste back, for work #2 and #3 when the user i
 
 - **Unset `USERPROFILE` (phase 4).** The PowerShell engine doesn't stop when `USERPROFILE` is unset (paths become
   `\.config\…`, `SKIPPED`, exit 0), so `home-unset` runs on Linux and macOS only. Fix the old engine with the case, or
-  record it as a known difference.
+  record it as a known difference. Work #1 (2026-11-26): the program stops, `ERROR: the home folder is not set
+(USERPROFILE).`, exit 1.
 
 - **End of input at setup's confirm (v1.1.1).** `run.ps1` pipes a case's stdin with `$text | & exe`, which adds a
   newline, so no Windows case can end at end of input: the confirm reads an empty line (yes). `setup-confirm-eof` is
   Linux only. Check on a work machine that `mksync setup` with no console stops with `Stopped: nothing was written.`
+  Work #1 (2026-11-26) has a record, so setup stopped earlier (`already <name>`, exit 1); left for work #2.
 - **Values file access on Windows (phase 4).** The program writes `.user-values.json` without the "no inherited
-  access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM.
+  access" ACL that the PowerShell engine sets; the Windows adapter adds it, checked on the VM. Work #1 (2026-11-26):
+  one entry, the user's own `(F)`.
 - **Command lookup in the repo folder (phase 4).** The program starts `git` (and shadow `cmd.exe`) by bare name with
   the repo as working folder. Whether Bun's lookup on Windows searches that folder first, so a `git.exe` committed to
-  the repo would run; if so, resolve through `PATH` only.
+  the repo would run; if so, resolve through `PATH` only. **Work #1 (2026-11-26): it does.** A `whoami.exe` copied to
+  the clone as `git.exe` ran in place of git (`Origin : not a git clone`). **Done in `v1.1.4`:** `run` and `runSync`
+  resolve every bare name through `PATH` only, skipping relative folders on every OS; `tests/windows-vm/lookup-check.ps1`
+  repeats work #1's check in the VM.
 - **Leak scan's `bash` (phase 8 review).** The program runs bare `bash`; with WSL installed, `System32\bash.exe` can
   come before Git Bash on `PATH` and can't open the script, so every push stops at "could not run". Find Git Bash
-  explicitly and pass the script path with `/`.
+  explicitly and pass the script path with `/`. Work #1 (2026-11-26): WSL's `bash.exe` is first on `PATH` and `doctor`
+  reads `OK bash`.
 - **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
   the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
-  `[Console]::OutputEncoding` first, and give the call a timeout.
+  `[Console]::OutputEncoding` first, and give the call a timeout. Work #1 (2026-11-26): an English caption, code page
+  437, matches; a localized caption is still unchecked.
 - **The survey (step 27).** Work machine #1's answer (`docs/archive/windows-survey.md`, "Answer", 2026-11-16) settled the
   next five items for that machine; work #2 and #3 are asked the same when the user is at them (phase 9's checklist).
 

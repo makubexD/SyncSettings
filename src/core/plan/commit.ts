@@ -3,7 +3,7 @@ import type { Values } from "../values/sanitize.ts";
 
 /** `commit.sh`'s machine alias: lowercase letters, digits and `-`, at most 24
  * characters and no leading `-` (`resolve_machine_alias`). */
-const MACHINE_ALIAS = /^[a-z0-9][a-z0-9-]{0,23}$/;
+export const MACHINE_ALIAS = /^[a-z0-9][a-z0-9-]{0,23}$/;
 
 /** Past this many characters `commit.sh` shortens the default message. */
 const MESSAGE_LIMIT = 72;
@@ -40,6 +40,80 @@ export function branchName(os: Os, machine: string, stamp: string): string {
     );
   }
   return `sync/${os}-${machine}-${stamp}`;
+}
+
+/** The longest public name the suggestion may produce (decision 1). */
+const ALIAS_LIMIT = 24;
+
+/** The error `push` prints for a name that is not a valid alias. */
+function invalidAliasError(answer: string): string {
+  return `ERROR: invalid machine alias '${answer}' (use a-z, 0-9, -).`;
+}
+
+/** The hostname's short form: its text up to the first dot. */
+function shortHostname(hostname: string): string {
+  const dot = hostname.indexOf(".");
+  return dot === -1 ? hostname : hostname.slice(0, dot);
+}
+
+/** `text` in alias form: lowercased, each run of characters outside
+ * `a-z0-9` made one `-`, `-` trimmed from both ends, cut to 24 characters
+ * and trimmed again. */
+function aliasForm(text: string): string {
+  const dashed = text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const trimmed = dashed.replace(/^-+|-+$/g, "");
+  return trimmed.slice(0, ALIAS_LIMIT).replace(/-+$/, "");
+}
+
+/** Whether `name` is the hostname, or its short form, once both are in alias
+ * form: `WORK_PC01` and `work-pc01` are the same machine name. */
+function namesHostname(name: string, hostname: string): boolean {
+  const folded = aliasForm(name);
+  return (
+    folded !== "" &&
+    (folded === aliasForm(hostname) || folded === aliasForm(shortHostname(hostname)))
+  );
+}
+
+/**
+ * The public name `push` suggests for a machine, from its login (decision 1):
+ * the login without a `DOMAIN\` prefix or an `@domain` suffix, in alias form
+ * (`aliasForm`). `undefined` when nothing is left or the result names the
+ * hostname.
+ */
+export function suggestAlias(
+  login: string,
+  hostname: string,
+): string | undefined {
+  const afterDomain = login.slice(login.lastIndexOf(BACKSLASH) + 1);
+  const at = afterDomain.indexOf("@");
+  const bare = at === -1 ? afterDomain : afterDomain.slice(0, at);
+  const alias = aliasForm(bare);
+  if (alias === "" || namesHostname(alias, hostname)) {
+    return undefined;
+  }
+  return alias;
+}
+
+/**
+ * Whether a public name is usable (decision 2), for an answer to the prompt
+ * and for an alias already in the record. The hostname is refused first,
+ * compared in alias form so case and punctuation don't hide it, then the
+ * machine alias rule; the error lines are the ones `push` prints.
+ */
+export function checkAlias(
+  answer: string,
+  record: { readonly hostname: string },
+): { readonly alias: string } | { readonly error: string } {
+  if (namesHostname(answer, record.hostname)) {
+    return {
+      error: `ERROR: '${answer}' is this machine's hostname; pick another public name.`,
+    };
+  }
+  if (!MACHINE_ALIAS.test(answer)) {
+    return { error: invalidAliasError(answer) };
+  }
+  return { alias: answer };
 }
 
 /** The name a status line changes: everything after its last `/`. */

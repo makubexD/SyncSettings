@@ -53,6 +53,8 @@ if tests/windows-vm/vm.sh status >/dev/null 2>&1; then
     run_layer windows-exe bun build --compile --target bun-windows-x64 src/main.ts --outfile dist/mksync.exe
     run_layer windows-program tests/windows-vm/vm.sh run \
         'powershell -NoProfile -ExecutionPolicy Bypass -File tests/parity/run.ps1 -Engine dist/mksync.exe'
+    run_layer windows-lookup tests/windows-vm/vm.sh run \
+        'powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows-vm/lookup-check.ps1'
 else
     printf 'Windows: VM not running, skipped\n'
 fi

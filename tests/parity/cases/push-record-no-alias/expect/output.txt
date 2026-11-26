@@ -1,0 +1,2 @@
+MODIFIED dotfiles/common/parity/a.conf
+ERROR: machine wk1-laptop has no public name yet; run mksync push in a terminal to set one.

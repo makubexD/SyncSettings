@@ -192,7 +192,16 @@ the list, run `scripts/ci/check-packages.sh`, then `mksync push`. If not, uninst
 ### Machine alias
 
 `<alias>` names this machine in branch names and PR bodies, so the hostname never appears there. With a machine
-record it is the record's name. Without one, the first push from a clone asks for it:
+record it is the record's public name, asked once on the first push from a terminal and saved in the record:
+
+```
+  Public name for this machine's push branches [jane-doe]:
+```
+
+The suggestion is your login made into an alias; Enter takes it. The hostname is refused. Without a terminal, push
+stops with `machine <name> has no public name yet; …`: run `mksync push` once from a terminal.
+
+Without a record, the first push from a clone asks for it:
 
 ```
   Machine alias for branch names (e.g. laptop, desktop):
@@ -325,6 +334,8 @@ into use.
 | Message                                                                    | What to do                                                                                                                                                                                |
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `no machine alias set. Run: git config syncsettings.machine <alias>`       | It ran without a terminal, so it could not ask. Run that command with your alias (e.g. `laptop`), then run it again                                                                       |
+| `machine <name> has no public name yet; …`                                 | It ran without a terminal, so it could not ask. Run `mksync push` once from a terminal and answer the question                                                                            |
+| `'<answer>' is this machine's hostname; …`                                 | Pick another public name: the hostname would be published in the branch                                                                                                                   |
 | `invalid machine alias '<value>' …`                                        | Pick an alias with only `a-z`, `0-9` and `-`, not starting with `-`. If the message ends with `in git config syncsettings.machine`, fix it with `git config syncsettings.machine <alias>` |
 | `commit or stash changes outside dotfiles/ first.`                         | Commit those files on their own branch, or `git stash`, then run it again                                                                                                                 |
 | `the leak scan found the lines above; nothing was committed.`              | Open each `<file>:<line>` it listed, replace the personal text or add a `sanitize` rule, then run it again                                                                                |

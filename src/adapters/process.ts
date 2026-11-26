@@ -15,7 +15,7 @@ import type {
 } from "node:child_process";
 import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { delimiter, join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline";
 
 /** A command that is not there, as a shell reports it and the contract prints it. */
@@ -48,6 +48,12 @@ const WINDOWS_SUFFIXES: readonly string[] = [".com", ".exe"];
 /** Decided once: on Windows a command may be `name.EXE`, and suffix matching
  * ignores case. */
 const IS_WINDOWS = process.platform === "win32";
+
+/** The quote a Windows PATH folder may be wrapped in. */
+const PATH_QUOTE = '"';
+
+/** A quoted folder holds at least its two quotes. */
+const QUOTED_MIN_LENGTH = 2;
 
 /** The byte order mark Windows PowerShell puts before text it pipes to a
  * program when `$OutputEncoding` is UTF-8 with a BOM, as on GitHub's Windows
@@ -238,6 +244,10 @@ export async function run(
   if (file === undefined) {
     return failedResult();
   }
+  const command = resolveCommand(file, options.env);
+  if (command === null) {
+    return missingResult();
+  }
   if (options.inherit === true) {
     await flushStdout();
   }
@@ -252,7 +262,7 @@ export async function run(
   };
   let child: ChildProcess;
   try {
-    child = spawn(file, args, spawnOptions);
+    child = spawn(command, args, spawnOptions);
   } catch {
     // A command line the system refuses outright (a NUL in an argument) never
     // starts at all.
@@ -324,6 +334,10 @@ export function runSync(
   if (file === undefined) {
     return failedResult();
   }
+  const command = resolveCommand(file, options.env);
+  if (command === null) {
+    return missingResult();
+  }
   const stdinMode: StreamMode = options.input === undefined ? "ignore" : "pipe";
   const spawnOptions: SpawnSyncOptions = {
     stdio: [stdinMode, options.stdout ?? "pipe", options.stderr ?? "pipe"],
@@ -336,7 +350,7 @@ export function runSync(
   };
   let result: ReturnType<typeof spawnSync>;
   try {
-    result = spawnSync(file, args, spawnOptions);
+    result = spawnSync(command, args, spawnOptions);
   } catch {
     // As in `run`: a command line the system refuses never starts.
     return failedResult();
@@ -368,13 +382,15 @@ export function decode(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
 
-/** The value of `key` in `env`; on Windows the name is case-insensitive, so
- * a plain object holding `Path` still answers a `PATH` lookup. */
+/** The value of `key` in `env`. On Windows the name is case-insensitive, so
+ * a plain object holding `Path` still answers a `PATH` lookup; an exact match
+ * wins, as it does for the variable Windows itself reads. */
 function envEntry(
   env: Readonly<Record<string, string | undefined>>,
   key: string,
+  windows: boolean,
 ): string | undefined {
-  if (!IS_WINDOWS) {
+  if (!windows || key in env) {
     return env[key];
   }
   const found = Object.keys(env).find(
@@ -425,15 +441,51 @@ export function isSpawnable(
   return WINDOWS_SUFFIXES.some((suffix) => lower.endsWith(suffix));
 }
 
-/** The PATH entries to search, split on the platform's delimiter. */
-function searchFolders(
+/** A Windows PATH folder may be written in double quotes (`"C:\Program
+ * Files\Git\cmd"`), which Windows itself ignores; one pair is dropped. */
+function unquoted(folder: string): string {
+  return folder.length >= QUOTED_MIN_LENGTH &&
+    folder.startsWith(PATH_QUOTE) &&
+    folder.endsWith(PATH_QUOTE)
+    ? folder.slice(1, -1)
+    : folder;
+}
+
+/**
+ * The PATH entries to search, split on the platform's delimiter. Empty and
+ * relative entries are skipped, so the working folder is never searched
+ * (contract "The program"). `windows` defaults to the running platform; tests
+ * pass it to check the Windows rules on any OS.
+ */
+export function searchFolders(
   env: Readonly<Record<string, string | undefined>>,
+  windows: boolean = IS_WINDOWS,
 ): readonly string[] {
-  const value = envEntry(env, "PATH");
+  const value = envEntry(env, "PATH", windows);
   if (value === undefined) {
     return [];
   }
-  return value.split(delimiter).filter((folder) => folder !== "");
+  const path = windows ? win32 : posix;
+  return value
+    .split(path.delimiter)
+    .map((folder) => (windows ? unquoted(folder) : folder))
+    .filter((folder) => path.isAbsolute(folder));
+}
+
+/**
+ * The file `spawn` is given: a bare name resolved on `PATH` only, since
+ * Windows would otherwise search the working folder first and run a `git.exe`
+ * committed to the repo; a name holding a path separator as given. `null`
+ * when a bare name isn't on `PATH`.
+ */
+function resolveCommand(
+  file: string,
+  env: Readonly<Record<string, string | undefined>> | undefined,
+): string | null {
+  if (hasPathSeparator(file)) {
+    return file;
+  }
+  return which(file, env ?? process.env);
 }
 
 /**

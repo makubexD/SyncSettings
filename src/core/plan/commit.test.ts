@@ -3,9 +3,11 @@ import type { Os } from "../config/types.ts";
 import {
   branchName,
   cachedValueHits,
+  checkAlias,
   commitMessage,
   outsidePaths,
   prBody,
+  suggestAlias,
 } from "./commit.ts";
 import type { SyncFileContent } from "./commit.ts";
 
@@ -58,6 +60,33 @@ const QUOTED_OCTAL_OUTSIDE = String.raw`?? "caf\303\251.conf"`;
 
 const QUOTED_OCTAL_INSIDE = String.raw`?? "dotfiles/caf\303\251.conf"`;
 
+/** A work-domain login, as Windows reports it. */
+const DOMAIN_LOGIN = String.raw`DOMAIN\Jane.Doe`;
+
+/** A login in `user@domain` form, as SSSD reports it. */
+const UPN_LOGIN = "Jane.Doe@corp.example.com";
+
+/** A NetBIOS-style hostname and the alias it becomes. */
+const NETBIOS_HOSTNAME = "WORK_PC01";
+
+const NETBIOS_ALIAS = "work-pc01";
+
+const UNDERSCORE_LOGIN = "__x__";
+
+const PUNCTUATION_LOGIN = "***";
+
+/** 30 characters, the `.` at index 23 so the cut to 24 lands on it. */
+const LONG_LOGIN = `${"a".repeat(23)}.${"a".repeat(6)}`;
+
+const SHORT_HOSTNAME = "wk1-laptop";
+
+const FQDN_HOSTNAME = "wk1-laptop.example.com";
+
+const VALID_ALIAS = "jane-doe";
+
+/** A login that is a hostname's short form in another case. */
+const HOSTNAME_LOGIN = "WK1-Laptop";
+
 function porcelainOf(...lines: readonly string[]): string {
   return `${lines.join("\n")}\n`;
 }
@@ -101,6 +130,130 @@ describe("branchName", () => {
     for (const machine of invalid) {
       expect(() => branchName(LINUX, machine, STAMP)).toThrow(RangeError);
     }
+  });
+});
+
+describe("suggestAlias", () => {
+  test("should drop the domain part and lowercase the login", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(DOMAIN_LOGIN, SHORT_HOSTNAME);
+
+    // Assert
+    expect(alias).toBe(VALID_ALIAS);
+  });
+
+  test("should trim a run of characters outside a-z0-9 from both ends", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(UNDERSCORE_LOGIN, SHORT_HOSTNAME);
+
+    // Assert
+    expect(alias).toBe("x");
+  });
+
+  test("should cut to 24 characters and trim the trailing -", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(LONG_LOGIN, SHORT_HOSTNAME);
+
+    // Assert
+    expect(alias).toBe("a".repeat(23));
+  });
+
+  test("should return undefined when nothing is left", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(PUNCTUATION_LOGIN, SHORT_HOSTNAME);
+
+    // Assert
+    expect(alias).toBeUndefined();
+  });
+
+  test("should drop an @domain suffix so the domain never reaches the branch", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(UPN_LOGIN, SHORT_HOSTNAME);
+
+    // Assert
+    expect(alias).toBe(VALID_ALIAS);
+  });
+
+  test("should return undefined when the login is the hostname in alias form", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(NETBIOS_ALIAS, NETBIOS_HOSTNAME);
+
+    // Assert
+    expect(alias).toBeUndefined();
+  });
+
+  test("should return undefined when the login is the hostname's short form", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(HOSTNAME_LOGIN, FQDN_HOSTNAME);
+
+    // Assert
+    expect(alias).toBeUndefined();
+  });
+});
+
+describe("checkAlias", () => {
+  test("should refuse the hostname or its short form, ignoring case", () => {
+    // Arrange
+    const record = { hostname: FQDN_HOSTNAME };
+
+    // Act
+    const result = checkAlias("WK1-LAPTOP", record);
+
+    // Assert
+    expect(result).toEqual({
+      error: `ERROR: 'WK1-LAPTOP' is this machine's hostname; pick another public name.`,
+    });
+  });
+
+  test("should refuse the hostname once both are in alias form", () => {
+    // Arrange
+    const record = { hostname: NETBIOS_HOSTNAME };
+
+    // Act
+    const result = checkAlias(NETBIOS_ALIAS, record);
+
+    // Assert
+    expect(result).toEqual({
+      error: `ERROR: '${NETBIOS_ALIAS}' is this machine's hostname; pick another public name.`,
+    });
+  });
+
+  test("should refuse a name that is not a valid alias", () => {
+    // Arrange
+    const record = { hostname: SHORT_HOSTNAME };
+
+    // Act
+    const result = checkAlias("a b", record);
+
+    // Assert
+    expect(result).toEqual({
+      error: `ERROR: invalid machine alias 'a b' (use a-z, 0-9, -).`,
+    });
+  });
+
+  test("should accept a valid name that is not the hostname", () => {
+    // Arrange
+    const record = { hostname: SHORT_HOSTNAME };
+
+    // Act
+    const result = checkAlias(VALID_ALIAS, record);
+
+    // Assert
+    expect(result).toEqual({ alias: VALID_ALIAS });
   });
 });
 
