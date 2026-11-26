@@ -1,5 +1,5 @@
 
   Enter values to fill the placeholders in the config files:
 
-  Value: 
+  Value (~/.config/parity/a.conf): 
 missing value for <YOUR_WORK_MARKETPLACE>: run mksync push or pull in a terminal to enter it

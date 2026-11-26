@@ -1,2 +1,2 @@
 Enter values to fill the placeholders in the config files:
-Full name:
+Full name (~/.config/parity/a.conf):

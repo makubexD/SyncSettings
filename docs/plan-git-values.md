@@ -108,7 +108,7 @@ question (`rtk grep -rl "Enter values" tests/parity/cases/*/expect/output.txt`).
 
 - `push-ask-names-files`: two `whole` entries, `parity/a.conf` and `parity/b.conf` (local paths
   `~/.config/parity/a.conf` and `…/b.conf`), both with rule `<YOUR_NAME>` (prompt `Full name`); nothing infers it.
-  `export`, stdin `Ana Lopez\n`, `output: all`: the question reads
+  `export`, stdin `Ana Lopez\n` (`expect/lines.txt`: the full output has an OS heading): the question reads
   ` Full name (~/.config/parity/a.conf, ~/.config/parity/b.conf):`, exit 0.
 - Existing cases: each `<prompt>:` line becomes `<prompt> (<localPath>):` with that case's entries, written from
   the contract, `expect/` only.
