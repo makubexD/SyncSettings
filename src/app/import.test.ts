@@ -400,9 +400,10 @@ describe("runImport value questions", () => {
   const ASK_HEADER =
     "\n  Enter values to fill the placeholders in the config files:\n\n";
 
-  const NAME_QUESTION = `${ASK_HEADER}  Full name: `;
+  const VALUES_FILE = "~/.config/parity/values.conf";
+  const NAME_QUESTION = `${ASK_HEADER}  Full name (${VALUES_FILE}): `;
 
-  const HOME_QUESTION = "  Home folder: ";
+  const HOME_QUESTION = `  Home folder (${VALUES_FILE}): `;
 
   /** The missing-value line for the fixture's first placeholder, no record. */
   const NAME_MISSING =
@@ -514,9 +515,12 @@ describe("runImport value questions", () => {
 
     // Assert
     expect(fake.events).toEqual([
-      { kind: "write", text: `${ASK_HEADER}  Full name [Old Name]: ` },
+      {
+        kind: "write",
+        text: `${ASK_HEADER}  Full name (${VALUES_FILE}) [Old Name]: `,
+      },
       { kind: "read" },
-      { kind: "write", text: "  Home folder [/old]: " },
+      { kind: "write", text: `  Home folder (${VALUES_FILE}) [/old]: ` },
       { kind: "read" },
       { kind: "write", text: "\n" },
     ]);

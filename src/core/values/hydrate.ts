@@ -272,6 +272,50 @@ export function resolveValues(
   return { ok: true, value: Object.fromEntries(resolved) };
 }
 
+/** The rules of one entry a run sends or writes, and its local path as the
+ * config writes it. */
+export interface RuleSource {
+  readonly rules: readonly SanitizeRule[];
+  readonly file: string;
+}
+
+/** A placeholder a run asks for, and the files that need it (contract
+ * "Sanitize and hydrate"). */
+export interface MissingValue {
+  readonly rule: SanitizeRule;
+  readonly files: readonly string[];
+}
+
+/** Each placeholder's files: the `file` of every source with a rule for it,
+ * de-duplicated, in source order. */
+export function placeholderFiles(
+  sources: readonly RuleSource[],
+): ReadonlyMap<string, readonly string[]> {
+  const files = new Map<string, string[]>();
+  for (const source of sources) {
+    for (const rule of source.rules) {
+      const list = files.get(rule.placeholder) ?? [];
+      if (!list.includes(source.file)) {
+        list.push(source.file);
+      }
+      files.set(rule.placeholder, list);
+    }
+  }
+  return files;
+}
+
+/** The line printed before a value's answer: `  <prompt> (<file>, …): `, with
+ * ` [<shown>]` before the colon when a default is shown. */
+export function valueQuestion(
+  prompt: string,
+  files: readonly string[],
+  shown?: string,
+): string {
+  const named = files.length > 0 ? ` (${files.join(", ")})` : "";
+  const fallback = shown !== undefined && shown.length > 0 ? ` [${shown}]` : "";
+  return `  ${prompt}${named}${fallback}: `;
+}
+
 /**
  * The first rule of each placeholder `resolveValues` would stop on: nothing
  * cached, inferred, given as the rule's `default` or as the environment

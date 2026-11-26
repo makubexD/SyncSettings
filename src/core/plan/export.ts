@@ -18,8 +18,10 @@ import type { StatusWord } from "../status.ts";
 import {
   hydrate,
   missingPlaceholders,
+  placeholderFiles,
   resolveValues,
 } from "../values/hydrate.ts";
+import type { MissingValue, RuleSource } from "../values/hydrate.ts";
 import { encodeUtf8, sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import { compactJson, fileLabel, valueText } from "./changes.ts";
@@ -28,6 +30,7 @@ import { valuesPrepare } from "./machine-values.ts";
 import { entryDestinations } from "./newsettings.ts";
 import {
   compileExcludes,
+  configuredLocal,
   entrySelected,
   entrySkipped,
   errorPlan,
@@ -743,15 +746,16 @@ function orphanReport(state: State): void {
 }
 
 /**
- * The sanitize rules of the entries this export sends: picked by `--only`, not
- * skipped, not `dir` or `dconf`, with a local file.
+ * The sanitize rules of the entries this export sends, each with the entry's
+ * configured local path: picked by `--only`, not skipped, not `dir` or
+ * `dconf`, with a local file.
  */
 function exportRules(
   snapshot: Snapshot,
   selected: readonly SelectedEntry[],
   onlyPaths: readonly string[],
-): readonly SanitizeRule[] {
-  const rules: SanitizeRule[] = [];
+): readonly RuleSource[] {
+  const sources: RuleSource[] = [];
   for (const entry of selected) {
     if (
       !entrySelected(entry, onlyPaths) ||
@@ -765,21 +769,25 @@ function exportRules(
     const localPath = resolvedLocal(entry.entry, snapshot.os, snapshot.home);
     const local = snapshot.localFiles.get(localPath);
     if (local?.kind === "file") {
-      rules.push(...(entry.entry.sanitize ?? []));
+      sources.push({
+        rules: entry.entry.sanitize ?? [],
+        file: configuredLocal(entry.entry, snapshot.os),
+      });
     }
   }
-  return rules;
+  return sources;
 }
 
 /**
  * Contract "Push asks": the rules whose placeholder nothing fills (saved,
  * inferred, `default`, `defaultEnv`), one per placeholder in rule order, for
- * the entries this export sends. Empty when the config or `--only` stops the
- * export, since `planExport` reports that itself.
+ * the entries this export sends, each with the files that need it. Empty when
+ * the config or `--only` stops the export, since `planExport` reports that
+ * itself.
  */
 export function exportMissingRules(
   snapshot: Snapshot,
-): readonly SanitizeRule[] {
+): readonly MissingValue[] {
   const selected = selectEntries(
     snapshot.config,
     scopeFor(snapshot),
@@ -792,12 +800,14 @@ export function exportMissingRules(
   if (!only.ok) {
     return [];
   }
+  const sources = exportRules(snapshot, selected.value, only.paths);
+  const files = placeholderFiles(sources);
   return missingPlaceholders(
-    exportRules(snapshot, selected.value, only.paths),
+    sources.flatMap((source) => source.rules),
     snapshot.values,
     exportInferredValues(snapshot, selected.value),
     valueEnv(snapshot.env, snapshot.home, snapshot.os),
-  );
+  ).map((rule) => ({ rule, files: files.get(rule.placeholder) ?? [] }));
 }
 
 /**
@@ -825,7 +835,9 @@ export function planExport(
     return only.plan;
   }
 
-  const rules = exportRules(snapshot, selected.value, only.paths);
+  const rules = exportRules(snapshot, selected.value, only.paths).flatMap(
+    (source) => source.rules,
+  );
   // Contract "Inference": export reads the values from this machine's files
   // as import does, so a machine with no saved value can still push.
   const values = resolveValues(

@@ -77,6 +77,7 @@ import {
   ASK_HEADER,
   holdsPlaceholder,
   missingValueLine,
+  valueQuestion,
 } from "../core/values/hydrate.ts";
 import type { SetupIo } from "../wizard/setup.ts";
 import { setupTerminal, writeLines } from "./terminal.ts";
@@ -952,7 +953,7 @@ type AskedValues =
 
 /**
  * Contract "Push asks": ask for each value nothing fills, as import does, with
- * its header and one `<prompt>: ` line each, before the change list. The
+ * its header and one `<prompt> (<file>, …): ` line each, before the change list. The
  * answers join the snapshot's saved values, so the plan sanitizes with them
  * and saves them where inferred values go. An empty answer or end of input
  * stops at once with the missing-value line.
@@ -967,8 +968,8 @@ async function askExportValues(
   }
   const values: Record<string, string> = { ...snapshot.values };
   io.write(ASK_HEADER);
-  for (const rule of missing) {
-    io.write(`  ${rule.prompt ?? ""}: `);
+  for (const { rule, files } of missing) {
+    io.write(valueQuestion(rule.prompt ?? "", files));
     const answer = trimAnswer((await io.readLine()) ?? "");
     if (answer === "" || holdsPlaceholder(answer)) {
       return { ok: false, line: missingValueLine(rule.placeholder) };

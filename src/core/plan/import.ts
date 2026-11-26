@@ -16,15 +16,19 @@ import {
   askValues,
   hydrate,
   missingPlaceholders,
+  placeholderFiles,
   resolveValues,
+  valueQuestion,
 } from "../values/hydrate.ts";
 import { valueEnv } from "../values/env.ts";
+import type { RuleSource } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { inferredValues } from "./infer.ts";
 import { valuesPrepare } from "./machine-values.ts";
 import {
   basename,
   compileExcludes,
+  configuredLocal,
   entrySelected,
   errorPlan,
   isJsonEntry,
@@ -708,15 +712,17 @@ function shouldRecordSyncPoint(state: State): boolean {
 }
 
 /**
- * The sanitize rules the picked entries need and the values every entry can
- * infer. `--only` keeps the rules narrow, but never the inference.
+ * The sanitize rules the picked entries need, the files each placeholder's
+ * question names, and the values every entry can infer. `--only` keeps the
+ * rules and files narrow, but never the inference.
  */
 function collectRules(
   snapshot: Snapshot,
   selected: readonly SelectedEntry[],
   only: readonly string[],
-): { readonly rules: readonly SanitizeRule[]; readonly inferred: Values } {
+): PreparedImport["gathered"] {
   const rules: SanitizeRule[] = [];
+  const sources: RuleSource[] = [];
   for (const entry of selected) {
     if (entry.entry.merge === "dir" || entry.entry.merge === "dconf") {
       continue;
@@ -729,11 +735,20 @@ function collectRules(
     ) {
       continue;
     }
-    rules.push(...(entry.entry.sanitize ?? []));
+    const entryRules = entry.entry.sanitize ?? [];
+    rules.push(...entryRules);
+    sources.push({
+      rules: entryRules,
+      file: configuredLocal(entry.entry, snapshot.os),
+    });
   }
   // Inference ignores --only: every selected entry whose repo and local file
   // exist can contribute a value, and it is saved like any other.
-  return { rules, inferred: inferredValues(snapshot, selected) };
+  return {
+    rules,
+    files: placeholderFiles(sources),
+    inferred: inferredValues(snapshot, selected),
+  };
 }
 
 /** What `prepareImport` resolved before any answer is read. */
@@ -743,6 +758,7 @@ interface PreparedImport {
   readonly only: readonly string[];
   readonly gathered: {
     readonly rules: readonly SanitizeRule[];
+    readonly files: ReadonlyMap<string, readonly string[]>;
     readonly inferred: Values;
   };
 }
@@ -806,10 +822,11 @@ export interface ImportValueQuestion {
 }
 
 /** The `--reset-values` questions, one per placeholder, as `askValues` prints
- * them: its header first, then each default in brackets. */
+ * them: its header first, then each one's files and default in brackets. */
 function resetValueQuestions(
   snapshot: Snapshot,
   rules: readonly SanitizeRule[],
+  files: ReadonlyMap<string, readonly string[]>,
 ): ImportValueQuestion[] {
   const questions: ImportValueQuestion[] = [];
   const seen = new Set<string>();
@@ -827,7 +844,7 @@ function resetValueQuestions(
     const prompt = rule.prompt ?? "";
     const hasDefault = fallback.length > 0;
     questions.push({
-      text: hasDefault ? `  ${prompt} [${fallback}]: ` : `  ${prompt}: `,
+      text: valueQuestion(prompt, files.get(placeholder) ?? [], fallback),
       hasDefault,
     });
   }
@@ -861,14 +878,17 @@ export function importValueQuestions(
   const rules = prepared.gathered.rules;
   const questions: ImportValueQuestion[] =
     snapshot.resetValues === true
-      ? resetValueQuestions(snapshot, rules)
+      ? resetValueQuestions(snapshot, rules, prepared.gathered.files)
       : missingPlaceholders(
           rules,
           snapshot.values,
           prepared.gathered.inferred,
           valueEnv(snapshot.env, snapshot.home, snapshot.os),
         ).map((rule) => ({
-          text: `  ${rule.prompt ?? ""}: `,
+          text: valueQuestion(
+            rule.prompt ?? "",
+            prepared.gathered.files.get(rule.placeholder) ?? [],
+          ),
           hasDefault: false,
         }));
   const first = questions[0];
