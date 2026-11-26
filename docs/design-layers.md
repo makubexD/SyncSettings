@@ -1442,8 +1442,11 @@ from work #1 (the Claude keys are in profile `work1`, Windows Terminal in the Wi
 - **The machine name is in the push branch (work #1, 2026-11-25).** Push names its branch
   `sync/<os>-<machine>-<stamp>` after the record, and setup names the record after the hostname, so while the repo is
   public a work machine's push publishes its hostname in the branch and the PR (v1 used an alias, `sync/windows-laptop`).
-  Must be settled before work #2 and #3 push. Options: name the branch after the profile while public
-  (`sync/windows-work1-…`), or ask for a public alias once and keep it in the record.
+  Must be settled before work #2 and #3 push. **Decided 2026-11-26 (user): a public alias, asked once per machine and
+  kept in the record;** push names the branch `sync/<os>-<alias>-<stamp>`. The prompt suggests the login from
+  `whoami` without its domain; it never suggests or accepts the hostname. The user chose the login as the suggestion
+  knowing it is their real name, against rule 1's "no names while public" (a branch is public, though not a commit).
+  To fix in a hotfix before work #2, with the statusline directory and the `PATH`-only lookup.
 - **Statusline directory on Windows (work #1, 2026-11-26).** The directory section takes the text after the last `/`
   (`src/core/statusline/format.ts`), so Claude Code's Windows `cwd` (`C:\…\SyncSettings`) shows in full. The contract
   says "the directory's last part": split on `\` too. To fix with the push branch name, before work #2.
