@@ -1393,6 +1393,14 @@ wrote `<state>/profiles/work1/claude/settings.json`, and ended `Nothing to send:
 0, with no PR. `mksync diff` then lists only `OUT dotfiles/windows/windows-terminal/settings.json`; the Claude file
 agrees though `Last sync` is still the 11-10 point (a push with paths records none).
 
+Step 4: the user put Windows Terminal in the Windows layer. `mksync push dotfiles/windows/windows-terminal/settings.json`
+listed the file under "Windows machines", copied it and committed it on `sync/windows-HOST-<stamp>`, then `git push`
+failed (git's error wasn't kept). The clone stayed on that branch, as the contract says, and a second run stopped with
+`ERROR: push needs the repo clone on master with an origin remote.`. The branch was renamed by hand to
+`sync/windows-work1-<stamp>` and pushed (`OK guard every commit in this push carries this clone's identity`; the
+author was already the GitHub noreply address), giving PR #95: 20 lines, trailing spaces after keys, the keybindings
+reordered and an `Ubuntu-24.04` WSL profile, nothing machine-specific. Merged 2026-11-25.
+
 ## Open
 
 ### Design
@@ -1420,6 +1428,13 @@ agrees though `Last sync` is still the 11-10 point (a push with paths records no
   `Nothing to send: the repo matches this machine.`: the file went to the state folder, not the repo, and the push is
   already running. Options: count state-folder writes apart (`1 file(s) saved on this machine.`), and leave out the
   "run mksync push" hint when push runs the export.
+- **The machine name is in the push branch (work #1, 2026-11-25).** Push names its branch
+  `sync/<os>-<machine>-<stamp>` after the record, and setup names the record after the hostname, so while the repo is
+  public a work machine's push publishes its hostname in the branch and the PR (v1 used an alias, `sync/windows-laptop`).
+  Must be settled before work #2 and #3 push. Options: name the branch after the profile while public
+  (`sync/windows-work1-…`), or ask for a public alias once and keep it in the record.
+- **Push's first `git push` failure on work #1 (2026-11-25).** The cause wasn't kept; the same push run by hand from the
+  renamed branch went through. Watch for it on the next work-machine push and keep git's lines.
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
   new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
   plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").
