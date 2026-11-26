@@ -1,5 +1,6 @@
 import { hasDotDotSegment, isValidDconfPath } from "./dconf-path.ts";
 import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
+import { SUGGEST_SOURCES } from "./types.ts";
 
 const CONFIG_FILE = "sync-config.json";
 
@@ -60,6 +61,18 @@ function hasInvalidDefaultEnv(sanitize: unknown): boolean {
   );
 }
 
+function hasInvalidSuggest(sanitize: unknown): boolean {
+  return (
+    Array.isArray(sanitize) &&
+    sanitize.some(
+      (rule) =>
+        isRecord(rule) &&
+        Object.hasOwn(rule, "suggest") &&
+        !(SUGGEST_SOURCES as readonly unknown[]).includes(rule.suggest),
+    )
+  );
+}
+
 function shown(value: unknown): string {
   return typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
 }
@@ -102,6 +115,7 @@ interface ConfigMessages {
   readonly keys: (file: string) => string;
   readonly localPathsKey: (file: string, key: string) => string;
   readonly defaultEnv: (file: string) => string;
+  readonly suggest: (file: string) => string;
 }
 
 /** Every error line names the config file the text came from. */
@@ -135,6 +149,7 @@ function configMessages(configFile: string): ConfigMessages {
     keys: (file) => `${prefix}: entry ${file} needs keys as a non-empty list of strings.`,
     localPathsKey: (file, key) => `${prefix}: entry ${file} has an unknown localPaths key ${key}.`,
     defaultEnv: (file) => `${prefix}: entry ${file} has an invalid defaultEnv.`,
+    suggest: (file) => `${prefix}: entry ${file} has an invalid suggest.`,
   };
 }
 
@@ -278,6 +293,10 @@ export function parseV2(
 
     if (hasInvalidDefaultEnv(record.sanitize)) {
       return failure(messages.defaultEnv(file), 1);
+    }
+
+    if (hasInvalidSuggest(record.sanitize)) {
+      return failure(messages.suggest(file), 1);
     }
 
     const moduleDef = modules[moduleName];

@@ -89,6 +89,10 @@ function localPathsKeyError(file: string, key: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} has an unknown localPaths key ${key}.`;
 }
 
+function suggestError(file: string): string {
+  return `ERROR: ${CONFIG_FILE}: entry ${file} has an invalid suggest.`;
+}
+
 function defaultEnvError(file: string): string {
   return `ERROR: ${CONFIG_FILE}: entry ${file} has an invalid defaultEnv.`;
 }
@@ -308,6 +312,36 @@ describe("parseV2", () => {
 
     // Act / Assert
     expectError(configWith([bad]), defaultEnvError(bad.file as string), 1);
+  });
+
+  test.each(["gh-login", "git-user-name", "git-user-email"])("a sanitize rule with suggest %s is read with it", (suggest) => {
+    // Arrange
+    const good = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest }] });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok && result.value.entries[0]?.sanitize?.[0]?.suggest).toBe(suggest);
+  });
+
+  test.each([["x"], [1]])("a sanitize rule with suggest %p stops with exit 1", (suggest) => {
+    // Arrange
+    const bad = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest }] });
+
+    // Act / Assert
+    expectError(configWith([bad]), suggestError(bad.file as string), 1);
+  });
+
+  test("a sanitize rule with no suggest is read as it is", () => {
+    // Arrange
+    const rule = { placeholder: "<YOUR_NAME>", prompt: "Full name" };
+
+    // Act
+    const result = parseV2(configWith([entry({ sanitize: [rule] })]));
+
+    // Assert
+    expect(result.ok && result.value.entries[0]?.sanitize?.[0]).toEqual(rule);
   });
 
   test("a sanitize rule with a valid defaultEnv and OS-named localPaths are accepted", () => {
