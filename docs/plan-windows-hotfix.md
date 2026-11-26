@@ -64,10 +64,9 @@ Model both on `tests/parity/cases/push-front-opens-pr/` (`git: remote`, the `gh`
 and profile in `state/` as `tests/parity/cases/push-groups/` has them (`name` and `hostname` `wk1-laptop`, profile
 `work-1`), and one changed `whole` entry:
 
-- `push-record-alias`: the record has `"alias": "parity-alias"` right after `"name"`. Expect: exit 0; `gh.log` and
-  stdout name the branch `sync/linux-parity-alias-` followed by the stamp (use the stamp the case runner already fixes
-  for `push-front-opens-pr`); no `wk1-laptop` in `gh.log` apart from the PR body's `Profile:` line if the contract
-  prints it there (it prints only the profile, so none is expected).
+- `push-record-alias`: the record has `"alias": "parity-alias"` right after `"name"`. Expect: exit 0, the
+  `MODIFIED` line and `gh.log` `pr create`, as in `push-front-opens-pr`. The runner cuts each `gh` call to two words and
+  push prints no branch on success, so the branch name itself is checked by step 4's unit tests.
 - `push-record-no-alias`: the record has no `alias`; stdin is not a terminal. Expect: exit 1; stderr
   `ERROR: machine wk1-laptop has no public name yet; run mksync push in a terminal to set one.`; no commit, no branch,
   no `gh.log` call; `state/machine.json` unchanged.
@@ -75,7 +74,7 @@ and profile in `state/` as `tests/parity/cases/push-groups/` has them (`name` an
 The `case.json` descriptions cite decisions 1 and 3 and the contract's "The PR".
 
 Test: `for f in push-record-alias push-record-no-alias; do tests/parity/run.sh $f; done` fails now: the first for the
-branch `sync/linux-wk1-laptop-…`, the second for exit 0 (not a fixture error).
+record error `unknown field alias`, the second for exit 0 (not a fixture error).
 
 ## Step 2: The record's `alias` `[worker]`
 
@@ -114,7 +113,7 @@ Files: `src/app/commit.ts`, `src/app/commit.test.ts`, `docs/sync-contract.md`.
   through the existing record writer, print `  Saved public name: <alias>` on stderr, and use it. The prompt reader is
   injectable for the unit test; the login comes from `os.userInfo().username` in the adapter, never from core.
 - No record: unchanged (git config, then today's prompt).
-- Unit tests: a record with `alias` uses it; without, no terminal, gives decision 3's error and writes nothing; with a
+- Unit tests: a record with `alias` uses it, and the branch is `sync/linux-<alias>-<stamp>`, never the record name; without, no terminal, gives decision 3's error and writes nothing; with a
   stub terminal answering empty, the suggestion is saved and used; answering the hostname gives decision 2's error and
   writes nothing.
 - Contract "The PR": the branch names the record's `alias`, asked once on the first push from a terminal, with decisions
