@@ -131,12 +131,14 @@ value in the file, and import puts it back, so pick values specific enough not t
 | `defaultEnv`        | no       | Name of an environment variable to offer instead, used when `default` is not set                                                           |
 | `escapeBackslashes` | no       | `true` if the file stores the value with doubled backslashes (`C:\\Tools`), as `.gitconfig` does                                           |
 
-- `defaultEnv` reads the variable on the machine running the sync. `HOME` is usually unset on Windows, so a rule for
-  every system with `"defaultEnv": "HOME"` prompts there with no default.
+- `defaultEnv` reads the variable on the machine running the sync. `"defaultEnv": "HOME"` is the home folder on every
+  system: `$HOME` on Linux and macOS, `%USERPROFILE%` on Windows, where `HOME` is usually unset.
 - A placeholder used by several entries has one value.
 - With a machine record, values are saved in the record or the profile ([below](#profiles-and-machines)). Without one,
   they are cached in `.user-values.json`, which is gitignored, with placeholders as keys.
-- Without a terminal, a placeholder with no value stops the run. Add the value where it is saved.
+- `mksync push` and `mksync pull` in a terminal ask for a value nothing fills and save the answer. Without a terminal,
+  with `--yes`, or in `preview` and `diff`, a placeholder with no value stops the run with
+  `missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it`.
 - Export compares the sanitized text, so a change to a value alone (a new email) is not a change. A new line is.
 - `sanitize` isn't allowed on a `dir` or `dconf` entry.
 
@@ -357,9 +359,9 @@ with a record: `mksync push` suggests the profile (`all machines` for `personal`
 `.user-values.json` is neither read nor written, even when it is still there. A value found during an `import` or
 `export` (inferred from the local file, a rule's `default` or its `defaultEnv`) is saved before any file is written,
 on the side the table in [the contract](sync-contract.md#values-on-a-machine) gives it: with the entry above sanitized
-by a `<HOME>` rule whose default is `/home/user`, the first import adds `"<HOME>": "/home/user"` to `machine.json`; a
+by a `<HOME>` rule (`defaultEnv: HOME`, the home folder), the first import adds `"<HOME>": "/home/user"` to `machine.json`; a
 `<YOUR_NAME>` default would go into `profiles/work-1.json`, and any placeholder the table doesn't name goes on the
 profile too. The profile is written first, then the record, both readable by you only. A run that finds nothing new
 writes neither, and a preview saves nothing. With no value at all, the run stops before any file with
-`missing value for <HOME>: add it to profile work-1 or machine wk1-laptop`, exit 1: add the value to the `values`
-of `profiles/work-1.json` or `machine.json` and run again.
+`missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it`, exit 1: run either in a terminal,
+and it asks for the value and saves it on the side above.
