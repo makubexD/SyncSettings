@@ -1,2 +1,2 @@
-SKIPPED dotfiles/common/named.conf needs values: run mksync setup
+SKIPPED dotfiles/common/named.conf needs <NAME>: mksync push or pull asks for it
 ! Enter values

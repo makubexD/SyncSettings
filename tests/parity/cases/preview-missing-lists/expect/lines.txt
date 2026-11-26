@@ -1,0 +1,8 @@
+! Enter values
+! missing value
+SKIPPED dotfiles/common/parity/a.conf needs <YOUR_NAME>: mksync push asks for it
+MODIFIED dotfiles/common/parity/b.conf
+Leak scan: clean.
++color = blue
+Nothing was written. Run mksync push to send it.
+! Ana Lopez
