@@ -143,18 +143,25 @@ function bashLine(f: DoctorFacts): string {
     );
   }
   const hint = installHint(f.os, f.packageManager, "bash");
-  return checkLine("WARN", `bash: needed by the leak scan; install with ${hint}`);
+  return checkLine(
+    "WARN",
+    `bash: needed by the leak scan; install with ${hint}`,
+  );
 }
 
-/** Contract "Front door": the unset-values line. */
-function valuesLine(unsetValues: number): string {
-  if (unsetValues > 0) {
-    return checkLine(
-      "WARN",
-      `${unsetValues} value(s) not set; mksync setup asks for them`,
-    );
+/** Contract "Front door": the unset-values line. Without a record setup's
+ * import asks for them; with one, push and pull read them from this machine's
+ * files (contract "Sanitize and hydrate", "Inference"). */
+function valuesLine(unsetValues: number, record: boolean): string {
+  if (unsetValues === 0) {
+    return checkLine("OK", "values");
   }
-  return checkLine("OK", "values");
+  return checkLine(
+    "WARN",
+    record
+      ? `${unsetValues} value(s) not saved yet; mksync push or pull reads them from this machine's files`
+      : `${unsetValues} value(s) not set; mksync setup asks for them`,
+  );
 }
 
 /** Contract "Front door": the doctor lines in order, then the verdict line. */
@@ -171,12 +178,15 @@ export function doctorLines(f: DoctorFacts): DoctorReport {
     f.record
       ? checkLine("OK", "machine record")
       : checkLine("WARN", "no machine record; run mksync setup"),
-    valuesLine(f.unsetValues),
+    valuesLine(f.unsetValues, f.record),
     bashLine(f),
   );
   if (f.os === "linux" && f.drift !== undefined && f.drift > 0) {
     lines.push(
-      checkLine("WARN", `drift: ${f.drift} package(s) differ; run mksync preview`),
+      checkLine(
+        "WARN",
+        `drift: ${f.drift} package(s) differ; run mksync preview`,
+      ),
     );
   }
   if (!f.git || (f.os === "macos" && !hasBrew(f))) {

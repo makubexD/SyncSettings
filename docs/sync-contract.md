@@ -883,7 +883,7 @@ More rules per command:
   `the machine check failed; run mksync check to see why.`
 - **`doctor`** checks what the program needs, in this order: `git`; on macOS `brew` (`MISSING brew: install from
 https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
-  (`WARN no machine record; run mksync setup`); `values`; `bash` (`WARN bash: needed by the leak scan; install with
+  (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull reads them from this machine's files` with one); `bash` (`WARN bash: needed by the leak scan; install with
 <command>`; on Windows `install with winget install --id Git.Git -e`, or `install Git for Windows from
 https://git-scm.com` without `winget`; on Windows the line is `OK` when Git's own `bash.exe` is found from `git`, as
   the leak scan ([Checks before pushing](#checks-before-pushing)) finds it, and a `bash` elsewhere on `PATH`, such as
