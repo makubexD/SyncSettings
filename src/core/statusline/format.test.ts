@@ -308,6 +308,12 @@ describe("statusLine", () => {
   const DIRECTORY_CASES: readonly (readonly [string, string])[] = [
     ["/home/user/proj", "proj"],
     ["/home/user/proj/", "proj"],
+    ["/a/b", "b"],
+    ["/a/b/", "b"],
+    ["C:\\a\\b", "b"],
+    ["C:\\a\\b\\", "b"],
+    ["C:\\", "C:"],
+    ["proj", "proj"],
     ["/", ""],
     ["", ""],
   ];

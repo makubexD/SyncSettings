@@ -253,10 +253,15 @@ function roundHalfEven(value: number): number {
   return floor % 2 === 0 ? floor : floor + 1;
 }
 
-/** The directory's last part, with at most one trailing slash dropped first. */
+/** The directory's last part, split on `/` or `\`, with at most one trailing
+ * separator dropped first. */
 function directoryName(directory: string): string {
-  const stripped = directory.endsWith("/") ? directory.slice(0, -1) : directory;
-  return afterLastSlash(stripped);
+  const stripped = directory.replace(/[/\\]$/, "");
+  return stripped.slice(lastSeparatorIndex(stripped) + 1);
+}
+
+function lastSeparatorIndex(value: string): number {
+  return Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
 }
 
 function afterLastSlash(value: string): string {
