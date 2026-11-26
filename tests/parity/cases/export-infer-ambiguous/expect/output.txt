@@ -1,1 +1,1 @@
-missing value for <YOUR_WORK_MARKETPLACE>: add it to .user-values.json
+missing value for <YOUR_WORK_MARKETPLACE>: run mksync push or pull in a terminal to enter it

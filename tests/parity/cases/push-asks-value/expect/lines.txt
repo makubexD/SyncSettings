@@ -1,0 +1,4 @@
+Enter values to fill the placeholders in the config files:
+Full name:
+MODIFIED dotfiles/common/parity/a.conf sanitized
+! Ana Lopez
