@@ -482,8 +482,15 @@ scan, the cached values. Besides:
   holds them without one.
 - **On `master`.** After the checks, commit runs only from `master`: any other branch stops it with
   `ERROR: run mksync commit from master (current: <branch>).`, exit 1, before the fetch.
-- **The PR.** Branch `sync/<os>-<machine>-<stamp>`, the machine from the record when there is one, else a machine alias
-  asked once and saved; the PR body adds `Profile: <p>` when there is a record.
+- **The PR.** Branch `sync/<os>-<alias>-<stamp>`, naming the record's `alias`. A record without one asks for it once,
+  on the first push from a terminal: the prompt suggests the login made into an alias, an empty answer takes the
+  suggestion, an answer equal to the machine's hostname is refused with `ERROR: '<answer>' is this machine's hostname;
+pick another public name.`, any other invalid answer with `ERROR: invalid machine alias '<answer>' (use a-z, 0-9, -).`,
+  and a usable answer is saved in the record and followed by `Saved public name: <alias>` on stderr. Without a
+  terminal, push stops before any commit with
+  `ERROR: machine <name> has no public name yet; run mksync push in a terminal to set one.`, exit 1.
+  Without a record, the `git config syncsettings.machine` alias is asked once and saved as before. The PR body adds
+  `Profile: <p>` when there is a record.
 - **Git failures.** A git step that fails (reading the branch, the fetch, the counts, creating the branch, reading the
   new commit, switching back) prints git's own error lines and exits 1. A commit that succeeded is never undone: when reading it back fails, the branch and its commit stay.
 
@@ -1205,6 +1212,7 @@ Each machine has one record, written by `mksync setup` ([design, "Machine record
 ```json
 {
   "name": "wk1-laptop",
+  "alias": "work-user",
   "profile": "work-1",
   "os": "windows",
   "hostname": "wk1-laptop",
@@ -1218,8 +1226,9 @@ Each machine has one record, written by `mksync setup` ([design, "Machine record
 }
 ```
 
-Every field is required and no other is allowed. `name` and `profile` are names (lowercase letters, digits and `-`,
-not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or `windows`; `hostname` a string;
+Every field is required except `alias`, and no other is allowed. `alias` is a machine alias (lowercase letters, digits
+and `-`, at most 24 characters), the public name push branches use, written only when set. `name` and `profile` are
+names (lowercase letters, digits and `-`, not a layer's name, `name` not equal to `profile`); `os` is `linux`, `macos` or `windows`; `hostname` a string;
 `domain` a string or `null`; `claude` is `none`, `claude` or `claude-deepseek`; `pullOnly` and `retired` booleans;
 `modules.add` and `modules.remove` lists of the config's module names; `values` maps placeholders to strings;
 `replaced` lists `{"hostname": <string>, "domain": <string or null>, "date": "<YYYY-MM-DD>"}`, oldest first. The program

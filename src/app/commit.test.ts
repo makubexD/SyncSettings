@@ -9,11 +9,14 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import type { StoreLocation } from "../adapters/store.ts";
+import { writeStoreRecord } from "../adapters/store.ts";
 import type { CommitCommand } from "../cli/parse.ts";
 import type { ConfigV2 } from "../core/config/types.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
+import { suggestAlias } from "../core/plan/commit.ts";
 import { executeCommit } from "./commit.ts";
 
 /** The prefix of each test's temp folder, removed after the test. */
@@ -197,6 +200,41 @@ function stateLocation(state: string): StoreLocation {
   };
 }
 
+/** The record's name and hostname the public-name cases use. */
+const RECORD_NAME = "wk1-laptop";
+
+const RECORD_HOSTNAME = "wk1-laptop";
+
+/** A public name the record can carry (decision 1). */
+const RECORD_ALIAS = "jane-doe";
+
+/** A machine record with the fixture's hostname, overridable per case. */
+function machineRecord(
+  overrides: Partial<MachineRecord> = {},
+): MachineRecord {
+  return {
+    name: RECORD_NAME,
+    profile: "work-1",
+    os: "linux",
+    hostname: RECORD_HOSTNAME,
+    domain: null,
+    claude: "none",
+    pullOnly: false,
+    modules: { add: [], remove: [] },
+    values: {},
+    replaced: [],
+    retired: false,
+    ...overrides,
+  };
+}
+
+/** The clone's branches, `master` first. */
+function branches(repoRoot: string): string[] {
+  return git(repoRoot, ["branch", "--format=%(refname:short)"])
+    .split("\n")
+    .filter((line) => line !== "");
+}
+
 describe("executeCommit", () => {
   test("should print git's own fetch error and leave no branch when origin is missing", async () => {
     // Arrange
@@ -293,5 +331,129 @@ describe("executeCommit", () => {
     );
     expect(readFileSync(ghLog, "utf8").startsWith("pr create")).toBe(true);
     expect(existsSync(join(state, SYNC_POINT_FILE))).toBe(false);
+  });
+
+  test("should name the branch after the record alias when it has one", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture({ remote: true });
+    const location = stateLocation(state);
+    const record = machineRecord({ alias: RECORD_ALIAS });
+    writeStoreRecord(location, record);
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: COMMAND,
+      record,
+    });
+
+    // Assert
+    expect(result.code).toBe(0);
+    const pushed = branches(repoRoot).find((branch) =>
+      branch.startsWith("sync/"),
+    );
+    expect(pushed ?? "").toMatch(/^sync\/linux-jane-doe-\d{8}-\d{4}$/);
+    expect(pushed ?? "").not.toContain(RECORD_NAME);
+  });
+
+  test("should stop with decision 3's error when a record has no alias and no terminal", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture();
+    const location = stateLocation(state);
+    const record = machineRecord();
+    writeStoreRecord(location, record);
+    const before = readFileSync(location.recordFile, "utf8");
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: COMMAND,
+      record,
+      askAlias: async () => undefined,
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      `ERROR: machine ${RECORD_NAME} has no public name yet; run mksync push in a terminal to set one.\n`,
+    );
+    expect(branches(repoRoot)).toEqual([MASTER]);
+    expect(readFileSync(location.recordFile, "utf8")).toBe(before);
+  });
+
+  test("should save and use the suggestion when the record has no alias and the answer is empty", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture({ remote: true });
+    const location = stateLocation(state);
+    const record = machineRecord();
+    writeStoreRecord(location, record);
+    const suggestion = suggestAlias(userInfo().username, record.hostname);
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: COMMAND,
+      record,
+      askAlias: async () => "",
+    });
+
+    // Assert
+    if (suggestion === undefined) {
+      // No login-based suggestion here, so an empty answer is not valid.
+      expect(result.code).toBe(1);
+      return;
+    }
+    expect(result.code).toBe(0);
+    const saved = JSON.parse(
+      readFileSync(location.recordFile, "utf8"),
+    ) as { alias?: string };
+    expect(saved.alias).toBe(suggestion);
+    const pushed = branches(repoRoot).find((branch) =>
+      branch.startsWith("sync/"),
+    );
+    expect(pushed ?? "").toMatch(
+      new RegExp(`^sync/linux-${suggestion}-\\d{8}-\\d{4}$`),
+    );
+  });
+
+  test("should refuse the record hostname as a public name and write nothing", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture();
+    const location = stateLocation(state);
+    const record = machineRecord();
+    writeStoreRecord(location, record);
+    const before = readFileSync(location.recordFile, "utf8");
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: COMMAND,
+      record,
+      askAlias: async () => record.hostname,
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      `ERROR: '${RECORD_HOSTNAME}' is this machine's hostname; pick another public name.\n`,
+    );
+    expect(branches(repoRoot)).toEqual([MASTER]);
+    expect(readFileSync(location.recordFile, "utf8")).toBe(before);
   });
 });

@@ -14,7 +14,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { join } from "node:path";
 import { runPlan } from "../adapters/fs.ts";
@@ -38,7 +38,7 @@ import {
 } from "../adapters/git.ts";
 import { runLeakScan } from "../adapters/leakscan.ts";
 import { which } from "../adapters/process.ts";
-import { readText } from "../adapters/store.ts";
+import { readText, writeStoreRecord } from "../adapters/store.ts";
 import type { StoreLocation } from "../adapters/store.ts";
 import type { CommitCommand } from "../cli/parse.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
@@ -50,9 +50,11 @@ import type { Profile } from "../core/config/profile.ts";
 import {
   branchName,
   cachedValueHits,
+  checkAlias,
   commitMessage,
   outsidePaths,
   prBody,
+  suggestAlias,
 } from "../core/plan/commit.ts";
 import type { RunPlan } from "../core/plan/types.ts";
 import { parseValuesFile } from "../core/values/file.ts";
@@ -186,22 +188,81 @@ function syncPaths(repoRoot: string): readonly string[] {
   ];
 }
 
+/** The error a record without a terminal and without `alias` stops with
+ * (decision 3). */
+function noPublicNameError(name: string): string {
+  return `ERROR: machine ${name} has no public name yet; run mksync push in a terminal to set one.`;
+}
+
+/** The public-name question, with the suggestion in brackets when there is
+ * one (decision 1). */
+function aliasPrompt(suggestion: string | undefined): string {
+  const hint = suggestion === undefined ? "" : ` [${suggestion}]`;
+  return `  Public name for this machine's push branches${hint}: `;
+}
+
+/** The login made into a public name, or no suggestion when the login can't
+ * be read (decision 1). */
+function loginSuggestion(hostname: string): string | undefined {
+  try {
+    return suggestAlias(userInfo().username, hostname);
+  } catch {
+    // userInfo can throw when the login can't be read; then there is no suggestion.
+    return undefined;
+  }
+}
+
+/** Ask on stderr, as the git-config prompt does; no terminal or end of input
+ * gives `undefined`. */
+async function askOnTerminal(
+  prompt: string,
+): Promise<string | undefined> {
+  if (process.stdin.isTTY !== true) {
+    return undefined;
+  }
+  const reader = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  try {
+    return await reader.question(prompt);
+  } finally {
+    reader.close();
+  }
+}
+
 /**
- * The machine named in the branch, per decision 3: the record's name when
- * there is one, else `commit.sh`'s `git config syncsettings.machine`, asked
- * for on a terminal and saved there, or the contract's error without one.
+ * The machine named in the branch: the record's `alias` when it has one;
+ * without one, a name asked for on the first push from a terminal and saved
+ * in the record (decisions 1 to 3); without a record, `commit.sh`'s
+ * `git config syncsettings.machine`, asked for on a terminal and saved there,
+ * or the contract's error without one.
  */
 async function resolveMachineAlias(
   repoRoot: string,
   record: MachineRecord | undefined,
+  location: StoreLocation,
+  askAlias: (prompt: string) => Promise<string | undefined>,
 ): Promise<{ readonly alias?: string; readonly error?: string }> {
   if (record !== undefined) {
-    if (!MACHINE_ALIAS.test(record.name)) {
-      return {
-        error: `ERROR: invalid machine alias '${record.name}' (use a-z, 0-9, -).`,
-      };
+    if (record.alias !== undefined) {
+      return { alias: record.alias };
     }
-    return { alias: record.name };
+    const suggestion = loginSuggestion(record.hostname);
+    const answer = await askAlias(aliasPrompt(suggestion));
+    if (answer === undefined) {
+      return { error: noPublicNameError(record.name) };
+    }
+    const trimmed = answer.trim();
+    const chosen =
+      trimmed === "" && suggestion !== undefined ? suggestion : trimmed;
+    const checked = checkAlias(chosen, record);
+    if ("error" in checked) {
+      return { error: checked.error };
+    }
+    writeStoreRecord(location, { ...record, alias: checked.alias });
+    process.stderr.write(`  Saved public name: ${checked.alias}\n`);
+    return { alias: checked.alias };
   }
 
   const configured = await readMachineAlias(repoRoot);
@@ -350,6 +411,9 @@ export interface CommitInput {
   readonly command: CommitCommand;
   readonly record?: MachineRecord;
   readonly profile?: Profile;
+  /** The public-name question, injectable for tests; absent asks on the
+   * terminal (see `askOnTerminal`). */
+  readonly askAlias?: (prompt: string) => Promise<string | undefined>;
 }
 
 /**
@@ -363,6 +427,7 @@ export interface CommitInput {
 export async function executeCommit(input: CommitInput): Promise<Result> {
   const { repoRoot, config, state, os, location, command, record, profile } =
     input;
+  const askAlias = input.askAlias ?? askOnTerminal;
   let stdout = BANNER;
   const done = (code: number, stderr: string): Result => ({
     code,
@@ -451,7 +516,12 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
     );
   }
 
-  const machine = await resolveMachineAlias(repoRoot, record);
+  const machine = await resolveMachineAlias(
+    repoRoot,
+    record,
+    location,
+    askAlias,
+  );
   if (machine.alias === undefined) {
     return fail(machine.error ?? NO_ALIAS);
   }
