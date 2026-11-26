@@ -1448,6 +1448,9 @@ install").
   `findBash` on Windows. The same line gives the git-scm.com hint instead of the winget one though
   `WindowsApps\winget.exe` is on `PATH`: that file is an app execution alias, which the program's `which` most likely
   doesn't take as a file (`isFile` uses `statSync`). Fix both, with unit cases, before work #2's setup.
+  **Done in `v1.1.5`** (`docs/plan-doctor-hotfix.md`): `hasScanBash` (`src/adapters/leakscan.ts`) is the doctor's
+  answer, Git Bash from `git` on Windows and `bash` on `PATH` elsewhere; `which` counts a link `stat` can't follow as a
+  command on Windows only (`isCommandEntry`, `src/adapters/process.ts`). The VM's `lookup-check.ps1` checks both.
 - **The working folder after install (work #2, 2026-11-26).** The installer ends with `Installed. Run mksync any time.`
   and puts `mksync` on `PATH`, but every command except `statusline` finds the repo from the working folder, so run
   from the home folder they stop with `no sync-config.json … in this folder or its parents.` Options: fall back to
@@ -1850,7 +1853,8 @@ each with its command and what to paste back, for work #2 and #3 when the user i
   come before Git Bash on `PATH` and can't open the script, so every push stops at "could not run". Find Git Bash
   explicitly and pass the script path with `/`. Work #1 (2026-11-26): WSL's `bash.exe` is first on `PATH` and `doctor`
   reads `OK bash`. Work #2 (2026-11-26): no `bash` on `PATH` at all (only `Git\cmd`, no WSL), so `doctor` reads
-  `WARN bash` though the leak scan would find `Git\bin\bash.exe` ("Open", "The doctor's bash and winget lookups").
+  `WARN bash` though the leak scan would find `Git\bin\bash.exe` ("Open", "The doctor's bash and winget lookups"). From
+  `v1.1.5` the doctor asks the same lookup as the leak scan, so the two agree.
 - **The OS caption's code page (phase 8 review).** PowerShell 5.1 writes piped output in the console code page, and
   the program decodes it as UTF-8, so a localized caption with accents comes out garbled; set
   `[Console]::OutputEncoding` first, and give the call a timeout. Work #1 (2026-11-26): an English caption, code page

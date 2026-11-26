@@ -108,7 +108,9 @@ answers are pasted, redacted, and recorded under "Work #2" in the run sheet and 
 
 ## Step 9: Set up and push work #2 `[inline: the user's machine and a public-repo review]`
 
-`mksync setup` with profile `work2` (answer `3`, stop, when it finds existing settings), then `mksync preview`, then
+First the doctor hotfix (`docs/plan-doctor-hotfix.md`, `v1.1.5`): `git -C "$env:USERPROFILE\SyncSettings" pull`, then
+`mksync --version` (`1.1.5`) and `mksync doctor` from the clone (`OK       bash`). Then `mksync setup` with profile
+`work2` (answer `3`, stop, when it finds existing settings), then `mksync preview`, then
 `mksync push` from a terminal, answering the public-name question (not the hostname) and `3` (this profile) for each
 machine-only key.
 
@@ -135,7 +137,7 @@ On each machine: `mksync --version` and `mksync diff`. Pull where it lists `IN`.
 Work #1 and the personal machine get their public name (`alias`) on their next push from a terminal, as `v1.1.4`
 asks once per record.
 
-Test: every machine prints `mksync 1.1.4` (or the latest release) and "This machine and the repo agree".
+Test: every machine prints `mksync 1.1.5` (or the latest release) and "This machine and the repo agree".
 
 ## Step 13: The private switch `[inline: the user's switch]`
 

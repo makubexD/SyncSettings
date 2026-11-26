@@ -2,6 +2,14 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.5 (2026-11-26)
+
+- `mksync doctor` on Windows reads `OK bash` when Git Bash is found from `git`, as the leak scan finds it. Before, it
+  looked for `bash` on `PATH` only: a machine with just Git's `cmd` folder there was told to install Git, and WSL's
+  `bash.exe`, which the scan never runs, counted as found.
+- Commands installed as Windows app execution aliases (`winget.exe` in `WindowsApps`) are found on `PATH`, so the
+  doctor names `winget install …` where winget is installed.
+
 ## v1.1.4 (2026-11-26)
 
 - `mksync push` no longer puts the machine's hostname in the branch name. A machine's record keeps a public name
