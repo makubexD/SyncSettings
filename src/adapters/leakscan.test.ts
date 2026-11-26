@@ -169,3 +169,61 @@ describe("findBash", () => {
     expect(bash).toBeUndefined();
   });
 });
+
+/** The real scan script, run with a stub `grep` first on PATH. */
+const REAL_SCAN = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "scripts",
+  "ci",
+  "leak-scan.sh",
+);
+
+/** Grep's `-n` lines for a Windows drive path, as Git Bash prints them for a
+ * preview's temp folder: the root as given, then `/`. */
+const DRIVE_EXTENSION_HIT =
+  "C:\\t\\dotfiles/linux/gnome/dconf/shell.ini:2:enabled-extensions=['clipboard-history@example.github.io']";
+const DRIVE_ADDRESS_HIT =
+  "C:\\t\\dotfiles/common/x.txt:3:mail=someone@example.org";
+const DRIVE_ADDRESS_REPORT = "C:\\t\\dotfiles/common/x.txt:3: email";
+
+/** Runs the real script on an existing folder; the stub grep prints `hits`
+ * for the email rule's pattern (the one holding `@`) and finds nothing else. */
+function scanWithGrepHits(hits: string): { code: number; stdout: string } {
+  const bin = tempFolder();
+  const out = join(bin, "hits.txt");
+  writeFileSync(out, `${hits}\n`);
+  writeFileSync(
+    join(bin, "grep"),
+    `#!/usr/bin/env bash\ncase "$3" in *@*) cat '${out}'; exit 0 ;; esac\nexit 1\n`,
+  );
+  chmodSync(join(bin, "grep"), 0o755);
+  const result = Bun.spawnSync({
+    cmd: ["bash", REAL_SCAN, tempFolder()],
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return { code: result.exitCode, stdout: result.stdout.toString() };
+}
+
+describe("leak-scan.sh on Windows drive paths", () => {
+  test("should allow an extension UUID in a dconf ini when the path has a drive", () => {
+    // Act
+    const result = scanWithGrepHits(DRIVE_EXTENSION_HIT);
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  test("should report a drive path hit with its file and line number", () => {
+    // Act
+    const result = scanWithGrepHits(DRIVE_ADDRESS_HIT);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stdout.split("\n")[0]).toBe(DRIVE_ADDRESS_REPORT);
+  });
+});

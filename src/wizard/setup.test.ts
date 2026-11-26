@@ -254,6 +254,22 @@ describe("runSetup", () => {
     expect(output).not.toContain(CONFIRM_QUESTION);
   });
 
+  test("should ask Write the record? and choose no bootstrap when stop comes with --bootstrap", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, existing: "stop", bootstrap: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, [""]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output.endsWith(CONFIRM_STOP_QUESTION)).toBe(true);
+  });
+
   test("should ask the bootstrap question before the summary", async () => {
     // Arrange
     const setup = input(

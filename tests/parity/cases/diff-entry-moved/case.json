@@ -1,5 +1,5 @@
 {
-  "description": "Diff with a recorded sync point leaves out a path no current entry owns: a file under a v1 <file>.linked/ tree (moved to a dir entry since) that origin changed is neither listed nor counted, so this machine and the repo agree, exit 0 (Diff).",
+  "description": "Diff with a recorded sync point leaves out a path no current entry owns: a file under a v1 <file>.linked/ tree, which no entry owns now (vs.bat before its folder became a dir entry), that origin changed is neither listed nor counted, so this machine and the repo agree, exit 0 (Diff).",
   "git": "remote",
   "syncPoint": true,
   "configV2": {
