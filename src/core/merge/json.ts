@@ -202,6 +202,7 @@ interface SplitState {
 interface SplitContext {
   readonly states: readonly SplitState[];
   readonly destinations: ReadonlyMap<string, LayerName>;
+  readonly hasRecord: boolean;
   readonly newSettings: NewSetting[];
 }
 
@@ -327,7 +328,8 @@ function withoutTopLevelKeys(
 }
 
 /** The layer slot a new setting goes to, or undefined when none can take it:
- * the destination's slot when this run has it, else the one present layer. */
+ * the destination's slot when this run has it, else, only on a machine with no
+ * record, the one present layer. With a record the setting is asked. */
 function resolveNewSettingTarget(
   lookupKey: string,
   context: SplitContext,
@@ -338,6 +340,9 @@ function resolveNewSettingTarget(
     if (named !== undefined) {
       return named;
     }
+  }
+  if (context.hasRecord) {
+    return undefined;
   }
   const present = context.states.filter((state) => state.present);
   if (present.length === 1) {
@@ -516,6 +521,8 @@ export function splitJson(
   options: {
     readonly destinations?: ReadonlyMap<string, LayerName>;
     readonly localOnlyKeys?: readonly string[];
+    /** With a record, a one-layer entry's new setting is asked, not placed. */
+    readonly hasRecord?: boolean;
   },
 ): Result<JsonSplit, string> {
   const localValue = parseJsonBytes(local);
@@ -549,6 +556,7 @@ export function splitJson(
   const context: SplitContext = {
     states,
     destinations: options.destinations ?? EMPTY_DESTINATIONS,
+    hasRecord: options.hasRecord ?? false,
     newSettings: [],
   };
   diffValues(

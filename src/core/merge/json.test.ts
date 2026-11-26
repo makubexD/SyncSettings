@@ -511,6 +511,7 @@ function split(
   options: {
     readonly destinations?: ReadonlyMap<string, LayerName>;
     readonly localOnlyKeys?: readonly string[];
+    readonly hasRecord?: boolean;
   } = {},
 ): JsonSplit {
   const result = splitJson(bytes(localText), layers, options);
@@ -830,6 +831,39 @@ describe("splitJson", () => {
     expect(result.changes).toHaveLength(1);
     expectLayerText(result.changes, PROFILE_PATH, LIST_PROFILE_CHANGE_TEXT);
     expectNoLayerChange(result.changes, BASE_PATH);
+  });
+
+  test("with a record, one present layer leaves a new key a new setting", () => {
+    // Arrange
+    const layers = [
+      jsonLayer("base", BASE_PATH, ONE_LAYER_BASE_TEXT),
+      jsonLayer("profile", "profiles/p/parity/settings.json", undefined),
+    ];
+
+    // Act
+    const result = split(ONE_LAYER_NEW_KEY_LOCAL_TEXT, layers, {
+      hasRecord: true,
+    });
+
+    // Assert
+    expect(result.newSettings.map((setting) => setting.path)).toEqual(["x"]);
+    expect(result.changes).toEqual([]);
+  });
+
+  test("without a record, one present layer takes a new key", () => {
+    // Arrange
+    const layers = [jsonLayer("base", BASE_PATH, ONE_LAYER_BASE_TEXT)];
+
+    // Act
+    const result = expectRoundTrip(ONE_LAYER_NEW_KEY_LOCAL_TEXT, layers);
+
+    // Assert
+    expect(result.newSettings).toEqual([]);
+    expectLayerText(
+      result.changes,
+      BASE_PATH,
+      ONE_LAYER_NEW_KEY_BASE_CHANGE_TEXT,
+    );
   });
 
   test("a destination naming a slot this run lacks falls back to the one present layer", () => {
