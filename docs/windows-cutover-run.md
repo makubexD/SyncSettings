@@ -80,11 +80,21 @@ The repo is going private (phase 10), so on work #2 and #3 the install goes thro
 winget install --id GitHub.cli -e
 # open a new PowerShell window, then:
 gh auth login
-$env:SYNCSETTINGS_RUNTIME = 'node'; gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex
+$env:SYNCSETTINGS_RUNTIME = 'node'; $env:SYNCSETTINGS_NO_SETUP = '1'
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/install.ps1 | Out-String | iex
 ```
 
-Then run the steps above, and after them the five checks below, one at a time, in the same window. Each changes
-nothing on the machine; check 3 adds a file to the clone and removes it again. Paste what each prints under its number
+`SYNCSETTINGS_NO_SETUP` keeps setup for later, so check 6 runs on a machine with no record. In a new window, run the
+check itself through `gh` too (step 2's `engine/cutover` branch is gone; its section 8 still runs `mksync shadow`,
+removed at the cut-over, and prints the usage text with exit 2):
+
+```powershell
+gh api -H 'Accept: application/vnd.github.raw' repos/makubexD/SyncSettings/contents/tools/windows-cutover-check.ps1 | Out-String | iex
+```
+
+Then run the checks below, one at a time, **from the clone** (`Set-Location "$env:USERPROFILE\SyncSettings"`): every
+command but `statusline` looks for the repo in the working folder. Each changes nothing on the machine; check 3 adds a
+file to the clone and removes it again. Paste what each prints under its number
 in the answer block, with names replaced as in step 6.
 
 1. **Unset `USERPROFILE`.** Should `mksync` stop when it can't tell where home is?
@@ -131,6 +141,18 @@ in the answer block, with names replaced as in step 6.
 
    Paste: the caption, the code page number, and the status's OS line.
 
+6. **Setup with no terminal.** On a machine with no record, first with no flags, then with every flag so only the
+   confirm reads end of input:
+
+   ```powershell
+   cmd /c "mksync setup < NUL"; "exit $LASTEXITCODE"
+   cmd /c "mksync setup --profile eof-test --claude claude --mode push --existing keep < NUL"; "exit $LASTEXITCODE"
+   Test-Path "$env:USERPROFILE\SyncSettings\.user-values.json"
+   ```
+
+   Paste: the last lines of each and the `Test-Path` answer (`ERROR: missing --profile`, exit 2; then
+   `Stopped: nothing was written.`, exit 0; `False`).
+
 ## Answer
 
 ### Work #1: extra checks
@@ -151,11 +173,22 @@ Run 2026-11-26 on `mksync 1.1.3` (downloaded `mksync.exe`), PowerShell 7.6, from
 
 ### Work #2: extra checks
 
-1. (unset `USERPROFILE`)
-2. (values file access)
-3. (command lookup in the repo folder)
-4. (WSL's `bash`)
-5. (the OS caption)
+Run 2026-11-26 on `mksync 1.1.4` from the clone launcher (Node 25.9.0), Windows PowerShell 5.1, from the clone. The
+report's sections are in `docs/design-layers.md` ("Real-machine results").
+
+1. `ERROR: the home folder is not set (USERPROFILE).`, `exit 1`.
+2. No `.user-values.json` before setup (`icacls`: the file can't be found); checked again at step 9.
+3. **The fix holds.** With `whoami.exe` copied to the clone as `git.exe`, `mksync status` printed the same as without
+   it (`Origin : up to date`, `Unsent : none`), `exit 0`.
+4. No `bash` on `PATH` at all; `git` is `C:\Program Files\Git\cmd\git.exe`, `winget` is
+   `~\AppData\Local\Microsoft\WindowsApps\winget.exe`. `doctor` reads
+   `WARN bash: needed by the leak scan; install Git for Windows from https://git-scm.com`: it misses both Git Bash
+   (found from `git` by the leak scan) and winget (design, "Open", "The doctor's bash and winget lookups").
+5. Caption `Microsoft Windows 11 Enterprise`, code page `437`, status `windows (Microsoft Windows 11 Enterprise)`:
+   they match.
+6. No flags: the doctor block and the scan, then `ERROR: missing --profile`, `exit 2`. Every flag: the summary and
+   `Same as:` line, then `Write the record and apply? [Y/n] Stopped: nothing was written.`, `exit 0`. No values file
+   either time (`False`).
 
 ### Work #3: extra checks
 
