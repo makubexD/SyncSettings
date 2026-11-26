@@ -664,7 +664,7 @@ Only paths this OS's entries own are compared: a `json` entry owns the file of e
 [layers](#layers) (base, OS, profile and machine), an `import` entry its base and OS layer files, any other file or
 dconf entry the layer file it reads in `base` and the one it reads in `theirs`, and a dir entry the `<label>/` prefix of
 both. A path in the sync point's tree that no current entry or [linked folder](#linked-folders) owns (a file a later
-`dir` entry replaced, or one the config no longer lists) isn't listed or counted, the way another system's paths
+`dir` entry replaced, one the config no longer lists, or one under a v1 `<file>.linked/` tree, which no entry owns) isn't listed or counted, the way another system's paths
 aren't. Every file of one entry folds into one line at its label, except a dir entry's. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
 as a version, and each owned path in the union of the three trees gets at most one verdict:
 
