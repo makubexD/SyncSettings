@@ -39,6 +39,9 @@ export interface SplitContext {
   readonly writeRepoPath: string;
   /** Answers to "where does this new setting go?", keyed by key path. */
   readonly destinations?: ReadonlyMap<string, LayerName>;
+  /** Whether this machine has a record: with one, a new setting is asked even
+   * in an entry with one layer (contract "New settings"). */
+  readonly hasRecord?: boolean;
   /** Exact top-level key names the local file alone decides (json). */
   readonly localOnlyKeys?: readonly string[];
   /** The import side files' name pattern, with `{layer}` taking a layer's label. */

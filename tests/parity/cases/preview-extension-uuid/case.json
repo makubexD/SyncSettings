@@ -1,0 +1,39 @@
+{
+  "description": "Preview of a repo whose dconf .ini holds a GNOME extension UUID in enabled-extensions reports a clean leak scan on every OS, Windows included, where the scanned paths use backslashes (Leak scan, dconf entries), exit 0 (Export preview).",
+  "differences": [
+    "Entry selection"
+  ],
+  "git": "committed",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "plain.txt",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/plain.txt",
+        "description": "Parity case file"
+      },
+      {
+        "file": "gnome/dconf/shell.ini",
+        "module": "unsorted",
+        "merge": "whole",
+        "os": [
+          "linux"
+        ],
+        "localPath": "~/shell.ini",
+        "description": "Parity case file holding an extension UUID"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
+}

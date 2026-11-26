@@ -68,6 +68,7 @@ const JSON_MERGE: MergeStrategy = {
         ? { destinations: context.destinations }
         : {}),
       localOnlyKeys: context.localOnlyKeys ?? [],
+      hasRecord: context.hasRecord ?? false,
     });
     if (!split.ok) {
       return split;

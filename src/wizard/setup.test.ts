@@ -126,6 +126,7 @@ const Q4 =
 const BOOTSTRAP_QUESTION =
   "  Also restore apps and packages from packages/linux (uses sudo)? [y/N] ";
 const CONFIRM_QUESTION = "Write the record and apply? [Y/n] ";
+const CONFIRM_STOP_QUESTION = "Write the record? [Y/n] ";
 
 /** The four flags that answer every question, without `--yes`. */
 const ANSWER_FLAGS: SetupFlags = {
@@ -238,6 +239,35 @@ describe("runSetup", () => {
     // Assert
     expect(outcome.ok).toBe(true);
     expect(output).not.toContain("Write the record and apply?");
+  });
+
+  test("should ask Write the record? when the answer is stop", async () => {
+    // Arrange
+    const setup = input({}, { ...ANSWER_FLAGS, existing: "stop" });
+
+    // Act
+    const { outcome, output } = await run(setup, [""]);
+
+    // Assert
+    expect(outcome.ok).toBe(true);
+    expect(output.endsWith(CONFIRM_STOP_QUESTION)).toBe(true);
+    expect(output).not.toContain(CONFIRM_QUESTION);
+  });
+
+  test("should ask Write the record? and choose no bootstrap when stop comes with --bootstrap", async () => {
+    // Arrange
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, existing: "stop", bootstrap: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, [""]);
+
+    // Assert
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output.endsWith(CONFIRM_STOP_QUESTION)).toBe(true);
   });
 
   test("should ask the bootstrap question before the summary", async () => {

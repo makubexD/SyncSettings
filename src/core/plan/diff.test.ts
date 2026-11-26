@@ -254,14 +254,14 @@ const LAYER_CASES: readonly TableCase[] = [
 ];
 
 describe("ownedPaths", () => {
-  test("should own a file entry's path and its linked prefix", () => {
+  test("should own a file entry's path exactly and no v1 linked tree", () => {
     // Arrange
     const entry: OwnedEntry = { repoPath: BASHRC };
 
     // Act & Assert
     expect(owns(entry, BASHRC)).toBe(true);
-    expect(owns(entry, `${BASHRC}.linked/`)).toBe(true);
-    expect(owns(entry, `${BASHRC}.linked/nested/file`)).toBe(true);
+    expect(owns(entry, `${BASHRC}.linked/`)).toBe(false);
+    expect(owns(entry, `${BASHRC}.linked/nested/file`)).toBe(false);
     expect(owns(entry, `${BASHRC}/nested`)).toBe(false);
     expect(owns(entry, `${BASHRC}.bak`)).toBe(false);
   });
@@ -316,7 +316,7 @@ describe("ownedPaths", () => {
 
     // Act & Assert
     expect(owned.owns(GITCONFIG)).toBe(true);
-    expect(owned.owns(`${GITCONFIG}.linked/file`)).toBe(true);
+    expect(owned.owns(`${GITCONFIG}.linked/file`)).toBe(false);
     expect(owned.owns(`${FOLDER}/file`)).toBe(true);
     expect(owned.owns(DCONF_FILE)).toBe(true);
     expect(owned.owns(BASHRC)).toBe(false);

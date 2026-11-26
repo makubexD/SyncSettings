@@ -150,6 +150,10 @@ const BOOTSTRAP_QUESTION =
 /** Contract "Confirm": asked after the summary; nothing is written on a no. */
 const CONFIRM_QUESTION = "Write the record and apply? [Y/n] ";
 
+/** Contract "Confirm": after `stop` nothing is applied, so the question drops
+ * "and apply"; `stop` never makes a guard block. */
+const CONFIRM_STOP_QUESTION = "Write the record? [Y/n] ";
+
 /** Contract "Confirm": after a guard block the default is no. */
 const CONFIRM_GUARDED_QUESTION = "Write the record and apply? [y/N] ";
 
@@ -740,7 +744,9 @@ export async function runSetup(
       return stop(guardRefusalText(guard, mode), 1);
     }
   } else {
-    io.write(guard === undefined ? CONFIRM_QUESTION : CONFIRM_GUARDED_QUESTION);
+    const question =
+      action === "stop" ? CONFIRM_STOP_QUESTION : CONFIRM_QUESTION;
+    io.write(guard === undefined ? question : CONFIRM_GUARDED_QUESTION);
     const line = await io.readLine();
     if (guard === undefined && line === undefined) {
       return { ok: false, declined: true };

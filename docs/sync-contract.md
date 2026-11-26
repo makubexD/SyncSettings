@@ -440,7 +440,10 @@ ERROR: commit or stash changes outside dotfiles/ first.
 ```
 
 **Leak scan.** `scripts/ci/leak-scan.sh` runs on the sync paths. Skipping it is not an option: a scan that cannot run stops
-the commit the same way a hit does.
+the commit the same way a hit does. A rule that tests a file's path compares it with `/` as the separator, whatever the
+OS: a Windows path given with `\` is folded to `/` first, so an allowance (such as the dconf extension lines below)
+matches on Windows as on Linux. A hit's
+file keeps its drive (`C:\…`): the drive's colon is part of the path, so the line number after it is still right.
 
 | Scan result                                    | Message                                                              |
 | ---------------------------------------------- | -------------------------------------------------------------------- |
@@ -660,7 +663,9 @@ only remove from the layer file, or when the local file is exactly what git's la
 Only paths this OS's entries own are compared: a `json` entry owns the file of each of its
 [layers](#layers) (base, OS, profile and machine), an `import` entry its base and OS layer files, any other file or
 dconf entry the layer file it reads in `base` and the one it reads in `theirs`, and a dir entry the `<label>/` prefix of
-both. Every file of one entry folds into one line at its label, except a dir entry's. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
+both. A path in the sync point's tree that no current entry or [linked folder](#linked-folders) owns (a file a later
+`dir` entry replaced, one the config no longer lists, or one under a v1 `<file>.linked/` tree, which no entry owns) isn't listed or counted, the way another system's paths
+aren't. Every file of one entry folds into one line at its label, except a dir entry's. With `--only`, only the selected entries' paths are labeled and counted. A missing file counts
 as a version, and each owned path in the union of the three trees gets at most one verdict:
 
 | `mine` vs `base`                 | `theirs` vs `base`         | Label                                             |
@@ -1146,8 +1151,9 @@ to one layer, then that layer is sanitized and written in the layout above with 
 - a changed key goes to the latest layer that sets it;
 - a removed key is removed from every layer that sets it, so the next pull doesn't bring back an earlier layer's value;
 - a removed array item is removed from the layer that added it;
-- a new key or a new array item goes to the layer the profile's `destinations` names for it; an entry with one layer
-  puts it there. The destination's file may not exist yet: export creates it (and its folders) with `ADDED` and its
+- a new key or a new array item goes to the layer the profile's `destinations` names for it; when this machine has no
+  record, an entry with one layer puts it there. With a record it is a [new setting](#new-settings), whatever the
+  number of layers. The destination's file may not exist yet: export creates it (and its folders) with `ADDED` and its
   label.
 
 Each layer written gets `MODIFIED` and its label; with no change the file gets one `UNCHANGED` line, labeled with the
@@ -1385,7 +1391,8 @@ Write the record and apply? [Y/n]
   When the diff failed instead, it prints
   `  Could not tell which side is newer; back up and replace may overwrite files changed here (each keeps a .bak).`
   `IN` lines never make a guard block, and `keep` or `stop` never do.
-- **Confirm.** `Write the record and apply? [Y/n] `, or `[y/N] ` after a guard block. A no prints
+- **Confirm.** `Write the record and apply? [Y/n] `, or `[y/N] ` after a guard block. When the fourth answer is
+  `stop`, nothing is applied, so the question is `Write the record? [Y/n] ` (`stop` never makes a guard block). A no prints
   `Stopped: nothing was written.` and exits 0, with no record, profile, bootstrap or import. An empty answer is yes;
   end of input at `[Y/n]` counts as no, printing `Stopped: nothing was written.` and exiting 0, since with no
   terminal, as under Claude Code's `!`, nobody answered. `--yes` answers yes,
@@ -1646,7 +1653,10 @@ handles.
 ### New settings
 
 A new key or a new array item in a `json` entry has no layer yet ([Layers](#layers)). With a record,
-the push side lists it after the groups and asks where it goes:
+the push side lists it after the groups and asks where it goes. This holds for an entry with one layer too (a
+`claude/settings.json` with only the common layer): the one present layer is the answer only without a record, so a
+work profile's keys stay in its local state unless the answer says otherwise. The [preview](#push-preview) and the
+[diff](#diff) plan each new setting for its suggestion, as `--yes` does:
 
 ```text
 New settings

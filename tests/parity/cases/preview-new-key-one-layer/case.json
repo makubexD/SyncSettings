@@ -1,0 +1,32 @@
+{
+  "description": "With a record, the preview plans a new key in a one-layer json entry for the profile suggestion: the New settings block prints its goes-to line in place of the question, the status lines show the write export --yes would make, and nothing is written, exit 0 (json entries export, New settings, Push preview).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
+}

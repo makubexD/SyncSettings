@@ -54,6 +54,10 @@ the next push gets past that line.
 | `mksync push <path>…` | yes     | the same, for those files only             | Exports only those files. Changes already in the repo folder go out with them                |
 
 - `--force` never answers the question; add `--yes` for that.
+- A JSON key that is new on this machine asks where it goes (all machines, this OS, the profile or this machine), even
+  in a file the repo holds in one layer only. Without `--yes` the push asks; with it, and in `mksync preview`, the
+  suggestion is taken: the profile, or all machines on `personal`. While the repo is public a profile's keys stay on
+  this machine.
 - Only an answer starting with `y` or `Y` is yes. Enter, or no input at all, is No.
 - When the diff fails, the newer side is unknown. `mksync push --force` then exports every file, `IN` ones included, so
   read its PR with care.

@@ -411,6 +411,7 @@ function planFile(state: State, selected: SelectedEntry): void {
     // The split looks a key path up in this one file, so the entry's own
     // destinations take the module and file off the stored key.
     destinations: entryDestinations(state.destinations, entry.module, file),
+    hasRecord: state.snapshot.record !== undefined,
     localOnlyKeys: entry.localOnlyKeys ?? [],
     slots: selected.slots,
     sanitize: sanitizeBytes,

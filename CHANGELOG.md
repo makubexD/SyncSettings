@@ -2,6 +2,18 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.3 (2026-11-25)
+
+- A new key in a JSON file the repo holds in one layer only (Claude's `settings.json`) no longer goes to "All
+  machines" by itself on a machine with a record. `mksync push` asks where it goes and suggests the profile, or all
+  machines on `personal`; `mksync preview` and `mksync diff` plan that suggestion. A work machine's own Claude
+  settings now stay in its local state while the repo is public.
+- The leak scan no longer flags a GNOME extension ID in a dconf `.ini` on Windows. A Windows path's drive letter
+  (`C:\…`) is read as part of the file name, so hit lines show the right line number there too.
+- `mksync setup` asks `Write the record?` after "stop", since nothing is applied.
+- `mksync diff` no longer lists a file under an old `<file>.linked/` folder in the repo (the Windows `vs.bat` before
+  `MakuCustomAlias` became its own entry): nothing reads or writes those folders any more.
+
 ## v1.1.2 (2026-11-25)
 
 - `mksync diff` sees every layer of a JSON file (common, OS, profile and machine), not only the last one. Before, it

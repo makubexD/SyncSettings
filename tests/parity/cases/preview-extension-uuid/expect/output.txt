@@ -1,0 +1,2 @@
+MODIFIED dotfiles/common/plain.txt
+UNCHANGED dotfiles/linux/gnome/dconf/shell.ini

@@ -6,8 +6,6 @@ import type { RepoFiles } from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
 
-const LINKED_SUFFIX = ".linked/";
-
 const NONE_RECORDED = "none recorded on this machine";
 
 /** Contract "Diff": the file(s) that differ when no sync point is recorded. */
@@ -37,8 +35,9 @@ export interface OwnedEntry {
 
 /**
  * The owned set: the repo paths this OS's entries own. A file or dconf entry
- * owns its `repoPath` exactly; a file entry also owns its `<repoPath>.linked/`
- * prefix, and a dir entry owns its `<repoPath>/` prefix. Each `layerPath` is
+ * owns its `repoPath` exactly, and a dir entry owns its `<repoPath>/` prefix.
+ * No entry owns a v1 `<repoPath>.linked/` tree: nothing reads or writes it
+ * now, so a sync point's file there is never listed. Each `layerPath` is
  * owned exactly and labels as its entry's `repoPath`.
  */
 export interface OwnedPaths {
@@ -69,9 +68,6 @@ export function ownedPaths(entries: readonly OwnedEntry[]): OwnedPaths {
     const type = entry.type ?? "file";
     if (type !== "dir") {
       exact.add(entry.repoPath);
-      if (type === "file") {
-        prefixes.push(`${entry.repoPath}${LINKED_SUFFIX}`);
-      }
     } else {
       prefixes.push(`${entry.repoPath}/`);
     }

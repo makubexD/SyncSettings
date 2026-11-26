@@ -1,0 +1,33 @@
+{
+  "description": "With the personal profile, export --yes plans a new key in a one-layer json entry as a New setting and takes the all-machines suggestion, writing it to the repo's base layer with MODIFIED and creating no profile layer file, exit 0 (json entries export, New settings).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "export",
+      "options": {
+        "yes": true
+      }
+    }
+  ]
+}
