@@ -1378,6 +1378,15 @@ repo's change since the 11-10 sync point) and `OUT dotfiles/windows/windows-term
 `UNCHANGED`). The clone was 12 commits behind `origin` at the time (an older second clone in the home folder was the
 one pulled).
 
+Step 2, after `git pull --ff-only` (`Origin : up to date`): `mksync preview` exits 0 with `Leak scan: clean.` (no hit
+on the dconf extension UUID). The 4 machine-only Claude keys are under "New settings", each
+`goes to: profile work1 (asked by mksync export)`, nothing under "All machines"; the export line is
+`ADDED profiles/work1/claude/settings.json (sanitized)`, a state-folder file, and the repo's common `settings.json`
+isn't touched. The one file sent is Windows Terminal (Windows layer, 20 lines: whitespace after `"actions":` and
+similar keys, the keybindings reordered, and a new `Ubuntu-24.04` WSL profile). The held list names
+`machines/HOST.json` and `profiles/work1.json`. `%LOCALAPPDATA%\mksync` holds only `mksync.exe`: no `mksync.old.exe`
+after the update, so checklist item 9 holds in full.
+
 ## Open
 
 ### Design
@@ -1395,6 +1404,11 @@ one pulled).
   written, so it plans a new key in a one-layer JSON file into the base and labels the file `OUT`; the keep export then
   runs with the record and sends the key to the profile layer. The base file is unchanged, yet `Pushed into` still
   names it. Options: plan setup's diff with the record about to be written, or word the line as "exported".
+- **The held list leaves out layer files (work #1, 2026-11-25).** While public, the preview's
+  `held until the repo is private` lists only the record and the profile (`machines/<name>.json`,
+  `profiles/<profile>.json`), though the same run writes `profiles/work1/claude/settings.json` to the state folder and
+  the first backup will add it. Options: list every layer file, as "First backup" does, or keep the short list and say
+  so in the contract's "Held".
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
   new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
   plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").
