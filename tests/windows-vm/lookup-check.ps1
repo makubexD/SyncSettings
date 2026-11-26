@@ -112,17 +112,19 @@ if ($line.Contains($T)) {
 
 # mksync doctor in the clone, with PATH as given (the caller's when empty).
 function Invoke-Doctor([string]$Path) {
-    $ErrorActionPreference = 'Continue'
+    # Into the clone first, failing hard, so finally never pops the caller's
+    # folder or leaves PATH changed.
+    Push-Location -LiteralPath $Clone -ErrorAction Stop
     $savedPath = $env:PATH
-    if ($Path) {
-        $env:PATH = $Path
-    }
-    Push-Location $Clone
     try {
+        $ErrorActionPreference = 'Continue'
+        if ($Path) {
+            $env:PATH = $Path
+        }
         $lines = & $Exe doctor 2>&1 | ForEach-Object { "$_" }
     } finally {
-        Pop-Location
         $env:PATH = $savedPath
+        Pop-Location
     }
     return ($lines -join "`n")
 }

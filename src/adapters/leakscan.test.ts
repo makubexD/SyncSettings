@@ -175,60 +175,78 @@ describe("hasScanBash", () => {
   const GIT_BASH = `${GIT_ROOT}\\bin\\bash.exe`;
   const GIT_IN_CMD = `${GIT_ROOT}\\cmd\\git.exe`;
   const GIT_IN_MINGW = `${GIT_ROOT}\\mingw64\\bin\\git.exe`;
+  const NO_GIT = null;
+  const NO_QUESTIONS: string[] = [];
   const hasGitBash = (path: string): boolean => path === GIT_BASH;
+  const hasNoGitBash = (): boolean => false;
   const bashOnPath = (): boolean => true;
   const noBashOnPath = (): boolean => false;
 
-  test("should find Git's bash from git in cmd without asking PATH on Windows", () => {
+  test("should find a bash when git is in Git's cmd folder on Windows", () => {
     // Arrange
-    const asked: string[] = [];
-    const onPath = (command: string): boolean => {
-      asked.push(command);
-      return false;
-    };
+    const gitPath = GIT_IN_CMD;
 
     // Act
-    const found = hasScanBash("win32", GIT_IN_CMD, hasGitBash, onPath);
-
-    // Assert
-    expect({ found, asked }).toEqual({ found: true, asked: [] });
-  });
-
-  test("should find Git's bash from git in mingw64 bin on Windows", () => {
-    // Act
-    const found = hasScanBash("win32", GIT_IN_MINGW, hasGitBash, noBashOnPath);
+    const found = hasScanBash("win32", gitPath, hasGitBash, noBashOnPath);
 
     // Assert
     expect(found).toBe(true);
   });
 
-  test("should find no bash on Windows without git", () => {
+  test("should not ask PATH for bash when on Windows", () => {
+    // Arrange
+    const asked: string[] = [];
+    const recordingOnPath = (command: string): boolean => {
+      asked.push(command);
+      return true;
+    };
+
     // Act
-    const found = hasScanBash("win32", null, hasGitBash, bashOnPath);
+    hasScanBash("win32", GIT_IN_CMD, hasGitBash, recordingOnPath);
+
+    // Assert
+    expect(asked).toEqual(NO_QUESTIONS);
+  });
+
+  test("should find a bash when git is in Git's mingw64 bin on Windows", () => {
+    // Arrange
+    const gitPath = GIT_IN_MINGW;
+
+    // Act
+    const found = hasScanBash("win32", gitPath, hasGitBash, noBashOnPath);
+
+    // Assert
+    expect(found).toBe(true);
+  });
+
+  test("should find no bash when git is not on PATH on Windows", () => {
+    // Arrange
+    const gitPath = NO_GIT;
+
+    // Act
+    const found = hasScanBash("win32", gitPath, hasGitBash, bashOnPath);
 
     // Assert
     expect(found).toBe(false);
   });
 
-  test("should not count a bash on PATH when Git has no bash.exe on Windows", () => {
+  test("should find no bash when Git has no bash.exe, even with WSL's on PATH, on Windows", () => {
+    // Arrange
+    const gitPath = GIT_IN_CMD;
+
     // Act
-    const found = hasScanBash("win32", GIT_IN_CMD, () => false, bashOnPath);
+    const found = hasScanBash("win32", gitPath, hasNoGitBash, bashOnPath);
 
     // Assert
     expect(found).toBe(false);
   });
 
   test.each([
-    [true, true],
-    [false, false],
-  ])("should answer bash on PATH %p as %p on Linux", (onPath, expected) => {
+    ["find a bash", bashOnPath, true],
+    ["find no bash", noBashOnPath, false],
+  ])("should %s when PATH answers so on Linux", (_label, onPath, expected) => {
     // Act
-    const found = hasScanBash(
-      "linux",
-      null,
-      () => false,
-      () => onPath,
-    );
+    const found = hasScanBash("linux", NO_GIT, hasNoGitBash, onPath);
 
     // Assert
     expect(found).toBe(expected);

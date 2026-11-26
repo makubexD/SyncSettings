@@ -228,15 +228,16 @@ export async function executeDoctor(input: DoctorInput): Promise<Result> {
     ghFact(process.env),
     hasOrigin(input.repoRoot),
   ]);
+  const gitPath = which("git");
   const facts: DoctorFacts = {
     os: input.os,
     packageManager: packageManager(input.os),
-    git: onPath("git"),
+    git: gitPath !== null,
     gh,
     origin,
     record: input.layers.record !== undefined,
     unsetValues: unsetValueCount(input),
-    bash: hasScanBash(process.platform, which("git"), existsSync, onPath),
+    bash: hasScanBash(process.platform, gitPath, existsSync, onPath),
     drift: driftCount(input.repoRoot, input.os, input.home, process.env),
   };
   const report = doctorLines(facts);
