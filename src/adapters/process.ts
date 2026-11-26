@@ -13,7 +13,12 @@ import type {
   SpawnOptions,
   SpawnSyncOptions,
 } from "node:child_process";
-import { accessSync, constants as fsConstants, statSync } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  lstatSync,
+  statSync,
+} from "node:fs";
 import { constants as osConstants } from "node:os";
 import { join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline";
@@ -404,13 +409,56 @@ function hasPathSeparator(name: string): boolean {
   return name.includes("/") || (IS_WINDOWS && name.includes("\\"));
 }
 
-function isFile(file: string): boolean {
-  try {
-    return statSync(file).isFile();
-  } catch {
-    // Missing, unreadable or not a plain file: not a match.
+/** The part of `fs.Stats` that `isCommandEntry` reads. */
+export interface EntryKind {
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+}
+
+/**
+ * Whether a lookup candidate is a command, from its `statSync` result
+ * (`followed`) and `lstatSync` result (`linked`), each `undefined` when it
+ * threw. A file is; a folder never is. On Windows a link that `stat` can't
+ * follow counts too: an app execution alias such as `WindowsApps\winget.exe`
+ * is a 0-byte reparse point that `stat` fails on (Bun: `EACCES`) or reports as
+ * a link, while Windows starts it like any program. Elsewhere a dangling
+ * link is not found.
+ */
+export function isCommandEntry(
+  followed: EntryKind | undefined,
+  linked: EntryKind | undefined,
+  windows: boolean,
+): boolean {
+  if (followed?.isFile() === true) {
+    return true;
+  }
+  if (followed?.isDirectory() === true) {
     return false;
   }
+  return windows && linked?.isSymbolicLink() === true;
+}
+
+function statOrUndefined(
+  file: string,
+  read: (path: string) => EntryKind,
+): EntryKind | undefined {
+  try {
+    return read(file);
+  } catch {
+    // Missing or unreadable (an alias stat can't follow): no answer from this call.
+    return undefined;
+  }
+}
+
+function isFile(file: string): boolean {
+  const followed = statOrUndefined(file, statSync);
+  const needsLink =
+    IS_WINDOWS &&
+    followed?.isFile() !== true &&
+    followed?.isDirectory() !== true;
+  const linked = needsLink ? statOrUndefined(file, lstatSync) : undefined;
+  return isCommandEntry(followed, linked, IS_WINDOWS);
 }
 
 function isExecutableFile(file: string): boolean {

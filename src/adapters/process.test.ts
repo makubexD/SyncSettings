@@ -11,6 +11,8 @@ import { delimiter, isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
 import {
   decode,
+  type EntryKind,
+  isCommandEntry,
   isSpawnable,
   run,
   runSync,
@@ -423,6 +425,39 @@ describe("searchFolders", () => {
 
     // Assert
     expect(folders).toEqual([]);
+  });
+});
+
+/** A `stat` result of one kind, as `isCommandEntry` reads it. */
+function entry(kind: "file" | "folder" | "link"): EntryKind {
+  return {
+    isFile: () => kind === "file",
+    isDirectory: () => kind === "folder",
+    isSymbolicLink: () => kind === "link",
+  };
+}
+
+const FILE = entry("file");
+const FOLDER = entry("folder");
+const LINK = entry("link");
+const THREW = undefined;
+
+describe("isCommandEntry", () => {
+  test.each([
+    ["a file on Linux", FILE, THREW, false, true],
+    ["a file on Windows", FILE, THREW, true, true],
+    ["a folder on Windows, even with a link lstat", FOLDER, LINK, true, false],
+    ["an alias stat can't follow on Windows", THREW, LINK, true, true],
+    ["a dangling link on Linux", THREW, LINK, false, false],
+    ["nothing on Windows", THREW, THREW, true, false],
+    ["an alias stat reports as a link on Windows", LINK, LINK, true, true],
+    ["a plain file lstat when stat threw on Windows", THREW, FILE, true, false],
+  ])("should answer %s", (_label, followed, linked, windows, expected) => {
+    // Act
+    const isCommand = isCommandEntry(followed, linked, windows);
+
+    // Assert
+    expect(isCommand).toBe(expected);
   });
 });
 
