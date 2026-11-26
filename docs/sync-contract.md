@@ -376,7 +376,7 @@ four questions:
 .bashrc uses ~/work-tool-1-scripts (12 files, 40 KB). Sync it as a folder? 1) this profile  2) this machine  3) no [1]
 ```
 
-- The suggestion is `1` for a folder in the home with fewer than 1000 files and under 10 MB, else `3`. `--yes` takes
+- The suggestion is `1` for a folder in the home with fewer than 1000 files and under 10 MB whose name doesn't start with `.`, else `3`: a hidden folder such as `~/.nvm` is a tool's own install. `--yes` takes
   it. An answer other than `1` to `3` prints `Pick 1 to 3.` and asks again.
 - `1` adds a `dir` entry to the profile's `entries` list, stored under `profiles/<p>/linked/<folder name>/`; `2` adds
   it to the machine record's `entries`, under `machines/<m>/linked/<folder name>/`. Both are state files, so the

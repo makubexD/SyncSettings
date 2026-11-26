@@ -123,11 +123,17 @@ function syncedByEntry(
 ): boolean {
   const normalizedFolder = slashNormalized(folder);
   return entries.some((entry) => {
-    if (entry.merge !== "dir" || entry.localPath === undefined || entry.localPath === "") {
+    if (
+      entry.merge !== "dir" ||
+      entry.localPath === undefined ||
+      entry.localPath === ""
+    ) {
       return false;
     }
     const local = slashNormalized(entry.localPath);
-    return normalizedFolder === local || normalizedFolder.startsWith(`${local}/`);
+    return (
+      normalizedFolder === local || normalizedFolder.startsWith(`${local}/`)
+    );
   });
 }
 
@@ -152,15 +158,18 @@ export function unaskedFolders(
 /**
  * Whether a linked folder should be suggested as a profile `dir` entry: only
  * under the home, with fewer than `MAX_LINKED_FILES` files and fewer than
- * `MAX_LINKED_BYTES` bytes.
+ * `MAX_LINKED_BYTES` bytes, and with a `name` that doesn't start with `.`: a
+ * hidden folder (`.nvm`, `.cargo`) is a tool's own install, not settings.
  */
 export function suggestLinked(
   count: number,
   bytes: number,
   underHome: boolean,
+  name: string,
 ): LinkedSuggestion {
   const small = count < MAX_LINKED_FILES && bytes < MAX_LINKED_BYTES;
-  return underHome && small ? "profile" : "no";
+  const hidden = name.startsWith(".");
+  return underHome && small && !hidden ? "profile" : "no";
 }
 
 /**
