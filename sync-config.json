@@ -427,8 +427,8 @@
           "defaultEnv": "HOME"
         },
         {
-          "placeholder": "<YOUR_GH_USERNAME>",
-          "prompt": "GitHub username"
+          "placeholder": "<YOUR_GH_OWNER>",
+          "prompt": "GitHub owner of your own repos"
         }
       ],
       "description": "Claude Code user settings (hooks, plugins, permissions)"

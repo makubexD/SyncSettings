@@ -146,7 +146,7 @@
     "sigil": {
       "source": {
         "source": "github",
-        "repo": "<YOUR_GH_USERNAME>/sigil",
+        "repo": "<YOUR_GH_OWNER>/sigil",
         "ref": "marketplace"
       }
     },
@@ -162,7 +162,7 @@
   "autoMode": {
     "environment": [
       "**Host**: personal Ubuntu developer machine with open internet. No organization, no production infrastructure, no deploy targets.",
-      "**Source control**: repos under github.com/<YOUR_GH_USERNAME> are the user's own and trusted. Many are PUBLIC, so a push publishes content.",
+      "**Source control**: repos under github.com/<YOUR_GH_OWNER> are the user's own and trusted. Many are PUBLIC, so a push publishes content.",
       "**Package registry**: npm publish targets the public npm registry (e.g. the user's own `repown` CLI). Publishing is a public release.",
       "**Data**: no regulated or employer data on this machine. The user permits reading local config, .env and credential files when a task needs them.",
       "**Tooling**: node via nvm, rtk (command-output proxy hook), context-mode plugin, jq, git, gh.",
