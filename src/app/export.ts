@@ -21,6 +21,7 @@ import type { BackupSides, FirstBackupFile } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
 import { askNewSettings } from "../cli/ask.ts";
 import type { RunCommand } from "../cli/parse.ts";
+import { trimAnswer } from "../core/answer.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
 import { guard, PROFILES_FOLDER } from "../core/guard.ts";
 import type { GuardDecision, Visibility } from "../core/guard.ts";
@@ -35,8 +36,6 @@ import type {
 } from "../core/machine/backup.ts";
 import { changeLines } from "../core/plan/changes.ts";
 import { exportMissingRules, planExport } from "../core/plan/export.ts";
-import { trimAnswer } from "../core/answer.ts";
-import { ASK_HEADER, missingValueLine } from "../core/values/hydrate.ts";
 import {
   changeLineNumbers,
   groupBlock,
@@ -74,6 +73,11 @@ import type {
   Snapshot,
 } from "../core/plan/types.ts";
 import { formatLine } from "../core/status.ts";
+import {
+  ASK_HEADER,
+  holdsPlaceholder,
+  missingValueLine,
+} from "../core/values/hydrate.ts";
 import type { SetupIo } from "../wizard/setup.ts";
 import { setupTerminal, writeLines } from "./terminal.ts";
 import type { SetupTerminal } from "./terminal.ts";
@@ -966,7 +970,7 @@ async function askExportValues(
   for (const rule of missing) {
     io.write(`  ${rule.prompt ?? ""}: `);
     const answer = trimAnswer((await io.readLine()) ?? "");
-    if (answer === "") {
+    if (answer === "" || holdsPlaceholder(answer)) {
       return { ok: false, line: missingValueLine(rule.placeholder) };
     }
     values[rule.placeholder] = answer;
@@ -1035,7 +1039,8 @@ export async function executeExport(
           plan = loop.plan;
         }
       }
-      // A refused export writes nothing, so its questions are not asked.
+      // A refused export writes nothing, so its later questions are not asked;
+      // the value questions above come first, since the plan needs the values.
       const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
       const refused = exportRefusal(plan, snapshot, lines);
       let answers: ReadonlyMap<string, BackupSide> | undefined;

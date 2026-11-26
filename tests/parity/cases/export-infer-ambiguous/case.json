@@ -27,10 +27,7 @@
     {
       "command": "export",
       "output": "all",
-      "stderr": true,
-      "options": {
-        "yes": true
-      }
+      "stderr": true
     }
   ]
 }

@@ -36,8 +36,20 @@ function missingValue(placeholder: string): Result<never, ConfigError> {
   };
 }
 
+/** Placeholder text: `<`, a capital letter, capitals, digits or `_`, `>`. */
+const PLACEHOLDER_TEXT = /<[A-Z][A-Z0-9_]*>/;
+
+/**
+ * Contract "Sanitize and hydrate": a value that holds placeholder text, such
+ * as a pasted `<HOME>`, is no value. Hydrate would write the placeholder into
+ * the file, and sanitize would leave the real value in the repo.
+ */
+export function holdsPlaceholder(value: string): boolean {
+  return PLACEHOLDER_TEXT.test(value);
+}
+
 function hasValue(value: string | undefined): value is string {
-  return value !== undefined && value.length > 0;
+  return value !== undefined && value.length > 0 && !holdsPlaceholder(value);
 }
 
 /** Lines as bash `mapfile -t` reads them: no extra element after a final newline. */
@@ -244,13 +256,13 @@ export function resolveValues(
       continue;
     }
     const ruleDefault = rule.default;
-    if (ruleDefault !== undefined && ruleDefault.length > 0) {
+    if (hasValue(ruleDefault)) {
       resolved.set(placeholder, ruleDefault);
       continue;
     }
     const fromEnv =
       rule.defaultEnv === undefined ? undefined : env[rule.defaultEnv];
-    if (fromEnv !== undefined && fromEnv.length > 0) {
+    if (hasValue(fromEnv)) {
       resolved.set(placeholder, fromEnv);
       continue;
     }
@@ -339,6 +351,9 @@ export function askValues(
     const raw = index < answers.length ? answers[index] : undefined;
     index++;
     const answer = trimAnswer(raw ?? "");
+    if (holdsPlaceholder(answer)) {
+      return missingValue(placeholder);
+    }
     const chosen = answer.length > 0 ? answer : fallback;
     if (chosen.length === 0) {
       return missingValue(placeholder);

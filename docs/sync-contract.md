@@ -261,21 +261,27 @@ placeholders. On import, hydrating puts the values back.
 2. Values inferred from the existing local file (below), on import and export alike. They are never used for a placeholder that
    already has a cached value.
 3. The rule's `default`, then the environment variable named by `defaultEnv`, taken without a prompt.
-   `defaultEnv: "HOME"` is the program's home folder on every OS: `$HOME` on Linux and macOS, `%USERPROFILE%` on
-   Windows, where `HOME` is usually unset. Any other name is read from the environment as it is.
-4. A prompt, only for a placeholder none of these fills.
+   `defaultEnv: "HOME"` is the program's home folder on every OS: `$HOME` on Linux and macOS, `%USERPROFILE%` with
+   forward slashes on Windows (`C:/Users/user`), where `HOME` is usually unset; Git Bash and Claude Code's commands
+   read that form. Any other name is read from the environment as it is.
+
+A value that holds placeholder text (`<`, a capital letter, then capitals, digits or `_`, then `>`, such as `<HOME>`)
+counts as no value, wherever it comes from, so hydrate never writes a placeholder and sanitize never keeps one as a
+value. 4. A prompt, only for a placeholder none of these fills.
 
 Before the first question it prints
 `\n  Enter values to fill the placeholders in the config files:\n\n`, then ` <prompt>:` for each, and a newline after
 the last answer. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
 missing, so the run stops as below, after the prompts printed so far; with no input at all a run stops as it did
-before. `--check`, `preview`, `export --preview`, `status` and `diff` never ask.
+before. An answer that holds placeholder text stops the run at once with the missing-value line. Answers are read from
+stdin after a leading byte order mark (`U+FEFF`, which Windows PowerShell puts before piped text) is dropped. `--check`, `preview`, `export --preview`, `status` and `diff` never ask.
 
-**Push asks.** Export (push) in a terminal, without `--yes`, asks for each value nothing above fills, as import does:
+**Push asks.** Export (push) without `--yes` asks for each value nothing above fills, on stdin, as import does:
 the same header and ` <prompt>:` lines, in rule order, before the change list. It asks only for the placeholders of the
 entries it exports (`--only` and skips respected). An empty answer or end of input stops the run at once with the
-missing-value line. The answers are saved as inferred values are: on the record and the profile by
-[Values on a machine](#values-on-a-machine), else in `.user-values.json`. `--yes` or no terminal asks nothing.
+missing-value line, and so does an answer that holds placeholder text. The answers are saved as inferred values are:
+on the record and the profile by [Values on a machine](#values-on-a-machine), else in `.user-values.json`. `--yes`
+asks nothing; with no input (`< /dev/null`) the header is printed and the run stops at the first question.
 
 `mksync import --reset-values` prompts again for every placeholder and skips inference.
 The cached value is only the prompt's default. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
@@ -305,14 +311,17 @@ because the file holds the doubled form.
 
 **Sanitize (export).** Values are replaced longest first, so a value that contains a shorter one is replaced whole.
 For each value that contains `\`, its backslash-doubled form (`C:\\Tools`) is replaced before the plain form
-(`C:\Tools`), so files that escape backslashes sanitize too.
+(`C:\Tools`), so files that escape backslashes sanitize too. A value that starts with a drive and a slash is also
+replaced written with the other slash, after the forms above: `C:/Users/user` in its backslash forms
+(`C:\\Users\\user`, `C:\Users\user`), and `C:\Users\user` as `C:/Users/user`, so a file that writes the home folder
+either way sanitizes.
 
 **Hydrate (import).** Each placeholder gets its value. If the rule has `escapeBackslashes: true` and the value
 contains `\`, the placeholder gets the backslash-doubled value instead.
 
 **No rescan.** Neither side scans text it has already put in. A short value that also appears in another placeholder's
-name (`SER` in `<USER_NAME>`) leaves that placeholder whole, and a value that holds a placeholder (`x<B>y`) is written
-as it is. `mksync` replaces in two passes, first with tokens made of the control bytes `\x01`-`\x03` and then with
+name (`SER` in `<USER_NAME>`) leaves that placeholder whole. A value that holds a placeholder (`x<B>y`) counts as no
+value (above), so it is never written. `mksync` replaces in two passes, first with tokens made of the control bytes `\x01`-`\x03` and then with
 the result, so a synced file holding that byte run is not supported.
 
 **Missing value.** If a placeholder has no value after all of the above, with or without a terminal, `mksync` prints

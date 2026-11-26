@@ -797,7 +797,7 @@ function importActionLines(
             rules,
             snapshot.values,
             inferred,
-            valueEnv(snapshot.env, snapshot.home),
+            valueEnv(snapshot.env, snapshot.home, snapshot.os),
           );
     const newValues: Values =
       resolved !== undefined && resolved.ok

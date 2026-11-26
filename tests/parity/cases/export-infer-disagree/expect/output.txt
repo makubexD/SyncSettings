@@ -1,1 +1,5 @@
+
+  Enter values to fill the placeholders in the config files:
+
+  Value: 
 missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it

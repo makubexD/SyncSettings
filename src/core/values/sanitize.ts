@@ -143,8 +143,23 @@ export function formsFor(value: string, json: boolean): readonly string[] {
   if (!forms.includes(value)) {
     forms.push(value);
   }
+  // A Windows drive path is also replaced written with the other slash:
+  // `HOME` on Windows is `C:/Users/u`, a value saved before may be
+  // `C:\Users\u`, and files hold either (contract "Sanitize").
+  if (DRIVE_PATH.test(value)) {
+    const forward = value.replaceAll("\\", "/");
+    const back = forward.replaceAll("/", "\\");
+    for (const form of [back.replaceAll("\\", "\\\\"), back, forward]) {
+      if (!forms.includes(form)) {
+        forms.push(form);
+      }
+    }
+  }
   return forms;
 }
+
+/** A value that starts with a drive and a slash, such as `C:/Users`. */
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
 
 export function sanitize(
   content: Uint8Array,

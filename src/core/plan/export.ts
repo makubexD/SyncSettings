@@ -796,7 +796,7 @@ export function exportMissingRules(
     exportRules(snapshot, selected.value, only.paths),
     snapshot.values,
     exportInferredValues(snapshot, selected.value),
-    valueEnv(snapshot.env, snapshot.home),
+    valueEnv(snapshot.env, snapshot.home, snapshot.os),
   );
 }
 
@@ -832,7 +832,7 @@ export function planExport(
     rules,
     snapshot.values,
     exportInferredValues(snapshot, selected.value),
-    valueEnv(snapshot.env, snapshot.home),
+    valueEnv(snapshot.env, snapshot.home, snapshot.os),
   );
   if (!values.ok) {
     const placeholder = values.error.placeholder;

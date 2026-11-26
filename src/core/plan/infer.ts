@@ -81,7 +81,7 @@ export function exportInferredValues(
       const env =
         rule.defaultEnv === undefined
           ? undefined
-          : valueEnv(snapshot.env, snapshot.home)[rule.defaultEnv];
+          : valueEnv(snapshot.env, snapshot.home, snapshot.os)[rule.defaultEnv];
       if (env !== undefined && env.length > 0) {
         fromEnv.add(rule.placeholder);
       }

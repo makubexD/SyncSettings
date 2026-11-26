@@ -822,7 +822,7 @@ function resetValueQuestions(
     const fallback = promptFallback(
       rule,
       snapshot.values,
-      valueEnv(snapshot.env, snapshot.home),
+      valueEnv(snapshot.env, snapshot.home, snapshot.os),
     );
     const prompt = rule.prompt ?? "";
     const hasDefault = fallback.length > 0;
@@ -866,7 +866,7 @@ export function importValueQuestions(
           rules,
           snapshot.values,
           prepared.gathered.inferred,
-          valueEnv(snapshot.env, snapshot.home),
+          valueEnv(snapshot.env, snapshot.home, snapshot.os),
         ).map((rule) => ({
           text: `  ${rule.prompt ?? ""}: `,
           hasDefault: false,
@@ -909,7 +909,7 @@ export function resolveImportValues(
     const asked = askValues(
       prepared.gathered.rules,
       snapshot.values,
-      valueEnv(snapshot.env, snapshot.home),
+      valueEnv(snapshot.env, snapshot.home, snapshot.os),
       valueAnswers,
     );
     if (!asked.ok) {
@@ -930,7 +930,7 @@ export function resolveImportValues(
     rules,
     snapshot.values,
     prepared.gathered.inferred,
-    valueEnv(snapshot.env, snapshot.home),
+    valueEnv(snapshot.env, snapshot.home, snapshot.os),
   );
   const answered = new Map<string, string>(Object.entries(snapshot.values));
   for (const [index, rule] of missing.entries()) {
@@ -945,7 +945,7 @@ export function resolveImportValues(
     rules,
     Object.fromEntries(answered),
     prepared.gathered.inferred,
-    valueEnv(snapshot.env, snapshot.home),
+    valueEnv(snapshot.env, snapshot.home, snapshot.os),
   );
   if (!resolved.ok) {
     const placeholder = resolved.error.placeholder;

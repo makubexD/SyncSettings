@@ -132,12 +132,14 @@ value in the file, and import puts it back, so pick values specific enough not t
 | `escapeBackslashes` | no       | `true` if the file stores the value with doubled backslashes (`C:\\Tools`), as `.gitconfig` does                                           |
 
 - `defaultEnv` reads the variable on the machine running the sync. `"defaultEnv": "HOME"` is the home folder on every
-  system: `$HOME` on Linux and macOS, `%USERPROFILE%` on Windows, where `HOME` is usually unset.
+  system: `$HOME` on Linux and macOS, `%USERPROFILE%` on Windows with forward slashes (`C:/Users/you`), where `HOME`
+  is usually unset. Export also replaces its backslash forms (`C:\Users\you`).
 - A placeholder used by several entries has one value.
 - With a machine record, values are saved in the record or the profile ([below](#profiles-and-machines)). Without one,
   they are cached in `.user-values.json`, which is gitignored, with placeholders as keys.
-- `mksync push` and `mksync pull` in a terminal ask for a value nothing fills and save the answer. Without a terminal,
-  with `--yes`, or in `preview` and `diff`, a placeholder with no value stops the run with
+- `mksync push` and `mksync pull` ask for a value nothing fills and save the answer. An answer that holds a
+  placeholder (`<HOME>`) is refused. With `--yes`, with no input, or in `preview` and `diff`, a placeholder with no
+  value stops the run with
   `missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it`.
 - Export compares the sanitized text, so a change to a value alone (a new email) is not a change. A new line is.
 - `sanitize` isn't allowed on a `dir` or `dconf` entry.

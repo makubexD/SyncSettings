@@ -59,7 +59,8 @@ function importForCheck(snapshot: Snapshot): ImportForCheck {
       return { plan, unresolved };
     }
     unresolved.add(missing);
-    values[missing] = `${MISSING_SENTINEL}${missing}`;
+    // Without its brackets: a value holding placeholder text is no value.
+    values[missing] = `${MISSING_SENTINEL}${missing.slice(1, -1)}`;
     plan = planImport({ ...snapshot, values }, []);
   }
 }

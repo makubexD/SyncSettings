@@ -1466,10 +1466,31 @@ install").
 - **Import's inference pairs lines by position.** On a drifted file a shifted line can give import a wrong value,
   which it hydrates and saves. It leaks nothing, but the next export sanitizes with that value. Import could use
   export's unique-match rule.
-- **Push asks for a value nothing fills (values hotfix, decision 6).** Export still never asks: a value that neither
+- **Push asks for a value nothing fills (values hotfix, decision 6).** Export never asked: a value that neither
   the record, the profile, the local files, `default` nor `defaultEnv` fills stops push with the missing-value line,
   whose "add it to profile … or machine …" names no command. Push in a terminal could ask, as import does, and save the
-  answer by the "Values on a machine" table.
+  answer by the "Values on a machine" table. **Done in `v1.1.7`** (`docs/plan-values-ask.md`): push without `--yes`
+  asks on stdin for each value nothing fills (`exportMissingRules`, `src/core/plan/export.ts`), with pull's header and
+  prompts, and saves the answers as inferred values are; an empty answer, end of input or an answer holding a
+  placeholder stops. The plan said "no terminal asks nothing"; the review made it read stdin as pull and push's other
+  questions do, so the shared cases can pipe answers. `--yes`, `preview`, `diff` and `check` never ask. The stop reads
+  `missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it`, with or without a record.
+- **Values on Windows (work #2, 2026-11-26).** `<HOME>` in `~/.claude/settings.json` falls back to `defaultEnv: HOME`,
+  which Windows doesn't set, so `preview` and `push` on work #2 stopped at `missing value for <HOME>` with nothing to
+  infer from, and the doctor counted it unset. **Done in `v1.1.7`** (`docs/plan-values-ask.md`): a rule's
+  `defaultEnv: "HOME"` is the program's home folder on every OS (`valueEnv`, `src/core/values/env.ts`); import, export
+  and the doctor's count all read it. Other variables are read as they are. The security review found that Claude's
+  settings on Windows write the home as `C:/Users/…` (Git Bash eats backslashes), so `%USERPROFILE%` as it is would
+  have published that form and hydrated backslashes into hook commands. On Windows it is `%USERPROFILE%` with forward
+  slashes; sanitize also replaces a drive value's backslash forms (`formsFor`), and the leak scan's `windows-profile`
+  rule matches `C:/Users/…` too. The same review made a value holding placeholder text count as no value (a pasted
+  `<HOME>`), and the Windows VM showed the push questions read PowerShell's byte order mark as an answer
+  (`setupTerminal` now drops it). The shared cases can't put the temp home's path inside a fixture, so the
+  forward-slash rule is covered by unit cases and checked on work #2's push.
+- **A typed value that doesn't match the file (values-ask review).** Push sanitizes with the answer it is given; a typo
+  or a different case leaves the real value in the file, and only `leak-scan`'s generic patterns stand between it and
+  the repo. The same holds for a value saved by hand or asked by setup. Push could require the answer to appear in an
+  exported local file of an entry that has the rule, but a file that simply doesn't hold the value would then stop.
 - **The working folder after install (work #2, 2026-11-26).** The installer ends with `Installed. Run mksync any time.`
   and puts `mksync` on `PATH`, but every command except `statusline` finds the repo from the working folder, so run
   from the home folder they stop with `no sync-config.json … in this folder or its parents.` Options: fall back to
@@ -1841,6 +1862,10 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   public. Phase 10 moves both to the `personal` profile layer, so a work machine on Linux wouldn't get them either.
 
 ### Confirm on Windows
+
+- **The doctor's `defaultEnv` lookup (values-ask review).** The doctor now reads a copy of the environment
+  (`valueEnv`), as import and export do, so a rule naming `AppData` no longer matches `APPDATA` case-insensitively
+  there. No rule in `sync-config.json` names a mixed-case variable; confirm nothing on the work machines relies on it.
 
 The first five items below are on the run sheet (`docs/windows-cutover-run.md`, "Work #2 and #3: the extra checks"),
 each with its command and what to paste back, for work #2 and #3 when the user is at them. They don't block phase 10.

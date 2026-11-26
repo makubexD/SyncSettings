@@ -212,7 +212,7 @@ function unsetValueCount(input: DoctorInput): number {
       rules,
       values,
       {},
-      valueEnv(process.env, input.home),
+      valueEnv(process.env, input.home, input.os),
     );
     if (resolved.ok) {
       return count;

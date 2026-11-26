@@ -112,8 +112,10 @@ First the doctor hotfix (`docs/plan-doctor-hotfix.md`, `v1.1.5`): `git -C "$env:
 `mksync --version` (`1.1.5`) and `mksync doctor` from the clone (`OK       bash`). Then `mksync setup` with profile
 `work2` (answer `3`, stop, when it finds existing settings). Setup on `v1.1.5` wrote the record, then `preview`
 stopped on a missing value: the values hotfix (`docs/plan-values-hotfix.md`, `v1.1.6`) reads the values from the
-machine's files, so after a second `git pull` (`mksync --version` prints `1.1.6`) nothing is filled by hand. Then
-`mksync preview`, then
+machine's files, so after a second `git pull` (`mksync --version` prints `1.1.6`) nothing is filled by hand. `1.1.6`
+still stopped at `missing value for <HOME>` (Windows sets no `HOME`): the values-ask release
+(`docs/plan-values-ask.md`, `v1.1.7`) takes the home folder for it and makes push ask for any value nothing fills, so
+after a third `git pull` (`mksync --version` prints `1.1.7`) push needs no shell variable. Then `mksync preview`, then
 `mksync push` from a terminal, answering the public-name question (not the hostname) and `3` (this profile) for each
 machine-only key.
 
@@ -140,7 +142,7 @@ On each machine: `mksync --version` and `mksync diff`. Pull where it lists `IN`.
 Work #1 and the personal machine get their public name (`alias`) on their next push from a terminal, as `v1.1.4`
 asks once per record.
 
-Test: every machine prints `mksync 1.1.6` (or the latest release) and "This machine and the repo agree".
+Test: every machine prints `mksync 1.1.7` (or the latest release) and "This machine and the repo agree".
 
 ## Step 13: The private switch `[inline: the user's switch]`
 

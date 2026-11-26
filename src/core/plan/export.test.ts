@@ -2415,6 +2415,44 @@ describe("planExport <HOME> on Windows", () => {
   };
   const LOCAL_PATH = `${WINDOWS_HOME}\\.config\\parity\\a.conf`;
   const LOCAL_TEXT = `hook = ${WINDOWS_HOME}\\.claude\\hook.ps1\n`;
+  const FORWARD_TEXT = "hook = bash C:/Users/user/.claude/hook.sh\n";
+
+  test("should sanitize the Windows home written with forward slashes", () => {
+    // Arrange
+    const snapshot: Snapshot = {
+      config: HOME_ENTRY,
+      os: "windows",
+      home: WINDOWS_HOME,
+      cwd: WINDOWS_HOME,
+      repoFiles: new Map(),
+      localFiles: new Map([
+        [
+          LOCAL_PATH,
+          {
+            kind: "file",
+            path: LOCAL_PATH,
+            bytes: new TextEncoder().encode(FORWARD_TEXT),
+            mode: MODE,
+          },
+        ],
+      ]),
+      localDirs: new Set(),
+      values: {},
+      env: { USERPROFILE: WINDOWS_HOME },
+      only: [],
+    };
+
+    // Act
+    const plan = planExport(snapshot);
+    const written = shownActions(
+      plan.steps.flatMap((step) => step.actions.map((entry) => entry.action)),
+    ).find((action) => action.kind === "writeRepo");
+
+    // Assert
+    expect(written?.text).toBe(
+      `hook = bash ${HOME_PLACEHOLDER}/.claude/hook.sh\n`,
+    );
+  });
 
   test("should take the home folder for defaultEnv HOME when HOME is unset", () => {
     // Arrange

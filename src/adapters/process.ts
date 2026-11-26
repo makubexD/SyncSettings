@@ -66,7 +66,7 @@ const QUOTED_MIN_LENGTH = 2;
 const BYTE_ORDER_MARK = "\uFEFF";
 
 /** `text` without a leading byte order mark. */
-function withoutBom(text: string): string {
+export function withoutBom(text: string): string {
   return text.startsWith(BYTE_ORDER_MARK) ? text.slice(1) : text;
 }
 
