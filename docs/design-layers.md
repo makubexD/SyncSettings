@@ -1408,6 +1408,10 @@ Step 5: from Git Bash, `command -v mksync` finds the extensionless shim in `%LOC
 left out as the contract says for Windows. The directory section shows the whole path (`C:\…\SyncSettings`), not its
 last part (see "Open").
 
+Step 7, personal Linux (2026-11-26), after PR #95: `mksync diff` against `origin/master 5f6d438` prints "This machine
+and the repo agree." and `mksync check` "This machine matches the repo.": no `IN` file, so no pull. Linux gets nothing
+from work #1 (the Claude keys are in profile `work1`, Windows Terminal in the Windows layer).
+
 ## Open
 
 ### Design
