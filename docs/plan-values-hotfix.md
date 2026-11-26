@@ -38,10 +38,19 @@ this: its values came from an older `.user-values.json`. The plan's rule ("A bug
    `writeMachineValues` action when there is one, else the snapshot's, so an inferred profile value is refused in a
    shared file exactly like a cached one.
 4. **Doctor hint by record.** Without a record the line stays `<n> value(s) not set; mksync setup asks for them`. With
-   one it reads `<n> value(s) not saved yet; mksync push or pull reads them from this machine's files`.
-5. **A hidden folder is never suggested.** A linked folder whose name starts with `.` (`~/.nvm`, `~/.cargo`) is
+   one it reads `<n> value(s) not saved yet; mksync push or pull reads them from this machine's files; pull asks for the rest`.
+5. **A hidden folder is never suggested.** A linked folder with a part of its path starting with `.` (`~/.nvm`, `~/.cargo/bin`; `~/.config` aside) is
    suggested `3) no`, whatever its size; `--yes` takes that. The other rules stay.
-6. **Not in this hotfix.** A push that asks for a value nothing fills, in a terminal, goes in the design's "Open".
+6. **Review fix: export infers only a certain value.** The security review found that line-by-line pairing on a
+   drifted file can give a wrong value, and that leaves the real value unsanitized in the public repo. Before this
+   change, export stopped in that case. Approved 2026-11-26 as "unique match, fail closed":
+   - Export reads a value only when exactly one local line, anywhere in the file, fits a repo line's template
+     (`inferValuesUnique`, `exportInferredValues`), and every repo line and entry agrees.
+   - A set `defaultEnv` wins over inference, and a `json` entry's value is JSON-unescaped.
+   - Import keeps its rule.
+   - The hidden-folder rule looks at every part of the path (`~/.cargo/bin`).
+   - Shared cases: `export-infer-ambiguous`, `export-infer-disagree`, `export-infer-defaultenv`.
+7. **Not in this hotfix.** A push that asks for a value nothing fills, in a terminal, goes in the design's "Open".
 
 ## Step 1: Shared cases for export inference `[inline: DeepSeek balance is out; Claude runs worker steps]`
 

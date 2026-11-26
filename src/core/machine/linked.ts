@@ -155,20 +155,28 @@ export function unaskedFolders(
   );
 }
 
+const XDG_CONFIG = ".config";
+
 /**
  * Whether a linked folder should be suggested as a profile `dir` entry: only
  * under the home, with fewer than `MAX_LINKED_FILES` files and fewer than
- * `MAX_LINKED_BYTES` bytes, and with a `name` that doesn't start with `.`: a
- * hidden folder (`.nvm`, `.cargo`) is a tool's own install, not settings.
+ * `MAX_LINKED_BYTES` bytes, and with no part of its `path` starting with `.`:
+ * a folder in or under a hidden one (`~/.nvm`, `~/.cargo/bin`, `~/.local/bin`)
+ * is a tool's own install, not settings. A leading `~/.config` doesn't count.
  */
 export function suggestLinked(
   count: number,
   bytes: number,
   underHome: boolean,
-  name: string,
+  path: string,
 ): LinkedSuggestion {
   const small = count < MAX_LINKED_FILES && bytes < MAX_LINKED_BYTES;
-  const hidden = name.startsWith(".");
+  const parts = path.split(/[\\/]/);
+  // `~/.config` is the settings folder itself (XDG), not a tool's install.
+  const start = parts[0] === "~" && parts[1] === XDG_CONFIG ? 2 : 0;
+  const hidden = parts
+    .slice(start)
+    .some((part) => part.startsWith(".") && part !== "." && part !== "..");
   return underHome && small && !hidden ? "profile" : "no";
 }
 

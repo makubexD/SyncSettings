@@ -1,0 +1,46 @@
+{
+  "description": "Export infers no value when two entries' files give different values for one placeholder: it stops with the missing-value line, exit 1, and writes nothing (Sanitize and hydrate, Inference).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Value"
+          }
+        ]
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Value"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "output": "all",
+      "stderr": true
+    }
+  ]
+}

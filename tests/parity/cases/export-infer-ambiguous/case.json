@@ -1,0 +1,33 @@
+{
+  "description": "Export infers no value when more than one local line fits the repo line's placeholder text, so a shifted file can't give a wrong value: it stops with the missing-value line, exit 1, and writes nothing (Sanitize and hydrate, Inference).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_WORK_MARKETPLACE>",
+            "prompt": "Value"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export",
+      "output": "all",
+      "stderr": true
+    }
+  ]
+}

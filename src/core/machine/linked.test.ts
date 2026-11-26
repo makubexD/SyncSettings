@@ -272,6 +272,10 @@ const SCRIPTS_NAME = "scripts";
 /** `~/.nvm` as work #2 found it: small enough, but a tool's install. */
 const NVM_NAME = ".nvm";
 
+const CARGO_BIN_PATH = "~/.cargo/bin";
+
+const CONFIG_SCRIPTS_PATH = "~/.config/parity/scripts";
+
 const NVM_FILES = 458;
 
 const NVM_BYTES = 2 * 1024 * 1024;
@@ -323,6 +327,22 @@ describe("suggestLinked", () => {
 
     // Assert
     expect(result).toBe("no");
+  });
+
+  test("suggests nothing for a folder under a hidden one", () => {
+    // Act
+    const result = suggestLinked(1, 1, true, CARGO_BIN_PATH);
+
+    // Assert
+    expect(result).toBe("no");
+  });
+
+  test("suggests the profile for a small folder under ~/.config", () => {
+    // Act
+    const result = suggestLinked(1, 1, true, CONFIG_SCRIPTS_PATH);
+
+    // Assert
+    expect(result).toBe("profile");
   });
 
   test("suggests nothing outside the home", () => {

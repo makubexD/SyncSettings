@@ -277,12 +277,23 @@ New values are saved back to `.user-values.json`. Each save leaves the file read
 on Linux, also tightening an existing file, and no inherited access on Windows. The Windows save doesn't need a domain
 controller, so it works on a domain laptop that's off the network.
 
-**Inference.** Import and export (push, `preview`) read values the same way. For each entry with rules whose local and repo files both exist, also entries left out by
-`--only`, `mksync` compares the
-two files line by line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder,
-paired with a local line that doesn't. If the local line starts with the text before the placeholder and ends with
-the text after it, the text in between is the value. Empty results are ignored. For a rule with
-`escapeBackslashes: true`, each `\\` in the inferred value becomes `\`, because the file holds the doubled form.
+**Inference.** Import and export (push, `preview`, `diff`) read values from this machine's files, each its own way. A
+cached value still wins, and an inferred one comes before `default` and `defaultEnv`, except as below. Entries left out
+by `--only` or skipped still count.
+
+- *Import.* For each entry with rules whose local and repo files both exist, `mksync` compares the two files line by
+  line, up to the shorter one, with `\r` stripped. Take a repo line that contains a placeholder, paired with a local
+  line that doesn't. If the local line starts with the text before the placeholder and ends with the text after it,
+  the text in between is the value. The first value found wins.
+- *Export.* Export runs on files that have drifted, and a wrong value would leave the real one unsanitized in the
+  repo, so it reads a value only from a line nothing else could be taken for. A repo line that contains a placeholder gives a value only
+  when exactly one local line, anywhere in the file, fits the text before and after it. The placeholder is not
+  inferred when a repo line fits two local lines with different values, when two repo lines or two entries give
+  different values, or when its rule has a `defaultEnv` that is set (the environment's value is used). A value read
+  from a `json` entry is JSON-unescaped. A placeholder left without a value stops the export as below.
+
+Empty results are ignored. For a rule with `escapeBackslashes: true`, each `\\` in the inferred value becomes `\`,
+because the file holds the doubled form.
 
 **Sanitize (export).** Values are replaced longest first, so a value that contains a shorter one is replaced whole.
 For each value that contains `\`, its backslash-doubled form (`C:\\Tools`) is replaced before the plain form
@@ -376,7 +387,7 @@ four questions:
 .bashrc uses ~/work-tool-1-scripts (12 files, 40 KB). Sync it as a folder? 1) this profile  2) this machine  3) no [1]
 ```
 
-- The suggestion is `1` for a folder in the home with fewer than 1000 files and under 10 MB whose name doesn't start with `.`, else `3`: a hidden folder such as `~/.nvm` is a tool's own install. `--yes` takes
+- The suggestion is `1` for a folder in the home with fewer than 1000 files and under 10 MB with no part of its path starting with `.` (a leading `~/.config` aside), else `3`: a folder in or under a hidden one (`~/.nvm`, `~/.cargo/bin`) is a tool's own install. `--yes` takes
   it. An answer other than `1` to `3` prints `Pick 1 to 3.` and asks again.
 - `1` adds a `dir` entry to the profile's `entries` list, stored under `profiles/<p>/linked/<folder name>/`; `2` adds
   it to the machine record's `entries`, under `machines/<m>/linked/<folder name>/`. Both are state files, so the
@@ -883,7 +894,7 @@ More rules per command:
   `the machine check failed; run mksync check to see why.`
 - **`doctor`** checks what the program needs, in this order: `git`; on macOS `brew` (`MISSING brew: install from
 https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
-  (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull reads them from this machine's files` with one); `bash` (`WARN bash: needed by the leak scan; install with
+  (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull reads them from this machine's files; pull asks for the rest` with one); `bash` (`WARN bash: needed by the leak scan; install with
 <command>`; on Windows `install with winget install --id Git.Git -e`, or `install Git for Windows from
 https://git-scm.com` without `winget`; on Windows the line is `OK` when Git's own `bash.exe` is found from `git`, as
   the leak scan ([Checks before pushing](#checks-before-pushing)) finds it, and a `bash` elsewhere on `PATH`, such as

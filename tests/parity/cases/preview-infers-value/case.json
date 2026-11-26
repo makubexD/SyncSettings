@@ -1,5 +1,5 @@
 {
-  "description": "export --preview with a record infers the values it needs, so it prints the change without a missing-value stop, shows no real value and writes no file (Sanitize and hydrate, Inference; Export preview).",
+  "description": "preview with a record infers the values it needs, so it prints the change without a missing-value stop, shows no real value and writes no file (Sanitize and hydrate, Inference; Export preview).",
   "os": [
     "linux"
   ],

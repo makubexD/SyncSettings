@@ -18,7 +18,7 @@ import { hydrate, resolveValues } from "../values/hydrate.ts";
 import { encodeUtf8, sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import { compactJson, fileLabel, valueText } from "./changes.ts";
-import { inferredValues } from "./infer.ts";
+import { exportInferredValues } from "./infer.ts";
 import { valueOwner, valuesPrepare } from "./machine-values.ts";
 import { entryDestinations } from "./newsettings.ts";
 import {
@@ -788,7 +788,7 @@ export function planExport(
   const values = resolveValues(
     rules,
     snapshot.values,
-    inferredValues(snapshot, selected.value),
+    exportInferredValues(snapshot, selected.value),
     snapshot.env,
     valueOwner(snapshot),
   );

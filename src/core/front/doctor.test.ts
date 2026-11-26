@@ -207,7 +207,7 @@ describe("doctorLines values line", () => {
 
   test("WARN with a record names push and pull", () => {
     expect(line(facts({ unsetValues: 2 }), 4)).toBe(
-      "  WARN     2 value(s) not saved yet; mksync push or pull reads them from this machine's files",
+      "  WARN     2 value(s) not saved yet; mksync push or pull reads them from this machine's files; pull asks for the rest",
     );
   });
 });

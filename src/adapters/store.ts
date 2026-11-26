@@ -790,7 +790,7 @@ export function readLinkedFolders(
           totals.count,
           totals.bytes,
           path.startsWith("~"),
-          pathBase(path),
+          path,
         ),
       });
     }

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ConfigV2, ConfigV2Entry } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import { resolveValues } from "../values/hydrate.ts";
-import { inferredValues } from "./infer.ts";
+import { exportInferredValues, inferredValues } from "./infer.ts";
 import { scopeFor } from "./pick.ts";
 import type { LocalEntry, Snapshot } from "./types.ts";
 
@@ -146,5 +146,94 @@ describe("inferredValues", () => {
 
     // Assert
     expect(inferred).toEqual({});
+  });
+});
+
+const JSON_PATH_PLACEHOLDER = "<WORK_ROOT>";
+
+const JSON_RULE = { placeholder: JSON_PATH_PLACEHOLDER, prompt: "Work root" };
+
+const JSON_ENTRY: ConfigV2Entry = {
+  ...FILE_ENTRY,
+  merge: "json",
+  sanitize: [JSON_RULE],
+};
+
+const ENV_NAME = "PARITY_BASE";
+
+const ENV_VALUE = "/srv/base";
+
+const RULE_DEFAULT = "Default Name";
+
+function exportInferredFor(
+  snapshot: Snapshot,
+): Readonly<Record<string, string>> {
+  const selected = selectEntries(
+    snapshot.config,
+    scopeFor(snapshot),
+    new Set(snapshot.repoFiles.keys()),
+  );
+  if (!selected.ok) {
+    throw new Error(selected.error.message);
+  }
+  return exportInferredValues(snapshot, selected.value);
+}
+
+describe("exportInferredValues", () => {
+  test("should JSON-unescape a value read from a json entry", () => {
+    // Arrange
+    const snapshot: Snapshot = {
+      ...snapshotOf(JSON_ENTRY, '{ "root": "C:\\\\work" }\n'),
+      repoFiles: new Map([
+        [REPO_PATH, bytes(`{ "root": "${JSON_PATH_PLACEHOLDER}" }\n`)],
+      ]),
+    };
+
+    // Act
+    const inferred = exportInferredFor(snapshot);
+
+    // Assert
+    expect(inferred).toEqual({ [JSON_PATH_PLACEHOLDER]: "C:\\work" });
+  });
+
+  test("should leave a placeholder to its defaultEnv when the variable is set", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...FILE_ENTRY,
+      sanitize: [{ ...RULE, defaultEnv: ENV_NAME }],
+    };
+    const snapshot: Snapshot = {
+      ...snapshotOf(entry, LOCAL_TEXT),
+      env: { [ENV_NAME]: ENV_VALUE },
+    };
+
+    // Act
+    const inferred = exportInferredFor(snapshot);
+
+    // Assert
+    expect(inferred).toEqual({});
+  });
+
+  test("should put an inferred value before the rule's default when resolved", () => {
+    // Arrange
+    const rule = { ...RULE, default: RULE_DEFAULT };
+    const snapshot = snapshotOf(
+      { ...FILE_ENTRY, sanitize: [rule] },
+      LOCAL_TEXT,
+    );
+
+    // Act
+    const resolved = resolveValues(
+      [rule],
+      snapshot.values,
+      exportInferredFor(snapshot),
+      snapshot.env,
+    );
+
+    // Assert
+    expect(resolved).toEqual({
+      ok: true,
+      value: { [PLACEHOLDER]: LOCAL_NAME },
+    });
   });
 });
