@@ -19,10 +19,9 @@ import {
   resolveValues,
 } from "../values/hydrate.ts";
 import { valueEnv } from "../values/env.ts";
-import type { ValueOwner } from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { inferredValues } from "./infer.ts";
-import { valueOwner, valuesPrepare } from "./machine-values.ts";
+import { valuesPrepare } from "./machine-values.ts";
 import {
   basename,
   compileExcludes,
@@ -276,7 +275,6 @@ function hydratedLayers(
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
-  const owner = valueOwner(state.snapshot);
   const layers: LayerFile[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -287,10 +285,7 @@ function hydratedLayers(
       layers.push({ repoPath: layer.repoPath, bytes });
       continue;
     }
-    const hydrated = hydrate(bytes, rules, state.values, {
-      json,
-      ...(owner !== undefined ? { owner } : {}),
-    });
+    const hydrated = hydrate(bytes, rules, state.values, { json });
     if (!hydrated.ok) {
       const line = pushStatus(state, "ERROR", label, hydrated.error.message);
       recordStep(state, label, line, false);
@@ -750,11 +745,10 @@ interface PreparedImport {
     readonly rules: readonly SanitizeRule[];
     readonly inferred: Values;
   };
-  readonly owner: ValueOwner | undefined;
 }
 
 /**
- * The entries, `--only` paths, sanitize rules and value owner an import reads
+ * The entries, `--only` paths, and sanitize rules an import reads
  * from its snapshot, or the plan of an early error (config or `--only`).
  */
 function prepareImport(snapshot: Snapshot): PreparedImport | RunPlan {
@@ -777,7 +771,6 @@ function prepareImport(snapshot: Snapshot): PreparedImport | RunPlan {
     selected: selected.value,
     only: only.paths,
     gathered: collectRules(snapshot, selected.value, only.paths),
-    owner: valueOwner(snapshot),
   };
 }
 
@@ -918,7 +911,6 @@ export function resolveImportValues(
       snapshot.values,
       valueEnv(snapshot.env, snapshot.home),
       valueAnswers,
-      prepared.owner,
     );
     if (!asked.ok) {
       const placeholder = asked.error.placeholder;
@@ -954,7 +946,6 @@ export function resolveImportValues(
     Object.fromEntries(answered),
     prepared.gathered.inferred,
     valueEnv(snapshot.env, snapshot.home),
-    prepared.owner,
   );
   if (!resolved.ok) {
     const placeholder = resolved.error.placeholder;

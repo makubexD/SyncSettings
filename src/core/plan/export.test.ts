@@ -630,7 +630,7 @@ describe("planExport", () => {
     // Assert
     expect(result.code).toBe(1);
     expect(result.lines).toEqual([
-      "missing value for <NAME>: add it to .user-values.json",
+      "missing value for <NAME>: run mksync push or pull in a terminal to enter it",
     ]);
     expect(result.actions.some((action) => action.kind === "writeRepo")).toBe(
       false,

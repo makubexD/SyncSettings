@@ -20,7 +20,7 @@ import { encodeUtf8, sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import { compactJson, fileLabel, valueText } from "./changes.ts";
 import { exportInferredValues } from "./infer.ts";
-import { valueOwner, valuesPrepare } from "./machine-values.ts";
+import { valuesPrepare } from "./machine-values.ts";
 import { entryDestinations } from "./newsettings.ts";
 import {
   compileExcludes,
@@ -205,7 +205,6 @@ function hydratedLayers(
   const entry = selected.entry;
   const rules = entry.sanitize ?? [];
   const json = isJsonEntry(entry);
-  const owner = valueOwner(state.snapshot);
   const layers: LayerFile[] = [];
   for (const layer of selected.layers) {
     const bytes = state.snapshot.repoFiles.get(layer.repoPath);
@@ -216,10 +215,7 @@ function hydratedLayers(
       layers.push({ repoPath: layer.repoPath, bytes, label: layer.label });
       continue;
     }
-    const hydrated = hydrate(bytes, rules, state.values, {
-      json,
-      ...(owner !== undefined ? { owner } : {}),
-    });
+    const hydrated = hydrate(bytes, rules, state.values, { json });
     if (!hydrated.ok) {
       const line = pushStatus(state, "ERROR", label, hydrated.error.message);
       recordStep(state, label, line, false);
@@ -791,7 +787,6 @@ export function planExport(
     snapshot.values,
     exportInferredValues(snapshot, selected.value),
     valueEnv(snapshot.env, snapshot.home),
-    valueOwner(snapshot),
   );
   if (!values.ok) {
     const placeholder = values.error.placeholder;

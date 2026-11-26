@@ -246,7 +246,8 @@ describe("hydrate", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message:
+          "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<YOUR_NAME>",
       },
@@ -267,37 +268,8 @@ describe("hydrate", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <HOME>: add it to .user-values.json",
-        code: 1,
-        placeholder: "<HOME>",
-      },
-    });
-  });
-
-  test("should name the owner when options.owner is set", () => {
-    // Arrange
-    const rules: readonly SanitizeRule[] = [
-      { placeholder: "<HOME>", prompt: "Home directory" },
-    ];
-    const content = encodeUtf8("home=<HOME>");
-
-    // Act
-    const actual = hydrate(
-      content,
-      rules,
-      {},
-      {
-        json: false,
-        owner: { profile: "work", machine: "wk1-laptop" },
-      },
-    );
-
-    // Assert
-    expect(actual).toEqual({
-      ok: false,
-      error: {
         message:
-          "missing value for <HOME>: add it to profile work or machine wk1-laptop",
+          "missing value for <HOME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<HOME>",
       },
@@ -440,7 +412,8 @@ describe("resolveValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message:
+          "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<YOUR_NAME>",
       },
@@ -460,37 +433,8 @@ describe("resolveValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <HOME>: add it to .user-values.json",
-        code: 1,
-        placeholder: "<HOME>",
-      },
-    });
-  });
-
-  test("should name the owner when one is given", () => {
-    // Arrange
-    const rules: readonly SanitizeRule[] = [
-      { placeholder: "<HOME>", prompt: "Home directory" },
-    ];
-
-    // Act
-    const actual = resolveValues(
-      rules,
-      {},
-      {},
-      {},
-      {
-        profile: "work",
-        machine: "wk1-laptop",
-      },
-    );
-
-    // Assert
-    expect(actual).toEqual({
-      ok: false,
-      error: {
         message:
-          "missing value for <HOME>: add it to profile work or machine wk1-laptop",
+          "missing value for <HOME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<HOME>",
       },
@@ -561,7 +505,8 @@ describe("resolveValues", () => {
     expect(noValue).toEqual({
       ok: false,
       error: {
-        message: "missing value for <YOUR_NAME>: add it to .user-values.json",
+        message:
+          "missing value for <YOUR_NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<YOUR_NAME>",
       },
@@ -639,7 +584,8 @@ describe("askValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <HOME>: add it to .user-values.json",
+        message:
+          "missing value for <HOME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<HOME>",
       },
@@ -660,7 +606,8 @@ describe("askValues", () => {
     expect(actual).toEqual({
       ok: false,
       error: {
-        message: "missing value for <NAME>: add it to .user-values.json",
+        message:
+          "missing value for <NAME>: run mksync push or pull in a terminal to enter it",
         code: 1,
         placeholder: "<NAME>",
       },
