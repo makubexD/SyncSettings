@@ -1,5 +1,8 @@
 {
-  "description": "Pull never takes a suggestion at end of input: the value stays missing and the run stops (Sanitize and hydrate, Suggested answers).",
+  "description": "Pull never takes a suggestion at end of input: the value stays missing and the run stops (Sanitize and hydrate, Suggested answers). Linux only: the Windows runner pipes an empty stdin as one empty line, which is Enter.",
+  "os": [
+    "linux"
+  ],
   "configV2": {
     "schemaVersion": 2,
     "modules": {

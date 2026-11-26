@@ -16,9 +16,9 @@ Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine wit
   `PATH` that isn't the saved `<GH_CLI_PATH>`.
 - A rule can suggest its answer: `"suggest": "gh-login"`, `"git-user-name"` or `"git-user-email"` runs
   `gh api user --jq .login` or `git config --global user.name` / `user.email` and shows the result as the question's
-  default, `GitHub username (~/.gitconfig.local) [you]:`. Enter takes it, typing replaces it, and `--yes`, end of
-  input and `preview` never use it. The config check refuses any other `suggest`. `<YOUR_GH_USERNAME>`, `<YOUR_NAME>`
-  and `<YOUR_EMAIL>` use them.
+  default, `GitHub username (~/.gitconfig.local) [you]:`. Enter takes it, typing replaces it, and `--yes` (push and
+  pull), end of input and `preview` never use it; output with a control character is no suggestion. The config check
+  refuses any other `suggest`. `<YOUR_GH_USERNAME>`, `<YOUR_NAME>` and `<YOUR_EMAIL>` use them.
 
 ## v1.1.7 (2026-11-26)
 

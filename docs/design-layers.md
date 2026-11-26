@@ -1906,6 +1906,10 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
 
 ### Confirm on Windows
 
+- **End of input with a suggestion (git-values review).** `run.ps1` pipes a case with no `stdin` as `'' | mksync`,
+  which Windows PowerShell sends as one empty line, so a prompt there gets Enter, never end of input.
+  `pull-suggest-eof` is Linux-only for that reason; the code path has no OS branch. Fix the runner to send no input
+  for such a case, check every case still passes in the VM, then widen `pull-suggest-eof`.
 - **A planted `git.exe` or `gh.exe` (git-values review).** Bun's process spawn on Windows searches the current folder
   before `Path`, so `mksync` run from a folder holding a `git.exe` or `gh.exe` would run that file. All git calls share
   this, not only the new sources. A fix: resolve each binary with the doctor's `which()` and pass the absolute path.
