@@ -550,13 +550,15 @@ setup_git() {
 }
 
 # Write the gh stub into $temp/bin: it appends its arguments joined by spaces,
-# one call per line, to $temp/gh.log, prints nothing and exits 0.
+# one call per line, to $temp/gh.log and exits 0. It prints nothing, except
+# `parity-user` for `api user --jq .login`, the gh-login suggestion's source.
 write_gh_stub() {
     local temp=$1
     mkdir -p "$temp/bin" || die 'creating the gh stub folder failed'
     printf '%s\n' \
         '#!/bin/sh' \
         "printf '%s\\n' \"\$*\" >> '$temp/gh.log'" \
+        'if [ "$*" = "api user --jq .login" ]; then echo parity-user; fi' \
         'exit 0' > "$temp/bin/gh" || die 'writing the gh stub failed'
     chmod +x "$temp/bin/gh" || die 'making the gh stub executable failed'
 }

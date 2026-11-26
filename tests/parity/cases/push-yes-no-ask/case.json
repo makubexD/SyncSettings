@@ -1,5 +1,5 @@
 {
-  "description": "Export with --yes asks for no value: a placeholder nothing fills stops with the missing-value line, exit 1, and writes nothing (Sanitize and hydrate, Push asks).",
+  "description": "Export with --yes asks for no value: a placeholder nothing fills stops with the missing-value line, exit 1, and writes nothing (Sanitize and hydrate, Push asks). A suggestion is never run or taken under --yes, so gh is not called.",
   "configV2": {
     "schemaVersion": 2,
     "modules": {
@@ -17,7 +17,8 @@
         "sanitize": [
           {
             "placeholder": "<YOUR_NAME>",
-            "prompt": "Full name"
+            "prompt": "Full name",
+            "suggest": "gh-login"
           }
         ]
       }
@@ -31,5 +32,8 @@
       },
       "stdin": "Ana Lopez\n"
     }
+  ],
+  "stubs": [
+    "gh"
   ]
 }
