@@ -349,6 +349,10 @@ profile, `{ "modules": ["parity"], "destinations": { "font": "profile" } }`, exp
 creates that layer's file (`ADDED`) when the profile had none for this entry. `"os"` would send it to
 `dotfiles/<os>/parity/settings.json` instead, and `"machine"` to the machine layer (`machines/wk1-laptop/parity/settings.json`). Removing a key locally removes it from every layer that sets it.
 
+A file the repo holds in one layer only, such as `claude/settings.json` in `dotfiles/common/`, asks too on a machine
+with a record: `mksync push` suggests the profile (`all machines` for `personal`), and `mksync preview` and
+`mksync diff` plan the suggestion. Only a machine with no record puts the key in that one layer without asking.
+
 **Values with a record.** A placeholder's value comes from the record's `values`, then the profile's;
 `.user-values.json` is neither read nor written, even when it is still there. A value found during an `import` or
 `export` (inferred from the local file, a rule's `default` or its `defaultEnv`) is saved before any file is written,

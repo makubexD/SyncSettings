@@ -1377,6 +1377,14 @@ Enterprise. Every section ran:
   layers join the diff (decided in the diff-layers plan). Pull and push then stop on it, and the printed
   `--force <path>` fails with `is not synced on this machine`; `--force` without a path works. No entry has such a
   layer in the repo today. Options: let every merge type's private layers join the diff, or accept the label as a path.
+- **Leftover v1 `<file>.linked/` handling (new-key-destination plan).** The diff no longer owns a file entry's
+  `<file>.linked/` tree, but `--only` still refuses such a path and `onlySelected`, `pathSkipped` (`src/core/plan/pick.ts`)
+  and the symlink message (`src/adapters/fs.ts`) still treat it as the entry's. Nothing writes those trees now; removing
+  the rest, and any such folder left in the repo, is a cleanup to decide.
+- **Setup's "keep mine" and a one-layer new key (new-key-destination review).** Setup's diff runs before the record is
+  written, so it plans a new key in a one-layer JSON file into the base and labels the file `OUT`; the keep export then
+  runs with the record and sends the key to the profile layer. The base file is unchanged, yet `Pushed into` still
+  names it. Options: plan setup's diff with the record about to be written, or word the line as "exported".
 - **New settings by OS (phase 10).** `tools/new-settings.ts` matches `sync-config.json` entries by `file` only, so a
   new entry for a file another OS already syncs (the same `file`, a new `os`) gives no `entry` line. Matching on `file`
   plus `os` would need a line format that names the OS (`docs/review-gate.md`, "New settings").
