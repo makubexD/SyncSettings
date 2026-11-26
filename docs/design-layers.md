@@ -1368,6 +1368,16 @@ Enterprise. Every section ran:
   target folder missing"); the `.bashrc.linked/…/vs.bat` linked path is in the old engine only, which cut-over step 11
   replaces with a `dir` entry.
 
+**Work #1 (Windows), 2026-11-25, release v1.1.3** (`docs/plan-work-machines.md`, step 1). This machine runs the
+downloaded `mksync.exe` (installed 1.1.2 with `SYNCSETTINGS_DIR` set to its existing clone), not the clone launcher.
+`mksync update` printed `mksync updated: 1.1.2 -> 1.1.3.` and `--version` then `mksync 1.1.3`: checklist item 9 holds
+on a work machine, with no SmartScreen or policy block. `doctor` is all `OK` (`gh` signed in, record, values, `bash`).
+`diff` against `origin/master` lists `BOTH dotfiles/common/claude/settings.json` (the 4 machine-only keys plus the
+repo's change since the 11-10 sync point) and `OUT dotfiles/windows/windows-terminal/settings.json`; `check` reads
+`UPDATE` for the same two files, and the old `.bashrc.linked/…/vs.bat` `IN` line is gone (`MakuCustomAlias/vs.bat`
+`UNCHANGED`). The clone was 12 commits behind `origin` at the time (an older second clone in the home folder was the
+one pulled).
+
 ## Open
 
 ### Design
