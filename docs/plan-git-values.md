@@ -189,10 +189,11 @@ Files: `src/core/config/types.ts`, `src/core/config/v2.ts`, `src/core/config/v2.
 `tests/parity/cases/suggest-invalid/`.
 
 `SanitizeRule.suggest?: "gh-login" | "git-user-name" | "git-user-email"`. Any other value stops the config check with
-`sync-config.json: entry <file> has an invalid suggest.`, exit 2, as an invalid `defaultEnv` does.
+`ERROR: sync-config.json: entry <file> has an invalid suggest.`, exit 1, as an invalid `defaultEnv` does (the contract's
+"Path safety"; step 1 corrected the plan's exit 2).
 
 Unit cases: each of the three is read; `"suggest": "x"` and `"suggest": 1` are refused; no field leaves the rule as
-it is. Shared case `suggest-invalid`: `check` with `"suggest": "x"` prints the line and exits 2.
+it is. Shared case `suggest-invalid`: `check` with `"suggest": "x"` prints the line and exits 1.
 
 Test: `bun test src/core/config`, then `tests/parity/run.sh --engine dist/mksync suggest-invalid`.
 
