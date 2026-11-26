@@ -68,14 +68,24 @@ describe("suggestions", () => {
     expect(await suggestions([LOGIN_RULE], runner, NO_ENV)).toEqual({});
   });
 
-  test.each(["", "\n", "<YOUR_GH_USERNAME>\n", "two\nlines\n"])(
-    "should give no suggestion for the output %p",
-    async (stdout) => {
-      const { runner } = answering({ code: 0, stdout });
+  test.each([
+    "",
+    "\n",
+    "<YOUR_GH_USERNAME>\n",
+    "two\nlines\n",
+    "Ana\u001b[31mLopez\n",
+    "Ana\u009bLopez\n",
+  ])("should give no suggestion for the output %p", async (stdout) => {
+    const { runner } = answering({ code: 0, stdout });
 
-      expect(await suggestions([LOGIN_RULE], runner, NO_ENV)).toEqual({});
-    },
-  );
+    expect(await suggestions([LOGIN_RULE], runner, NO_ENV)).toEqual({});
+  });
+
+  test("should give no suggestion when the runner rejects", async () => {
+    const runner = (): Promise<never> => Promise.reject(new Error("spawn"));
+
+    expect(await suggestions([LOGIN_RULE], runner, NO_ENV)).toEqual({});
+  });
 
   test("should run each source once however many rules name it", async () => {
     const { runner, calls } = answering({ code: 0, stdout: "Ana Lopez\n" });

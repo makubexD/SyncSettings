@@ -83,7 +83,7 @@ describe("tildePath", () => {
   test.each([
     ["/home/u/work/.gitconfig", "/home/u", "~/work/.gitconfig"],
     ["/home/user/x", "/home/u", "/home/user/x"],
-    ["C:\\Users\\u\\w\\.gitconfig", "C:\\Users\\u", "~\\w\\.gitconfig"],
+    ["C:\\Users\\u\\w\\.gitconfig", "C:\\Users\\u", "~/w/.gitconfig"],
     ["C:/Users/u/w/.gitconfig", "C:\\Users\\u", "~/w/.gitconfig"],
     ["~/a", "/home/u", "~/a"],
   ])("should write %s under %s as %s", (path, home, expected) => {

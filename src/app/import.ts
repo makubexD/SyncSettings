@@ -171,6 +171,9 @@ async function planWithAnswers(
   return importPlan(snapshot, resolved.values, overwriteAnswers);
 }
 
+/** The suggestions under `--yes`: no source runs. */
+const NO_SUGGESTIONS: SuggestValues = () => Promise.resolve({});
+
 /** Run `mksync import` end to end: the checks, the answers, then the check's
  * plan or the applied one. */
 export async function runImport(
@@ -186,6 +189,14 @@ export async function runImport(
   const { snapshot, context } = await buildRun(env, command);
   const result = command.check
     ? renderStatic(planCheck(snapshot))
-    : applyPlan(await planWithAnswers(snapshot, io, suggest), context);
+    : applyPlan(
+        // Pull's `--yes` runs no source, so a suggestion can't fill a value unseen.
+        await planWithAnswers(
+          snapshot,
+          io,
+          command.yes ? NO_SUGGESTIONS : suggest,
+        ),
+        context,
+      );
   return endRun(result, started.check, started.finish);
 }

@@ -393,6 +393,15 @@ describe("doctorLines git config lines", () => {
     expect(gitLines(f)).toEqual([]);
   });
 
+  test("should not warn on windows when the paths differ only in separators", () => {
+    const f = withGit(
+      { ghPath: SAVED_GH.replaceAll("\\", "/"), ghCliValue: SAVED_GH },
+      "windows",
+    );
+
+    expect(gitLines(f)).toEqual([]);
+  });
+
   test("should not warn on windows when only one path is known", () => {
     expect(gitLines(withGit({ ghPath: FOUND_GH }, "windows"))).toEqual([]);
   });

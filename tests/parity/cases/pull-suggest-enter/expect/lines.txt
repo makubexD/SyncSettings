@@ -1,0 +1,2 @@
+Enter values to fill the placeholders in the config files:
+GitHub username (~/.config/parity/a.conf) [parity-user]:

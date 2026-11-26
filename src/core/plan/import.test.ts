@@ -1161,6 +1161,40 @@ describe("import value questions", () => {
     ]);
   });
 
+  test("should stop at end of input when a reset question shows a suggestion over a default", () => {
+    // Arrange
+    const entry: ConfigV2Entry = {
+      ...VALUE_ENTRY,
+      sanitize: [
+        {
+          placeholder: "<YOUR_NAME>",
+          prompt: "Full name",
+          default: "Rule Name",
+        },
+      ],
+    };
+    const snapshot: Snapshot = {
+      ...layeredSnapshot("linux", {
+        entries: [entry],
+        repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+      }),
+      resetValues: true,
+      suggested: { "<YOUR_NAME>": "Ana Lopez" },
+    };
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Ana Lopez]: `,
+        hasDefault: false,
+        suggestion: "Ana Lopez",
+      },
+    ]);
+  });
+
   test("should ask no question when the check path plans a missing value", () => {
     // Arrange
     const snapshot = validSnapshot("missing-value-stops");

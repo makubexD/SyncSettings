@@ -186,13 +186,20 @@ const SYNCED_INCLUDES: ReadonlySet<string> = new Set([
   "~/.gitconfig.machine",
 ]);
 
-/** Contract "Front door": the `gh` path line, Windows only, compared without case. */
+/** Windows paths compare without case and with either separator. */
+function samePath(a: string, b: string): boolean {
+  const norm = (path: string): string =>
+    path.replaceAll("\\", "/").toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/** Contract "Front door": the `gh` path line, Windows only, compared as `samePath` does. */
 function ghPathLine(os: Os, g: GitFacts): string[] {
   const { ghPath, ghCliValue } = g;
   if (os !== "windows" || ghPath === undefined || ghCliValue === undefined) {
     return [];
   }
-  if (ghPath.toLowerCase() === ghCliValue.toLowerCase()) {
+  if (samePath(ghPath, ghCliValue)) {
     return [];
   }
   return [

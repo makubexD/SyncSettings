@@ -282,9 +282,11 @@ appears in none of those files is still asked: the program can't tell without th
 pull is about to ask for that placeholder, it runs the source once and shows its trimmed output before the colon:
 ` <prompt> (<file>, …) [<value>]:`. An empty answer then takes the suggestion; a typed answer wins. The sources are
 `gh-login` (`gh api user --jq .login`), `git-user-name` (`git config --global user.name`) and `git-user-email`
-(`git config --global user.email`). A source that fails, prints nothing or prints placeholder text gives no
-suggestion, and the prompt reads as without one. A suggestion is never used without its prompt: `--yes`, no input,
-`preview`, `diff`, `check` and `status` run no source, so a suggestion can't fill a value unseen. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
+(`git config --global user.email`). A source that fails, runs past 5 seconds, prints nothing, prints more than one
+line, prints a control character or prints placeholder text gives no suggestion, and the prompt reads as without one. A
+suggestion is never used without its prompt: `--yes` (push and pull), `preview`, `diff`, `check` and `status` run no
+source, and end of input never takes a suggestion, so a suggestion can't fill a value unseen. With no input the source
+still runs before the first prompt, and the run stops there as below. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
 missing, so the run stops as below, after the prompts printed so far; with no input at all a run stops as it did
 before. An answer that holds placeholder text stops the run at once with the missing-value line. Answers are read from
 stdin after a leading byte order mark (`U+FEFF`, which Windows PowerShell puts before piped text) is dropped. `--check`, `preview`, `export --preview`, `status` and `diff` never ask.
@@ -297,7 +299,8 @@ on the record and the profile by [Values on a machine](#values-on-a-machine), el
 asks nothing; with no input (`< /dev/null`) the header is printed and the run stops at the first question.
 
 `mksync import --reset-values` prompts again for every placeholder and skips inference.
-The cached value is only the prompt's default. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
+The cached value is only the prompt's default. With no cached value, a suggestion comes before the rule's `default`
+and `defaultEnv`, and a prompt that shows one stops the run at end of input, as one with no default does. The program prints each prompt before reading its answer. With a machine record, an answer that differs from the record's or the
 profile's value replaces it there; a new one is placed as in [Values on a machine](#values-on-a-machine). The program
 takes the flag on `import` only so far.
 New values are saved back to `.user-values.json`. Each save leaves the file readable by the current user only: mode 600
@@ -939,10 +942,10 @@ https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo ha
   `WARN git also reads ~/.config/git/config; mksync syncs ~/.gitconfig only` when that file exists;
   `WARN git includes <path>, which mksync doesn't sync` for each `include.path` or `includeIf.*.path` value in the
   global config (`git config --global`) other than `~/.gitconfig.local` and `~/.gitconfig.machine`, the home folder
-  written as `~`; `WARN ~/.gitconfig.local is missing; mksync pull creates it from the repo` when this OS has a repo
+  written as `~` with `/` after it; `WARN ~/.gitconfig.local is missing; mksync pull creates it from the repo` when this OS has a repo
   copy of it and the file is missing; and on Windows only,
   `WARN gh is <found path>, not <GH_CLI_PATH value>; mksync pull would point git at the wrong gh` when both are known
-  and differ, compared without case; `bash` (`WARN bash: needed by the leak scan; install with
+  and differ, compared without case and with `\` and `/` taken as one; `bash` (`WARN bash: needed by the leak scan; install with
 <command>`; on Windows `install with winget install --id Git.Git -e`, or `install Git for Windows from
 https://git-scm.com` without `winget`; on Windows the line is `OK` when Git's own `bash.exe` is found from `git`, as
   the leak scan ([Checks before pushing](#checks-before-pushing)) finds it, and a `bash` elsewhere on `PATH`, such as

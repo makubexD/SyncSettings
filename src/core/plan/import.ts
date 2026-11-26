@@ -877,8 +877,12 @@ function resetValueQuestions(
     const prompt = rule.prompt ?? "";
     questions.push({
       text: valueQuestion(prompt, files.get(placeholder) ?? [], shown),
-      // End of input still takes the cached value, default or defaultEnv.
-      hasDefault: promptFallback(rule, snapshot.values, env).length > 0,
+      // End of input still takes the cached value, default or defaultEnv, but
+      // never a suggestion: a bracket that shows one stops there, so the run
+      // never writes a value the screen didn't show.
+      hasDefault:
+        suggestion === undefined &&
+        promptFallback(rule, snapshot.values, env).length > 0,
       ...(suggestion !== undefined ? { suggestion } : {}),
     });
   }

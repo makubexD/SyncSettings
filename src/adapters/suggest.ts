@@ -30,6 +30,9 @@ const NO_ANSWER_CODE = 1;
 /** The line end a source prints after its answer. */
 const TRAILING_LINE_END = /\r?\n$/;
 
+/** C0 and C1 control characters, which a prompt must not echo to the terminal. */
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
+
 /** The command each source runs. */
 export function sourceCommand(
   source: SuggestSource,
@@ -71,7 +74,12 @@ function suggestionOf(result: SuggestResult): string | undefined {
   }
   // One line, as a typed answer is: the line end goes, a second line refuses.
   const value = trimAnswer(result.stdout.replace(TRAILING_LINE_END, ""));
-  if (value === "" || value.includes("\n") || holdsPlaceholder(value)) {
+  // A second line or a control character (an escape code) refuses.
+  if (
+    value === "" ||
+    CONTROL_CHARACTER.test(value) ||
+    holdsPlaceholder(value)
+  ) {
     return undefined;
   }
   return value;
@@ -95,7 +103,11 @@ export async function suggestions(
     }
     let answer = sources.get(source);
     if (answer === undefined) {
-      answer = runner(sourceCommand(source, env)).then(suggestionOf);
+      // A runner that rejects gives no suggestion, as a failing source does.
+      answer = runner(sourceCommand(source, env)).then(
+        suggestionOf,
+        () => undefined,
+      );
       sources.set(source, answer);
     }
     pending.push([rule.placeholder, answer]);

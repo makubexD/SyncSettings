@@ -84,7 +84,8 @@ export function tildePath(path: string, home: string): string {
     }
     const rest = path.slice(prefix.length);
     if (path.startsWith(prefix) && (rest[0] === "/" || rest[0] === "\\")) {
-      return `${HOME_MARK}${rest}`;
+      // One separator after `~`, so a Windows include matches the synced set.
+      return `${HOME_MARK}${rest.replaceAll("\\", "/")}`;
     }
   }
   return path;

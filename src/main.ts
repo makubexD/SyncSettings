@@ -335,7 +335,9 @@ async function execute(
             runCheck: (only) => execute(pullImportCommand(true, false, only)),
             runDiff: (only) => execute(diffCommand(only, true)),
             runImport: (only) =>
-              execute(pullImportCommand(false, true, only), { terminal }),
+              execute(pullImportCommand(false, true, only, command.yes), {
+                terminal,
+              }),
             unsent: async () => (await unsentCount(repoRoot)) ?? 0,
             fetchAndFastForward: () => fetchAndFastForward(repoRoot),
             hasSyncPoint: async () =>
@@ -381,8 +383,7 @@ async function execute(
             },
             hasSyncPoint: async () =>
               (await readSyncPoint(repoRoot, state)) !== undefined,
-            runDiff: (only, conflicts) =>
-              execute(diffCommand(only, conflicts)),
+            runDiff: (only, conflicts) => execute(diffCommand(only, conflicts)),
             runExport: (only, yes, skip) =>
               execute(pushExportCommand(only, yes, skip), {
                 moves: true,

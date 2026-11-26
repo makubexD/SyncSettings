@@ -1892,9 +1892,24 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
 - **Workflow keys in phase 10.** Claude's `settings.json` keeps the workflow's `hooks` wiring in the Linux OS layer, and
   `CLAUDE.md`'s workflow text is base text, because a `personal` profile layer can't be committed while the repo is
   public. Phase 10 moves both to the `personal` profile layer, so a work machine on Linux wouldn't get them either.
+- **Suggested answers (git-values review, v1.1.8).** Left open by the finish review:
+  - A push sanitizes with the answer it is given, so a suggestion taken with Enter can differ from the value in the
+    synced file: `git config --global user.name` merges `~/.gitconfig` and `~/.config/git/config` (the last one wins)
+    and doesn't follow includes. The real name then stays in the export, and only the leak scan stops it. A fix: after
+    sanitizing, check that a rule answered from a suggestion matched in its files, and ask again if it didn't.
+  - The sources run before the first prompt even when stdin is already at end of input (CI, `< /dev/null`), so such a
+    run waits up to 5 seconds for `gh api user` and then stops as it would without one. The contract says so.
+  - `--reset-values` runs the sources for every rule, including ones whose bracket shows the cached value.
+  - Nothing is printed during the up-to-5-second wait before the header.
+- **The doctor's `GH_CLI_PATH` value (git-values review).** The doctor compares `gh` with the saved value, else the
+  rule's `default`; it ignores `defaultEnv` and inferred values, which pull would also use.
 
 ### Confirm on Windows
 
+- **A planted `git.exe` or `gh.exe` (git-values review).** Bun's process spawn on Windows searches the current folder
+  before `Path`, so `mksync` run from a folder holding a `git.exe` or `gh.exe` would run that file. All git calls share
+  this, not only the new sources. A fix: resolve each binary with the doctor's `which()` and pass the absolute path.
+  Confirm the search order in the VM first.
 - **The doctor's `defaultEnv` lookup (values-ask review).** The doctor now reads a copy of the environment
   (`valueEnv`), as import and export do, so a rule naming `AppData` no longer matches `APPDATA` case-insensitively
   there. No rule in `sync-config.json` names a mixed-case variable; confirm nothing on the work machines relies on it.

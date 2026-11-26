@@ -144,8 +144,9 @@ value in the file, and import puts it back, so pick values specific enough not t
   owner of your own repos, as `~/.claude/settings.json` names them. On a work machine the two differ.
 - `suggest` runs, only when push or pull is about to ask: `gh-login` is `gh api user --jq .login`, `git-user-name`
   `git config --global user.name`, `git-user-email` `git config --global user.email`. Enter takes the suggestion,
-  shown as `GitHub username (~/.gitconfig.local) [you]:`. A source that fails or prints nothing shows none. `--yes`,
-  `preview` and `diff` never use one. Any other value stops every command with
+  shown as `GitHub username (~/.gitconfig.local) [you]:`; end of input never takes it. A source that fails, prints
+  nothing, or prints more than one line or a control character shows none. `--yes` (push and pull), `preview` and `diff`
+  never use one. Any other value stops every command with
   `ERROR: sync-config.json: entry <file> has an invalid suggest.`, exit 1, as an invalid `defaultEnv` does.
 - With a machine record, values are saved in the record or the profile ([below](#profiles-and-machines)). Without one,
   they are cached in `.user-values.json`, which is gitignored, with placeholders as keys.
