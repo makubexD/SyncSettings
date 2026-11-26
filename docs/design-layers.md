@@ -1497,6 +1497,12 @@ install").
   (`gh-login`, `git-user-name`, `git-user-email`) that only Enter takes; `preview` marks a file that needs a missing
   value `SKIPPED` and goes on, exit 1; the doctor warns about `~/.config/git/config`, include targets it doesn't
   sync, a missing `~/.gitconfig.local`, and on Windows a `gh` that differs from `<GH_CLI_PATH>`.
+- **Suggestions without a terminal (`v1.1.8`, decided at run time).** Push runs no source under `--yes`. Pull's
+  import has no `--yes` of its own and prints its value questions even with piped or no input, so it runs the sources
+  then; only an empty line takes a suggestion, never end of input, so nothing is filled unseen. Under
+  `--reset-values` the bracket shows the cached value first, then the suggestion, then the rule's `default`. The app
+  turns Enter into the suggestion; `askValues` itself is unchanged. Whether pull should skip the sources when stdin
+  is not a terminal is open.
 - **Syncing git's other config files.** `~/.config/git/config` and `include.path` / `includeIf.*.path` targets other
   than `~/.gitconfig.local` and `~/.gitconfig.machine` aren't synced; `v1.1.8`'s doctor only names them. Whether they
   become entries, and on which layer, is open.

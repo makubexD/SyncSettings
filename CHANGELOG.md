@@ -2,6 +2,24 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.8 (2026-11-26)
+
+- Claude's `settings.json` names the owner of your own repos with its own placeholder, `<YOUR_GH_OWNER>`, apart from
+  `<YOUR_GH_USERNAME>`, git's credential account in Windows' `.gitconfig.local`. On a work machine the two can differ.
+  Nothing to migrate: push and pull read the owner from the unchanged line in your local file.
+- The value question names the files that need the value: `GitHub username (~/.gitconfig.local):`.
+- `mksync preview` lists every file when a value is missing. A file waiting for one reads
+  `SKIPPED <file>  (needs <PLACEHOLDER>: mksync push asks for it)`, the rest are shown and scanned, and preview exits 1.
+  `mksync check`'s note reads `needs <PLACEHOLDER>: mksync push or pull asks for it`.
+- `mksync doctor` reads git's own view of its config and warns, without changing its exit code, about
+  `~/.config/git/config`, an include mksync doesn't sync, a missing `~/.gitconfig.local`, and on Windows a `gh` on
+  `PATH` that isn't the saved `<GH_CLI_PATH>`.
+- A rule can suggest its answer: `"suggest": "gh-login"`, `"git-user-name"` or `"git-user-email"` runs
+  `gh api user --jq .login` or `git config --global user.name` / `user.email` and shows the result as the question's
+  default, `GitHub username (~/.gitconfig.local) [you]:`. Enter takes it, typing replaces it, and `--yes`, end of
+  input and `preview` never use it. The config check refuses any other `suggest`. `<YOUR_GH_USERNAME>`, `<YOUR_NAME>`
+  and `<YOUR_EMAIL>` use them.
+
 ## v1.1.7 (2026-11-26)
 
 - A rule's `defaultEnv: "HOME"` is the home folder on every OS. On Windows, which sets no `HOME`, it is `%USERPROFILE%`
