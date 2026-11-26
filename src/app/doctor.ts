@@ -8,6 +8,8 @@
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { runGitResult } from "../adapters/git.ts";
+import { readGitFacts } from "../adapters/gitconfig.ts";
+import type { GitConfigFacts } from "../adapters/gitconfig.ts";
 import { hasScanBash } from "../adapters/leakscan.ts";
 import {
   driftRoot,
@@ -18,11 +20,12 @@ import {
 import { run, which } from "../adapters/process.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import { readText } from "../adapters/store.ts";
-import type { ConfigV2, Os } from "../core/config/types.ts";
+import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import { driftLines, parsePackageLists } from "../core/drift.ts";
 import type {
   DoctorFacts,
   GhFact,
+  GitFacts,
   PackageManager,
 } from "../core/front/doctor.ts";
 import { doctorLines } from "../core/front/doctor.ts";
@@ -162,6 +165,82 @@ function driftCount(
   }
 }
 
+/** What the adapter read, plus the `gh` found on `PATH`. */
+export interface RawGitFacts extends GitConfigFacts {
+  readonly ghPath?: string;
+}
+
+/** The local file the doctor checks, as `sync-config.json` writes it. */
+const LOCAL_GITCONFIG = "~/.gitconfig.local";
+
+/** The placeholder `.gitconfig.local` points git's `gh` at. */
+const GH_CLI_PLACEHOLDER = "<GH_CLI_PATH>";
+
+/** Whether `entry` applies to `os`. */
+function forOs(entry: ConfigV2Entry, os: Os): boolean {
+  return entry.os === undefined || entry.os.includes(os);
+}
+
+/** `entry`'s local path on `os`. */
+function localPathOn(entry: ConfigV2Entry, os: Os): string | undefined {
+  return entry.localPaths?.[os] ?? entry.localPath;
+}
+
+/**
+ * The `<GH_CLI_PATH>` value pull would write on `os`: the machine's value,
+ * else the rule's default; undefined when no entry for `os` has the rule.
+ */
+function ghCliValue(
+  entries: readonly ConfigV2Entry[],
+  values: Values,
+): string | undefined {
+  const rule = entries
+    .flatMap((entry) => entry.sanitize ?? [])
+    .find((item) => item.placeholder === GH_CLI_PLACEHOLDER);
+  if (rule === undefined) {
+    return undefined;
+  }
+  return values[GH_CLI_PLACEHOLDER] ?? rule.default;
+}
+
+/**
+ * Contract "Front door", doctor: git's view for the core lines. `config`
+ * holds the entries this machine syncs; `localMissing` needs one for `os`
+ * with `~/.gitconfig.local` as its local path.
+ */
+export function doctorGitFacts(
+  config: ConfigV2,
+  os: Os,
+  raw: RawGitFacts,
+  values: Values,
+): GitFacts {
+  const entries = config.entries.filter((entry) => forOs(entry, os));
+  const hasLocalCopy = entries.some(
+    (entry) => localPathOn(entry, os) === LOCAL_GITCONFIG,
+  );
+  const cliValue = ghCliValue(entries, values);
+  return {
+    xdgConfig: raw.xdgConfig,
+    includes: raw.includes,
+    localMissing: hasLocalCopy && !raw.localExists,
+    ...(raw.ghPath !== undefined ? { ghPath: raw.ghPath } : {}),
+    ...(cliValue !== undefined ? { ghCliValue: cliValue } : {}),
+  };
+}
+
+/** The entries this machine syncs, as the import selects them; all when the
+ * selection fails, so the doctor still reads git's view. */
+function syncedConfig(input: DoctorInput): ConfigV2 {
+  const selected = selectEntries(
+    input.config,
+    scopeOf(input),
+    new Set<string>(),
+  );
+  return selected.ok
+    ? { ...input.config, entries: selected.value.map((item) => item.entry) }
+    : input.config;
+}
+
 /** The layers' scope, as `scopeFor` builds it from a snapshot. */
 function scopeOf(input: DoctorInput): SelectScope {
   const { profile, machine, record } = input.layers;
@@ -236,10 +315,12 @@ function unsetValueCount(input: DoctorInput): number {
  * `doctorLines` returns, exit 1 with any `MISSING` line. Nothing is written.
  */
 export async function executeDoctor(input: DoctorInput): Promise<Result> {
-  const [gh, origin] = await Promise.all([
+  const [gh, origin, gitConfig] = await Promise.all([
     ghFact(process.env),
     hasOrigin(input.repoRoot),
+    readGitFacts(input.home),
   ]);
+  const ghPath = which(ghBinary(process.env));
   const gitPath = which("git");
   const facts: DoctorFacts = {
     os: input.os,
@@ -251,6 +332,12 @@ export async function executeDoctor(input: DoctorInput): Promise<Result> {
     unsetValues: unsetValueCount(input),
     bash: hasScanBash(process.platform, gitPath, existsSync, onPath),
     drift: driftCount(input.repoRoot, input.os, input.home, process.env),
+    gitFacts: doctorGitFacts(
+      syncedConfig(input),
+      input.os,
+      { ...gitConfig, ...(ghPath !== null ? { ghPath } : {}) },
+      valuesFor(input),
+    ),
   };
   const report = doctorLines(facts);
   return { code: report.code, stdout: writeLines(report.lines), stderr: "" };
