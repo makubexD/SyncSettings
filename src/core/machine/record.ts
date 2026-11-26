@@ -8,6 +8,7 @@ import type {
 import type { JsonValue } from "../json/value.ts";
 import { writeJson } from "../json/value.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../layers/names.ts";
+import { MACHINE_ALIAS } from "../plan/commit.ts";
 
 /** The second setup question's answer. */
 export type ClaudeMode = "none" | "claude" | "claude-deepseek";
@@ -23,6 +24,9 @@ export interface ReplacedMachine {
  * the design's "Machine records". */
 export interface MachineRecord {
   readonly name: string;
+  /** The public name push branches use, absent until the first push from a
+   * terminal asks for it (contract "The PR"). */
+  readonly alias?: string;
   readonly profile: string;
   readonly os: Os;
   readonly hostname: string;
@@ -55,8 +59,8 @@ const FIELDS: readonly string[] = [
   "retired",
 ];
 
-/** Every key a record may hold: the required fields plus `entries`. */
-const ALL_FIELDS: readonly string[] = [...FIELDS, "entries"];
+/** Every key a record may hold: the required fields plus the optional ones. */
+const ALL_FIELDS: readonly string[] = [...FIELDS, "alias", "entries"];
 
 const MODULE_FIELDS: readonly string[] = ["add", "remove"];
 
@@ -175,8 +179,8 @@ function readReplaced(value: unknown): readonly ReplacedMachine[] | undefined {
 }
 
 /**
- * Parses the full record form. Every field is required except `entries`, and
- * no other is allowed. The error is the contract's reason without its
+ * Parses the full record form. Every field is required except `alias` and
+ * `entries`, and no other is allowed. The error is the contract's reason without its
  * `ERROR:` line: `not valid JSON`, `unknown field <f>`, `missing field <f>`,
  * `<f> has the wrong type`, `<f> must be lowercase letters, digits and -;
  * this is <value>`, `<f> can't be <value>: it names another layer`,
@@ -217,6 +221,18 @@ export function parseRecord(
   const nameProblem = nameReason("name", name);
   if (nameProblem !== undefined) {
     return failure(nameProblem);
+  }
+
+  const alias = parsed.alias;
+  if (alias !== undefined) {
+    if (typeof alias !== "string") {
+      return failure("alias has the wrong type");
+    }
+    if (!MACHINE_ALIAS.test(alias)) {
+      return failure(
+        `alias must be lowercase letters, digits and -; this is ${alias}`,
+      );
+    }
   }
 
   const profile = parsed.profile;
@@ -299,6 +315,7 @@ export function parseRecord(
 
   const record: MachineRecord = {
     name,
+    ...(alias === undefined ? {} : { alias }),
     profile,
     os,
     hostname,
@@ -379,8 +396,11 @@ function recordValue(record: MachineRecord): JsonValue {
   const values: [string, JsonValue][] = Object.entries(record.values).map(
     ([key, value]) => [key, jsonString(value)],
   );
+  const aliasFields: [string, JsonValue][] =
+    record.alias === undefined ? [] : [["alias", jsonString(record.alias)]];
   const fields: [string, JsonValue][] = [
     ["name", jsonString(record.name)],
+    ...aliasFields,
     ["profile", jsonString(record.profile)],
     ["os", jsonString(record.os)],
     ["hostname", jsonString(record.hostname)],

@@ -114,6 +114,25 @@ const EMPTY_TEXT = `{
 }
 `;
 
+const ALIASED_TEXT = `{
+  "name": "wk1-laptop",
+  "alias": "parity-alias",
+  "profile": "work-1",
+  "os": "linux",
+  "hostname": "wk1-laptop",
+  "domain": null,
+  "claude": "none",
+  "pullOnly": false,
+  "modules": {
+    "add": [],
+    "remove": []
+  },
+  "values": {},
+  "replaced": [],
+  "retired": false
+}
+`;
+
 const MISSING_FIELDS: readonly string[] = [
   "name",
   "profile",
@@ -175,6 +194,7 @@ describe("parseRecord", () => {
 
   test.each([
     ["name", 1, "name has the wrong type"],
+    ["alias", 1, "alias has the wrong type"],
     ["profile", 1, "profile has the wrong type"],
     ["os", 1, "os has the wrong type"],
     ["hostname", 1, "hostname has the wrong type"],
@@ -194,6 +214,27 @@ describe("parseRecord", () => {
       { ...FULL_RECORD, name: "Wk1-Laptop" },
       "name must be lowercase letters, digits and -; this is Wk1-Laptop",
     );
+  });
+
+  test.each(["Has Space", "a234567890123456789012345", "-lead"])(
+    "refuses the alias %s",
+    (alias) => {
+      expectFailure(
+        { ...FULL_RECORD, alias },
+        `alias must be lowercase letters, digits and -; this is ${alias}`,
+      );
+    },
+  );
+
+  test("reads a record with an alias", () => {
+    // Act
+    const result = parseRecord(ALIASED_TEXT, CONFIG);
+
+    // Assert
+    expect(result).toEqual({
+      ok: true,
+      value: { ...EMPTY_RECORD, alias: "parity-alias" },
+    });
   });
 
   test("refuses a profile that isn't lowercase letters, digits and -", () => {
@@ -450,6 +491,27 @@ describe("recordText", () => {
 
     // Assert
     expect(recordText(parsed.value)).toBe(FULL_TEXT);
+  });
+
+  test("round trips a record with no alias byte-exact", () => {
+    // Act
+    const parsed = parseRecord(EMPTY_TEXT, CONFIG);
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+
+    // Assert
+    expect(recordText(parsed.value)).toBe(EMPTY_TEXT);
+  });
+
+  test("writes alias as the second key", () => {
+    // Act
+    const text = recordText({ ...EMPTY_RECORD, alias: "parity-alias" });
+
+    // Assert
+    expect(text).toBe(ALIASED_TEXT);
+    const written = JSON.parse(text) as Record<string, unknown>;
+    expect(Object.keys(written)[1]).toBe("alias");
   });
 });
 
