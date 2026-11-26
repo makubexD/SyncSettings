@@ -42,6 +42,75 @@ export function branchName(os: Os, machine: string, stamp: string): string {
   return `sync/${os}-${machine}-${stamp}`;
 }
 
+/** The longest public name the suggestion may produce (decision 1). */
+const ALIAS_LIMIT = 24;
+
+/** The error `push` prints for a name that is not a valid alias. */
+function invalidAliasError(answer: string): string {
+  return `ERROR: invalid machine alias '${answer}' (use a-z, 0-9, -).`;
+}
+
+/** The hostname's short form: its text up to the first dot. */
+function shortHostname(hostname: string): string {
+  const dot = hostname.indexOf(".");
+  return dot === -1 ? hostname : hostname.slice(0, dot);
+}
+
+/**
+ * The public name `push` suggests for a machine, from its login (decision 1):
+ * the text after the last `\` of a `DOMAIN\login` form, lowercased, each run
+ * of characters outside `a-z0-9` replaced by one `-`, `-` trimmed from both
+ * ends and the result cut to 24 characters with any trailing `-` trimmed
+ * again. `undefined` when nothing is left or the result is the hostname or
+ * its short form, ignoring case.
+ */
+export function suggestAlias(
+  login: string,
+  hostname: string,
+): string | undefined {
+  const bare = login.slice(login.lastIndexOf(BACKSLASH) + 1);
+  const dashed = bare.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const trimmed = dashed.replace(/^-+|-+$/g, "");
+  const alias = trimmed.slice(0, ALIAS_LIMIT).replace(/-+$/, "");
+  if (alias === "") {
+    return undefined;
+  }
+  const hostnames = [
+    hostname.toLowerCase(),
+    shortHostname(hostname).toLowerCase(),
+  ];
+  if (hostnames.includes(alias)) {
+    return undefined;
+  }
+  return alias;
+}
+
+/**
+ * Whether an answer to the public-name prompt is usable (decision 2). The
+ * hostname is refused first, then the machine alias rule; the error lines are
+ * the ones `push` prints, and the hostname check is case-insensitive for both
+ * the full hostname and its short form.
+ */
+export function checkAlias(
+  answer: string,
+  record: { readonly hostname: string },
+): { readonly alias: string } | { readonly error: string } {
+  const folded = answer.toLowerCase();
+  const hostnames = [
+    record.hostname.toLowerCase(),
+    shortHostname(record.hostname).toLowerCase(),
+  ];
+  if (hostnames.includes(folded)) {
+    return {
+      error: `ERROR: '${answer}' is this machine's hostname; pick another public name.`,
+    };
+  }
+  if (!MACHINE_ALIAS.test(answer)) {
+    return { error: invalidAliasError(answer) };
+  }
+  return { alias: answer };
+}
+
 /** The name a status line changes: everything after its last `/`. */
 function baseName(file: string): string {
   return file.slice(file.lastIndexOf("/") + 1);
