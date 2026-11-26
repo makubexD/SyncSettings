@@ -52,6 +52,7 @@ import {
   cachedValueHits,
   checkAlias,
   commitMessage,
+  MACHINE_ALIAS,
   outsidePaths,
   prBody,
   suggestAlias,
@@ -123,8 +124,6 @@ const SYNC_PATHS = ["dotfiles", "sync-config.json"] as const;
 const PACKAGES_ROOT = "packages";
 
 const VALUES_FILE = ".user-values.json";
-
-const MACHINE_ALIAS = /^[a-z0-9][a-z0-9-]{0,23}$/;
 
 const MACHINE_ALIAS_KEY = "syncsettings.machine";
 
@@ -201,15 +200,20 @@ function aliasPrompt(suggestion: string | undefined): string {
   return `  Public name for this machine's push branches${hint}: `;
 }
 
-/** The login made into a public name, or no suggestion when the login can't
- * be read (decision 1). */
-function loginSuggestion(hostname: string): string | undefined {
+/** This machine's login, or `undefined` when it can't be read. */
+function currentLogin(): string | undefined {
   try {
-    return suggestAlias(userInfo().username, hostname);
+    return userInfo().username;
   } catch {
-    // userInfo can throw when the login can't be read; then there is no suggestion.
+    // userInfo throws when the user has no passwd entry; then there is no
+    // suggestion, and the question is asked without one.
     return undefined;
   }
+}
+
+/** The error a failed save of the public name stops with. */
+function saveFailedError(file: string): string {
+  return `ERROR: could not save the public name in ${file}; nothing was committed.`;
 }
 
 /** Ask on stderr, as the git-config prompt does; no terminal or end of input
@@ -243,12 +247,17 @@ async function resolveMachineAlias(
   record: MachineRecord | undefined,
   location: StoreLocation,
   askAlias: (prompt: string) => Promise<string | undefined>,
+  login: string | undefined,
 ): Promise<{ readonly alias?: string; readonly error?: string }> {
   if (record !== undefined) {
     if (record.alias !== undefined) {
-      return { alias: record.alias };
+      // A stored alias is checked too: a record edited by hand, or carried to
+      // a machine with that hostname, must not publish it (decision 2).
+      const stored = checkAlias(record.alias, record);
+      return "error" in stored ? { error: stored.error } : { alias: stored.alias };
     }
-    const suggestion = loginSuggestion(record.hostname);
+    const suggestion =
+      login === undefined ? undefined : suggestAlias(login, record.hostname);
     const answer = await askAlias(aliasPrompt(suggestion));
     if (answer === undefined) {
       return { error: noPublicNameError(record.name) };
@@ -260,7 +269,13 @@ async function resolveMachineAlias(
     if ("error" in checked) {
       return { error: checked.error };
     }
-    writeStoreRecord(location, { ...record, alias: checked.alias });
+    try {
+      writeStoreRecord(location, { ...record, alias: checked.alias });
+    } catch {
+      // A read-only state folder or a folder in the file's place: say where,
+      // and stop before anything is committed.
+      return { error: saveFailedError(location.recordFile) };
+    }
     process.stderr.write(`  Saved public name: ${checked.alias}\n`);
     return { alias: checked.alias };
   }
@@ -414,6 +429,9 @@ export interface CommitInput {
   /** The public-name question, injectable for tests; absent asks on the
    * terminal (see `askOnTerminal`). */
   readonly askAlias?: (prompt: string) => Promise<string | undefined>;
+  /** The login the public-name suggestion comes from, injectable for tests;
+   * absent reads this machine's (`os.userInfo`). */
+  readonly login?: string;
 }
 
 /**
@@ -521,6 +539,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
     record,
     location,
     askAlias,
+    input.login ?? currentLogin(),
   );
   if (machine.alias === undefined) {
     return fail(machine.error ?? NO_ALIAS);

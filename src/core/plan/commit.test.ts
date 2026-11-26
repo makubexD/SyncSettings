@@ -63,6 +63,14 @@ const QUOTED_OCTAL_INSIDE = String.raw`?? "dotfiles/caf\303\251.conf"`;
 /** A work-domain login, as Windows reports it. */
 const DOMAIN_LOGIN = String.raw`DOMAIN\Jane.Doe`;
 
+/** A login in `user@domain` form, as SSSD reports it. */
+const UPN_LOGIN = "Jane.Doe@corp.example.com";
+
+/** A NetBIOS-style hostname and the alias it becomes. */
+const NETBIOS_HOSTNAME = "WORK_PC01";
+
+const NETBIOS_ALIAS = "work-pc01";
+
 const UNDERSCORE_LOGIN = "__x__";
 
 const PUNCTUATION_LOGIN = "***";
@@ -166,6 +174,26 @@ describe("suggestAlias", () => {
     expect(alias).toBeUndefined();
   });
 
+  test("should drop an @domain suffix so the domain never reaches the branch", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(UPN_LOGIN, SHORT_HOSTNAME);
+
+    // Assert
+    expect(alias).toBe(VALID_ALIAS);
+  });
+
+  test("should return undefined when the login is the hostname in alias form", () => {
+    // Arrange
+
+    // Act
+    const alias = suggestAlias(NETBIOS_ALIAS, NETBIOS_HOSTNAME);
+
+    // Assert
+    expect(alias).toBeUndefined();
+  });
+
   test("should return undefined when the login is the hostname's short form", () => {
     // Arrange
 
@@ -188,6 +216,19 @@ describe("checkAlias", () => {
     // Assert
     expect(result).toEqual({
       error: `ERROR: 'WK1-LAPTOP' is this machine's hostname; pick another public name.`,
+    });
+  });
+
+  test("should refuse the hostname once both are in alias form", () => {
+    // Arrange
+    const record = { hostname: NETBIOS_HOSTNAME };
+
+    // Act
+    const result = checkAlias(NETBIOS_ALIAS, record);
+
+    // Assert
+    expect(result).toEqual({
+      error: `ERROR: '${NETBIOS_ALIAS}' is this machine's hostname; pick another public name.`,
     });
   });
 

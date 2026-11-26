@@ -9,14 +9,13 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StoreLocation } from "../adapters/store.ts";
 import { writeStoreRecord } from "../adapters/store.ts";
 import type { CommitCommand } from "../cli/parse.ts";
 import type { ConfigV2 } from "../core/config/types.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
-import { suggestAlias } from "../core/plan/commit.ts";
 import { executeCommit } from "./commit.ts";
 
 /** The prefix of each test's temp folder, removed after the test. */
@@ -208,6 +207,11 @@ const RECORD_HOSTNAME = "wk1-laptop";
 /** A public name the record can carry (decision 1). */
 const RECORD_ALIAS = "jane-doe";
 
+/** The login the suggestion is made from, and the alias it becomes. */
+const LOGIN = String.raw`DOMAIN\Jane.Doe`;
+
+const SUGGESTED_ALIAS = "jane-doe";
+
 /** A machine record with the fixture's hostname, overridable per case. */
 function machineRecord(
   overrides: Partial<MachineRecord> = {},
@@ -395,7 +399,7 @@ describe("executeCommit", () => {
     const location = stateLocation(state);
     const record = machineRecord();
     writeStoreRecord(location, record);
-    const suggestion = suggestAlias(userInfo().username, record.hostname);
+    const prompts: string[] = [];
 
     // Act
     const result = await executeCommit({
@@ -406,26 +410,115 @@ describe("executeCommit", () => {
       location,
       command: COMMAND,
       record,
-      askAlias: async () => "",
+      login: LOGIN,
+      askAlias: async (prompt) => {
+        prompts.push(prompt);
+        return "";
+      },
     });
 
     // Assert
-    if (suggestion === undefined) {
-      // No login-based suggestion here, so an empty answer is not valid.
-      expect(result.code).toBe(1);
-      return;
-    }
     expect(result.code).toBe(0);
-    const saved = JSON.parse(
-      readFileSync(location.recordFile, "utf8"),
-    ) as { alias?: string };
-    expect(saved.alias).toBe(suggestion);
+    expect(prompts).toEqual([
+      `  Public name for this machine's push branches [${SUGGESTED_ALIAS}]: `,
+    ]);
+    const saved = JSON.parse(readFileSync(location.recordFile, "utf8")) as {
+      alias?: string;
+    };
+    expect(saved.alias).toBe(SUGGESTED_ALIAS);
     const pushed = branches(repoRoot).find((branch) =>
       branch.startsWith("sync/"),
     );
     expect(pushed ?? "").toMatch(
-      new RegExp(`^sync/linux-${suggestion}-\\d{8}-\\d{4}$`),
+      new RegExp(`^sync/linux-${SUGGESTED_ALIAS}-\\d{8}-\\d{4}$`),
     );
+  });
+
+  test("should refuse an empty answer and write nothing when there is no suggestion", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture();
+    const location = stateLocation(state);
+    const record = machineRecord();
+    writeStoreRecord(location, record);
+    const before = readFileSync(location.recordFile, "utf8");
+    const prompts: string[] = [];
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: COMMAND,
+      record,
+      login: RECORD_HOSTNAME,
+      askAlias: async (prompt) => {
+        prompts.push(prompt);
+        return "";
+      },
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(prompts).toEqual(["  Public name for this machine's push branches: "]);
+    expect(result.stderr).toBe(
+      "ERROR: invalid machine alias '' (use a-z, 0-9, -).\n",
+    );
+    expect(readFileSync(location.recordFile, "utf8")).toBe(before);
+  });
+
+  test("should refuse a stored alias that is the hostname", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture();
+    const location = stateLocation(state);
+    const record = { ...machineRecord(), alias: RECORD_HOSTNAME };
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: COMMAND,
+      record,
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      `ERROR: '${RECORD_HOSTNAME}' is this machine's hostname; pick another public name.\n`,
+    );
+    expect(branches(repoRoot)).toEqual([MASTER]);
+  });
+
+  test("should stop with an error and commit nothing when the record can't be saved", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture();
+    const location = stateLocation(state);
+    const record = machineRecord();
+    mkdirSync(location.recordFile, { recursive: true });
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: COMMAND,
+      record,
+      login: LOGIN,
+      askAlias: async () => "",
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      `ERROR: could not save the public name in ${location.recordFile}; nothing was committed.\n`,
+    );
+    expect(branches(repoRoot)).toEqual([MASTER]);
   });
 
   test("should refuse the record hostname as a public name and write nothing", async () => {

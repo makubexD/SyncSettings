@@ -56,51 +56,56 @@ function shortHostname(hostname: string): string {
   return dot === -1 ? hostname : hostname.slice(0, dot);
 }
 
+/** `text` in alias form: lowercased, each run of characters outside
+ * `a-z0-9` made one `-`, `-` trimmed from both ends, cut to 24 characters
+ * and trimmed again. */
+function aliasForm(text: string): string {
+  const dashed = text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const trimmed = dashed.replace(/^-+|-+$/g, "");
+  return trimmed.slice(0, ALIAS_LIMIT).replace(/-+$/, "");
+}
+
+/** Whether `name` is the hostname, or its short form, once both are in alias
+ * form: `WORK_PC01` and `work-pc01` are the same machine name. */
+function namesHostname(name: string, hostname: string): boolean {
+  const folded = aliasForm(name);
+  return (
+    folded !== "" &&
+    (folded === aliasForm(hostname) || folded === aliasForm(shortHostname(hostname)))
+  );
+}
+
 /**
  * The public name `push` suggests for a machine, from its login (decision 1):
- * the text after the last `\` of a `DOMAIN\login` form, lowercased, each run
- * of characters outside `a-z0-9` replaced by one `-`, `-` trimmed from both
- * ends and the result cut to 24 characters with any trailing `-` trimmed
- * again. `undefined` when nothing is left or the result is the hostname or
- * its short form, ignoring case.
+ * the login without a `DOMAIN\` prefix or an `@domain` suffix, in alias form
+ * (`aliasForm`). `undefined` when nothing is left or the result names the
+ * hostname.
  */
 export function suggestAlias(
   login: string,
   hostname: string,
 ): string | undefined {
-  const bare = login.slice(login.lastIndexOf(BACKSLASH) + 1);
-  const dashed = bare.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const trimmed = dashed.replace(/^-+|-+$/g, "");
-  const alias = trimmed.slice(0, ALIAS_LIMIT).replace(/-+$/, "");
-  if (alias === "") {
-    return undefined;
-  }
-  const hostnames = [
-    hostname.toLowerCase(),
-    shortHostname(hostname).toLowerCase(),
-  ];
-  if (hostnames.includes(alias)) {
+  const afterDomain = login.slice(login.lastIndexOf(BACKSLASH) + 1);
+  const at = afterDomain.indexOf("@");
+  const bare = at === -1 ? afterDomain : afterDomain.slice(0, at);
+  const alias = aliasForm(bare);
+  if (alias === "" || namesHostname(alias, hostname)) {
     return undefined;
   }
   return alias;
 }
 
 /**
- * Whether an answer to the public-name prompt is usable (decision 2). The
- * hostname is refused first, then the machine alias rule; the error lines are
- * the ones `push` prints, and the hostname check is case-insensitive for both
- * the full hostname and its short form.
+ * Whether a public name is usable (decision 2), for an answer to the prompt
+ * and for an alias already in the record. The hostname is refused first,
+ * compared in alias form so case and punctuation don't hide it, then the
+ * machine alias rule; the error lines are the ones `push` prints.
  */
 export function checkAlias(
   answer: string,
   record: { readonly hostname: string },
 ): { readonly alias: string } | { readonly error: string } {
-  const folded = answer.toLowerCase();
-  const hostnames = [
-    record.hostname.toLowerCase(),
-    shortHostname(record.hostname).toLowerCase(),
-  ];
-  if (hostnames.includes(folded)) {
+  if (namesHostname(answer, record.hostname)) {
     return {
       error: `ERROR: '${answer}' is this machine's hostname; pick another public name.`,
     };
