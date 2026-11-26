@@ -15,7 +15,11 @@ import { strategyFor } from "../merge/strategy.ts";
 import type { LayerFile, SplitContext } from "../merge/types.ts";
 import { formatLine } from "../status.ts";
 import type { StatusWord } from "../status.ts";
-import { hydrate, resolveValues } from "../values/hydrate.ts";
+import {
+  hydrate,
+  missingPlaceholders,
+  resolveValues,
+} from "../values/hydrate.ts";
 import { encodeUtf8, sanitize } from "../values/sanitize.ts";
 import type { Values } from "../values/sanitize.ts";
 import { compactJson, fileLabel, valueText } from "./changes.ts";
@@ -739,6 +743,64 @@ function orphanReport(state: State): void {
 }
 
 /**
+ * The sanitize rules of the entries this export sends: picked by `--only`, not
+ * skipped, not `dir` or `dconf`, with a local file.
+ */
+function exportRules(
+  snapshot: Snapshot,
+  selected: readonly SelectedEntry[],
+  onlyPaths: readonly string[],
+): readonly SanitizeRule[] {
+  const rules: SanitizeRule[] = [];
+  for (const entry of selected) {
+    if (
+      !entrySelected(entry, onlyPaths) ||
+      entrySkipped(entry, snapshot.skip)
+    ) {
+      continue;
+    }
+    if (entry.entry.merge === "dir" || entry.entry.merge === "dconf") {
+      continue;
+    }
+    const localPath = resolvedLocal(entry.entry, snapshot.os, snapshot.home);
+    const local = snapshot.localFiles.get(localPath);
+    if (local?.kind === "file") {
+      rules.push(...(entry.entry.sanitize ?? []));
+    }
+  }
+  return rules;
+}
+
+/**
+ * Contract "Push asks": the rules whose placeholder nothing fills (saved,
+ * inferred, `default`, `defaultEnv`), one per placeholder in rule order, for
+ * the entries this export sends. Empty when the config or `--only` stops the
+ * export, since `planExport` reports that itself.
+ */
+export function exportMissingRules(
+  snapshot: Snapshot,
+): readonly SanitizeRule[] {
+  const selected = selectEntries(
+    snapshot.config,
+    scopeFor(snapshot),
+    new Set(snapshot.repoFiles.keys()),
+  );
+  if (!selected.ok) {
+    return [];
+  }
+  const only = resolveOnly(snapshot, selected.value);
+  if (!only.ok) {
+    return [];
+  }
+  return missingPlaceholders(
+    exportRules(snapshot, selected.value, only.paths),
+    snapshot.values,
+    exportInferredValues(snapshot, selected.value),
+    valueEnv(snapshot.env, snapshot.home),
+  );
+}
+
+/**
  * The export plan: every status line, action and the exit code the contract
  * gives export, from a snapshot and nothing else. `answers` are this run's
  * choices for new settings, destination key to layer slot; they join the
@@ -763,23 +825,7 @@ export function planExport(
     return only.plan;
   }
 
-  const rules: SanitizeRule[] = [];
-  for (const entry of selected.value) {
-    if (
-      !entrySelected(entry, only.paths) ||
-      entrySkipped(entry, snapshot.skip)
-    ) {
-      continue;
-    }
-    if (entry.entry.merge === "dir" || entry.entry.merge === "dconf") {
-      continue;
-    }
-    const localPath = resolvedLocal(entry.entry, snapshot.os, snapshot.home);
-    const local = snapshot.localFiles.get(localPath);
-    if (local?.kind === "file") {
-      rules.push(...(entry.entry.sanitize ?? []));
-    }
-  }
+  const rules = exportRules(snapshot, selected.value, only.paths);
   // Contract "Inference": export reads the values from this machine's files
   // as import does, so a machine with no saved value can still push.
   const values = resolveValues(

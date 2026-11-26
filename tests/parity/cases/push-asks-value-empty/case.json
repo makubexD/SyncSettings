@@ -26,7 +26,8 @@
   "commands": [
     {
       "command": "export",
-      "stdin": "\n"
+      "stdin": "\n",
+      "stderr": true
     }
   ]
 }

@@ -34,7 +34,9 @@ import type {
   RepoBackup,
 } from "../core/machine/backup.ts";
 import { changeLines } from "../core/plan/changes.ts";
-import { planExport } from "../core/plan/export.ts";
+import { exportMissingRules, planExport } from "../core/plan/export.ts";
+import { trimAnswer } from "../core/answer.ts";
+import { ASK_HEADER, missingValueLine } from "../core/values/hydrate.ts";
 import {
   changeLineNumbers,
   groupBlock,
@@ -898,8 +900,7 @@ function applyExportPlan(
   });
   let prepared: FirstBackupPrepared | undefined;
   let code = stored.result.code;
-  let stderr =
-    refused === undefined ? stored.result.stderr : `${refused}\n`;
+  let stderr = refused === undefined ? stored.result.stderr : `${refused}\n`;
   if (backup !== undefined && answers !== undefined && code === 0) {
     const sides = readBackupSides(
       backup.stateFolder,
@@ -941,6 +942,39 @@ function applyExportPlan(
   };
 }
 
+type AskedValues =
+  | { readonly ok: true; readonly snapshot: Snapshot }
+  | { readonly ok: false; readonly line: string };
+
+/**
+ * Contract "Push asks": ask for each value nothing fills, as import does, with
+ * its header and one `<prompt>: ` line each, before the change list. The
+ * answers join the snapshot's saved values, so the plan sanitizes with them
+ * and saves them where inferred values go. An empty answer or end of input
+ * stops at once with the missing-value line.
+ */
+async function askExportValues(
+  snapshot: Snapshot,
+  io: SetupIo,
+): Promise<AskedValues> {
+  const missing = exportMissingRules(snapshot);
+  if (missing.length === 0) {
+    return { ok: true, snapshot };
+  }
+  const values: Record<string, string> = { ...snapshot.values };
+  io.write(ASK_HEADER);
+  for (const rule of missing) {
+    io.write(`  ${rule.prompt ?? ""}: `);
+    const answer = trimAnswer((await io.readLine()) ?? "");
+    if (answer === "") {
+      return { ok: false, line: missingValueLine(rule.placeholder) };
+    }
+    values[rule.placeholder] = answer;
+  }
+  io.write("\n");
+  return { ok: true, snapshot: { ...snapshot, values } };
+}
+
 /**
  * The push side with a record: ask where each new setting goes, plan with the
  * answers, run, then store an array item's answer in the profile (contract
@@ -966,6 +1000,13 @@ export async function executeExport(
   // reader closes.
   const terminal = shared ?? setupTerminal();
   try {
+    if (!command.yes) {
+      const asked = await askExportValues(snapshot, terminal.io);
+      if (!asked.ok) {
+        return { code: 1, stdout: "", stderr: `${asked.line}\n` };
+      }
+      snapshot = asked.snapshot;
+    }
     const planned = planExport(snapshot);
     const settings = planned.newSettings ?? [];
     const question = newSettingChoices(snapshot.record, snapshot.os);

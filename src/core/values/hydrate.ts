@@ -21,11 +21,15 @@ export interface HydrateOptions {
  * Contract "Missing value": the stop names the commands that ask for the
  * value, the same line with or without a record.
  */
+export function missingValueLine(placeholder: string): string {
+  return `missing value for ${placeholder}: run mksync push or pull in a terminal to enter it`;
+}
+
 function missingValue(placeholder: string): Result<never, ConfigError> {
   return {
     ok: false,
     error: {
-      message: `missing value for ${placeholder}: run mksync push or pull in a terminal to enter it`,
+      message: missingValueLine(placeholder),
       code: 1,
       placeholder,
     },
