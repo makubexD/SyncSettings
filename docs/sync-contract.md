@@ -960,7 +960,7 @@ diff after the value questions and before the export; a failed fetch leaves it c
   ```
 
   The suggestion is `p` on any profile but `personal`, `s` on `personal`; an empty answer takes it. Without a record,
-  or for a `text`, `import`, `dconf` or `dir` entry, the question stays `[s/r/k]` with no suggestion, and an empty
+  or for an `import`, `dconf` or `dir` entry, the question stays `[s/r/k]` with no suggestion, and an empty
   answer asks again.
 
   `s` sends the file; `r` overwrites the local file with the repo's, as `mksync pull --force <path>` does (keeping a

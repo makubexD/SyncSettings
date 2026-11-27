@@ -55,7 +55,7 @@ pull asks for it`, but `mksync pull` runs its guard first (`executePull`, `src/a
    - It prints, before the export's lines:
      `  PROFILE    dotfiles/common/claude/settings.json  (9 change(s) kept in profile work2; 4 shared setting(s) added here)`.
    - The suggestion in brackets is `p` on any profile but `personal`, `s` on `personal`. An empty answer takes it.
-   - Without a record, or for another merge type (`text`, `import`, `dconf`, `dir`), the question stays
+   - Without a record, or for another merge type (`import`, `dconf`, `dir`), the question stays
      `[s/r/k]` with no suggestion, as in `v1.1.9`. There, `p` prints `  Pick s, r or k.`; with `p` offered, a bad
      answer prints `  Pick s, p, r or k.`
    - `--yes` with no sync point takes each file's suggestion: `p` on a work profile where it is offered, `s` otherwise.
@@ -142,8 +142,8 @@ A machine record with profile `work-1`, no sync point, a git remote and the `gh`
   unchanged; local unchanged; `last-sync` written.
 - `push-first-sync-personal`: profile `personal`, the `json` entry. The question ends `[s]`; stdin `\n` sends it as
   `s` does (the PR in `gh.log`).
-- `push-first-sync-profile-yes`: `--yes`, the `json` entry and a `text` entry. The decision 1 warning; the `json`
-  file kept in the profile, the `text` file sent (`gh.log`).
+- `push-first-sync-profile-yes`: `--yes`, the `json` entry and a `dir` entry. The decision 1 warning; the `json`
+  file kept in the profile, the `dir` file sent (`gh.log`).
 
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync push-first-sync` fails on the four new cases only.
 
