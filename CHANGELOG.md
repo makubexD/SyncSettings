@@ -2,6 +2,24 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.9 (2026-11-26)
+
+- The first push of a machine with no sync point asks about each file that differs, in path order, with its line
+  count: `Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k]`. `r` takes the repo's version
+  (keeping a `.bak`), `k` leaves both sides, and with no `s` file push prints `Nothing to send.` and opens no PR. End
+  of input skips the rest. `--yes` still sends every file that differs, after its warning.
+- Push asks for every value this machine uses, also for files it doesn't send, and asks before it compares the two
+  sides, so a file waiting for a value is no longer passed over: a file changed on both sides now stops the push.
+- `mksync preview` and push's commit search every changed file for each value this machine knows (saved, inferred or
+  a default) and for its hostname, whatever the file's own rules: `ERROR: a cached value for <PLACEHOLDER> is in
+<file>; …` or `ERROR: this machine's hostname is in <file>; …`, with a hint to move the line to
+  `~/.gitconfig.machine` or `~/.bashrc.local`. The value is never printed.
+- `mksync diff` goes on past a file whose value is missing: it prints
+  `SKIPPED <file>  (needs <PLACEHOLDER>: mksync push or pull asks for it)` and exits 3.
+- On Windows, a file under `dotfiles/windows/` that differs only in line endings (CRLF against LF) is no change.
+- The leak scan allows the SSH addresses of the big Git hosts (`git@github.com`, `git@gitlab.com`,
+  `git@bitbucket.org`, `git@ssh.dev.azure.com`); `git@` at any other host is still a hit.
+
 ## v1.1.8 (2026-11-26)
 
 - Claude's `settings.json` names the owner of your own repos with its own placeholder, `<YOUR_GH_OWNER>`, apart from

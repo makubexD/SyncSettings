@@ -123,6 +123,14 @@ then `mksync push` from a terminal, answering each value question (it names its 
 or git's name and email: Enter takes it), the public-name question (not the hostname) and `3` (this profile) for each
 machine-only key.
 
+That first push, on `1.1.8`, would have sent the employer's GitHub organization (inline in `~/.gitconfig`) and older
+copies of the repo's `RTK.md` and terminal settings; the user stopped it and fixed the files by hand. The first-sync
+release (`docs/plan-first-sync.md`, `v1.1.9`) catches both. Work #2 updates to `1.1.9` (`mksync update`, then
+`mksync --version`), runs `mksync preview` (a cached value or the hostname in a file stops it: move that line to
+`~/.gitconfig.machine` or `~/.bashrc.local`), then `mksync push` from a terminal. Push asks for every value this
+machine uses, then asks per file: `r` for `RTK.md` and the terminal settings, `r` for `.bashrc` after moving its nvm
+lines to `~/.bashrc.local`, `s` for the rest. Then `mksync diff` agrees.
+
 The Linux machine and work #1 then run `git pull`, `mksync update` and `mksync pull` once: `v1.1.8` splits the repo
 owner out as `<YOUR_GH_OWNER>`, and the pull writes it back from their own files.
 

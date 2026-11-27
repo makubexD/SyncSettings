@@ -153,6 +153,14 @@ not your real values. If the scan finds something, the diff is left out; fix the
 whose placeholder has no value yet is listed as `SKIPPED <file>  (needs <PLACEHOLDER>: mksync push asks for it)`;
 preview goes on with the other files and the scan, then exits 1.
 
+Preview and push also search every changed file for each value this machine knows (saved, inferred from its files,
+or a default) and for its hostname, whatever the file's own rules are. A hit stops them with
+`ERROR: a cached value for <PLACEHOLDER> is in <file>; …` or `ERROR: this machine's hostname is in <file>; …`, and the
+value itself is never printed. Lines that only make sense on this machine go in a file the repo doesn't sync:
+`~/.gitconfig.machine` for git (an `[include]` of it in `~/.gitconfig`), `~/.bashrc.local` for the shell (sourced
+from `~/.bashrc`). A value that belongs in the shared file instead needs its placeholder's rule added to the file's
+entry in `sync-config.json`.
+
 When it looks right, copy your settings into the repo and open the PR (add `-m "<message>"` to set the title yourself):
 
 ```bash
@@ -163,6 +171,29 @@ It exports, shows what changed, and asks `Open a PR with these changes? [y/N]`: 
 back as it was. On a yes it creates the branch
 `sync/<os>-<alias>-<yyyymmdd-hhmm>` (`linux`, `macos` or `windows`), commits `dotfiles/`, `packages/` and
 `sync-config.json`, pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
+
+Push asks its value questions first, before it compares the two sides, so a file waiting for a value is compared too.
+
+### The first push of a machine that already has settings
+
+A machine that had its own settings before `mksync` came has no sync point, so push can't tell which side of a file is
+newer. From a terminal it asks about each file that differs, in path order, with its line count:
+
+```text
+  No sync is recorded on this machine, so the newer side of each file is unknown. mksync preview shows each change.
+
+  dotfiles/common/claude/RTK.md  28 line(s) changed
+  Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k]
+```
+
+- `s` sends this machine's version in the PR.
+- `r` takes the repo's version, as `mksync pull --force <path>` does: the local file is overwritten and keeps a `.bak`.
+- `k` leaves both sides as they are, for later.
+
+Run `mksync preview` first to see each change. Any other answer asks again; end of input skips that file and the rest.
+The `r` files are taken first, then the PR holds the `s` files. With no `s` file, push prints `Nothing to send.` and
+opens no PR. `mksync push --yes` asks nothing and sends every file that differs, after a warning: read its PR. Once
+`mksync diff` agrees, run `mksync pull` once to record the sync point.
 
 ### Changes you didn't make
 
@@ -347,7 +378,8 @@ into use.
 | `the leak scan found the lines above; nothing was committed.`                        | Open each `<file>:<line>` it listed, replace the personal text or add a `sanitize` rule, then run it again                                                                                |
 | `leak scan could not run; nothing was committed.`                                    | Restore `scripts/ci/leak-scan.sh` with `git restore`. On Windows, make sure Git for Windows and its `bash.exe` are installed. Then run it again                                           |
 | `missing value for <PLACEHOLDER>: run mksync push or pull in a terminal to enter it` | It ran with `--yes`, with no input, or as `preview`, or the answer held a placeholder such as `<HOME>`. Run `mksync push` (or `pull`) from a terminal and type the value                  |
-| `a cached value for <PLACEHOLDER> is in <file>; nothing was committed.`              | Add a `sanitize` rule for that placeholder to the file's entry, or remove the value from the file, then run it again                                                                      |
+| `a cached value for <PLACEHOLDER> is in <file>; nothing was committed.`              | Move that line to a file the repo doesn't sync (`~/.gitconfig.machine`, `~/.bashrc.local`), or add a `sanitize` rule for that placeholder to the file's entry, then run it again          |
+| `this machine's hostname is in <file>; nothing was committed.`                       | Move that line to `~/.gitconfig.machine` or `~/.bashrc.local`, or add the hostname's rule to the file's entry, then run it again                                                          |
 | `could not search for cached values; nothing was committed.`                         | A changed file could not be read. On Windows this can be a file name with unusual characters: rename it, then run it again                                                                |
 | `sync-config.json: entry <file> has an unsafe path.`                                 | Fix that entry's `file`: a relative path with `/`, no `..` segment, no drive letter. Remove any symlink under `dotfiles/`                                                                 |
 | `sync-config.json: entry <file> needs a dconfPath like /org/gnome/shell/.`           | Fix that dconf entry: a `dconfPath` that starts and ends with `/`                                                                                                                         |
