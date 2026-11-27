@@ -1,0 +1,30 @@
+{
+  "description": "On Windows a text file under dotfiles/windows/ is compared with CRLF folded to LF: a CRLF copy of an LF repo file is UNCHANGED and the repo file stays as it is (Compare).",
+  "os": ["windows"],
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/.bash_profile",
+        "module": "unsorted",
+        "merge": "whole",
+        "os": ["windows"],
+        "localPath": "~/.bash_profile",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}
