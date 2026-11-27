@@ -2,6 +2,16 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.2.2 (2026-11-27)
+
+- A machine with two GitHub accounts in `gh` (a work one active, the repo owner's beside it) now reaches the owner's
+  private repo. The installers write a credential helper into the clone's own `.git/config` that asks
+  `gh auth token --user <owner>`, so `git pull` signs in as the owner; nothing goes into `~/.gitconfig`. Every `gh` call
+  `mksync` makes (`pr create`, `release view`/`download`, `repo view`) runs with the owner's token in `GH_TOKEN`; the
+  active account is never switched and the token is never printed or stored.
+- `mksync doctor` has a `git login` line: `OK`, or `WARN git login: git signs in as another GitHub account; run the
+install line again` when a clone still signs in as someone else.
+
 ## v1.2.1 (2026-11-27)
 
 - `mksync preview`, `mksync push` and `mksync export` print the package drift report again on Linux, after the orphan
