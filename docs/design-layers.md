@@ -1680,6 +1680,9 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     and links, was settled in phase 9, decisions 10 and 11).
   - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
     that stops an export holding any known value, in every form, would catch both; bash behaves the same today.
+    **Partly done in `v1.1.9`** (`docs/plan-first-sync.md`, decision 2): preview and commit search every known value
+    (record, profile, hostname) in every changed file, whichever entry's rule it belongs to; JSON-escaped forms are
+    still not searched.
   - JSON escapes (`é`, `\/`) aren't matched on export; a value inferred from a JSON file is escaped twice on
     import; value lookups use plain objects (`constructor`).
   - A new hydrated file and new parent folders are created with the umask before the chmod, and the backups tree is
@@ -1903,6 +1906,13 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - Nothing is printed during the up-to-5-second wait before the header.
 - **The doctor's `GH_CLI_PATH` value (git-values review).** The doctor compares `gh` with the saved value, else the
   rule's `default`; it ignores `defaultEnv` and inferred values, which pull would also use.
+- **Left out of the first-sync plan (v1.1.9, decision 8).** Found on work #2's first push:
+  - A list of words a profile must never send, such as an employer's name that is in no value: the known-value search
+    can't know it, and the leak scan's patterns can't either.
+  - The record's domain (from the login's `DOMAIN\` or `@domain`) in the known-value search.
+  - The hostname search without a machine record: only the record's `hostname` is searched.
+  - A diff view inside the first-sync picker, so the user needn't run `mksync preview` first.
+  - Per-file choices in setup: its `keep` and `backup` answers still take one side for every file.
 
 ### Confirm on Windows
 
