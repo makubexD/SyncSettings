@@ -1879,7 +1879,10 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
     (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
 - **Left by the case port (`docs/archive/plan-single-engine-8-port.md`, 2026-11-17).**
-  - **Drift in export and preview.** The contract ("Package drift", "Program") and "Drift stays in export and
+  - **Drift in export and preview.** Resolved in v1.2.1 (`docs/plan-preview-drift.md`, 2026-11-27): the program
+    adds the report after the orphan report of a whole-repo export or preview, `doctor` shares its reader, and the
+    runners' `packages` stub lets the shared cases `preview-drift`, `export-drift` and `preview-drift-only` cover it.
+    Was: the contract ("Package drift", "Program") and "Drift stays in export and
     preview" above say the program reports `DRIFT` after an export's or a preview's orphan report; the program
     reports drift only in `mksync doctor` (`src/app/doctor.ts` is the only caller of `core/drift.ts`). No shared case
     catches it, since the runners have no package-manager stub. Either the program adds the report (and skips it

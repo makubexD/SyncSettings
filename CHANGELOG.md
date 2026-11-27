@@ -2,6 +2,16 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.2.1 (2026-11-27)
+
+- `mksync preview`, `mksync push` and `mksync export` print the package drift report again on Linux, after the orphan
+  report: the `DRIFT` lines `mksync doctor` counts (`WARN drift: <n> package(s) differ; run mksync preview`) are now
+  the ones preview shows. A run with `--only` or picked push paths skips it. The report still changes no file, count
+  or exit code.
+- A `suggest` that names a source this program doesn't know, as a config written for a newer mksync can, now stops
+  with `ERROR: sync-config.json: entry <file> has an unknown suggest source <name>; if the config is newer, run mksync
+update.`, exit 2, instead of "has an invalid suggest". A wrong shape keeps that line and exit 1.
+
 ## v1.2.0 (2026-11-27)
 
 - More of the first run is guessed: a value rule's `suggest` takes one source or a list, and the first source that
