@@ -239,11 +239,16 @@ As step 8, on work #3.
 
 Test: as step 8, recorded under "Work #3".
 
+**Skipped 2026-11-27:** there is no work #3 yet. When one comes, it follows step 8 and 9's runbook on the current
+release.
+
 ## Step 11: Set up and push work #3 `[inline: the user's machine and a public-repo review]`
 
 As step 9, with profile `work3`, on `1.1.8` from the start.
 
 Test: as step 9.
+
+**Skipped 2026-11-27:** no work #3 yet (see step 10).
 
 ## Part C: every machine in step, then private
 
