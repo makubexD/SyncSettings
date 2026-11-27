@@ -472,6 +472,8 @@ const OS_JSON = "dotfiles/linux/parity/settings.json";
 
 const PROFILE_JSON = `profiles/${PROFILE_NAME}/parity/settings.json`;
 
+const PROFILE_JSON_FOLDER = `profiles/${PROFILE_NAME}/parity`;
+
 const BASE_BASHRC = "dotfiles/common/shell/bashrc";
 
 const PROFILE_BASHRC = `profiles/${PROFILE_NAME}/shell/bashrc`;
@@ -1031,6 +1033,19 @@ describe("applyMove", () => {
 });
 
 /** The repo paths a plan writes. */
+/** The actions of the step labelled `label`, as `<kind> <path>`. */
+function actionKinds(plan: RunPlan, label: string): readonly string[] {
+  return plan.steps
+    .filter((step) => step.label === label)
+    .flatMap((step) =>
+      step.actions.map((item) =>
+        "path" in item.action
+          ? `${item.action.kind} ${item.action.path}`
+          : item.action.kind,
+      ),
+    );
+}
+
 function writtenPaths(plan: RunPlan): readonly string[] {
   return plan.steps.flatMap((step) =>
     step.actions.flatMap((item) =>
@@ -1074,6 +1089,29 @@ describe("keepInProfile", () => {
     expect([kept.value.kept, kept.value.added]).toEqual([1, 0]);
     expect(writtenPaths(kept.value.plan)).toEqual([PROFILE_JSON]);
     expect(writtenText(kept.value.plan, PROFILE_JSON)).toBe('{\n  "a": 2\n}\n');
+  });
+
+  test("should create the profile layer's folder before writing a new layer file", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: JSON_SNAPSHOT_REPO },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"a":2,"b":1,"c":[1]}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect(actionKinds(kept.value.plan, PROFILE_JSON)).toEqual([
+      `mkdir ${PROFILE_JSON_FOLDER}`,
+      `writeRepo ${PROFILE_JSON}`,
+    ]);
   });
 
   test("should keep a new key in the profile", () => {

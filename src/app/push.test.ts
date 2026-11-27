@@ -130,6 +130,7 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     recordProfile: () => undefined,
     offersKeep: () => false,
     runImport: async () => ({ code: 0, stdout: "", stderr: "" }),
+    runKeptImport: async () => ({ code: 0, stdout: "", stderr: "" }),
     hasSyncPoint: async () => true,
     runDiff: async () => diffOf(),
     runExport: async () => EXPORTED,
@@ -204,6 +205,7 @@ describe("askMoves", () => {
       "Pick 1 to 4.\n",
       `Move it to? ${TARGETS} [1] `,
       MOVE_QUESTION,
+      "\n",
     ]);
     expect(reader.questions).toEqual([
       MOVE_QUESTION,
@@ -220,7 +222,24 @@ describe("askMoves", () => {
     const result = await askMoves(fakeSession(), reader.read, out.write);
 
     expect(result).toEqual({ ok: true, value: undefined });
-    expect(out.texts).toEqual([MOVE_QUESTION, `Move it to? ${TARGETS} [1] `]);
+    expect(out.texts).toEqual([
+      MOVE_QUESTION,
+      `Move it to? ${TARGETS} [1] `,
+      "\n",
+    ]);
+  });
+
+  test("should end the question's line when the input ends at the first question", async () => {
+    // Arrange
+    const reader = scripted([undefined]);
+    const out = collector();
+
+    // Act
+    const result = await askMoves(fakeSession(), reader.read, out.write);
+
+    // Assert
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(out.texts).toEqual([MOVE_QUESTION, "\n"]);
   });
 
   test("a move error is returned and ends the loop", async () => {
@@ -743,12 +762,16 @@ async function runPicker(
   result: Result;
   imports: (readonly string[])[];
   skips: (readonly string[])[];
+  keeps: (readonly string[])[];
+  calls: string[];
   commits: boolean[];
   questions: string[];
   printed: string;
 }> {
   const imports: (readonly string[])[] = [];
   const skips: (readonly string[])[] = [];
+  const keeps: (readonly string[])[] = [];
+  const calls: string[] = [];
   const commits: boolean[] = [];
   const questions: string[] = [];
   let printed = "";
@@ -763,10 +786,18 @@ async function runPicker(
       },
       runImport: async (take) => {
         imports.push(take);
+        calls.push("import");
         return IMPORTED;
       },
-      runExport: async (_only, _yes, skip) => {
+      runKeptImport: async (keep) => {
+        imports.push(keep);
+        calls.push("kept import");
+        return IMPORTED;
+      },
+      runExport: async (_only, _yes, skip, keep) => {
         skips.push(skip);
+        keeps.push(keep);
+        calls.push("export");
         return EXPORTED;
       },
       ask: async () => true,
@@ -780,7 +811,16 @@ async function runPicker(
       ...overrides,
     }),
   );
-  return { result, imports, skips, commits, questions, printed };
+  return {
+    result,
+    imports,
+    skips,
+    keeps,
+    calls,
+    commits,
+    questions,
+    printed,
+  };
 }
 
 describe("executePush first-sync picker", () => {
@@ -979,8 +1019,73 @@ describe("executePush first-sync picker with p", () => {
 
     // Assert
     expect(run.skips).toEqual([[C]]);
-    expect(run.imports).toEqual([]);
+    expect(run.keeps).toEqual([[A, B]]);
     expect(run.commits).toEqual([true]);
+  });
+
+  test("should import the kept files after the export when p is answered", async () => {
+    // Arrange
+    const answers = ["p", "p", "k"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.calls).toEqual(["export", "kept import"]);
+    expect(run.imports).toEqual([[A, B]]);
+  });
+
+  test("should print the kept files' import after the export's lines", async () => {
+    // Arrange
+    const answers = ["p", "k", "k"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.printed).toContain(EXPORTED.stdout + IMPORTED.stdout);
+  });
+
+  test("should print the first-sync nothing-to-send line when only kept files changed", async () => {
+    // Arrange
+    const answers = ["p", "p", "s"];
+
+    // Act
+    const run = await runPicker(answers, {
+      ...WORK_RECORD,
+      statusShort: async () => ({ ok: true, stdout: "" }),
+    });
+
+    // Assert
+    expect(run.result.stdout).toBe(
+      EXPORTED.stdout + IMPORTED.stdout + FIRST_SYNC_NOTHING,
+    );
+  });
+
+  test("should run no import after the export when nothing is kept", async () => {
+    // Arrange
+    const answers = ["s", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.calls).toEqual(["export"]);
+  });
+
+  test("should stop the push with the import's code when the kept files' import fails", async () => {
+    // Arrange
+    const answers = ["p", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, {
+      ...WORK_RECORD,
+      runKeptImport: async () => IMPORT_FAILED,
+    });
+
+    // Assert
+    expect(run.result.code).toBe(IMPORT_FAILED.code);
+    expect(run.commits).toEqual([]);
   });
 
   test("should not offer p without a record", async () => {

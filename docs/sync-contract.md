@@ -1881,7 +1881,8 @@ Move a change? Type its number, or press Enter to go on:
 
 - A number from the block asks `Move it to? 1) all machines  2) <Os> machines  3) profile <p>  4) this machine
 [<current>]`, where `<current>` is the number of the group the change is in. Any other answer to either question
-  prints `Pick 1 to <n>.` and asks again; an empty answer or end of input to the first one goes on.
+  prints `Pick 1 to <n>.` and asks again; an empty answer or end of input to the first one goes on. End of input to
+  either question ends its line, so the output after it starts on a line of its own.
 - A `json` key moved to a narrower group is written into that group's layer and left as it was in the old one: the
   narrower layer now overrides it for the machines it covers. Moved to a wider group, it is written into the new
   layer and removed from the old one, unless a layer between the two sets it, which would win once it's gone; then the

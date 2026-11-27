@@ -40,6 +40,7 @@ import {
   changeLines,
   changeMoveSources,
   compactJson,
+  fileLabel,
 } from "../core/plan/changes.ts";
 import type { MoveSource } from "../core/plan/changes.ts";
 import { KNOWN_VALUE_HINT, knownValueLine } from "../core/plan/commit.ts";
@@ -52,7 +53,7 @@ import {
   withoutNewSettings,
 } from "../core/plan/groups.ts";
 import type { KeptNumbers } from "../core/plan/groups.ts";
-import { applyMove } from "../core/plan/move.ts";
+import { applyMove, keepInProfile } from "../core/plan/move.ts";
 import {
   MATCHES_HEAD,
   NOTHING_WRITTEN,
@@ -376,16 +377,17 @@ export const CANNOT_LIST_TRACKED =
  * settings and ask each path's question through the terminal `setup` uses.
  * Settings that share a destination key are listed together, and the question
  * comes after the last of them; its answer is the answer for all of them. The
- * head is computed with the suggestion as a provisional answer, since the
- * answered plan isn't known until the questions are through.
+ * head comes from `tentative`, the plan with the suggestions as provisional
+ * answers, since the answered plan isn't known until the questions are
+ * through.
  */
 async function askSettings(
   snapshot: Snapshot,
+  tentative: RunPlan,
   settings: readonly NewSettingLine[],
   question: NewSettingQuestion,
   io: SetupIo,
 ): Promise<readonly NewSettingChoice[]> {
-  const tentative = planExport(snapshot, suggestionAnswers(settings, question));
   const grouped = groupedBlock(
     withoutNewSettings(changeLines(tentative, snapshot), settings),
     snapshot.record,
@@ -787,7 +789,7 @@ async function askMoveQuestions(
  * their layer's group. A profile value bound for a shared layer stops the run
  * before anything is written, with the refused lines after the block. With
  * `blockPrinted`, the caller already printed the block, ahead of the
- * first-backup questions.
+ * first-backup questions. `notes` print before the status lines.
  */
 function runExportPlan(
   plan: RunPlan,
@@ -798,6 +800,7 @@ function runExportPlan(
   backup?: FirstBackupRun,
   answers?: ReadonlyMap<string, BackupSide>,
   blockPrinted = false,
+  notes: readonly string[] = [],
 ): ExportRun {
   const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
   const refused = exportRefusal(plan, snapshot, lines);
@@ -824,6 +827,7 @@ function runExportPlan(
     choices,
     backup,
     answers,
+    notes,
   );
   if (blockPrinted || (lines.length === 0 && settings.length === 0)) {
     return applied;
@@ -1012,6 +1016,7 @@ function applyExportPlan(
   choices: readonly NewSettingChoice[],
   backup: FirstBackupRun | undefined,
   answers: ReadonlyMap<string, BackupSide> | undefined,
+  notes: readonly string[] = [],
 ): ExportRun {
   const outcome = runPlan(plan, context);
   // A failed write fails the export: nothing more is stored or backed up.
@@ -1056,7 +1061,7 @@ function applyExportPlan(
   return {
     result: {
       code,
-      stdout: writeLines(rendered.lines),
+      stdout: writeLines([...notes, ...rendered.lines]),
       stderr,
       repoPaths: touchedRepoPaths(plan),
     },
@@ -1159,6 +1164,75 @@ export async function askPushValues(
     : failure(outcome.refused);
 }
 
+/** A layer's folder in a repo path: `dotfiles/<os>/`, `profiles/<name>/` or
+ * `machines/<name>/`. */
+const LAYER_FOLDER = /^(?:dotfiles|profiles|machines)\/[^/]+\//;
+
+/** The config entry's `file` that a layer's repo path holds. */
+export function layerEntryFile(path: string): string {
+  return path.replace(LAYER_FOLDER, "");
+}
+
+/** Whether a new setting is in one of the `keep` files, whose new settings
+ * end in the profile with no question (contract "No sync point, interactive",
+ * `p`). */
+function keptSettingTest(
+  config: ConfigV2,
+  keep: readonly string[],
+): (setting: NewSettingLine) => boolean {
+  const files = new Set(keep.map(layerEntryFile));
+  return (setting) =>
+    config.entries.some(
+      (entry) =>
+        files.has(entry.file) &&
+        entry.module === setting.module &&
+        fileLabel(entry.file) === setting.file,
+    );
+}
+
+/** The plan with each `keep` file's changes placed in the profile, and the
+ * `PROFILE` line for each; a placement's error stops the export. */
+type KeptPlan =
+  | {
+      readonly ok: true;
+      readonly plan: RunPlan;
+      readonly notes: readonly string[];
+    }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Contract "No sync point, interactive", `p`: plan with `answers`, then keep
+ * each `keep` file's differences in the record's profile, in path order.
+ * Without a `keep` file or a record the plan is `planExport`'s.
+ */
+function planKept(
+  snapshot: Snapshot,
+  answers: ReadonlyMap<string, LayerName>,
+  keep: readonly string[],
+): KeptPlan {
+  let plan = planExport(snapshot, answers);
+  const profile = snapshot.record?.profile;
+  if (keep.length === 0 || profile === undefined) {
+    return { ok: true, plan, notes: [] };
+  }
+  const notes: string[] = [];
+  for (const path of keep) {
+    const kept = keepInProfile(plan, snapshot, path);
+    if (!kept.ok) {
+      return { ok: false, error: kept.error };
+    }
+    plan = kept.value.plan;
+    notes.push(
+      formatLine(
+        "PROFILE",
+        path,
+        `${kept.value.kept} change(s) kept in profile ${profile}; ${kept.value.added} shared setting(s) added here`,
+      ),
+    );
+  }
+  return { ok: true, plan, notes };
+}
+
 /**
  * The push side with a record: ask where each new setting goes, plan with the
  * answers, run, then store an array item's answer in the profile (contract
@@ -1189,15 +1263,33 @@ export async function executeExport(
       return { code: 1, stdout: "", stderr: `${asked.line}\n` };
     }
     snapshot = asked.snapshot;
-    const planned = planExport(snapshot);
-    const settings = planned.newSettings ?? [];
+    // Contract "No sync point, interactive", `p`: a kept file's new settings
+    // end in the profile, so only the others are asked. They are planned in
+    // the base first, so `keepInProfile` moves every change of the file in
+    // line order and the profile layer lists its keys in that order.
+    const keep = command.keep ?? [];
+    const isKept = keptSettingTest(snapshot.config, keep);
+    const found = planExport(snapshot).newSettings ?? [];
+    const keptAnswers = new Map<string, LayerName>(
+      found
+        .filter(isKept)
+        .map((setting) => [settingKey(setting), "base" as const]),
+    );
+    const settings = found.filter((setting) => !isKept(setting));
+    const withKept = (
+      answers: ReadonlyMap<string, LayerName>,
+    ): ReadonlyMap<string, LayerName> => new Map([...keptAnswers, ...answers]);
     const question = newSettingChoices(snapshot.record, snapshot.os);
     if (question === undefined || settings.length === 0) {
+      const planned = planKept(snapshot, keptAnswers, keep);
+      if (!planned.ok) {
+        return { code: 1, stdout: "", stderr: `${planned.error}\n` };
+      }
       const plannedLines = withoutNewSettings(
-        changeLines(planned, snapshot),
+        changeLines(planned.plan, snapshot),
         settings,
       );
-      let plan = planned;
+      let plan = planned.plan;
       let blockPrinted = false;
       // The moves run before the profile-value rule, so a change moved to a
       // group that may hold the value is judged in its new group (contract
@@ -1238,13 +1330,22 @@ export async function executeExport(
         backup,
         answers,
         blockPrinted,
+        planned.notes,
       );
       return finishFirstBackup(backup, applied.prepared, applied.result);
     }
 
     if (command.yes) {
       const choices = settings.map(() => question.suggestion);
-      const plan = planExport(snapshot, answersOf(settings, choices));
+      const planned = planKept(
+        snapshot,
+        withKept(answersOf(settings, choices)),
+        keep,
+      );
+      if (!planned.ok) {
+        return { code: 1, stdout: "", stderr: `${planned.error}\n` };
+      }
+      const plan = planned.plan;
       const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
       const refused = exportRefusal(plan, snapshot, lines);
       let blockPrinted = false;
@@ -1263,17 +1364,35 @@ export async function executeExport(
         backup,
         answers,
         blockPrinted,
+        planned.notes,
       );
       return finishFirstBackup(backup, applied.prepared, applied.result);
     }
 
+    const tentative = planKept(
+      snapshot,
+      withKept(suggestionAnswers(settings, question)),
+      keep,
+    );
+    if (!tentative.ok) {
+      return { code: 1, stdout: "", stderr: `${tentative.error}\n` };
+    }
     const choices = await askSettings(
       snapshot,
+      tentative.plan,
       settings,
       question,
       terminal.io,
     );
-    let plan = planExport(snapshot, answersOf(settings, choices));
+    const planned = planKept(
+      snapshot,
+      withKept(answersOf(settings, choices)),
+      keep,
+    );
+    if (!planned.ok) {
+      return { code: 1, stdout: "", stderr: `${planned.error}\n` };
+    }
+    let plan = planned.plan;
     // The block and the new-setting questions are already on the terminal, so
     // the moves ask next, before the profile-value rule (contract "Move a
     // change").
@@ -1311,6 +1430,7 @@ export async function executeExport(
       choices,
       backup,
       answers,
+      planned.notes,
     );
     return finishFirstBackup(backup, applied.prepared, applied.result);
   } finally {

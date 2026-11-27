@@ -81,12 +81,14 @@ export interface PushDeps {
     only: readonly string[],
     conflicts: boolean,
   ) => Promise<Result>;
-  /** `export` with the picked paths, leaving `skip` alone; `--yes` takes the
-   * new settings' suggestions. */
+  /** `export` with the picked paths, leaving `skip` alone and keeping each
+   * `keep` file's differences in the profile; `--yes` takes the new settings'
+   * suggestions. */
   readonly runExport: (
     only: readonly string[],
     yes: boolean,
     skip: readonly string[],
+    keep: readonly string[],
   ) => Promise<Result>;
   /** `git status --short` over the sync paths. */
   readonly statusShort: () => Promise<StatusResult>;
@@ -108,9 +110,13 @@ export interface PushDeps {
   /** Print `question` and read one answer, as it was typed; `undefined` at
    * end of input. */
   readonly askChoice: (question: string) => Promise<string | undefined>;
-  /** `import --force --only` over `take`: the repo's version of each file,
+  /** `import --force --only` over `take`: each file written from its layers,
    * keeping a `.bak`. */
   readonly runImport: (take: readonly string[]) => Promise<Result>;
+  /** `import --force` over the first sync's `p` files, each named by its
+   * local path, since a `whole` entry's copy is the profile's now and no
+   * `dotfiles/` path names it; a `.bak` is kept. */
+  readonly runKeptImport: (keep: readonly string[]) => Promise<Result>;
   /** Write a result's stdout and stderr now, so a question follows them. */
   readonly print: (shown: Result) => void;
   /** `commit`, `--partial` when the push left files out. */
@@ -134,7 +140,8 @@ const BEHIND_ORIGIN = "ERROR: origin has updates; run mksync pull first.\n";
 /** `front_push`'s line when the export left the repo as it was. */
 const NOTHING_TO_SEND = "  Nothing to send: the repo matches this machine.\n";
 
-/** The same, when an `IN` file was left alone: the repo doesn't match. */
+/** The same, when an `IN` file was left alone, or a first sync's file kept in
+ * the profile: the repo doesn't match, or not all of it is in the repo. */
 const NOTHING_TO_SEND_IN = "  Nothing to send.\n";
 
 /** A diff that can't say which side is newer. */
@@ -268,7 +275,8 @@ async function askNumber<T>(
  * Ask "Move a change?" until the answer is Enter or the input ends: a line
  * number asks where the change goes, a move prints the block again and asks
  * for another change, and an empty target keeps the change where it is. A
- * moved change's error ends the loop with it.
+ * moved change's error ends the loop with it. End of input ends the
+ * question's line.
  */
 export async function askMoves(
   session: MoveSession,
@@ -283,6 +291,11 @@ export async function askMoves(
       readAnswer,
       write,
     );
+    if (line.kind === "end") {
+      // No answer ended the question's line, so the output after it starts on
+      // its own.
+      write("\n");
+    }
     if (line.kind !== "value") {
       return { ok: true, value: undefined };
     }
@@ -295,6 +308,7 @@ export async function askMoves(
       write,
     );
     if (target.kind === "end") {
+      write("\n");
       return { ok: true, value: undefined };
     }
     if (target.kind === "empty") {
@@ -607,6 +621,29 @@ async function declined(
 }
 
 /**
+ * Contract "No sync point, interactive", `p`: after the export, each kept file
+ * is written on this machine from its layers (`.bak` first), so it gains the
+ * shared settings it lacked. The import's lines follow the export's; a failed
+ * import stops the push with its code.
+ */
+async function importKept(
+  exported: Result,
+  keep: readonly string[],
+  deps: PushDeps,
+): Promise<Result> {
+  if (keep.length === 0) {
+    return exported;
+  }
+  const imported = await deps.runKeptImport(keep);
+  return {
+    ...exported,
+    code: imported.code,
+    stdout: exported.stdout + imported.stdout,
+    stderr: exported.stderr + imported.stderr,
+  };
+}
+
+/**
  * Run `mksync push` end to end, stopping at the export's first failure. The
  * export's output prints before the repo's changes, and the commit's output
  * follows.
@@ -674,16 +711,16 @@ export async function executePush(
 
   const stateBefore = deps.stateStamp();
   const cleanBefore = await deps.pathsClean();
-  const exported = await deps.runExport(only, input.yes, guard.skip);
+  const ran = await deps.runExport(only, input.yes, guard.skip, guard.keep);
+  if (ran.code !== 0) {
+    return ran;
+  }
+  if (ran.stopped) {
+    return { code: ran.code, stdout: ran.stdout, stderr: ran.stderr };
+  }
+  const exported = await importKept(ran, guard.keep, deps);
   if (exported.code !== 0) {
     return exported;
-  }
-  if (exported.stopped) {
-    return {
-      code: exported.code,
-      stdout: exported.stdout,
-      stderr: exported.stderr,
-    };
   }
 
   const status = await deps.statusShort();
@@ -699,7 +736,9 @@ export async function executePush(
       code: 0,
       stdout:
         exported.stdout +
-        (guard.skip.length > 0 ? NOTHING_TO_SEND_IN : NOTHING_TO_SEND),
+        (guard.skip.length > 0 || guard.keep.length > 0
+          ? NOTHING_TO_SEND_IN
+          : NOTHING_TO_SEND),
       stderr: exported.stderr,
     };
   }

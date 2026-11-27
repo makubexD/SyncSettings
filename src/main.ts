@@ -37,7 +37,8 @@ import { runImport } from "./app/import.ts";
 import { executePull } from "./app/pull.ts";
 import type { FetchResult } from "./app/pull.ts";
 import { executePush } from "./app/push.ts";
-import type { ConfigV2 } from "./core/config/types.ts";
+import type { ConfigV2, Os } from "./core/config/types.ts";
+import { configuredLocal } from "./core/plan/pick.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
@@ -49,6 +50,7 @@ import {
 import {
   askPushValues,
   failure,
+  layerEntryFile,
   runExport,
   setupTerminal,
   writeLines,
@@ -89,11 +91,13 @@ const GIT_ENV: Readonly<Record<string, string>> = {
 };
 
 /** A push child's `export`: the picked paths, with `--yes` taking the new
- * settings' suggestions, as the design's "Push and pull" says. */
+ * settings' suggestions, as the design's "Push and pull" says; `keep` are the
+ * first sync's `p` files. */
 function pushExportCommand(
   only: readonly string[],
   yes: boolean,
   skip: readonly string[],
+  keep: readonly string[] = [],
 ): RunCommand {
   return {
     kind: "run",
@@ -104,6 +108,7 @@ function pushExportCommand(
     resetValues: false,
     yes,
     skip,
+    keep,
     only,
   };
 }
@@ -135,17 +140,26 @@ const GUARDED_PATHS = ["dotfiles", "profiles", "machines"] as const;
 
 /** A repo path's layer folder: `dotfiles/<os>/`, `profiles/<p>/` or
  * `machines/<m>/`. */
-const LAYER_FOLDER = /^(?:dotfiles|profiles|machines)\/[^/]+\//;
 
 /** Contract "No sync point, interactive": the picker offers `p` for a file
  * whose entry is `json` or `whole`. `path` is the diff's repo path. */
 function entryOffersKeep(config: ConfigV2, path: string): boolean {
-  const file = path.replace(LAYER_FOLDER, "");
+  const file = layerEntryFile(path);
   return config.entries.some(
     (entry) =>
       entry.file === file &&
       (entry.merge === "json" || entry.merge === "whole"),
   );
+}
+
+/** The path push's import of a `p` file names it by: its entry's local path
+ * on this OS, which `--only` resolves to the entry's own copy whatever layer
+ * holds it; a path no entry owns stays as it is, so the import refuses it. */
+function keptImportPath(config: ConfigV2, os: Os, path: string): string {
+  const file = layerEntryFile(path);
+  const entry = config.entries.find((candidate) => candidate.file === file);
+  const local = entry === undefined ? "" : configuredLocal(entry, os);
+  return local === "" ? path : local;
 }
 
 /** The record check that stops a push, before its diff guard. */
@@ -418,8 +432,8 @@ async function execute(
             },
             offersKeep: (path) => entryOffersKeep(config.value, path),
             runDiff: (only, conflicts) => execute(diffCommand(only, conflicts)),
-            runExport: (only, yes, skip) =>
-              execute(pushExportCommand(only, yes, skip), {
+            runExport: (only, yes, skip, keep) =>
+              execute(pushExportCommand(only, yes, skip, keep), {
                 moves: true,
                 terminal,
               }),
@@ -438,6 +452,17 @@ async function execute(
             },
             runImport: (take) =>
               execute(pullImportCommand(false, true, take), { terminal }),
+            runKeptImport: (keep) =>
+              execute(
+                pullImportCommand(
+                  false,
+                  true,
+                  keep.map((path) =>
+                    keptImportPath(config.value, os.value, path),
+                  ),
+                ),
+                { terminal },
+              ),
             print: (shown) => {
               process.stdout.write(shown.stdout);
               process.stderr.write(shown.stderr);

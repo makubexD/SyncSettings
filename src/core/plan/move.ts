@@ -7,7 +7,7 @@ import type { JsonLayer } from "../merge/json.ts";
 import { formatLine } from "../status.ts";
 import { changeLines, changeMoveSources } from "./changes.ts";
 import type { MoveSource } from "./changes.ts";
-import type { FileStep, RunPlan, Snapshot } from "./types.ts";
+import type { FileStep, RunPlan, Snapshot, StepAction } from "./types.ts";
 
 const ENCODER = new TextEncoder();
 /** A repo layer file holds LF; the split writes json changes with it. */
@@ -434,6 +434,22 @@ function sameBytes(
   return left.every((byte, index) => byte === right[index]);
 }
 
+/** The `mkdir -p` of a new layer file's folder, as the export planner writes
+ * one: a profile or machine layer new to this machine has no folder yet. */
+function parentFolderActions(path: string): readonly StepAction[] {
+  const slash = path.lastIndexOf("/");
+  if (slash <= 0) {
+    return [];
+  }
+  const parent = path.slice(0, slash);
+  return [
+    {
+      action: { kind: "mkdir", path: parent },
+      failure: `cannot create ${parent}`,
+    },
+  ];
+}
+
 /**
  * A plan whose writeRepo and removeRepo actions hold the layer slots' new
  * bytes: an action for a slot path is rewritten, a slot the plan did not write
@@ -569,6 +585,7 @@ function withMovedSlots(
       line: insertAt,
       counted: true,
       actions: [
+        ...parentFolderActions(addition.path),
         {
           action: {
             kind: "writeRepo",
