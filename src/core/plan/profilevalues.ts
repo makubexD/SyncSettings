@@ -25,6 +25,37 @@ const JSON_UNICODE_ESCAPE = /\\u([0-9A-Fa-f]{4})/g;
 
 const JSON_SLASH_ESCAPE = "\\/";
 
+/** A character that continues a token: a value next to one is not a hit. */
+const TOKEN_CHAR = /^[A-Za-z0-9_-]$/;
+
+function continuesToken(char: string | undefined): boolean {
+  return char !== undefined && TOKEN_CHAR.test(char);
+}
+
+/**
+ * Whether `form` occurs in `text` as a whole token: the character just before
+ * it and the one just after it, when there is one, are not ASCII letters,
+ * digits, `-` or `_` (contract "Profile values"). Both are already folded.
+ */
+export function holdsToken(text: string, form: string): boolean {
+  if (form === "") {
+    return false;
+  }
+  for (
+    let at = text.indexOf(form);
+    at !== -1;
+    at = text.indexOf(form, at + 1)
+  ) {
+    if (
+      !continuesToken(text[at - 1]) &&
+      !continuesToken(text[at + form.length])
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function textOf(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
@@ -43,8 +74,8 @@ function decodedJsonText(text: string): string {
 }
 
 /**
- * Whether a value appears in any layer text in one of the forms the file can
- * hold it in, ignoring case. `texts` is the raw text and, for a JSON entry, its
+ * Whether a value appears as a whole token in any layer text in one of the
+ * forms the file can hold it in, ignoring case. `texts` is the raw text and, for a JSON entry, its
  * decoded form.
  */
 function holdsValue(
@@ -55,13 +86,14 @@ function holdsValue(
   const forms = formsFor(value, json).map((form) => form.toLowerCase());
   return texts.some((text) => {
     const folded = text.toLowerCase();
-    return forms.some((form) => folded.includes(form));
+    return forms.some((form) => holdsToken(folded, form));
   });
 }
 
 /**
  * The number the block prints for the change of `layer`, `module` and `file`
- * whose `what` holds `value`, else for the first change of that file; undefined
+ * whose `what` holds `value` as a whole token, else for the first change of that
+ * file; undefined
  * when the block prints none (contract "Profile values (program only)").
  */
 function numberOf(
@@ -88,7 +120,7 @@ function numberOf(
     if (number === undefined || number === 0) {
       continue;
     }
-    if (line.what.toLowerCase().includes(folded)) {
+    if (holdsToken(line.what.toLowerCase(), folded)) {
       return number;
     }
     first ??= number;

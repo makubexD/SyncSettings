@@ -3,7 +3,7 @@ import type { Profile } from "../config/profile.ts";
 import type { MachineRecord } from "../machine/record.ts";
 import type { ConfigV2, ConfigV2Entry } from "../config/types.ts";
 import { changeLines } from "./changes.ts";
-import { profileValueHits, refusedLines } from "./profilevalues.ts";
+import { holdsToken, profileValueHits, refusedLines } from "./profilevalues.ts";
 import type { Action, RunPlan, Snapshot } from "./types.ts";
 
 const HOME = "/home/user";
@@ -217,6 +217,74 @@ describe("profileValueHits", () => {
 
     // Assert
     expect(hits.map((hit) => hit.layer)).toEqual(["os"]);
+  });
+});
+
+const TEAM_PLACEHOLDER = "<YOUR_TEAM>";
+const TEAM_VALUE = "A4";
+const TEAM_VALUES = { [TEAM_PLACEHOLDER]: TEAM_VALUE };
+const TEAM_OLD_JSON = '{"color":"#000000","team":"none"}';
+const TEAM_NEW_JSON = '{"color":"#90a4ae","team":"team A4 tools"}';
+
+describe("holdsToken", () => {
+  test.each<[string, string, boolean]>([
+    ["#90a4ae", "inside a hex color", false],
+    ["team a4 tools", "between spaces", true],
+    ["team-a4", "after a -", false],
+    ["a4_x", "before a _", false],
+    ["a4 tools", "at the start of the text", true],
+    ["team a4", "at the end of the text", true],
+    ["a4", "as the whole text", true],
+    ['"a4"', "between quotes", true],
+    ["pa4ge", "inside a word", false],
+    ["#a4b3c2 then a4", "once inside a token and once alone", true],
+  ])("should read %p (%s) as %p", (text, _where, hit) => {
+    expect(holdsToken(text, "a4")).toBe(hit);
+  });
+
+  test("should find no hit for an empty form", () => {
+    expect(holdsToken("anything", "")).toBe(false);
+  });
+});
+
+describe("profileValueHits as whole tokens", () => {
+  test("should find no hit for a value inside a hex color", () => {
+    // Arrange / Act
+    const hits = hitsFor(
+      { [BASE_JSON]: TEAM_OLD_JSON },
+      BASE_JSON,
+      '{"color":"#90a4ae","team":"none"}',
+      TEAM_VALUES,
+    );
+
+    // Assert
+    expect(hits).toEqual([]);
+  });
+
+  test("should number the hit by the change that holds the value as a token", () => {
+    // Arrange / Act
+    const hits = hitsFor(
+      { [BASE_JSON]: TEAM_OLD_JSON },
+      BASE_JSON,
+      TEAM_NEW_JSON,
+      TEAM_VALUES,
+    );
+
+    // Assert
+    expect(hits.map((hit) => [hit.change, hit.placeholder])).toEqual([
+      [2, TEAM_PLACEHOLDER],
+    ]);
+  });
+
+  test.each<[string, string]>([
+    ["A4\nmore\n", "at the start of the text"],
+    ["more\nA4", "at the end of the text"],
+  ])("should find a value %s in a whole file", (text, _where) => {
+    // Arrange / Act
+    const hits = hitsFor({}, WHOLE_PATH, text, TEAM_VALUES, WHOLE_ENTRY);
+
+    // Assert
+    expect(hits.map((hit) => hit.placeholder)).toEqual([TEAM_PLACEHOLDER]);
   });
 });
 
