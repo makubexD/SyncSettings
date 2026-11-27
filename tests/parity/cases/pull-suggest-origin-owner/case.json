@@ -36,5 +36,8 @@
       "stdin": "\n"
     }
   ],
-  "originUrl": "https://github.com/parity-owner/SyncSettings.git"
+  "originUrl": "https://github.com/parity-owner/SyncSettings.git",
+  "differences": [
+    "Entry selection"
+  ]
 }
