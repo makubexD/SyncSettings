@@ -261,6 +261,9 @@ asks once per record.
 
 Test: every machine prints `mksync 1.1.8` (or the latest release) and "This machine and the repo agree".
 
+**Done 2026-11-27, on `v1.2.1`.** Linux, work #1 and work #2 each print `mksync 1.2.1` and "This machine and the repo
+agree." (last sync `a7fb357`, repo `a02d696`: only docs commits since). No `IN` files, so no pull ran.
+
 ## Step 13: The private switch `[inline: the user's switch]`
 
 Step 13 of `docs/plan-single-engine-10.md`: `gh auth login` on each machine, then the user switches the repo to
