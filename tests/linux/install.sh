@@ -186,6 +186,13 @@ case \$cmd in
             printf 'You are not logged into any GitHub hosts.\n' >&2
             exit 1
         fi
+        if [ "\$1" = token ]; then
+            [ -e "$t/stub/gh-token-fails" ] && exit 1
+            case \$5 in
+                acme|other) printf 'ghp_secret_%s\n' "\$5" ;;
+                *) exit 1 ;;
+            esac
+        fi
         ;;
     release)
         sub=\$1
@@ -262,9 +269,9 @@ run_install() {
     local path=$1 tty=$2
     shift 2
     rc=0
-    (cd "$t" && PATH="$path" HOME="$t/home" GH="$t/stub/gh" \
+    (cd "$t" && PATH="$path" HOME="$t/home" GH="$t/stub/gh" GIT_CONFIG_GLOBAL="$t/home/.gitconfig" \
         SYNC_OS="${SYNC_OS:-}" SYNC_ARCH="${SYNC_ARCH:-}" SYNC_BREW_BASH="${SYNC_BREW_BASH:-}" \
-        SYNCSETTINGS_REPO_URL="$t/origin.git" SYNCSETTINGS_TTY="$tty" \
+        SYNCSETTINGS_REPO_URL="${REPO_URL:-$t/origin.git}" SYNCSETTINGS_TTY="$tty" \
         SYNCSETTINGS_RELEASE_URL="${SYNCSETTINGS_RELEASE_URL-file://$t/release}" \
         GIT_TERMINAL_PROMPT=0 "$REPO/install.sh" "$@") > "$out" 2>&1 || rc=$?
 }
@@ -695,6 +702,100 @@ case_install_gh_not_signed_in() {
     if grep -q '^gh release ' "$t/stub/gh.log"; then
         fail "gh fetched the release while not signed in"
     fi
+}
+
+# A github.com origin for the login cases: the throwaway HOME rewrites the URL
+# to the local bare repo, so the clone's stored origin stays a GitHub URL.
+use_github_origin() {
+    git config --file "$t/home/.gitconfig" "url.$t/origin.git.insteadOf" "$1"
+    REPO_URL=$1
+}
+
+login_lines() {
+    git -C "$t/home/SyncSettings" config --local --get-all credential.https://github.com.helper 2> /dev/null || true
+}
+
+# shellcheck disable=SC2016  # the helper text git runs, kept literal
+want_helper='!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user acme) && test -n $t && echo username=acme && echo password=$t; }; f'
+
+case_install_gh_login() {
+    setup_install_origin
+    make_install_stubs
+    use_github_origin https://github.com/acme/SyncSettings.git
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+
+    [[ $(login_lines) == $'\n'"$want_helper" ]] || fail "the clone's helper lines are not '' and the helper: $(login_lines)"
+    grep -Fq "  Git signs in to github.com as acme in $t/home/SyncSettings" "$out" || fail "missing the login line"
+    if grep -Fq ghp_secret "$out"; then
+        fail "the token is in the installer output"
+    fi
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "the rerun exited $rc, want 0"
+    [[ $(login_lines) == $'\n'"$want_helper" ]] || fail "the rerun did not leave exactly two lines: $(login_lines)"
+    if grep -Fq ghp_secret "$out"; then
+        fail "the token is in the rerun output"
+    fi
+}
+
+case_install_gh_login_bad_owner() {
+    setup_install_origin
+    make_install_stubs
+    # shellcheck disable=SC2016  # a literal $(...) the installer must refuse
+    use_github_origin 'https://github.com/ac$(me)/SyncSettings.git'
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+    [[ -z $(login_lines) ]] || fail "a bad owner name wrote a helper"
+}
+
+case_install_gh_login_not_signed_in() {
+    setup_install_origin
+    make_install_stubs
+    : > "$t/stub/gh-not-signed-in"
+    use_github_origin https://github.com/acme/SyncSettings.git
+    SYNCSETTINGS_RELEASE_URL=file://$t/release
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+    [[ -z $(login_lines) ]] || fail "an unsigned gh wrote a helper"
+}
+
+case_install_gh_login_token_fails() {
+    setup_install_origin
+    make_install_stubs
+    : > "$t/stub/gh-token-fails"
+    use_github_origin https://github.com/acme/SyncSettings.git
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+    [[ -z $(login_lines) ]] || fail "a failing auth token wrote a helper"
+}
+
+case_install_gh_login_unknown_account() {
+    setup_install_origin
+    make_install_stubs
+    use_github_origin git@github.com:nobody/SyncSettings.git
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+    [[ -z $(login_lines) ]] || fail "an account gh does not hold wrote a helper"
+}
+
+case_install_gh_login_non_github() {
+    setup_install_origin
+    make_install_stubs
+    SYNCSETTINGS_RELEASE_URL=''
+
+    SYNC_ARCH=x86_64 run_install "$t/stub:$PATH" /dev/null --no-setup
+    (( rc == 0 )) || fail "install.sh exited $rc, want 0"
+    [[ -z $(login_lines) ]] || fail "a non-GitHub origin wrote a helper"
 }
 
 # -- Runner --------------------------------------------------------------------

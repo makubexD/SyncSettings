@@ -85,6 +85,60 @@ function Install-SyncSettings {
         )
     }
 
+    # The empty-string argument for a native command: Windows PowerShell 5.1
+    # (and 7.0-7.2) drop a real empty string, so it passes a quoted pair that
+    # the program's argument parser reads back as empty.
+    function Get-EmptyNativeArgument {
+        $mode = Get-Variable -Name PSNativeCommandArgumentPassing -ValueOnly -ErrorAction SilentlyContinue
+        if ($null -ne $mode -and "$mode" -ne 'Legacy') {
+            return ''
+        }
+        return '""'
+    }
+
+    # Writes the clone's own git login for github.com, into its .git/config
+    # only: the repo owner's account, for a machine with several accounts in
+    # gh. The owner is the one in the origin URL as configured; nothing is
+    # written without a valid owner name or a token gh gives for that owner.
+    # The token is discarded here: git asks gh for it each time.
+    function Set-CloneGitLogin {
+        param([string]$Dir)
+        $origin = Get-GitOutput @('-C', $Dir, 'config', '--get', 'remote.origin.url')
+        # Case-sensitive, like install.sh: Test-GitHubUrl ignores case, so it is
+        # not the gate here.
+        $owner = ''
+        if ($origin -cmatch '^(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)([^/]+)') {
+            $owner = $Matches[1]
+        }
+        if (-not ($owner -cmatch '^[A-Za-z0-9-]{1,39}$')) {
+            return
+        }
+        $ErrorActionPreference = 'Continue'
+        $token = (& gh auth token --hostname github.com --user $owner 2>$null | Out-String).Trim()
+        $tokenExit = $LASTEXITCODE
+        if ($tokenExit -ne 0 -or $token -eq '') {
+            return
+        }
+        $token = $null
+        $key = 'credential.https://github.com.helper'
+        $helper = '!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user ' + $owner +
+            ') && test -n $t && echo username=' + $owner + ' && echo password=$t; }; f'
+        $emptied = Invoke-Git @('-C', $Dir, 'config', '--local', '--replace-all', $key, (Get-EmptyNativeArgument))
+        $added = 1
+        if ($emptied -eq 0) {
+            $added = Invoke-Git @('-C', $Dir, 'config', '--local', '--add', $key, $helper)
+        }
+        if ($emptied -ne 0 -or $added -ne 0) {
+            if ($emptied -eq 0) {
+                # Undo a half write: the empty value alone leaves git no helper.
+                Invoke-Git @('-C', $Dir, 'config', '--local', '--unset-all', $key) | Out-Null
+            }
+            Write-Warning "could not write git's GitHub login into $Dir."
+            return
+        }
+        Write-Host "  Git signs in to github.com as $owner in $Dir"
+    }
+
     # Run one winget install, discarding its (large) output.
     function Invoke-WingetInstall {
         param([string]$Id)
@@ -386,6 +440,10 @@ function Install-SyncSettings {
         if (-not (Test-Path -LiteralPath (Join-Path $dir 'mksync.cmd')) -or
             -not (Test-Path -LiteralPath (Join-Path $dir 'sync-config.json'))) {
             throw "$dir doesn't look like SyncSettings."
+        }
+
+        if ($ghRelease) {
+            Set-CloneGitLogin $dir
         }
 
         # 4. The mksync program in the bin folder: the latest release's

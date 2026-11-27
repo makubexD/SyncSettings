@@ -12,7 +12,9 @@ import { readGitFacts } from "../adapters/gitconfig.ts";
 import type { GitConfigFacts } from "../adapters/gitconfig.ts";
 import { hasScanBash } from "../adapters/leakscan.ts";
 import { readDriftReport } from "../adapters/packages.ts";
-import { run, which } from "../adapters/process.ts";
+import { ownerToken } from "../adapters/gh.ts";
+import { originOwner } from "../adapters/visibility.ts";
+import { decode, run, which } from "../adapters/process.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import { readText } from "../adapters/store.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
@@ -20,9 +22,14 @@ import type {
   DoctorFacts,
   GhFact,
   GitFacts,
+  GitLoginFact,
   PackageManager,
 } from "../core/front/doctor.ts";
-import { doctorLines } from "../core/front/doctor.ts";
+import {
+  doctorLines,
+  helperIsGhCredential,
+  helperNamesOwner,
+} from "../core/front/doctor.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectScope } from "../core/layers/select.ts";
 import { machineScope, machineValues } from "../core/machine/scope.ts";
@@ -111,6 +118,79 @@ async function ghFact(
     return "signed-out";
   }
   return result.code === 0 ? "signed-in" : "signed-out";
+}
+
+/** The clone-local credential helper key the installer writes. */
+const HELPER_KEY = "credential.https://github.com.helper";
+
+/** Every `credential.https://github.com.helper` value, all scopes, in git's order. */
+async function allHelpers(repoRoot: string): Promise<string[]> {
+  const result = await run(
+    ["git", "-C", repoRoot, "config", "--get-all", HELPER_KEY],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  if (result.code !== 0) {
+    return [];
+  }
+  return decode(result.stdout)
+    .replace(/\r?\n$/, "")
+    .split(/\r?\n/);
+}
+
+/** The active account's token (`gh auth token`); undefined when gh fails. */
+async function activeToken(
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<string | undefined> {
+  const result = await run(
+    [ghBinary(env), "auth", "token", "--hostname", "github.com"],
+    {
+      stdout: "pipe",
+      stderr: "ignore",
+      timeoutMs: GH_TIMEOUT_SECONDS * MILLISECONDS_PER_SECOND,
+    },
+  );
+  if (result.timedOut === true || result.notStarted === true) {
+    return undefined;
+  }
+  if (result.code !== 0) {
+    return undefined;
+  }
+  const token = decode(result.stdout).trim();
+  return token === "" ? undefined : token;
+}
+
+/**
+ * The git login facts (contract "Front door", git login): none unless gh
+ * signed in and holds a token for the origin's owner. The active token is
+ * asked only when the first effective helper is gh's git-credential. Nothing is written.
+ */
+async function gitLoginFact(
+  repoRoot: string,
+  gh: GhFact,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<GitLoginFact | undefined> {
+  if (gh === "missing") {
+    return undefined;
+  }
+  const owner = await originOwner(repoRoot);
+  const token = await ownerToken(owner);
+  if (owner === undefined || token === undefined) {
+    return undefined;
+  }
+  const helpers = await allHelpers(repoRoot);
+  if (helperNamesOwner(helpers, owner)) {
+    return { ownerToken: token, helperNamesOwner: true };
+  }
+  if (!helperIsGhCredential(helpers)) {
+    return { ownerToken: token, helperNamesOwner: false };
+  }
+  const active = await activeToken(env);
+  return {
+    ownerToken: token,
+    helperNamesOwner: false,
+    helperIsGhCredential: true,
+    ...(active !== undefined ? { activeToken: active } : {}),
+  };
 }
 
 /** The repo has an `origin` remote, as `git remote get-url origin` answers. */
@@ -289,6 +369,7 @@ export async function executeDoctor(input: DoctorInput): Promise<Result> {
     hasOrigin(input.repoRoot),
     readGitFacts(input.home),
   ]);
+  const gitLogin = await gitLoginFact(input.repoRoot, gh, process.env);
   const ghPath = which(ghBinary(process.env));
   const gitPath = which("git");
   const facts: DoctorFacts = {
@@ -299,6 +380,7 @@ export async function executeDoctor(input: DoctorInput): Promise<Result> {
     origin,
     record: input.layers.record !== undefined,
     unsetValues: unsetValueCount(input),
+    ...(gitLogin !== undefined ? { gitLogin } : {}),
     bash: hasScanBash(process.platform, gitPath, existsSync, onPath),
     drift: driftCount(input.repoRoot, input.os, input.home, process.env),
     gitFacts: doctorGitFacts(

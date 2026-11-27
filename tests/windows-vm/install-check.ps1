@@ -41,7 +41,8 @@ $env:LOCALAPPDATA = $AppData
 $SettingNames = @(
     'SYNCSETTINGS_REPO_URL', 'SYNCSETTINGS_DIR', 'SYNCSETTINGS_REF', 'SYNCSETTINGS_BIN',
     'SYNCSETTINGS_YES', 'SYNCSETTINGS_NO_SETUP', 'SYNCSETTINGS_RELEASE_URL',
-    'SYNCSETTINGS_RUNTIME', 'SYNC_ARCH'
+    'SYNCSETTINGS_RUNTIME', 'SYNC_ARCH',
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'
 )
 $SavedSettings = @{}
 foreach ($name in $SettingNames) {
@@ -174,6 +175,8 @@ $GhStub = Join-Path $GhStubDir 'gh.cmd'
 $GhLog = Join-Path $GhStubDir 'gh.log'
 $GhNotSignedIn = Join-Path $GhStubDir 'gh-not-signed-in'
 $null = New-Item -ItemType Directory -Path $GhStubDir -Force
+$GhTokenFails = Join-Path $GhStubDir 'gh-token-fails'
+$GhTokenEmpty = Join-Path $GhStubDir 'gh-token-empty'
 $ghLines = @(
     '@echo off',
     ('>> "' + $GhLog + '" echo gh %*'),
@@ -183,6 +186,20 @@ $ghLines = @(
     '',
     ':auth',
     ('if exist "' + $GhNotSignedIn + '" exit /b 1'),
+    'if /I "%~2"=="token" goto token',
+    'exit /b 0',
+    '',
+    ':token',
+    ('if exist "' + $GhTokenFails + '" exit /b 1'),
+    ('if exist "' + $GhTokenEmpty + '" exit /b 0'),
+    'if /I "%~3"=="--user" (set "who=%~4" & goto token_user)',
+    'if /I "%~3"=="--hostname" if /I "%~5"=="--user" (set "who=%~6" & goto token_user)',
+    'echo tok-active',
+    'exit /b 0',
+    '',
+    ':token_user',
+    ('if not exist "' + $GhStubDir + '\gh-user-%who%" exit /b 1'),
+    'echo tok-%who%',
     'exit /b 0',
     '',
     ':release',
@@ -510,6 +527,145 @@ if (@($gitArgs | Where-Object { $_.StartsWith('credential.https://github.com.hel
 }
 if (-not (Test-Path -LiteralPath (Join-Path $InstallDir '.git'))) {
     Stop-Check 'gh-not-signed-in: the clone was not created'
+}
+
+# gh-login: with gh signed in, a github.com origin and an owner token, the
+# clone's .git/config gets two helper values (an empty one, then the owner's),
+# and a rerun leaves two. The origin is a github.com URL that git rewrites to
+# the case's bare repo (insteadOf), which `config --get` doesn't see. The
+# token is in no output.
+$LoginUrl = 'https://github.com/owner1/repo.git'
+$LoginKey = 'credential.https://github.com.helper'
+$LoginHelperWant = '!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user owner1) && test -n $t && echo username=owner1 && echo password=$t; }; f'
+$LoginSettings = @{
+    SYNCSETTINGS_REPO_URL = $LoginUrl
+    SYNCSETTINGS_RELEASE_URL = ''
+    SYNCSETTINGS_NO_SETUP = '1'
+    GIT_CONFIG_COUNT = '1'
+    GIT_CONFIG_KEY_0 = "url.$Origin.insteadOf"
+    GIT_CONFIG_VALUE_0 = $LoginUrl
+}
+function Get-LoginValues {
+    return @(& git -C $InstallDir config --local --get-all $LoginKey 2>$null)
+}
+function Invoke-LoginInstall {
+    param([string[]]$Users = @('owner1'), [string]$Url = $LoginUrl, [switch]$Fresh)
+    Reset-Bin
+    if ($Fresh -and (Test-Path -LiteralPath $InstallDir)) {
+        Remove-Item -LiteralPath $InstallDir -Recurse -Force
+    }
+    Remove-Item -LiteralPath $GhLog, $GitLog -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $GhStubDir 'gh-user-*') -Force -ErrorAction SilentlyContinue
+    foreach ($user in $Users) {
+        [IO.File]::WriteAllText((Join-Path $GhStubDir "gh-user-$user"), '')
+    }
+    $settings = @{}
+    foreach ($name in $LoginSettings.Keys) { $settings[$name] = $LoginSettings[$name] }
+    $settings['SYNCSETTINGS_REPO_URL'] = $Url
+    $settings['GIT_CONFIG_VALUE_0'] = $Url
+    return (Invoke-Install -Settings $settings -PathPrefix @($GhStubDir, $GitStubDir))
+}
+function Test-LoginNone {
+    param([string]$Name, $Run)
+    if ($Run.Exit -ne 0) {
+        Stop-Check "${Name}: exit $($Run.Exit)`n$($Run.Out)"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $InstallDir '.git'))) {
+        Stop-Check "${Name}: the clone was not created"
+    }
+    $values = Get-LoginValues
+    if ($values.Count -ne 0) {
+        Stop-Check "${Name}: the clone has helper values`n$($values -join "`n")"
+    }
+    if ($Run.Out -match 'Git signs in to github.com') {
+        Stop-Check "${Name}: said it wrote a login`n$($Run.Out)"
+    }
+    if ($Run.Out.Contains('tok-')) {
+        Stop-Check "${Name}: a token is in the output`n$($Run.Out)"
+    }
+}
+
+$run = Invoke-LoginInstall -Fresh
+if ($run.Exit -ne 0) {
+    Stop-Check "gh-login: exit $($run.Exit)`n$($run.Out)"
+}
+$values = Get-LoginValues
+if ($values.Count -ne 2 -or $values[0] -ne '' -or $values[1] -ne $LoginHelperWant) {
+    Stop-Check "gh-login: wrong helper values ($($values.Count))`n$($values -join "`n")`n$($run.Out)`n$([IO.File]::ReadAllText($GhLog))"
+}
+if ($run.Out -notmatch [regex]::Escape("Git signs in to github.com as owner1 in $InstallDir")) {
+    Stop-Check "gh-login: no sign-in line`n$($run.Out)"
+}
+if ($run.Out.Contains('tok-')) {
+    Stop-Check "gh-login: a token is in the output`n$($run.Out)"
+}
+if (@(& git config --global --get-all $LoginKey 2>$null).Count -ne 0) {
+    Stop-Check 'gh-login: the helper reached the global git config'
+}
+
+# The helper answers git's credential request through gh (the stub is a
+# .cmd, which Git's sh may not find by the bare name `gh`; the stub folder is
+# on PATH for this one call).
+$savedPath = $env:Path
+$env:Path = $GhStubDir + ';' + $env:Path
+try {
+    $credIn = Join-Path $T 'credential-in.txt'
+    [IO.File]::WriteAllText($credIn, "protocol=https`nhost=github.com`n`n", $Utf8)
+    $cred = (& cmd.exe /c ('git -C "' + $InstallDir + '" credential fill < "' + $credIn + '" 2>&1') | Out-String)
+} finally {
+    $env:Path = $savedPath
+}
+if ($cred -notmatch 'username=owner1' -or $cred -notmatch 'password=tok-owner1') {
+    Write-Output "install-check: note: the stored helper did not reach the gh stub through git credential fill:`n$cred"
+}
+
+# Rerun: a pull, still exactly two values.
+$run = Invoke-LoginInstall
+if ($run.Exit -ne 0) {
+    Stop-Check "gh-login rerun: exit $($run.Exit)`n$($run.Out)"
+}
+$values = Get-LoginValues
+if ($values.Count -ne 2 -or $values[0] -ne '' -or $values[1] -ne $LoginHelperWant) {
+    Stop-Check "gh-login rerun: wrong helper values ($($values.Count))`n$($values -join "`n")"
+}
+
+# A bad owner name writes nothing (the name has an underscore).
+$badUrl = 'https://github.com/bad_owner/repo.git'
+Test-LoginNone 'gh-login-bad-owner' (Invoke-LoginInstall -Fresh -Users 'bad_owner' -Url $badUrl)
+
+# gh signed in but without the owner's account: nothing.
+Test-LoginNone 'gh-login-no-owner-token' (Invoke-LoginInstall -Fresh -Users 'someone')
+
+# `auth token --user` failing for every name: nothing.
+[IO.File]::WriteAllText($GhTokenFails, '')
+try {
+    Test-LoginNone 'gh-login-token-fails' (Invoke-LoginInstall -Fresh)
+} finally {
+    Remove-Item -LiteralPath $GhTokenFails -Force -ErrorAction SilentlyContinue
+}
+
+# An empty answer: nothing.
+[IO.File]::WriteAllText($GhTokenEmpty, '')
+try {
+    Test-LoginNone 'gh-login-token-empty' (Invoke-LoginInstall -Fresh)
+} finally {
+    Remove-Item -LiteralPath $GhTokenEmpty -Force -ErrorAction SilentlyContinue
+}
+
+# gh not signed in: nothing, and gh is asked only for the sign-in.
+[IO.File]::WriteAllText($GhNotSignedIn, '')
+try {
+    $run = Invoke-LoginInstall -Fresh
+} finally {
+    Remove-Item -LiteralPath $GhNotSignedIn -Force -ErrorAction SilentlyContinue
+}
+Test-LoginNone 'gh-login-not-signed-in' $run
+
+# A non-github origin (the local bare repo): nothing, and no token was asked.
+$run = Invoke-LoginInstall -Fresh -Url $Origin
+Test-LoginNone 'gh-login-non-github' $run
+if ((Test-Path -LiteralPath $GhLog) -and ([IO.File]::ReadAllText($GhLog)) -match 'auth token') {
+    Stop-Check 'gh-login-non-github: gh was asked for a token'
 }
 
 Restore-Settings

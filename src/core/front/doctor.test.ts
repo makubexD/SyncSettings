@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { doctorLines, installHint } from "./doctor.ts";
+import {
+  doctorLines,
+  helperIsGhCredential,
+  helperNamesOwner,
+  installHint,
+} from "./doctor.ts";
 import type { DoctorFacts, GitFacts } from "./doctor.ts";
 
 const MISSING_NEXT = "  Fix the MISSING items, then run mksync doctor again.";
@@ -485,5 +490,129 @@ describe("installHint", () => {
 
   test("no package manager found", () => {
     expect(installHint("linux", undefined, "git")).toBe("your package manager");
+  });
+});
+
+describe("git login line", () => {
+  const OWNER_TOKEN = "tok-owner-secret";
+  const OTHER_TOKEN = "tok-other-secret";
+  const OK_LINE = "  OK       git login";
+  const WARN_LINE =
+    "  WARN     git login: git signs in as another GitHub account; run the install line again";
+
+  function loginLines(gitLogin: DoctorFacts["gitLogin"]): readonly string[] {
+    return doctorLines(facts(gitLogin === undefined ? {} : { gitLogin })).lines;
+  }
+
+  test("the helper names the owner: OK, right after the gh line", () => {
+    const lines = loginLines({
+      ownerToken: OWNER_TOKEN,
+      helperNamesOwner: true,
+    });
+    const gh = lines.indexOf("  OK       gh (signed in)");
+    expect(lines[gh + 1]).toBe(OK_LINE);
+  });
+
+  test("the active token is the owner's: OK", () => {
+    const lines = loginLines({
+      ownerToken: OWNER_TOKEN,
+      helperNamesOwner: false,
+      helperIsGhCredential: true,
+      activeToken: OWNER_TOKEN,
+    });
+    expect(lines).toContain(OK_LINE);
+  });
+
+  test("the active token is the owner's but the helper is not gh's: WARN", () => {
+    const lines = loginLines({
+      ownerToken: OWNER_TOKEN,
+      helperNamesOwner: false,
+      helperIsGhCredential: false,
+      activeToken: OWNER_TOKEN,
+    });
+    expect(lines).toContain(WARN_LINE);
+  });
+
+  test("another account is active and no helper names the owner: WARN", () => {
+    const lines = loginLines({
+      ownerToken: OWNER_TOKEN,
+      helperNamesOwner: false,
+      helperIsGhCredential: true,
+      activeToken: OTHER_TOKEN,
+    });
+    expect(lines).toContain(WARN_LINE);
+    expect(lines).not.toContain(OK_LINE);
+  });
+
+  test("gh prints no active token: WARN", () => {
+    const lines = loginLines({
+      ownerToken: OWNER_TOKEN,
+      helperNamesOwner: false,
+    });
+    expect(lines).toContain(WARN_LINE);
+  });
+
+  test("no git login facts (no owner token): no line", () => {
+    const lines = loginLines(undefined);
+    expect(lines.some((l) => l.includes("git login"))).toBe(false);
+  });
+
+  test("no line holds a token", () => {
+    for (const activeToken of [OWNER_TOKEN, OTHER_TOKEN, undefined]) {
+      const lines = loginLines({
+        ownerToken: OWNER_TOKEN,
+        helperNamesOwner: false,
+        helperIsGhCredential: true,
+        ...(activeToken !== undefined ? { activeToken } : {}),
+      });
+      for (const l of lines) {
+        expect(l).not.toContain("secret");
+      }
+    }
+  });
+});
+
+describe("helperNamesOwner", () => {
+  const HELPER =
+    "!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user owner1) && test -n $t && echo username=owner1 && echo password=$t; }; f";
+
+  test("matches the owner when an empty value precedes the helper", () => {
+    expect(helperNamesOwner(["", HELPER], "owner1")).toBe(true);
+  });
+
+  test("matches the owner when the helper is the only value", () => {
+    expect(helperNamesOwner([HELPER], "owner1")).toBe(true);
+  });
+
+  test("does not match when another helper comes first without a reset", () => {
+    expect(helperNamesOwner(["manager", HELPER], "owner1")).toBe(false);
+  });
+
+  test("matches after a reset that follows an earlier helper", () => {
+    expect(helperNamesOwner(["manager", "", HELPER], "owner1")).toBe(true);
+  });
+
+  test("does not match the old form without the host", () => {
+    expect(helperNamesOwner(["gh auth token --user owner1"], "owner1")).toBe(
+      false,
+    );
+  });
+
+  test("does not match a longer name or another owner", () => {
+    expect(helperNamesOwner([HELPER], "owner")).toBe(false);
+    expect(helperNamesOwner([HELPER], "other")).toBe(false);
+    expect(helperNamesOwner([""], "owner1")).toBe(false);
+  });
+});
+
+describe("helperIsGhCredential", () => {
+  test("is true for the first effective helper gh auth git-credential", () => {
+    expect(
+      helperIsGhCredential(["manager", "", "!/usr/bin/gh auth git-credential"]),
+    ).toBe(true);
+  });
+
+  test("is false for a GCM-like helper", () => {
+    expect(helperIsGhCredential(["manager"])).toBe(false);
   });
 });

@@ -16,11 +16,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Result } from "../core/config/types.ts";
-import { runGh } from "./gh.ts";
+import { ownerToken, runGh } from "./gh.ts";
 import type { GhResult } from "./gh.ts";
 
 /** The repository the release comes from; `gh` names it with `--repo`. */
 const RELEASE_REPO = "makubexD/SyncSettings";
+
+/** The account that owns `RELEASE_REPO`, whose token `gh` runs with. */
+const RELEASE_OWNER = RELEASE_REPO.split("/")[0];
 
 /** Where a released program is downloaded from when the environment names no
  * other base. */
@@ -156,6 +159,7 @@ async function latestTagViaGh(): Promise<Result<string, string>> {
       ".tagName",
     ],
     GH_TIMEOUT_MS,
+    await ownerToken(RELEASE_OWNER),
   );
   if (!result.ok) {
     return { ok: false, error: ghError(result) };
@@ -238,6 +242,7 @@ async function downloadViaGh(
         "--clobber",
       ],
       GH_TIMEOUT_MS,
+      await ownerToken(RELEASE_OWNER),
     );
     if (!result.ok) {
       return { ok: false, error: ghError(result) };

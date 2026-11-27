@@ -220,6 +220,34 @@ git_gh() {
         -c "credential.https://github.com.helper=!${GH:-gh} auth git-credential" "$@"
 }
 
+# Make git sign in to github.com as the clone's owner: the owner comes from the
+# origin URL, and only when gh holds a token for that account does the clone get
+# a credential helper that asks gh for it. The token is never read into the
+# installer's output or stored. Writes nothing in any other case.
+write_clone_login() {
+    local dir=$1 origin rest owner helper
+    origin=$(git -C "$dir" config --get remote.origin.url 2> /dev/null || true)
+    case $origin in
+        https://github.com/*) rest=${origin#https://github.com/} ;;
+        ssh://git@github.com/*) rest=${origin#ssh://git@github.com/} ;;
+        git@github.com:*) rest=${origin#git@github.com:} ;;
+        *) return 0 ;;
+    esac
+    owner=${rest%%/*}
+    [[ $owner =~ ^[A-Za-z0-9-]{1,39}$ ]] || return 0
+    [[ -n $("${GH:-gh}" auth token --hostname github.com --user "$owner" 2> /dev/null) ]] || return 0
+
+    helper="!f() { test \$1 = get || return 0; t=\$(gh auth token --hostname github.com --user $owner) && test -n \$t && echo username=$owner && echo password=\$t; }; f"
+    if git -C "$dir" config --local --replace-all credential.https://github.com.helper '' \
+        && git -C "$dir" config --local --add credential.https://github.com.helper "$helper"; then
+        printf '  Git signs in to github.com as %s in %s\n' "$owner" "$dir"
+    else
+        # Undo a half write: the empty value alone would leave git with no helper.
+        git -C "$dir" config --local --unset-all credential.https://github.com.helper 2> /dev/null || true
+        printf 'WARNING: could not write the GitHub login to %s/.git/config.\n' "$dir" >&2
+    fi
+}
+
 # Clone the repo, or fast-forward an existing clone, then check it looks like
 # SyncSettings. With gh signed in, the clone carries gh's credential helper,
 # and so does a pull from github.com, where a pull from anywhere else has none.
@@ -255,6 +283,10 @@ install_repo() {
     if [[ ! -f $dir/mksync || ! -f $dir/sync-config.json ]]; then
         printf "ERROR: %s doesn't look like SyncSettings.\n" "$dir" >&2
         exit 1
+    fi
+
+    if (( gh_release )); then
+        write_clone_login "$dir"
     fi
 }
 

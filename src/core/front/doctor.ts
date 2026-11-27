@@ -27,6 +27,61 @@ export interface GitFacts {
   readonly ghCliValue?: string;
 }
 
+/**
+ * What the app learned about the account git signs in as, when `gh` holds a
+ * token for the origin's owner. The tokens are compared in memory only and
+ * never reach a line.
+ */
+export interface GitLoginFact {
+  /** `gh auth token --hostname github.com --user <owner>`: the owner's token. */
+  readonly ownerToken: string;
+  /** The first effective `credential.https://github.com.helper` names the owner. */
+  readonly helperNamesOwner: boolean;
+  /** The first effective helper is `gh auth git-credential`. */
+  readonly helperIsGhCredential?: boolean;
+  /** `gh auth token --hostname github.com`: the active token; asked only for the gh-git-credential helper. */
+  readonly activeToken?: string;
+}
+
+/**
+ * The helpers git will ask, in git's order: the entries after the last empty
+ * value (an empty `helper =` resets the list). `values` are every
+ * `credential.https://github.com.helper` entry across all scopes, in the order
+ * `git config --get-all` prints them.
+ */
+export function effectiveHelpers(values: readonly string[]): string[] {
+  const reset = values.lastIndexOf("");
+  return values.slice(reset + 1);
+}
+
+/**
+ * Whether the first effective helper runs `gh auth token --hostname github.com
+ * --user <owner>`, with the owner as a whole name: the next character is not a
+ * name character (so `owner1` does not match `owner10`). Case-insensitive, as
+ * GitHub names are.
+ */
+export function helperNamesOwner(
+  values: readonly string[],
+  owner: string,
+): boolean {
+  const first = effectiveHelpers(values)[0];
+  if (first === undefined) {
+    return false;
+  }
+  const escaped = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `gh auth token --hostname github\\.com --user ${escaped}(?![A-Za-z0-9-])`,
+    "i",
+  );
+  return pattern.test(first);
+}
+
+/** Whether the first effective helper is gh's own `gh auth git-credential`. */
+export function helperIsGhCredential(values: readonly string[]): boolean {
+  const first = effectiveHelpers(values)[0];
+  return first !== undefined && first.includes("gh auth git-credential");
+}
+
 /** Everything the doctor lines read. */
 export interface DoctorFacts {
   readonly os: Os;
@@ -43,6 +98,8 @@ export interface DoctorFacts {
   readonly drift: number | undefined;
   /** Git's own view; undefined = not read, so no git config line. */
   readonly gitFacts?: GitFacts;
+  /** The git login facts; undefined = no gh, no owner or no owner token, so no line. */
+  readonly gitLogin?: GitLoginFact;
 }
 
 /** The doctor output lines, without line endings, and its exit code. */
@@ -143,6 +200,30 @@ function ghLine(f: DoctorFacts): string {
           : "gh: needed for push; see https://cli.github.com",
       );
   }
+}
+
+/**
+ * Contract "Front door", git login: OK when the first effective helper names the owner or
+ * is gh's git-credential and the active gh account is the owner's; otherwise WARN. No facts, no line.
+ */
+function gitLoginLines(login: GitLoginFact | undefined): string[] {
+  if (login === undefined) {
+    return [];
+  }
+  if (
+    login.helperNamesOwner ||
+    (login.helperIsGhCredential === true &&
+      login.activeToken !== undefined &&
+      login.activeToken === login.ownerToken)
+  ) {
+    return [checkLine("OK", "git login")];
+  }
+  return [
+    checkLine(
+      "WARN",
+      "git login: git signs in as another GitHub account; run the install line again",
+    ),
+  ];
 }
 
 /** Contract "Front door": the `bash` line, a WARN since only the leak scan needs it. */
@@ -251,6 +332,7 @@ export function doctorLines(f: DoctorFacts): DoctorReport {
   }
   lines.push(
     ghLine(f),
+    ...gitLoginLines(f.gitLogin),
     f.origin
       ? checkLine("OK", "repo clone with origin")
       : checkLine("WARN", "repo has no origin remote"),

@@ -57,6 +57,12 @@ $env:SYNCSETTINGS_RUNTIME = 'node'; gh api -H 'Accept: application/vnd.github.ra
 
 Use `bun` instead of `node` for Bun. Installed this way, `mksync update` says to use `git pull` in the clone instead.
 
+**Two GitHub accounts on one machine** (a work account and your own): the installer sets the clone to sign in as the
+repo's owner, and `mksync` runs `gh` with the owner's token, so your active `gh` account can stay the work one. Sign in
+to both first (`gh auth login` for each). If the repo is private and your active account can't see it, the install
+line itself fails: run `gh auth switch --user <you>` before it and switch back after. `mksync doctor` reads
+`OK git login` when the clone is set.
+
 `SYNCSETTINGS_REPO_URL`, `SYNCSETTINGS_DIR` and the other `SYNCSETTINGS_*` variables change the defaults, for example
 for a fork; the [install section](docs/sync-contract.md#install) lists them all.
 

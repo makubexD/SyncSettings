@@ -1201,7 +1201,11 @@ repos/makubexD/SyncSettings/contents/install.sh | bash`" (`install.ps1 | Out-Str
   download, which works while the repo is public. The installers' clone (and a pull from a `github.com` origin) runs
   with `-c credential.https://github.com.helper=` and `-c credential.https://github.com.helper=!gh auth
 git-credential` for that one command, so nothing is written to the synced `~/.gitconfig`; after the first pull,
-  Linux and macOS get the helper from `.gitconfig.local`, and Windows uses Git Credential Manager.
+  Linux and macOS get the helper from `.gitconfig.local`, and Windows uses Git Credential Manager. That holds only with
+  one GitHub account: work #2 (2026-11-27) has the employer's account active in `gh` and in Git Credential Manager,
+  which can't see the owner's private repos. From `v1.2.2` (`docs/plan-gh-account.md`) the installers also write a
+  helper into the clone's own `.git/config` that asks `gh auth token --hostname github.com --user <owner>`, every `gh` call the program
+  makes runs with that token in `GH_TOKEN`, and `mksync doctor`'s `git login` line says when a clone still needs it.
 
 As built in phase 9:
 
@@ -1459,6 +1463,15 @@ install").
 
 ### Design
 
+- **Installing on a machine whose active `gh` account can't see the private repo (2026-11-27, `v1.2.2`).** The
+  install line itself (`gh api … contents/install.ps1`) runs as `gh`'s active account, so on a new machine where that
+  is an employer's account it fails once the repo is private. For now the docs say to run
+  `gh auth switch --user <owner>` for the install line, then switch back; after the install the clone's own login and
+  the program's `GH_TOKEN` need no switch. Open: whether the install line should take the owner's token itself.
+- **Review leftovers (2026-11-27).** The helper answers for any username and path on `github.com`. The owner's case must
+  match `gh`'s login exactly (`MakubexD` vs `makubexD` gives no token, silently). `install.sh` checks with `${GH:-gh}` but
+  the helper calls `gh` on `PATH`. The visibility check takes the owner from the push URL (after `pushInsteadOf`) while the
+  rest uses the configured origin. The doctor compares tokens with `===` (local, `OK`/`WARN` only).
 - **The doctor's bash and winget lookups (work #2, 2026-11-26).** `mksync doctor` checks `bash` with a bare `PATH`
   lookup (`src/app/doctor.ts`), but on Windows the leak scan runs Git's own `bash.exe`, found from `git`
   (`findBash`, `src/adapters/leakscan.ts`). Work #2 has only `Git\cmd` on `PATH` and no WSL, so the doctor warns while a

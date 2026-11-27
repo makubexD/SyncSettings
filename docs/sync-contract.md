@@ -1080,7 +1080,14 @@ More rules per command:
   check itself fails, the machine line is `not checked: run mksync check to see why` and the next command is
   `the machine check failed; run mksync check to see why.`
 - **`doctor`** checks what the program needs, in this order: `git`; on macOS `brew` (`MISSING brew: install from
-https://brew.sh`); `gh` and its sign-in; `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
+https://brew.sh`); `gh` and its sign-in; `git login`, only when `gh` holds a token for the owner of the clone's
+  `origin` (the owner as configured, `git config --get remote.origin.url`, before any `insteadOf`): `OK` when the
+  first effective `credential.https://github.com.helper` (read across all scopes with `git config --get-all`, in git's
+  order; the effective ones are those after the last empty value) runs `gh auth token --hostname github.com --user
+<owner>` with the owner as a whole name, or is `gh auth git-credential` and `gh`'s active token
+  (`gh auth token --hostname github.com`, asked only then) equals the owner's, else
+  `WARN git login: git signs in as another GitHub account; run the install line again` (tokens are compared in memory,
+  never printed; the doctor writes nothing); `repo clone with origin` (`WARN repo has no origin remote`); `machine record`
   (`WARN no machine record; run mksync setup`); `values` (`WARN <n> value(s) not set; mksync setup asks for them` without a record, `WARN <n> value(s) not saved yet; mksync push or pull fills them from this machine's files or asks for them` with one); then git's own view of its config, up to four `WARN` lines in this order, none of which changes the exit code:
   `WARN git also reads ~/.config/git/config; mksync syncs ~/.gitconfig only` when that file exists;
   `WARN git includes <path>, which mksync doesn't sync` for each `include.path` or `includeIf.*.path` value in the
@@ -1144,6 +1151,22 @@ above run unchanged. The clone, and the pull of an existing clone whose origin i
 `-c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential'` for that
 one git command; nothing is written to `~/.gitconfig`. A failing `gh` gives the same error lines as a failing
 download. Otherwise the installer downloads over HTTPS as above.
+
+**The clone's GitHub login.** After the clone or pull, through `gh` and with an origin on `github.com`: the owner from
+`git config --get remote.origin.url` must match `^[A-Za-z0-9-]{1,39}$`, and `gh auth token --hostname github.com --user <owner>` must print
+a token (discarded, never printed). Then the installer writes, into the clone's `.git/config` only,
+`credential.https://github.com.helper` as the empty value and then
+`!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user <owner>) && test -n $t && echo username=<owner> && echo password=$t; }; f`
+(no double quotes, which PowerShell 5.1 strips), and prints `  Git signs in to github.com as <owner> in <dir>`. A rerun
+keeps exactly those two values; a failing write is a warning, and when the second value fails after the empty one was
+written, the key is unset again, and the install goes on. So a machine whose active `gh` account, or Git Credential Manager login, is someone
+else's still pulls the owner's private repo. Any other case writes nothing.
+
+**`gh` as the owner.** Every `gh` call the program makes (`pr create`, `release view`, `release download`, `repo view`)
+runs with `GH_TOKEN` set, in that child's environment only, to `gh auth token --hostname github.com --user <owner>`'s answer for the clone's
+origin owner (`makubexD` for the release), asked once per run. No valid owner name or no answer: `gh` runs as its
+active account, as before. `gh pr create` also gets `--repo github.com/<owner>/<repo>` when the clone's configured
+origin is a `github.com` repo. The active account is never switched.
 
 The run-from-clone fallback, for a machine that blocks the program: `--runtime bun|node` (`SYNCSETTINGS_RUNTIME` on
 Windows) skips the download and puts the clone's launcher on `PATH` instead ([The program](#the-program)).

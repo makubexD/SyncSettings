@@ -355,6 +355,22 @@ function Validate-Case {
         }
     }
 
+    $ghAccountsProp = $case.PSObject.Properties['ghAccounts']
+    if ($null -ne $ghAccountsProp) {
+        $ghNames = $ghAccountsProp.Value
+        if ($ghNames -isnot [System.Array]) {
+            Die 'ghAccounts must be an array of names made of letters, digits and dashes'
+        }
+        foreach ($n in $ghNames) {
+            if (-not ($n -is [string] -and $n -cmatch '^[A-Za-z0-9-]+$')) {
+                Die 'ghAccounts must be an array of names made of letters, digits and dashes'
+            }
+        }
+        if (-not (($null -ne $stubsProp) -and (@($stubsProp.Value) -ccontains 'gh'))) {
+            Die 'ghAccounts needs "stubs": ["gh"]'
+        }
+    }
+
     $originUrlProp = $case.PSObject.Properties['originUrl']
     if ($null -ne $originUrlProp) {
         if (-not ($originUrlProp.Value -is [string] -and $originUrlProp.Value -ne '')) {
@@ -362,6 +378,21 @@ function Validate-Case {
         }
         if (-not ($null -ne $gitProp -and $gitProp.Value -is [string] -and $gitProp.Value -ceq 'remote')) {
             Die 'originUrl needs git remote'
+        }
+    }
+
+    $gitConfigProp = $case.PSObject.Properties['gitConfigLocal']
+    if ($null -ne $gitConfigProp) {
+        $cfgPairs = @($gitConfigProp.Value)
+        if ($gitConfigProp.Value -isnot [array]) { Die 'gitConfigLocal must be a list of [key, value] string pairs' }
+        foreach ($pair in $cfgPairs) {
+            $pairItems = @($pair)
+            if ($pair -isnot [array] -or $pairItems.Count -ne 2 -or $pairItems[0] -isnot [string] -or $pairItems[1] -isnot [string] -or $pairItems[0] -notmatch '^[A-Za-z0-9.:/_-]+$') {
+                Die 'gitConfigLocal must be a list of [key, value] string pairs, keys of letters, digits and . : / _ -'
+            }
+        }
+        if (-not ($null -ne $gitProp -and $gitProp.Value -is [string] -and ($gitProp.Value -ceq 'remote' -or $gitProp.Value -ceq 'committed'))) {
+            Die 'gitConfigLocal needs git committed or remote'
         }
     }
 
@@ -936,9 +967,37 @@ public static class GhStub
     public static int Main(string[] args)
     {
         string bin = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        string log = Path.Combine(Path.GetDirectoryName(bin), "gh.log");
-        File.AppendAllText(log, string.Join(" ", args) + "\r\n");
+        string root = Path.GetDirectoryName(bin);
+        string log = Path.Combine(root, "gh.log");
         string call = string.Join(" ", args);
+        string token = Environment.GetEnvironmentVariable("GH_TOKEN");
+        string prefix = string.IsNullOrEmpty(token) ? "" : "GH_TOKEN=" + token + " ";
+        File.AppendAllText(log, prefix + call + "\r\n");
+        string accountsFile = Path.Combine(root, "gh-accounts");
+        string[] accounts = File.Exists(accountsFile) ? File.ReadAllLines(accountsFile) : new string[0];
+        if (call == "auth token" || call == "auth token --hostname github.com")
+        {
+            if (accounts.Length > 0 && accounts[0] != "")
+            {
+                Console.Out.Write("tok-" + accounts[0] + "\r\n");
+                return 0;
+            }
+            return 1;
+        }
+        bool pinned = args.Length == 6 && args[0] == "auth" && args[1] == "token" && args[2] == "--hostname" && args[3] == "github.com" && args[4] == "--user";
+        if (pinned || (args.Length == 4 && args[0] == "auth" && args[1] == "token" && args[2] == "--user"))
+        {
+            string wanted = args[args.Length - 1];
+            foreach (string name in accounts)
+            {
+                if (name != "" && name == wanted)
+                {
+                    Console.Out.Write("tok-" + name + "\r\n");
+                    return 0;
+                }
+            }
+            return 1;
+        }
         if (call == "api user --jq .login" || call == "config get -h github.com user")
         {
             Console.Out.Write("parity-user\r\n");
@@ -949,11 +1008,20 @@ public static class GhStub
 '@
 
 # Write the gh stub into <temp>\bin: a gh.exe that appends a call's arguments,
-# one call per line, to <temp>\gh.log, prints nothing and exits 0.
+# one call per line, to <temp>\gh.log (prefixed `GH_TOKEN=<value> ` when its
+# environment has a non-empty GH_TOKEN), prints nothing and exits 0, except for
+# the case's ghAccounts (first = active, one per line in <temp>\gh-accounts):
+# `auth token [--hostname github.com]` prints tok-<first> or exits 1 with no accounts;
+# `auth token [--hostname github.com] --user <name>` prints tok-<name> for a listed name, else exits 1.
 function Write-GhStub {
-    param([string]$TempDir)
+    param([string]$TempDir, [string[]]$Accounts)
     $binDir = Join-Path $TempDir 'bin'
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    $accountsPath = Join-Path $TempDir 'gh-accounts'
+    [IO.File]::WriteAllText($accountsPath, '')
+    if ($null -ne $Accounts -and $Accounts.Count -gt 0) {
+        [IO.File]::WriteAllText($accountsPath, (($Accounts -join "`n") + "`n"))
+    }
     if ($script:ghExeTemplate -eq '') {
         $folder = Join-Path ([IO.Path]::GetTempPath()) ('mksync-ghstub-' + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
@@ -1123,6 +1191,20 @@ function Run-Case {
             Invoke-Git -What 'git remote set-url' -GitArgs @('-C', $repoDir, 'remote', 'set-url', 'origin', $originUrl)
         }
 
+        # gitConfigLocal pairs go into the clone's own config, in order, as
+        # `git config --local --add`. PowerShell 5.1 drops an empty native
+        # argument, so an empty value is passed as a literal pair of quotes,
+        # which git receives as the empty string.
+        $cfgProp = $Case.PSObject.Properties['gitConfigLocal']
+        if ($null -ne $cfgProp) {
+            foreach ($pair in @($cfgProp.Value)) {
+                $cfgItems = @($pair)
+                $cfgValue = [string]$cfgItems[1]
+                if ($cfgValue -eq '') { $cfgValue = '""' }
+                Invoke-Git -What 'git config --local' -GitArgs @('-C', $repoDir, 'config', '--local', '--add', [string]$cfgItems[0], $cfgValue)
+            }
+        }
+
         # An unsent/ tree goes over the repo's working tree after the commit and
         # stays uncommitted, so `git status --porcelain` shows it. The copies
         # get a new write time: Copy-Item keeps the source's, and a same-size
@@ -1150,7 +1232,12 @@ function Run-Case {
         $stubsProp = $Case.PSObject.Properties['stubs']
         if ($null -ne $stubsProp -and (@($stubsProp.Value) -ccontains 'gh')) {
             $ghStub = $true
-            Write-GhStub -TempDir $t
+            $ghAccountList = @()
+            $ghAccountsCase = $Case.PSObject.Properties['ghAccounts']
+            if ($null -ne $ghAccountsCase) {
+                $ghAccountList = @($ghAccountsCase.Value)
+            }
+            Write-GhStub -TempDir $t -Accounts $ghAccountList
         }
 
         # Optional case env: a string sets the variable, null unsets it. Applied
@@ -1522,8 +1609,8 @@ function Run-Case {
 
         Test-PrivateFiles -RepoDir $repoDir -LocalDir $localDir -RunStartUtc $runStartUtc
 
-        # Each gh call is cut to its first two words, so branch names and titles
-        # don't matter. No expected file means gh must not be called.
+        # Each gh call is cut to its first two words (a leading GH_TOKEN=<value> is
+        # kept and not counted), so branch names and titles don't matter. No expected file means gh must not be called.
         if ($ghStub) {
             $ghCut = New-Object System.Collections.Generic.List[string]
             $ghLogPath = Join-Path $t 'gh.log'
@@ -1534,10 +1621,17 @@ function Run-Case {
                         continue
                     }
                     $words = @($line -split ' +')
-                    if ($words.Count -eq 1) {
-                        $ghCut.Add($words[0])
+                    # A leading GH_TOKEN=<value> is kept and not counted.
+                    $skip = 0
+                    $keep = ''
+                    if ($words[0].StartsWith('GH_TOKEN=')) {
+                        $skip = 1
+                        $keep = $words[0] + ' '
+                    }
+                    if ($words.Count -le ($skip + 1)) {
+                        $ghCut.Add($keep + $words[$skip])
                     } else {
-                        $ghCut.Add($words[0] + ' ' + $words[1])
+                        $ghCut.Add($keep + $words[$skip] + ' ' + $words[$skip + 1])
                     }
                 }
             }
