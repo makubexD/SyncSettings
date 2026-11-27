@@ -29,6 +29,14 @@ settings.
    `?`.
 5. **Preview's count leaves out a file waiting for a value.** `3 file(s) would change.` while a fourth,
    `claude/settings.json`, was `SKIPPED … needs <YOUR_GH_OWNER>`. The summary line is easy to read as the whole story.
+6. **Pull never asks the value its own guard needs.** On the Linux laptop (`v1.1.9`, a sync point, the repo's
+   `claude/settings.json` now holding `<YOUR_GH_OWNER>`), `mksync diff` says `needs <YOUR_GH_OWNER>: mksync push or
+pull asks for it`, but `mksync pull` runs its guard first (`executePull`, `src/app/pull.ts`), the guard's diff skips
+   the file, and pull stops with `could not tell which side is newer` without asking. `v1.1.9` moved push's questions
+   before its guard; pull was left out.
+7. **The check prints an internal marker.** The same pull listed
+   `extraKnownMarketplaces.sigil.source.repo: "makubexD/sigil" -> "\u0000mksync-needs-values:YOUR_GH_OWNER/sigil"`:
+   `MISSING_SENTINEL` (`src/core/plan/check.ts`) reached the change block instead of `<YOUR_GH_OWNER>`.
 
 ## Decided (proposed, for review)
 
@@ -65,6 +73,11 @@ settings.
 4. **Preview counts the waiting files.** The summary reads
    `  3 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).` when a file is `SKIPPED … needs`.
    Without one it is unchanged.
+5. **Pull asks before its guard.** An interactive pull asks for every value this machine uses that nothing fills, as
+   push does since `v1.1.9` (same questions, suggestions and saving), before its check and guard, so the guard's diff
+   sees every value. `--yes` asks nothing and keeps today's stop. End of input to a question keeps today's stop too.
+6. **A missing value shows as its placeholder.** The check's change block prints `<YOUR_GH_OWNER>` where the marker
+   stood; the marker stays internal.
 
 Not in this plan (design "Open"):
 
@@ -200,40 +213,84 @@ The case first (two `whole` files, one waiting for `<YOUR_NAME>`): decision 4's 
 
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync preview` passes; `bun test src/core/plan/preview.test.ts`.
 
-## Step 11: Docs, runbook and release `v1.1.10` `[inline: release notes and docs need judgment]`
+## Step 11: Shared cases for pull's values `[inline: DeepSeek balance is out; Claude runs worker steps]`
+
+Files: `tests/parity/cases/pull-guard-asks-value/`, `tests/parity/cases/pull-check-shows-placeholder/`.
+
+A sync point, one `json` entry whose repo copy holds `<YOUR_GH_OWNER>` with a `prompt`, no saved value, the local file
+holding `owner/repo` where the placeholder stands.
+
+- `pull-guard-asks-value`: stdin `owner\n`. The value question first, then the guard passes, the check finds the file
+  unchanged, exit 0, the value saved in state.
+- `pull-check-shows-placeholder`: `--yes`. The block shows `<YOUR_GH_OWNER>/repo`, no `\u0000` byte in the output,
+  then today's `could not tell which side is newer`, exit 1.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync pull-` fails on both new cases only.
+
+## Step 12: Pull asks values first; the check shows placeholders `[inline: DeepSeek balance is out; Claude runs worker steps]`
+
+Files: `src/app/pull.ts`, `src/main.ts`, `src/core/plan/check.ts`, `src/app/pull.test.ts`.
+
+`executePull` calls the values question push uses (`askPushValues`, `src/main.ts`) through a new
+`deps.askValues()`, as `PushDeps.askValues` does, before `runCheck`, unless `--yes`. `check.ts` renders a sentinel-holding value with the
+placeholder (`<NAME>`) in its change lines. Unit cases: asked before the check, `--yes` asks nothing, end of input.
+
+Test: `tests/parity/run.sh --engine dist/mksync "pull|check"` passes; `bun test src/app/pull.test.ts src/core/plan/check.test.ts`.
+
+## Step 13: Docs, runbook and release `v1.1.10` `[inline: release notes and docs need judgment]`
 
 Files: `package.json`, `CHANGELOG.md`, `docs/daily-workflow.md`, `docs/plan-work-machines.md`.
 
 - `docs/daily-workflow.md`, "First sync": what `s`, `p`, `r` and `k` do, with work #2's Claude settings as the
   example; "a shared change reaches every machine by itself" (base key edited, pushed, pulled elsewhere).
 - `docs/plan-work-machines.md` step 9: the runbook below.
-- Bump to `1.1.10`, changelog for gaps 1 to 5.
+- Bump to `1.1.10`, changelog for gaps 1 to 7.
 - `tests/all.sh` (the Windows VM layer when up), `leak-scan`, review (`ts-code-reviewer`; `ts-security-auditor`, since
   `p` decides what stays private), PR, `reviewed`, `pr-ready`, merge. Tag `v1.1.10` after the user's OK, then check
   `SHA256SUMS` and `mksync --version`, and `mksync update` on the Linux machine.
 
 Test: `tests/all.sh` exits 0.
 
-## Runbook: where to run what, in order
+## Runbook: one machine at a time, in order
 
-Each block says which machine and which shell. Copy it whole. Stop at the first output that differs from "Expect" and
-send it to Claude.
+Each block names the machine and the shell. Run its commands in order, in a terminal of their own (not through
+Claude's `!`, since they ask questions). Stop at the first output that differs from "Expect" and send it to Claude.
+Don't start a machine before the one above it is done.
 
-### A. Linux laptop, Claude Code in `~/WorkspaceMaku/MakuReposStable/SyncSettings`
+### A. Linux laptop: build and release `v1.1.10`
 
-Review this plan, then type:
+In Claude Code, in `~/WorkspaceMaku/MakuReposStable/SyncSettings`, after reviewing this plan:
 
 ```text
 /clear
 /next
 ```
 
-Claude runs steps 1 to 11 and stops for your OK to tag `v1.1.10`. Expect: a push notification "plan finished, PR
-merged", then a question to tag.
+Claude runs steps 1 to 13 here, testing in throwaway folders only, and stops for your OK to tag `v1.1.10`. Expect: a
+push notification "plan finished, PR merged", then the tag question. After the tag, Claude checks `SHA256SUMS` and
+runs `mksync update` on this machine.
 
-### B. work #2, PowerShell, before or after A
+### B. Linux laptop: the owner value, bash
 
-Undo the half-done `v1.1.9` push. If a push is still waiting at `Open a PR with these changes? [y/N]`, type `N` first.
+```bash
+cd ~/WorkspaceMaku/MakuReposStable/SyncSettings
+git switch master
+git pull
+mksync --version
+mksync pull
+mksync diff
+```
+
+- Expect `mksync 1.1.10`.
+- `mksync pull` asks `GitHub owner of your own repos (~/.claude/settings.json)`: type `makubexD`, or Enter when
+  it is suggested.
+- Expect no `\u0000` text. If the output asks `Apply these changes? [y/N]`, answer `y` only if
+  the list holds nothing but `claude/settings.json`; else `N` and send it to Claude.
+- Expect `mksync diff`: no `SKIPPED` line, every file `=`.
+
+### C. work #2: undo the `v1.1.9` push, PowerShell
+
+If a push is still waiting at `Open a PR with these changes? [y/N]`, type `N` first.
 
 ```powershell
 cd "$env:USERPROFILE\SyncSettings"
@@ -241,10 +298,10 @@ git restore dotfiles/common/claude/settings.json
 git status --short
 ```
 
-Expect: `git status --short` prints nothing. Your Claude settings stay as they are now (restored from the `.bak`,
-with the four shared keys added).
+Expect: `git status --short` prints nothing. Your Claude settings stay as they are now (restored from the `.bak`, with
+the four shared keys added).
 
-### C. work #2, PowerShell, after `v1.1.10` is released
+### D. work #2: first sync with `p`, PowerShell
 
 ```powershell
 cd "$env:USERPROFILE\SyncSettings"
@@ -254,19 +311,16 @@ mksync --version
 mksync preview
 ```
 
-Expect: `mksync 1.1.10`; preview's count line names no waiting file; under "All machines" the Claude settings
-changes are listed, since preview shows `s`. Then:
+Expect: `mksync 1.1.10`; preview's count line names no waiting file. Then:
 
 ```powershell
 mksync push
 ```
 
-Answer:
-
-- the value questions: Enter when the suggestion is right (`makubexD` for the owner).
-- `dotfiles/common/claude/settings.json … [p]`: Enter (keeps every work #2 Claude setting in profile work2, the
-  `autoMode` block included).
-- any other file: Enter on `[p]`; a `[s/r/k]` question: send Claude the line first.
+- Value questions: Enter when the suggestion is right (`makubexD` for the owner).
+- `dotfiles/common/claude/settings.json … [p]`: Enter. Every work #2 Claude setting, the `autoMode` block included,
+  stays in profile work2.
+- Any other `[p]` question: Enter. A `[s/r/k]` question: stop and send Claude the line.
 
 Expect: a `PROFILE` line, `Nothing to send.`, no PR. Then:
 
@@ -275,24 +329,10 @@ mksync diff
 mksync doctor
 ```
 
-Expect: `mksync diff` prints every file `=` and exits 0; `mksync doctor` ends `Ready.` and shows profile `work2`.
-Open a new Claude Code session on work #2 and check that the statusline, the rtk hook and the plugins still work.
+Expect: `mksync diff` prints every file `=`; `mksync doctor` ends `Ready.` with profile `work2`. Open a new Claude Code
+session on work #2: the statusline, the rtk hook and the plugins still work.
 
-### D. Linux laptop, bash, after C
-
-```bash
-cd ~/WorkspaceMaku/MakuReposStable/SyncSettings
-git pull
-mksync --version
-mksync pull
-mksync diff
-```
-
-Expect: `mksync 1.1.10` (Claude ran `mksync update` in A); `pull` lists what changed from the repo and asks
-`Apply these changes? [y/N]`: answer `y`; `diff` prints every file `=`. Nothing from work #2's profile reaches this
-machine.
-
-### E. work #1, PowerShell, after C
+### E. work #1, PowerShell
 
 ```powershell
 cd "$env:USERPROFILE\SyncSettings"
@@ -302,6 +342,5 @@ mksync --version
 mksync diff
 ```
 
-Expect: `mksync 1.1.10`. If `diff` shows only `IN` lines (`<`), run `mksync pull` and answer `y`. If it shows `?`
-(no sync point yet) or `OUT`/`BOTH` lines, stop and send Claude the output: work #1's first sync gets the same `p`
-answer as work #2, with its own profile.
+Expect: `mksync 1.1.10`. Send Claude the `mksync diff` output before running anything else: only `IN` lines (`<`)
+mean `mksync pull` next; `?` or `OUT`/`BOTH` lines mean a first sync with `p`, like work #2's.
