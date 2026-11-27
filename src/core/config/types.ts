@@ -14,8 +14,12 @@ export type EntryType = "file" | "dir" | "dconf";
 /** Where a prompt's suggested default comes from (contract "Sanitize and hydrate"). */
 export const SUGGEST_SOURCES = [
   "gh-login",
+  "gh-hosts-login",
+  "origin-owner",
   "git-user-name",
   "git-user-email",
+  "passwd-name",
+  "gh-path",
 ] as const;
 
 export type SuggestSource = (typeof SUGGEST_SOURCES)[number];
@@ -26,7 +30,8 @@ export interface SanitizeRule {
   readonly default?: string;
   readonly defaultEnv?: string;
   readonly escapeBackslashes?: boolean;
-  readonly suggest?: SuggestSource;
+  /** The sources to try, in order; the first that answers is the suggestion. */
+  readonly suggest?: readonly SuggestSource[];
 }
 
 export type MergeType = "whole" | "json" | "import" | "dconf" | "dir";

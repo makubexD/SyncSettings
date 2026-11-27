@@ -346,7 +346,7 @@ describe("askExportValues", () => {
   const RULE: SanitizeRule = {
     placeholder: LOGIN,
     prompt: "GitHub username",
-    suggest: "gh-login",
+    suggest: ["gh-login"],
   };
 
   function local(): LocalEntry {

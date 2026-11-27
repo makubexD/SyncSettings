@@ -10,13 +10,13 @@ const NAME_PLACEHOLDER = "<YOUR_NAME>";
 const LOGIN_RULE: SanitizeRule = {
   placeholder: LOGIN_PLACEHOLDER,
   prompt: "GitHub username",
-  suggest: "gh-login",
+  suggest: ["gh-login"],
 };
 
 const NAME_RULE: SanitizeRule = {
   placeholder: NAME_PLACEHOLDER,
   prompt: "Full name",
-  suggest: "git-user-name",
+  suggest: ["git-user-name"],
 };
 
 const NO_ENV = {};
@@ -46,7 +46,7 @@ describe("sourceCommand", () => {
   });
 
   test("should run the gh that GH names", () => {
-    expect(sourceCommand("gh-login", { GH: "/opt/gh" })[0]).toBe("/opt/gh");
+    expect(sourceCommand("gh-login", { GH: "/opt/gh" })?.[0]).toBe("/opt/gh");
   });
 });
 

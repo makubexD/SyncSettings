@@ -37,7 +37,7 @@ const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 export function sourceCommand(
   source: SuggestSource,
   env: Readonly<Record<string, string | undefined>>,
-): readonly string[] {
+): readonly string[] | undefined {
   switch (source) {
     case "gh-login":
       return [ghBinary(env), "api", "user", "--jq", ".login"];
@@ -45,6 +45,13 @@ export function sourceCommand(
       return ["git", "config", "--global", "user.name"];
     case "git-user-email":
       return ["git", "config", "--global", "user.email"];
+    // shortcut: the new sources run from step 3 of docs/plan-smart-first-run-1.md;
+    // until then they answer nothing.
+    case "gh-hosts-login":
+    case "origin-owner":
+    case "passwd-name":
+    case "gh-path":
+      return undefined;
     default: {
       const unhandled: never = source;
       throw new Error(`unhandled suggest source: ${String(unhandled)}`);
@@ -97,20 +104,19 @@ export async function suggestions(
   const sources = new Map<SuggestSource, Promise<string | undefined>>();
   const pending: [string, Promise<string | undefined>][] = [];
   for (const rule of rules) {
-    const source = rule.suggest;
-    if (source === undefined) {
-      continue;
+    for (const source of rule.suggest ?? []) {
+      let answer = sources.get(source);
+      if (answer === undefined) {
+        const argv = sourceCommand(source, env);
+        // A runner that rejects gives no suggestion, as a failing source does.
+        answer =
+          argv === undefined
+            ? Promise.resolve(undefined)
+            : runner(argv).then(suggestionOf, () => undefined);
+        sources.set(source, answer);
+      }
+      pending.push([rule.placeholder, answer]);
     }
-    let answer = sources.get(source);
-    if (answer === undefined) {
-      // A runner that rejects gives no suggestion, as a failing source does.
-      answer = runner(sourceCommand(source, env)).then(
-        suggestionOf,
-        () => undefined,
-      );
-      sources.set(source, answer);
-    }
-    pending.push([rule.placeholder, answer]);
   }
   const found: Record<string, string> = {};
   for (const [placeholder, answer] of pending) {
