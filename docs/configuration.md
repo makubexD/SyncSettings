@@ -121,6 +121,7 @@ value in the file, and import puts it back, so pick values specific enough not t
       "placeholder": "<GH_CLI_PATH>",
       "prompt": "Path to GitHub CLI executable",
       "default": "C:\\Program Files\\GitHub CLI\\gh.exe",
+      "suggest": ["gh-path"],
       "escapeBackslashes": true
     }
   ]
@@ -134,7 +135,7 @@ value in the file, and import puts it back, so pick values specific enough not t
 | `default`           | no       | The value offered at the prompt                                                                                                            |
 | `defaultEnv`        | no       | Name of an environment variable to offer instead, used when `default` is not set                                                           |
 | `escapeBackslashes` | no       | `true` if the file stores the value with doubled backslashes (`C:\\Tools`), as `.gitconfig` does                                           |
-| `suggest`           | no       | A command whose output is shown as the prompt's suggested answer: `gh-login`, `git-user-name` or `git-user-email` (below)                  |
+| `suggest`           | no       | A source, or a list of sources tried in order, whose answer is shown as the prompt's suggested answer (below)                              |
 
 - `defaultEnv` reads the variable on the machine running the sync. `"defaultEnv": "HOME"` is the home folder on every
   system: `$HOME` on Linux and macOS, `%USERPROFILE%` on Windows with forward slashes (`C:/Users/you`), where `HOME`
@@ -142,12 +143,28 @@ value in the file, and import puts it back, so pick values specific enough not t
 - A placeholder used by several entries has one value, so give two meanings two placeholders. `<YOUR_GH_USERNAME>` is
   the account git signs in with (`[credential] username` in Windows' `.gitconfig.local`); `<YOUR_GH_OWNER>` is the
   owner of your own repos, as `~/.claude/settings.json` names them. On a work machine the two differ.
-- `suggest` runs, only when push or pull is about to ask: `gh-login` is `gh api user --jq .login`, `git-user-name`
-  `git config --global user.name`, `git-user-email` `git config --global user.email`. Enter takes the suggestion,
-  shown as `GitHub username (~/.gitconfig.local) [you]:`; end of input never takes it. A source that fails, prints
-  nothing, or prints more than one line or a control character shows none. `--yes` (push and pull), `preview` and `diff`
-  never use one. Any other value stops every command with
+- `suggest` is one source (`"gh-login"`) or a list of distinct ones (`["gh-hosts-login", "origin-owner"]`). The
+  sources run only when push or pull is about to ask, in list order, and the first that answers is the suggestion.
+  Each runs without a shell, for at most 5 seconds:
+
+  | Source           | Answer                                                                                             |
+  | ---------------- | -------------------------------------------------------------------------------------------------- |
+  | `gh-login`       | `gh api user --jq .login` (network)                                                                |
+  | `gh-hosts-login` | `gh config get -h github.com user`, the login `gh` saved; no network                               |
+  | `origin-owner`   | the owner in the clone's `origin` (`git remote get-url origin`) when it is on `github.com`         |
+  | `git-user-name`  | `git config --global user.name`                                                                    |
+  | `git-user-email` | `git config --global user.email`                                                                   |
+  | `passwd-name`    | your full name up to its first comma (`getent passwd` on Linux, `id -F` on macOS); none on Windows |
+  | `gh-path`        | the path of `gh` on `PATH`, found as `mksync doctor` finds it                                      |
+
+  Enter takes the suggestion, shown as `GitHub username (~/.gitconfig.local) [you]:`; end of input never takes it. A
+  source that fails, prints nothing, or prints more than one line or a control character doesn't answer, and the next
+  one runs. `--yes` (push and pull), `preview` and `diff` never use one, with one exception: a rule with a `default`
+  and `gh-path` in its `suggest` takes the found `gh` path in place of the default, without asking, and saves it with
+  the machine's values so export sanitizes it; without `gh` on `PATH` the default is used. An empty list, a repeated
+  source or any other value stops every command with
   `ERROR: sync-config.json: entry <file> has an invalid suggest.`, exit 1, as an invalid `defaultEnv` does.
+
 - With a machine record, values are saved in the record or the profile ([below](#profiles-and-machines)). Without one,
   they are cached in `.user-values.json`, which is gitignored, with placeholders as keys.
 - `mksync push` and `mksync pull` ask for a value nothing fills and save the answer. The question names the files
