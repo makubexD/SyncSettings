@@ -205,6 +205,13 @@ validate_case() {
             and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent" or . == "bootstrap" or . == "packages")
           else true end' "$json" > /dev/null 2>&1 \
         || die 'stubs may only hold gh, dconf, getent, bootstrap or packages'
+    jq -e 'if has("ghAccounts") then
+            (.ghAccounts | type) == "array"
+            and all(.ghAccounts[]; type == "string" and test("^[A-Za-z0-9-]+$"))
+          else true end' "$json" > /dev/null 2>&1 \
+        || die 'ghAccounts must be an array of names made of letters, digits and dashes'
+    jq -e '(has("ghAccounts") | not) or ((.stubs // []) | any(. == "gh"))' "$json" > /dev/null 2>&1 \
+        || die 'ghAccounts needs "stubs": ["gh"]'
     jq -e '((.stubs // []) | any(. == "getent") | not)
         or ((.stubs // []) | any(. == "dconf"))' "$json" > /dev/null 2>&1 \
         || die 'the getent stub needs the dconf stub'
@@ -563,18 +570,44 @@ setup_git() {
 }
 
 # Write the gh stub into $temp/bin: it appends its arguments joined by spaces,
-# one call per line, to $temp/gh.log and exits 0. It prints nothing, except
+# one call per line, to $temp/gh.log (prefixed `GH_TOKEN=<value> ` when its
+# environment has a non-empty GH_TOKEN) and exits 0. It prints nothing, except
 # `parity-user` for `api user --jq .login` and `config get -h github.com user`,
-# the gh-login and gh-hosts-login suggestions' sources.
+# the gh-login and gh-hosts-login suggestions' sources, and the case's ghAccounts
+# (the remaining arguments, first = active, kept in $temp/gh-accounts):
+# `auth token` prints tok-<first> or exits 1 with no accounts;
+# `auth token --user <name>` prints tok-<name> for a listed name, else exits 1.
 write_gh_stub() {
     local temp=$1
+    shift
     mkdir -p "$temp/bin" || die 'creating the gh stub folder failed'
-    printf '%s\n' \
-        '#!/bin/sh' \
-        "printf '%s\\n' \"\$*\" >> '$temp/gh.log'" \
-        'if [ "$*" = "api user --jq .login" ]; then echo parity-user; fi' \
-        'if [ "$*" = "config get -h github.com user" ]; then echo parity-user; fi' \
-        'exit 0' > "$temp/bin/gh" || die 'writing the gh stub failed'
+    : > "$temp/gh-accounts" || die 'writing the gh accounts failed'
+    if [[ $# -gt 0 ]]; then
+        printf '%s\n' "$@" > "$temp/gh-accounts" || die 'writing the gh accounts failed'
+    fi
+    cat > "$temp/bin/gh" <<'STUB' || die 'writing the gh stub failed'
+#!/bin/sh
+d=$(cd "$(dirname "$0")/.." && pwd)
+if [ -n "$GH_TOKEN" ]; then
+    printf '%s\n' "GH_TOKEN=$GH_TOKEN $*" >> "$d/gh.log"
+else
+    printf '%s\n' "$*" >> "$d/gh.log"
+fi
+if [ "$*" = "api user --jq .login" ]; then echo parity-user; fi
+if [ "$*" = "config get -h github.com user" ]; then echo parity-user; fi
+if [ "$*" = "auth token" ]; then
+    first=$(head -n 1 "$d/gh-accounts")
+    if [ -n "$first" ]; then echo "tok-$first"; exit 0; fi
+    exit 1
+fi
+if [ "$#" -eq 4 ] && [ "$1 $2 $3" = "auth token --user" ]; then
+    while read -r name; do
+        if [ "$name" = "$4" ]; then echo "tok-$name"; exit 0; fi
+    done < "$d/gh-accounts"
+    exit 1
+fi
+exit 0
+STUB
     chmod +x "$temp/bin/gh" || die 'making the gh stub executable failed'
 }
 
@@ -801,7 +834,9 @@ run_case() {
     fi
     if [[ " $stubs " == *' gh '* ]]; then
         gh_stub=true
-        write_gh_stub "$t"
+        gh_accounts=()
+        mapfile -t gh_accounts < <(jq -r '(.ghAccounts // [])[]' "$dir/case.json")
+        write_gh_stub "$t" "${gh_accounts[@]}"
         path_env+=(GH="$t/bin/gh")
     fi
     if [[ " $stubs " == *' dconf '* ]]; then
@@ -982,13 +1017,13 @@ run_case() {
     # backup run folder, the sync point's sha).
     rewrite_whole_output "$t" "$git_mode"
 
-    # Each gh call is cut to its first two words, so branch names and titles
-    # don't matter. No expected file means gh must not be called.
+    # Each gh call is cut to its first two words (a leading GH_TOKEN=<value> is
+    # kept and not counted), so branch names and titles don't matter. No expected file means gh must not be called.
     if $gh_stub; then
         want_gh=$(expected_path "$dir" gh.log)
         : > "$t/gh-cut"
         if [[ -f $t/gh.log ]]; then
-            awk '{ print $1 (NF > 1 ? " " $2 : "") }' "$t/gh.log" > "$t/gh-cut" \
+            awk '{ i = ($1 ~ /^GH_TOKEN=/) ? 2 : 1; p = (i == 2) ? $1 " " : ""; print p $i (NF > i ? " " $(i + 1) : "") }' "$t/gh.log" > "$t/gh-cut" \
                 || die 'reading gh.log failed'
         fi
         if [[ -f $want_gh ]]; then

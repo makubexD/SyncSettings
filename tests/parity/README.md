@@ -88,6 +88,7 @@ cases/<name>/
 | `syncPoint`        | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error                                                                                                              |
 | `originUrl`        | Optional. Needs `"git": "remote"`. After the setup, `git remote set-url origin` gives the clone this address (`https://github.com/parity-owner/SyncSettings.git`), so a source that reads `origin` sees it. The case runs with `GIT_ALLOW_PROTOCOL=file`, so a fetch or push to it fails at once, offline, and the up-to-date check prints its could-not-reach note                                                                                  |
 | `stubs`            | Optional. Any of `gh`, `dconf`, `getent`, `bootstrap` and `packages`, as a list: each names a stub put first on `PATH`; see [The stubs](#the-stubs) below                                                                                                                                                                                                                                                                                            |
+| `ghAccounts`       | Optional. A list of gh account names (`["owner", "bot"]`, each non-empty, letters, digits and dashes), first = the active one. Needs `"stubs": ["gh"]`; anything else is a runner error. The stub then answers `gh auth token` with `tok-<first>` and `gh auth token --user <name>` with `tok-<name>` for a listed name; otherwise both print nothing and exit 1 |
 | `origin/` (folder) | Optional. A tree of repo-relative files committed on top of `master` in a second clone and pushed to the bare origin, then `git fetch origin` in the repo: `origin/master` is one commit ahead, while the repo's `master` and working tree stay unchanged. Needs `"git": "remote"`; without it, a runner error                                                                                                                                       |
 | `unsent/` (folder) | Optional. A tree of repo-relative files copied over the repo's working tree after the initial commit, the push and `origin/`, and left uncommitted, so `git status --porcelain` shows them. They are compared like any other repo file, so `expect/repo/` must hold them. Needs `"git": "committed"` or `"remote"`; without one, a runner error                                                                                                      |
 | `differences`      | Required when the case has an `expect.<os>/` folder, and only then: the names of the rows it records                                                                                                                                                                                                                                                                                                                                                 |
@@ -134,7 +135,12 @@ name is `"Entry selection"`, for a case where each OS picks its own entries by d
 
 With `"stubs": ["gh"]`, every `gh` call appends its arguments, joined by spaces, as one line to a log outside both
 trees and exits 0. It prints `parity-user` for `api user --jq .login` and `config get -h github.com user` (the
-`gh-login` and `gh-hosts-login` suggestion sources) and nothing for any other call. Each logged line is cut to its first two words (`pr create`), so branch
+`gh-login` and `gh-hosts-login` suggestion sources) and nothing for any other call, except the accounts below. With `ghAccounts`, `gh auth token` prints `tok-<first name>` and
+`gh auth token --user <name>` prints `tok-<name>` for a listed name, both exit 0; with no `ghAccounts`, or for an unlisted
+name, they print nothing and exit 1. When the stub's environment has a non-empty `GH_TOKEN` (a case sets it through
+`env`), the logged line starts with `GH_TOKEN=<value> `. Each logged line is cut to its first two words (`pr create`;
+the `GH_TOKEN=<value>` prefix is kept and not counted, so `GH_TOKEN=tok-a pr create --base x` becomes
+`GH_TOKEN=tok-a pr create`), so branch
 names and titles don't matter, and the result must equal `expect/gh.log` line for line. No `expect/gh.log` with the
 stub on means `gh` must not be called.
 
@@ -262,8 +268,8 @@ Only the first difference prints. Fix it and run the case again with its name as
   the source's mtime, so if the home and repo texts have the same size and were written in the same second, git's stat
   cache sees no change and commit reports `Nothing to commit`. Give the two texts different sizes.
 - **`gh: want no call, got "pr create"`.** The case has no `expect/gh.log`, which means gh must not be called. A case
-  with a `commit` command must stub gh (`"stubs": ["gh"]`); the runners clear any `GH` variable the caller set, so
-  no case can reach a real `gh`.
+  with a `commit` command must stub gh (`"stubs": ["gh"]`); the runners clear any `GH` and `GH_TOKEN` variable the caller set, so
+  no case can reach a real `gh` or a real token.
 - **A diff label never shows in `output.txt`.** The runners read `IN`, `OUT`, `BOTH` and `?` as status words. A new
   status word goes into `STATUS_WORDS` in `run.sh` and `$StatusWords` in `run.ps1` together.
 
