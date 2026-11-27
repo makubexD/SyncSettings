@@ -715,6 +715,7 @@ login_lines() {
     git -C "$t/home/SyncSettings" config --local --get-all credential.https://github.com.helper 2> /dev/null || true
 }
 
+# shellcheck disable=SC2016  # the helper text git runs, kept literal
 want_helper='!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user acme) && test -n $t && echo username=acme && echo password=$t; }; f'
 
 case_install_gh_login() {
@@ -743,6 +744,7 @@ case_install_gh_login() {
 case_install_gh_login_bad_owner() {
     setup_install_origin
     make_install_stubs
+    # shellcheck disable=SC2016  # a literal $(...) the installer must refuse
     use_github_origin 'https://github.com/ac$(me)/SyncSettings.git'
     SYNCSETTINGS_RELEASE_URL=''
 
