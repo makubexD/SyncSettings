@@ -117,6 +117,12 @@ export interface Snapshot {
   readonly localDirs: ReadonlySet<string>;
   readonly values: Values;
   /**
+   * This run asked for values and `values` holds the answers, so an export
+   * saves them even when no file it sends has rules: they can be for an
+   * entry it doesn't send (contract "Push asks").
+   */
+  readonly valuesAnswered?: boolean;
+  /**
    * Suggested answers by placeholder, from each rule's `suggest` source (contract
    * "Sanitize and hydrate"): shown as a question's default, never a value on
    * their own. The app reads them only when a run is about to ask.

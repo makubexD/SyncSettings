@@ -1,0 +1,3 @@
+SKIPPED dotfiles/common/parity/a.conf
+UPDATE dotfiles/common/parity/b.conf
+  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync pull --force.

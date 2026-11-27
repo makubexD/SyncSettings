@@ -1,0 +1,36 @@
+{
+  "description": "A diff whose only changed file needs a value prints SKIPPED and the need-a-value line, never the agree line, and exits 3 (Diff).",
+  "git": "remote",
+  "syncPoint": true,
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "diff"
+    }
+  ]
+}

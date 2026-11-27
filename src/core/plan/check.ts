@@ -11,7 +11,7 @@ import type { Plan, RunPlan, Snapshot } from "./types.ts";
 const DASHES = "  --------------------------------------------------";
 
 /** The note of a file whose placeholder has no value (contract "Import check"). */
-function needsValueNote(placeholder: string): string {
+export function needsValueNote(placeholder: string): string {
   return `needs ${placeholder}: mksync push or pull asks for it`;
 }
 

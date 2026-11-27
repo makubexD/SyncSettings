@@ -195,7 +195,10 @@ export async function executePull(
   // the diff which side changed them first. OUT and BOTH would be lost.
   if (!input.force && hasSyncPoint) {
     const diff = await deps.runDiff(only);
-    if (diff.code !== 0 && diff.code !== 3) {
+    // A file the diff left out for a missing value can hold this machine's
+    // change, so the pull can't tell what it would overwrite.
+    const needsValue = (diff.diff?.skipped.length ?? 0) > 0;
+    if ((diff.code !== 0 && diff.code !== 3) || needsValue) {
       return {
         code: 1,
         stdout: check.stdout,

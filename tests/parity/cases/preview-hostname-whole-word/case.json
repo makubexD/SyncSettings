@@ -1,0 +1,36 @@
+{
+  "description": "The hostname search matches whole words only: parity-hostess is not the hostname parity-host, so the preview passes (Export preview, Cached values).",
+  "os": [
+    "linux"
+  ],
+  "env": {
+    "SYNC_HOSTNAME": "parity-host",
+    "SYNC_DOMAIN": ""
+  },
+  "git": "committed",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
+}

@@ -2619,12 +2619,22 @@ describe("exportMissingRules", () => {
     expect(missing).toEqual([]);
   });
 
-  test("should list nothing for an entry with no local file", () => {
+  test("should list an entry with no local file, since pull needs the value", () => {
     // Act
     const missing = exportMissingRules(snapshotWith({ localFiles: new Map() }));
 
     // Assert
-    expect(missing).toEqual([]);
+    expect(missing.map(({ files }) => files)).toEqual([[ENTRY_CONFIGURED]]);
+  });
+
+  test("should list a skipped entry, since a later push needs the value", () => {
+    // Act
+    const missing = exportMissingRules(
+      snapshotWith({ skip: ["dotfiles/common/parity/a.conf"] }),
+    );
+
+    // Assert
+    expect(missing.map(({ files }) => files)).toEqual([[ENTRY_CONFIGURED]]);
   });
 
   test("should list nothing for an entry --only leaves out", () => {

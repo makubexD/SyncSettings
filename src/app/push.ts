@@ -65,6 +65,11 @@ export interface PushedFiles {
 export interface PushDeps {
   /** The record's refusal (pull-only, retired, moved), before the guard. */
   readonly refusal: () => Promise<Result | undefined>;
+  /** Ask every value this machine syncs that nothing fills (none under
+   * `--yes`), stop on one still unknown, and save every known value, before
+   * the guard (contract "Push asks"); a stop's result, or `undefined` to go
+   * on. */
+  readonly askValues: () => Promise<Result | undefined>;
   readonly hasSyncPoint: () => Promise<boolean>;
   /** `export --diff`, with the conflict blocks when asked for. */
   readonly runDiff: (
@@ -95,6 +100,12 @@ export interface PushDeps {
   /** Print `question` and read one answer; an empty answer or end of input
    * takes `defaultYes`. */
   readonly ask: (question: string, defaultYes: boolean) => Promise<boolean>;
+  /** Print `question` and read one answer, as it was typed; `undefined` at
+   * end of input. */
+  readonly askChoice: (question: string) => Promise<string | undefined>;
+  /** `import --force --only` over `take`: the repo's version of each file,
+   * keeping a `.bak`. */
+  readonly runImport: (take: readonly string[]) => Promise<Result>;
   /** Write a result's stdout and stderr now, so a question follows them. */
   readonly print: (shown: Result) => void;
   /** `commit`, `--partial` when the push left files out. */
@@ -124,6 +135,17 @@ const NOTHING_TO_SEND_IN = "  Nothing to send.\n";
 /** A diff that can't say which side is newer. */
 const COULD_NOT_TELL =
   "  ERROR: could not tell which side is newer; run mksync diff to see why, or mksync push --force.\n";
+
+/** Contract "Front door", no sync point, interactive: the picker's header. */
+const FIRST_SYNC_HEADER =
+  "  No sync is recorded on this machine, so the newer side of each file is unknown. mksync preview shows each change.\n";
+
+/** The picker's question for each file. */
+const CHOICE_QUESTION =
+  "  Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] ";
+
+/** The picker's line for any other answer, before it asks again. */
+const PICK_CHOICE = "  Pick s, r or k.\n";
 
 const NO_SYNC_POINT =
   "  WARNING: no sync is recorded on this machine, so this sends every file that differs.\n";
@@ -258,16 +280,100 @@ export async function askMoves(
   }
 }
 
-/** What the guard decided: stop with a result, or go on, leaving `skip` alone
- * and committing with `--partial` when the push sends less than everything. */
+/** What the guard decided: stop with a result, or go on, importing `take`
+ * first, leaving `skip` alone and committing with `--partial` when the push
+ * sends less than everything. `nothingToSend`: no file is left to send. */
 type GuardOutcome =
   | { readonly kind: "stop"; readonly result: Result }
   | {
       readonly kind: "go";
       readonly shown: string;
       readonly skip: readonly string[];
+      readonly take: readonly string[];
       readonly partial: boolean;
+      readonly nothingToSend?: boolean;
     };
+
+/** A picker answer: send, take the repo's, or skip the file. */
+type Choice = "s" | "r" | "k";
+
+/** The choice `answer` names, ignoring case and spaces around it. */
+function pickChoice(answer: string): Choice | undefined {
+  const typed = trimAnswer(answer).toLowerCase();
+  return typed === "s" || typed === "r" || typed === "k" ? typed : undefined;
+}
+
+/**
+ * Ask `CHOICE_QUESTION` until the answer is `s`, `r` or `k`; any other answer
+ * prints `PICK_CHOICE` first. `undefined` at end of input.
+ */
+async function askOneChoice(deps: PushDeps): Promise<Choice | undefined> {
+  for (;;) {
+    const answer = await deps.askChoice(CHOICE_QUESTION);
+    if (answer === undefined) {
+      return undefined;
+    }
+    const choice = pickChoice(answer);
+    if (choice !== undefined) {
+      return choice;
+    }
+    deps.print({ code: 0, stdout: PICK_CHOICE, stderr: "" });
+  }
+}
+
+/**
+ * Contract "Front door", no sync point, interactive: ask about each file the
+ * diff labels `?`, in path order. `r` files are taken, `r` and `k` files left
+ * out of the export; end of input is `k` for that file and every one after.
+ */
+async function pickFirstSync(
+  report: DiffReport,
+  deps: PushDeps,
+): Promise<GuardOutcome> {
+  const unknown = report.labels
+    .filter(({ label }) => label === "?")
+    .map(({ path }) => path)
+    .sort();
+  if (unknown.length === 0) {
+    return { kind: "go", shown: "", skip: [], take: [], partial: false };
+  }
+  deps.print({ code: 0, stdout: FIRST_SYNC_HEADER, stderr: "" });
+  const take: string[] = [];
+  const skip: string[] = [];
+  let ended = false;
+  for (const path of unknown) {
+    if (ended) {
+      skip.push(path);
+      continue;
+    }
+    const lines = report.lineCounts?.get(path) ?? 0;
+    deps.print({
+      code: 0,
+      stdout: `\n  ${path}  ${lines} line(s) changed\n`,
+      stderr: "",
+    });
+    const choice = await askOneChoice(deps);
+    if (choice === undefined) {
+      ended = true;
+    }
+    if (choice === "r") {
+      take.push(path);
+    }
+    if (choice !== "s") {
+      skip.push(path);
+    }
+  }
+  // The last answer ends its line, so the next output starts on its own.
+  deps.print({ code: 0, stdout: "\n", stderr: "" });
+  return {
+    kind: "go",
+    shown: "",
+    skip,
+    take,
+    partial: skip.length > 0,
+    nothingToSend: skip.length === unknown.length,
+  };
+}
 
 /** The diff's labels, when it ran to its end. */
 function reportOf(diff: Result): DiffReport | undefined {
@@ -283,14 +389,23 @@ async function guardPush(
   input: PushInput,
   deps: PushDeps,
 ): Promise<GuardOutcome> {
-  if (!(await deps.hasSyncPoint())) {
-    return { kind: "go", shown: NO_SYNC_POINT, skip: [], partial: false };
+  const hasSyncPoint = await deps.hasSyncPoint();
+  if (!hasSyncPoint && input.yes) {
+    return {
+      kind: "go",
+      shown: NO_SYNC_POINT,
+      skip: [],
+      take: [],
+      partial: false,
+    };
   }
-  const diff = await deps.runDiff(input.paths, !input.force);
+  const diff = await deps.runDiff(input.paths, hasSyncPoint && !input.force);
   const report = reportOf(diff);
   if (report === undefined) {
     if (input.force) {
-      return { kind: "go", shown: "", skip: [], partial: true };
+      // No sync point and no diff: the push sends every file that differs.
+      const shown = hasSyncPoint ? "" : NO_SYNC_POINT;
+      return { kind: "go", shown, skip: [], take: [], partial: true };
     }
     // A picked path that isn't synced fails the diff: its line says so.
     const reason = input.paths.length > 0 ? diff.stdout : "";
@@ -298,6 +413,9 @@ async function guardPush(
       kind: "stop",
       result: { code: 1, stdout: reason, stderr: COULD_NOT_TELL },
     };
+  }
+  if (!hasSyncPoint) {
+    return pickFirstSync(report, deps);
   }
   const linesOf = (word: "IN" | "BOTH"): readonly string[] =>
     report.labels
@@ -317,7 +435,7 @@ async function guardPush(
   }
   const left = linesOf("IN");
   if (left.length === 0) {
-    return { kind: "go", shown: "", skip: [], partial: false };
+    return { kind: "go", shown: "", skip: [], take: [], partial: false };
   }
   return {
     kind: "go",
@@ -325,6 +443,7 @@ async function guardPush(
     skip: report.labels
       .filter(({ label }) => label === "IN")
       .map(({ path }) => path),
+    take: [],
     partial: true,
   };
 }
@@ -387,6 +506,19 @@ export async function executePush(
     return { code: 1, stdout: "", stderr: BEHIND_ORIGIN };
   }
 
+  // Taken before the value questions: with the store in the repo folder,
+  // saving their answers writes `profiles/` or `machines/`, which the commit
+  // sends anyway.
+  const cleanBeforeValues = await deps.guardedClean();
+
+  // Contract "Push asks": the guard's diff and the commit's search need every
+  // value, so the questions come first. `--yes` asks nothing, and an unknown
+  // value stops the push here.
+  const stopped = await deps.askValues();
+  if (stopped !== undefined) {
+    return stopped;
+  }
+
   const guard = await guardPush(input, deps);
   if (guard.kind === "stop") {
     return guard.result;
@@ -397,8 +529,21 @@ export async function executePush(
   }
 
   // The commit stages every push path, so a stale `IN` file would be sent.
-  if (guard.skip.length > 0 && !(await deps.guardedClean())) {
+  if (guard.skip.length > 0 && !cleanBeforeValues) {
     return { code: 1, stdout: "", stderr: IN_BUT_DIRTY };
+  }
+
+  // Contract "Front door": the picker's `r` files are imported before the
+  // export, which leaves them out; a failed import stops the push.
+  if (guard.take.length > 0) {
+    const imported = await deps.runImport(guard.take);
+    if (imported.code !== 0) {
+      return imported;
+    }
+    deps.print(imported);
+  }
+  if (guard.nothingToSend === true) {
+    return { code: 0, stdout: NOTHING_TO_SEND_IN, stderr: "" };
   }
 
   const stateBefore = deps.stateStamp();

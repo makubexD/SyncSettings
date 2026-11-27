@@ -1,8 +1,6 @@
 {
-  "description": "Push with a record and without --yes moves a base json key to the profile layer after the block; git status lists the profile layer file and the PR question is answered n, which puts the repo folder back, exit 0 (Move a change (program only)).",
-  "os": [
-    "linux"
-  ],
+  "description": "Push with a record and without --yes, no sync point, sends the file at the first-sync picker, then moves a base json key to the profile layer after the block; git status lists the profile layer file and the PR question is answered n, which puts the repo folder back, exit 0 (Move a change (program only)).",
+  "os": ["linux"],
   "configV2": {
     "schemaVersion": 2,
     "modules": {
@@ -30,7 +28,7 @@
   "commands": [
     {
       "command": "push",
-      "stdin": "1\n3\n\nn\n",
+      "stdin": "s\n1\n3\n\nn\n",
       "output": "all"
     }
   ]

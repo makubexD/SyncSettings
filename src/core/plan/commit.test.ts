@@ -3,6 +3,8 @@ import type { Os } from "../config/types.ts";
 import {
   branchName,
   cachedValueHits,
+  firstKnownValueHit,
+  hostnameHits,
   checkAlias,
   commitMessage,
   outsidePaths,
@@ -557,7 +559,9 @@ describe("cachedValueHits", () => {
     ]);
 
     // Act
-    const hits = cachedValueHits(files, { [PATH_PLACEHOLDER]: BACKSLASH_VALUE });
+    const hits = cachedValueHits(files, {
+      [PATH_PLACEHOLDER]: BACKSLASH_VALUE,
+    });
 
     // Assert
     expect(hits).toEqual([
@@ -571,7 +575,9 @@ describe("cachedValueHits", () => {
     const files = filesOf([["dotfiles/a.conf", `path=${doubled}`]]);
 
     // Act
-    const hits = cachedValueHits(files, { [PATH_PLACEHOLDER]: BACKSLASH_VALUE });
+    const hits = cachedValueHits(files, {
+      [PATH_PLACEHOLDER]: BACKSLASH_VALUE,
+    });
 
     // Assert
     expect(hits).toEqual([
@@ -624,5 +630,84 @@ describe("cachedValueHits", () => {
 
     // Assert
     expect(JSON.stringify(hits)).not.toContain(EMAIL_VALUE);
+  });
+});
+
+describe("hostnameHits", () => {
+  const HOSTNAME = "parity-host.corp.example";
+
+  test.each([
+    ["the full name", "server parity-host.corp.example\n"],
+    ["the short name", "server parity-host\n"],
+    ["a different case", "server PARITY-HOST\n"],
+  ])("should find %s as a whole word", (_label, text) => {
+    // Arrange
+    const files = filesOf([["dotfiles/a.conf", text]]);
+
+    // Act
+    const hits = hostnameHits(files, HOSTNAME);
+
+    // Assert
+    expect(hits).toEqual(["dotfiles/a.conf"]);
+  });
+
+  test.each([
+    ["a longer name", "server parity-hostess\n"],
+    ["a prefixed name", "server my-parity-host\n"],
+  ])("should not find the hostname inside %s", (_label, text) => {
+    // Arrange
+    const files = filesOf([["dotfiles/a.conf", text]]);
+
+    // Act
+    const hits = hostnameHits(files, HOSTNAME);
+
+    // Assert
+    expect(hits).toEqual([]);
+  });
+
+  test("should find nothing without a hostname", () => {
+    // Arrange
+    const files = filesOf([["dotfiles/a.conf", "server parity-host\n"]]);
+
+    // Act
+    const hits = hostnameHits(files, undefined);
+
+    // Assert
+    expect(hits).toEqual([]);
+  });
+});
+
+describe("firstKnownValueHit", () => {
+  test("should report a cached value before the hostname", () => {
+    // Arrange
+    const files = filesOf([
+      ["dotfiles/a.conf", "server parity-host\n"],
+      ["dotfiles/b.conf", `email=${EMAIL_VALUE}\n`],
+    ]);
+
+    // Act
+    const hit = firstKnownValueHit(
+      files,
+      { [EMAIL_PLACEHOLDER]: EMAIL_VALUE },
+      "parity-host",
+    );
+
+    // Assert
+    expect(hit).toEqual({
+      kind: "value",
+      placeholder: EMAIL_PLACEHOLDER,
+      file: "dotfiles/b.conf",
+    });
+  });
+
+  test("should report the hostname when no cached value is found", () => {
+    // Arrange
+    const files = filesOf([["dotfiles/a.conf", "server parity-host\n"]]);
+
+    // Act
+    const hit = firstKnownValueHit(files, {}, "parity-host");
+
+    // Assert
+    expect(hit).toEqual({ kind: "hostname", file: "dotfiles/a.conf" });
   });
 });

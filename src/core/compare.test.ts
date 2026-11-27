@@ -117,10 +117,42 @@ describe("same", () => {
     expect(result).toBe(true);
   });
 
-  test("should not fold CRLF for a file under dotfiles/windows on Windows", () => {
+  test("should fold CRLF for a text file under dotfiles/windows on Windows", () => {
     // Arrange
     const repo = encode("status = local\n");
     const local = encode("status = local\r\n");
+
+    // Act
+    const result = same(repo, local, {
+      os: "windows",
+      shared: false,
+      sanitized: false,
+    });
+
+    // Assert
+    expect(result).toBe(true);
+  });
+
+  test("should keep a dotfiles/windows file with a NUL byte byte for byte", () => {
+    // Arrange
+    const repo = new Uint8Array([...encode("status = local\n"), 0x00]);
+    const local = new Uint8Array([...encode("status = local\r\n"), 0x00]);
+
+    // Act
+    const result = same(repo, local, {
+      os: "windows",
+      shared: false,
+      sanitized: false,
+    });
+
+    // Assert
+    expect(result).toBe(false);
+  });
+
+  test("should still call a dotfiles/windows file with a changed line different", () => {
+    // Arrange
+    const repo = encode("a\nb\n");
+    const local = encode("a\r\nc\r\n");
 
     // Act
     const result = same(repo, local, {

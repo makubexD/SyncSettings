@@ -1,1 +1,5 @@
-ERROR: the export for the diff failed; see above.
+! missing value
+! the export for the diff failed
+SKIPPED dotfiles/common/named.conf needs <NAME>: mksync push or pull asks for it
+1 file(s) need a value first; mksync push or pull asks for it.
+! agree

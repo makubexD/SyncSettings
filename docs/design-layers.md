@@ -1680,6 +1680,9 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
     and links, was settled in phase 9, decisions 10 and 11).
   - Only an entry's own rules sanitize it, and `sanitize` on a dir or dconf entry is accepted and ignored. A guard
     that stops an export holding any known value, in every form, would catch both; bash behaves the same today.
+    **Partly done in `v1.1.9`** (`docs/plan-first-sync.md`, decision 2): preview and commit search every known value
+    (record, profile, hostname) in every changed file, whichever entry's rule it belongs to; JSON-escaped forms are
+    still not searched.
   - JSON escapes (`é`, `\/`) aren't matched on export; a value inferred from a JSON file is escaped twice on
     import; value lookups use plain objects (`constructor`).
   - A new hydrated file and new parent folders are created with the umask before the chmod, and the backups tree is
@@ -1903,6 +1906,50 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - Nothing is printed during the up-to-5-second wait before the header.
 - **The doctor's `GH_CLI_PATH` value (git-values review).** The doctor compares `gh` with the saved value, else the
   rule's `default`; it ignores `defaultEnv` and inferred values, which pull would also use.
+- **Left out of the first-sync plan (v1.1.9, decision 8).** Found on work #2's first push:
+  - A list of words a profile must never send, such as an employer's name that is in no value: the known-value search
+    can't know it, and the leak scan's patterns can't either.
+  - The record's domain (from the login's `DOMAIN\` or `@domain`) in the known-value search.
+  - The hostname search without a machine record: only the record's `hostname` is searched.
+  - A diff view inside the first-sync picker, so the user needn't run `mksync preview` first.
+  - Per-file choices in setup: its `keep` and `backup` answers still take one side for every file.
+- **First-sync review (v1.1.9).** Found by the finish's code review and security audit, not fixed in the plan:
+  - UTF-16 files (Windows PowerShell 5.1's `>` and `Out-File`, `.reg` exports) pass sanitize, the leak scan (`grep -I`
+    reads them as binary) and the known-value search (UTF-8 decoding). No entry holds one today.
+  - An answer that doesn't match the file exactly (a pasted no-break or zero-width space, NFC against NFD, a typo)
+    sanitizes nothing and makes the search look for the wrong text, silently. Reject control and format characters,
+    normalize both sides, and warn when an answered value for a sent file is in no line of it.
+  - The known-value search checks the value and its doubled-backslash form, fewer than sanitize writes: a drive path
+    with the other slash (`D:/work/x` saved as `D:\work\x`), a JSON `\u` escape or an escaped `"` is missed.
+  - The hostname search: `-` and `_` count as name characters (`pc01-backup` isn't a hit), the FQDN's domain part
+    isn't searched, and a generic hostname (`ubuntu`, `localhost`) stops every commit of a file holding that word.
+  - No length floor on a value: an answer such as `x` makes sanitize replace every `x` in the entry's file and the
+    search stop on every file holding one. A "not used here" answer would help.
+  - The leak scan passes `git@github.com@acme.com`: after the allowed address, `@acme.com` has no local part.
+  - Outside the plan: the public-name question suggests the OS login, the PR body names the profile, and a `-m`
+    message is never scanned.
+  - `r` on a file the repo doesn't have acts as `k` (the import prints `SKIPPED … not found in repo`), though the
+    picker offers it with a line count.
+  - Any `r` or `k` answer makes the commit partial, so no push records a sync point after a first sync, even when `r`
+    left the two sides agreeing; only `mksync pull` does. A hint, or a partial commit for `k` alone, would help.
+  - Declining the PR after `r` imports prints `Nothing sent; the repo folder is as it was.`, while the local `r` files
+    were overwritten (each with its `.bak`).
+  - The picker takes `S`, `R` and `K` and spaces around the answer, which the contract doesn't state.
+  - Windows folds CRLF for every text file with no rules, `profiles/` and `machines/` layers too, wider than the
+    contract's "shared or under `dotfiles/windows/`". Harmless, since writes are unchanged.
+  - The shared cases can't say a file is absent from the state folder, so the first-sync cases don't check that a
+    partial push records no sync point; a private-repo push (values saved on the record or profile) has no case.
+  - A `defaultEnv` value counts as known, but push saves it only when its entry is exported, so for an entry with no
+    local file the commit's search never knows it. Only `<HOME>` uses `defaultEnv` today, and the leak scan finds home
+    paths on Linux and Windows, not `/Users/<name>` on macOS. Save every `defaultEnv` value before the guard, or add
+    the run's to the search, and add a macOS home rule to the leak scan.
+  - A value whose rule is only on another OS's or profile's entries (`<YOUR_GH_ORG>` is ruled only on Windows'
+    `.gitconfig.local`) is unknown on this machine, so a shared file holding it goes out: the never-send word list
+    above would catch it.
+  - Private mode, before this plan: the export moves the record and profile into the clone (`machines/`,
+    `profiles/`), and the commit then stops with `commit or stash changes outside dotfiles/ first.`: `commit.ts`'s
+    sync paths don't include them, while push's status paths do. Nothing leaks; it must be fixed before the private
+    switch.
 
 ### Confirm on Windows
 

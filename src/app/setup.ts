@@ -107,7 +107,11 @@ async function readDiffer(
     return { updates, hasSyncPoint };
   }
   const diff = await execute(DIFF);
-  if (diff.code !== 0 && diff.code !== 3) {
+  // A file left out for a missing value can hold this machine's change.
+  if (
+    (diff.code !== 0 && diff.code !== 3) ||
+    (diff.diff?.skipped.length ?? 0) > 0
+  ) {
     return { updates, hasSyncPoint, diff: { ok: false } };
   }
   return {

@@ -821,18 +821,46 @@ export function exportValueGaps(snapshot: Snapshot): readonly ValueGap[] {
       missing.has(candidate.placeholder),
     );
     if (rule !== undefined) {
-      gaps.push({ label: primaryRepoPath(entry), placeholder: rule.placeholder });
+      gaps.push({
+        label: primaryRepoPath(entry),
+        placeholder: rule.placeholder,
+      });
     }
   }
   return gaps;
 }
 
 /**
+ * The sanitize rules of every file entry this machine syncs that `--only`
+ * picks, whether or not this export sends it: a skipped entry and one with no
+ * local file still count, since a later push or pull needs the value
+ * (contract "Push asks"). `dir` and `dconf` entries ignore `sanitize`.
+ */
+function syncedRules(
+  snapshot: Snapshot,
+  selected: readonly SelectedEntry[],
+  onlyPaths: readonly string[],
+): readonly RuleSource[] {
+  return selected
+    .filter(
+      (entry) =>
+        entrySelected(entry, onlyPaths) &&
+        entry.entry.merge !== "dir" &&
+        entry.entry.merge !== "dconf",
+    )
+    .map((entry) => ({
+      rules: entry.entry.sanitize ?? [],
+      file: configuredLocal(entry.entry, snapshot.os),
+    }));
+}
+
+/**
  * Contract "Push asks": the rules whose placeholder nothing fills (saved,
  * inferred, `default`, `defaultEnv`), one per placeholder in rule order, for
- * the entries this export sends, each with the files that need it. Empty when
- * the config or `--only` stops the export, since `planExport` reports that
- * itself.
+ * every file entry this machine syncs that `--only` picks, sent or not, each
+ * with the files that need it.
+ * Empty when the config or `--only` stops the export, since `planExport`
+ * reports that itself.
  */
 export function exportMissingRules(
   snapshot: Snapshot,
@@ -849,7 +877,7 @@ export function exportMissingRules(
   if (!only.ok) {
     return [];
   }
-  const sources = exportRules(snapshot, selected.value, only.paths);
+  const sources = syncedRules(snapshot, selected.value, only.paths);
   const files = placeholderFiles(sources);
   return missingPlaceholders(
     sources.flatMap((source) => source.rules),
@@ -952,8 +980,13 @@ export function planExport(
     skipped: state.skipped,
   };
   return {
-    // Bash saves every value whenever an entry with rules has a local file.
-    prepare: valuesPrepare(snapshot, rules.length > 0, values.value),
+    // Bash saves every value whenever an entry with rules has a local file;
+    // answers this run asked are saved too, for whichever entry needs them.
+    prepare: valuesPrepare(
+      snapshot,
+      rules.length > 0 || snapshot.valuesAnswered === true,
+      values.value,
+    ),
     steps: state.steps,
     finish: [],
     lines: state.lines,

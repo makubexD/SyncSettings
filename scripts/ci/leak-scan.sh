@@ -57,7 +57,7 @@ emit() {
 scan_rule() {
     local rule=$1 pattern=$2
     local out status=0 hit
-    out=$(grep -rnIE -- "$pattern" "${PATHS[@]}") || status=$?
+    out=$(grep -rnHIE -- "$pattern" "${PATHS[@]}") || status=$?
     if (( status > 1 )); then
         printf 'ERROR: scan failed for rule %s\n' "$rule" >&2
         exit 2
@@ -73,7 +73,7 @@ scan_rule() {
 scan_email() {
     local pattern=$1
     local out status=0 hit file addr text bad
-    out=$(grep -rnIE -- "$pattern" "${PATHS[@]}") || status=$?
+    out=$(grep -rnHIE -- "$pattern" "${PATHS[@]}") || status=$?
     if (( status > 1 )); then
         printf 'ERROR: scan failed for rule email\n' >&2
         exit 2
@@ -96,6 +96,19 @@ scan_email() {
         bad=0
         while [[ $text =~ $pattern ]]; do
             addr=${BASH_REMATCH[0],,}
+            # The bare SSH address of a big public Git host (insteadOf =
+            # git@github.com:) names no one. Followed by an owner or a path
+            # (git@github.com:Org/repo) it can name a company, so it hits, as git@
+            # at any other host does: a company's own Git server names it.
+            rest=${text#*"${BASH_REMATCH[0]}"}
+            case $addr in
+                git@github.com | git@gitlab.com | git@bitbucket.org | git@ssh.dev.azure.com)
+                    if [[ $rest =~ ^:?($|[[:space:]\"\'\<]) ]]; then
+                        text=$rest
+                        continue
+                    fi
+                    ;;
+            esac
             if [[ $addr != *@users.noreply.github.com && $addr != *@example.com && $addr != *@anthropic.com ]]; then
                 bad=1
                 break

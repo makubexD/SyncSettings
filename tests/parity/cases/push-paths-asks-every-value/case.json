@@ -1,0 +1,50 @@
+{
+  "description": "Push with a picked path asks every value this machine syncs, not only the picked entry's, saves the answer, and the commit's search then stops on it in the sent file: exit 1, no PR (Sanitize and hydrate, Push asks; Checks before pushing).",
+  "os": ["linux"],
+  "git": "remote",
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Sanitized parity file, no local copy",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_ORG>",
+            "prompt": "GitHub organization"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "options": {
+        "paths": ["dotfiles/common/parity/a.conf"]
+      },
+      "stdin": "ParityOrg\ns\ny\n",
+      "stderr": true
+    }
+  ]
+}

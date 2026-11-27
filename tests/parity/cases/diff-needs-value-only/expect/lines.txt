@@ -1,0 +1,5 @@
+! missing value
+SKIPPED dotfiles/common/parity/a.conf needs <YOUR_NAME>: mksync push or pull asks for it
+1 file(s) need a value first; mksync push or pull asks for it.
+! agree
+! Ana Lopez

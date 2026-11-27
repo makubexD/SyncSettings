@@ -75,6 +75,7 @@ function diffOf(...labels: ["IN" | "OUT" | "BOTH", string][]): Result {
     stdout: "",
     stderr: "",
     diff: {
+      skipped: [],
       labels: labels.map(([label, path]) => ({ label, path })),
       conflictLines: labels.some(([label]) => label === "BOTH") ? BLOCK : [],
     },
@@ -124,6 +125,9 @@ async function runGuarded(
 function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
   return {
     refusal: async () => undefined,
+    askValues: async () => undefined,
+    askChoice: async () => undefined,
+    runImport: async () => ({ code: 0, stdout: "", stderr: "" }),
     hasSyncPoint: async () => true,
     runDiff: async () => diffOf(),
     runExport: async () => EXPORTED,
@@ -466,6 +470,72 @@ describe("executePush guard", () => {
     expect(run.commits).toEqual([true]);
   });
 
+  test("the value questions come before the guard's diff", async () => {
+    // Arrange
+    const order: string[] = [];
+
+    // Act
+    await runGuarded(diffOf(["OUT", A]), pushInput(), {
+      askValues: async () => {
+        order.push("values");
+        return undefined;
+      },
+      runDiff: async () => {
+        order.push("diff");
+        return diffOf(["OUT", A]);
+      },
+    });
+
+    // Assert
+    expect(order).toEqual(["values", "diff"]);
+  });
+
+  test("a stopped value question ends the push before the guard", async () => {
+    // Arrange
+    const stopped = { code: 1, stdout: "", stderr: "missing value\n" };
+
+    // Act
+    const run = await runGuarded(diffOf(["OUT", A]), pushInput(), {
+      askValues: async () => stopped,
+    });
+
+    // Assert
+    expect(run.result).toEqual(stopped);
+    expect(run.diffs).toEqual([]);
+    expect(run.exports).toEqual([]);
+  });
+
+  test("values saved into the repo folder don't stop an IN push", async () => {
+    // Arrange
+    let saved = false;
+
+    // Act
+    const run = await runGuarded(diffOf(["IN", B], ["OUT", A]), pushInput(), {
+      askValues: async () => {
+        saved = true;
+        return undefined;
+      },
+      guardedClean: async () => !saved,
+    });
+
+    // Assert
+    expect(run.exports).toEqual([{ only: [], skip: [B] }]);
+  });
+
+  test("--yes still checks the values before the guard", async () => {
+    // Arrange
+    const stopped = { code: 1, stdout: "", stderr: "missing value\n" };
+
+    // Act
+    const run = await runGuarded(diffOf(["OUT", A]), pushInput({ yes: true }), {
+      askValues: async () => stopped,
+    });
+
+    // Assert
+    expect(run.result).toEqual(stopped);
+    expect(run.exports).toEqual([]);
+  });
+
   test("a failed diff stops before the export", async () => {
     const run = await runGuarded(DIFF_FAILED, pushInput({ yes: true }));
 
@@ -515,10 +585,7 @@ describe("executePush guard", () => {
   });
 
   test("picked paths narrow the diff and make the commit partial", async () => {
-    const run = await runGuarded(
-      diffOf(["OUT", A]),
-      pushInput({ paths: [A] }),
-    );
+    const run = await runGuarded(diffOf(["OUT", A]), pushInput({ paths: [A] }));
 
     expect(run.diffs).toEqual([{ only: [A], conflicts: true }]);
     expect(run.exports).toEqual([{ only: [A], skip: [] }]);
@@ -626,7 +693,11 @@ describe("executePush declined", () => {
   test("a failed restore prints git's error and exits 1", async () => {
     const run = await decline({ restoreFiles: async () => "fatal: no\n" });
 
-    expect(run.result).toEqual({ code: 1, stdout: KEPT, stderr: "fatal: no\n" });
+    expect(run.result).toEqual({
+      code: 1,
+      stdout: KEPT,
+      stderr: "fatal: no\n",
+    });
   });
 
   test("a yes restores nothing", async () => {
@@ -634,5 +705,192 @@ describe("executePush declined", () => {
 
     expect(run.restored).toEqual([]);
     expect(run.result.stdout).toBe("committed\n");
+  });
+});
+
+const C = "dotfiles/common/parity/c.conf";
+const CHOICE_QUESTION =
+  "  Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] ";
+const PICK_CHOICE = "  Pick s, r or k.\n";
+const FIRST_SYNC_NOTHING = "  Nothing to send.\n";
+const IMPORTED = { code: 0, stdout: "UPDATED b\n", stderr: "" };
+const IMPORT_FAILED = { code: 1, stdout: "", stderr: "import failed\n" };
+
+/** A first-sync diff: every path labeled `?`, each with one changed line. */
+function unknownDiff(...paths: string[]): Result {
+  return {
+    code: 3,
+    stdout: "",
+    stderr: "",
+    diff: {
+      skipped: [],
+      labels: paths.map((path) => ({ label: "?" as const, path })),
+      conflictLines: [],
+      lineCounts: new Map(paths.map((path) => [path, 1])),
+    },
+  };
+}
+
+/** Run an interactive push with no sync point, answering the picker from
+ * `answers`, recording the imports and the export's skip list. */
+async function runPicker(
+  answers: (string | undefined)[],
+  overrides: Partial<PushDeps> = {},
+  input: PushInput = pushInput(),
+): Promise<{
+  result: Result;
+  imports: (readonly string[])[];
+  skips: (readonly string[])[];
+  commits: boolean[];
+  questions: string[];
+  printed: string;
+}> {
+  const imports: (readonly string[])[] = [];
+  const skips: (readonly string[])[] = [];
+  const commits: boolean[] = [];
+  const questions: string[] = [];
+  let printed = "";
+  const result = await executePush(
+    input,
+    baseDeps({
+      hasSyncPoint: async () => false,
+      runDiff: async () => unknownDiff(C, A, B),
+      askChoice: async (question) => {
+        questions.push(question);
+        return answers.shift();
+      },
+      runImport: async (take) => {
+        imports.push(take);
+        return IMPORTED;
+      },
+      runExport: async (_only, _yes, skip) => {
+        skips.push(skip);
+        return EXPORTED;
+      },
+      ask: async () => true,
+      print: (shown) => {
+        printed += shown.stdout;
+      },
+      runCommit: async (partial) => {
+        commits.push(partial);
+        return { code: 0, stdout: "", stderr: "" };
+      },
+      ...overrides,
+    }),
+  );
+  return { result, imports, skips, commits, questions, printed };
+}
+
+describe("executePush first-sync picker", () => {
+  test("asks each file in path order with its line count", async () => {
+    // Arrange
+    const answers = ["s", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers);
+
+    // Assert
+    expect(run.printed).toContain(
+      `\n  ${A}  1 line(s) changed\n` +
+        `\n  ${B}  1 line(s) changed\n` +
+        `\n  ${C}  1 line(s) changed\n` +
+        "\n",
+    );
+  });
+
+  test("s sends, r imports and k skips, with a partial commit", async () => {
+    // Arrange
+    const answers = ["s", "r", "k"];
+
+    // Act
+    const run = await runPicker(answers);
+
+    // Assert
+    expect(run.imports).toEqual([[B]]);
+    expect(run.skips).toEqual([[B, C]]);
+    expect(run.commits).toEqual([true]);
+  });
+
+  test("s for every file sends them all with a full commit", async () => {
+    // Arrange
+    const answers = ["s", "S", " s "];
+
+    // Act
+    const run = await runPicker(answers);
+
+    // Assert
+    expect(run.imports).toEqual([]);
+    expect(run.skips).toEqual([[]]);
+    expect(run.commits).toEqual([false]);
+  });
+
+  test("any other answer prints the pick line and asks again", async () => {
+    // Arrange
+    const answers = ["x", "", "s", "k", "k"];
+
+    // Act
+    const run = await runPicker(answers);
+
+    // Assert
+    expect(run.questions).toHaveLength(5);
+    expect(run.printed.split(PICK_CHOICE)).toHaveLength(3);
+    expect(run.skips).toEqual([[B, C]]);
+  });
+
+  test("end of input skips that file and every one after it", async () => {
+    // Arrange
+    const answers = ["s", undefined];
+
+    // Act
+    const run = await runPicker(answers);
+
+    // Assert
+    expect(run.questions).toEqual([CHOICE_QUESTION, CHOICE_QUESTION]);
+    expect(run.printed).not.toContain(C);
+    expect(run.skips).toEqual([[B, C]]);
+  });
+
+  test("no file sent prints Nothing to send. after the imports", async () => {
+    // Arrange
+    const answers = ["r", "k", undefined];
+
+    // Act
+    const run = await runPicker(answers);
+
+    // Assert
+    expect(run.imports).toEqual([[A]]);
+    expect(run.skips).toEqual([]);
+    expect(run.result).toEqual({
+      code: 0,
+      stdout: FIRST_SYNC_NOTHING,
+      stderr: "",
+    });
+  });
+
+  test("a failed import stops the push before the export", async () => {
+    // Arrange
+    const answers = ["r", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, {
+      runImport: async () => IMPORT_FAILED,
+    });
+
+    // Assert
+    expect(run.result).toEqual(IMPORT_FAILED);
+    expect(run.skips).toEqual([]);
+  });
+
+  test("--yes keeps the warning and asks nothing", async () => {
+    // Arrange
+    const answers = ["k", "k", "k"];
+
+    // Act
+    const run = await runPicker(answers, {}, pushInput({ yes: true }));
+
+    // Assert
+    expect(run.questions).toEqual([]);
+    expect(run.printed).toContain("WARNING: no sync is recorded");
+    expect(run.skips).toEqual([[]]);
   });
 });

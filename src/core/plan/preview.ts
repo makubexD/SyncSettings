@@ -1,6 +1,8 @@
 import { STATE_FOLDER_ROOTS } from "../guard.ts";
 import { formatLine } from "../status.ts";
 import { changeLines } from "./changes.ts";
+import { firstKnownValueHit } from "./commit.ts";
+import type { KnownValueHit } from "./commit.ts";
 import { exportValueGaps, planExport } from "./export.ts";
 import type { ValueGap } from "./export.ts";
 import { groupBlock, withoutNewSettings } from "./groups.ts";
@@ -246,6 +248,30 @@ export interface PreviewPlan extends Plan {
    * diffs the other files, then exits 1.
    */
   readonly skipped?: boolean;
+  /**
+   * The first known value (a cached value or the hostname) in a file the
+   * preview would change. The app reports it only after a clean leak scan,
+   * in place of the diff (contract "Export preview").
+   */
+  readonly knownValueHit?: KnownValueHit;
+}
+
+/** Contract "Export preview": the files the preview would change, the two
+ * paths it compares with `HEAD`, each with its new bytes. */
+function changedFiles(tree: RepoFiles, head: RepoFiles): RepoFiles {
+  const changed = new Map<string, Uint8Array>();
+  for (const [path, bytes] of tree) {
+    const compared =
+      path === "sync-config.json" || path.startsWith("dotfiles/");
+    const before = head.get(path);
+    if (
+      compared &&
+      (before === undefined || Buffer.compare(before, bytes) !== 0)
+    ) {
+      changed.set(path, bytes);
+    }
+  }
+  return changed;
 }
 
 /**
@@ -346,6 +372,12 @@ export function planPreview(
   const actions = plan.steps.flatMap((step) =>
     step.actions.map((entry) => entry.action),
   );
+  const tree = exportResultTree(workingTree ?? snapshot.repoFiles, actions);
+  const knownValueHit = firstKnownValueHit(
+    changedFiles(tree, head),
+    snapshot.values,
+    snapshot.record?.hostname,
+  );
   return {
     actions: [],
     lines:
@@ -353,7 +385,8 @@ export function planPreview(
         ? previewed
         : [...previewed, ...firstBackupLines(firstBackup)],
     code: gaps.length === 0 ? 0 : 1,
-    tree: exportResultTree(workingTree ?? snapshot.repoFiles, actions),
+    tree,
     skipped: gaps.length > 0,
+    ...(knownValueHit === undefined ? {} : { knownValueHit }),
   };
 }

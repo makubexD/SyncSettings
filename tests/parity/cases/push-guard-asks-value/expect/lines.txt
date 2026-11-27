@@ -1,0 +1,4 @@
+Enter values to fill the placeholders in the config files:
+Full name (~/.config/parity/a.conf):
+! could not tell which side is newer
+! Ana Lopez

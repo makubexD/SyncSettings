@@ -8,6 +8,7 @@ import { previewDiff, readOrigin, readTrackedPaths } from "../adapters/git.ts";
 import type { PreviewDiff } from "../adapters/git.ts";
 import { runLeakScan } from "../adapters/leakscan.ts";
 import type { DiffLine } from "../core/plan/diff.ts";
+import type { ValueGap } from "../core/plan/export.ts";
 import type { LeakScanResult } from "../adapters/leakscan.ts";
 import { previewWorkingTree } from "../adapters/snapshot.ts";
 import { suggestions } from "../adapters/suggest.ts";
@@ -36,6 +37,7 @@ import type {
   RepoBackup,
 } from "../core/machine/backup.ts";
 import { changeLines } from "../core/plan/changes.ts";
+import { KNOWN_VALUE_HINT, knownValueLine } from "../core/plan/commit.ts";
 import { exportMissingRules, planExport } from "../core/plan/export.ts";
 import {
   changeLineNumbers,
@@ -95,8 +97,13 @@ import type { RunEnvironment } from "./run.ts";
 /** What a diff found, so pull and push don't parse it from the text. */
 export interface DiffReport {
   readonly labels: readonly DiffLine[];
+  /** The files the diff left out because a placeholder has no value. */
+  readonly skipped: readonly ValueGap[];
   /** The conflict block lines of the `BOTH` labels, when they were asked for. */
   readonly conflictLines: readonly string[];
+  /** Each `?` label's changed line count, summed over its files (contract
+   * "Front door", no sync point, interactive). */
+  readonly lineCounts?: ReadonlyMap<string, number>;
 }
 
 /** What the front prints and the code it exits with. */
@@ -267,6 +274,16 @@ export async function previewTail(
         code: 1,
       });
     }
+    // Contract "Export preview": after a clean scan, a known value in a file
+    // the preview would change stops it as a commit would, with no diff.
+    const known = preview.knownValueHit;
+    if (known !== undefined) {
+      return {
+        code: 1,
+        stdout: writeLines(withInserted(preview.lines, [LEAK_CLEAN])),
+        stderr: `${knownValueLine(known, "written")}\n${KNOWN_VALUE_HINT}\n`,
+      };
+    }
     const diff = await deps.diff(repoRoot, tree);
     if (diff === undefined) {
       return {
@@ -294,6 +311,8 @@ export async function previewTail(
  * question aren't lost when the export's reader closes. */
 export interface ExecuteOptions {
   readonly moves?: boolean;
+  /** Push's value questions only, before its guard (`askPushValues`). */
+  readonly askValues?: boolean;
   readonly terminal?: SetupTerminal;
 }
 
@@ -996,7 +1015,51 @@ export async function askExportValues(
     values[rule.placeholder] = answer;
   }
   io.write("\n");
-  return { ok: true, snapshot: { ...snapshot, values } };
+  return { ok: true, snapshot: { ...snapshot, values, valuesAnswered: true } };
+}
+
+/**
+ * Contract "Push asks": push asks its value questions before its diff guard,
+ * so the guard and the export after it find the answers saved. `command`
+ * picks no path: every value this machine syncs is asked, whatever the push
+ * sends, so the commit's search knows them all. Under `--yes` nothing is
+ * asked, and an unknown value stops the push before anything is exported.
+ * Then every known value is saved where a full export would save it, the
+ * inferred ones too. Exit 0 goes on; an empty answer, end of input, an
+ * unknown value or a refused write stops with its line.
+ */
+export async function askPushValues(
+  env: RunEnvironment,
+  command: RunCommand,
+  terminal: SetupTerminal,
+): Promise<Result> {
+  const { snapshot, context } = await buildRun(env, command);
+  const asked = await askExportValues(snapshot, terminal.io, command.yes);
+  if (!asked.ok) {
+    return failure(asked.line);
+  }
+  const unknown = exportMissingRules(asked.snapshot)[0];
+  if (unknown !== undefined) {
+    return failure(missingValueLine(unknown.rule.placeholder));
+  }
+  const prepare = planExport(asked.snapshot).prepare ?? [];
+  if (prepare.length === 0) {
+    return { code: 0, stdout: "", stderr: "" };
+  }
+  const outcome = runPlan(
+    {
+      prepare,
+      steps: [],
+      finish: [],
+      lines: [],
+      summary: { kind: "none" },
+      code: 0,
+    },
+    context,
+  );
+  return outcome.refused === undefined
+    ? { code: 0, stdout: "", stderr: "" }
+    : failure(outcome.refused);
 }
 
 /**

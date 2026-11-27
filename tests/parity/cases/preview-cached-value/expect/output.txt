@@ -1,0 +1,4 @@
+MODIFIED dotfiles/common/parity/a.conf
+SKIPPED dotfiles/common/parity/b.conf
+ERROR: a cached value for <YOUR_GH_ORG> is in dotfiles/common/parity/a.conf; nothing was written.
+  Keep that line in a file the repo doesn't sync (~/.gitconfig.machine, ~/.bashrc.local), or add the placeholder's rule to the file's entry.

@@ -1,0 +1,40 @@
+{
+  "description": "Push with a sync point asks its value questions before its guard: the answer fills the placeholder, the guard finds the file OUT and the push opens a PR, exit 0, with the answer saved to .user-values.json (Front door, push; Checks before pushing; Push asks).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "Ana Lopez\ny\n"
+    }
+  ]
+}

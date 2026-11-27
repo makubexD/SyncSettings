@@ -1,0 +1,47 @@
+{
+  "description": "Push with no sync point asks per file in path order: s sends a.conf through a PR, r takes the repo's b.conf with a .bak, k leaves c.conf on both sides, exit 0 (Front door, push; No sync point, interactive).",
+  "os": ["linux"],
+  "git": "remote",
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file a"
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file b"
+      },
+      {
+        "file": "parity/c.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/c.conf",
+        "description": "Parity case file c"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "s\nr\nk\ny\n"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "description": "Push with a sync point asks its value questions before its guard, so a file with a placeholder changed on both sides is BOTH: the guard stops with the BOTH line, exit 1, nothing exported or committed, and the answer is saved to .user-values.json (Front door, push; Checks before pushing; Push asks).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "First parity case file"
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "paths": ["dotfiles/common/parity/a.conf"],
+        "yes": true
+      }
+    },
+    {
+      "command": "push",
+      "stdin": "Ana Lopez\n",
+      "stderr": true
+    }
+  ]
+}

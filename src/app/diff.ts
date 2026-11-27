@@ -11,6 +11,7 @@ import type { Layer, SelectedEntry } from "../core/layers/select.ts";
 import { onlyRemoves } from "../core/json/removal.ts";
 import { parseJsonBytes } from "../core/merge/json.ts";
 import { conflictBlock } from "../core/plan/conflict.ts";
+import { changedLines } from "../core/plan/changes.ts";
 import { diffText, labelDiff, ownedPaths } from "../core/plan/diff.ts";
 import type {
   DiffHeader,
@@ -20,7 +21,7 @@ import type {
   OwnedPaths,
   RepoRef,
 } from "../core/plan/diff.ts";
-import { planExport } from "../core/plan/export.ts";
+import { exportValueGaps, planExport } from "../core/plan/export.ts";
 import {
   newSettingChoices,
   suggestionAnswers,
@@ -45,6 +46,9 @@ const HEAD = "HEAD";
 
 /** Where the files the repo tracks for the entries are. */
 const DOTFILES_PREFIX = "dotfiles/";
+
+/** The side of a file that isn't there, for a line count. */
+const EMPTY_FILE = new Uint8Array();
 
 const NO_COMMIT = "ERROR: --diff needs a git repo with a commit.";
 
@@ -395,7 +399,22 @@ export async function diffExport(
     snapshot.repoFiles,
   );
 
-  const exportPlan = planSuggested(snapshot, baseTree);
+  // Contract "Diff": a file whose placeholder has no value is left out of
+  // every export plan here, as the preview leaves it out, and printed
+  // `SKIPPED`; sanitizing it with a stand-in would give a wrong label. The
+  // gaps cover every entry, since some plans below run without `--only`.
+  const allGaps = exportValueGaps({
+    ...snapshot,
+    only: [],
+    repoFiles: baseTree,
+  });
+  const gapLabels = new Set(allGaps.map((gap) => gap.label));
+  const scoped: Snapshot =
+    allGaps.length === 0
+      ? snapshot
+      : { ...snapshot, skip: [...(snapshot.skip ?? []), ...gapLabels] };
+
+  const exportPlan = planSuggested(scoped, baseTree);
   if (!planned(exportPlan)) {
     return {
       code: 1,
@@ -407,7 +426,7 @@ export async function diffExport(
 
   // What the export would write with no private layer at all. `--only` was
   // resolved above and can name a label git's layers alone don't have here.
-  const gitPlan = planSuggested({ ...snapshot, only: [] }, base);
+  const gitPlan = planSuggested({ ...scoped, only: [] }, base);
   const gitMine = appliedTree(base, gitPlan);
   const jsonEntries = selected.value.filter(
     ({ entry }) => entry.merge === "json",
@@ -447,19 +466,18 @@ export async function diffExport(
   // Only a `BOTH` can be settled: its export changed the base, so the local
   // file was there to compare.
   const settled = verdicts.some(({ label }) => label === "BOTH")
-    ? settledLabels(
-        { ...snapshot, only: [] },
-        theirsTree,
-        jsonEntries,
-      )
+    ? settledLabels({ ...scoped, only: [] }, theirsTree, jsonEntries)
     : new Set<string>();
+  const gaps = allGaps.filter((gap) => owned.owns(gap.label));
   const labels = verdicts.filter(
-    ({ label, path }) => label !== "BOTH" || !settled.has(path),
+    ({ label, path }) =>
+      !gapLabels.has(path) && (label !== "BOTH" || !settled.has(path)),
   );
   const text = diffText(
     labels,
     headerOf(repoRef, repoStamp.short, lastSync),
     snapshot.only.length > 0,
+    gaps,
   );
   // Outside `json`, the local file can hold a private layer's content.
   const privatePaths = new Set(
@@ -480,6 +498,7 @@ export async function diffExport(
     stderr: "",
     diff: {
       labels,
+      skipped: gaps,
       conflictLines: conflicts
         ? await conflictLines({
             labels,
@@ -489,6 +508,38 @@ export async function diffExport(
             privatePaths,
           })
         : [],
+      lineCounts: unknownLineCounts(labels, owned, theirsTree, mine),
     },
   };
+}
+
+/**
+ * Contract "Front door" (no sync point, interactive): each `?` label's
+ * changed lines between the repo's files and this machine's, summed over the
+ * label's files, its layers' too, as the picker prints them.
+ */
+function unknownLineCounts(
+  labels: readonly DiffLine[],
+  owned: OwnedPaths,
+  theirs: RepoFiles,
+  mine: RepoFiles,
+): ReadonlyMap<string, number> {
+  const unknown = new Set(
+    labels.filter(({ label }) => label === "?").map(({ path }) => path),
+  );
+  const counts = new Map<string, number>();
+  for (const path of new Set([...theirs.keys(), ...mine.keys()])) {
+    if (!owned.owns(path)) {
+      continue;
+    }
+    const label = owned.labelOf(path);
+    const before = theirs.get(path);
+    const after = mine.get(path);
+    if (!unknown.has(label) || sameFile(before, after)) {
+      continue;
+    }
+    const lines = changedLines(before ?? EMPTY_FILE, after ?? EMPTY_FILE);
+    counts.set(label, (counts.get(label) ?? 0) + lines);
+  }
+  return counts;
 }

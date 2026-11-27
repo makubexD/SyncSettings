@@ -5,3 +5,4 @@ MODIFIED dotfiles/common/parity/a.conf
   +==========================================+
 
 ERROR: a cached value for <YOUR_EMAIL> is in dotfiles/common/parity/a.conf; nothing was committed.
+  Keep that line in a file the repo doesn't sync (~/.gitconfig.machine, ~/.bashrc.local), or add the placeholder's rule to the file's entry.
