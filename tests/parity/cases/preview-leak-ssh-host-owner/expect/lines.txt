@@ -1,0 +1,6 @@
+MODIFIED dotfiles/common/parity/a.conf
+dotfiles/common/parity/a.conf:2: email
+WARNING: the leak scan found the lines above. Fix them before committing.
+Nothing was written. Run mksync push to send it.
+! Leak scan: clean.
+! ParityOrg
