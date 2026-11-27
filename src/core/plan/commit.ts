@@ -60,9 +60,16 @@ function shortHostname(hostname: string): string {
  * `a-z0-9` made one `-`, `-` trimmed from both ends, cut to 24 characters
  * and trimmed again. */
 function aliasForm(text: string): string {
-  const dashed = text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const trimmed = dashed.replace(/^-+|-+$/g, "");
-  return trimmed.slice(0, ALIAS_LIMIT).replace(/-+$/, "");
+  return dashedForm(text).slice(0, ALIAS_LIMIT).replace(/-+$/, "");
+}
+
+/** `text` lowercased, each run of characters outside `a-z0-9` made one `-`,
+ * `-` trimmed from both ends; not cut. */
+function dashedForm(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 /** Whether `name` is the hostname, or its short form, once both are in alias
@@ -77,23 +84,19 @@ function namesHostname(name: string, hostname: string): boolean {
 }
 
 /**
- * The public name `push` suggests for a machine, from its login (decision 1):
- * the login without a `DOMAIN\` prefix or an `@domain` suffix, in alias form
- * (`aliasForm`). `undefined` when nothing is left or the result names the
- * hostname.
+ * The public name `push` suggests for a machine: `<profile>-<os>` lowercased,
+ * each run of characters outside `a-z0-9` one `-` (contract "The PR"). It
+ * names no person or account. `undefined` when it fails `checkAlias`: it names
+ * the hostname, or the profile makes it too long.
  */
 export function suggestAlias(
-  login: string,
+  profile: string,
+  os: Os,
   hostname: string,
 ): string | undefined {
-  const afterDomain = login.slice(login.lastIndexOf(BACKSLASH) + 1);
-  const at = afterDomain.indexOf("@");
-  const bare = at === -1 ? afterDomain : afterDomain.slice(0, at);
-  const alias = aliasForm(bare);
-  if (alias === "" || namesHostname(alias, hostname)) {
-    return undefined;
-  }
-  return alias;
+  const alias = dashedForm(`${profile}-${os}`);
+  const checked = checkAlias(alias, { hostname });
+  return "error" in checked ? undefined : checked.alias;
 }
 
 /**

@@ -21,30 +21,87 @@ export interface ProfileValueHit {
 /** The selection the search needs; injectable so a failed one can be tested. */
 type EntrySelector = typeof selectEntries;
 
-const JSON_UNICODE_ESCAPE = /\\u([0-9A-Fa-f]{4})/g;
+/** Every JSON string escape, read in one pass so `\\u0041` stays `\u0041`. */
+const JSON_ESCAPE = /\\(["\\/bfnrt]|u[0-9A-Fa-f]{4})/g;
 
-const JSON_SLASH_ESCAPE = "\\/";
+/** The characters JSON's one-letter escapes stand for. */
+const JSON_SHORT_ESCAPES: Readonly<Record<string, string>> = {
+  '"': '"',
+  "\\": "\\",
+  "/": "/",
+  b: "\b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "\t",
+};
+
+/** Between a modified change line's old and new value. */
+const CHANGE_ARROW = " -> ";
+
+/** A character that continues a token: a value next to one is not a hit. */
+const TOKEN_CHAR = /^[A-Za-z0-9]$/;
+
+function continuesToken(char: string | undefined): boolean {
+  return char !== undefined && TOKEN_CHAR.test(char);
+}
+
+/**
+ * Whether `form` occurs in `text` as a whole token: the character just before
+ * it and the one just after it, when there is one, are not ASCII letters or
+ * digits (contract "Profile values"). Both are already folded.
+ */
+export function holdsToken(text: string, form: string): boolean {
+  if (form === "") {
+    return false;
+  }
+  for (
+    let at = text.indexOf(form);
+    at !== -1;
+    at = text.indexOf(form, at + 1)
+  ) {
+    if (
+      !continuesToken(text[at - 1]) &&
+      !continuesToken(text[at + form.length])
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function textOf(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
 
 /**
- * JSON text with its `\uXXXX` and `\/` escapes read back to characters, so a
- * value written that way is still found (contract "Profile values (program
- * only)").
+ * JSON text with its escapes read back to characters, so a value written as
+ * `\uXXXX` or `\/`, or right after a `\n`, is still found as a whole token
+ * (contract "Profile values (program only)").
  */
 function decodedJsonText(text: string): string {
-  return text
-    .replace(JSON_UNICODE_ESCAPE, (_match: string, hex: string) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replaceAll(JSON_SLASH_ESCAPE, "/");
+  return text.replace(JSON_ESCAPE, (_match: string, escape: string) =>
+    escape.length > 1
+      ? String.fromCharCode(Number.parseInt(escape.slice(1), 16))
+      : (JSON_SHORT_ESCAPES[escape] ?? escape),
+  );
+}
+
+/** The part of a change line that holds what the write brings: after the
+ * arrow on an `M` line, the whole line on a `+` line, nothing on a `-` line. */
+function broughtText(line: ChangeLine): string {
+  if (line.kind === "-") {
+    return "";
+  }
+  const arrow = line.what.indexOf(CHANGE_ARROW);
+  return line.kind === "M" && arrow !== -1
+    ? line.what.slice(arrow + CHANGE_ARROW.length)
+    : line.what;
 }
 
 /**
- * Whether a value appears in any layer text in one of the forms the file can
- * hold it in, ignoring case. `texts` is the raw text and, for a JSON entry, its
+ * Whether a value appears as a whole token in any layer text in one of the
+ * forms the file can hold it in, ignoring case. `texts` is the raw text and, for a JSON entry, its
  * decoded form.
  */
 function holdsValue(
@@ -55,14 +112,15 @@ function holdsValue(
   const forms = formsFor(value, json).map((form) => form.toLowerCase());
   return texts.some((text) => {
     const folded = text.toLowerCase();
-    return forms.some((form) => folded.includes(form));
+    return forms.some((form) => holdsToken(folded, form));
   });
 }
 
 /**
  * The number the block prints for the change of `layer`, `module` and `file`
- * whose `what` holds `value`, else for the first change of that file; undefined
- * when the block prints none (contract "Profile values (program only)").
+ * that brings `value`, found as `holdsValue` finds it, else for the first
+ * change of that file; undefined when the block prints none (contract
+ * "Profile values (program only)").
  */
 function numberOf(
   lines: readonly ChangeLine[],
@@ -71,8 +129,8 @@ function numberOf(
   module: string,
   file: string,
   value: string,
+  json: boolean,
 ): number | undefined {
-  const folded = value.toLowerCase();
   let first: number | undefined;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
@@ -88,7 +146,8 @@ function numberOf(
     if (number === undefined || number === 0) {
       continue;
     }
-    if (line.what.toLowerCase().includes(folded)) {
+    const brought = broughtText(line);
+    if (holdsValue([brought, decodedJsonText(brought)], value, json)) {
       return number;
     }
     first ??= number;
@@ -180,7 +239,7 @@ export function profileValueHits(
         // A write the block numbers no line for still refuses: dropping the hit
         // would let the value through. Change 0 marks it.
         const change =
-          numberOf(lines, numbers, layer, module, file, value) ?? 0;
+          numberOf(lines, numbers, layer, module, file, value, json) ?? 0;
         hits.push({ change, module, file, placeholder, layer });
       }
     }

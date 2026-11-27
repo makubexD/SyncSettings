@@ -128,6 +128,12 @@ export interface Snapshot {
    * their own. The app reads them only when a run is about to ask.
    */
   readonly suggested?: Values;
+  /**
+   * The `gh` found on `PATH`, read only when a rule takes it in place of its
+   * `default` (contract "Sanitize and hydrate", Suggested answers); absent
+   * when no rule does or `gh` wasn't found.
+   */
+  readonly ghPath?: string;
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Raw `--only` arguments, before they are resolved to repo paths. */
   readonly only: readonly string[];

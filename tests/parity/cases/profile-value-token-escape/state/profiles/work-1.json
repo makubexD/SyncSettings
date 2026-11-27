@@ -1,0 +1,8 @@
+{
+  "modules": ["parity"],
+  "values": {
+    "<YOUR_TEAM>": "A4"
+  },
+  "destinations": {},
+  "retired": false
+}

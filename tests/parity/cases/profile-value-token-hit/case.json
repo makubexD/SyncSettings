@@ -1,0 +1,35 @@
+{
+  "description": "export with a profile value A4 refuses a changed base key \"team A4 tools\": A4 stands alone there; the refused: line names change 2, the number the block prints for that key, not change 1 whose \"#90a4ae\" holds a4 inside a token, exit 1, nothing written (Profile values (program only)).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "git": "committed",
+  "commands": [
+    {
+      "command": "export",
+      "output": "all"
+    }
+  ]
+}

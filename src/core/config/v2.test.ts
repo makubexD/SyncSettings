@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { SUGGEST_SOURCES } from "./types.ts";
+import type { SuggestSource } from "./types.ts";
 import { parseV2 } from "./v2.ts";
 
 const CONFIG_FILE = "sync-config.json";
@@ -314,7 +316,7 @@ describe("parseV2", () => {
     expectError(configWith([bad]), defaultEnvError(bad.file as string), 1);
   });
 
-  test.each(["gh-login", "git-user-name", "git-user-email"])("a sanitize rule with suggest %s is read with it", (suggest) => {
+  test.each([...SUGGEST_SOURCES])("a sanitize rule with suggest %s is read as a list of it", (suggest) => {
     // Arrange
     const good = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest }] });
 
@@ -322,10 +324,24 @@ describe("parseV2", () => {
     const result = parseV2(configWith([good]));
 
     // Assert
-    expect(result.ok && result.value.entries[0]?.sanitize?.[0]?.suggest).toBe(suggest);
+    expect(result.ok && result.value.entries[0]?.sanitize?.[0]?.suggest).toEqual([suggest]);
   });
 
-  test.each([["x"], [1]])("a sanitize rule with suggest %p stops with exit 1", (suggest) => {
+  test("a sanitize rule with a list of two sources keeps them in order", () => {
+    // Arrange
+    const sources: readonly SuggestSource[] = ["gh-hosts-login", "origin-owner"];
+    const good = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest: sources }] });
+
+    // Act
+    const result = parseV2(configWith([good]));
+
+    // Assert
+    expect(result.ok && result.value.entries[0]?.sanitize?.[0]?.suggest).toEqual(sources);
+  });
+
+  const INVALID_SUGGESTS: readonly [unknown][] = [["x"], [1], [[]], [["gh-login", "gh-login"]], [["gh-login", "x"]]];
+
+  test.each(INVALID_SUGGESTS)("a sanitize rule with suggest %p stops with exit 1", (suggest) => {
     // Arrange
     const bad = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest }] });
 

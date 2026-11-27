@@ -180,7 +180,7 @@ export async function runImport(
   env: RunEnvironment,
   command: RunCommand,
   io: ImportIo = defaultImportIo(),
-  suggest: SuggestValues = suggestions,
+  suggest?: SuggestValues,
 ): Promise<Result> {
   const started = await startRun(env, command);
   if (started.kind === "stop") {
@@ -194,7 +194,10 @@ export async function runImport(
         await planWithAnswers(
           snapshot,
           io,
-          command.yes ? NO_SUGGESTIONS : suggest,
+          command.yes
+            ? NO_SUGGESTIONS
+            : (suggest ??
+              ((rules) => suggestions(rules, { repoRoot: env.repoRoot }))),
         ),
         context,
       );

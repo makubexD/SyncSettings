@@ -1143,7 +1143,9 @@ export async function askPushValues(
   unansweredGoesOn = false,
 ): Promise<Result> {
   const { snapshot, context } = await buildRun(env, command);
-  const asked = await askExportValues(snapshot, terminal.io, command.yes);
+  const asked = await askExportValues(snapshot, terminal.io, command.yes, (rules) =>
+    suggestions(rules, { repoRoot: context.repoRoot }),
+  );
   if (!asked.ok) {
     if (!unansweredGoesOn) {
       return failure(asked.line);
@@ -1270,7 +1272,9 @@ export async function executeExport(
   // reader closes.
   const terminal = shared ?? setupTerminal();
   try {
-    const asked = await askExportValues(snapshot, terminal.io, command.yes);
+    const asked = await askExportValues(snapshot, terminal.io, command.yes, (rules) =>
+      suggestions(rules, { repoRoot: context.repoRoot }),
+    );
     if (!asked.ok) {
       return { code: 1, stdout: "", stderr: `${asked.line}\n` };
     }

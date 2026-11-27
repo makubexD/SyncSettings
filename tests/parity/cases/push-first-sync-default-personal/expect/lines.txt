@@ -1,0 +1,6 @@
+Send this machine's version (s), keep its differences in profile personal (p), take the repo's (r) or skip (k)? [s]
+Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] [s]
+Send this machine's version (s), keep its differences in profile personal (p), take the repo's (r) or skip (k)? [s]
+Kept in the repo. Run mksync push again, or git restore dotfiles to drop them.
+! Pick s
+! PROFILE

@@ -226,6 +226,37 @@ export function inferValuesUnique(
 }
 
 /**
+ * A rule whose found `gh` path takes the place of its `default` (contract
+ * "Sanitize and hydrate", Suggested answers): it has a `default` and names
+ * `gh-path` among its `suggest` sources.
+ */
+export function takesFoundGhPath(rule: SanitizeRule): boolean {
+  return hasValue(rule.default) && (rule.suggest ?? []).includes("gh-path");
+}
+
+/**
+ * The found `gh` path for each rule that takes it, as values inferred from
+ * the machine: they come after a cached value and before the `default`, and
+ * are saved as inferred values are. Nothing when `gh` wasn't found or its
+ * path holds placeholder text.
+ */
+export function foundGhPathValues(
+  rules: readonly SanitizeRule[],
+  ghPath: string | undefined,
+): Values {
+  if (ghPath === undefined || ghPath === "" || holdsPlaceholder(ghPath)) {
+    return {};
+  }
+  const values: Record<string, string> = {};
+  for (const rule of rules) {
+    if (takesFoundGhPath(rule)) {
+      values[rule.placeholder] = ghPath;
+    }
+  }
+  return values;
+}
+
+/**
  * The non-interactive path of the bash engine's `request_values`: a cached
  * value wins, then one inferred from the local file, then the rule's `default`,
  * then the environment variable its `defaultEnv` names. A missing value stops

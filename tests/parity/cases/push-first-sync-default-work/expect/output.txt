@@ -1,0 +1,6 @@
+ADDED profiles/work-1/parity/settings.json
+ADDED profiles/work-1/parity/a.conf
+UPDATED profiles/work-1/parity/settings.json
+UNCHANGED profiles/work-1/parity/a.conf
+? dotfiles/common/parity/a.conf
+? dotfiles/common/parity/folder/x.conf

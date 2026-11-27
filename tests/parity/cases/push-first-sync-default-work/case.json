@@ -1,0 +1,59 @@
+{
+  "description": "Push with a work record and no sync point suggests p for a json and a whole entry and k for a dir entry ([s/r/k] [k]); three Enters keep both files' differences in profile work-1, skip the dir file, send nothing, open no PR and record no sync point, so the diff after it still has none and marks the dir file ?, exit 0 then 3 (Front door, push; No sync point, interactive; Sync point).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig",
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      },
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file a"
+      },
+      {
+        "file": "parity/folder",
+        "module": "parity",
+        "merge": "dir",
+        "localPath": "~/.config/parity/folder",
+        "description": "Parity case folder"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "\n\n\n"
+    },
+    {
+      "command": "diff"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "description": "Push tries a rule's suggest sources in order: gh-hosts-login answers from gh's saved login, so gh-login (gh api user) never runs (Sanitize and hydrate, Suggested answers).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_USERNAME>",
+            "prompt": "GitHub username",
+            "suggest": [
+              "gh-hosts-login",
+              "gh-login"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "export",
+      "stdin": "\n"
+    }
+  ]
+}

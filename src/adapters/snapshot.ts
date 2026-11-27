@@ -15,10 +15,13 @@ import { machineValues } from "../core/machine/scope.ts";
 import { scopeFor } from "../core/plan/pick.ts";
 import type { DconfDumpResult, RepoFiles, Snapshot } from "../core/plan/types.ts";
 import { parseValuesFile } from "../core/values/file.ts";
+import { takesFoundGhPath } from "../core/values/hydrate.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { dconfDump, loginHome } from "./dconf.ts";
 import { findRepoSymlink, readSnapshot } from "./fs.ts";
+import { ghBinary } from "./gh.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
+import { which } from "./process.ts";
 import { readStore, readText } from "./store.ts";
 import type { StoreLocation } from "./store.ts";
 
@@ -266,6 +269,14 @@ export async function buildSnapshot(
       dconfDumps,
       ...(login !== undefined ? { loginHome: login } : {}),
     };
+  }
+  // Contract "Sanitize and hydrate": a rule with a `default` and `gh-path`
+  // takes the `gh` found on PATH, found as `mksync doctor` finds it.
+  if (config.entries.some((entry) => (entry.sanitize ?? []).some(takesFoundGhPath))) {
+    const ghPath = which(ghBinary(env), env);
+    if (ghPath !== null) {
+      built = { ...built, ghPath };
+    }
   }
   if (command.command === "export" && !command.preview) {
     return built;

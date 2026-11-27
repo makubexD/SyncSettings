@@ -1,5 +1,5 @@
 import { hasDotDotSegment, isValidDconfPath } from "./dconf-path.ts";
-import type { ConfigError, ConfigV2, MergeType, Os, Result } from "./types.ts";
+import type { ConfigError, ConfigV2, MergeType, Os, Result, SuggestSource } from "./types.ts";
 import { SUGGEST_SOURCES } from "./types.ts";
 
 const CONFIG_FILE = "sync-config.json";
@@ -61,6 +61,29 @@ function hasInvalidDefaultEnv(sanitize: unknown): boolean {
   );
 }
 
+function isSuggestSource(value: unknown): value is SuggestSource {
+  return (SUGGEST_SOURCES as readonly unknown[]).includes(value);
+}
+
+/**
+ * A rule's `suggest` as a list: one source, or a non-empty list of distinct
+ * sources. Undefined when it is neither.
+ */
+function suggestList(value: unknown): readonly SuggestSource[] | undefined {
+  if (isSuggestSource(value)) {
+    return [value];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every(isSuggestSource) ||
+    new Set(value).size !== value.length
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
 function hasInvalidSuggest(sanitize: unknown): boolean {
   return (
     Array.isArray(sanitize) &&
@@ -68,9 +91,25 @@ function hasInvalidSuggest(sanitize: unknown): boolean {
       (rule) =>
         isRecord(rule) &&
         Object.hasOwn(rule, "suggest") &&
-        !(SUGGEST_SOURCES as readonly unknown[]).includes(rule.suggest),
+        suggestList(rule.suggest) === undefined,
     )
   );
+}
+
+/** An entry with each rule's `suggest` kept as a list, once the entry is valid. */
+function withSuggestLists(entry: unknown): unknown {
+  if (!isRecord(entry) || !Array.isArray(entry.sanitize)) {
+    return entry;
+  }
+  const sanitize: readonly unknown[] = entry.sanitize;
+  return {
+    ...entry,
+    sanitize: sanitize.map((rule) =>
+      isRecord(rule) && Object.hasOwn(rule, "suggest")
+        ? { ...rule, suggest: suggestList(rule.suggest) }
+        : rule,
+    ),
+  };
 }
 
 function shown(value: unknown): string {
@@ -334,5 +373,6 @@ export function parseV2(
     }
   }
 
-  return { ok: true, value: parsed as unknown as ConfigV2 };
+  const normalized = { ...parsed, entries: entries.map(withSuggestLists) };
+  return { ok: true, value: normalized as unknown as ConfigV2 };
 }

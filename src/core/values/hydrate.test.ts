@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SanitizeRule } from "../config/types.ts";
 import {
+  foundGhPathValues,
   inferValuesUnique,
   missingPlaceholders,
   resolveValues,
@@ -147,5 +148,86 @@ describe("inferValuesUnique", () => {
 
     // Assert
     expect(inferred.size).toBe(0);
+  });
+});
+
+const GH_PLACEHOLDER = "<GH_CLI_PATH>";
+
+const GH_DEFAULT = "C:\\Program Files\\GitHub CLI\\gh.exe";
+
+const FOUND_GH = "C:\\Users\\user\\scoop\\shims\\gh.exe";
+
+const SAVED_GH = "D:\\tools\\gh.exe";
+
+const GH_RULE: SanitizeRule = {
+  placeholder: GH_PLACEHOLDER,
+  prompt: "Path to GitHub CLI executable",
+  default: GH_DEFAULT,
+  suggest: ["gh-path"],
+  escapeBackslashes: true,
+};
+
+describe("foundGhPathValues", () => {
+  test("should make the found gh path the value, ahead of the default", () => {
+    // Arrange
+    const inferred = foundGhPathValues([GH_RULE], FOUND_GH);
+
+    // Act
+    const resolved = resolveValues([GH_RULE], {}, inferred, {});
+
+    // Assert
+    expect(inferred).toEqual({ [GH_PLACEHOLDER]: FOUND_GH });
+    expect(resolved).toEqual({
+      ok: true,
+      value: { [GH_PLACEHOLDER]: FOUND_GH },
+    });
+  });
+
+  test("should take the default and save nothing when gh isn't found", () => {
+    // Arrange
+    const inferred = foundGhPathValues([GH_RULE], undefined);
+
+    // Act
+    const resolved = resolveValues([GH_RULE], {}, inferred, {});
+
+    // Assert
+    expect(inferred).toEqual({});
+    expect(resolved).toEqual({
+      ok: true,
+      value: { [GH_PLACEHOLDER]: GH_DEFAULT },
+    });
+  });
+
+  test("should leave a saved value ahead of the found path and the default", () => {
+    // Arrange
+    const inferred = foundGhPathValues([GH_RULE], FOUND_GH);
+
+    // Act
+    const resolved = resolveValues(
+      [GH_RULE],
+      { [GH_PLACEHOLDER]: SAVED_GH },
+      inferred,
+      {},
+    );
+
+    // Assert
+    expect(resolved).toEqual({
+      ok: true,
+      value: { [GH_PLACEHOLDER]: SAVED_GH },
+    });
+  });
+
+  test.each<[string, SanitizeRule]>([
+    [
+      "no default",
+      { placeholder: GH_PLACEHOLDER, prompt: "gh", suggest: ["gh-path"] },
+    ],
+    ["no gh-path source", { ...GH_RULE, suggest: ["gh-login"] }],
+  ])("should not give the found path to a rule with %s", (_label, rule) => {
+    expect(foundGhPathValues([rule], FOUND_GH)).toEqual({});
+  });
+
+  test("should not give a found path that holds placeholder text", () => {
+    expect(foundGhPathValues([GH_RULE], "/opt/<GH_CLI_PATH>/gh")).toEqual({});
   });
 });

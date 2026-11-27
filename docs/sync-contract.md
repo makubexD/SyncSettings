@@ -153,8 +153,9 @@ ERROR: <config file>: entry <file> needs a dconfPath like /org/gnome/shell/.
 - `localPath` and every [`localPaths`](#localpath) value use forward slashes; its keys are `linux`, `macos` or
   `windows`.
 - A `sanitize` rule's `defaultEnv` matches `^[A-Za-z_][A-Za-z0-9_]*$`, because it names an environment variable.
-- A `sanitize` rule's `suggest`, when present, is `gh-login`, `git-user-name` or `git-user-email`
-  ([Sanitize and hydrate](#sanitize-and-hydrate)).
+- A `sanitize` rule's `suggest`, when present, is one source or a non-empty list of distinct sources, each
+  `gh-login`, `gh-hosts-login`, `origin-owner`, `git-user-name`, `git-user-email`, `passwd-name` or `gh-path`
+  ([Sanitize and hydrate](#sanitize-and-hydrate)). An empty list, a repeated source or any other value is invalid.
 - A `dconf` entry has no `localPath`. Its `dconfPath` must start and end with `/`, hold at least one segment of
   letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody dumps the whole
   database by accident.
@@ -278,12 +279,32 @@ newline after the last answer. The files are the `localPath` of each entry being
 has the rule, as `sync-config.json` writes it (`~/.claude/settings.json`), de-duplicated, in entry order. A value that
 appears in none of those files is still asked: the program can't tell without the value, and skipping would fail open.
 
-**Suggested answers.** A rule may name a `suggest` source ([configuration](configuration.md#sanitize)). When push or
-pull is about to ask for that placeholder, it runs the source once and shows its trimmed output before the colon:
-` <prompt> (<file>, …) [<value>]:`. An empty answer then takes the suggestion; a typed answer wins. The sources are
-`gh-login` (`gh api user --jq .login`), `git-user-name` (`git config --global user.name`) and `git-user-email`
-(`git config --global user.email`). A source that fails, runs past 5 seconds, prints nothing, prints more than one
-line, prints a control character or prints placeholder text gives no suggestion, and the prompt reads as without one. A
+**Suggested answers.** A rule may name a `suggest` source, or a list of them ([configuration](configuration.md#sanitize)).
+When push or pull is about to ask for that placeholder, it runs the sources in list order, each at most once, and
+stops at the first that answers; that source's trimmed output is shown before the colon:
+` <prompt> (<file>, …) [<value>]:`. An empty answer then takes the suggestion; a typed answer wins. Each source runs
+its command directly, with no shell, under the same 5-second limit. The sources are:
+
+- `gh-login`: `gh api user --jq .login` (asks GitHub over the network).
+- `gh-hosts-login`: `gh config get -h github.com user`, the login `gh` saved for `github.com`; no network.
+- `origin-owner`: the owner part of the clone's `origin`, read with `git remote get-url origin`, when that address is
+  on `github.com` (`https://github.com/<owner>/<repo>`, `git@github.com:<owner>/<repo>`,
+  `ssh://git@github.com/<owner>/<repo>`); nothing for another host.
+- `git-user-name`: `git config --global user.name`.
+- `git-user-email`: `git config --global user.email`.
+- `passwd-name`: the current user's full name, up to its first comma: on Linux the full-name field of
+  `getent passwd <user>`, on macOS `id -F`; nothing on Windows, or when the field is empty.
+- `gh-path`: the path of `gh` found on `PATH`, the way `mksync doctor` finds it; nothing when it isn't found.
+
+A source that fails, runs past 5 seconds, prints nothing, prints more than one line, prints a control character (or a Unicode format character: a bidi override, a zero-width mark, a line separator, the BOM) or
+prints placeholder text doesn't answer, and the next source runs; when none answers, the prompt reads as without a
+suggestion.
+
+A rule with a `default` and `suggest` including `gh-path` is the one case where a source is used without a prompt, as
+a default is, so it runs under `--yes` too: a cached value still wins, and otherwise, when `gh` is found, its path
+takes the `default`'s place and is saved as an inferred value is ([Values on a machine](#values-on-a-machine), or
+`.user-values.json` without a record), so export sanitizes it (the path can hold the user name). When `gh` isn't
+found, the `default` is used and nothing is saved. Neither is asked. Otherwise a
 suggestion is never used without its prompt: `--yes` (push and pull), `preview`, `diff`, `check` and `status` run no
 source, and end of input never takes a suggestion, so a suggestion can't fill a value unseen. With no input the source
 still runs before the first prompt, and the run stops there as below. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
@@ -546,9 +567,11 @@ scan, the cached values. Besides:
 - **On `master`.** After the checks, commit runs only from `master`: any other branch stops it with
   `ERROR: run mksync commit from master (current: <branch>).`, exit 1, before the fetch.
 - **The PR.** Branch `sync/<os>-<alias>-<stamp>`, naming the record's `alias`. A record without one asks for it once,
-  on the first push from a terminal: the prompt suggests the login without a `DOMAIN\` prefix or an `@domain` suffix,
-  made into an alias (lowercased, each run of other characters a `-`), and no suggestion when the login can't be read
-  or equals the hostname. An empty answer takes the suggestion; an answer equal to the machine's hostname or its short
+  on the first push from a terminal: the prompt suggests `<profile>-<os>` from the record's profile and this OS, in
+  alias form (lowercased, each run of other characters a `-`): `work2-windows`, `personal-linux`. It names no person
+  or account, and the login is no longer read. The suggestion is checked as an answer is (below);
+  one that fails the check (a profile name that makes it too long, or equal to the hostname) is not shown. An empty
+  answer takes the suggestion; an answer equal to the machine's hostname or its short
   form, compared in alias form (`WORK_PC01` matches `work-pc01`), is refused with `ERROR: '<answer>' is this machine's hostname;
 pick another public name.`, any other invalid answer with `ERROR: invalid machine alias '<answer>' (use a-z, 0-9, -).`,
   and a usable answer is saved in the record and followed by `Saved public name: <alias>` on stderr. A save that fails
@@ -964,9 +987,17 @@ diff after the value questions and before the export; a failed fetch leaves it c
     Send this machine's version (s), keep its differences in profile work2 (p), take the repo's (r) or skip (k)? [p]
   ```
 
-  The suggestion is `p` on any profile but `personal`, `s` on `personal`; an empty answer takes it. Without a record,
-  or for an `import`, `dconf` or `dir` entry, the question stays `[s/r/k]` with no suggestion, and an empty
-  answer asks again.
+  The suggestion is `p` on any profile but `personal`, `s` on `personal`; an empty answer takes it. With a record, a
+  file that offers no `p` (an `import`, `dconf` or `dir` entry) asks `[s/r/k]` and also ends with a suggestion: `s` on
+  `personal`, `k` on any other profile, so an Enter on a work machine never sends a file to the shared layers:
+
+  ```text
+    dotfiles/linux/dconf/desktop.ini  12 line(s) changed
+    Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] [k]
+  ```
+
+  An empty answer takes it. Without a record the question stays `[s/r/k]` with no suggestion, and an empty answer
+  asks again.
 
   `s` sends the file; `r` overwrites the local file with the repo's, as `mksync pull --force <path>` does (keeping a
   `.bak`); `k` leaves both sides. `p` keeps the file's differences in the profile layer and changes neither the base
@@ -1914,8 +1945,11 @@ Move a change? Type its number, or press Enter to go on:
 
 A profile's values don't leave the profile. Before the push side writes anything, each layer text bound for the base
 or an OS layer is searched, after sanitize, for every non-empty value of the record's profile, ignoring case. The values searched are the profile's
-with those the run saves to it, so a value [inferred](#sanitize-and-hydrate) in this run is searched like a saved one. A hit
-stops the run with exit 1 before any write, two lines per hit, ordered by change number then placeholder:
+with those the run saves to it, so a value [inferred](#sanitize-and-hydrate) in this run is searched like a saved one.
+A value is a hit only as a whole token: the character just before it and the one just after it, when there is one,
+are not ASCII letters or digits. So a profile value `A4` is a hit in `"team": "A4"` and `team-A4_tools` but not in
+`#A4B3C2` or `pa4ge`. A hit stops the run with exit 1 before any write, two lines per hit, ordered by change number then
+placeholder. The change number is the one the change block above prints for that change:
 
 ```text
 refused: change 1 (vscode settings.json) holds a value of profile work-1 (<YOUR_EMAIL>) and would reach all machines.
@@ -1925,7 +1959,8 @@ Move it to "profile work-1", or put <YOUR_EMAIL> in the file instead.
 `would reach` names the group in lower case (`all machines`, `linux machines`). The message names the placeholder,
 never the value. `export --preview` prints the same lines after the block and exits 1. Each value is searched in the
 forms sanitize replaces: as it is, with its backslashes doubled, and for a `json` entry as a JSON string body (`\\`,
-`\"`); a `json` entry's text is also searched with its `\uXXXX` and `\/` escapes read back. An `import` entry with no
+`\"`); a `json` entry's text is also searched with every escape read back in one pass (`\n`, `\t`, `\"`, `\\`, `\/`,
+`\uXXXX`), so a value right after a `\n` is still a whole token. An `import` entry with no
 `importName` is still searched, its hit named by its repo path. The machine's values aren't searched. This is not a
 guarantee: a value written another way, or another profile's value, is the [leak scan's](#export-preview) job.
 
