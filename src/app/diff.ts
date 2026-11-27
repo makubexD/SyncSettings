@@ -11,6 +11,7 @@ import type { Layer, SelectedEntry } from "../core/layers/select.ts";
 import { onlyRemoves } from "../core/json/removal.ts";
 import { parseJsonBytes } from "../core/merge/json.ts";
 import { conflictBlock } from "../core/plan/conflict.ts";
+import { changedLines } from "../core/plan/changes.ts";
 import { diffText, labelDiff, ownedPaths } from "../core/plan/diff.ts";
 import type {
   DiffHeader,
@@ -45,6 +46,9 @@ const HEAD = "HEAD";
 
 /** Where the files the repo tracks for the entries are. */
 const DOTFILES_PREFIX = "dotfiles/";
+
+/** The side of a file that isn't there, for a line count. */
+const EMPTY_FILE = new Uint8Array();
 
 const NO_COMMIT = "ERROR: --diff needs a git repo with a commit.";
 
@@ -462,11 +466,7 @@ export async function diffExport(
   // Only a `BOTH` can be settled: its export changed the base, so the local
   // file was there to compare.
   const settled = verdicts.some(({ label }) => label === "BOTH")
-    ? settledLabels(
-        { ...scoped, only: [] },
-        theirsTree,
-        jsonEntries,
-      )
+    ? settledLabels({ ...scoped, only: [] }, theirsTree, jsonEntries)
     : new Set<string>();
   const gaps = allGaps.filter((gap) => owned.owns(gap.label));
   const labels = verdicts.filter(
@@ -508,6 +508,38 @@ export async function diffExport(
             privatePaths,
           })
         : [],
+      lineCounts: unknownLineCounts(labels, owned, theirsTree, mine),
     },
   };
+}
+
+/**
+ * Contract "Front door" (no sync point, interactive): each `?` label's
+ * changed lines between the repo's files and this machine's, summed over the
+ * label's `dotfiles/` files, as the picker prints them.
+ */
+function unknownLineCounts(
+  labels: readonly DiffLine[],
+  owned: OwnedPaths,
+  theirs: RepoFiles,
+  mine: RepoFiles,
+): ReadonlyMap<string, number> {
+  const unknown = new Set(
+    labels.filter(({ label }) => label === "?").map(({ path }) => path),
+  );
+  const counts = new Map<string, number>();
+  for (const path of new Set([...theirs.keys(), ...mine.keys()])) {
+    if (!path.startsWith(DOTFILES_PREFIX) || !owned.owns(path)) {
+      continue;
+    }
+    const label = owned.labelOf(path);
+    const before = theirs.get(path);
+    const after = mine.get(path);
+    if (!unknown.has(label) || sameFile(before, after)) {
+      continue;
+    }
+    const lines = changedLines(before ?? EMPTY_FILE, after ?? EMPTY_FILE);
+    counts.set(label, (counts.get(label) ?? 0) + lines);
+  }
+  return counts;
 }

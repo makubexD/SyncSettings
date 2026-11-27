@@ -350,7 +350,7 @@ function countLines(bytes: Uint8Array): number {
   return splitLines(textOf(bytes)).length;
 }
 
-function changedLines(oldBytes: Uint8Array, newBytes: Uint8Array): number {
+export function changedLines(oldBytes: Uint8Array, newBytes: Uint8Array): number {
   const oldLines = splitLines(textOf(oldBytes));
   const newLines = splitLines(textOf(newBytes));
   const common = commonLines(oldLines, newLines);

@@ -102,6 +102,9 @@ export interface DiffReport {
   readonly skipped: readonly ValueGap[];
   /** The conflict block lines of the `BOTH` labels, when they were asked for. */
   readonly conflictLines: readonly string[];
+  /** Each `?` label's changed line count, summed over its files (contract
+   * "Front door", no sync point, interactive). */
+  readonly lineCounts?: ReadonlyMap<string, number>;
 }
 
 /** What the front prints and the code it exits with. */

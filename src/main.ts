@@ -411,6 +411,12 @@ async function execute(
             statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
             ask: (question, defaultYes) =>
               askTerminalQuestion(terminal.io, question, defaultYes),
+            askChoice: async (question) => {
+              terminal.io.write(question);
+              return terminal.io.readLine();
+            },
+            runImport: (take) =>
+              execute(pullImportCommand(false, true, take), { terminal }),
             print: (shown) => {
               process.stdout.write(shown.stdout);
               process.stderr.write(shown.stderr);
