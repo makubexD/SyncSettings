@@ -346,11 +346,11 @@ function Validate-Case {
     if ($null -ne $stubsProp) {
         $stubs = $stubsProp.Value
         if ($stubs -isnot [System.Array]) {
-            Die 'stubs may only hold gh; dconf, getent and bootstrap are Linux only'
+            Die 'stubs may only hold gh; dconf, getent, bootstrap and packages are Linux only'
         }
         foreach ($s in $stubs) {
-            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap'))) {
-                Die 'stubs may only hold gh; dconf, getent and bootstrap are Linux only'
+            if (-not ($s -is [string] -and ($s -ceq 'gh' -or $s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap' -or $s -ceq 'packages'))) {
+                Die 'stubs may only hold gh; dconf, getent, bootstrap and packages are Linux only'
             }
         }
     }
@@ -1724,7 +1724,7 @@ foreach ($caseDir in $caseDirs) {
     $stubsProp = $case.PSObject.Properties['stubs']
     if ($null -ne $stubsProp) {
         foreach ($s in @($stubsProp.Value)) {
-            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap')) {
+            if ($s -is [string] -and ($s -ceq 'dconf' -or $s -ceq 'getent' -or $s -ceq 'bootstrap' -or $s -ceq 'packages')) {
                 $linuxStub = $s
                 break
             }

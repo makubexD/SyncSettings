@@ -202,9 +202,15 @@ validate_case() {
         || die 'git must be none, committed or remote'
     jq -e 'if has("stubs") then
             (.stubs | type) == "array"
-            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent" or . == "bootstrap")
+            and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent" or . == "bootstrap" or . == "packages")
           else true end' "$json" > /dev/null 2>&1 \
-        || die 'stubs may only hold gh, dconf, getent or bootstrap'
+        || die 'stubs may only hold gh, dconf, getent, bootstrap or packages'
+    # A packages/linux/ folder makes export and preview read the package
+    # managers: only the stub may answer, never the real machine's.
+    if [[ -d $(dirname "$json")/repo/packages/linux ]]; then
+        jq -e '(.stubs // []) | any(. == "packages")' "$json" > /dev/null 2>&1 \
+            || die 'packages/linux/ needs the packages stub'
+    fi
     jq -e '((.stubs // []) | any(. == "getent") | not)
         or ((.stubs // []) | any(. == "dconf"))' "$json" > /dev/null 2>&1 \
         || die 'the getent stub needs the dconf stub'
@@ -606,6 +612,21 @@ write_dconf_stub() {
     chmod +x "$temp/bin/dconf" || die 'making the dconf stub executable failed'
 }
 
+# Write the package manager stubs into $temp/bin: dpkg-query, apt-mark, snap,
+# pipx and code each print the case's tools/<name>.txt (nothing when it is
+# missing) and exit 0, whatever their arguments.
+write_packages_stub() {
+    local temp=$1 dir=$2 tool
+    mkdir -p "$temp/bin" "$temp/drift-root" || die 'creating the packages stub folder failed'
+    for tool in dpkg-query apt-mark snap pipx code; do
+        printf '%s\n' \
+            '#!/bin/sh' \
+            "if [ -f '$dir/tools/$tool.txt' ]; then cat '$dir/tools/$tool.txt'; fi" \
+            'exit 0' > "$temp/bin/$tool" || die "writing the $tool stub failed"
+        chmod +x "$temp/bin/$tool" || die "making the $tool stub executable failed"
+    done
+}
+
 # Write the getent stub into $temp/bin: `getent passwd <user>` answers with the
 # case's temp home in the home field and exits 0; anything else is getent's
 # "key not found", exit 2.
@@ -786,6 +807,12 @@ run_case() {
     if [[ " $stubs " == *' getent '* ]]; then
         write_getent_stub "$t" "$t/home"
     fi
+    if [[ " $stubs " == *' packages '* ]]; then
+        write_packages_stub "$t" "$dir"
+        # The apt-source and apt-key rows read under DRIFT_ROOT: an empty
+        # folder, so the machine's /etc/apt never reaches a case.
+        path_env+=(DRIFT_ROOT="$t/drift-root")
+    fi
     if [[ " $stubs " == *' bootstrap '* ]]; then
         bootstrap_stub=true
         write_bootstrap_stub "$t"
@@ -905,14 +932,14 @@ run_case() {
         # Bun's transpile cache would otherwise land in the case's home; keep it
         # outside both compared trees.
         if [[ $stderr_mode == true || $all_output == true ]]; then
-            (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
+            (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH -u DRIFT_ROOT \
                 -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
                 -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
                 XDG_CACHE_HOME="$t/xdg-cache" GIT_CEILING_DIRECTORIES="$t" \
                 "${args[@]}" < "$stdin_file") > "$t/raw" 2> "$t/raw-err" || rc=$?
         else
-            (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH \
+            (cd "$t/repo" && HOME="$t/home" env -u XDG_STATE_HOME -u XDG_CONFIG_HOME -u GH -u DRIFT_ROOT \
                 -u VIRTUAL_ENV -u CONDA_DEFAULT_ENV -u DBUS_SESSION_BUS_ADDRESS \
                 -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GH_TOKEN -u GITHUB_TOKEN \
                 "${case_env_unset[@]}" "${path_env[@]}" "${case_env_set[@]}" \
