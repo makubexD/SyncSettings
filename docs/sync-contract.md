@@ -156,6 +156,9 @@ ERROR: <config file>: entry <file> needs a dconfPath like /org/gnome/shell/.
 - A `sanitize` rule's `suggest`, when present, is one source or a non-empty list of distinct sources, each
   `gh-login`, `gh-hosts-login`, `origin-owner`, `git-user-name`, `git-user-email`, `passwd-name` or `gh-path`
   ([Sanitize and hydrate](#sanitize-and-hydrate)). An empty list, a repeated source or any other value is invalid.
+  A name outside that list, alone or in a list of names, is the one exit-2 line here, since a newer config may name
+  a source a newer `mksync` has; it names the first such name:
+  `ERROR: <config file>: entry <file> has an unknown suggest source <name>; if the config is newer, run mksync update.`
 - A `dconf` entry has no `localPath`. Its `dconfPath` must start and end with `/`, hold at least one segment of
   letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody dumps the whole
   database by accident.

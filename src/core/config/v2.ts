@@ -84,6 +84,31 @@ function suggestList(value: unknown): readonly SuggestSource[] | undefined {
   return value;
 }
 
+/**
+ * The first source name a rule's `suggest` holds that this program doesn't
+ * know, when the `suggest` is a string or a list of only strings: a newer
+ * config may name a source a newer mksync has. Undefined otherwise.
+ */
+function unknownSuggestSource(sanitize: unknown): string | undefined {
+  if (!Array.isArray(sanitize)) {
+    return undefined;
+  }
+  for (const rule of sanitize) {
+    if (!isRecord(rule) || !Object.hasOwn(rule, "suggest")) {
+      continue;
+    }
+    const names: readonly unknown[] = Array.isArray(rule.suggest) ? rule.suggest : [rule.suggest];
+    if (!names.every((name) => typeof name === "string")) {
+      continue;
+    }
+    const unknown = names.find((name) => !isSuggestSource(name));
+    if (typeof unknown === "string") {
+      return unknown;
+    }
+  }
+  return undefined;
+}
+
 function hasInvalidSuggest(sanitize: unknown): boolean {
   return (
     Array.isArray(sanitize) &&
@@ -155,6 +180,7 @@ interface ConfigMessages {
   readonly localPathsKey: (file: string, key: string) => string;
   readonly defaultEnv: (file: string) => string;
   readonly suggest: (file: string) => string;
+  readonly suggestSource: (file: string, source: string) => string;
 }
 
 /** Every error line names the config file the text came from. */
@@ -189,6 +215,8 @@ function configMessages(configFile: string): ConfigMessages {
     localPathsKey: (file, key) => `${prefix}: entry ${file} has an unknown localPaths key ${key}.`,
     defaultEnv: (file) => `${prefix}: entry ${file} has an invalid defaultEnv.`,
     suggest: (file) => `${prefix}: entry ${file} has an invalid suggest.`,
+    suggestSource: (file, source) =>
+      `${prefix}: entry ${file} has an unknown suggest source ${source}; if the config is newer, run mksync update.`,
   };
 }
 
@@ -332,6 +360,11 @@ export function parseV2(
 
     if (hasInvalidDefaultEnv(record.sanitize)) {
       return failure(messages.defaultEnv(file), 1);
+    }
+
+    const unknownSource = unknownSuggestSource(record.sanitize);
+    if (unknownSource !== undefined) {
+      return failure(messages.suggestSource(file, unknownSource), 2);
     }
 
     if (hasInvalidSuggest(record.sanitize)) {
