@@ -516,7 +516,7 @@ export async function diffExport(
 /**
  * Contract "Front door" (no sync point, interactive): each `?` label's
  * changed lines between the repo's files and this machine's, summed over the
- * label's `dotfiles/` files, as the picker prints them.
+ * label's files, its layers' too, as the picker prints them.
  */
 function unknownLineCounts(
   labels: readonly DiffLine[],
@@ -529,7 +529,7 @@ function unknownLineCounts(
   );
   const counts = new Map<string, number>();
   for (const path of new Set([...theirs.keys(), ...mine.keys()])) {
-    if (!path.startsWith(DOTFILES_PREFIX) || !owned.owns(path)) {
+    if (!owned.owns(path)) {
       continue;
     }
     const label = owned.labelOf(path);

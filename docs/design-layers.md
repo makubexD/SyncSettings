@@ -1913,6 +1913,32 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - The hostname search without a machine record: only the record's `hostname` is searched.
   - A diff view inside the first-sync picker, so the user needn't run `mksync preview` first.
   - Per-file choices in setup: its `keep` and `backup` answers still take one side for every file.
+- **First-sync review (v1.1.9).** Found by the finish's code review and security audit, not fixed in the plan:
+  - UTF-16 files (Windows PowerShell 5.1's `>` and `Out-File`, `.reg` exports) pass sanitize, the leak scan (`grep -I`
+    reads them as binary) and the known-value search (UTF-8 decoding). No entry holds one today.
+  - An answer that doesn't match the file exactly (a pasted no-break or zero-width space, NFC against NFD, a typo)
+    sanitizes nothing and makes the search look for the wrong text, silently. Reject control and format characters,
+    normalize both sides, and warn when an answered value for a sent file is in no line of it.
+  - The known-value search checks the value and its doubled-backslash form, fewer than sanitize writes: a drive path
+    with the other slash (`D:/work/x` saved as `D:\work\x`), a JSON `\u` escape or an escaped `"` is missed.
+  - The hostname search: `-` and `_` count as name characters (`pc01-backup` isn't a hit), the FQDN's domain part
+    isn't searched, and a generic hostname (`ubuntu`, `localhost`) stops every commit of a file holding that word.
+  - No length floor on a value: an answer such as `x` makes sanitize replace every `x` in the entry's file and the
+    search stop on every file holding one. A "not used here" answer would help.
+  - The leak scan passes `git@github.com@acme.com`: after the allowed address, `@acme.com` has no local part.
+  - Outside the plan: the public-name question suggests the OS login, the PR body names the profile, and a `-m`
+    message is never scanned.
+  - `r` on a file the repo doesn't have acts as `k` (the import prints `SKIPPED … not found in repo`), though the
+    picker offers it with a line count.
+  - Any `r` or `k` answer makes the commit partial, so no push records a sync point after a first sync, even when `r`
+    left the two sides agreeing; only `mksync pull` does. A hint, or a partial commit for `k` alone, would help.
+  - Declining the PR after `r` imports prints `Nothing sent; the repo folder is as it was.`, while the local `r` files
+    were overwritten (each with its `.bak`).
+  - The picker takes `S`, `R` and `K` and spaces around the answer, which the contract doesn't state.
+  - Windows folds CRLF for every text file with no rules, `profiles/` and `machines/` layers too, wider than the
+    contract's "shared or under `dotfiles/windows/`". Harmless, since writes are unchanged.
+  - The shared cases can't say a file is absent from the state folder, so the first-sync cases don't check that a
+    partial push records no sync point; a private-repo push (values saved on the record or profile) has no case.
 
 ### Confirm on Windows
 

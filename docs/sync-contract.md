@@ -869,8 +869,9 @@ sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` l
 [conflict block](#conflict-block) per `BOTH` file, then `ERROR: <n> file(s) changed on this machine
 since the last sync, and a pull would overwrite them.` and `Run mksync push first, or mksync pull --force to overwrite
 them (each keeps a .bak).`, and the pull stops with exit 1 before anything is applied. `IN` lines never block.
-A diff that fails (exit 1) stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
-or mksync pull --force.` `--force` skips the diff and still asks the apply question; `--yes` answers it. The clone
+A diff that fails (exit 1), or that leaves out a file whose value is missing (its `SKIPPED … needs` line: that file can
+hold this machine's change), stops the pull with `ERROR: could not tell which side is newer; run mksync diff to see why,
+or mksync pull --force.` `mksync push` asks the value and saves it, so the next pull can compare the file. `--force` skips the diff and still asks the apply question; `--yes` answers it. The clone
 fast-forwards before the question, so a declined pull leaves the clone updated and this machine as it was.
 
 Without a sync point every label would be `?`, so the diff doesn't run and the first pull is guarded instead: with
@@ -940,8 +941,8 @@ diff after the value questions and before the export; a failed fetch leaves it c
 The export skips the `IN` files instead of picking the `OUT` ones, so any other file an earlier export left stale in the
 repo folder is rewritten, and a [linked folder](#linked-folders)'s files, which `--only` refuses, are still sent.
 
-The commit stages every push path, so a stale `IN` file would still be sent. A push that would leave an `IN` file alone,
-while `dotfiles/`, `profiles/` or `machines/` has changes not committed, stops before the export with this line on
+The commit stages every push path, so a stale `IN` file would still be sent. A push that would leave an `IN` file alone, or
+a file answered `r` or `k` at the first-sync question, while `dotfiles/`, `profiles/` or `machines/` has changes not committed, stops before the export with this line on
 stderr after the `IN` lines, exit 1, `--force` included:
 
 ```text
@@ -1511,7 +1512,8 @@ Write the record and apply? [Y/n]
   [sync point](#sync-point) exists, the [diff](#diff). It prints one line above question 4 (also when a flag answers
   it): with a sync point, `  <n> file(s) differ: <i> in, <o> out, <b> both.`; without one,
   `  <n> file(s) differ. No sync is recorded on this machine, so the newer side is unknown.`; after a failed diff,
-  `  <n> file(s) differ; could not tell which side is newer.` `<n>` is the diff's count (`<i> + <o> + <b>`); without a
+  `  <n> file(s) differ; could not tell which side is newer.` A diff that leaves out a file for a missing value counts as
+  failed. `<n>` is the diff's count (`<i> + <o> + <b>`); without a
   sync point or after a failed diff it is the check's `UPDATE` count. A `CREATE` never counts, since a file this
   machine lacks has nothing to overwrite, so a fresh machine gets no line. A count of 0 prints no line. Question 4 suggests `2`
   (keep mine) when the diff has an `OUT` or `BOTH` file and the mode is push, else `1`.

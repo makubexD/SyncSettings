@@ -505,6 +505,23 @@ describe("executePush guard", () => {
     expect(run.exports).toEqual([]);
   });
 
+  test("values saved into the repo folder don't stop an IN push", async () => {
+    // Arrange
+    let saved = false;
+
+    // Act
+    const run = await runGuarded(diffOf(["IN", B], ["OUT", A]), pushInput(), {
+      askValues: async () => {
+        saved = true;
+        return undefined;
+      },
+      guardedClean: async () => !saved,
+    });
+
+    // Assert
+    expect(run.exports).toEqual([{ only: [], skip: [B] }]);
+  });
+
   test("--yes asks no value before the guard", async () => {
     // Arrange
     let asked = false;

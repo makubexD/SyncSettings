@@ -401,7 +401,9 @@ async function guardPush(
   const report = reportOf(diff);
   if (report === undefined) {
     if (input.force) {
-      return { kind: "go", shown: "", skip: [], take: [], partial: true };
+      // No sync point and no diff: the push sends every file that differs.
+      const shown = hasSyncPoint ? "" : NO_SYNC_POINT;
+      return { kind: "go", shown, skip: [], take: [], partial: true };
     }
     // A picked path that isn't synced fails the diff: its line says so.
     const reason = input.paths.length > 0 ? diff.stdout : "";
@@ -502,6 +504,11 @@ export async function executePush(
     return { code: 1, stdout: "", stderr: BEHIND_ORIGIN };
   }
 
+  // Taken before the value questions: with the store in the repo folder,
+  // saving their answers writes `profiles/` or `machines/`, which the commit
+  // sends anyway.
+  const cleanBeforeValues = await deps.guardedClean();
+
   // Contract "Push asks": the guard's diff needs every value, so the
   // questions come first. `--yes` asks nothing; the export stops instead.
   if (!input.yes) {
@@ -521,7 +528,7 @@ export async function executePush(
   }
 
   // The commit stages every push path, so a stale `IN` file would be sent.
-  if (guard.skip.length > 0 && !(await deps.guardedClean())) {
+  if (guard.skip.length > 0 && !cleanBeforeValues) {
     return { code: 1, stdout: "", stderr: IN_BUT_DIRTY };
   }
 
