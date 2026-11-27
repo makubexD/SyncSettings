@@ -23,6 +23,10 @@ export interface PullInput {
 
 /** What a pull runs; `only` is the pull's picked paths. */
 export interface PullDeps {
+  /** Ask every value this machine syncs that nothing fills and save every
+   * known one, as push does (contract "Push asks"); an unanswered question
+   * goes on. A stop's result (a refused write), or `undefined` to go on. */
+  readonly askValues: () => Promise<Result | undefined>;
   /** `import --check`. */
   readonly runCheck: (only: readonly string[]) => Promise<Result>;
   /** `export --diff`. */
@@ -158,10 +162,23 @@ export async function executePull(
 
   // The fast-forward's count prints before the check reads the new files.
   const pulled = fetched.pulled ?? 0;
-  const check = prefixed(
-    pulled > 0 ? pulledLine(pulled) : "",
-    await deps.runCheck(only),
-  );
+  let countLine = pulled > 0 ? pulledLine(pulled) : "";
+
+  // Contract "Front door", pull: the check and the guard's diff need every
+  // value, so an interactive pull asks them first, after the count. `--yes`
+  // asks nothing.
+  if (!input.yes) {
+    if (countLine !== "") {
+      deps.print({ code: 0, stdout: countLine, stderr: "" });
+      countLine = "";
+    }
+    const stopped = await deps.askValues();
+    if (stopped !== undefined) {
+      return stopped;
+    }
+  }
+
+  const check = prefixed(countLine, await deps.runCheck(only));
   if (check.code === 0) {
     // Nothing to overwrite, but a full import still records the sync point.
     if (only.length === 0) {

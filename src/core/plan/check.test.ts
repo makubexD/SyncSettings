@@ -40,6 +40,13 @@ const MISSING_VALUE_CASE = "missing-value-stops";
 const MISSING_VALUE_LABEL = "dotfiles/common/parity/a.conf";
 
 const NEEDS_VALUES_NOTE = "needs <YOUR_NAME>: mksync push or pull asks for it";
+const PLACEHOLDER_CASE = "pull-check-shows-placeholder";
+const PLACEHOLDER_REPO_FILE = "dotfiles/common/parity/settings.json";
+/** The repo copy as origin left it: the theme changed, the owner sanitized. */
+const PLACEHOLDER_ORIGIN =
+  '{\n  "repo": "<YOUR_GH_OWNER>/repo",\n  "theme": "dark"\n}\n';
+const PLACEHOLDER_CHANGE = 'repo: "owner/repo" -> "<YOUR_GH_OWNER>/repo"';
+const SENTINEL_TEXT = "mksync-needs-values";
 
 const CHECK_CASE = "check-one-change";
 
@@ -313,6 +320,30 @@ describe("planCheck", () => {
     expect(result.lines).toContain("  1 error(s); see the ERROR lines above.");
     expect(result.code).toBe(1);
     expect(result.lines).not.toContain(MATCHES_REPO);
+  });
+
+  test("should show a missing value as its placeholder in the change block", () => {
+    // Arrange
+    const snapshot = snapshotFor(PLACEHOLDER_CASE);
+    if (snapshot === undefined) {
+      throw new Error(`case ${PLACEHOLDER_CASE} did not load`);
+    }
+    const repoFiles = new Map(snapshot.repoFiles);
+    repoFiles.set(
+      PLACEHOLDER_REPO_FILE,
+      new TextEncoder().encode(PLACEHOLDER_ORIGIN),
+    );
+
+    // Act
+    const result = planCheck({ ...snapshot, repoFiles });
+
+    // Assert
+    expect(result.lines.some((line) => line.endsWith(PLACEHOLDER_CHANGE))).toBe(
+      true,
+    );
+    expect(result.lines.some((line) => line.includes(SENTINEL_TEXT))).toBe(
+      false,
+    );
   });
 
   test("should flag a missing value when no record names a profile or machine", () => {

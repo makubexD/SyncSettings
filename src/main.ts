@@ -373,6 +373,14 @@ async function execute(
         return await executePull(
           { yes: command.yes, force: command.force, paths: command.paths },
           {
+            askValues: async () => {
+              const asked = await execute(pushExportCommand([], false, []), {
+                askValues: true,
+                unansweredGoesOn: true,
+                terminal,
+              });
+              return asked.code === 0 ? undefined : asked;
+            },
             runCheck: (only) => execute(pullImportCommand(true, false, only)),
             runDiff: (only) => execute(diffCommand(only, true)),
             runImport: (only) =>
@@ -617,7 +625,12 @@ async function execute(
         options?.askValues === true &&
         options.terminal !== undefined
       ) {
-        return askPushValues(environment, command, options.terminal);
+        return askPushValues(
+          environment,
+          command,
+          options.terminal,
+          options.unansweredGoesOn === true,
+        );
       }
       return command.command === "export"
         ? runExport(environment, command)

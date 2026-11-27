@@ -57,6 +57,8 @@ interface Calls {
   }[];
   /** Everything flushed before a question, in order. */
   readonly printed: Result[];
+  /** The value questions and the check, in the order they ran. */
+  readonly steps: string[];
 }
 
 /** The answers a scenario gives to its questions, in order. */
@@ -69,6 +71,7 @@ interface Scenario {
   readonly importResult?: Result;
   readonly hasSyncPoint?: boolean;
   readonly answers?: readonly boolean[];
+  readonly valuesStop?: Result;
 }
 
 /** A flow whose every dep answers as the scenario needs. */
@@ -83,6 +86,7 @@ function deps(given: Scenario = {}): {
     fetch: number;
     questions: { question: string; defaultYes: boolean }[];
     printed: Result[];
+    steps: string[];
   } = {
     checks: [],
     diffs: [],
@@ -90,10 +94,16 @@ function deps(given: Scenario = {}): {
     fetch: 0,
     questions: [],
     printed: [],
+    steps: [],
   };
   const answers = [...(given.answers ?? [])];
   const built: PullDeps = {
+    askValues: async () => {
+      calls.steps.push("values");
+      return given.valuesStop;
+    },
     runCheck: async (only) => {
+      calls.steps.push("check");
       calls.checks.push(only);
       return given.check ?? OK;
     },
@@ -403,9 +413,7 @@ describe("executePull", () => {
     expect(result.stderr).toContain(
       "  ERROR: 2 file(s) changed on this machine",
     );
-    expect(result.stdout).toBe(
-      `${CHECK_OUTPUT}${OUT_LINE}\n${BOTH_LINE}\n`,
-    );
+    expect(result.stdout).toBe(`${CHECK_OUTPUT}${OUT_LINE}\n${BOTH_LINE}\n`);
   });
 
   test("should print the block after the BOTH line", async () => {
@@ -688,5 +696,76 @@ describe("executePull", () => {
     expect(calls.checks).toEqual([paths]);
     expect(calls.diffs).toEqual([paths]);
     expect(calls.imports).toEqual([paths]);
+  });
+});
+
+const PULLED_TWO = "  Pulled 2 commit(s).\n";
+const VALUES_REFUSED: Result = {
+  code: 1,
+  stdout: "",
+  stderr: "ERROR: refused to write the values file.\n",
+};
+
+describe("executePull value questions", () => {
+  test("should ask the values before the check when interactive", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({ check: CHANGED, answers: [true] });
+
+    // Act
+    await executePull(pullInput(), fake);
+
+    // Assert
+    expect(calls.steps).toEqual(["values", "check"]);
+  });
+
+  test("should ask nothing under --yes", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({ check: CHANGED });
+
+    // Act
+    await executePull(pullInput({ yes: true }), fake);
+
+    // Assert
+    expect(calls.steps).toEqual(["check"]);
+  });
+
+  test("should print the fast-forwarded count before the questions", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({
+      fetch: { ok: true, pulled: 2 },
+      check: CHANGED,
+      answers: [true],
+    });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(calls.printed[0]?.stdout).toBe(PULLED_TWO);
+    expect(result.stdout).not.toContain(PULLED_TWO);
+  });
+
+  test("should go on to the check when the questions go on unanswered", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({ check: CHANGED, answers: [true] });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(calls.checks).toEqual([[]]);
+    expect(result.code).toBe(0);
+  });
+
+  test("should stop before the check when the questions stop", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({ valuesStop: VALUES_REFUSED });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(result).toEqual(VALUES_REFUSED);
+    expect(calls.checks).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@ import { planImport } from "./import.ts";
 import { scopeFor } from "./pick.ts";
 import { renderRun } from "./run.ts";
 import { NO_FAILURES } from "./types.ts";
-import type { Plan, RunPlan, Snapshot } from "./types.ts";
+import type { ChangeLine, Plan, RunPlan, Snapshot } from "./types.ts";
 
 const DASHES = "  --------------------------------------------------";
 
@@ -22,6 +22,8 @@ const CHECK_WORD_WIDTH = 10;
 
 /** A value that no real file holds, so a flagged entry never reads as unchanged. */
 const MISSING_SENTINEL = "\u0000mksync-needs-values:";
+/** The sentinel as a JSON value prints it in a change line. */
+const ESCAPED_SENTINEL = MISSING_SENTINEL.replace("\u0000", "\\u0000");
 
 const STATUS_LINE = new RegExp(
   `^ {2}(${STATUS_WORDS.join("|")}) +(.+?)(?: {2}\\(.*\\))?$`,
@@ -110,6 +112,30 @@ function labelsNeedingValues(
     }
   }
   return labels;
+}
+
+/**
+ * Contract "Import check": a change line shows a missing value as its
+ * placeholder (`<NAME>`), never the sentinel standing in for it, raw or as a
+ * JSON value escapes it.
+ */
+function withPlaceholders(
+  changes: readonly ChangeLine[],
+  unresolved: ReadonlySet<string>,
+): readonly ChangeLine[] {
+  if (unresolved.size === 0) {
+    return changes;
+  }
+  return changes.map((change) => {
+    let what = change.what;
+    for (const placeholder of unresolved) {
+      const name = placeholder.slice(1, -1);
+      what = what
+        .replaceAll(`${ESCAPED_SENTINEL}${name}`, placeholder)
+        .replaceAll(`${MISSING_SENTINEL}${name}`, placeholder);
+    }
+    return what === change.what ? change : { ...change, what };
+  });
 }
 
 /** Turn the import's status lines into the check's, keeping their order. */
@@ -213,7 +239,10 @@ export function planCheck(snapshot: Snapshot): Plan {
     labelsNeedingValues(snapshot, imported.unresolved),
   );
   const summary = summaryLines(body);
-  const changes = importChangeLines(imported.plan, snapshot);
+  const changes = withPlaceholders(
+    importChangeLines(imported.plan, snapshot),
+    imported.unresolved,
+  );
   const block =
     changes.length === 0
       ? []

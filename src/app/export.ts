@@ -320,6 +320,9 @@ export interface ExecuteOptions {
   readonly moves?: boolean;
   /** Push's value questions only, before its guard (`askPushValues`). */
   readonly askValues?: boolean;
+  /** Pull's use of them: a question left unanswered goes on instead of
+   * stopping, so the pull's guard decides (contract "Front door", pull). */
+  readonly unansweredGoesOn?: boolean;
   readonly terminal?: SetupTerminal;
 }
 
@@ -1128,20 +1131,26 @@ export async function askExportValues(
  * asked, and an unknown value stops the push before anything is exported.
  * Then every known value is saved where a full export would save it, the
  * inferred ones too. Exit 0 goes on; an empty answer, end of input, an
- * unknown value or a refused write stops with its line.
+ * unknown value or a refused write stops with its line. With
+ * `unansweredGoesOn` (pull), an empty answer or end of input saves nothing
+ * and goes on, and so does a value still unknown, so the caller's own guard
+ * stops as it did before the questions.
  */
 export async function askPushValues(
   env: RunEnvironment,
   command: RunCommand,
   terminal: SetupTerminal,
+  unansweredGoesOn = false,
 ): Promise<Result> {
   const { snapshot, context } = await buildRun(env, command);
   const asked = await askExportValues(snapshot, terminal.io, command.yes);
   if (!asked.ok) {
-    return failure(asked.line);
+    return unansweredGoesOn
+      ? { code: 0, stdout: "", stderr: "" }
+      : failure(asked.line);
   }
   const unknown = exportMissingRules(asked.snapshot)[0];
-  if (unknown !== undefined) {
+  if (unknown !== undefined && !unansweredGoesOn) {
     return failure(missingValueLine(unknown.rule.placeholder));
   }
   const prepare = planExport(asked.snapshot).prepare ?? [];
