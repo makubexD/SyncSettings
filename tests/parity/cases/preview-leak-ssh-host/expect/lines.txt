@@ -1,0 +1,5 @@
+MODIFIED dotfiles/common/parity/a.conf
+Leak scan: clean.
++	insteadOf = git@github.com:
+Nothing was written. Run mksync push to send it.
+! WARNING: the leak scan
