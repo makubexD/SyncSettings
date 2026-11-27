@@ -396,13 +396,13 @@ async function readOneVisibility(
 }
 
 /**
- * The owner of the clone's `origin` URL as configured (`git config --get
- * remote.origin.url`, before any `insteadOf` rewrite), or `undefined` when it
- * is not a `github.com` URL or git cannot say.
+ * The `github.com` repo of the clone's `origin` URL as configured (`git config
+ * --get remote.origin.url`, before any `insteadOf` rewrite), or `undefined`
+ * when it is not a `github.com` URL or git cannot say.
  */
-export async function originOwner(
+export async function originRepo(
   repoRoot: string,
-): Promise<string | undefined> {
+): Promise<GitHubRepo | undefined> {
   const result = await run(
     ["git", "-C", repoRoot, "config", "--get", "remote.origin.url"],
     { stdout: "pipe", stderr: "ignore" },
@@ -410,7 +410,14 @@ export async function originOwner(
   if (result.code !== 0) {
     return undefined;
   }
-  return parseGitHubOrigin(decode(result.stdout).trim())?.owner;
+  return parseGitHubOrigin(decode(result.stdout).trim());
+}
+
+/** The owner of `originRepo`, or `undefined`. */
+export async function originOwner(
+  repoRoot: string,
+): Promise<string | undefined> {
+  return (await originRepo(repoRoot))?.owner;
 }
 
 /**

@@ -21,7 +21,7 @@ import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
 import type { GitResult } from "../adapters/git.ts";
 import { ownerToken, prCreate } from "../adapters/gh.ts";
-import { originOwner } from "../adapters/visibility.ts";
+import { originRepo } from "../adapters/visibility.ts";
 import {
   changedSyncPaths,
   commitStaged,
@@ -622,12 +622,16 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   );
   let prUrl = "";
   try {
+    const origin = await originRepo(repoRoot);
     const pr = await prCreate(repoRoot, {
       base: BASE_BRANCH,
       head: branch,
       title: message,
       bodyFile,
-      token: await ownerToken(await originOwner(repoRoot)),
+      ...(origin === undefined
+        ? {}
+        : { repo: `${origin.owner}/${origin.repo}` }),
+      token: await ownerToken(origin?.owner),
     });
     if (!pr.ok) {
       return fail(

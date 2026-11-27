@@ -975,7 +975,7 @@ public static class GhStub
         File.AppendAllText(log, prefix + call + "\r\n");
         string accountsFile = Path.Combine(root, "gh-accounts");
         string[] accounts = File.Exists(accountsFile) ? File.ReadAllLines(accountsFile) : new string[0];
-        if (call == "auth token")
+        if (call == "auth token" || call == "auth token --hostname github.com")
         {
             if (accounts.Length > 0 && accounts[0] != "")
             {
@@ -984,11 +984,13 @@ public static class GhStub
             }
             return 1;
         }
-        if (args.Length == 4 && args[0] == "auth" && args[1] == "token" && args[2] == "--user")
+        bool pinned = args.Length == 6 && args[0] == "auth" && args[1] == "token" && args[2] == "--hostname" && args[3] == "github.com" && args[4] == "--user";
+        if (pinned || (args.Length == 4 && args[0] == "auth" && args[1] == "token" && args[2] == "--user"))
         {
+            string wanted = args[args.Length - 1];
             foreach (string name in accounts)
             {
-                if (name != "" && name == args[3])
+                if (name != "" && name == wanted)
                 {
                     Console.Out.Write("tok-" + name + "\r\n");
                     return 0;
@@ -1009,8 +1011,8 @@ public static class GhStub
 # one call per line, to <temp>\gh.log (prefixed `GH_TOKEN=<value> ` when its
 # environment has a non-empty GH_TOKEN), prints nothing and exits 0, except for
 # the case's ghAccounts (first = active, one per line in <temp>\gh-accounts):
-# `auth token` prints tok-<first> or exits 1 with no accounts;
-# `auth token --user <name>` prints tok-<name> for a listed name, else exits 1.
+# `auth token [--hostname github.com]` prints tok-<first> or exits 1 with no accounts;
+# `auth token [--hostname github.com] --user <name>` prints tok-<name> for a listed name, else exits 1.
 function Write-GhStub {
     param([string]$TempDir, [string[]]$Accounts)
     $binDir = Join-Path $TempDir 'bin'

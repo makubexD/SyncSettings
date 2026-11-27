@@ -1,5 +1,5 @@
 {
-  "description": "Doctor says OK for git login when the owner token is the active account's token (Front door, git login).",
+  "description": "Doctor says OK for git login when no helper names the owner but gh's own git-credential helper is first and the active token is the owner's (Front door, git login).",
   "os": [
     "linux"
   ],

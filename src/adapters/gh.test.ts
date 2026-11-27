@@ -111,6 +111,24 @@ describe("prCreate", () => {
     expect(readFileSync(log, "utf8").trim()).toBe(expected);
   });
 
+  test("should pin the repo when one is given", async () => {
+    // Arrange
+    const { root, log } = installStub(SUCCESS_SCRIPT);
+    const expected = `${root}|pr create --base ${BASE} --head ${HEAD} --title ${TITLE} --repo github.com/owner1/repo1 --body ${BODY}`;
+
+    // Act
+    await prCreate(root, {
+      base: BASE,
+      head: HEAD,
+      title: TITLE,
+      body: BODY,
+      repo: "owner1/repo1",
+    });
+
+    // Assert
+    expect(readFileSync(log, "utf8").trim()).toBe(expected);
+  });
+
   test("should pass the body inline when no body file is given", async () => {
     // Arrange
     const { root, log } = installStub(SUCCESS_SCRIPT);
@@ -246,7 +264,9 @@ describe("ownerToken", () => {
 
     // Assert
     expect(token).toBe(TOKEN);
-    expect(readFileSync(log, "utf8")).toContain(`|auth token --user ${OWNER}`);
+    expect(readFileSync(log, "utf8")).toContain(
+      `|auth token --hostname github.com --user ${OWNER}`,
+    );
   });
 
   test("should be undefined when gh fails", async () => {

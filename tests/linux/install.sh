@@ -188,8 +188,8 @@ case \$cmd in
         fi
         if [ "\$1" = token ]; then
             [ -e "$t/stub/gh-token-fails" ] && exit 1
-            case \$3 in
-                acme|other) printf 'ghp_secret_%s\n' "\$3" ;;
+            case \$5 in
+                acme|other) printf 'ghp_secret_%s\n' "\$5" ;;
                 *) exit 1 ;;
             esac
         fi
@@ -715,7 +715,7 @@ login_lines() {
     git -C "$t/home/SyncSettings" config --local --get-all credential.https://github.com.helper 2> /dev/null || true
 }
 
-want_helper='!f() { test $1 = get && echo username=acme && echo password=$(gh auth token --user acme); }; f'
+want_helper='!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user acme) && test -n $t && echo username=acme && echo password=$t; }; f'
 
 case_install_gh_login() {
     setup_install_origin

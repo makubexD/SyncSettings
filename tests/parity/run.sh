@@ -580,8 +580,8 @@ setup_git() {
 # `parity-user` for `api user --jq .login` and `config get -h github.com user`,
 # the gh-login and gh-hosts-login suggestions' sources, and the case's ghAccounts
 # (the remaining arguments, first = active, kept in $temp/gh-accounts):
-# `auth token` prints tok-<first> or exits 1 with no accounts;
-# `auth token --user <name>` prints tok-<name> for a listed name, else exits 1.
+# `auth token [--hostname github.com]` prints tok-<first> or exits 1 with no accounts;
+# `auth token [--hostname github.com] --user <name>` prints tok-<name> for a listed name, else exits 1.
 write_gh_stub() {
     local temp=$1
     shift
@@ -600,10 +600,13 @@ else
 fi
 if [ "$*" = "api user --jq .login" ]; then echo parity-user; fi
 if [ "$*" = "config get -h github.com user" ]; then echo parity-user; fi
-if [ "$*" = "auth token" ]; then
+if [ "$*" = "auth token" ] || [ "$*" = "auth token --hostname github.com" ]; then
     first=$(head -n 1 "$d/gh-accounts")
     if [ -n "$first" ]; then echo "tok-$first"; exit 0; fi
     exit 1
+fi
+if [ "$#" -eq 6 ] && [ "$1 $2 $3 $4 $5" = "auth token --hostname github.com --user" ]; then
+    set -- auth token --user "$6"
 fi
 if [ "$#" -eq 4 ] && [ "$1 $2 $3" = "auth token --user" ]; then
     while read -r name; do

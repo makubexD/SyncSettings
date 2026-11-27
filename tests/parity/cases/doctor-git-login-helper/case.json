@@ -44,7 +44,7 @@
     ],
     [
       "credential.https://github.com.helper",
-      "!f() { test $1 = get && echo username=owner1 && echo password=$(gh auth token --user owner1); }; f"
+      "!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user owner1) && test -n $t && echo username=owner1 && echo password=$t; }; f"
     ]
   ]
 }

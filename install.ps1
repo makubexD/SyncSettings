@@ -104,32 +104,35 @@ function Install-SyncSettings {
     function Set-CloneGitLogin {
         param([string]$Dir)
         $origin = Get-GitOutput @('-C', $Dir, 'config', '--get', 'remote.origin.url')
-        if (-not (Test-GitHubUrl $origin)) {
-            return
-        }
+        # Case-sensitive, like install.sh: Test-GitHubUrl ignores case, so it is
+        # not the gate here.
         $owner = ''
-        if ($origin -match '^(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)([^/]+)/') {
+        if ($origin -cmatch '^(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)([^/]+)') {
             $owner = $Matches[1]
         }
         if (-not ($owner -cmatch '^[A-Za-z0-9-]{1,39}$')) {
             return
         }
         $ErrorActionPreference = 'Continue'
-        $token = (& gh auth token --user $owner 2>$null | Out-String).Trim()
+        $token = (& gh auth token --hostname github.com --user $owner 2>$null | Out-String).Trim()
         $tokenExit = $LASTEXITCODE
         if ($tokenExit -ne 0 -or $token -eq '') {
             return
         }
         $token = $null
         $key = 'credential.https://github.com.helper'
-        $helper = '!f() { test $1 = get && echo username=' + $owner +
-            ' && echo password=$(gh auth token --user ' + $owner + '); }; f'
+        $helper = '!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user ' + $owner +
+            ') && test -n $t && echo username=' + $owner + ' && echo password=$t; }; f'
         $emptied = Invoke-Git @('-C', $Dir, 'config', '--local', '--replace-all', $key, (Get-EmptyNativeArgument))
         $added = 1
         if ($emptied -eq 0) {
             $added = Invoke-Git @('-C', $Dir, 'config', '--local', '--add', $key, $helper)
         }
         if ($emptied -ne 0 -or $added -ne 0) {
+            if ($emptied -eq 0) {
+                # Undo a half write: the empty value alone leaves git no helper.
+                Invoke-Git @('-C', $Dir, 'config', '--local', '--unset-all', $key) | Out-Null
+            }
             Write-Warning "could not write git's GitHub login into $Dir."
             return
         }
@@ -434,13 +437,13 @@ function Install-SyncSettings {
             Write-Host "  Cloned into $dir"
         }
 
-        if ($ghRelease) {
-            Set-CloneGitLogin $dir
-        }
-
         if (-not (Test-Path -LiteralPath (Join-Path $dir 'mksync.cmd')) -or
             -not (Test-Path -LiteralPath (Join-Path $dir 'sync-config.json'))) {
             throw "$dir doesn't look like SyncSettings."
+        }
+
+        if ($ghRelease) {
+            Set-CloneGitLogin $dir
         }
 
         # 4. The mksync program in the bin folder: the latest release's

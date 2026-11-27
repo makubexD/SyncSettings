@@ -235,13 +235,15 @@ write_clone_login() {
     esac
     owner=${rest%%/*}
     [[ $owner =~ ^[A-Za-z0-9-]{1,39}$ ]] || return 0
-    [[ -n $("${GH:-gh}" auth token --user "$owner" 2> /dev/null) ]] || return 0
+    [[ -n $("${GH:-gh}" auth token --hostname github.com --user "$owner" 2> /dev/null) ]] || return 0
 
-    helper="!f() { test \$1 = get && echo username=$owner && echo password=\$(gh auth token --user $owner); }; f"
+    helper="!f() { test \$1 = get || return 0; t=\$(gh auth token --hostname github.com --user $owner) && test -n \$t && echo username=$owner && echo password=\$t; }; f"
     if git -C "$dir" config --local --replace-all credential.https://github.com.helper '' \
         && git -C "$dir" config --local --add credential.https://github.com.helper "$helper"; then
         printf '  Git signs in to github.com as %s in %s\n' "$owner" "$dir"
     else
+        # Undo a half write: the empty value alone would leave git with no helper.
+        git -C "$dir" config --local --unset-all credential.https://github.com.helper 2> /dev/null || true
         printf 'WARNING: could not write the GitHub login to %s/.git/config.\n' "$dir" >&2
     fi
 }

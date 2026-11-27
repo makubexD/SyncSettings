@@ -25,7 +25,11 @@ import type {
   GitLoginFact,
   PackageManager,
 } from "../core/front/doctor.ts";
-import { doctorLines, helperNamesOwner } from "../core/front/doctor.ts";
+import {
+  doctorLines,
+  helperIsGhCredential,
+  helperNamesOwner,
+} from "../core/front/doctor.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { SelectScope } from "../core/layers/select.ts";
 import { machineScope, machineValues } from "../core/machine/scope.ts";
@@ -119,27 +123,32 @@ async function ghFact(
 /** The clone-local credential helper key the installer writes. */
 const HELPER_KEY = "credential.https://github.com.helper";
 
-/** The values of the clone's own `credential.https://github.com.helper`. */
-async function localHelpers(repoRoot: string): Promise<string[]> {
+/** Every `credential.https://github.com.helper` value, all scopes, in git's order. */
+async function allHelpers(repoRoot: string): Promise<string[]> {
   const result = await run(
-    ["git", "-C", repoRoot, "config", "--local", "--get-all", HELPER_KEY],
+    ["git", "-C", repoRoot, "config", "--get-all", HELPER_KEY],
     { stdout: "pipe", stderr: "ignore" },
   );
   if (result.code !== 0) {
     return [];
   }
-  return decode(result.stdout).split(/\r?\n/);
+  return decode(result.stdout)
+    .replace(/\r?\n$/, "")
+    .split(/\r?\n/);
 }
 
 /** The active account's token (`gh auth token`); undefined when gh fails. */
 async function activeToken(
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<string | undefined> {
-  const result = await run([ghBinary(env), "auth", "token"], {
-    stdout: "pipe",
-    stderr: "ignore",
-    timeoutMs: GH_TIMEOUT_SECONDS * MILLISECONDS_PER_SECOND,
-  });
+  const result = await run(
+    [ghBinary(env), "auth", "token", "--hostname", "github.com"],
+    {
+      stdout: "pipe",
+      stderr: "ignore",
+      timeoutMs: GH_TIMEOUT_SECONDS * MILLISECONDS_PER_SECOND,
+    },
+  );
   if (result.timedOut === true || result.notStarted === true) {
     return undefined;
   }
@@ -153,7 +162,7 @@ async function activeToken(
 /**
  * The git login facts (contract "Front door", git login): none unless gh
  * signed in and holds a token for the origin's owner. The active token is
- * asked only when no clone helper names the owner. Nothing is written.
+ * asked only when the first effective helper is gh's git-credential. Nothing is written.
  */
 async function gitLoginFact(
   repoRoot: string,
@@ -168,14 +177,18 @@ async function gitLoginFact(
   if (owner === undefined || token === undefined) {
     return undefined;
   }
-  const named = helperNamesOwner(await localHelpers(repoRoot), owner);
-  if (named) {
+  const helpers = await allHelpers(repoRoot);
+  if (helperNamesOwner(helpers, owner)) {
     return { ownerToken: token, helperNamesOwner: true };
+  }
+  if (!helperIsGhCredential(helpers)) {
+    return { ownerToken: token, helperNamesOwner: false };
   }
   const active = await activeToken(env);
   return {
     ownerToken: token,
     helperNamesOwner: false,
+    helperIsGhCredential: true,
     ...(active !== undefined ? { activeToken: active } : {}),
   };
 }

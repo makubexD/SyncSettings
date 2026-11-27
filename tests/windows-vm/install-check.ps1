@@ -192,13 +192,14 @@ $ghLines = @(
     ':token',
     ('if exist "' + $GhTokenFails + '" exit /b 1'),
     ('if exist "' + $GhTokenEmpty + '" exit /b 0'),
-    'if /I "%~3"=="--user" goto token_user',
+    'if /I "%~3"=="--user" (set "who=%~4" & goto token_user)',
+    'if /I "%~3"=="--hostname" if /I "%~5"=="--user" (set "who=%~6" & goto token_user)',
     'echo tok-active',
     'exit /b 0',
     '',
     ':token_user',
-    ('if not exist "' + $GhStubDir + '\gh-user-%~4" exit /b 1'),
-    'echo tok-%~4',
+    ('if not exist "' + $GhStubDir + '\gh-user-%who%" exit /b 1'),
+    'echo tok-%who%',
     'exit /b 0',
     '',
     ':release',
@@ -535,7 +536,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $InstallDir '.git'))) {
 # token is in no output.
 $LoginUrl = 'https://github.com/owner1/repo.git'
 $LoginKey = 'credential.https://github.com.helper'
-$LoginHelperWant = '!f() { test $1 = get && echo username=owner1 && echo password=$(gh auth token --user owner1); }; f'
+$LoginHelperWant = '!f() { test $1 = get || return 0; t=$(gh auth token --hostname github.com --user owner1) && test -n $t && echo username=owner1 && echo password=$t; }; f'
 $LoginSettings = @{
     SYNCSETTINGS_REPO_URL = $LoginUrl
     SYNCSETTINGS_RELEASE_URL = ''

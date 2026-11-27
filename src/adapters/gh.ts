@@ -9,7 +9,7 @@ import { decode, run } from "./process.ts";
 /** How long `gh pr create` may take before it is killed. */
 const PR_TIMEOUT_MS = 60_000;
 
-/** How long `gh auth token --user <owner>` may take before it is killed. */
+/** How long `gh auth token --hostname github.com --user <owner>` may take before it is killed. */
 const TOKEN_TIMEOUT_MS = 10_000;
 
 /** The names GitHub allows for an account: letters, digits and hyphens. */
@@ -40,6 +40,8 @@ export interface PrCreateOptions {
   readonly bodyFile?: string;
   /** Override the 60-second limit; the tests use a short one. */
   readonly timeoutMs?: number;
+  /** `owner/repo` on github.com; passed as `--repo github.com/owner/repo`. */
+  readonly repo?: string | undefined;
   /** The owner token for `GH_TOKEN`; none runs gh as the active account. */
   readonly token?: string | undefined;
 }
@@ -70,11 +72,14 @@ export function resetOwnerTokenCache(): void {
 }
 
 async function readOwnerToken(owner: string): Promise<string | undefined> {
-  const result = await run([ghBinary(), "auth", "token", "--user", owner], {
-    stdout: "pipe",
-    stderr: "ignore",
-    timeoutMs: TOKEN_TIMEOUT_MS,
-  });
+  const result = await run(
+    [ghBinary(), "auth", "token", "--hostname", "github.com", "--user", owner],
+    {
+      stdout: "pipe",
+      stderr: "ignore",
+      timeoutMs: TOKEN_TIMEOUT_MS,
+    },
+  );
   if (result.timedOut === true || result.notStarted === true) {
     return undefined;
   }
@@ -86,7 +91,7 @@ async function readOwnerToken(owner: string): Promise<string | undefined> {
 }
 
 /**
- * The token `gh auth token --user <owner>` prints, or `undefined` when the
+ * The token `gh auth token --hostname github.com --user <owner>` prints, or `undefined` when the
  * name is not a GitHub account name (gh is not run), gh fails, times out, is
  * missing or prints nothing. Asked once per owner per process. The token goes
  * only into a child's environment: never into a result, a log or an error.
@@ -159,6 +164,9 @@ export async function prCreate(
     "--title",
     options.title,
   ];
+  if (options.repo !== undefined) {
+    args.push("--repo", `github.com/${options.repo}`);
+  }
   if (options.bodyFile !== undefined) {
     args.push("--body-file", options.bodyFile);
   } else if (options.body !== undefined) {
