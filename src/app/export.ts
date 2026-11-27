@@ -36,7 +36,12 @@ import type {
   LocalBackup,
   RepoBackup,
 } from "../core/machine/backup.ts";
-import { changeLines } from "../core/plan/changes.ts";
+import {
+  changeLines,
+  changeMoveSources,
+  compactJson,
+} from "../core/plan/changes.ts";
+import type { MoveSource } from "../core/plan/changes.ts";
 import { KNOWN_VALUE_HINT, knownValueLine } from "../core/plan/commit.ts";
 import { exportMissingRules, planExport } from "../core/plan/export.ts";
 import {
@@ -46,6 +51,7 @@ import {
   OS_TITLES,
   withoutNewSettings,
 } from "../core/plan/groups.ts";
+import type { KeptNumbers } from "../core/plan/groups.ts";
 import { applyMove } from "../core/plan/move.ts";
 import {
   MATCHES_HEAD,
@@ -571,11 +577,30 @@ function moveGroupOf(layer: LayerName): 1 | 2 | 3 | 4 {
 }
 
 /** The block's change lines for `plan`, with the answered new settings dropped
- * (they print under `New settings`), and each line's index in `changeLines`,
- * which `applyMove` takes. */
+ * (they print under `New settings`), each line's index in `changeLines`, which
+ * `applyMove` takes, and each line's identity, which a move keeps. */
 interface ShownChanges {
   readonly lines: readonly ChangeLine[];
   readonly indexes: readonly number[];
+  readonly identities: readonly (string | undefined)[];
+}
+
+/**
+ * What a change stays through a move (contract "Move a change": its number is
+ * kept): the entry, the file the line names, the kind of change, its key path
+ * and its array item. The layer, the change kind and the value text are left
+ * out, since a move changes them.
+ * shortcut: an `import` side file's name holds its layer, so a side file moved
+ * to another layer counts as a new change and takes the next free number.
+ */
+function changeIdentity(line: ChangeLine, source: MoveSource): string {
+  return [
+    source.entry.entry.file,
+    line.file,
+    source.kind,
+    JSON.stringify(source.keyPath),
+    source.item === undefined ? "" : compactJson(source.item),
+  ].join("\u0000");
 }
 
 function shownChanges(
@@ -584,8 +609,50 @@ function shownChanges(
   settings: readonly NewSettingLine[],
 ): ShownChanges {
   const all = changeLines(plan, snapshot);
+  const sources = changeMoveSources(plan, snapshot);
   const lines = withoutNewSettings(all, settings);
-  return { lines, indexes: lines.map((line) => all.indexOf(line)) };
+  const indexes = lines.map((line) => all.indexOf(line));
+  const identities = indexes.map((index) => {
+    const line = all[index];
+    const source = sources[index];
+    return line === undefined || source === undefined
+      ? undefined
+      : changeIdentity(line, source);
+  });
+  return { lines, indexes, identities };
+}
+
+/** The numbers `first` gave each identity, the first line winning a shared
+ * one. */
+function numbersByIdentity(
+  first: ShownChanges,
+  record: { readonly name: string; readonly profile: string },
+  os: Os,
+): ReadonlyMap<string, number> {
+  const numbers = changeLineNumbers(first.lines, record, os);
+  const byIdentity = new Map<string, number>();
+  first.identities.forEach((identity, at) => {
+    const number = numbers[at];
+    if (
+      identity !== undefined &&
+      number !== undefined &&
+      number > 0 &&
+      !byIdentity.has(identity)
+    ) {
+      byIdentity.set(identity, number);
+    }
+  });
+  return byIdentity;
+}
+
+/** The kept number of each of `shown`'s lines, parallel to its lines. */
+function keptNumbers(
+  shown: ShownChanges,
+  byIdentity: ReadonlyMap<string, number>,
+): KeptNumbers {
+  return shown.identities.map((identity) =>
+    identity === undefined ? undefined : byIdentity.get(identity),
+  );
 }
 
 /** One shown change the block numbers `number`: its layer and the index
@@ -602,8 +669,9 @@ function changeForNumber(
   record: { readonly name: string; readonly profile: string },
   os: Os,
   number: number,
+  kept: KeptNumbers,
 ): NumberedChange | undefined {
-  const at = changeLineNumbers(shown.lines, record, os).indexOf(number);
+  const at = changeLineNumbers(shown.lines, record, os, kept).indexOf(number);
   const line = at === -1 ? undefined : shown.lines[at];
   const index = at === -1 ? undefined : shown.indexes[at];
   if (line === undefined || index === undefined || index < 0) {
@@ -636,15 +704,30 @@ async function askMoveQuestions(
   }
   let current = plan;
   const shown = (): ShownChanges => shownChanges(current, snapshot, settings);
-  if (shown().lines.length === 0) {
+  const first = shown();
+  if (first.lines.length === 0) {
     return { ok: true, plan };
   }
+  // Contract "Move a change": a change's number is set by the block's first
+  // print and kept through every move.
+  const byIdentity = numbersByIdentity(first, record, snapshot.os);
+  const kept = (): KeptNumbers => keptNumbers(shown(), byIdentity);
   const session: MoveSession = {
     get lineCount() {
-      return shown().lines.length;
+      const now = shown();
+      return Math.max(
+        0,
+        ...changeLineNumbers(now.lines, record, snapshot.os, kept()),
+      );
     },
     groupOf: (number) => {
-      const change = changeForNumber(shown(), record, snapshot.os, number);
+      const change = changeForNumber(
+        shown(),
+        record,
+        snapshot.os,
+        number,
+        kept(),
+      );
       if (change === undefined) {
         throw new Error(`no change on line ${number}`);
       }
@@ -652,7 +735,13 @@ async function askMoveQuestions(
     },
     targets: `1) all machines  2) ${OS_TITLES[snapshot.os]} machines  3) profile ${record.profile}  4) this machine`,
     move: (number, group) => {
-      const change = changeForNumber(shown(), record, snapshot.os, number);
+      const change = changeForNumber(
+        shown(),
+        record,
+        snapshot.os,
+        number,
+        kept(),
+      );
       if (change === undefined) {
         return { ok: false, error: `no change on line ${number}` };
       }
@@ -669,7 +758,15 @@ async function askMoveQuestions(
       return {
         ok: true,
         value: writeLines(
-          groupBlock(shown().lines, record, snapshot.os, "push", settings),
+          groupBlock(
+            shown().lines,
+            record,
+            snapshot.os,
+            "push",
+            settings,
+            [],
+            kept(),
+          ),
         ),
       };
     },
