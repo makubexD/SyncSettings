@@ -2,6 +2,22 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.2.0 (2026-11-27)
+
+- More of the first run is guessed: a value rule's `suggest` takes one source or a list, and the first source that
+  answers is the suggestion. New sources, read locally with no network: `origin-owner` (the owner in the clone's
+  `github.com` origin), `gh-hosts-login` (`gh config get -h github.com user`), `passwd-name` (the full name of this
+  Linux or macOS user) and `gh-path` (`gh` on `PATH`). `sync-config.json` uses them for `<YOUR_GH_OWNER>`,
+  `<YOUR_GH_USERNAME>` and `<YOUR_NAME>`.
+- `<GH_CLI_PATH>` takes the `gh` found on `PATH` and saves it as a machine value; the fixed default is the fallback.
+  It is never asked.
+- The first push of a machine with a record suggests an answer for files that offer no `p` (an import, dconf or a
+  folder): `[s/r/k] [s]` on `personal`, `[s/r/k] [k]` on a work profile, and Enter takes it. Without a record the
+  question is unchanged.
+- The public name push suggests is `<profile>-<os>` (`work2-windows`, `personal-linux`) instead of your login.
+- A profile value is refused only as a whole token: `A4` no longer refuses `#90a4ae`. The `refused:` line names the
+  change number the block above it prints for that change.
+
 ## v1.1.10 (2026-11-27)
 
 - The first push of a machine with a record offers `p` for a JSON settings file or a whole-file entry:

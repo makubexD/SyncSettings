@@ -17,23 +17,23 @@ and the command tree. Their findings are numbered `WIZ-n` and `CLI-n` below.
 After the first pull or push, saved values and the saved public name are not asked again: the record works as
 intended. The gaps are in the first run itself:
 
-| Question | Guess today | Gap |
-| --- | --- | --- |
-| `<YOUR_GH_OWNER>` (WIZ-4) | none | the clone's `origin` names it |
-| `<YOUR_NAME>`, `<YOUR_GH_USERNAME>` (WIZ-5) | `git config --global`, `gh api user` (network) | empty on a fresh machine; `gh` keeps the login locally |
-| `<GH_CLI_PATH>` (WIZ-6) | fixed default, never asked | wrong for a per-user `gh` install; PATH knows |
-| first-sync picker for `dconf`, `dir`, `import` files (WIZ-8) | none: `[s/r/k]` | 17 entries need a typed answer |
-| public name for push branches (WIZ-2) | the login name | a work account name in a public branch name |
-| profile at `setup` (WIZ-1) | none while the repo is public | `setup --yes` exits 2 |
-| `setup --yes` (WIZ-7) | still asks bootstrap and values | contract says it asks nothing |
-| profile-value search (WIZ-9) | substring match | a short value (`A4`) matches `#90a4ae`; refusal names "change 0" |
-| `Open a PR?`, `Apply these changes?` (WIZ-10) | No | a typed `y` on every run |
-| `--help` (CLI-1), unknown verb (CLI-2) | `Unknown option: --help`, exit 2 | no help at any level |
+| Question                                                     | Guess today                                    | Gap                                                              |
+| ------------------------------------------------------------ | ---------------------------------------------- | ---------------------------------------------------------------- |
+| `<YOUR_GH_OWNER>` (WIZ-4)                                    | none                                           | the clone's `origin` names it                                    |
+| `<YOUR_NAME>`, `<YOUR_GH_USERNAME>` (WIZ-5)                  | `git config --global`, `gh api user` (network) | empty on a fresh machine; `gh` keeps the login locally           |
+| `<GH_CLI_PATH>` (WIZ-6)                                      | fixed default, never asked                     | wrong for a per-user `gh` install; PATH knows                    |
+| first-sync picker for `dconf`, `dir`, `import` files (WIZ-8) | none: `[s/r/k]`                                | 17 entries need a typed answer                                   |
+| public name for push branches (WIZ-2)                        | the login name                                 | a work account name in a public branch name                      |
+| profile at `setup` (WIZ-1)                                   | none while the repo is public                  | `setup --yes` exits 2                                            |
+| `setup --yes` (WIZ-7)                                        | still asks bootstrap and values                | contract says it asks nothing                                    |
+| profile-value search (WIZ-9)                                 | substring match                                | a short value (`A4`) matches `#90a4ae`; refusal names "change 0" |
+| `Open a PR?`, `Apply these changes?` (WIZ-10)                | No                                             | a typed `y` on every run                                         |
+| `--help` (CLI-1), unknown verb (CLI-2)                       | `Unknown option: --help`, exit 2               | no help at any level                                             |
 
 ## Phases
 
 1. **Guess every value and picker answer** (`docs/plan-smart-first-run-1.md`, `v1.2.0`). WIZ-4, 5, 6, 8, 9, and
-   WIZ-2's guess. No breaking change: every new guess is a suggestion shown in brackets, Enter takes it.
+   WIZ-2's guess. **Done 2026-11-27.** No breaking change: every new guess is a suggestion shown in brackets, Enter takes it.
 2. **Setup asks once, up front, with everything guessed.** WIZ-1 (profile from OS and domain: `personal` on a
    personal Linux machine, a new `work-<n>` on a domain-joined or non-Linux one, never from the domain's name), the
    public name asked at setup with `--alias`, `--value KEY=...` and `--no-bootstrap` so `Same as:` reproduces a run,
@@ -56,7 +56,7 @@ intended. The gaps are in the first run itself:
    sends nothing, so a work machine's desktop or tool folders never reach the shared layers by an Enter.
 4. **A rule can list several `suggest` sources;** the first that answers is the suggestion. New sources:
    `origin-owner` (the owner in the clone's `github.com` origin), `gh-hosts-login` (`gh config get -h github.com
-   user`, no network), `passwd-name` (Linux: the full-name field of this user's passwd entry), `gh-path` (`gh` on
+user`, no network), `passwd-name` (Linux: the full-name field of this user's passwd entry), `gh-path` (`gh` on
    `PATH`).
 5. **`<GH_CLI_PATH>`** takes `gh-path` when it answers and saves it as a machine value, so export sanitizes it (the
    path can hold the user name); the fixed default stays the fallback. It is never asked.

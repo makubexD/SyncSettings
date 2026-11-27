@@ -204,8 +204,16 @@ the brackets hold the answer Enter takes:
 - `r` takes the repo's version, as `mksync pull --force <path>` does: the local file is overwritten and keeps a `.bak`.
 - `k` leaves both sides as they are, for later.
 
-Enter takes `p` on any profile but `personal`, and `s` on `personal`. Without a record, or for other files (`.bashrc`, dconf, a
-folder), the question is `[s/r/k]` and has no default.
+Enter takes `p` on any profile but `personal`, and `s` on `personal`. Other files (an import such as `.bashrc`, dconf,
+a folder) offer no `p`; with a record their question also ends with the answer Enter takes: `s` on `personal`, `k` on
+a work profile, so an Enter on a work machine never sends its desktop or tool folders to every machine:
+
+```text
+  dotfiles/linux/dconf/desktop.ini  12 line(s) changed
+  Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] [k]
+```
+
+Without a record the question is `[s/r/k]` and has no default.
 
 Work #2 is the example. Its `~/.claude/settings.json` had its own hooks, plugins, marketplaces, permissions, model,
 statusline and an `autoMode` block, about 110 lines away from the shared one, and lacked the shared `theme`, `tui` and
@@ -265,10 +273,12 @@ the list, run `scripts/ci/check-packages.sh`, then `mksync push`. If not, uninst
 record it is the record's public name, asked once on the first push from a terminal and saved in the record:
 
 ```
-  Public name for this machine's push branches [jane-doe]:
+  Public name for this machine's push branches [work2-windows]:
 ```
 
-The suggestion is your login made into an alias; Enter takes it. The hostname is refused. Without a terminal, push
+The suggestion is the record's profile and this OS, `<profile>-<os>` (`personal-linux`), so it names no person or
+account; the branch's time stamp keeps two machines of one profile apart. Enter takes it. A suggestion that would be
+the hostname, or too long, isn't shown. The hostname is refused. Without a terminal, push
 stops with `machine <name> has no public name yet; …`: run `mksync push` once from a terminal.
 
 Without a record, the first push from a clone asks for it:
@@ -398,9 +408,19 @@ rule's default) is saved on the record or the profile instead. A value nothing f
 `pull` runs in a terminal, and the answer is saved the same way; with `--yes`, with no input, or in `preview`, the
 run stops with `missing value for <KEY>: run mksync push or pull in a terminal to enter it`
 ([configuration.md](configuration.md#profiles-and-machines)). The question names the files that need the value,
-`GitHub username (~/.gitconfig.local):`. For your GitHub username, name and email it can also show a suggestion read
-from `gh api user` or `git config --global`, `GitHub username (~/.gitconfig.local) [you]:`: Enter takes it, and
-anything you type replaces it. A suggestion is never used without the question, so `--yes` still stops. Deleting `machine.json` brings `.user-values.json` back
+`GitHub username (~/.gitconfig.local):`. Most questions show a guess in brackets, `GitHub username
+(~/.gitconfig.local) [you]:`: Enter takes it, and anything you type replaces it. Each guess is read locally, the first
+source that answers wins:
+
+| Value                | Guessed from, in order                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| `<YOUR_NAME>`        | `git config --global user.name`, then the full name of your Linux or macOS user account     |
+| `<YOUR_EMAIL>`       | `git config --global user.email`                                                            |
+| `<YOUR_GH_USERNAME>` | the account `gh` is logged in with (`gh config get -h github.com user`), then `gh api user` |
+| `<YOUR_GH_OWNER>`    | the owner in this clone's `origin`, when it is a `github.com` address                       |
+
+A suggestion is never used without the question, so `--yes` still stops. `<GH_CLI_PATH>` is never asked: the `gh`
+found on `PATH` is saved as a machine value, and the fixed default is used only when there is none. Deleting `machine.json` brings `.user-values.json` back
 into use.
 
 ## When `mksync push` stops
