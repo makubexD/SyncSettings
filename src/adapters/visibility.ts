@@ -153,7 +153,7 @@ function parseOwnerRepo(text: string): GitHubRepo | undefined {
  * The `owner/repo` a `github.com` origin names, or `undefined` when the origin
  * is not one of its HTTPS or SSH forms.
  */
-function parseGitHubOrigin(origin: string): GitHubRepo | undefined {
+export function parseGitHubOrigin(origin: string): GitHubRepo | undefined {
   for (const prefix of GITHUB_ORIGIN_PREFIXES) {
     if (origin.startsWith(prefix)) {
       return parseOwnerRepo(origin.slice(prefix.length));
