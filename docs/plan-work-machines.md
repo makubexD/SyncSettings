@@ -225,6 +225,14 @@ mean `mksync pull` next; `?` or `OUT`/`BOTH` lines mean a first sync with `p`, l
 
 Test: `mksync doctor` shows the record and profile; Claude reviews any PR as in step 3; `mksync diff` agrees.
 
+**Done 2026-11-27, on `v1.2.1`.** B: the Linux owner value (on `1.1.10`); after `v1.2.1` the Linux preview shows no drift
+once the package lists were settled (PR #105). E: work #1 updated `1.1.10 -> 1.2.1`, `mksync pull` took 30 commits and
+applied 0 files. C and D: work #2 restored the leftover `settings.json` edit, updated `1.1.9 -> 1.2.1`, and its first
+push answered `p`: its permissions and its PowerShell `statusLine` stay in profile `work2`, nothing was sent and no PR
+opened. All three machines record the sync point `a7fb357`, and `mksync diff` agrees on each. Left from this step:
+work #2's own `statusLine` overrides the shared `mksync statusline` (design "Open"). A pasted PowerShell block needs
+`Push-Location` and a check of `(Get-Location).Path`: `mksync` finds the repo from the working folder.
+
 ## Step 10: Install on work #3 and answer the survey `[inline: the user's machine]`
 
 As step 8, on work #3.
