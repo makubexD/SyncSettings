@@ -1,0 +1,4 @@
+SKIPPED dotfiles/common/parity/a.conf needs <YOUR_NAME>: mksync push asks for it
+1 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).
+Nothing was written. Run mksync push to send it.
+! Ana Lopez

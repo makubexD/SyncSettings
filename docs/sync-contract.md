@@ -667,7 +667,8 @@ was committed.`, prints no diff and exits 1.
   summary, the leak scan and the diff. A skipped file is left out of the export as a push's `IN` file is, so the temp
   tree holds its repo copy unchanged: it shows no diff and adds nothing new to scan. The guard's held block still
   follows. The summary counts them after the files that would change:
-  `  3 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).` Without a waiting file the summary
+  `  3 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).`, also when no other file would
+  change (`  0 file(s) would change; 1 more …`, not `Repo is up to date.`). Without a waiting file the summary
   is unchanged. The preview then exits 1, after `Nothing was written. Run mksync push to send it.`, so a script still
   sees it.
 - With no differences: `Nothing would be sent: the repo matches HEAD.` A file deleted from `dotfiles/` but still in

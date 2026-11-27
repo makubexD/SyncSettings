@@ -198,9 +198,15 @@ function previewSummary(
   const written = writtenCount(actions);
   const differs = differsFromHead(repo, actions, head);
   const lines: string[] = [...body, "", ...block, DASHES, ""];
+  // Contract "Export preview": a file waiting for a value is counted after the
+  // files that would change, so the summary isn't read as the whole story.
+  const waiting =
+    gapLines.length > 0
+      ? `; ${gapLines.length} more wait(s) for a value (mksync push asks for it).`
+      : ".";
   lines.push(
-    written > 0
-      ? `  ${written} file(s) would change.`
+    written > 0 || gapLines.length > 0
+      ? `  ${written} file(s) would change${waiting}`
       : "  Repo is up to date. No changes detected.",
   );
   if (!differs) {
