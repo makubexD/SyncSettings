@@ -205,12 +205,6 @@ validate_case() {
             and all(.stubs[]; . == "gh" or . == "dconf" or . == "getent" or . == "bootstrap" or . == "packages")
           else true end' "$json" > /dev/null 2>&1 \
         || die 'stubs may only hold gh, dconf, getent, bootstrap or packages'
-    # A packages/linux/ folder makes export and preview read the package
-    # managers: only the stub may answer, never the real machine's.
-    if [[ -d $(dirname "$json")/repo/packages/linux ]]; then
-        jq -e '(.stubs // []) | any(. == "packages")' "$json" > /dev/null 2>&1 \
-            || die 'packages/linux/ needs the packages stub'
-    fi
     jq -e '((.stubs // []) | any(. == "getent") | not)
         or ((.stubs // []) | any(. == "dconf"))' "$json" > /dev/null 2>&1 \
         || die 'the getent stub needs the dconf stub'
@@ -265,8 +259,12 @@ validate_case() {
     if [[ $has_differences == true ]] && (( ! os_folder )); then
         die 'differences set but no expect.<os>/ folder'
     fi
-    [[ ! -d $dir/repo/packages ]] \
-        || die 'packages/ needs the drift stubs from phase 2'
+    # A packages/ folder makes export and preview read the package managers:
+    # only the stub may answer, never the real machine's.
+    if [[ -d $dir/repo/packages ]]; then
+        jq -e '(.stubs // []) | any(. == "packages")' "$json" > /dev/null 2>&1 \
+            || die 'packages/ needs the packages stub'
+    fi
 }
 
 # expect.<os>/ only applies to a case whose differences name a row the program

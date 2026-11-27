@@ -1,0 +1,32 @@
+{
+  "description": "Preview on Linux with a packages/linux/ folder prints the drift report right after the orphan report: npm SKIPPED with no nvm, a listed pipx package not installed, an installed pipx package and a GNOME extension not listed. The report changes no count, so the summary still says nothing changed; exit 0, nothing written (Package drift).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "git": "committed",
+  "stubs": [
+    "packages"
+  ],
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
+}

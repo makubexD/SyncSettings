@@ -1,0 +1,5 @@
+UNCHANGED dotfiles/common/parity/a.conf
+SKIPPED packages/linux/npm.txt
+DRIFT pipx/missing
+DRIFT pipx/extra
+DRIFT extension/extra@parity

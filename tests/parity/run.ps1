@@ -437,8 +437,12 @@ function Validate-Case {
         Die 'differences set but no expect.<os>/ folder'
     }
 
+    # A packages/ folder makes export and preview read the package managers:
+    # only the stub may answer, and it is Linux only.
     if (Test-Path -LiteralPath (Join-Path $Dir 'repo\packages') -PathType Container) {
-        Die 'packages/ needs the drift stubs from phase 2'
+        if (-not ($null -ne $stubsProp -and @($stubsProp.Value) -ccontains 'packages')) {
+            Die 'packages/ needs the packages stub'
+        }
     }
 
     return $case

@@ -1,0 +1,32 @@
+{
+  "description": "Export on Linux with a packages/linux/ folder prints the same drift report after the orphan report, writes nothing for it and keeps exit 0 (Package drift).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "git": "committed",
+  "stubs": [
+    "packages"
+  ],
+  "commands": [
+    {
+      "command": "export"
+    }
+  ]
+}

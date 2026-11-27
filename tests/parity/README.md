@@ -156,7 +156,7 @@ package managers of the [drift report](../../docs/sync-contract.md#package-drift
 `tools/<name>.txt` (`tools/dpkg-query.txt`), nothing when it's missing, and exits 0 whatever its arguments. `npm`,
 fonts and GNOME extensions are folders under the case's `home/`, so they need no stub. `DRIFT_ROOT` points at an empty
 folder in the case, so the apt-source and apt-key rows never read the machine's `/etc/apt`. `run.sh` refuses a case
-whose `repo/` holds `packages/linux/` without this stub, since export and preview would ask the real managers.
+whose `repo/` holds `packages/` without this stub, since export and preview would ask the real managers.
 
 `dconf`, `getent`, `bootstrap` and `packages` are Linux only: `run.ps1` skips a case whose `os` leaves out Windows
 before it looks at the stubs, and fails one that would run on Windows with them.

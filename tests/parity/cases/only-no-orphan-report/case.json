@@ -1,5 +1,5 @@
 {
-  "description": "Export with --only reports only the picked file and prints no ORPHAN line for a stray repo file (Picking files, Orphan report). The old case's package DRIFT half is left out: the runners have no package-manager stub. Ported from export-only-no-reports, Pester export-only-no-reports.",
+  "description": "Export with --only reports only the picked file and prints no ORPHAN line for a stray repo file and no drift report though packages/linux/ lists a package that is not installed (Picking files, Orphan report, Package drift). Ported from export-only-no-reports, Pester export-only-no-reports.",
   "os": [
     "linux"
   ],
@@ -35,5 +35,8 @@
         ]
       }
     }
+  ],
+  "stubs": [
+    "packages"
   ]
 }

@@ -1,0 +1,5 @@
+nvm not installed
+in packages/linux/pipx.txt, not installed
+installed, not in packages/linux/pipx.txt
+installed, not in packages/linux/gnome-extensions.txt
+Repo is up to date. No changes detected.
