@@ -355,6 +355,16 @@ function Validate-Case {
         }
     }
 
+    $originUrlProp = $case.PSObject.Properties['originUrl']
+    if ($null -ne $originUrlProp) {
+        if (-not ($originUrlProp.Value -is [string] -and $originUrlProp.Value -ne '')) {
+            Die 'originUrl must be a non-empty string'
+        }
+        if (-not ($null -ne $gitProp -and $gitProp.Value -is [string] -and $gitProp.Value -ceq 'remote')) {
+            Die 'originUrl needs git remote'
+        }
+    }
+
     $syncPointProp = $case.PSObject.Properties['syncPoint']
     if ($null -ne $syncPointProp -and $syncPointProp.Value -isnot [bool]) {
         Die 'syncPoint must be a boolean'
@@ -896,7 +906,8 @@ function Setup-Git {
 
 # The gh stub as a program: it appends its arguments joined by spaces, one call
 # per line, to gh.log one folder above its own and exits 0. It prints nothing,
-# except `parity-user` for `api user --jq .login`, the gh-login suggestion's source.
+# except `parity-user` for `api user --jq .login` and `config get -h github.com user`,
+# the gh-login and gh-hosts-login suggestions' sources.
 # The program runs only .com and .exe commands on Windows (contract "The
 # program"), so it needs this one. Built once per run with the C# compiler
 # Windows PowerShell already carries.
@@ -913,7 +924,8 @@ public static class GhStub
         string bin = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
         string log = Path.Combine(Path.GetDirectoryName(bin), "gh.log");
         File.AppendAllText(log, string.Join(" ", args) + "\r\n");
-        if (string.Join(" ", args) == "api user --jq .login")
+        string call = string.Join(" ", args);
+        if (call == "api user --jq .login" || call == "config get -h github.com user")
         {
             Console.Out.Write("parity-user\r\n");
         }
@@ -1087,6 +1099,16 @@ function Run-Case {
             Invoke-Git -What 'git fetch origin' -GitArgs @('-C', $repoDir, 'fetch', '-q', 'origin')
         }
 
+        # An originUrl renames origin once the setup above is done with the bare
+        # one, so the program reads that address. GIT_ALLOW_PROTOCOL=file (below)
+        # stops any fetch or push to it before it reaches the network.
+        $originUrl = ''
+        $caseOriginProp = $Case.PSObject.Properties['originUrl']
+        if ($null -ne $caseOriginProp) {
+            $originUrl = [string]$caseOriginProp.Value
+            Invoke-Git -What 'git remote set-url' -GitArgs @('-C', $repoDir, 'remote', 'set-url', 'origin', $originUrl)
+        }
+
         # An unsent/ tree goes over the repo's working tree after the commit and
         # stays uncommitted, so `git status --porcelain` shows it. The copies
         # get a new write time: Copy-Item keeps the source's, and a same-size
@@ -1139,6 +1161,11 @@ function Run-Case {
                     }
                 }
             }
+        }
+        if ($originUrl -ne '') {
+            $envNames.Add('GIT_ALLOW_PROTOCOL')
+            $envSet.Add($true)
+            $envValues.Add('file')
         }
 
         # Every file the program writes has a LastWriteTimeUtc at or after this

@@ -1,0 +1,40 @@
+{
+  "description": "Pull suggests the owner in the clone's github.com origin for a rule with suggest origin-owner, and Enter takes it (Sanitize and hydrate, Suggested answers). The runner blocks the fetch, so the up-to-date check notes it could not reach origin.",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Sanitized parity settings",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_OWNER>",
+            "prompt": "GitHub owner of your own repos",
+            "suggest": [
+              "origin-owner"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "git": "remote",
+  "commands": [
+    {
+      "command": "import",
+      "options": {
+        "force": true
+      },
+      "stdin": "\n"
+    }
+  ],
+  "originUrl": "https://github.com/parity-owner/SyncSettings.git"
+}

@@ -1,0 +1,3 @@
+Enter values to fill the placeholders in the config files:
+GitHub owner of your own repos (~/.config/parity/settings.json) [parity-owner]:
+NOTE: could not reach origin; skipping the up-to-date check.

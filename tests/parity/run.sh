@@ -216,6 +216,11 @@ validate_case() {
     if [[ -d $dir/origin ]]; then
         jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'origin/ needs git remote'
     fi
+    jq -e 'if has("originUrl") then (.originUrl | type) == "string" and .originUrl != "" else true end' \
+        "$json" > /dev/null 2>&1 || die 'originUrl must be a non-empty string'
+    if jq -e 'has("originUrl")' "$json" > /dev/null 2>&1; then
+        jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'originUrl needs git remote'
+    fi
     if [[ -d $dir/unsent ]]; then
         jq -e '.git == "committed" or .git == "remote"' "$json" > /dev/null 2>&1 \
             || die 'unsent/ needs git committed or remote'
@@ -551,7 +556,8 @@ setup_git() {
 
 # Write the gh stub into $temp/bin: it appends its arguments joined by spaces,
 # one call per line, to $temp/gh.log and exits 0. It prints nothing, except
-# `parity-user` for `api user --jq .login`, the gh-login suggestion's source.
+# `parity-user` for `api user --jq .login` and `config get -h github.com user`,
+# the gh-login and gh-hosts-login suggestions' sources.
 write_gh_stub() {
     local temp=$1
     mkdir -p "$temp/bin" || die 'creating the gh stub folder failed'
@@ -559,6 +565,7 @@ write_gh_stub() {
         '#!/bin/sh' \
         "printf '%s\\n' \"\$*\" >> '$temp/gh.log'" \
         'if [ "$*" = "api user --jq .login" ]; then echo parity-user; fi' \
+        'if [ "$*" = "config get -h github.com user" ]; then echo parity-user; fi' \
         'exit 0' > "$temp/bin/gh" || die 'writing the gh stub failed'
     chmod +x "$temp/bin/gh" || die 'making the gh stub executable failed'
 }
@@ -734,6 +741,14 @@ run_case() {
         git_env -C "$t/repo" fetch -q origin || die 'git fetch origin failed'
     fi
 
+    # An originUrl renames origin once the setup above is done with the bare
+    # one, so the program reads that address. GIT_ALLOW_PROTOCOL=file (below)
+    # stops any fetch or push to it before it reaches the network.
+    origin_url=$(jq -r '.originUrl // empty' "$dir/case.json") || die 'reading originUrl failed'
+    if [[ -n $origin_url ]]; then
+        git_env -C "$t/repo" remote set-url origin "$origin_url" || die 'git remote set-url failed'
+    fi
+
     # An unsent/ tree goes over the repo's working tree after the commit and
     # stays uncommitted, so `git status --porcelain` shows it. Plain cp -R
     # gives the copies a new mtime: with cp -a a same-size edit can keep the
@@ -790,6 +805,9 @@ run_case() {
             case_env_set+=("$key=$value")
         fi
     done < <(jq -r '.env // {} | keys[]' "$dir/case.json")
+    if [[ -n $origin_url ]]; then
+        case_env_set+=(GIT_ALLOW_PROTOCOL=file)
+    fi
 
     : > "$t/actual-exit"
     : > "$t/actual-output"
