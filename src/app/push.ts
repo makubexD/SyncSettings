@@ -483,8 +483,9 @@ async function pickFirstSync(
 /**
  * Contract "Front door", no sync point, `--yes`: each file takes its
  * suggestion, so with a work record the diff runs and every `?` file that
- * offers `p` stays in the profile. Without one, or when the diff fails, every
- * file that differs is sent, as before.
+ * offers `p` stays in the profile. Without one every file that differs is
+ * sent, as before. A failed diff on a work record stops with the could-not-tell
+ * line, unless `--force` sends everything.
  */
 async function yesFirstSync(
   input: PushInput,
@@ -502,9 +503,19 @@ async function yesFirstSync(
   if (profile === undefined || suggestionFor(profile) !== "p") {
     return sendAll;
   }
-  const report = reportOf(await deps.runDiff(input.paths, false));
+  const diff = await deps.runDiff(input.paths, false);
+  const report = reportOf(diff);
   if (report === undefined) {
-    return sendAll;
+    // Sending all would put this job's settings in the shared layers, which
+    // the `p` suggestion exists to prevent: stop as the interactive push does.
+    if (input.force) {
+      return sendAll;
+    }
+    const reason = input.paths.length > 0 ? diff.stdout : "";
+    return {
+      kind: "stop",
+      result: { code: 1, stdout: reason, stderr: COULD_NOT_TELL },
+    };
   }
   const keep = unknownPaths(report).filter((path) => deps.offersKeep(path));
   if (keep.length === 0) {

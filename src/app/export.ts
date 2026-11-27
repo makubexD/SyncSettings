@@ -1145,9 +1145,12 @@ export async function askPushValues(
   const { snapshot, context } = await buildRun(env, command);
   const asked = await askExportValues(snapshot, terminal.io, command.yes);
   if (!asked.ok) {
-    return unansweredGoesOn
-      ? { code: 0, stdout: "", stderr: "" }
-      : failure(asked.line);
+    if (!unansweredGoesOn) {
+      return failure(asked.line);
+    }
+    // The question's line is still open; the pull's own output starts below it.
+    terminal.io.write("\n");
+    return { code: 0, stdout: "", stderr: "" };
   }
   const unknown = exportMissingRules(asked.snapshot)[0];
   if (unknown !== undefined && !unansweredGoesOn) {

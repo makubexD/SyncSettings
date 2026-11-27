@@ -1154,6 +1154,35 @@ describe("executePush first-sync picker with p", () => {
     expect(run.skips).toEqual([[]]);
   });
 
+  test("should stop --yes on a work profile when the diff fails, sending nothing", async () => {
+    // Arrange
+    const input = pushInput({ yes: true });
+
+    // Act
+    const run = await runGuarded(DIFF_FAILED, input, {
+      ...WORK_RECORD,
+      hasSyncPoint: async () => false,
+    });
+
+    // Assert
+    expect(run.result).toEqual({ code: 1, stdout: "", stderr: COULD_NOT_TELL });
+    expect(run.exports).toEqual([]);
+  });
+
+  test("should send everything with --yes --force on a work profile when the diff fails", async () => {
+    // Arrange
+    const input = pushInput({ yes: true, force: true });
+
+    // Act
+    const run = await runGuarded(DIFF_FAILED, input, {
+      ...WORK_RECORD,
+      hasSyncPoint: async () => false,
+    });
+
+    // Assert
+    expect(run.exports).toEqual([{ only: [], skip: [] }]);
+  });
+
   test("--yes on personal sends everything after the old warning", async () => {
     // Arrange
     const answers: string[] = [];

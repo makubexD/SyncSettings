@@ -734,9 +734,10 @@ brought with this machine.
 
 A push that sends nothing and leaves this machine in agreement with the repo records it too: when the push ends with
 `Nothing to send.` (every first-sync file answered `r` or `p`, or every change kept in a private layer), it writes
-`HEAD` when no file was answered `k`, no path was picked, `git status --porcelain -- dotfiles sync-config.json` is
-empty, and `HEAD` is `origin/master` after the push's fetch. With a `k` file, picked paths, a dirty clone, a clone
-behind `origin/master` or a failed fetch, it writes nothing, as before.
+`HEAD` when no file was answered `k`, no path was picked, `git status --porcelain` over the push paths (`dotfiles`,
+`packages`, `sync-config.json`, `profiles`, `machines`) is empty, and `HEAD` is `origin/master` after the push's
+fetch. With a `k` file, picked paths, a dirty clone, a clone behind `origin/master` or a failed fetch, it writes
+nothing, as before.
 
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
@@ -937,7 +938,9 @@ diff after the value questions and before the export; a failed fetch leaves it c
   ```
 
   With a machine record, `--yes` takes each file's suggestion from the question below instead: `p` where it is offered
-  on a work profile, `s` otherwise. When at least one file takes `p`, the warning names the profile and the count:
+  on a work profile, `s` otherwise. On a work profile that needs the diff: when it fails, the push stops with the
+  could-not-tell line, exit 1, nothing exported, as the interactive push does (`--force` sends every file that
+  differs). When at least one file takes `p`, the warning names the profile and the count:
 
   ```text
     WARNING: no sync is recorded on this machine; the differences of 1 file(s) stay in profile work2, the rest are sent.

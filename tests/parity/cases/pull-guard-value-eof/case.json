@@ -1,0 +1,48 @@
+{
+  "description": "Interactive pull with a sync point asks its value question before its check; end of input saves nothing and keeps today's stop: the question's line is closed before the check's lines, the could-not-tell line, exit 1, nothing written (Front door, pull; Pull asks).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Second parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "stdin": "",
+      "stderr": true
+    }
+  ]
+}

@@ -796,15 +796,43 @@ function restoreRemoved(
       const items =
         array !== undefined && array.kind === "array" ? array.items : [];
       if (!items.some((other) => jsonEqual(other, item))) {
+        const before = valueAt(original, source.keyPath);
         restored = setAt(current, source.keyPath, {
           kind: "array",
-          items: [...items, item],
+          items: withItemInPlace(
+            items,
+            item,
+            before !== undefined && before.kind === "array" ? before.items : [],
+          ),
         });
       }
     }
     result.push(withValue(slot, restored, REPO_EOL));
   }
   return { ok: true, value: result };
+}
+
+/**
+ * `items` with `item` added back where the repo's array `original` has it:
+ * before the first item that follows it there and is still in `items`, else at
+ * the end. A layer that lost an item from the middle of an array then equals
+ * the repo's again, so `p` writes no reordered shared file.
+ */
+function withItemInPlace(
+  items: readonly JsonValue[],
+  item: JsonValue,
+  original: readonly JsonValue[],
+): readonly JsonValue[] {
+  const from = original.findIndex((other) => jsonEqual(other, item));
+  if (from >= 0) {
+    for (const next of original.slice(from + 1)) {
+      const at = items.findIndex((other) => jsonEqual(other, next));
+      if (at >= 0) {
+        return [...items.slice(0, at), item, ...items.slice(at)];
+      }
+    }
+  }
+  return [...items, item];
 }
 
 /** The slots with each layer but `keep` whose value equals the repo's put back

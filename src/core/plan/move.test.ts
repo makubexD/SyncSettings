@@ -1205,6 +1205,48 @@ describe("keepInProfile", () => {
     expect(writtenPaths(kept.value.plan)).toEqual([]);
   });
 
+  test("should put a base array item the local file lacks back in its place, writing no base", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: '{"c":[1,2,3]}' },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"c":[1,3]}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([0, 1]);
+    expect(writtenPaths(kept.value.plan)).toEqual([]);
+  });
+
+  test("should keep a new item in the profile and restore a lacking middle item in the base", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: '{"c":[1,2,3]}' },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"c":[1,3,4]}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([1, 1]);
+    expect(writtenPaths(kept.value.plan)).toEqual([PROFILE_JSON]);
+  });
+
   test("should make the local whole file the profile's copy and leave the base", () => {
     // Arrange
     const snapshot = snapshotOf({

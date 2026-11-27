@@ -10,7 +10,8 @@ Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine wit
   settings this machine lacks are added to it (a `.bak` first) and every value it had stays. Push prints
   `PROFILE <file>  (<n> change(s) kept in profile <p>; <m> shared setting(s) added here)`. Enter takes `p` on any
   profile but `personal`, `s` there. While the repo is public the profile stays in local state, so `p` alone opens no
-  PR. `--yes` takes each file's suggestion, and its warning names the profile.
+  PR. `--yes` takes each file's suggestion, and its warning names the profile; on a work profile it stops with
+  "could not tell which side is newer" when the diff fails, instead of sending everything (`--force` still sends).
 - A change keeps its number through moves: after `1` moves to the profile, the next block still calls it `1`, and a
   group lists its changes in number order.
 - A push that ends with `Nothing to send.` records the sync point at `HEAD` when no file was skipped, no path was

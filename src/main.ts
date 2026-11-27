@@ -139,9 +139,6 @@ const PUSH_STATUS_PATHS = [
 /** The push paths whose files the diff guard can call `IN`. */
 const GUARDED_PATHS = ["dotfiles", "profiles", "machines"] as const;
 
-/** A repo path's layer folder: `dotfiles/<os>/`, `profiles/<p>/` or
- * `machines/<m>/`. */
-
 /** Contract "No sync point, interactive": the picker offers `p` for a file
  * whose entry is `json` or `whole`. `path` is the diff's repo path. */
 function entryOffersKeep(config: ConfigV2, path: string): boolean {
@@ -317,9 +314,6 @@ async function statuslineOutput(): Promise<string> {
   }
 }
 
-/** Contract "Sync point": what must be clean for a push that sent nothing to
- * record one. */
-const SYNC_POINT_CLEAN_PATHS = ["dotfiles", "sync-config.json"] as const;
 
 /** The contract's no-record line, and exit 1. */
 const NO_RECORD = "ERROR: no machine record here; run mksync setup.";
@@ -485,7 +479,7 @@ async function execute(
             cloneReady: () => cloneReady(repoRoot),
             originState: () => readUpstreamFacts(repoRoot),
             cleanHead: () =>
-              cleanHeadAtOrigin(repoRoot, SYNC_POINT_CLEAN_PATHS),
+              cleanHeadAtOrigin(repoRoot, PUSH_STATUS_PATHS),
             recordSyncPoint: (sha) => {
               const layers = loadLayers(state, repoRoot, config.value);
               return recordSyncPoint(

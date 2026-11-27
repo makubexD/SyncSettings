@@ -128,7 +128,9 @@ function withPlaceholders(
   }
   return changes.map((change) => {
     let what = change.what;
-    for (const placeholder of unresolved) {
+    // Longest first, so `<GH>` never takes the start of `<GH_OWNER>`'s marker.
+    const longestFirst = [...unresolved].sort((a, b) => b.length - a.length);
+    for (const placeholder of longestFirst) {
       const name = placeholder.slice(1, -1);
       what = what
         .replaceAll(`${ESCAPED_SENTINEL}${name}`, placeholder)
