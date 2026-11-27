@@ -20,7 +20,8 @@ import { join } from "node:path";
 import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
 import type { GitResult } from "../adapters/git.ts";
-import { prCreate } from "../adapters/gh.ts";
+import { ownerToken, prCreate } from "../adapters/gh.ts";
+import { originOwner } from "../adapters/visibility.ts";
 import {
   changedSyncPaths,
   commitStaged,
@@ -626,6 +627,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
       head: branch,
       title: message,
       bodyFile,
+      token: await ownerToken(await originOwner(repoRoot)),
     });
     if (!pr.ok) {
       return fail(

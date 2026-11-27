@@ -8,6 +8,7 @@
  * ignored for `github.com` so it cannot switch the guard off on the real repo.
  */
 
+import { ghEnv, ownerToken } from "./gh.ts";
 import { decode, run } from "./process.ts";
 
 /** Whether the repo can receive profiles, machine records and values. */
@@ -32,7 +33,10 @@ export interface VisibilityDeps {
     command: string,
     args: readonly string[],
     signal?: AbortSignal,
+    env?: Readonly<Record<string, string | undefined>>,
   ) => Promise<CommandOutput>;
+  /** The owner token `gh` runs with; none when omitted. */
+  readonly ownerToken?: (owner: string) => Promise<string | undefined>;
   readonly fetch: (url: string, signal: AbortSignal) => Promise<ApiReply>;
   /** How long `gh` and the API may take; `API_TIMEOUT_MS` when omitted. */
   readonly timeoutMs?: number;
@@ -117,10 +121,12 @@ export async function runCommand(
   command: string,
   args: readonly string[],
   signal?: AbortSignal,
+  env?: Readonly<Record<string, string | undefined>>,
 ): Promise<CommandOutput> {
   const result = await run([command, ...args], {
     stdout: "pipe",
     stderr: "ignore",
+    ...(env === undefined ? {} : { env }),
     ...(signal === undefined ? {} : { signal }),
   });
   if (result.timedOut === true || result.notStarted === true) {
@@ -132,6 +138,7 @@ export async function runCommand(
 
 const DEFAULT_DEPS: VisibilityDeps = {
   run: runCommand,
+  ownerToken,
   fetch: async (url, signal) => await fetch(url, { signal }),
 };
 
@@ -235,6 +242,7 @@ async function readFromGh(
   repo: GitHubRepo,
   run: VisibilityDeps["run"],
   timeoutMs: number,
+  token?: string,
 ): Promise<RemoteVisibility | undefined> {
   let output: CommandOutput;
   try {
@@ -249,6 +257,7 @@ async function readFromGh(
         "visibility",
       ],
       signal,
+      token === undefined ? undefined : ghEnv(token),
     );
   } catch {
     return undefined;
@@ -302,7 +311,8 @@ async function askGitHub(
   deps: VisibilityDeps,
 ): Promise<RemoteVisibility> {
   const timeoutMs = deps.timeoutMs ?? API_TIMEOUT_MS;
-  const fromGh = await readFromGh(repo, deps.run, timeoutMs);
+  const token = await deps.ownerToken?.(repo.owner);
+  const fromGh = await readFromGh(repo, deps.run, timeoutMs, token);
   if (fromGh !== undefined) {
     return fromGh;
   }
@@ -383,6 +393,24 @@ async function readOneVisibility(
     return "public";
   }
   return readVariable(env);
+}
+
+/**
+ * The owner of the clone's `origin` URL as configured (`git config --get
+ * remote.origin.url`, before any `insteadOf` rewrite), or `undefined` when it
+ * is not a `github.com` URL or git cannot say.
+ */
+export async function originOwner(
+  repoRoot: string,
+): Promise<string | undefined> {
+  const result = await run(
+    ["git", "-C", repoRoot, "config", "--get", "remote.origin.url"],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  if (result.code !== 0) {
+    return undefined;
+  }
+  return parseGitHubOrigin(decode(result.stdout).trim())?.owner;
 }
 
 /**

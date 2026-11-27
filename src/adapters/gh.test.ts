@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -8,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prCreate } from "./gh.ts";
+import { ownerToken, prCreate, resetOwnerTokenCache, runGh } from "./gh.ts";
 
 const BASE = "master";
 
@@ -70,6 +71,10 @@ function installStub(script: string): Stub {
   process.env.GH = writeStub(tempFolder(), log, script);
   return { root, log };
 }
+
+beforeEach(() => {
+  resetOwnerTokenCache();
+});
 
 afterEach(() => {
   if (originalGh === undefined) {
@@ -194,5 +199,138 @@ describe("prCreate", () => {
     // Assert
     expect(result.ok).toBe(true);
     expect(readFileSync(log, "utf8")).toContain("pr create");
+  });
+});
+
+const OWNER = "owner1";
+
+const TOKEN = "tok-owner1";
+
+/** A stub that logs the token it sees and prints a token for `auth token`. */
+const TOKEN_SCRIPT = `printf 'env=%s\\n' "$GH_TOKEN" >> "$(dirname "$0")/env.log"\nprintf '${TOKEN}\\n'`;
+
+describe("ownerToken", () => {
+  test.each(["", "-x/../y", "a b", "own;er", "a".repeat(40), "ow\nner"])(
+    "should not run gh when the owner name is %p",
+    async (name) => {
+      // Arrange
+      const { log } = installStub(TOKEN_SCRIPT);
+
+      // Act
+      const token = await ownerToken(name);
+
+      // Assert
+      expect(token).toBeUndefined();
+      expect(existsSync(log)).toBe(false);
+    },
+  );
+
+  test("should not run gh when there is no owner", async () => {
+    // Arrange
+    const { log } = installStub(TOKEN_SCRIPT);
+
+    // Act
+    const token = await ownerToken(undefined);
+
+    // Assert
+    expect(token).toBeUndefined();
+    expect(existsSync(log)).toBe(false);
+  });
+
+  test("should return the trimmed token gh prints for the owner", async () => {
+    // Arrange
+    const { log } = installStub(TOKEN_SCRIPT);
+
+    // Act
+    const token = await ownerToken(OWNER);
+
+    // Assert
+    expect(token).toBe(TOKEN);
+    expect(readFileSync(log, "utf8")).toContain(`|auth token --user ${OWNER}`);
+  });
+
+  test("should be undefined when gh fails", async () => {
+    // Arrange
+    installStub(FAILURE_SCRIPT);
+
+    // Act
+    const token = await ownerToken(OWNER);
+
+    // Assert
+    expect(token).toBeUndefined();
+  });
+
+  test("should be undefined when gh prints only whitespace", async () => {
+    // Arrange
+    installStub("printf '  \\n'");
+
+    // Act
+    const token = await ownerToken(OWNER);
+
+    // Assert
+    expect(token).toBeUndefined();
+  });
+
+  test("should be undefined when gh is missing", async () => {
+    // Arrange
+    installStub(SUCCESS_SCRIPT);
+    process.env.GH = join(tempFolder(), "no-such-gh");
+
+    // Act
+    const token = await ownerToken(OWNER);
+
+    // Assert
+    expect(token).toBeUndefined();
+  });
+
+  test("should ask gh once per owner", async () => {
+    // Arrange
+    const { log } = installStub(TOKEN_SCRIPT);
+
+    // Act
+    const results = await Promise.all([
+      ownerToken(OWNER),
+      ownerToken(OWNER),
+      ownerToken(OWNER),
+    ]);
+    await ownerToken(OWNER);
+
+    // Assert
+    expect(results).toEqual([TOKEN, TOKEN, TOKEN]);
+    expect(readFileSync(log, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+});
+
+describe("runGh token", () => {
+  test("should put GH_TOKEN in the child's environment only when given", async () => {
+    // Arrange
+    const { root } = installStub('printf "[%s]" "$GH_TOKEN"');
+    const before = process.env.GH_TOKEN;
+
+    // Act
+    const without = await runGh(root, ["x"], 5_000);
+    const withToken = await runGh(root, ["x"], 5_000, TOKEN);
+
+    // Assert
+    expect(without.stdout).toBe("[]");
+    expect(withToken.stdout).toBe(`[${TOKEN}]`);
+    expect(process.env.GH_TOKEN).toBe(before);
+  });
+
+  test("should not return the token in a failure the caller prints", async () => {
+    // Arrange
+    const { root } = installStub("exit 1");
+
+    // Act
+    const result = await prCreate(root, {
+      base: BASE,
+      head: HEAD,
+      title: TITLE,
+      token: TOKEN,
+    });
+
+    // Assert
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).not.toContain(TOKEN);
   });
 });
