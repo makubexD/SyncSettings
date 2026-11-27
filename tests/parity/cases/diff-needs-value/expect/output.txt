@@ -1,0 +1,2 @@
+SKIPPED dotfiles/common/parity/a.conf
+OUT dotfiles/common/parity/b.conf
