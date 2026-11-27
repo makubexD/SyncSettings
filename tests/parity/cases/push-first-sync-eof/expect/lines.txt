@@ -1,0 +1,7 @@
+No sync is recorded on this machine, so the newer side of each file is unknown. mksync preview shows each change.
+dotfiles/common/parity/a.conf  1 line(s) changed
+Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k]
+Nothing to send.
+! dotfiles/common/parity/b.conf  1 line(s) changed
+! Open a PR
+! WARNING: no sync is recorded on this machine, so this sends every file that differs.

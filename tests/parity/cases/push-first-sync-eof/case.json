@@ -1,0 +1,46 @@
+{
+  "description": "Push with no sync point at end of input takes k for the file asked and every one after it: Nothing to send., exit 0, no PR, no file changed (Front door, push; No sync point, interactive).",
+  "os": ["linux"],
+  "git": "remote",
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file a"
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file b"
+      },
+      {
+        "file": "parity/c.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/c.conf",
+        "description": "Parity case file c"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push"
+    }
+  ]
+}

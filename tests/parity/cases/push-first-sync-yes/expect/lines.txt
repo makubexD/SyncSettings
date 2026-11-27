@@ -1,0 +1,3 @@
+WARNING: no sync is recorded on this machine, so this sends every file that differs.
+! Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k]
+! No sync is recorded on this machine, so the newer side of each file is unknown. mksync preview shows each change.
