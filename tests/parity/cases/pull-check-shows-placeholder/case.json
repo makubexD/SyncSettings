@@ -1,0 +1,43 @@
+{
+  "description": "Pull --yes with a sync point asks nothing: the check's change block shows the missing value as <YOUR_GH_OWNER>, never the internal marker, then the guard stops with the could-not-tell line, exit 1, nothing written (Front door, pull guard; Import check).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Sanitized parity settings",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_OWNER>",
+            "prompt": "GitHub owner"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "options": {
+        "yes": true
+      },
+      "stderr": true
+    }
+  ]
+}
