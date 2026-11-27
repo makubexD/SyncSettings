@@ -134,6 +134,95 @@ lines to `~/.bashrc.local`, `s` for the rest. Then `mksync diff` agrees.
 The Linux machine and work #1 then run `git pull`, `mksync update` and `mksync pull` once: `v1.1.8` splits the repo
 owner out as `<YOUR_GH_OWNER>`, and the pull writes it back from their own files.
 
+On `1.1.9` work #2's Claude settings needed eleven questions, two hand edits and three moves, and the push still
+planned to change the shared file for every machine; the Linux pull stopped without asking the owner value. The
+first-sync profile release (`docs/plan-first-sync-profile.md`, `v1.1.10`) adds `p` (keep a file's differences in the
+profile), keeps change numbers through moves, records the sync point when nothing is sent, and makes pull ask its
+values first. Run the blocks below one machine at a time, in order.
+
+### Runbook
+
+Each block names the machine and the shell. Run its commands in order, in a terminal of their own (not through
+Claude's `!`, since they ask questions). Stop at the first output that differs from "Expect" and send it to Claude.
+Don't start a machine before the one above it is done.
+
+**A. Linux laptop: release `v1.1.10`.** Claude runs `docs/plan-first-sync-profile.md` and stops for the OK to tag.
+After the tag it checks `SHA256SUMS` and runs `mksync update` on this machine.
+
+**B. Linux laptop: the owner value, bash.**
+
+```bash
+cd ~/WorkspaceMaku/MakuReposStable/SyncSettings
+git switch master
+git pull
+mksync --version
+mksync pull
+mksync diff
+```
+
+- Expect `mksync 1.1.10`.
+- `mksync pull` asks `GitHub owner of your own repos (~/.claude/settings.json)`: type the owner, or Enter when it is
+  suggested.
+- Expect no `\u0000` text. If the output asks `Apply these changes? [y/N]`, answer `y` only if the list holds nothing
+  but `claude/settings.json`; else `N` and send it to Claude.
+- Expect `mksync diff`: no `SKIPPED` line, every file `=`.
+
+**C. work #2: undo the `v1.1.9` push, PowerShell.** If a push is still waiting at `Open a PR with these changes? [y/N]`,
+type `N` first.
+
+```powershell
+cd "$env:USERPROFILE\SyncSettings"
+git restore dotfiles/common/claude/settings.json
+git status --short
+```
+
+Expect: `git status --short` prints nothing. The Claude settings stay as they are now (restored from the `.bak`, with
+the four shared keys added).
+
+**D. work #2: first sync with `p`, PowerShell.**
+
+```powershell
+cd "$env:USERPROFILE\SyncSettings"
+git pull
+mksync update
+mksync --version
+mksync preview
+```
+
+Expect: `mksync 1.1.10`; preview's count line names no waiting file. Then:
+
+```powershell
+mksync push
+```
+
+- Value questions: Enter when the suggestion is right.
+- `dotfiles/common/claude/settings.json … [p]`: Enter. Every work #2 Claude setting, the `autoMode` block included,
+  stays in profile `work2`.
+- Any other `[p]` question: Enter. A `[s/r/k]` question: stop and send Claude the line.
+
+Expect: a `PROFILE` line, `Nothing to send.`, no PR. Then:
+
+```powershell
+mksync diff
+mksync doctor
+```
+
+Expect: `mksync diff` prints every file `=`; `mksync doctor` ends `Ready.` with profile `work2`. Open a new Claude Code
+session on work #2: the statusline, the rtk hook and the plugins still work.
+
+**E. work #1, PowerShell.**
+
+```powershell
+cd "$env:USERPROFILE\SyncSettings"
+git pull
+mksync update
+mksync --version
+mksync diff
+```
+
+Expect: `mksync 1.1.10`. Send Claude the `mksync diff` output before running anything else: only `IN` lines (`<`)
+mean `mksync pull` next; `?` or `OUT`/`BOTH` lines mean a first sync with `p`, like work #2's.
+
 Test: `mksync doctor` shows the record and profile; Claude reviews any PR as in step 3; `mksync diff` agrees.
 
 ## Step 10: Install on work #3 and answer the survey `[inline: the user's machine]`

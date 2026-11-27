@@ -2,6 +2,28 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.1.10 (2026-11-27)
+
+- The first push of a machine with a record offers `p` for a JSON settings file or a whole-file entry:
+  `Send this machine's version (s), keep its differences in profile work2 (p), take the repo's (r) or skip (k)? [p]`.
+  `p` keeps the file's differences in the profile layer and leaves the shared file alone; for a JSON file, shared
+  settings this machine lacks are added to it (a `.bak` first) and every value it had stays. Push prints
+  `PROFILE <file>  (<n> change(s) kept in profile <p>; <m> shared setting(s) added here)`. Enter takes `p` on any
+  profile but `personal`, `s` there. While the repo is public the profile stays in local state, so `p` alone opens no
+  PR. `--yes` takes each file's suggestion, and its warning names the profile.
+- A change keeps its number through moves: after `1` moves to the profile, the next block still calls it `1`, and a
+  group lists its changes in number order.
+- A push that ends with `Nothing to send.` records the sync point at `HEAD` when no file was skipped, no path was
+  picked, the clone is clean and up to date with `origin/master`. A first sync answered with `r` and `p` alone no
+  longer asks the whole picker again, and `mksync diff` stops saying `?`.
+- `mksync preview`'s summary counts the files waiting for a value:
+  `3 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).`
+- An interactive `mksync pull` asks for every value this machine uses that nothing fills, as push does, before its
+  check and guard, so it no longer stops with "could not tell which side is newer" for a missing value. `--yes`, and
+  end of input to a question, keep the stop.
+- The check's change block shows a missing value as its placeholder (`<YOUR_GH_OWNER>`) instead of an internal
+  marker.
+
 ## v1.1.9 (2026-11-26)
 
 - The first push of a machine with no sync point asks about each file that differs, in path order, with its line
