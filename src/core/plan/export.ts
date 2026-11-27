@@ -972,6 +972,8 @@ export function planExport(
 
   if (only.paths.length === 0) {
     orphanReport(state);
+    // Contract "Package drift": right after the orphan report, never counted.
+    state.lines.push(...(snapshot.drift ?? []));
   }
 
   const summary: ExportSummary = {

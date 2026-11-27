@@ -5,23 +5,17 @@
  * the values no layer sets, and, on Linux, package drift. Writes nothing.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { runGitResult } from "../adapters/git.ts";
 import { readGitFacts } from "../adapters/gitconfig.ts";
 import type { GitConfigFacts } from "../adapters/gitconfig.ts";
 import { hasScanBash } from "../adapters/leakscan.ts";
-import {
-  driftRoot,
-  readDriftIgnore,
-  readInstalled,
-  readPackageLists,
-} from "../adapters/packages.ts";
+import { readDriftReport } from "../adapters/packages.ts";
 import { run, which } from "../adapters/process.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import { readText } from "../adapters/store.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
-import { driftLines, parsePackageLists } from "../core/drift.ts";
 import type {
   DoctorFacts,
   GhFact,
@@ -53,9 +47,6 @@ const LINUX_MANAGERS: readonly PackageManager[] = ["apt-get", "dnf", "pacman"];
 
 /** `.user-values.json` next to the config, the values with no record. */
 const VALUES_FILE = ".user-values.json";
-
-/** The `packages/linux/` folder the drift line reads, under the repo root. */
-const PACKAGES_FOLDER = ["packages", "linux"] as const;
 
 /** The word `formatLine` prints for a package that differs. */
 const DRIFT_WORD = "DRIFT";
@@ -128,18 +119,10 @@ async function hasOrigin(repoRoot: string): Promise<boolean> {
   return remote.ok;
 }
 
-/** `[[ -d path ]]`, following symlinks as bash's test does. */
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 /**
- * The drift line's count on Linux: the DRIFT lines of the report. Not Linux,
- * no `packages/linux/` folder or any read error is `undefined`, so no line.
+ * The drift line's count on Linux: the DRIFT lines of the report preview
+ * prints. No report (not Linux, no `packages/linux/` folder, a read error) is
+ * `undefined`, so no line.
  */
 function driftCount(
   repoRoot: string,
@@ -147,22 +130,8 @@ function driftCount(
   home: string,
   env: Readonly<Record<string, string | undefined>>,
 ): number | undefined {
-  if (os !== "linux") {
-    return undefined;
-  }
-  const folder = join(repoRoot, ...PACKAGES_FOLDER);
-  if (!isDirectory(folder)) {
-    return undefined;
-  }
-  try {
-    const lists = parsePackageLists(readPackageLists(folder));
-    const installed = readInstalled({ home, root: driftRoot(env) });
-    const lines = driftLines(lists, installed, readDriftIgnore(folder));
-    return lines.filter((line) => line.startsWith(DRIFT_PREFIX)).length;
-  } catch {
-    // A folder that cannot be read is no report.
-    return undefined;
-  }
+  const lines = readDriftReport(repoRoot, os, home, env);
+  return lines?.filter((line) => line.startsWith(DRIFT_PREFIX)).length;
 }
 
 /** What the adapter read, plus the `gh` found on `PATH`. */

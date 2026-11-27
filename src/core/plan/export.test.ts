@@ -1270,6 +1270,10 @@ describe("planExport values on a machine", () => {
 
 const UNUSED_PROFILE_FILE = "profiles/work-1/other/unused.json";
 
+/** A drift report line as the adapter hands it over. */
+const DRIFT_LINE =
+  "  DRIFT      pipx/extra  (installed, not in packages/linux/pipx.txt)";
+
 const EXTENSIONLESS_JSON_FILE = "parity/settings";
 
 const EXTENSIONLESS_JSON_LOCAL = ".config/parity/settings";
@@ -1340,6 +1344,48 @@ describe("planExport layers", () => {
     expect(
       result.lines.some((line) => line.includes(UNUSED_PROFILE_FILE)),
     ).toBe(false);
+  });
+
+  test("should print the drift report right after the orphan report", () => {
+    // Arrange
+    const base = validSnapshot("orphan-reported");
+    const snapshot: Snapshot = { ...base, drift: [DRIFT_LINE] };
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    const orphan = result.lines.findIndex((line) => line.includes("ORPHAN"));
+    expect(orphan).toBeGreaterThanOrEqual(0);
+    expect(result.lines[orphan + 1]).toBe(DRIFT_LINE);
+  });
+
+  test("should keep the exit code and actions when the drift report has lines", () => {
+    // Arrange
+    const base = validSnapshot("orphan-reported");
+    const withDrift: Snapshot = { ...base, drift: [DRIFT_LINE] };
+
+    // Act
+    const without = observe(base);
+    const result = observe(withDrift);
+
+    // Assert
+    expect({ code: result.code, actions: result.actions }).toEqual({
+      code: without.code,
+      actions: without.actions,
+    });
+  });
+
+  test("should print no drift report when a path is picked", () => {
+    // Arrange
+    const base = validSnapshot("only-no-orphan-report");
+    const snapshot: Snapshot = { ...base, drift: [DRIFT_LINE] };
+
+    // Act
+    const result = observe(snapshot);
+
+    // Assert
+    expect(result.lines).not.toContain(DRIFT_LINE);
   });
 
   test("should send a new json array item to the one layer a base-only file has", () => {

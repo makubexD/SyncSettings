@@ -10,6 +10,8 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { Os } from "../core/config/types.ts";
+import { driftLines, parsePackageLists } from "../core/drift.ts";
 import type {
   AptResult,
   Installed,
@@ -509,4 +511,45 @@ export function readDriftIgnore(folder: string): readonly string[] {
     return [];
   }
   return text.split("\n").filter((line) => line.trim() !== "");
+}
+
+/** The `packages/linux/` folder the report reads, under the repo root. */
+const PACKAGES_FOLDER = ["packages", "linux"] as const;
+
+/**
+ * The drift report's lines (contract "Package drift"), the one reader export,
+ * preview and `mksync doctor` share, so the doctor's count is what preview
+ * prints. `undefined` when there is no report: not Linux, no `packages/linux/`
+ * folder, or a read that threw.
+ */
+export function readDriftReport(
+  repoRoot: string,
+  os: Os,
+  home: string,
+  env: Readonly<Record<string, string | undefined>>,
+  run?: Run,
+): readonly string[] | undefined {
+  if (os !== "linux") {
+    return undefined;
+  }
+  const folder = join(repoRoot, ...PACKAGES_FOLDER);
+  if (!isDirectory(folder)) {
+    return undefined;
+  }
+  try {
+    const lists = parsePackageLists(readPackageLists(folder));
+    const installed = readInstalled({
+      home,
+      root: driftRoot(env),
+      ...(run !== undefined ? { run } : {}),
+    });
+    return driftLines(lists, installed, readDriftIgnore(folder));
+  } catch (error) {
+    // The report never changes a run's outcome (contract "Package drift"):
+    // a folder that cannot be read is no report, not a failed push.
+    if (error instanceof Error) {
+      return undefined;
+    }
+    throw error;
+  }
 }
