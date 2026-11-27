@@ -39,7 +39,8 @@ and `.local/share/gnome-shell/extensions/extra@x`, `packages/linux/npm.txt` list
   `DRIFT npm/missing (in packages/linux/npm.txt, not installed)` and the extension line after the file lines; exit 0;
   nothing written.
 - `export-drift`: `export --force`: the same lines; exit 0; files written as without drift.
-- `preview-drift-only`: `preview` with `--only` a file: no `DRIFT` line (`! DRIFT` in `lines.txt`).
+- `preview-drift-only`: `preview` with `--only` a file: no `DRIFT` line (`! DRIFT` in `lines.txt`). Done instead in
+  `only-no-orphan-report`, with `export --only`: `--preview` with `--only` already stops with exit 1.
 
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync drift` fails on `preview-drift` and `export-drift`.
 

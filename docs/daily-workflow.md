@@ -263,7 +263,7 @@ something is normal:
   DRIFT      apt/cowsay  (installed, not in packages/linux/apt.txt)
 ```
 
-`mksync push` prints the same lines. A push of picked paths, or a preview or export with `--only`, skips the report.
+`mksync push` prints the same lines. A push of picked paths, or an export with `--only`, skips the report.
 It's only a report: nothing was changed, and it doesn't stop anything. If you want the package on a restored machine, add it to
 the list, run `scripts/ci/check-packages.sh`, then `mksync push`. If not, uninstall it or add it to `drift-ignore.txt`.
 [packages.md](packages.md#reading-the-report) covers every note.

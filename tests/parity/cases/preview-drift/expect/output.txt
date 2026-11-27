@@ -1,4 +1,5 @@
 UNCHANGED dotfiles/common/parity/a.conf
+ORPHAN dotfiles/common/parity/stray.conf
 SKIPPED packages/linux/npm.txt
 DRIFT pipx/missing
 DRIFT pipx/extra

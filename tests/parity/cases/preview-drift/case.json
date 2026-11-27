@@ -1,5 +1,5 @@
 {
-  "description": "Preview on Linux with a packages/linux/ folder prints the drift report right after the orphan report: npm SKIPPED with no nvm, a listed pipx package not installed, an installed pipx package and a GNOME extension not listed. The report changes no count, so the summary still says nothing changed; exit 0, nothing written (Package drift).",
+  "description": "Preview on Linux with a packages/linux/ folder prints the drift report right after the orphan report (a stray repo file, ORPHAN first): npm SKIPPED with no nvm, a listed pipx package not installed, an installed pipx package and a GNOME extension not listed. The report changes no count, so the summary still says nothing changed; exit 0, nothing written (Package drift).",
   "os": [
     "linux"
   ],

@@ -602,7 +602,8 @@ Linux only: on Windows and macOS the report prints nothing. Right after the orph
 preview, `mksync` compares `packages/linux/` with the machine. With no such folder it prints nothing. An import never reports drift.
 The managers are read once per export or preview, and only when it covers the whole repo: an export or a preview with `--only`,
 and a `mksync push <path>…`, print no report, since a partial run doesn't see every package list
-([Picking files](#picking-files)). `mksync doctor` reads the same report, so its count is the number of `DRIFT` lines a
+([Picking files](#picking-files)). A diff (`mksync diff`, and the guard diff of a push or a pull) never reads the
+managers, so a push reads them once. `mksync doctor` reads the same report, so its count is the number of `DRIFT` lines a
 preview of the whole repo prints.
 
 The report never writes a file, never changes a count and never changes the exit code. It runs no install command. `DRIFT` isn't

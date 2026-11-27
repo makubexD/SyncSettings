@@ -280,8 +280,9 @@ export async function buildSnapshot(
     }
   }
   // Contract "Package drift": an export or a preview of the whole repo reports
-  // drift; a picked path or another command never asks the managers.
-  if (command.command === "export" && command.only.length === 0) {
+  // drift; a picked path, a diff (`mksync diff`, push's and pull's guard) or
+  // another command never asks the managers, so a push reads them once.
+  if (command.command === "export" && command.only.length === 0 && command.diff !== true) {
     const drift = readDriftReport(repoRoot, os, home, env);
     if (drift !== undefined) {
       built = { ...built, drift };

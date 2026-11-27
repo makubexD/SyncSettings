@@ -653,7 +653,7 @@ describe("readDriftReport", () => {
     const { repo, home } = pipxRepo();
 
     // Act
-    const lines = readDriftReport(repo, "linux", home, {}, PIPX_EXTRA);
+    const lines = readDriftReport(repo, "linux", home, { DRIFT_ROOT: tempFolder() }, PIPX_EXTRA);
 
     // Assert
     expect(lines).toContain(
@@ -668,7 +668,7 @@ describe("readDriftReport", () => {
       const { repo, home } = pipxRepo();
 
       // Act
-      const lines = readDriftReport(repo, os, home, {}, PIPX_EXTRA);
+      const lines = readDriftReport(repo, os, home, { DRIFT_ROOT: tempFolder() }, PIPX_EXTRA);
 
       // Assert
       expect(lines).toBeUndefined();
@@ -680,7 +680,7 @@ describe("readDriftReport", () => {
     const repo = tempFolder();
 
     // Act
-    const lines = readDriftReport(repo, "linux", tempFolder(), {}, PIPX_EXTRA);
+    const lines = readDriftReport(repo, "linux", tempFolder(), { DRIFT_ROOT: tempFolder() }, PIPX_EXTRA);
 
     // Assert
     expect(lines).toBeUndefined();

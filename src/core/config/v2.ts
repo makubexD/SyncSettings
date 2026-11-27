@@ -85,28 +85,42 @@ function suggestList(value: unknown): readonly SuggestSource[] | undefined {
 }
 
 /**
- * The first source name a rule's `suggest` holds that this program doesn't
- * know, when the `suggest` is a string or a list of only strings: a newer
- * config may name a source a newer mksync has. Undefined otherwise.
+ * A rule's `suggest` names as strings when its shape is right (one string, or
+ * a non-empty list of distinct strings), whether or not this program knows
+ * them. Undefined for a wrong shape.
+ */
+function suggestNames(value: unknown): readonly string[] | undefined {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every((name) => typeof name === "string") ||
+    new Set(value).size !== value.length
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+/**
+ * The first source name the entry's rules hold that this program doesn't
+ * know: a newer config may name a source a newer mksync has. Undefined when
+ * every name is known, or when any rule's `suggest` has a wrong shape, which
+ * keeps the invalid-suggest line.
  */
 function unknownSuggestSource(sanitize: unknown): string | undefined {
   if (!Array.isArray(sanitize)) {
     return undefined;
   }
-  for (const rule of sanitize) {
-    if (!isRecord(rule) || !Object.hasOwn(rule, "suggest")) {
-      continue;
-    }
-    const names: readonly unknown[] = Array.isArray(rule.suggest) ? rule.suggest : [rule.suggest];
-    if (!names.every((name) => typeof name === "string")) {
-      continue;
-    }
-    const unknown = names.find((name) => !isSuggestSource(name));
-    if (typeof unknown === "string") {
-      return unknown;
-    }
+  const lists: (readonly string[] | undefined)[] = sanitize
+    .filter((rule) => isRecord(rule) && Object.hasOwn(rule, "suggest"))
+    .map((rule) => suggestNames((rule as Record<string, unknown>).suggest));
+  if (lists.some((names) => names === undefined)) {
+    return undefined;
   }
-  return undefined;
+  return lists.flatMap((names) => names ?? []).find((name) => !isSuggestSource(name));
 }
 
 function hasInvalidSuggest(sanitize: unknown): boolean {

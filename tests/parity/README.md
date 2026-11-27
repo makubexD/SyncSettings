@@ -155,8 +155,9 @@ With `"stubs": ["packages"]`, `dpkg-query`, `apt-mark`, `snap`, `pipx` and `code
 package managers of the [drift report](../../docs/sync-contract.md#package-drift): each prints the case's
 `tools/<name>.txt` (`tools/dpkg-query.txt`), nothing when it's missing, and exits 0 whatever its arguments. `npm`,
 fonts and GNOME extensions are folders under the case's `home/`, so they need no stub. `DRIFT_ROOT` points at an empty
-folder in the case, so the apt-source and apt-key rows never read the machine's `/etc/apt`. `run.sh` refuses a case
-whose `repo/` holds `packages/` without this stub, since export and preview would ask the real managers.
+folder in the case, so the apt-source and apt-key rows never read the machine's `/etc/apt`. Both runners refuse a case
+whose `repo/` holds `packages/` without this stub, since export and preview would ask the real managers; so does a
+`packages/` in `unsent/` or `origin/`, unless every command is a `commit`, which never reads them.
 
 `dconf`, `getent`, `bootstrap` and `packages` are Linux only: `run.ps1` skips a case whose `os` leaves out Windows
 before it looks at the stubs, and fails one that would run on Windows with them.

@@ -439,7 +439,17 @@ function Validate-Case {
 
     # A packages/ folder makes export and preview read the package managers:
     # only the stub may answer, and it is Linux only.
-    if (Test-Path -LiteralPath (Join-Path $Dir 'repo\packages') -PathType Container) {
+    # unsent/ and origin/ reach the clone too: they count unless every command
+    # is a commit, which never reads the managers.
+    $readsPackages = Test-Path -LiteralPath (Join-Path $Dir 'repo\packages') -PathType Container
+    if (-not $readsPackages) {
+        $clonePackages = @('unsent\packages', 'origin\packages') | Where-Object {
+            Test-Path -LiteralPath (Join-Path $Dir $_) -PathType Container
+        }
+        $onlyCommits = @($case.commands | Where-Object { $_.command -cne 'commit' }).Count -eq 0
+        $readsPackages = (@($clonePackages).Count -gt 0) -and -not $onlyCommits
+    }
+    if ($readsPackages) {
         if (-not ($null -ne $stubsProp -and @($stubsProp.Value) -ccontains 'packages')) {
             Die 'packages/ needs the packages stub'
         }

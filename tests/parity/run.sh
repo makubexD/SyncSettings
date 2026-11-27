@@ -260,8 +260,12 @@ validate_case() {
         die 'differences set but no expect.<os>/ folder'
     fi
     # A packages/ folder makes export and preview read the package managers:
-    # only the stub may answer, never the real machine's.
-    if [[ -d $dir/repo/packages ]]; then
+    # only the stub may answer, never the real machine's. unsent/ and origin/
+    # reach the clone too: they count unless every command is a commit, which
+    # never reads the managers.
+    if [[ -d $dir/repo/packages ]] \
+        || { [[ -d $dir/unsent/packages || -d $dir/origin/packages ]] \
+            && ! jq -e 'all(.commands[]; .command == "commit")' "$json" > /dev/null 2>&1; }; then
         jq -e '(.stubs // []) | any(. == "packages")' "$json" > /dev/null 2>&1 \
             || die 'packages/ needs the packages stub'
     fi
@@ -614,12 +618,14 @@ write_dconf_stub() {
 # pipx and code each print the case's tools/<name>.txt (nothing when it is
 # missing) and exit 0, whatever their arguments.
 write_packages_stub() {
-    local temp=$1 dir=$2 tool
+    local temp=$1 dir=$2 tool listing
     mkdir -p "$temp/bin" "$temp/drift-root" || die 'creating the packages stub folder failed'
     for tool in dpkg-query apt-mark snap pipx code; do
+        # %q quotes the path for bash, so a quote in a case path can't break the stub.
+        printf -v listing '%q' "$dir/tools/$tool.txt"
         printf '%s\n' \
-            '#!/bin/sh' \
-            "if [ -f '$dir/tools/$tool.txt' ]; then cat '$dir/tools/$tool.txt'; fi" \
+            '#!/bin/bash' \
+            "if [ -f $listing ]; then cat $listing; fi" \
             'exit 0' > "$temp/bin/$tool" || die "writing the $tool stub failed"
         chmod +x "$temp/bin/$tool" || die "making the $tool stub executable failed"
     done

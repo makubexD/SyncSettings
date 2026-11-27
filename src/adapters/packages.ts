@@ -87,14 +87,22 @@ const NVM_VERSIONS = [".nvm", "versions", "node"] as const;
 const encoder = new TextEncoder();
 
 /**
+ * How long one package manager may run: a wedged `snapd` or a `code` whose
+ * server is gone must not hang a preview or a push. A timeout is `failed`,
+ * so the manager's row becomes a `SKIPPED` line (contract "Package drift").
+ */
+const MANAGER_TIMEOUT_MS = 20_000;
+
+/**
  * The real runner: `cmd` with an argument array and no shell, like the dconf
- * adapter. A missing command is `missing`, a non-zero exit or any other spawn
- * error is `failed`.
+ * adapter. A missing command is `missing`, a non-zero exit, a timeout or any
+ * other spawn error is `failed`.
  */
 export function runCommand(cmd: string, args: readonly string[]): RunResult {
   const result = runSync([cmd, ...args], {
     stdout: "pipe",
     stderr: "ignore",
+    timeoutMs: MANAGER_TIMEOUT_MS,
   });
   if (result.missing === true) {
     return { kind: "missing" };

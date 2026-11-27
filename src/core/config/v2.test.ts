@@ -343,7 +343,6 @@ describe("parseV2", () => {
     ["x", "x"],
     [["gh-login", "x"], "x"],
     [["x", "y"], "x"],
-    [["x", "x"], "x"],
   ];
 
   test.each(UNKNOWN_SUGGESTS)("a sanitize rule with suggest %p names source %s and mksync update, exit 2", (suggest, source) => {
@@ -358,11 +357,24 @@ describe("parseV2", () => {
     );
   });
 
-  const INVALID_SUGGESTS: readonly [unknown][] = [[1], [[]], [["gh-login", "gh-login"]], [["gh-login", 1]], [["x", 1]], [null]];
+  const INVALID_SUGGESTS: readonly [unknown][] = [[1], [[]], [["gh-login", "gh-login"]], [["gh-login", 1]], [["x", 1]], [["x", "x"]], [null]];
 
   test.each(INVALID_SUGGESTS)("a sanitize rule with suggest %p stops with exit 1", (suggest) => {
     // Arrange
     const bad = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest }] });
+
+    // Act / Assert
+    expectError(configWith([bad]), suggestError(bad.file as string), 1);
+  });
+
+  test("an unknown name beside another rule's wrong shape keeps exit 1", () => {
+    // Arrange
+    const bad = entry({
+      sanitize: [
+        { placeholder: "<A>", prompt: "A", suggest: 1 },
+        { placeholder: "<B>", prompt: "B", suggest: "future" },
+      ],
+    });
 
     // Act / Assert
     expectError(configWith([bad]), suggestError(bad.file as string), 1);
