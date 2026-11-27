@@ -75,6 +75,7 @@ function diffOf(...labels: ["IN" | "OUT" | "BOTH", string][]): Result {
     stdout: "",
     stderr: "",
     diff: {
+      skipped: [],
       labels: labels.map(([label, path]) => ({ label, path })),
       conflictLines: labels.some(([label]) => label === "BOTH") ? BLOCK : [],
     },

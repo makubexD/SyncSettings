@@ -8,6 +8,7 @@ import { previewDiff, readOrigin, readTrackedPaths } from "../adapters/git.ts";
 import type { PreviewDiff } from "../adapters/git.ts";
 import { runLeakScan } from "../adapters/leakscan.ts";
 import type { DiffLine } from "../core/plan/diff.ts";
+import type { ValueGap } from "../core/plan/export.ts";
 import type { LeakScanResult } from "../adapters/leakscan.ts";
 import { previewWorkingTree } from "../adapters/snapshot.ts";
 import { suggestions } from "../adapters/suggest.ts";
@@ -95,6 +96,8 @@ import type { RunEnvironment } from "./run.ts";
 /** What a diff found, so pull and push don't parse it from the text. */
 export interface DiffReport {
   readonly labels: readonly DiffLine[];
+  /** The files the diff left out because a placeholder has no value. */
+  readonly skipped: readonly ValueGap[];
   /** The conflict block lines of the `BOTH` labels, when they were asked for. */
   readonly conflictLines: readonly string[];
 }

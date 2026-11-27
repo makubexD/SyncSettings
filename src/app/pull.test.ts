@@ -417,6 +417,7 @@ describe("executePull", () => {
         stdout: `${BOTH_LINE}\n`,
         stderr: "",
         diff: {
+          skipped: [],
           labels: [{ label: "BOTH", path: "dotfiles/common/parity/a.conf" }],
           conflictLines: CONFLICT_LINES,
         },
@@ -446,6 +447,7 @@ describe("executePull", () => {
         stdout: `${OUT_LINE}\n`,
         stderr: "",
         diff: {
+          skipped: [],
           labels: [{ label: "OUT", path: "dotfiles/common/parity/a.conf" }],
           conflictLines: [],
         },
@@ -469,6 +471,7 @@ describe("executePull", () => {
         stdout: `${OUT_LINE}\n${BOTH_LINE}\n`,
         stderr: "",
         diff: {
+          skipped: [],
           labels: [
             { label: "OUT", path: "dotfiles/common/parity/a.conf" },
             { label: "BOTH", path: "dotfiles/common/parity/a.conf" },

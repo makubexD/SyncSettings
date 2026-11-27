@@ -1,6 +1,8 @@
 import type { EntryType } from "../config/types.ts";
 import { formatLine } from "../status.ts";
 import type { DiffWord } from "../status.ts";
+import { needsValueNote } from "./check.ts";
+import type { ValueGap } from "./export.ts";
 import { ONLY_WARNING } from "./run.ts";
 import type { RepoFiles } from "./types.ts";
 
@@ -15,6 +17,11 @@ const NO_SYNC_NOTE =
 const NO_SYNC_HINT = "Run mksync pull or mksync push once to record one.";
 
 const AGREE = "This machine and the repo agree.";
+
+/** Contract "Diff": the summary line when files were skipped for a value. */
+function needValueLine(count: number): string {
+  return `  ${count} file(s) need a value first; mksync push or pull asks for it.`;
+}
 
 /** The hint for each label, in the contract's order. */
 const HINTS: Readonly<Record<DiffLabel, string | undefined>> = {
@@ -275,16 +282,26 @@ function summaryLine(counts: Readonly<Record<DiffLabel, number>>): string {
   return `  ${total} file(s) differ: ${counts.IN} in, ${counts.OUT} out, ${counts.BOTH} both.`;
 }
 
+/** A status line and the path it sorts by. */
+interface SortedLine {
+  readonly path: string;
+  readonly text: string;
+}
+
 /**
  * Contract "Diff": the lines after the title and the exit code (0 when nothing
- * differs, 3 when something does). The caller prints the title itself. With
- * `onlyGiven`, a label-less diff warns that `--only` reached nothing before the
- * summary; the exit code and counts don't change (contract "Picking files").
+ * differs and no file was skipped, 3 otherwise). The caller prints the title
+ * itself. `skipped` are the files whose placeholder has no value: their
+ * `SKIPPED` lines sort with the labels, and the summary adds the need-a-value
+ * line. With `onlyGiven`, a diff with no line at all warns that `--only`
+ * reached nothing before the summary; the exit code and counts don't change
+ * (contract "Picking files").
  */
 export function diffText(
   labels: readonly DiffLine[],
   header: DiffHeader,
   onlyGiven: boolean,
+  skipped: readonly ValueGap[] = [],
 ): DiffText {
   const lines: string[] = [];
   lines.push(
@@ -294,30 +311,55 @@ export function diffText(
   );
   lines.push(`  Repo       : ${header.repo.ref} ${header.repo.short}`);
   lines.push("");
-  for (const line of labels) {
-    lines.push(formatLine(line.label, line.path));
+  const statusLines: SortedLine[] = [
+    ...labels.map((line) => ({
+      path: line.path,
+      text: formatLine(line.label, line.path),
+    })),
+    ...skipped.map((gap) => ({
+      path: gap.label,
+      text: formatLine("SKIPPED", gap.label, needsValueNote(gap.placeholder)),
+    })),
+  ].sort((a, b) => byCodeUnit(a.path, b.path));
+  for (const line of statusLines) {
+    lines.push(line.text);
   }
-  if (labels.length > 0) {
+  if (statusLines.length > 0) {
     lines.push("");
   }
-  if (onlyGiven && labels.length === 0) {
+  if (onlyGiven && statusLines.length === 0) {
     lines.push(ONLY_WARNING);
   }
   lines.push(DASHES, "");
-  if (labels.length === 0) {
+  if (statusLines.length === 0) {
     lines.push(`  ${AGREE}`, "");
     return { lines, exit: 0 };
   }
+  lines.push(...differLines(labels, header));
+  if (skipped.length > 0) {
+    lines.push(needValueLine(skipped.length));
+  }
+  lines.push("");
+  return { lines, exit: 3 };
+}
+
+/** The summary and hint lines of the labels; none when there are no labels. */
+function differLines(
+  labels: readonly DiffLine[],
+  header: DiffHeader,
+): readonly string[] {
+  if (labels.length === 0) {
+    return [];
+  }
   if (header.lastSync === undefined) {
-    lines.push(`  ${labels.length} file(s) differ. ${NO_SYNC_NOTE}`);
-    lines.push(`  ${NO_SYNC_HINT}`, "");
-    return { lines, exit: 3 };
+    return [
+      `  ${labels.length} file(s) differ. ${NO_SYNC_NOTE}`,
+      `  ${NO_SYNC_HINT}`,
+    ];
   }
   const counts: Record<DiffLabel, number> = { IN: 0, OUT: 0, BOTH: 0, "?": 0 };
   for (const line of labels) {
     counts[line.label] += 1;
   }
-  lines.push(summaryLine(counts));
-  lines.push(hintLine(labels), "");
-  return { lines, exit: 3 };
+  return [summaryLine(counts), hintLine(labels)];
 }

@@ -20,7 +20,7 @@ import type {
   OwnedPaths,
   RepoRef,
 } from "../core/plan/diff.ts";
-import { planExport } from "../core/plan/export.ts";
+import { exportValueGaps, planExport } from "../core/plan/export.ts";
 import {
   newSettingChoices,
   suggestionAnswers,
@@ -395,7 +395,22 @@ export async function diffExport(
     snapshot.repoFiles,
   );
 
-  const exportPlan = planSuggested(snapshot, baseTree);
+  // Contract "Diff": a file whose placeholder has no value is left out of
+  // every export plan here, as the preview leaves it out, and printed
+  // `SKIPPED`; sanitizing it with a stand-in would give a wrong label. The
+  // gaps cover every entry, since some plans below run without `--only`.
+  const allGaps = exportValueGaps({
+    ...snapshot,
+    only: [],
+    repoFiles: baseTree,
+  });
+  const gapLabels = new Set(allGaps.map((gap) => gap.label));
+  const scoped: Snapshot =
+    allGaps.length === 0
+      ? snapshot
+      : { ...snapshot, skip: [...(snapshot.skip ?? []), ...gapLabels] };
+
+  const exportPlan = planSuggested(scoped, baseTree);
   if (!planned(exportPlan)) {
     return {
       code: 1,
@@ -407,7 +422,7 @@ export async function diffExport(
 
   // What the export would write with no private layer at all. `--only` was
   // resolved above and can name a label git's layers alone don't have here.
-  const gitPlan = planSuggested({ ...snapshot, only: [] }, base);
+  const gitPlan = planSuggested({ ...scoped, only: [] }, base);
   const gitMine = appliedTree(base, gitPlan);
   const jsonEntries = selected.value.filter(
     ({ entry }) => entry.merge === "json",
@@ -448,18 +463,21 @@ export async function diffExport(
   // file was there to compare.
   const settled = verdicts.some(({ label }) => label === "BOTH")
     ? settledLabels(
-        { ...snapshot, only: [] },
+        { ...scoped, only: [] },
         theirsTree,
         jsonEntries,
       )
     : new Set<string>();
+  const gaps = allGaps.filter((gap) => owned.owns(gap.label));
   const labels = verdicts.filter(
-    ({ label, path }) => label !== "BOTH" || !settled.has(path),
+    ({ label, path }) =>
+      !gapLabels.has(path) && (label !== "BOTH" || !settled.has(path)),
   );
   const text = diffText(
     labels,
     headerOf(repoRef, repoStamp.short, lastSync),
     snapshot.only.length > 0,
+    gaps,
   );
   // Outside `json`, the local file can hold a private layer's content.
   const privatePaths = new Set(
@@ -480,6 +498,7 @@ export async function diffExport(
     stderr: "",
     diff: {
       labels,
+      skipped: gaps,
       conflictLines: conflicts
         ? await conflictLines({
             labels,
