@@ -626,6 +626,23 @@ Open a PR with these changes? [y/N]
 each write, the sync point. Its list of changes uses the same groups, so the user sees that a change arrives from "all
 machines" or from "profile work-1".
 
+### First sync
+
+A machine with no sync point can't tell which side is newer, so push asks per file: send it (`s`), take the repo's
+(`r`) or skip it (`k`). A work machine that already has its own settings needs a fourth answer (`v1.1.10`, found on
+work #2, whose Claude settings differed from the shared ones in about 110 lines): **`p`, keep this machine's
+differences in its profile.** With a machine record and a `json` or `whole` entry:
+
+- `json`: every changed or new key and every new array item goes to the profile layer; the base and OS layers don't
+  change. A base key or item the machine lacks is removed nowhere: the local file is then written from the layers
+  (`.bak` first), so it gains it, and every value the machine had stays.
+- `whole`: the local file becomes the profile's copy.
+- The suggestion is `p` on a work profile and `s` on `personal`, as for [new settings](#new-settings); `--yes` takes
+  it.
+- After that the model holds: a shared key changed anywhere reaches every machine by fast-forward, a profile key stays
+  with its job. A push that leaves the machine agreeing with the repo records the sync point, so the questions don't
+  come back.
+
 ## New settings
 
 A new key, a new array item or a new file in a `dir` entry has no layer yet, so push asks where it goes.
@@ -1932,6 +1949,8 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     picker offers it with a line count.
   - Any `r` or `k` answer makes the commit partial, so no push records a sync point after a first sync, even when `r`
     left the two sides agreeing; only `mksync pull` does. A hint, or a partial commit for `k` alone, would help.
+    `v1.1.10` records it when the push sends nothing and no file was `k`; a push that opens a PR after an `r` is
+    still partial.
   - Declining the PR after `r` imports prints `Nothing sent; the repo folder is as it was.`, while the local `r` files
     were overwritten (each with its `.bak`).
   - The picker takes `S`, `R` and `K` and spaces around the answer, which the contract doesn't state.
@@ -1950,6 +1969,13 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     `profiles/`), and the commit then stops with `commit or stash changes outside dotfiles/ first.`: `commit.ts`'s
     sync paths don't include them, while push's status paths do. Nothing leaks; it must be fixed before the private
     switch.
+
+- **Left out of the first-sync profile plan (v1.1.10).**
+  - Promote or demote a key: a command that moves an already-synced key between the profile and the base (for
+    example, make work #2's statusline the shared one), named through the `cli` skill.
+  - Removing a key in a later layer stays open. `p` doesn't need it, since it adds the shared key on this machine.
+  - work #2's `statusLine`: `p` keeps its PowerShell statusline in profile work2, where it overrides the shared
+    `mksync statusline`, so a later shared statusline change won't reach work #2. The promote command settles it.
 
 ### Confirm on Windows
 
