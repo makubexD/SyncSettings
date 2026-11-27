@@ -207,16 +207,11 @@ const RECORD_HOSTNAME = "wk1-laptop";
 /** A public name the record can carry (decision 1). */
 const RECORD_ALIAS = "jane-doe";
 
-/** The login the suggestion is made from, and the alias it becomes. */
-const LOGIN = String.raw`DOMAIN\Jane.Doe`;
-
 /** The public name push suggests for `machineRecord()`: `<profile>-<os>`. */
 const PROFILE_ALIAS = "work-1-linux";
 
 /** A machine record with the fixture's hostname, overridable per case. */
-function machineRecord(
-  overrides: Partial<MachineRecord> = {},
-): MachineRecord {
+function machineRecord(overrides: Partial<MachineRecord> = {}): MachineRecord {
   return {
     name: RECORD_NAME,
     profile: "work-1",
@@ -394,7 +389,7 @@ describe("executeCommit", () => {
     expect(readFileSync(location.recordFile, "utf8")).toBe(before);
   });
 
-  test("should suggest <profile>-<os>, not the login, and save it when the answer is empty", async () => {
+  test("should suggest <profile>-<os> and save it when the answer is empty", async () => {
     // Arrange
     const { repoRoot, state } = fixture({ remote: true });
     const location = stateLocation(state);
@@ -411,7 +406,6 @@ describe("executeCommit", () => {
       location,
       command: COMMAND,
       record,
-      login: LOGIN,
       askAlias: async (prompt) => {
         prompts.push(prompt);
         return "";
@@ -439,7 +433,7 @@ describe("executeCommit", () => {
     // Arrange
     const { repoRoot, state } = fixture();
     const location = stateLocation(state);
-    const record = machineRecord();
+    const record = machineRecord({ hostname: PROFILE_ALIAS });
     writeStoreRecord(location, record);
     const before = readFileSync(location.recordFile, "utf8");
     const prompts: string[] = [];
@@ -453,7 +447,6 @@ describe("executeCommit", () => {
       location,
       command: COMMAND,
       record,
-      login: RECORD_HOSTNAME,
       askAlias: async (prompt) => {
         prompts.push(prompt);
         return "";
@@ -462,7 +455,9 @@ describe("executeCommit", () => {
 
     // Assert
     expect(result.code).toBe(1);
-    expect(prompts).toEqual(["  Public name for this machine's push branches: "]);
+    expect(prompts).toEqual([
+      "  Public name for this machine's push branches: ",
+    ]);
     expect(result.stderr).toBe(
       "ERROR: invalid machine alias '' (use a-z, 0-9, -).\n",
     );
@@ -510,7 +505,6 @@ describe("executeCommit", () => {
       location,
       command: COMMAND,
       record,
-      login: LOGIN,
       askAlias: async () => "",
     });
 

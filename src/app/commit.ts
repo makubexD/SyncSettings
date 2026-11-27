@@ -14,7 +14,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
+import { tmpdir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { join } from "node:path";
 import { runPlan } from "../adapters/fs.ts";
@@ -201,17 +201,6 @@ function aliasPrompt(suggestion: string | undefined): string {
   return `  Public name for this machine's push branches${hint}: `;
 }
 
-/** This machine's login, or `undefined` when it can't be read. */
-function currentLogin(): string | undefined {
-  try {
-    return userInfo().username;
-  } catch {
-    // userInfo throws when the user has no passwd entry; then there is no
-    // suggestion, and the question is asked without one.
-    return undefined;
-  }
-}
-
 /** The error a failed save of the public name stops with. */
 function saveFailedError(file: string): string {
   return `ERROR: could not save the public name in ${file}; nothing was committed.`;
@@ -246,7 +235,7 @@ async function resolveMachineAlias(
   record: MachineRecord | undefined,
   location: StoreLocation,
   askAlias: (prompt: string) => Promise<string | undefined>,
-  login: string | undefined,
+  os: Os,
 ): Promise<{ readonly alias?: string; readonly error?: string }> {
   if (record !== undefined) {
     if (record.alias !== undefined) {
@@ -257,8 +246,7 @@ async function resolveMachineAlias(
         ? { error: stored.error }
         : { alias: stored.alias };
     }
-    const suggestion =
-      login === undefined ? undefined : suggestAlias(login, record.hostname);
+    const suggestion = suggestAlias(record.profile, os, record.hostname);
     const answer = await askAlias(aliasPrompt(suggestion));
     if (answer === undefined) {
       return { error: noPublicNameError(record.name) };
@@ -428,9 +416,6 @@ export interface CommitInput {
   /** The public-name question, injectable for tests; absent asks on the
    * terminal (see `askOnTerminal`). */
   readonly askAlias?: (prompt: string) => Promise<string | undefined>;
-  /** The login the public-name suggestion comes from, injectable for tests;
-   * absent reads this machine's (`os.userInfo`). */
-  readonly login?: string;
 }
 
 /**
@@ -536,7 +521,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
     record,
     location,
     askAlias,
-    input.login ?? currentLogin(),
+    input.os,
   );
   if (machine.alias === undefined) {
     return fail(machine.error ?? NO_ALIAS);

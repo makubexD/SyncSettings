@@ -77,23 +77,22 @@ function namesHostname(name: string, hostname: string): boolean {
 }
 
 /**
- * The public name `push` suggests for a machine, from its login (decision 1):
- * the login without a `DOMAIN\` prefix or an `@domain` suffix, in alias form
- * (`aliasForm`). `undefined` when nothing is left or the result names the
- * hostname.
+ * The public name `push` suggests for a machine: `<profile>-<os>` lowercased,
+ * each run of characters outside `a-z0-9` one `-` (contract "The PR"). It
+ * names no person or account. `undefined` when it fails `checkAlias`: it names
+ * the hostname, or the profile makes it too long.
  */
 export function suggestAlias(
-  login: string,
+  profile: string,
+  os: Os,
   hostname: string,
 ): string | undefined {
-  const afterDomain = login.slice(login.lastIndexOf(BACKSLASH) + 1);
-  const at = afterDomain.indexOf("@");
-  const bare = at === -1 ? afterDomain : afterDomain.slice(0, at);
-  const alias = aliasForm(bare);
-  if (alias === "" || namesHostname(alias, hostname)) {
-    return undefined;
-  }
-  return alias;
+  const alias = `${profile}-${os}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const checked = checkAlias(alias, { hostname });
+  return "error" in checked ? undefined : checked.alias;
 }
 
 /**
