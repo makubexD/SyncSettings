@@ -87,7 +87,10 @@
         {
           "placeholder": "<YOUR_NAME>",
           "prompt": "Full name for git commits",
-          "suggest": "git-user-name"
+          "suggest": [
+            "git-user-name",
+            "passwd-name"
+          ]
         },
         {
           "placeholder": "<YOUR_EMAIL>",
@@ -116,7 +119,10 @@
         {
           "placeholder": "<YOUR_GH_USERNAME>",
           "prompt": "GitHub username",
-          "suggest": "gh-login"
+          "suggest": [
+            "gh-hosts-login",
+            "gh-login"
+          ]
         },
         {
           "placeholder": "<YOUR_GH_ORG>",
@@ -431,7 +437,10 @@
         },
         {
           "placeholder": "<YOUR_GH_OWNER>",
-          "prompt": "GitHub owner of your own repos"
+          "prompt": "GitHub owner of your own repos",
+          "suggest": [
+            "origin-owner"
+          ]
         }
       ],
       "description": "Claude Code user settings (hooks, plugins, permissions)"
