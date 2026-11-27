@@ -522,20 +522,18 @@ describe("executePush guard", () => {
     expect(run.exports).toEqual([{ only: [], skip: [B] }]);
   });
 
-  test("--yes asks no value before the guard", async () => {
+  test("--yes still checks the values before the guard", async () => {
     // Arrange
-    let asked = false;
+    const stopped = { code: 1, stdout: "", stderr: "missing value\n" };
 
     // Act
-    await runGuarded(diffOf(["OUT", A]), pushInput({ yes: true }), {
-      askValues: async () => {
-        asked = true;
-        return undefined;
-      },
+    const run = await runGuarded(diffOf(["OUT", A]), pushInput({ yes: true }), {
+      askValues: async () => stopped,
     });
 
     // Assert
-    expect(asked).toBe(false);
+    expect(run.result).toEqual(stopped);
+    expect(run.exports).toEqual([]);
   });
 
   test("a failed diff stops before the export", async () => {

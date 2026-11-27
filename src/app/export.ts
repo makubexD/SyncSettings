@@ -82,7 +82,6 @@ import {
   missingValueLine,
   valueQuestion,
 } from "../core/values/hydrate.ts";
-import { valuesPrepare } from "../core/plan/machine-values.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import type { SetupIo } from "../wizard/setup.ts";
 import { setupTerminal, writeLines } from "./terminal.ts";
@@ -1021,9 +1020,13 @@ export async function askExportValues(
 
 /**
  * Contract "Push asks": push asks its value questions before its diff guard,
- * so the guard and the export after it find the answers saved. Asks on the
- * push's terminal and saves the answers where the export would. Exit 0 goes
- * on; an empty answer, end of input or a refused write stops with its line.
+ * so the guard and the export after it find the answers saved. `command`
+ * picks no path: every value this machine syncs is asked, whatever the push
+ * sends, so the commit's search knows them all. Under `--yes` nothing is
+ * asked, and an unknown value stops the push before anything is exported.
+ * Then every known value is saved where a full export would save it, the
+ * inferred ones too. Exit 0 goes on; an empty answer, end of input, an
+ * unknown value or a refused write stops with its line.
  */
 export async function askPushValues(
   env: RunEnvironment,
@@ -1035,12 +1038,17 @@ export async function askPushValues(
   if (!asked.ok) {
     return failure(asked.line);
   }
-  if (asked.snapshot === snapshot) {
+  const unknown = exportMissingRules(asked.snapshot)[0];
+  if (unknown !== undefined) {
+    return failure(missingValueLine(unknown.rule.placeholder));
+  }
+  const prepare = planExport(asked.snapshot).prepare ?? [];
+  if (prepare.length === 0) {
     return { code: 0, stdout: "", stderr: "" };
   }
   const outcome = runPlan(
     {
-      prepare: valuesPrepare(asked.snapshot, true, asked.snapshot.values),
+      prepare,
       steps: [],
       finish: [],
       lines: [],

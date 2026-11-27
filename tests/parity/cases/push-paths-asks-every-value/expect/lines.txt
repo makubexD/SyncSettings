@@ -1,0 +1,3 @@
+Enter values to fill the placeholders in the config files:
+GitHub organization (~/.config/parity/b.conf):
+ERROR: a cached value for <YOUR_GH_ORG> is in dotfiles/common/parity/a.conf; nothing was committed.

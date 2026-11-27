@@ -389,7 +389,7 @@ async function execute(
             },
             askValues: async () => {
               const asked = await execute(
-                pushExportCommand(command.paths, false, []),
+                pushExportCommand([], command.yes, []),
                 { askValues: true, terminal },
               );
               return asked.code === 0 ? undefined : asked;

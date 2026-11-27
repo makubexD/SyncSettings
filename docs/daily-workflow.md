@@ -173,6 +173,9 @@ back as it was. On a yes it creates the branch
 `sync-config.json`, pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
 
 Push asks its value questions first, before it compares the two sides, so a file waiting for a value is compared too.
+It asks every value this machine uses, also for files it doesn't send and with a picked path, so the commit can search
+each file for all of them. `mksync push --yes` asks nothing and stops if one is still unknown: run `mksync push` once
+from a terminal.
 
 ### The first push of a machine that already has settings
 
