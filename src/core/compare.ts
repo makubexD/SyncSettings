@@ -103,9 +103,9 @@ function normalizeSanitized(bytes: Uint8Array): Uint8Array {
  * Whether a local and a repo file hold the same content.
  *
  * Sanitized entries compare the already sanitized or hydrated text with line
- * endings folded and trailing whitespace trimmed. Shared files without rules
- * fold CRLF on Windows unless either side holds a NUL byte. Everything else is
- * byte for byte.
+ * endings folded and trailing whitespace trimmed. Files without rules fold
+ * CRLF on Windows, shared or under `dotfiles/windows/`, unless either side holds
+ * a NUL byte. Everything else is byte for byte.
  */
 export function same(
   repo: Uint8Array,
@@ -115,12 +115,7 @@ export function same(
   if (options.sanitized) {
     return sameBytes(normalizeSanitized(repo), normalizeSanitized(local));
   }
-  if (
-    options.os === "windows" &&
-    options.shared &&
-    !containsNul(repo) &&
-    !containsNul(local)
-  ) {
+  if (options.os === "windows" && !containsNul(repo) && !containsNul(local)) {
     return sameBytes(foldCrlf(repo), foldCrlf(local));
   }
   return sameBytes(repo, local);
