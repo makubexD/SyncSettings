@@ -1,0 +1,8 @@
+# 1
+Send this machine's version (s), keep its differences in profile work-1 (p), take the repo's (r) or skip (k)? [p]
+Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] [k]
+Send this machine's version (s), keep its differences in profile work-1 (p), take the repo's (r) or skip (k)? [p]
+Nothing to send.
+! Pick s
+# 2
+Run mksync pull or mksync push once to record one.
