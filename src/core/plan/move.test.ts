@@ -8,7 +8,12 @@ import { mergeJsonValues, parseJsonBytes } from "../merge/json.ts";
 import type { JsonLayer } from "../merge/json.ts";
 import { formatLine } from "../status.ts";
 import { changeLines, changeMoveSources } from "./changes.ts";
-import { applyMove, moveJsonChange, moveWholeFile } from "./move.ts";
+import {
+  applyMove,
+  keepInProfile,
+  moveJsonChange,
+  moveWholeFile,
+} from "./move.ts";
 import type {
   Action,
   LocalEntry,
@@ -407,7 +412,9 @@ describe("moveJsonChange", () => {
     expect(textOf(layerNamed(result.value, "base"))).toBe(
       '{\n  "a": {\n    "b": 1\n  }\n}\n',
     );
-    expect(textOf(layerNamed(result.value, "machine"))).toBe('{\n  "z": 0\n}\n');
+    expect(textOf(layerNamed(result.value, "machine"))).toBe(
+      '{\n  "z": 0\n}\n',
+    );
   });
 });
 
@@ -473,8 +480,7 @@ const MACHINE_BASHRC = `machines/${MACHINE_NAME}/shell/bashrc`;
 
 const ORPHAN_PATH = "dotfiles/common/stray.txt";
 
-const ORPHAN_NOTE =
-  "no entry in sync-config.json; git rm it or add an entry";
+const ORPHAN_NOTE = "no entry in sync-config.json; git rm it or add an entry";
 
 const JSON_ENTRY: ConfigV2Entry = {
   file: "parity/settings.json",
@@ -883,9 +889,7 @@ describe("applyMove", () => {
       { line: 0, actions: [writeRepo(BASE_JSON, '{"seed":1}')] },
       {
         line: 1,
-        actions: [
-          writeRepo(PROFILE_JSON, '{"alpha":1,"bravo":2,"charlie":3}'),
-        ],
+        actions: [writeRepo(PROFILE_JSON, '{"alpha":1,"bravo":2,"charlie":3}')],
       },
     ]);
 
@@ -907,9 +911,10 @@ describe("applyMove", () => {
       repo: { [PROFILE_BASHRC]: "one\n" },
       profile: PROFILE,
     });
-    const plan = planWithLines([formatLine("MODIFIED", PROFILE_BASHRC)], [
-      { line: 0, actions: [writeRepo(PROFILE_BASHRC, "two\n")] },
-    ]);
+    const plan = planWithLines(
+      [formatLine("MODIFIED", PROFILE_BASHRC)],
+      [{ line: 0, actions: [writeRepo(PROFILE_BASHRC, "two\n")] }],
+    );
 
     const moved = applyMove(plan, snapshot, 1, "base");
 
@@ -975,9 +980,7 @@ describe("applyMove", () => {
     const plan = planWithLines(lines, [
       {
         line: 0,
-        actions: [
-          writeRepo(PROFILE_JSON, '{"alpha":1,"bravo":2,"charlie":3}'),
-        ],
+        actions: [writeRepo(PROFILE_JSON, '{"alpha":1,"bravo":2,"charlie":3}')],
       },
     ]);
 
@@ -1024,5 +1027,186 @@ describe("applyMove", () => {
     ]);
     expect(moved.value.steps.map((step) => step.line)).toEqual([0]);
     expectStepsOnTheirLines(moved.value);
+  });
+});
+
+/** The repo paths a plan writes. */
+function writtenPaths(plan: RunPlan): readonly string[] {
+  return plan.steps.flatMap((step) =>
+    step.actions.flatMap((item) =>
+      item.action.kind === "writeRepo" ? [item.action.path] : [],
+    ),
+  );
+}
+
+/** The bytes a plan writes to `path`, as text. */
+function writtenText(plan: RunPlan, path: string): string | undefined {
+  for (const step of plan.steps) {
+    for (const item of step.actions) {
+      if (item.action.kind === "writeRepo" && item.action.path === path) {
+        return DECODER.decode(item.action.bytes);
+      }
+    }
+  }
+  return undefined;
+}
+
+const JSON_SNAPSHOT_REPO = '{"a":1,"b":1,"c":[1]}';
+
+describe("keepInProfile", () => {
+  test("should keep a changed base key in the profile and leave the base as the repo holds it", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: JSON_SNAPSHOT_REPO },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"a":2,"b":1,"c":[1]}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([1, 0]);
+    expect(writtenPaths(kept.value.plan)).toEqual([PROFILE_JSON]);
+    expect(writtenText(kept.value.plan, PROFILE_JSON)).toBe('{\n  "a": 2\n}\n');
+  });
+
+  test("should keep a new key in the profile", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: JSON_SNAPSHOT_REPO },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"a":1,"b":1,"c":[1],"d":1}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([1, 0]);
+    expect(writtenPaths(kept.value.plan)).toEqual([PROFILE_JSON]);
+    expect(writtenText(kept.value.plan, PROFILE_JSON)).toBe('{\n  "d": 1\n}\n');
+  });
+
+  test("should keep a new array item in the profile", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: JSON_SNAPSHOT_REPO },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"a":1,"b":1,"c":[1,2]}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([1, 0]);
+    expect(writtenPaths(kept.value.plan)).toEqual([PROFILE_JSON]);
+    expect(
+      changeLines(kept.value.plan, snapshot).map((line) => [
+        line.layer,
+        line.what,
+      ]),
+    ).toEqual([["profile", "c[]: 2"]]);
+  });
+
+  test("should remove no base key the local file lacks and count it as added", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: JSON_SNAPSHOT_REPO },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"a":1,"c":[1]}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([0, 1]);
+    expect(writtenPaths(kept.value.plan)).toEqual([]);
+  });
+
+  test("should remove no base array item the local file lacks and count it as added", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: '{"c":[1,3]}' },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_JSON, '{"c":[1]}')]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([0, 1]);
+    expect(writtenPaths(kept.value.plan)).toEqual([]);
+  });
+
+  test("should make the local whole file the profile's copy and leave the base", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([BASHRC_ENTRY]),
+      repo: { [BASE_BASHRC]: "one\n" },
+      profile: PROFILE,
+    });
+    const plan = planOf([writeRepo(BASE_BASHRC, "two\n")]);
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_BASHRC);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([1, 0]);
+    expect(writtenPaths(kept.value.plan)).toEqual([PROFILE_BASHRC]);
+    expect(writtenText(kept.value.plan, PROFILE_BASHRC)).toBe("two\n");
+  });
+
+  test("should leave the plan as it is when the file has no changes", () => {
+    // Arrange
+    const snapshot = snapshotOf({
+      config: configOf([JSON_ENTRY]),
+      repo: { [BASE_JSON]: JSON_SNAPSHOT_REPO },
+      profile: PROFILE,
+    });
+    const plan = planOf();
+
+    // Act
+    const kept = keepInProfile(plan, snapshot, BASE_JSON);
+
+    // Assert
+    expect(kept.ok).toBe(true);
+    if (!kept.ok) {
+      return;
+    }
+    expect([kept.value.kept, kept.value.added]).toEqual([0, 0]);
+    expect(kept.value.plan).toBe(plan);
   });
 });

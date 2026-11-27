@@ -716,3 +716,184 @@ function sourceAsInRepo(
   }
   return { ok: true, value: result };
 }
+
+/** What `keepInProfile` left: the plan, the changes it kept in the profile and
+ * the shared settings this machine lacked, which stay in their layers. */
+export interface KeptInProfile {
+  readonly plan: RunPlan;
+  readonly kept: number;
+  readonly added: number;
+}
+
+/** The entry's slots with the bytes `plan` writes, else the repo's. */
+function plannedSlots(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  source: MoveSource,
+): JsonLayer[] {
+  return source.entry.slots.map((slot) => ({
+    name: slot.name,
+    repoPath: slot.repoPath,
+    bytes:
+      plannedBytes(plan, slot.repoPath) ??
+      snapshot.repoFiles.get(slot.repoPath),
+  }));
+}
+
+/**
+ * The slots with the removal `source` stands for undone in its layer: a key
+ * gets the repo's value back, an array item is added back, a whole file gets
+ * the repo's bytes.
+ */
+function restoreRemoved(
+  slots: readonly JsonLayer[],
+  source: MoveSource,
+  snapshot: Snapshot,
+): Result<readonly JsonLayer[], string> {
+  const result: JsonLayer[] = [];
+  for (const slot of slots) {
+    const repoBytes = snapshot.repoFiles.get(slot.repoPath);
+    if (slot.name !== source.layer) {
+      result.push(slot);
+      continue;
+    }
+    if (source.kind === "whole" || slot.bytes === undefined) {
+      result.push({ ...slot, bytes: repoBytes });
+      continue;
+    }
+    const current = parseJsonBytes(slot.bytes);
+    const original =
+      repoBytes === undefined ? undefined : parseJsonBytes(repoBytes);
+    if (current === undefined) {
+      return { ok: false, error: `not valid JSON: ${slot.repoPath}` };
+    }
+    let restored = current;
+    if (source.kind === "key") {
+      const before = valueAt(original, source.keyPath);
+      if (before !== undefined) {
+        restored = setAt(current, source.keyPath, before);
+      }
+    } else if (source.item !== undefined) {
+      const item = source.item;
+      const array = valueAt(current, source.keyPath);
+      const items =
+        array !== undefined && array.kind === "array" ? array.items : [];
+      if (!items.some((other) => jsonEqual(other, item))) {
+        restored = setAt(current, source.keyPath, {
+          kind: "array",
+          items: [...items, item],
+        });
+      }
+    }
+    result.push(withValue(slot, restored, REPO_EOL));
+  }
+  return { ok: true, value: result };
+}
+
+/** The slots with each layer but `keep` whose value equals the repo's put back
+ * to the repo's own bytes, so a layer the moves left as it was gets no write
+ * that only reformats it. */
+function repoBytesWhereEqual(
+  slots: readonly JsonLayer[],
+  snapshot: Snapshot,
+  keep: LayerName,
+): readonly JsonLayer[] {
+  return slots.map((slot) => {
+    const repoBytes = snapshot.repoFiles.get(slot.repoPath);
+    if (
+      slot.name === keep ||
+      slot.bytes === undefined ||
+      repoBytes === undefined
+    ) {
+      return slot;
+    }
+    const planned = parseJsonBytes(slot.bytes);
+    const original = parseJsonBytes(repoBytes);
+    return planned !== undefined &&
+      original !== undefined &&
+      jsonEqual(planned, original)
+      ? { ...slot, bytes: repoBytes }
+      : slot;
+  });
+}
+
+/**
+ * Contract "No sync point, interactive", `p`: the export plan with every change
+ * of the entry whose layer `file` is moved to the profile layer, in line order,
+ * and every `-` change undone, so nothing is removed from any layer. `kept`
+ * counts the changes now in the profile, `added` the removals undone: the
+ * shared settings the import then writes on this machine. A file with no
+ * changes leaves the plan as it is.
+ */
+export function keepInProfile(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  file: string,
+): Result<KeptInProfile, string> {
+  const ofFile = (source: MoveSource): boolean =>
+    source.entry.slots.some((slot) => slot.repoPath === file);
+  const firstLines = changeLines(plan, snapshot);
+  const firstSources = changeMoveSources(plan, snapshot);
+  let kept = 0;
+  let added = 0;
+  firstSources.forEach((source, index) => {
+    if (!ofFile(source)) {
+      return;
+    }
+    if (firstLines[index]?.kind === "-") {
+      added += 1;
+    } else {
+      kept += 1;
+    }
+  });
+  let current = plan;
+  // Each pass moves or undoes one change, so the file's line count bounds the
+  // passes; a change that stays put after its pass is an error, not a loop.
+  for (let pass = 0; pass <= kept + added; pass++) {
+    const lines = changeLines(current, snapshot);
+    const sources = changeMoveSources(current, snapshot);
+    const at = sources.findIndex(
+      (source, index) =>
+        ofFile(source) &&
+        (source.layer !== "profile" || lines[index]?.kind === "-"),
+    );
+    const source = sources[at];
+    if (source === undefined) {
+      const entrySource = firstSources.find(ofFile);
+      if (entrySource === undefined) {
+        return { ok: true, value: { plan: current, kept, added } };
+      }
+      const slots = repoBytesWhereEqual(
+        plannedSlots(current, snapshot, entrySource),
+        snapshot,
+        "profile",
+      );
+      return {
+        ok: true,
+        value: {
+          plan: withMovedSlots(current, snapshot, slots),
+          kept,
+          added,
+        },
+      };
+    }
+    if (lines[at]?.kind === "-") {
+      const restored = restoreRemoved(
+        plannedSlots(current, snapshot, source),
+        source,
+        snapshot,
+      );
+      if (!restored.ok) {
+        return restored;
+      }
+      current = withMovedSlots(current, snapshot, restored.value);
+      continue;
+    }
+    const moved = applyMove(current, snapshot, at + 1, "profile");
+    if (!moved.ok) {
+      return moved;
+    }
+    current = moved.value;
+  }
+  return { ok: false, error: `could not keep ${file} in the profile` };
+}
