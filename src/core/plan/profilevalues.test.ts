@@ -276,6 +276,47 @@ describe("profileValueHits as whole tokens", () => {
     ]);
   });
 
+  test("should find a value right after a \\n escape in JSON text", () => {
+    // Arrange / Act
+    const hits = hitsFor(
+      { [BASE_JSON]: TEAM_OLD_JSON },
+      BASE_JSON,
+      String.raw`{"color":"#000000","team":"line\nA4"}`,
+      TEAM_VALUES,
+    );
+
+    // Assert
+    expect(hits.map((hit) => [hit.change, hit.placeholder])).toEqual([
+      [1, TEAM_PLACEHOLDER],
+    ]);
+  });
+
+  test("should number the hit by the change that brings the value, not one that removes it", () => {
+    // Arrange / Act
+    const hits = hitsFor(
+      { [BASE_JSON]: '{"former":"A4","latter":"none"}' },
+      BASE_JSON,
+      '{"former":"none","latter":"A4"}',
+      TEAM_VALUES,
+    );
+
+    // Assert
+    expect(hits.map((hit) => hit.change)).toEqual([2]);
+  });
+
+  test("should number a backslash value by the change that holds it JSON-escaped", () => {
+    // Arrange / Act
+    const hits = hitsFor(
+      { [BASE_JSON]: '{"a":"x","user":"none"}' },
+      BASE_JSON,
+      String.raw`{"a":"y","user":"CORP\\jdoe"}`,
+      { "<WORK_USER>": String.raw`CORP\jdoe` },
+    );
+
+    // Assert
+    expect(hits.map((hit) => hit.change)).toEqual([2]);
+  });
+
   test.each<[string, string]>([
     ["A4\nmore\n", "at the start of the text"],
     ["more\nA4", "at the end of the text"],

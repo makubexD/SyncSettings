@@ -296,7 +296,7 @@ its command directly, with no shell, under the same 5-second limit. The sources 
   `getent passwd <user>`, on macOS `id -F`; nothing on Windows, or when the field is empty.
 - `gh-path`: the path of `gh` found on `PATH`, the way `mksync doctor` finds it; nothing when it isn't found.
 
-A source that fails, runs past 5 seconds, prints nothing, prints more than one line, prints a control character or
+A source that fails, runs past 5 seconds, prints nothing, prints more than one line, prints a control character (or a Unicode format character: a bidi override, a zero-width mark, a line separator, the BOM) or
 prints placeholder text doesn't answer, and the next source runs; when none answers, the prompt reads as without a
 suggestion.
 
@@ -1959,7 +1959,8 @@ Move it to "profile work-1", or put <YOUR_EMAIL> in the file instead.
 `would reach` names the group in lower case (`all machines`, `linux machines`). The message names the placeholder,
 never the value. `export --preview` prints the same lines after the block and exits 1. Each value is searched in the
 forms sanitize replaces: as it is, with its backslashes doubled, and for a `json` entry as a JSON string body (`\\`,
-`\"`); a `json` entry's text is also searched with its `\uXXXX` and `\/` escapes read back. An `import` entry with no
+`\"`); a `json` entry's text is also searched with every escape read back in one pass (`\n`, `\t`, `\"`, `\\`, `\/`,
+`\uXXXX`), so a value right after a `\n` is still a whole token. An `import` entry with no
 `importName` is still searched, its hit named by its repo path. The machine's values aren't searched. This is not a
 guarantee: a value written another way, or another profile's value, is the [leak scan's](#export-preview) job.
 

@@ -60,9 +60,16 @@ function shortHostname(hostname: string): string {
  * `a-z0-9` made one `-`, `-` trimmed from both ends, cut to 24 characters
  * and trimmed again. */
 function aliasForm(text: string): string {
-  const dashed = text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const trimmed = dashed.replace(/^-+|-+$/g, "");
-  return trimmed.slice(0, ALIAS_LIMIT).replace(/-+$/, "");
+  return dashedForm(text).slice(0, ALIAS_LIMIT).replace(/-+$/, "");
+}
+
+/** `text` lowercased, each run of characters outside `a-z0-9` made one `-`,
+ * `-` trimmed from both ends; not cut. */
+function dashedForm(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 /** Whether `name` is the hostname, or its short form, once both are in alias
@@ -87,10 +94,7 @@ export function suggestAlias(
   os: Os,
   hostname: string,
 ): string | undefined {
-  const alias = `${profile}-${os}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  const alias = dashedForm(`${profile}-${os}`);
   const checked = checkAlias(alias, { hostname });
   return "error" in checked ? undefined : checked.alias;
 }

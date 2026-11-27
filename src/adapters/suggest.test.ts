@@ -168,6 +168,9 @@ describe("suggestions", () => {
     "two\nlines\n",
     "Ana\u001b[31mLopez\n",
     "Ana\u009bLopez\n",
+    "Ana\u202eLopez\n",
+    "Ana\u200bLopez\n",
+    "Ana\u2028Lopez\n",
   ])("should give no suggestion for the output %p", async (stdout) => {
     const { runner } = answering({ code: 0, stdout });
 

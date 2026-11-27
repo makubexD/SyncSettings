@@ -158,7 +158,7 @@ value in the file, and import puts it back, so pick values specific enough not t
   | `gh-path`        | the path of `gh` on `PATH`, found as `mksync doctor` finds it                                      |
 
   Enter takes the suggestion, shown as `GitHub username (~/.gitconfig.local) [you]:`; end of input never takes it. A
-  source that fails, prints nothing, or prints more than one line or a control character doesn't answer, and the next
+  source that fails, prints nothing, or prints more than one line or a control or Unicode format character doesn't answer, and the next
   one runs. `--yes` (push and pull), `preview` and `diff` never use one, with one exception: a rule with a `default`
   and `gh-path` in its `suggest` takes the found `gh` path in place of the default, without asking, and saves it with
   the machine's values so export sanitizes it; without `gh` on `PATH` the default is used. An empty list, a repeated

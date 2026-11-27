@@ -124,6 +124,8 @@ describe("suggestAlias", () => {
     ["work2", WINDOWS, "work2-windows"],
     ["personal", LINUX, "personal-linux"],
     ["Work_2", WINDOWS, "work-2-windows"],
+    ["日本", LINUX, "linux"],
+    ["", LINUX, "linux"],
   ])("should suggest %p on %p as %p", (profile, os, expected) => {
     expect(suggestAlias(profile, os, SHORT_HOSTNAME)).toBe(expected);
   });

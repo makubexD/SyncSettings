@@ -57,8 +57,11 @@ const NO_ANSWER_CODE = 1;
 /** The line end a source prints after its answer. */
 const TRAILING_LINE_END = /\r?\n$/;
 
-/** C0 and C1 control characters, which a prompt must not echo to the terminal. */
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
+/** C0 and C1 control characters, and the Unicode format characters that
+ * reorder or hide text (bidi overrides, zero-width marks, line separators,
+ * the BOM), which a prompt must not echo to the terminal. */
+const CONTROL_CHARACTER =
+  /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
 
 /** The passwd field that holds the user's full name (GECOS), counted from 0. */
 const PASSWD_NAME_FIELD = 4;
