@@ -1976,6 +1976,15 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - Removing a key in a later layer stays open. `p` doesn't need it, since it adds the shared key on this machine.
   - work #2's `statusLine`: `p` keeps its PowerShell statusline in profile work2, where it overrides the shared
     `mksync statusline`, so a later shared statusline change won't reach work #2. The promote command settles it.
+  - From the finish review: pull's value questions save nothing when one of them gets end of input or an empty answer,
+    even the ones answered before it, so the next pull asks them again (the guard stops as before, as the contract
+    says). Saving the answered ones would need `askExportValues` to return them on a stop.
+  - From the finish review: a push that `--force` passed past a failed diff and that ends `Nothing to send.` on a
+    clean clone records the sync point, though the contract calls such a push partial. A clean clone after a full
+    export means both sides agree, so it is likely harmless; decide whether to add the partial check.
+  - From the finish review: change numbers can now have gaps, and a number with no change would make the move
+    question throw. No move rule today removes a line below the highest number; treat an unassigned number as
+    `Pick 1 to <n>.` if one ever does.
 
 ### Confirm on Windows
 
