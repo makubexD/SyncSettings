@@ -1,0 +1,47 @@
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  parity  settings.json  a: 1 -> 2
+  2  M  parity  settings.json  b: 1 -> 2
+Linux machines
+     (none)
+Profile work-1
+     (none)
+This machine only
+     (none)
+
+Move a change? Type its number, or press Enter to go on: Move it to? 1) all machines  2) Linux machines  3) profile work-1  4) this machine [1] Changes on wk1-laptop (profile work-1):
+
+All machines
+  2  M  parity  settings.json  b: 1 -> 2
+Linux machines
+     (none)
+Profile work-1
+  1  +  parity  settings.json  a: 2
+This machine only
+     (none)
+
+Move a change? Type its number, or press Enter to go on: Move it to? 1) all machines  2) Linux machines  3) profile work-1  4) this machine [1] Changes on wk1-laptop (profile work-1):
+
+All machines
+     (none)
+Linux machines
+     (none)
+Profile work-1
+  1  +  parity  settings.json  a: 2
+  2  +  parity  settings.json  b: 2
+This machine only
+     (none)
+
+Move a change? Type its number, or press Enter to go on:   MODIFIED   profiles/work-1/parity/settings.json
+
+  --------------------------------------------------
+
+  1 file(s) copied to the repo.
+
+  Review the changes, then run  mksync push
+
+  --------------------------------------------------
+
+ M profiles/work-1/parity/settings.json
+  Open a PR with these changes? [y/N]   Nothing sent; the repo folder is as it was.
