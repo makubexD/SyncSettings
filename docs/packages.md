@@ -9,20 +9,20 @@ anything.
 
 ## The lists
 
-| File                              | Holds                                                    | Line format                                           |
-| --------------------------------- | -------------------------------------------------------- | ----------------------------------------------------- |
-| `apt.txt`                         | Packages from an apt source                              | `<package>`                                           |
-| `deb.txt`                         | `.deb` files that no apt source offers                   | `<package> <https url> <sha256>`                      |
-| `apt-sources/*.sources`, `*.list` | Third-party apt sources                                  | Copied from `/etc/apt/sources.list.d/`, byte for byte |
-| `apt-sources/keyrings/*.gpg`      | The public key each source names                         | Copied from the keyring folder, byte for byte         |
-| `snap.txt`                        | Snaps                                                    | `<name> [classic] [channel=<channel>]`, in that order |
-| `npm.txt`                         | npm globals under nvm's newest Node                      | `<package>` or `@scope/name`                          |
-| `pipx.txt`                        | pipx apps                                                | `<package>`                                           |
-| `vscode-extensions.txt`           | Default-profile extensions                               | `<publisher.name>`, lower case                        |
-| `fonts.txt`                       | Nerd Fonts                                               | `<asset> <tag> <sha256>`                              |
-| `gnome-extensions.txt`            | GNOME Shell extensions                                   | `<uuid> <github url> <commit>`                        |
-| `tools.txt`                       | Tools with no apt source: `bun`, `copilot`, `nvm`, `rtk` | `<name> <https url> <sha256>`                         |
-| `drift-ignore.txt`                | Installed names that aren't yours to restore             | `<manager> <name>`                                    |
+| File                                  | Holds                                                    | Line format                                           |
+| ------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| `apt.txt`                             | Packages from an apt source                              | `<package>`                                           |
+| `deb.txt`                             | `.deb` files that no apt source offers                   | `<package> <https url> <sha256>`                      |
+| `apt-sources/*.sources`, `*.list`     | Third-party apt sources                                  | Copied from `/etc/apt/sources.list.d/`, byte for byte |
+| `apt-sources/keyrings/*.gpg`, `*.asc` | The public key each source names                         | Copied from the keyring folder, byte for byte         |
+| `snap.txt`                            | Snaps                                                    | `<name> [classic] [channel=<channel>]`, in that order |
+| `npm.txt`                             | npm globals under nvm's newest Node                      | `<package>` or `@scope/name`                          |
+| `pipx.txt`                            | pipx apps                                                | `<package>`                                           |
+| `vscode-extensions.txt`               | Default-profile extensions                               | `<publisher.name>`, lower case                        |
+| `fonts.txt`                           | Nerd Fonts                                               | `<asset> <tag> <sha256>`                              |
+| `gnome-extensions.txt`                | GNOME Shell extensions                                   | `<uuid> <github url> <commit>`                        |
+| `tools.txt`                           | Tools with no apt source: `bun`, `copilot`, `nvm`, `rtk` | `<name> <https url> <sha256>`                         |
+| `drift-ignore.txt`                    | Installed names that aren't yours to restore             | `<manager> <name>`                                    |
 
 Each `.txt` list has one entry per line, sorted with `LC_ALL=C`, with no duplicates. Blank lines and lines starting with `#`
 are allowed. Versions float unless a line carries a pin, and a line carries a pin only when the download has no signed

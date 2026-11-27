@@ -1989,6 +1989,15 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - From the finish review: change numbers can now have gaps, and a number with no change would make the move
     question throw. No move rule today removes a line below the highest number; treat an unassigned number as
     `Pick 1 to <n>.` if one ever does.
+- **GNOME extensions with another layout (2026-11-27).** The bootstrap's extension recipe copies `metadata.json`,
+  `stylesheet.css`, `src/modern/*.js` and `schemas/`, the layout of `clipboard-history`. An extension that is one flat
+  `extension.js`, such as `activate-window-by-title@lucaswerkmeister.de` on the personal machine, would stop with
+  `build failed`, so it is in `drift-ignore.txt` for now. Decide a per-extension recipe (or a flat-layout fallback)
+  before listing it.
+- **Armored keys in drift (2026-11-27).** `apt-sources/keyrings/` takes `.asc` keys (Docker's `docker.asc`), and the
+  bootstrap installs them, but the drift report's `apt-key` row still looks only for `.gpg` names
+  (`KEY_EXTENSION` in `src/core/drift.ts` and `src/adapters/packages.ts`), so a missing `docker.asc` isn't reported.
+  Give the row both extensions with a shared case, in the program's next release.
 - **Left by the preview-drift finish review (`docs/plan-preview-drift.md`, 2026-11-27).** Now that preview and push
   read `packages/linux/`, a few hardening items are open; none is reachable without a hostile clone or config:
   - A symlink under `packages/linux/` (or the folder itself) is followed: a list linked to a private file prints its

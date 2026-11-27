@@ -156,7 +156,7 @@ if [[ -d $DIR/apt-sources ]]; then
         rel=${path#"$DIR"/}
         case $rel in
             apt-sources/keyrings/*)
-                if [[ $rel == *.gpg && ${rel#apt-sources/keyrings/} != */* ]]; then
+                if [[ ( $rel == *.gpg || $rel == *.asc ) && ${rel#apt-sources/keyrings/} != */* ]]; then
                     keys+=("$rel")
                 else
                     bad "$rel" 1 'unknown list'

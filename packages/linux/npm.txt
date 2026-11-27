@@ -1,3 +1,5 @@
+@openai/codex
 omniroute
 opencode-ai
 repown
+sigil
