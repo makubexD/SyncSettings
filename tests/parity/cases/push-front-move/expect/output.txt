@@ -1,7 +1,7 @@
   No sync is recorded on this machine, so the newer side of each file is unknown. mksync preview shows each change.
 
   dotfiles/common/parity/settings.json  1 line(s) changed
-  Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] 
+  Send this machine's version (s), keep its differences in profile work-1 (p), take the repo's (r) or skip (k)? [p] 
 Changes on wk1-laptop (profile work-1):
 
 All machines

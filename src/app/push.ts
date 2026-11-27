@@ -71,6 +71,11 @@ export interface PushDeps {
    * on. */
   readonly askValues: () => Promise<Result | undefined>;
   readonly hasSyncPoint: () => Promise<boolean>;
+  /** The machine record's profile, or `undefined` without a record. */
+  readonly recordProfile: () => string | undefined;
+  /** Whether the first-sync picker offers `p` for the file at repo path
+   * `path`: its entry is `json` or `whole`. */
+  readonly offersKeep: (path: string) => boolean;
   /** `export --diff`, with the conflict blocks when asked for. */
   readonly runDiff: (
     only: readonly string[],
@@ -146,6 +151,29 @@ const CHOICE_QUESTION =
 
 /** The picker's line for any other answer, before it asks again. */
 const PICK_CHOICE = "  Pick s, r or k.\n";
+
+/** The same, when the question offers `p`. */
+const PICK_CHOICE_KEEP = "  Pick s, p, r or k.\n";
+
+/** The profile whose first-sync suggestion is `s`: the personal machine
+ * shares by default (design "New settings"). */
+const PERSONAL_PROFILE = "personal";
+
+/** The picker's question when it offers `p`, with the suggestion an empty
+ * answer takes. */
+function keepQuestion(profile: string, suggestion: Choice): string {
+  return `  Send this machine's version (s), keep its differences in profile ${profile} (p), take the repo's (r) or skip (k)? [${suggestion}] `;
+}
+
+/** `p` where it is offered on a work profile, `s` otherwise. */
+function suggestionFor(profile: string): Choice {
+  return profile === PERSONAL_PROFILE ? "s" : "p";
+}
+
+/** `--yes` with no sync point, when some files stay in the profile. */
+function keptWarning(count: number, profile: string): string {
+  return `  WARNING: no sync is recorded on this machine; the differences of ${count} file(s) stay in profile ${profile}, the rest are sent.\n`;
+}
 
 const NO_SYNC_POINT =
   "  WARNING: no sync is recorded on this machine, so this sends every file that differs.\n";
@@ -290,56 +318,108 @@ type GuardOutcome =
       readonly shown: string;
       readonly skip: readonly string[];
       readonly take: readonly string[];
+      /** The files whose differences stay in the profile (`p`). */
+      readonly keep: readonly string[];
       readonly partial: boolean;
       readonly nothingToSend?: boolean;
     };
 
-/** A picker answer: send, take the repo's, or skip the file. */
-type Choice = "s" | "r" | "k";
+/** A picker answer: send, keep in the profile, take the repo's, or skip. */
+type Choice = "s" | "p" | "r" | "k";
 
-/** The choice `answer` names, ignoring case and spaces around it. */
-function pickChoice(answer: string): Choice | undefined {
+/** What one file's question offers: `p` with its profile and the suggestion
+ * an empty answer takes, or only `s`, `r` and `k`. */
+type ChoiceOffer =
+  | { readonly keep: false }
+  | {
+      readonly keep: true;
+      readonly profile: string;
+      readonly suggestion: Choice;
+    };
+
+/** The choice `answer` names, ignoring case and spaces around it; an empty
+ * answer takes the suggestion, and `p` counts only where it is offered. */
+export function pickChoice(
+  answer: string,
+  offer: ChoiceOffer,
+): Choice | undefined {
   const typed = trimAnswer(answer).toLowerCase();
+  if (typed === "" && offer.keep) {
+    return offer.suggestion;
+  }
+  if (typed === "p") {
+    return offer.keep ? "p" : undefined;
+  }
   return typed === "s" || typed === "r" || typed === "k" ? typed : undefined;
 }
 
 /**
- * Ask `CHOICE_QUESTION` until the answer is `s`, `r` or `k`; any other answer
- * prints `PICK_CHOICE` first. `undefined` at end of input.
+ * Ask the file's question until the answer names a choice; any other answer
+ * prints the `Pick` line first. `undefined` at end of input.
  */
-async function askOneChoice(deps: PushDeps): Promise<Choice | undefined> {
+async function askOneChoice(
+  deps: PushDeps,
+  offer: ChoiceOffer,
+): Promise<Choice | undefined> {
+  const question = offer.keep
+    ? keepQuestion(offer.profile, offer.suggestion)
+    : CHOICE_QUESTION;
+  const pick = offer.keep ? PICK_CHOICE_KEEP : PICK_CHOICE;
   for (;;) {
-    const answer = await deps.askChoice(CHOICE_QUESTION);
+    const answer = await deps.askChoice(question);
     if (answer === undefined) {
       return undefined;
     }
-    const choice = pickChoice(answer);
+    const choice = pickChoice(answer, offer);
     if (choice !== undefined) {
       return choice;
     }
-    deps.print({ code: 0, stdout: PICK_CHOICE, stderr: "" });
+    deps.print({ code: 0, stdout: pick, stderr: "" });
   }
+}
+
+/** What the picker offers for `path`. */
+function offerFor(path: string, deps: PushDeps): ChoiceOffer {
+  const profile = deps.recordProfile();
+  if (profile === undefined || !deps.offersKeep(path)) {
+    return { keep: false };
+  }
+  return { keep: true, profile, suggestion: suggestionFor(profile) };
+}
+
+/** The `?` paths of a diff report, in path order. */
+function unknownPaths(report: DiffReport): readonly string[] {
+  return report.labels
+    .filter(({ label }) => label === "?")
+    .map(({ path }) => path)
+    .sort();
 }
 
 /**
  * Contract "Front door", no sync point, interactive: ask about each file the
  * diff labels `?`, in path order. `r` files are taken, `r` and `k` files left
- * out of the export; end of input is `k` for that file and every one after.
+ * out of the export, `p` files kept in the profile; end of input is `k` for
+ * that file and every one after.
  */
 async function pickFirstSync(
   report: DiffReport,
   deps: PushDeps,
 ): Promise<GuardOutcome> {
-  const unknown = report.labels
-    .filter(({ label }) => label === "?")
-    .map(({ path }) => path)
-    .sort();
+  const unknown = unknownPaths(report);
   if (unknown.length === 0) {
-    return { kind: "go", shown: "", skip: [], take: [], partial: false };
+    return {
+      kind: "go",
+      shown: "",
+      skip: [],
+      take: [],
+      keep: [],
+      partial: false,
+    };
   }
   deps.print({ code: 0, stdout: FIRST_SYNC_HEADER, stderr: "" });
   const take: string[] = [];
   const skip: string[] = [];
+  const keep: string[] = [];
   let ended = false;
   for (const path of unknown) {
     if (ended) {
@@ -352,14 +432,17 @@ async function pickFirstSync(
       stdout: `\n  ${path}  ${lines} line(s) changed\n`,
       stderr: "",
     });
-    const choice = await askOneChoice(deps);
+    const choice = await askOneChoice(deps, offerFor(path, deps));
     if (choice === undefined) {
       ended = true;
     }
     if (choice === "r") {
       take.push(path);
     }
-    if (choice !== "s") {
+    if (choice === "p") {
+      keep.push(path);
+    }
+    if (choice !== "s" && choice !== "p") {
       skip.push(path);
     }
   }
@@ -370,9 +453,43 @@ async function pickFirstSync(
     shown: "",
     skip,
     take,
+    keep,
     partial: skip.length > 0,
     nothingToSend: skip.length === unknown.length,
   };
+}
+
+/**
+ * Contract "Front door", no sync point, `--yes`: each file takes its
+ * suggestion, so with a work record the diff runs and every `?` file that
+ * offers `p` stays in the profile. Without one, or when the diff fails, every
+ * file that differs is sent, as before.
+ */
+async function yesFirstSync(
+  input: PushInput,
+  deps: PushDeps,
+): Promise<GuardOutcome> {
+  const sendAll: GuardOutcome = {
+    kind: "go",
+    shown: NO_SYNC_POINT,
+    skip: [],
+    take: [],
+    keep: [],
+    partial: false,
+  };
+  const profile = deps.recordProfile();
+  if (profile === undefined || suggestionFor(profile) !== "p") {
+    return sendAll;
+  }
+  const report = reportOf(await deps.runDiff(input.paths, false));
+  if (report === undefined) {
+    return sendAll;
+  }
+  const keep = unknownPaths(report).filter((path) => deps.offersKeep(path));
+  if (keep.length === 0) {
+    return sendAll;
+  }
+  return { ...sendAll, shown: keptWarning(keep.length, profile), keep };
 }
 
 /** The diff's labels, when it ran to its end. */
@@ -391,13 +508,7 @@ async function guardPush(
 ): Promise<GuardOutcome> {
   const hasSyncPoint = await deps.hasSyncPoint();
   if (!hasSyncPoint && input.yes) {
-    return {
-      kind: "go",
-      shown: NO_SYNC_POINT,
-      skip: [],
-      take: [],
-      partial: false,
-    };
+    return yesFirstSync(input, deps);
   }
   const diff = await deps.runDiff(input.paths, hasSyncPoint && !input.force);
   const report = reportOf(diff);
@@ -405,7 +516,14 @@ async function guardPush(
     if (input.force) {
       // No sync point and no diff: the push sends every file that differs.
       const shown = hasSyncPoint ? "" : NO_SYNC_POINT;
-      return { kind: "go", shown, skip: [], take: [], partial: true };
+      return {
+        kind: "go",
+        shown,
+        skip: [],
+        take: [],
+        keep: [],
+        partial: true,
+      };
     }
     // A picked path that isn't synced fails the diff: its line says so.
     const reason = input.paths.length > 0 ? diff.stdout : "";
@@ -435,7 +553,14 @@ async function guardPush(
   }
   const left = linesOf("IN");
   if (left.length === 0) {
-    return { kind: "go", shown: "", skip: [], take: [], partial: false };
+    return {
+      kind: "go",
+      shown: "",
+      skip: [],
+      take: [],
+      keep: [],
+      partial: false,
+    };
   }
   return {
     kind: "go",
@@ -444,6 +569,7 @@ async function guardPush(
       .filter(({ label }) => label === "IN")
       .map(({ path }) => path),
     take: [],
+    keep: [],
     partial: true,
   };
 }

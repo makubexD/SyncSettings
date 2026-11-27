@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Result } from "./export.ts";
 import type { MoveSession, PushDeps, PushInput } from "./push.ts";
-import { askMoves, executePush } from "./push.ts";
+import { askMoves, executePush, pickChoice } from "./push.ts";
 
 const MOVE_QUESTION =
   "Move a change? Type its number, or press Enter to go on: ";
@@ -127,6 +127,8 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     refusal: async () => undefined,
     askValues: async () => undefined,
     askChoice: async () => undefined,
+    recordProfile: () => undefined,
+    offersKeep: () => false,
     runImport: async () => ({ code: 0, stdout: "", stderr: "" }),
     hasSyncPoint: async () => true,
     runDiff: async () => diffOf(),
@@ -892,5 +894,173 @@ describe("executePush first-sync picker", () => {
     expect(run.questions).toEqual([]);
     expect(run.printed).toContain("WARNING: no sync is recorded");
     expect(run.skips).toEqual([[]]);
+  });
+});
+
+const WORK_PROFILE = "work-1";
+const KEEP_QUESTION_WORK =
+  "  Send this machine's version (s), keep its differences in profile work-1 (p), take the repo's (r) or skip (k)? [p] ";
+const KEEP_QUESTION_PERSONAL =
+  "  Send this machine's version (s), keep its differences in profile personal (p), take the repo's (r) or skip (k)? [s] ";
+const PICK_CHOICE_KEEP = "  Pick s, p, r or k.\n";
+const KEPT_WARNING =
+  "  WARNING: no sync is recorded on this machine; the differences of 2 file(s) stay in profile work-1, the rest are sent.\n";
+const WORK_OFFER = {
+  keep: true,
+  profile: WORK_PROFILE,
+  suggestion: "p",
+} as const;
+const NO_OFFER = { keep: false } as const;
+
+/** A work record whose picker offers `p` for every file but `C`. */
+const WORK_RECORD: Partial<PushDeps> = {
+  recordProfile: () => WORK_PROFILE,
+  offersKeep: (path) => path !== C,
+};
+
+describe("pickChoice", () => {
+  test.each<[string, string]>([
+    ["s", "s"],
+    ["p", "p"],
+    ["r", "r"],
+    ["k", "k"],
+    [" P ", "p"],
+    ["", "p"],
+  ])("should read %p as %p when p is offered", (answer, choice) => {
+    expect(pickChoice(answer, WORK_OFFER) as string | undefined).toBe(choice);
+  });
+
+  test.each<[string]>([["p"], [""], ["x"]])(
+    "should read %p as no choice when p is not offered",
+    (answer) => {
+      expect(pickChoice(answer, NO_OFFER)).toBeUndefined();
+    },
+  );
+});
+
+describe("executePush first-sync picker with p", () => {
+  test("should offer p with the work suggestion and ask without it where not offered", async () => {
+    // Arrange
+    const answers = ["s", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.questions).toEqual([
+      KEEP_QUESTION_WORK,
+      KEEP_QUESTION_WORK,
+      CHOICE_QUESTION,
+    ]);
+  });
+
+  test("should suggest s on personal and take it on Enter", async () => {
+    // Arrange
+    const answers = ["", "", "s"];
+
+    // Act
+    const run = await runPicker(answers, {
+      ...WORK_RECORD,
+      recordProfile: () => "personal",
+    });
+
+    // Assert
+    expect(run.questions[0]).toBe(KEEP_QUESTION_PERSONAL);
+    expect(run.skips).toEqual([[]]);
+    expect(run.commits).toEqual([false]);
+  });
+
+  test("should keep a file on Enter on a work profile, not skip it", async () => {
+    // Arrange
+    const answers = ["", "p", "k"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.skips).toEqual([[C]]);
+    expect(run.imports).toEqual([]);
+    expect(run.commits).toEqual([true]);
+  });
+
+  test("should not offer p without a record", async () => {
+    // Arrange
+    const answers = ["s", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, { offersKeep: () => true });
+
+    // Assert
+    expect(run.questions).toEqual([
+      CHOICE_QUESTION,
+      CHOICE_QUESTION,
+      CHOICE_QUESTION,
+    ]);
+  });
+
+  test("should print the p pick line where p is offered and the old one where not", async () => {
+    // Arrange: A and B offer p, C doesn't; p on C is no answer there.
+    const answers = ["x", "s", "s", "p", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.printed.split(PICK_CHOICE_KEEP)).toHaveLength(2);
+    expect(run.printed.split(PICK_CHOICE)).toHaveLength(2);
+  });
+
+  test("should skip the rest at end of input even where p is suggested", async () => {
+    // Arrange
+    const answers = ["p", undefined];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.questions).toHaveLength(2);
+    expect(run.skips).toEqual([[B, C]]);
+  });
+
+  test("should run the export when every file is kept", async () => {
+    // Arrange
+    const answers = ["p", "p", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.result.stdout).not.toBe(FIRST_SYNC_NOTHING);
+    expect(run.skips).toEqual([[]]);
+  });
+
+  test("--yes on a work record keeps the p files after the warning that names the profile", async () => {
+    // Arrange
+    const answers: string[] = [];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD, pushInput({ yes: true }));
+
+    // Assert
+    expect(run.questions).toEqual([]);
+    expect(run.printed).toStartWith(KEPT_WARNING);
+    expect(run.skips).toEqual([[]]);
+  });
+
+  test("--yes on personal sends everything after the old warning", async () => {
+    // Arrange
+    const answers: string[] = [];
+
+    // Act
+    const run = await runPicker(
+      answers,
+      { ...WORK_RECORD, recordProfile: () => "personal" },
+      pushInput({ yes: true }),
+    );
+
+    // Assert
+    expect(run.printed).toContain(
+      "WARNING: no sync is recorded on this machine, so this sends every file that differs.",
+    );
   });
 });

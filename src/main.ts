@@ -37,6 +37,7 @@ import { runImport } from "./app/import.ts";
 import { executePull } from "./app/pull.ts";
 import type { FetchResult } from "./app/pull.ts";
 import { executePush } from "./app/push.ts";
+import type { ConfigV2 } from "./core/config/types.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
@@ -131,6 +132,21 @@ const PUSH_STATUS_PATHS = [
 
 /** The push paths whose files the diff guard can call `IN`. */
 const GUARDED_PATHS = ["dotfiles", "profiles", "machines"] as const;
+
+/** A repo path's layer folder: `dotfiles/<os>/`, `profiles/<p>/` or
+ * `machines/<m>/`. */
+const LAYER_FOLDER = /^(?:dotfiles|profiles|machines)\/[^/]+\//;
+
+/** Contract "No sync point, interactive": the picker offers `p` for a file
+ * whose entry is `json` or `whole`. `path` is the diff's repo path. */
+function entryOffersKeep(config: ConfigV2, path: string): boolean {
+  const file = path.replace(LAYER_FOLDER, "");
+  return config.entries.some(
+    (entry) =>
+      entry.file === file &&
+      (entry.merge === "json" || entry.merge === "whole"),
+  );
+}
 
 /** The record check that stops a push, before its diff guard. */
 function pushRefusal(
@@ -396,6 +412,11 @@ async function execute(
             },
             hasSyncPoint: async () =>
               (await readSyncPoint(repoRoot, state)) !== undefined,
+            recordProfile: () => {
+              const layers = loadLayers(state, repoRoot, config.value);
+              return layers.ok ? layers.value.record?.profile : undefined;
+            },
+            offersKeep: (path) => entryOffersKeep(config.value, path),
             runDiff: (only, conflicts) => execute(diffCommand(only, conflicts)),
             runExport: (only, yes, skip) =>
               execute(pushExportCommand(only, yes, skip), {
