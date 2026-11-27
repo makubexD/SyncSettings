@@ -651,8 +651,12 @@ Drift is never reported in an import, a check or a diff. `mksync doctor` adds on
 `DRIFT`: `WARN drift: <n> package(s) differ; run mksync preview`.
 
 **Leak scan.** An extension UUID has the shape of an address, so a whole well-formed line of
-`packages/linux/gnome-extensions.txt` is exempt from the email rule. An address anywhere else in that file still fails, and so
-does the same line in any other file.
+`packages/linux/gnome-extensions.txt` is exempt from the email rule, and so is a whole `extension <uuid>` line of
+`packages/linux/drift-ignore.txt`. The UUID must use the characters `check-packages.sh` allows (letters, digits, `.`,
+`_`, `-`), and one whose part after `@` is a mail provider's own domain (`gmail.com`, `outlook.com`, …, matched whole)
+still fails, since that is an address. An address anywhere else in those files still fails, and so does the same line in
+any other file. The `private-key` rule also catches an armored PGP private key (`-----BEGIN PGP PRIVATE KEY BLOCK-----`),
+now that `apt-sources/keyrings/` takes `.asc` keys.
 
 ## Up-to-date check
 

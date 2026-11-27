@@ -68,11 +68,23 @@ scan_rule() {
     done <<<"$out"
 }
 
+# is_mail_domain <domain>: whether a domain is a mail provider's own, matched
+# whole and ignoring case, so an extension UUID at it is treated as an address.
+is_mail_domain() {
+    case ${1,,} in
+        gmail.com | googlemail.com | outlook.com | outlook.* | hotmail.* | live.com | live.* | msn.com \
+            | yahoo.* | ymail.com | icloud.com | me.com | mac.com | proton.me | protonmail.com | pm.me \
+            | gmx.* | aol.com | mail.com | zoho.com | yandex.* | fastmail.com)
+            return 0 ;;
+    esac
+    return 1
+}
+
 # scan_email <pattern>: report a line unless every address on it is allowed.
 # One disallowed address is enough, even when the line also has an allowed one.
 scan_email() {
     local pattern=$1
-    local out status=0 hit file addr text bad
+    local out status=0 hit file addr text bad uuid
     out=$(grep -rnHIE -- "$pattern" "${PATHS[@]}") || status=$?
     if (( status > 1 )); then
         printf 'ERROR: scan failed for rule email\n' >&2
@@ -88,9 +100,21 @@ scan_email() {
         if [[ $file == *dotfiles/linux/gnome/dconf/*.ini && $text =~ ^(enabled|disabled)-extensions= ]]; then
             continue
         fi
-        # A UUID has the shape of an address; a whole line of this list is safe.
-        if [[ $file == *packages/linux/gnome-extensions.txt \
-            && $text =~ ^[^[:space:]@]+@[^[:space:]@]+\ https://github\.com/[^[:space:]@]+\ [0-9a-f]{40}$ ]]; then
+        # A UUID has the shape of an address; a whole line of this list is safe,
+        # and so is a whole `extension <uuid>` line of drift-ignore.txt. The UUID
+        # takes check-packages.sh's characters, and a mail provider's bare domain
+        # still hits: `x@gmail.com` is an address, `x@name.gmail.com` a namespace.
+        uuid=
+        if [[ ( $file == packages/linux/gnome-extensions.txt || $file == */packages/linux/gnome-extensions.txt ) \
+            && $file != *dotfiles/* \
+            && $text =~ ^([A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9._-]+)\ https://github\.com/[^[:space:]@]+\ [0-9a-f]{40}$ ]]; then
+            uuid=${BASH_REMATCH[1]}
+        elif [[ ( $file == packages/linux/drift-ignore.txt || $file == */packages/linux/drift-ignore.txt ) \
+            && $file != *dotfiles/* \
+            && $text =~ ^extension\ ([A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9._-]+)$ ]]; then
+            uuid=${BASH_REMATCH[1]}
+        fi
+        if [[ -n $uuid ]] && ! is_mail_domain "${uuid#*@}"; then
             continue
         fi
         bad=0
@@ -124,7 +148,7 @@ scan_email() {
 scan_rule home-path '/home/[a-z_][a-z0-9_-]*'
 scan_rule windows-profile '[A-Za-z]:(\\+|/+)Users(\\+|/+)[^<%\\/"]+'
 scan_email '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
-scan_rule private-key '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+scan_rule private-key '-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----'
 scan_rule github-token 'gh[pousr]_[A-Za-z0-9]{30,}'
 scan_rule api-key 'sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}'
 

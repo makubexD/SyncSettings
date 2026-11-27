@@ -1,3 +1,4 @@
+apt apt-transport-https
 apt dash
 apt diffutils
 apt efibootmgr
@@ -17,6 +18,7 @@ apt language-pack-gnome-en
 apt language-pack-gnome-en-base
 apt libchewing3
 apt libchewing3-data
+apt libffi-dev
 apt libm17n-0
 apt libmarisa1
 apt libopencc-data
@@ -27,12 +29,14 @@ apt libpinyin15
 apt linux-generic-hwe-24.04
 apt linux-modules-nvidia-580-generic-hwe-26.04
 apt linux-tools-common
+apt lsb-release
 apt m17n-db
 apt ncurses-base
 apt ncurses-bin
 apt nvidia-driver-580
 apt shim-signed
 apt sysstat
+apt tailscale-archive-keyring
 apt ubuntu-desktop-minimal
 apt ubuntu-minimal
 apt ubuntu-restricted-addons
@@ -44,6 +48,7 @@ apt-source ubuntu-esm-apps.sources
 apt-source ubuntu-esm-infra.sources
 apt-source ubuntu.sources
 apt-source ubuntu.sources.curtin.orig
+extension activate-window-by-title@lucaswerkmeister.de
 npm corepack
 npm npm
 snap canonical-livepatch
