@@ -1,0 +1,42 @@
+{
+  "description": "Push with a work record and no sync point offers p for a json entry with p suggested; Enter keeps the changed key, the new key and the new array item in the profile layer, changes no base key, writes the local file from its layers with a .bak so it gains the base key it lacked, opens no PR and records the sync point, exit 0 (Front door, push; No sync point, interactive; Sync point).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig",
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "\n"
+    }
+  ]
+}
