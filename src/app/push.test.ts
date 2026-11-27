@@ -952,7 +952,10 @@ const WORK_OFFER = {
   profile: WORK_PROFILE,
   suggestion: "p",
 } as const;
-const NO_OFFER = { keep: false } as const;
+const NO_OFFER = { keep: false, suggestion: undefined } as const;
+const NO_KEEP_WORK_OFFER = { keep: false, suggestion: "k" } as const;
+const CHOICE_QUESTION_WORK = `${CHOICE_QUESTION}[k] `;
+const CHOICE_QUESTION_PERSONAL = `${CHOICE_QUESTION}[s] `;
 
 /** A work record whose picker offers `p` for every file but `C`. */
 const WORK_RECORD: Partial<PushDeps> = {
@@ -973,11 +976,28 @@ describe("pickChoice", () => {
   });
 
   test.each<[string]>([["p"], [""], ["x"]])(
-    "should read %p as no choice when p is not offered",
+    "should read %p as no choice when p is not offered and nothing is suggested",
     (answer) => {
       expect(pickChoice(answer, NO_OFFER)).toBeUndefined();
     },
   );
+
+  test.each<[string, string]>([
+    ["", "k"],
+    ["s", "s"],
+    [" R ", "r"],
+  ])(
+    "should read %p as %p when p is not offered and k is suggested",
+    (answer, choice) => {
+      expect(pickChoice(answer, NO_KEEP_WORK_OFFER) as string | undefined).toBe(
+        choice,
+      );
+    },
+  );
+
+  test("should read p as no choice when p is not offered even with a suggestion", () => {
+    expect(pickChoice("p", NO_KEEP_WORK_OFFER)).toBeUndefined();
+  });
 });
 
 describe("executePush first-sync picker with p", () => {
@@ -992,8 +1012,49 @@ describe("executePush first-sync picker with p", () => {
     expect(run.questions).toEqual([
       KEEP_QUESTION_WORK,
       KEEP_QUESTION_WORK,
-      CHOICE_QUESTION,
+      CHOICE_QUESTION_WORK,
     ]);
+  });
+
+  test("should skip a file with no p on Enter on a work profile", async () => {
+    // Arrange
+    const answers = ["p", "p", ""];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.questions[2]).toBe(CHOICE_QUESTION_WORK);
+    expect(run.skips).toEqual([[C]]);
+    expect(run.keeps).toEqual([[A, B]]);
+  });
+
+  test("should send a file with no p on Enter on personal", async () => {
+    // Arrange
+    const answers = ["", "", ""];
+
+    // Act
+    const run = await runPicker(answers, {
+      ...WORK_RECORD,
+      recordProfile: () => "personal",
+    });
+
+    // Assert
+    expect(run.questions[2]).toBe(CHOICE_QUESTION_PERSONAL);
+    expect(run.skips).toEqual([[]]);
+    expect(run.commits).toEqual([false]);
+  });
+
+  test("should take a typed answer over the suggestion for a file with no p", async () => {
+    // Arrange
+    const answers = ["p", "p", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.skips).toEqual([[]]);
+    expect(run.keeps).toEqual([[A, B]]);
   });
 
   test("should suggest s on personal and take it on Enter", async () => {

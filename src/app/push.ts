@@ -163,6 +163,14 @@ const FIRST_SYNC_HEADER =
 const CHOICE_QUESTION =
   "  Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k] ";
 
+/** The picker's question with no `p`: a suggestion, when there is one, ends
+ * it in brackets. */
+function choiceQuestion(suggestion: Choice | undefined): string {
+  return suggestion === undefined
+    ? CHOICE_QUESTION
+    : `${CHOICE_QUESTION}[${suggestion}] `;
+}
+
 /** The picker's line for any other answer, before it asks again. */
 const PICK_CHOICE = "  Pick s, r or k.\n";
 
@@ -182,6 +190,12 @@ function keepQuestion(profile: string, suggestion: Choice): string {
 /** `p` where it is offered on a work profile, `s` otherwise. */
 function suggestionFor(profile: string): Choice {
   return profile === PERSONAL_PROFILE ? "s" : "p";
+}
+
+/** For a file with no `p`: `s` on `personal`, `k` on any other profile, so
+ * an Enter on a work machine never sends a file to the shared layers. */
+function noKeepSuggestionFor(profile: string): Choice {
+  return profile === PERSONAL_PROFILE ? "s" : "k";
 }
 
 /** `--yes` with no sync point, when some files stay in the profile. */
@@ -349,9 +363,10 @@ type GuardOutcome =
 type Choice = "s" | "p" | "r" | "k";
 
 /** What one file's question offers: `p` with its profile and the suggestion
- * an empty answer takes, or only `s`, `r` and `k`. */
+ * an empty answer takes, or only `s`, `r` and `k`, with a suggestion when
+ * there is a machine record and none without one. */
 type ChoiceOffer =
-  | { readonly keep: false }
+  | { readonly keep: false; readonly suggestion: Choice | undefined }
   | {
       readonly keep: true;
       readonly profile: string;
@@ -365,7 +380,7 @@ export function pickChoice(
   offer: ChoiceOffer,
 ): Choice | undefined {
   const typed = trimAnswer(answer).toLowerCase();
-  if (typed === "" && offer.keep) {
+  if (typed === "" && offer.suggestion !== undefined) {
     return offer.suggestion;
   }
   if (typed === "p") {
@@ -384,7 +399,7 @@ async function askOneChoice(
 ): Promise<Choice | undefined> {
   const question = offer.keep
     ? keepQuestion(offer.profile, offer.suggestion)
-    : CHOICE_QUESTION;
+    : choiceQuestion(offer.suggestion);
   const pick = offer.keep ? PICK_CHOICE_KEEP : PICK_CHOICE;
   for (;;) {
     const answer = await deps.askChoice(question);
@@ -402,8 +417,11 @@ async function askOneChoice(
 /** What the picker offers for `path`. */
 function offerFor(path: string, deps: PushDeps): ChoiceOffer {
   const profile = deps.recordProfile();
-  if (profile === undefined || !deps.offersKeep(path)) {
-    return { keep: false };
+  if (profile === undefined) {
+    return { keep: false, suggestion: undefined };
+  }
+  if (!deps.offersKeep(path)) {
+    return { keep: false, suggestion: noKeepSuggestionFor(profile) };
   }
   return { keep: true, profile, suggestion: suggestionFor(profile) };
 }
