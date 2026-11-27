@@ -1,0 +1,40 @@
+{
+  "description": "Doctor warns when git signs in as a GitHub account other than the repo owner's: no helper names the owner and the active gh account is not the owner (Front door, git login).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "doctor"
+    }
+  ],
+  "stubs": [
+    "gh"
+  ],
+  "originUrl": "https://github.com/owner1/SyncSettings.git",
+  "ghAccounts": [
+    "work1",
+    "owner1"
+  ]
+}

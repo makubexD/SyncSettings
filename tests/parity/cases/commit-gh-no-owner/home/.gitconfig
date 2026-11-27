@@ -1,0 +1,4 @@
+[syncsettings]
+	machine = parity
+[url "../origin.git"]
+	insteadOf = https://github.com/owner1/SyncSettings.git

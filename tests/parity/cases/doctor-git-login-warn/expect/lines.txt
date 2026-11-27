@@ -1,0 +1,3 @@
+OK       gh (signed in)
+WARN     git login: git signs in as another GitHub account; run the install line again
+OK       repo clone with origin

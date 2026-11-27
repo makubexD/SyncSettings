@@ -381,6 +381,21 @@ function Validate-Case {
         }
     }
 
+    $gitConfigProp = $case.PSObject.Properties['gitConfigLocal']
+    if ($null -ne $gitConfigProp) {
+        $cfgPairs = @($gitConfigProp.Value)
+        if ($gitConfigProp.Value -isnot [array]) { Die 'gitConfigLocal must be a list of [key, value] string pairs' }
+        foreach ($pair in $cfgPairs) {
+            $pairItems = @($pair)
+            if ($pair -isnot [array] -or $pairItems.Count -ne 2 -or $pairItems[0] -isnot [string] -or $pairItems[1] -isnot [string] -or $pairItems[0] -notmatch '^[A-Za-z0-9.:/_-]+$') {
+                Die 'gitConfigLocal must be a list of [key, value] string pairs, keys of letters, digits and . : / _ -'
+            }
+        }
+        if (-not ($null -ne $gitProp -and $gitProp.Value -is [string] -and ($gitProp.Value -ceq 'remote' -or $gitProp.Value -ceq 'committed'))) {
+            Die 'gitConfigLocal needs git committed or remote'
+        }
+    }
+
     $syncPointProp = $case.PSObject.Properties['syncPoint']
     if ($null -ne $syncPointProp -and $syncPointProp.Value -isnot [bool]) {
         Die 'syncPoint must be a boolean'
@@ -1172,6 +1187,20 @@ function Run-Case {
         if ($null -ne $caseOriginProp) {
             $originUrl = [string]$caseOriginProp.Value
             Invoke-Git -What 'git remote set-url' -GitArgs @('-C', $repoDir, 'remote', 'set-url', 'origin', $originUrl)
+        }
+
+        # gitConfigLocal pairs go into the clone's own config, in order, as
+        # `git config --local --add`. PowerShell 5.1 drops an empty native
+        # argument, so an empty value is passed as a literal pair of quotes,
+        # which git receives as the empty string.
+        $cfgProp = $Case.PSObject.Properties['gitConfigLocal']
+        if ($null -ne $cfgProp) {
+            foreach ($pair in @($cfgProp.Value)) {
+                $cfgItems = @($pair)
+                $cfgValue = [string]$cfgItems[1]
+                if ($cfgValue -eq '') { $cfgValue = '""' }
+                Invoke-Git -What 'git config --local' -GitArgs @('-C', $repoDir, 'config', '--local', '--add', [string]$cfgItems[0], $cfgValue)
+            }
         }
 
         # An unsent/ tree goes over the repo's working tree after the commit and

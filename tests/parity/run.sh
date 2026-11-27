@@ -228,6 +228,11 @@ validate_case() {
     if jq -e 'has("originUrl")' "$json" > /dev/null 2>&1; then
         jq -e '.git == "remote"' "$json" > /dev/null 2>&1 || die 'originUrl needs git remote'
     fi
+    jq -e 'if has("gitConfigLocal") then (.gitConfigLocal | type) == "array" and all(.gitConfigLocal[]; type == "array" and length == 2 and all(.[]; type == "string") and (.[0] | test("^[A-Za-z0-9.:/_-]+$"))) else true end' \
+        "$json" > /dev/null 2>&1 || die 'gitConfigLocal must be a list of [key, value] string pairs, keys of letters, digits and . : / _ -'
+    if jq -e 'has("gitConfigLocal")' "$json" > /dev/null 2>&1; then
+        jq -e '.git == "committed" or .git == "remote"' "$json" > /dev/null 2>&1 || die 'gitConfigLocal needs git committed or remote'
+    fi
     if [[ -d $dir/unsent ]]; then
         jq -e '.git == "committed" or .git == "remote"' "$json" > /dev/null 2>&1 \
             || die 'unsent/ needs git committed or remote'
@@ -806,6 +811,12 @@ run_case() {
     if [[ -n $origin_url ]]; then
         git_env -C "$t/repo" remote set-url origin "$origin_url" || die 'git remote set-url failed'
     fi
+
+    # gitConfigLocal pairs go into the clone's own config, in order, as
+    # `git config --local --add`: a key twice makes a multi-valued entry.
+    while IFS= read -r -d '' cfg_key && IFS= read -r -d '' cfg_value; do
+        git_env -C "$t/repo" config --local --add "$cfg_key" "$cfg_value" || die "git config $cfg_key failed"
+    done < <(jq -j '(.gitConfigLocal // [])[] | .[0], "\u0000", .[1], "\u0000"' "$dir/case.json")
 
     # An unsent/ tree goes over the repo's working tree after the commit and
     # stays uncommitted, so `git status --porcelain` shows it. Plain cp -R
