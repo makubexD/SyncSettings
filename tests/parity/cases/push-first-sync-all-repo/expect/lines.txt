@@ -1,0 +1,6 @@
+# 1
+No sync is recorded on this machine, so the newer side of each file is unknown. mksync preview shows each change.
+Nothing to send.
+# 2
+This machine and the repo agree.
+! none recorded on this machine
