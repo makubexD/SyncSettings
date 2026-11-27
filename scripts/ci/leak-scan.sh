@@ -96,6 +96,15 @@ scan_email() {
         bad=0
         while [[ $text =~ $pattern ]]; do
             addr=${BASH_REMATCH[0],,}
+            # The SSH address of a big public Git host (insteadOf = git@github.com:)
+            # names no one. git@ at any other host still hits: a company's own Git
+            # server names the company.
+            case $addr in
+                git@github.com | git@gitlab.com | git@bitbucket.org | git@ssh.dev.azure.com)
+                    text=${text#*"${BASH_REMATCH[0]}"}
+                    continue
+                    ;;
+            esac
             if [[ $addr != *@users.noreply.github.com && $addr != *@example.com && $addr != *@anthropic.com ]]; then
                 bad=1
                 break
