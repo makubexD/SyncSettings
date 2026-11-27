@@ -132,6 +132,9 @@
           "placeholder": "<GH_CLI_PATH>",
           "prompt": "Path to GitHub CLI executable",
           "default": "C:\\Program Files\\GitHub CLI\\gh.exe",
+          "suggest": [
+            "gh-path"
+          ],
           "escapeBackslashes": true
         }
       ],

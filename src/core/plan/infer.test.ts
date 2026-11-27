@@ -237,3 +237,33 @@ describe("exportInferredValues", () => {
     });
   });
 });
+
+describe("found gh path", () => {
+  const ghRule = {
+    placeholder: "<GH_CLI_PATH>",
+    prompt: "Path to GitHub CLI executable",
+    default: "/usr/local/bin/gh",
+    suggest: ["gh-path" as const],
+  };
+  const foundGh = "/usr/bin/gh";
+
+  test.each([
+    ["pull", inferredFor],
+    ["push", exportInferredFor],
+  ])("should infer the found gh path on %s", (_label, infer) => {
+    // Arrange
+    const snapshot = {
+      ...snapshotOf({ ...FILE_ENTRY, sanitize: [RULE, ghRule] }, LOCAL_TEXT),
+      ghPath: foundGh,
+    };
+
+    // Act
+    const inferred = infer(snapshot);
+
+    // Assert
+    expect(inferred).toEqual({
+      [PLACEHOLDER]: LOCAL_NAME,
+      "<GH_CLI_PATH>": foundGh,
+    });
+  });
+});

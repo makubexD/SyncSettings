@@ -1,6 +1,10 @@
 import type { SelectedEntry } from "../layers/select.ts";
 import { valueEnv } from "../values/env.ts";
-import { inferValues, inferValuesUnique } from "../values/hydrate.ts";
+import {
+  foundGhPathValues,
+  inferValues,
+  inferValuesUnique,
+} from "../values/hydrate.ts";
 import type { Values } from "../values/sanitize.ts";
 import { resolvedLocal } from "./pick.ts";
 import type { Snapshot } from "./types.ts";
@@ -41,7 +45,24 @@ export function inferredValues(
       }
     }
   }
-  return Object.fromEntries(inferred);
+  return {
+    ...foundGhPaths(snapshot, selected),
+    ...Object.fromEntries(inferred),
+  };
+}
+
+/**
+ * The found `gh` path for the selected entries' rules that take it: a value
+ * read from the machine, so a file's own value still comes first.
+ */
+function foundGhPaths(
+  snapshot: Snapshot,
+  selected: readonly SelectedEntry[],
+): Values {
+  return foundGhPathValues(
+    selected.flatMap((entry) => entry.entry.sanitize ?? []),
+    snapshot.ghPath,
+  );
 }
 
 /** A value read from a `json` entry's text, unescaped as JSON reads it. */
@@ -111,7 +132,9 @@ export function exportInferredValues(
       );
     }
   }
-  const values: Record<string, string> = {};
+  const values: Record<string, string> = {
+    ...foundGhPaths(snapshot, selected),
+  };
   for (const [placeholder, value] of inferred) {
     if (value !== null && value.length > 0 && !fromEnv.has(placeholder)) {
       values[placeholder] = value;
