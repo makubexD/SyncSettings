@@ -22,7 +22,8 @@ Branch `engine/gh-account`. Contract: `docs/sync-contract.md` ("Front door": `do
 
 ## Decided (proposed, for review)
 
-1. **The owner** is the owner in the clone's `origin` URL (`parseGitHubOrigin`, `src/adapters/visibility.ts`). The
+1. **The owner** is the owner in the clone's `origin` URL as configured (`git config --get remote.origin.url`, before
+   any `insteadOf` rewrite; parsed with `parseGitHubOrigin`, `src/adapters/visibility.ts`). The
    **owner token** is what `gh auth token --user <owner>` prints. No owner (not a GitHub origin), a failing or empty
    answer, or an owner name outside `^[A-Za-z0-9-]{1,39}$` means no owner token: everything runs as today.
 2. **Every `gh` call `mksync` makes** (`pr create`, `release view`, `release download`, `repo view`) runs with
