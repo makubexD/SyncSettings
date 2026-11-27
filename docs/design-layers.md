@@ -1939,6 +1939,17 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     contract's "shared or under `dotfiles/windows/`". Harmless, since writes are unchanged.
   - The shared cases can't say a file is absent from the state folder, so the first-sync cases don't check that a
     partial push records no sync point; a private-repo push (values saved on the record or profile) has no case.
+  - A `defaultEnv` value counts as known, but push saves it only when its entry is exported, so for an entry with no
+    local file the commit's search never knows it. Only `<HOME>` uses `defaultEnv` today, and the leak scan finds home
+    paths on Linux and Windows, not `/Users/<name>` on macOS. Save every `defaultEnv` value before the guard, or add
+    the run's to the search, and add a macOS home rule to the leak scan.
+  - A value whose rule is only on another OS's or profile's entries (`<YOUR_GH_ORG>` is ruled only on Windows'
+    `.gitconfig.local`) is unknown on this machine, so a shared file holding it goes out: the never-send word list
+    above would catch it.
+  - Private mode, before this plan: the export moves the record and profile into the clone (`machines/`,
+    `profiles/`), and the commit then stops with `commit or stash changes outside dotfiles/ first.`: `commit.ts`'s
+    sync paths don't include them, while push's status paths do. Nothing leaks; it must be fixed before the private
+    switch.
 
 ### Confirm on Windows
 
