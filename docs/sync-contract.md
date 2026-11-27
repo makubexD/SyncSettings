@@ -666,8 +666,11 @@ was committed.`, prints no diff and exits 1.
   in entry order, before the other status lines. The preview goes on with the other files: their status lines, the
   summary, the leak scan and the diff. A skipped file is left out of the export as a push's `IN` file is, so the temp
   tree holds its repo copy unchanged: it shows no diff and adds nothing new to scan. The guard's held block still
-  follows. The preview then exits 1, after
-  `Nothing was written. Run mksync push to send it.`, so a script still sees it.
+  follows. The summary counts them after the files that would change:
+  `  3 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).`, also when no other file would
+  change (`  0 file(s) would change; 1 more …`, not `Repo is up to date.`). Without a waiting file the summary
+  is unchanged. The preview then exits 1, after `Nothing was written. Run mksync push to send it.`, so a script still
+  sees it.
 - With no differences: `Nothing would be sent: the repo matches HEAD.` A file deleted from `dotfiles/` but still in
   `HEAD`, and an edit to `sync-config.json`, are differences.
 - `--preview` with `--reset-values` is an error, and a preview outside a git repo with a commit is an error. Both exit 1.
@@ -699,7 +702,8 @@ overwrites them (each keeps a .bak).` then `If you changed them on this machine,
   `import` side file its own layer. `+` is a key or file the local copy lacks (a new file is `new file, <n> line(s)`),
   `M` one that differs, `-` a key the import would drop, listed under the entry's latest layer. A json change prints
   both sides sanitized, as the [push preview](#push-preview) does: the repo side the placeholder its layer
-  holds, the local side the placeholder the value it replaces stands in for. Nothing to change: no block. Pull asks
+  holds, the local side the placeholder the value it replaces stands in for. A value nothing fills prints as its
+  placeholder (`<YOUR_GH_OWNER>/sigil`), never as the program's internal marker. Nothing to change: no block. Pull asks
   once for all groups; skipping a group isn't offered.
 
 ## Sync point
@@ -727,6 +731,13 @@ writes nothing either, for the same reason as a partial import: the machine agre
 push that left an `IN` file, a recorded point would make that file read as `OUT`, and the next push would undo the
 repo's change. A commit that fast-forwarded the clone first writes nothing either: no diff compared the commits it
 brought with this machine.
+
+A push that sends nothing and leaves this machine in agreement with the repo records it too: when the push ends with
+`Nothing to send.` (every first-sync file answered `r` or `p`, or every change kept in a private layer), it writes
+`HEAD` when no file was answered `k`, no path was picked, `git status --porcelain` over the push paths (`dotfiles`,
+`packages`, `sync-config.json`, `profiles`, `machines`) is empty, and `HEAD` is `origin/master` after the push's
+fetch. With a `k` file, picked paths, a dirty clone, a clone behind `origin/master` or a failed fetch, it writes
+nothing, as before.
 
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 
@@ -859,7 +870,7 @@ system, except where this section says otherwise.
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `mksync`, `mksync status`                          | Prints OS, repo, origin, unsent, machine, and the next command. When the check finds changes and a sync point exists, it runs the diff: the machine line gives its summary (`N file(s) differ: I in, O out, B both`) and the next command is `mksync pull` (in only), `mksync push` (out only), or `mksync diff, then push or pull file by file.` (both, or in and out). No sync point, a failed diff or a diff that agrees keeps the plain machine line and next command. Writes nothing in the repo or home; it fetches `origin master`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 0                                                               |
 | `mksync doctor`                                    | One `OK`, `WARN` or `MISSING` line per check, below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 0, or 1 with a `MISSING` line                                   |
-| `mksync pull [--yes] [--force] [path…]`            | Refuses with exported changes not sent. Fetches, fast-forwards, then the import check. Nothing to change: a pull without paths still runs the import to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [y/N]` and runs `mksync import --force`. Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 0, or 1 on an error                                             |
+| `mksync pull [--yes] [--force] [path…]`            | Refuses with exported changes not sent. Fetches, fast-forwards, then (without `--yes`) asks for every value of this machine's entries that nothing fills, with push's questions, suggestions and saving (an empty answer or end of input goes on, and the guard stops as before), then the import check. Nothing to change: a pull without paths still runs the import to record the sync point. Changes with no sync point: `--yes` refuses, interactive warns and asks `Apply these changes? [y/N]`. Otherwise (unless `--force`) the diff stops it on an `OUT` or `BOTH` file; then asks `Apply these changes? [y/N]` and runs `mksync import --force`. Picked paths go to the check, the diff and the import as `--only`, so a partial pull records no sync point                                                                                                                                                                                                                                                                             | 0, or 1 on an error                                             |
 | `mksync push [--yes] [--force] [-m <msg>] [path…]` | First runs `git fetch -q origin master`: any commit in `HEAD..origin/master` stops it with `ERROR: origin has updates; run mksync pull first.`, nothing exported (a failed fetch skips this check). Then asks for every value of this machine's entries that nothing fills, picked paths or not (with `--yes`, an unknown one stops it), then the diff guards it (with no sync point and no `--yes`, it asks per file instead): an `IN` file is left alone, a `BOTH` file stops it unless `--force`. Then runs the export without the `IN` files. Picked paths go to the diff and the export as `--only`. Any path, an `IN` file left alone, an `r` or `k` answer to the first-sync question, or a failed diff passed with `--force` makes `mksync commit` run with `--partial`, so that push records no sync point. Nothing changed: `Nothing to send`. Otherwise shows `git status --short` (over `dotfiles`, `packages`, `sync-config.json`, `profiles` and `machines`), asks `Open a PR with these changes? [y/N]`, then runs `mksync commit` | 0, or the failing step's code                                   |
 | `mksync diff [path…]`                              | Fetches `origin master` with the status's 15-second timeout; offline prints `Offline: comparing with the last fetch.` and carries on. Then runs `mksync export --diff` ([Diff](#diff)): one line per changed file saying which side changed it. Picked paths go through as `--only`, so only those are labeled and counted. Writes nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 0 when nothing differs, 3 when something does, or 1 on an error |
 | `mksync check`, `mksync preview`                   | The [import check](#import-check) and the [export preview](#export-preview); neither writes anything                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 0, 3 from a check that found changes, or 1 on an error          |
@@ -926,6 +937,15 @@ diff after the value questions and before the export; a failed fetch leaves it c
     WARNING: no sync is recorded on this machine, so this sends every file that differs.
   ```
 
+  With a machine record, `--yes` takes each file's suggestion from the question below instead: `p` where it is offered
+  on a work profile, `s` otherwise. On a work profile that needs the diff: when it fails, the push stops with the
+  could-not-tell line, exit 1, nothing exported, as the interactive push does (`--force` sends every file that
+  differs). When at least one file takes `p`, the warning names the profile and the count:
+
+  ```text
+    WARNING: no sync is recorded on this machine; the differences of 1 file(s) stay in profile work2, the rest are sent.
+  ```
+
 - **No sync point, interactive**: after the value questions ([Push asks](#sanitize-and-hydrate)), the diff runs and
   push asks about each file it labels `?`, in path order, with its line count:
 
@@ -936,11 +956,41 @@ diff after the value questions and before the export; a failed fetch leaves it c
     Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k]
   ```
 
+  With a machine record and a `json` or `whole` entry, the question also offers `p`, keep this machine's differences
+  in its profile, and ends with a suggestion:
+
+  ```text
+    dotfiles/common/claude/settings.json  109 line(s) changed
+    Send this machine's version (s), keep its differences in profile work2 (p), take the repo's (r) or skip (k)? [p]
+  ```
+
+  The suggestion is `p` on any profile but `personal`, `s` on `personal`; an empty answer takes it. Without a record,
+  or for an `import`, `dconf` or `dir` entry, the question stays `[s/r/k]` with no suggestion, and an empty
+  answer asks again.
+
   `s` sends the file; `r` overwrites the local file with the repo's, as `mksync pull --force <path>` does (keeping a
-  `.bak`); `k` leaves both sides. Any other answer prints `  Pick s, r or k.` and asks again; end of input is `k` for
-  that file and every one after it. The `r` files are imported first (a failed import stops the push with its code),
-  then the export runs with the `r` and `k` files skipped, then the commit and PR as usual. With no `s` file the push
-  prints `  Nothing to send.` and exits 0, with no PR. `mksync setup`'s `keep` and `backup` answers are unchanged.
+  `.bak`); `k` leaves both sides. `p` keeps the file's differences in the profile layer and changes neither the base
+  nor the OS layer:
+
+  - `json`: every changed or new key and every new array item goes to the profile layer, as a
+    [move](#move-a-change) to `profile <p>` would place it. A key or array item the base or OS layer has and the local
+    file lacks is removed nowhere. After the export, the local file is written from its layers, as an import writes
+    it (keeping a `.bak`), so it gains those settings; every value this machine already had stays as it was.
+  - `whole`: the local file becomes the profile layer's copy; the base keeps its own.
+  - Before the export's status lines for that entry it prints
+    `  PROFILE    dotfiles/common/claude/settings.json  (9 change(s) kept in profile work2; 4 shared setting(s) added here)`.
+  - A `p` file gets no [new-setting](#new-settings) question: its new settings already have the profile as their
+    layer.
+  - The profile layer is private: while the repo is public it stays in local state ("Held until the repo is
+    private", [Public-repo guard](#public-repo-guard)), so `p` alone opens no PR.
+
+  Any other answer prints `  Pick s, p, r or k.` when `p` is offered, else `  Pick s, r or k.` (`p` included), and
+  asks again; end of input is `k` for that file and every one after it. The `r` files are imported first (a failed
+  import stops the push with its code), then the export runs with the `r` and `k` files skipped and the `p` files
+  kept in the profile, then the import of the `p` files (a failed one stops the push with its code), then the commit
+  and PR as usual. With nothing left to send the push prints `  Nothing to send.`, records the
+  [sync point](#sync-point) when it may, and exits 0, with no PR. `mksync setup`'s `keep` and `backup` answers are
+  unchanged.
 
 The export skips the `IN` files instead of picking the `OUT` ones, so any other file an earlier export left stale in the
 repo folder is rewritten, and a [linked folder](#linked-folders)'s files, which `--only` refuses, are still sent.
@@ -1836,7 +1886,8 @@ Move a change? Type its number, or press Enter to go on:
 
 - A number from the block asks `Move it to? 1) all machines  2) <Os> machines  3) profile <p>  4) this machine
 [<current>]`, where `<current>` is the number of the group the change is in. Any other answer to either question
-  prints `Pick 1 to <n>.` and asks again; an empty answer or end of input to the first one goes on.
+  prints `Pick 1 to <n>.` and asks again; an empty answer or end of input to the first one goes on. End of input to
+  either question ends its line, so the output after it starts on a line of its own.
 - A `json` key moved to a narrower group is written into that group's layer and left as it was in the old one: the
   narrower layer now overrides it for the machines it covers. Moved to a wider group, it is written into the new
   layer and removed from the old one, unless a layer between the two sets it, which would win once it's gone; then the
@@ -1851,7 +1902,10 @@ Move a change? Type its number, or press Enter to go on:
   `"editor.formatOnSave"`) moves whole. A move that removes the last key of an object removes the emptied object too.
 - A layer file a move creates prints its `ADDED` or `MODIFIED` line right after its entry's other lines, before any
   `ORPHAN` line.
-- The block prints again after each move, with the change under its new group and its number kept.
+- The block prints again after each move, with the change under its new group and its number kept. A change's number
+  is set once, when the block first prints, and stays with it through every move; new settings keep theirs too. A group
+  lists its changes in number order, so a moved change can appear between higher numbers, and typing a number always
+  names the same change.
 - The [profile-value rule](#profile-values) and the [guard](#public-repo-guard) run after the
   last move, so moving a change to `profile <p>` lets a refused value through.
 - `--yes` and a machine without a record never ask; nothing moves.

@@ -1,5 +1,5 @@
 {
-  "description": "A record with an alias, written right after name, is accepted: push with --yes exports the change, commits it and opens the PR without asking, exit 0 (The PR; plan-windows-hotfix decisions 1 and 3, the alias saved in the record and asked only when missing).",
+  "description": "A record with an alias, written right after name, is accepted: push with --yes and a sync point exports the change, commits it and opens the PR without asking, exit 0 (The PR; plan-windows-hotfix decisions 1 and 3, the alias saved in the record and asked only when missing).",
   "os": [
     "linux"
   ],
@@ -40,5 +40,6 @@
         "yes": true
       }
     }
-  ]
+  ],
+  "syncPoint": true
 }

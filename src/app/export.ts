@@ -36,7 +36,13 @@ import type {
   LocalBackup,
   RepoBackup,
 } from "../core/machine/backup.ts";
-import { changeLines } from "../core/plan/changes.ts";
+import {
+  changeLines,
+  changeMoveSources,
+  compactJson,
+  fileLabel,
+} from "../core/plan/changes.ts";
+import type { MoveSource } from "../core/plan/changes.ts";
 import { KNOWN_VALUE_HINT, knownValueLine } from "../core/plan/commit.ts";
 import { exportMissingRules, planExport } from "../core/plan/export.ts";
 import {
@@ -46,7 +52,8 @@ import {
   OS_TITLES,
   withoutNewSettings,
 } from "../core/plan/groups.ts";
-import { applyMove } from "../core/plan/move.ts";
+import type { KeptNumbers } from "../core/plan/groups.ts";
+import { applyMove, keepInProfile } from "../core/plan/move.ts";
 import {
   MATCHES_HEAD,
   NOTHING_WRITTEN,
@@ -313,6 +320,9 @@ export interface ExecuteOptions {
   readonly moves?: boolean;
   /** Push's value questions only, before its guard (`askPushValues`). */
   readonly askValues?: boolean;
+  /** Pull's use of them: a question left unanswered goes on instead of
+   * stopping, so the pull's guard decides (contract "Front door", pull). */
+  readonly unansweredGoesOn?: boolean;
   readonly terminal?: SetupTerminal;
 }
 
@@ -370,16 +380,17 @@ export const CANNOT_LIST_TRACKED =
  * settings and ask each path's question through the terminal `setup` uses.
  * Settings that share a destination key are listed together, and the question
  * comes after the last of them; its answer is the answer for all of them. The
- * head is computed with the suggestion as a provisional answer, since the
- * answered plan isn't known until the questions are through.
+ * head comes from `tentative`, the plan with the suggestions as provisional
+ * answers, since the answered plan isn't known until the questions are
+ * through.
  */
 async function askSettings(
   snapshot: Snapshot,
+  tentative: RunPlan,
   settings: readonly NewSettingLine[],
   question: NewSettingQuestion,
   io: SetupIo,
 ): Promise<readonly NewSettingChoice[]> {
-  const tentative = planExport(snapshot, suggestionAnswers(settings, question));
   const grouped = groupedBlock(
     withoutNewSettings(changeLines(tentative, snapshot), settings),
     snapshot.record,
@@ -571,11 +582,30 @@ function moveGroupOf(layer: LayerName): 1 | 2 | 3 | 4 {
 }
 
 /** The block's change lines for `plan`, with the answered new settings dropped
- * (they print under `New settings`), and each line's index in `changeLines`,
- * which `applyMove` takes. */
+ * (they print under `New settings`), each line's index in `changeLines`, which
+ * `applyMove` takes, and each line's identity, which a move keeps. */
 interface ShownChanges {
   readonly lines: readonly ChangeLine[];
   readonly indexes: readonly number[];
+  readonly identities: readonly (string | undefined)[];
+}
+
+/**
+ * What a change stays through a move (contract "Move a change": its number is
+ * kept): the entry, the file the line names, the kind of change, its key path
+ * and its array item. The layer, the change kind and the value text are left
+ * out, since a move changes them.
+ * shortcut: an `import` side file's name holds its layer, so a side file moved
+ * to another layer counts as a new change and takes the next free number.
+ */
+function changeIdentity(line: ChangeLine, source: MoveSource): string {
+  return [
+    source.entry.entry.file,
+    line.file,
+    source.kind,
+    JSON.stringify(source.keyPath),
+    source.item === undefined ? "" : compactJson(source.item),
+  ].join("\u0000");
 }
 
 function shownChanges(
@@ -584,8 +614,50 @@ function shownChanges(
   settings: readonly NewSettingLine[],
 ): ShownChanges {
   const all = changeLines(plan, snapshot);
+  const sources = changeMoveSources(plan, snapshot);
   const lines = withoutNewSettings(all, settings);
-  return { lines, indexes: lines.map((line) => all.indexOf(line)) };
+  const indexes = lines.map((line) => all.indexOf(line));
+  const identities = indexes.map((index) => {
+    const line = all[index];
+    const source = sources[index];
+    return line === undefined || source === undefined
+      ? undefined
+      : changeIdentity(line, source);
+  });
+  return { lines, indexes, identities };
+}
+
+/** The numbers `first` gave each identity, the first line winning a shared
+ * one. */
+function numbersByIdentity(
+  first: ShownChanges,
+  record: { readonly name: string; readonly profile: string },
+  os: Os,
+): ReadonlyMap<string, number> {
+  const numbers = changeLineNumbers(first.lines, record, os);
+  const byIdentity = new Map<string, number>();
+  first.identities.forEach((identity, at) => {
+    const number = numbers[at];
+    if (
+      identity !== undefined &&
+      number !== undefined &&
+      number > 0 &&
+      !byIdentity.has(identity)
+    ) {
+      byIdentity.set(identity, number);
+    }
+  });
+  return byIdentity;
+}
+
+/** The kept number of each of `shown`'s lines, parallel to its lines. */
+function keptNumbers(
+  shown: ShownChanges,
+  byIdentity: ReadonlyMap<string, number>,
+): KeptNumbers {
+  return shown.identities.map((identity) =>
+    identity === undefined ? undefined : byIdentity.get(identity),
+  );
 }
 
 /** One shown change the block numbers `number`: its layer and the index
@@ -602,8 +674,9 @@ function changeForNumber(
   record: { readonly name: string; readonly profile: string },
   os: Os,
   number: number,
+  kept: KeptNumbers,
 ): NumberedChange | undefined {
-  const at = changeLineNumbers(shown.lines, record, os).indexOf(number);
+  const at = changeLineNumbers(shown.lines, record, os, kept).indexOf(number);
   const line = at === -1 ? undefined : shown.lines[at];
   const index = at === -1 ? undefined : shown.indexes[at];
   if (line === undefined || index === undefined || index < 0) {
@@ -636,15 +709,30 @@ async function askMoveQuestions(
   }
   let current = plan;
   const shown = (): ShownChanges => shownChanges(current, snapshot, settings);
-  if (shown().lines.length === 0) {
+  const first = shown();
+  if (first.lines.length === 0) {
     return { ok: true, plan };
   }
+  // Contract "Move a change": a change's number is set by the block's first
+  // print and kept through every move.
+  const byIdentity = numbersByIdentity(first, record, snapshot.os);
+  const kept = (): KeptNumbers => keptNumbers(shown(), byIdentity);
   const session: MoveSession = {
     get lineCount() {
-      return shown().lines.length;
+      const now = shown();
+      return Math.max(
+        0,
+        ...changeLineNumbers(now.lines, record, snapshot.os, kept()),
+      );
     },
     groupOf: (number) => {
-      const change = changeForNumber(shown(), record, snapshot.os, number);
+      const change = changeForNumber(
+        shown(),
+        record,
+        snapshot.os,
+        number,
+        kept(),
+      );
       if (change === undefined) {
         throw new Error(`no change on line ${number}`);
       }
@@ -652,7 +740,13 @@ async function askMoveQuestions(
     },
     targets: `1) all machines  2) ${OS_TITLES[snapshot.os]} machines  3) profile ${record.profile}  4) this machine`,
     move: (number, group) => {
-      const change = changeForNumber(shown(), record, snapshot.os, number);
+      const change = changeForNumber(
+        shown(),
+        record,
+        snapshot.os,
+        number,
+        kept(),
+      );
       if (change === undefined) {
         return { ok: false, error: `no change on line ${number}` };
       }
@@ -669,7 +763,15 @@ async function askMoveQuestions(
       return {
         ok: true,
         value: writeLines(
-          groupBlock(shown().lines, record, snapshot.os, "push", settings),
+          groupBlock(
+            shown().lines,
+            record,
+            snapshot.os,
+            "push",
+            settings,
+            [],
+            kept(),
+          ),
         ),
       };
     },
@@ -690,7 +792,7 @@ async function askMoveQuestions(
  * their layer's group. A profile value bound for a shared layer stops the run
  * before anything is written, with the refused lines after the block. With
  * `blockPrinted`, the caller already printed the block, ahead of the
- * first-backup questions.
+ * first-backup questions. `notes` print before the status lines.
  */
 function runExportPlan(
   plan: RunPlan,
@@ -701,6 +803,7 @@ function runExportPlan(
   backup?: FirstBackupRun,
   answers?: ReadonlyMap<string, BackupSide>,
   blockPrinted = false,
+  notes: readonly string[] = [],
 ): ExportRun {
   const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
   const refused = exportRefusal(plan, snapshot, lines);
@@ -727,6 +830,7 @@ function runExportPlan(
     choices,
     backup,
     answers,
+    notes,
   );
   if (blockPrinted || (lines.length === 0 && settings.length === 0)) {
     return applied;
@@ -915,6 +1019,7 @@ function applyExportPlan(
   choices: readonly NewSettingChoice[],
   backup: FirstBackupRun | undefined,
   answers: ReadonlyMap<string, BackupSide> | undefined,
+  notes: readonly string[] = [],
 ): ExportRun {
   const outcome = runPlan(plan, context);
   // A failed write fails the export: nothing more is stored or backed up.
@@ -959,7 +1064,7 @@ function applyExportPlan(
   return {
     result: {
       code,
-      stdout: writeLines(rendered.lines),
+      stdout: writeLines([...notes, ...rendered.lines]),
       stderr,
       repoPaths: touchedRepoPaths(plan),
     },
@@ -1026,20 +1131,29 @@ export async function askExportValues(
  * asked, and an unknown value stops the push before anything is exported.
  * Then every known value is saved where a full export would save it, the
  * inferred ones too. Exit 0 goes on; an empty answer, end of input, an
- * unknown value or a refused write stops with its line.
+ * unknown value or a refused write stops with its line. With
+ * `unansweredGoesOn` (pull), an empty answer or end of input saves nothing
+ * and goes on, and so does a value still unknown, so the caller's own guard
+ * stops as it did before the questions.
  */
 export async function askPushValues(
   env: RunEnvironment,
   command: RunCommand,
   terminal: SetupTerminal,
+  unansweredGoesOn = false,
 ): Promise<Result> {
   const { snapshot, context } = await buildRun(env, command);
   const asked = await askExportValues(snapshot, terminal.io, command.yes);
   if (!asked.ok) {
-    return failure(asked.line);
+    if (!unansweredGoesOn) {
+      return failure(asked.line);
+    }
+    // The question's line is still open; the pull's own output starts below it.
+    terminal.io.write("\n");
+    return { code: 0, stdout: "", stderr: "" };
   }
   const unknown = exportMissingRules(asked.snapshot)[0];
-  if (unknown !== undefined) {
+  if (unknown !== undefined && !unansweredGoesOn) {
     return failure(missingValueLine(unknown.rule.placeholder));
   }
   const prepare = planExport(asked.snapshot).prepare ?? [];
@@ -1060,6 +1174,75 @@ export async function askPushValues(
   return outcome.refused === undefined
     ? { code: 0, stdout: "", stderr: "" }
     : failure(outcome.refused);
+}
+
+/** A layer's folder in a repo path: `dotfiles/<os>/`, `profiles/<name>/` or
+ * `machines/<name>/`. */
+const LAYER_FOLDER = /^(?:dotfiles|profiles|machines)\/[^/]+\//;
+
+/** The config entry's `file` that a layer's repo path holds. */
+export function layerEntryFile(path: string): string {
+  return path.replace(LAYER_FOLDER, "");
+}
+
+/** Whether a new setting is in one of the `keep` files, whose new settings
+ * end in the profile with no question (contract "No sync point, interactive",
+ * `p`). */
+function keptSettingTest(
+  config: ConfigV2,
+  keep: readonly string[],
+): (setting: NewSettingLine) => boolean {
+  const files = new Set(keep.map(layerEntryFile));
+  return (setting) =>
+    config.entries.some(
+      (entry) =>
+        files.has(entry.file) &&
+        entry.module === setting.module &&
+        fileLabel(entry.file) === setting.file,
+    );
+}
+
+/** The plan with each `keep` file's changes placed in the profile, and the
+ * `PROFILE` line for each; a placement's error stops the export. */
+type KeptPlan =
+  | {
+      readonly ok: true;
+      readonly plan: RunPlan;
+      readonly notes: readonly string[];
+    }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Contract "No sync point, interactive", `p`: plan with `answers`, then keep
+ * each `keep` file's differences in the record's profile, in path order.
+ * Without a `keep` file or a record the plan is `planExport`'s.
+ */
+function planKept(
+  snapshot: Snapshot,
+  answers: ReadonlyMap<string, LayerName>,
+  keep: readonly string[],
+): KeptPlan {
+  let plan = planExport(snapshot, answers);
+  const profile = snapshot.record?.profile;
+  if (keep.length === 0 || profile === undefined) {
+    return { ok: true, plan, notes: [] };
+  }
+  const notes: string[] = [];
+  for (const path of keep) {
+    const kept = keepInProfile(plan, snapshot, path);
+    if (!kept.ok) {
+      return { ok: false, error: kept.error };
+    }
+    plan = kept.value.plan;
+    notes.push(
+      formatLine(
+        "PROFILE",
+        path,
+        `${kept.value.kept} change(s) kept in profile ${profile}; ${kept.value.added} shared setting(s) added here`,
+      ),
+    );
+  }
+  return { ok: true, plan, notes };
 }
 
 /**
@@ -1092,15 +1275,33 @@ export async function executeExport(
       return { code: 1, stdout: "", stderr: `${asked.line}\n` };
     }
     snapshot = asked.snapshot;
-    const planned = planExport(snapshot);
-    const settings = planned.newSettings ?? [];
+    // Contract "No sync point, interactive", `p`: a kept file's new settings
+    // end in the profile, so only the others are asked. They are planned in
+    // the base first, so `keepInProfile` moves every change of the file in
+    // line order and the profile layer lists its keys in that order.
+    const keep = command.keep ?? [];
+    const isKept = keptSettingTest(snapshot.config, keep);
+    const found = planExport(snapshot).newSettings ?? [];
+    const keptAnswers = new Map<string, LayerName>(
+      found
+        .filter(isKept)
+        .map((setting) => [settingKey(setting), "base" as const]),
+    );
+    const settings = found.filter((setting) => !isKept(setting));
+    const withKept = (
+      answers: ReadonlyMap<string, LayerName>,
+    ): ReadonlyMap<string, LayerName> => new Map([...keptAnswers, ...answers]);
     const question = newSettingChoices(snapshot.record, snapshot.os);
     if (question === undefined || settings.length === 0) {
+      const planned = planKept(snapshot, keptAnswers, keep);
+      if (!planned.ok) {
+        return { code: 1, stdout: "", stderr: `${planned.error}\n` };
+      }
       const plannedLines = withoutNewSettings(
-        changeLines(planned, snapshot),
+        changeLines(planned.plan, snapshot),
         settings,
       );
-      let plan = planned;
+      let plan = planned.plan;
       let blockPrinted = false;
       // The moves run before the profile-value rule, so a change moved to a
       // group that may hold the value is judged in its new group (contract
@@ -1141,13 +1342,22 @@ export async function executeExport(
         backup,
         answers,
         blockPrinted,
+        planned.notes,
       );
       return finishFirstBackup(backup, applied.prepared, applied.result);
     }
 
     if (command.yes) {
       const choices = settings.map(() => question.suggestion);
-      const plan = planExport(snapshot, answersOf(settings, choices));
+      const planned = planKept(
+        snapshot,
+        withKept(answersOf(settings, choices)),
+        keep,
+      );
+      if (!planned.ok) {
+        return { code: 1, stdout: "", stderr: `${planned.error}\n` };
+      }
+      const plan = planned.plan;
       const lines = withoutNewSettings(changeLines(plan, snapshot), settings);
       const refused = exportRefusal(plan, snapshot, lines);
       let blockPrinted = false;
@@ -1166,17 +1376,35 @@ export async function executeExport(
         backup,
         answers,
         blockPrinted,
+        planned.notes,
       );
       return finishFirstBackup(backup, applied.prepared, applied.result);
     }
 
+    const tentative = planKept(
+      snapshot,
+      withKept(suggestionAnswers(settings, question)),
+      keep,
+    );
+    if (!tentative.ok) {
+      return { code: 1, stdout: "", stderr: `${tentative.error}\n` };
+    }
     const choices = await askSettings(
       snapshot,
+      tentative.plan,
       settings,
       question,
       terminal.io,
     );
-    let plan = planExport(snapshot, answersOf(settings, choices));
+    const planned = planKept(
+      snapshot,
+      withKept(answersOf(settings, choices)),
+      keep,
+    );
+    if (!planned.ok) {
+      return { code: 1, stdout: "", stderr: `${planned.error}\n` };
+    }
+    let plan = planned.plan;
     // The block and the new-setting questions are already on the terminal, so
     // the moves ask next, before the profile-value rule (contract "Move a
     // change").
@@ -1214,6 +1442,7 @@ export async function executeExport(
       choices,
       backup,
       answers,
+      planned.notes,
     );
     return finishFirstBackup(backup, applied.prepared, applied.result);
   } finally {

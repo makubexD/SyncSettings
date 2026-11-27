@@ -189,14 +189,48 @@ newer. From a terminal it asks about each file that differs, in path order, with
   Send this machine's version (s), take the repo's (r) or skip (k)? [s/r/k]
 ```
 
-- `s` sends this machine's version in the PR.
+On a machine with a [record](#try-a-machine-record), a JSON settings file or a whole-file entry also offers `p`, and
+the brackets hold the answer Enter takes:
+
+```text
+  dotfiles/common/claude/settings.json  109 line(s) changed
+  Send this machine's version (s), keep its differences in profile work2 (p), take the repo's (r) or skip (k)? [p]
+```
+
+- `s` sends this machine's version in the PR: what differs becomes the shared file for every machine.
+- `p` keeps this machine's differences in its profile, so they stay with this job and reach no other machine. The
+  shared file isn't changed. Shared settings this machine lacks are added to its file (a `.bak` first); every value it
+  already had stays.
 - `r` takes the repo's version, as `mksync pull --force <path>` does: the local file is overwritten and keeps a `.bak`.
 - `k` leaves both sides as they are, for later.
 
+Enter takes `p` on any profile but `personal`, and `s` on `personal`. Without a record, or for other files (`.bashrc`, dconf, a
+folder), the question is `[s/r/k]` and has no default.
+
+Work #2 is the example. Its `~/.claude/settings.json` had its own hooks, plugins, marketplaces, permissions, model,
+statusline and an `autoMode` block, about 110 lines away from the shared one, and lacked the shared `theme`, `tui` and
+`cleanupPeriodDays`. Enter at `[p]` prints
+
+```text
+  PROFILE    dotfiles/common/claude/settings.json  (9 change(s) kept in profile work2; 4 shared setting(s) added here)
+```
+
+and every work #2 setting stays in profile `work2`, the `autoMode` block included. While the repo is public, the
+profile stays in local state on this machine, so `p` alone opens no PR.
+
 Run `mksync preview` first to see each change. Any other answer asks again; end of input skips that file and the rest.
-The `r` files are taken first, then the PR holds the `s` files. With no `s` file, push prints `Nothing to send.` and
-opens no PR. `mksync push --yes` asks nothing and sends every file that differs, after a warning: read its PR. Once
-`mksync diff` agrees, run `mksync pull` once to record the sync point.
+The `r` files are taken first, then the export, with the `p` files kept in the profile, then the PR holds the `s`
+files. With no `s` file, push prints `Nothing to send.` and opens no PR; with no `k` file, a clean clone and `master`
+up to date, it also records the sync point, and `mksync diff` agrees from then on. After a PR, run `mksync pull` once
+it is merged. `mksync push --yes` asks nothing and takes each file's default (the one in brackets, else `s`), after a warning: read its PR.
+
+### A shared change reaches every machine by itself
+
+After the first sync, each setting has its layer, and push and pull keep it there. Change a shared key, for example
+`cleanupPeriodDays` in `~/.claude/settings.json` on the Linux machine, and `mksync push` sends it to the shared file.
+Once its PR is merged, `mksync pull` on work #2 brings it in: the shared key changes there, and work #2's own settings
+in profile `work2` stay as they are. A key that is in work #2's profile (its `model`, say) changes only on work #2,
+and its push sends nothing to the shared file.
 
 ### Changes you didn't make
 

@@ -403,16 +403,11 @@ describe("planPreview", () => {
     expect(result.lines).toContain(NEW_SETTINGS_TITLE);
     expect(result.lines).toContain(NEW_SETTING_LINE);
     expect(result.lines).toContain(GOES_TO_LINE);
-    expect(result.lines).toContain(
-      `  ADDED      ${PROFILE_SETTINGS_ADDED}`,
-    );
+    expect(result.lines).toContain(`  ADDED      ${PROFILE_SETTINGS_ADDED}`);
     expect(result.lines.some((line) => line.includes("ERROR"))).toBe(false);
   });
 
-  test.each([
-    [UPPERCASE_PROFILE_FILE],
-    [UPPERCASE_MACHINE_FILE],
-  ])(
+  test.each([[UPPERCASE_PROFILE_FILE], [UPPERCASE_MACHINE_FILE]])(
     "should leave %s out of the count and the compared tree",
     (stateFile) => {
       // Arrange
@@ -641,6 +636,67 @@ describe("planPreview with a missing value", () => {
       EMAIL_SKIPPED,
       PLAIN_MODIFIED,
     ]);
+  });
+
+  const WAITING_ONE =
+    "  1 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).";
+  const WAITING_TWO =
+    "  1 file(s) would change; 2 more wait(s) for a value (mksync push asks for it).";
+  const WAITING_ONLY =
+    "  0 file(s) would change; 1 more wait(s) for a value (mksync push asks for it).";
+
+  test("should count the waiting file after the files that would change", () => {
+    // Arrange
+    const preview = gapSnapshot(false);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.lines).toContain(WAITING_ONE);
+  });
+
+  test("should count every waiting file in the summary", () => {
+    // Arrange
+    const preview = gapSnapshot(true);
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.lines).toContain(WAITING_TWO);
+  });
+
+  test("should count the waiting file when no other file would change", () => {
+    // Arrange
+    const preview: Snapshot = {
+      ...gapSnapshot(false),
+      localFiles: new Map([
+        localFile(NAME_LOCAL, NAME_LOCAL_TEXT),
+        localFile(PLAIN_LOCAL, PLAIN_REPO_TEXT),
+      ]),
+    };
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.lines).toContain(WAITING_ONLY);
+    expect(result.lines).not.toContain(NO_CHANGES);
+  });
+
+  test("should keep the plain summary when no value is missing", () => {
+    // Arrange
+    const preview: Snapshot = {
+      ...gapSnapshot(false),
+      values: { [NAME_PLACEHOLDER]: "Ana Lopez" },
+    };
+
+    // Act
+    const result = planPreview(preview);
+
+    // Assert
+    expect(result.lines).toContain("  2 file(s) would change.");
   });
 
   test("should preview as before when no value is missing", () => {

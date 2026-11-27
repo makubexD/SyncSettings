@@ -14,6 +14,7 @@ import { trimAnswer } from "../core/answer.ts";
 import type { Result as CoreResult } from "../core/config/types.ts";
 import { formatLine } from "../core/status.ts";
 import { writeLines } from "./export.ts";
+import type { SyncPointWrite } from "./commit.ts";
 import type { DiffReport, Result } from "./export.ts";
 
 /** What the parsed command asks a push to do. */
@@ -71,17 +72,24 @@ export interface PushDeps {
    * on. */
   readonly askValues: () => Promise<Result | undefined>;
   readonly hasSyncPoint: () => Promise<boolean>;
+  /** The machine record's profile, or `undefined` without a record. */
+  readonly recordProfile: () => string | undefined;
+  /** Whether the first-sync picker offers `p` for the file at repo path
+   * `path`: its entry is `json` or `whole`. */
+  readonly offersKeep: (path: string) => boolean;
   /** `export --diff`, with the conflict blocks when asked for. */
   readonly runDiff: (
     only: readonly string[],
     conflicts: boolean,
   ) => Promise<Result>;
-  /** `export` with the picked paths, leaving `skip` alone; `--yes` takes the
-   * new settings' suggestions. */
+  /** `export` with the picked paths, leaving `skip` alone and keeping each
+   * `keep` file's differences in the profile; `--yes` takes the new settings'
+   * suggestions. */
   readonly runExport: (
     only: readonly string[],
     yes: boolean,
     skip: readonly string[],
+    keep: readonly string[],
   ) => Promise<Result>;
   /** `git status --short` over the sync paths. */
   readonly statusShort: () => Promise<StatusResult>;
@@ -103,9 +111,13 @@ export interface PushDeps {
   /** Print `question` and read one answer, as it was typed; `undefined` at
    * end of input. */
   readonly askChoice: (question: string) => Promise<string | undefined>;
-  /** `import --force --only` over `take`: the repo's version of each file,
+  /** `import --force --only` over `take`: each file written from its layers,
    * keeping a `.bak`. */
   readonly runImport: (take: readonly string[]) => Promise<Result>;
+  /** `import --force` over the first sync's `p` files, each named by its
+   * local path, since a `whole` entry's copy is the profile's now and no
+   * `dotfiles/` path names it; a `.bak` is kept. */
+  readonly runKeptImport: (keep: readonly string[]) => Promise<Result>;
   /** Write a result's stdout and stderr now, so a question follows them. */
   readonly print: (shown: Result) => void;
   /** `commit`, `--partial` when the push left files out. */
@@ -117,6 +129,12 @@ export interface PushDeps {
   readonly cloneReady: () => Promise<boolean>;
   /** `git fetch -q origin master` and the commits `HEAD` lacks. */
   readonly originState: () => Promise<OriginState>;
+  /** The clone's `HEAD` when the clone is clean and `HEAD` is
+   * `origin/master`; `undefined` otherwise. */
+  readonly cleanHead: () => Promise<string | undefined>;
+  /** Record `sha` as the sync point: the warning a failed write prints, or
+   * the line a refused one stops with. */
+  readonly recordSyncPoint: (sha: string) => SyncPointWrite;
 }
 
 /** `front_require_clone push`. */
@@ -129,7 +147,8 @@ const BEHIND_ORIGIN = "ERROR: origin has updates; run mksync pull first.\n";
 /** `front_push`'s line when the export left the repo as it was. */
 const NOTHING_TO_SEND = "  Nothing to send: the repo matches this machine.\n";
 
-/** The same, when an `IN` file was left alone: the repo doesn't match. */
+/** The same, when an `IN` file was left alone, or a first sync's file kept in
+ * the profile: the repo doesn't match, or not all of it is in the repo. */
 const NOTHING_TO_SEND_IN = "  Nothing to send.\n";
 
 /** A diff that can't say which side is newer. */
@@ -146,6 +165,29 @@ const CHOICE_QUESTION =
 
 /** The picker's line for any other answer, before it asks again. */
 const PICK_CHOICE = "  Pick s, r or k.\n";
+
+/** The same, when the question offers `p`. */
+const PICK_CHOICE_KEEP = "  Pick s, p, r or k.\n";
+
+/** The profile whose first-sync suggestion is `s`: the personal machine
+ * shares by default (design "New settings"). */
+const PERSONAL_PROFILE = "personal";
+
+/** The picker's question when it offers `p`, with the suggestion an empty
+ * answer takes. */
+function keepQuestion(profile: string, suggestion: Choice): string {
+  return `  Send this machine's version (s), keep its differences in profile ${profile} (p), take the repo's (r) or skip (k)? [${suggestion}] `;
+}
+
+/** `p` where it is offered on a work profile, `s` otherwise. */
+function suggestionFor(profile: string): Choice {
+  return profile === PERSONAL_PROFILE ? "s" : "p";
+}
+
+/** `--yes` with no sync point, when some files stay in the profile. */
+function keptWarning(count: number, profile: string): string {
+  return `  WARNING: no sync is recorded on this machine; the differences of ${count} file(s) stay in profile ${profile}, the rest are sent.\n`;
+}
 
 const NO_SYNC_POINT =
   "  WARNING: no sync is recorded on this machine, so this sends every file that differs.\n";
@@ -240,7 +282,8 @@ async function askNumber<T>(
  * Ask "Move a change?" until the answer is Enter or the input ends: a line
  * number asks where the change goes, a move prints the block again and asks
  * for another change, and an empty target keeps the change where it is. A
- * moved change's error ends the loop with it.
+ * moved change's error ends the loop with it. End of input ends the
+ * question's line.
  */
 export async function askMoves(
   session: MoveSession,
@@ -255,6 +298,11 @@ export async function askMoves(
       readAnswer,
       write,
     );
+    if (line.kind === "end") {
+      // No answer ended the question's line, so the output after it starts on
+      // its own.
+      write("\n");
+    }
     if (line.kind !== "value") {
       return { ok: true, value: undefined };
     }
@@ -267,6 +315,7 @@ export async function askMoves(
       write,
     );
     if (target.kind === "end") {
+      write("\n");
       return { ok: true, value: undefined };
     }
     if (target.kind === "empty") {
@@ -290,56 +339,108 @@ type GuardOutcome =
       readonly shown: string;
       readonly skip: readonly string[];
       readonly take: readonly string[];
+      /** The files whose differences stay in the profile (`p`). */
+      readonly keep: readonly string[];
       readonly partial: boolean;
       readonly nothingToSend?: boolean;
     };
 
-/** A picker answer: send, take the repo's, or skip the file. */
-type Choice = "s" | "r" | "k";
+/** A picker answer: send, keep in the profile, take the repo's, or skip. */
+type Choice = "s" | "p" | "r" | "k";
 
-/** The choice `answer` names, ignoring case and spaces around it. */
-function pickChoice(answer: string): Choice | undefined {
+/** What one file's question offers: `p` with its profile and the suggestion
+ * an empty answer takes, or only `s`, `r` and `k`. */
+type ChoiceOffer =
+  | { readonly keep: false }
+  | {
+      readonly keep: true;
+      readonly profile: string;
+      readonly suggestion: Choice;
+    };
+
+/** The choice `answer` names, ignoring case and spaces around it; an empty
+ * answer takes the suggestion, and `p` counts only where it is offered. */
+export function pickChoice(
+  answer: string,
+  offer: ChoiceOffer,
+): Choice | undefined {
   const typed = trimAnswer(answer).toLowerCase();
+  if (typed === "" && offer.keep) {
+    return offer.suggestion;
+  }
+  if (typed === "p") {
+    return offer.keep ? "p" : undefined;
+  }
   return typed === "s" || typed === "r" || typed === "k" ? typed : undefined;
 }
 
 /**
- * Ask `CHOICE_QUESTION` until the answer is `s`, `r` or `k`; any other answer
- * prints `PICK_CHOICE` first. `undefined` at end of input.
+ * Ask the file's question until the answer names a choice; any other answer
+ * prints the `Pick` line first. `undefined` at end of input.
  */
-async function askOneChoice(deps: PushDeps): Promise<Choice | undefined> {
+async function askOneChoice(
+  deps: PushDeps,
+  offer: ChoiceOffer,
+): Promise<Choice | undefined> {
+  const question = offer.keep
+    ? keepQuestion(offer.profile, offer.suggestion)
+    : CHOICE_QUESTION;
+  const pick = offer.keep ? PICK_CHOICE_KEEP : PICK_CHOICE;
   for (;;) {
-    const answer = await deps.askChoice(CHOICE_QUESTION);
+    const answer = await deps.askChoice(question);
     if (answer === undefined) {
       return undefined;
     }
-    const choice = pickChoice(answer);
+    const choice = pickChoice(answer, offer);
     if (choice !== undefined) {
       return choice;
     }
-    deps.print({ code: 0, stdout: PICK_CHOICE, stderr: "" });
+    deps.print({ code: 0, stdout: pick, stderr: "" });
   }
+}
+
+/** What the picker offers for `path`. */
+function offerFor(path: string, deps: PushDeps): ChoiceOffer {
+  const profile = deps.recordProfile();
+  if (profile === undefined || !deps.offersKeep(path)) {
+    return { keep: false };
+  }
+  return { keep: true, profile, suggestion: suggestionFor(profile) };
+}
+
+/** The `?` paths of a diff report, in path order. */
+function unknownPaths(report: DiffReport): readonly string[] {
+  return report.labels
+    .filter(({ label }) => label === "?")
+    .map(({ path }) => path)
+    .sort();
 }
 
 /**
  * Contract "Front door", no sync point, interactive: ask about each file the
  * diff labels `?`, in path order. `r` files are taken, `r` and `k` files left
- * out of the export; end of input is `k` for that file and every one after.
+ * out of the export, `p` files kept in the profile; end of input is `k` for
+ * that file and every one after.
  */
 async function pickFirstSync(
   report: DiffReport,
   deps: PushDeps,
 ): Promise<GuardOutcome> {
-  const unknown = report.labels
-    .filter(({ label }) => label === "?")
-    .map(({ path }) => path)
-    .sort();
+  const unknown = unknownPaths(report);
   if (unknown.length === 0) {
-    return { kind: "go", shown: "", skip: [], take: [], partial: false };
+    return {
+      kind: "go",
+      shown: "",
+      skip: [],
+      take: [],
+      keep: [],
+      partial: false,
+    };
   }
   deps.print({ code: 0, stdout: FIRST_SYNC_HEADER, stderr: "" });
   const take: string[] = [];
   const skip: string[] = [];
+  const keep: string[] = [];
   let ended = false;
   for (const path of unknown) {
     if (ended) {
@@ -352,14 +453,17 @@ async function pickFirstSync(
       stdout: `\n  ${path}  ${lines} line(s) changed\n`,
       stderr: "",
     });
-    const choice = await askOneChoice(deps);
+    const choice = await askOneChoice(deps, offerFor(path, deps));
     if (choice === undefined) {
       ended = true;
     }
     if (choice === "r") {
       take.push(path);
     }
-    if (choice !== "s") {
+    if (choice === "p") {
+      keep.push(path);
+    }
+    if (choice !== "s" && choice !== "p") {
       skip.push(path);
     }
   }
@@ -370,9 +474,54 @@ async function pickFirstSync(
     shown: "",
     skip,
     take,
+    keep,
     partial: skip.length > 0,
     nothingToSend: skip.length === unknown.length,
   };
+}
+
+/**
+ * Contract "Front door", no sync point, `--yes`: each file takes its
+ * suggestion, so with a work record the diff runs and every `?` file that
+ * offers `p` stays in the profile. Without one every file that differs is
+ * sent, as before. A failed diff on a work record stops with the could-not-tell
+ * line, unless `--force` sends everything.
+ */
+async function yesFirstSync(
+  input: PushInput,
+  deps: PushDeps,
+): Promise<GuardOutcome> {
+  const sendAll: GuardOutcome = {
+    kind: "go",
+    shown: NO_SYNC_POINT,
+    skip: [],
+    take: [],
+    keep: [],
+    partial: false,
+  };
+  const profile = deps.recordProfile();
+  if (profile === undefined || suggestionFor(profile) !== "p") {
+    return sendAll;
+  }
+  const diff = await deps.runDiff(input.paths, false);
+  const report = reportOf(diff);
+  if (report === undefined) {
+    // Sending all would put this job's settings in the shared layers, which
+    // the `p` suggestion exists to prevent: stop as the interactive push does.
+    if (input.force) {
+      return sendAll;
+    }
+    const reason = input.paths.length > 0 ? diff.stdout : "";
+    return {
+      kind: "stop",
+      result: { code: 1, stdout: reason, stderr: COULD_NOT_TELL },
+    };
+  }
+  const keep = unknownPaths(report).filter((path) => deps.offersKeep(path));
+  if (keep.length === 0) {
+    return sendAll;
+  }
+  return { ...sendAll, shown: keptWarning(keep.length, profile), keep };
 }
 
 /** The diff's labels, when it ran to its end. */
@@ -391,13 +540,7 @@ async function guardPush(
 ): Promise<GuardOutcome> {
   const hasSyncPoint = await deps.hasSyncPoint();
   if (!hasSyncPoint && input.yes) {
-    return {
-      kind: "go",
-      shown: NO_SYNC_POINT,
-      skip: [],
-      take: [],
-      partial: false,
-    };
+    return yesFirstSync(input, deps);
   }
   const diff = await deps.runDiff(input.paths, hasSyncPoint && !input.force);
   const report = reportOf(diff);
@@ -405,7 +548,14 @@ async function guardPush(
     if (input.force) {
       // No sync point and no diff: the push sends every file that differs.
       const shown = hasSyncPoint ? "" : NO_SYNC_POINT;
-      return { kind: "go", shown, skip: [], take: [], partial: true };
+      return {
+        kind: "go",
+        shown,
+        skip: [],
+        take: [],
+        keep: [],
+        partial: true,
+      };
     }
     // A picked path that isn't synced fails the diff: its line says so.
     const reason = input.paths.length > 0 ? diff.stdout : "";
@@ -435,7 +585,14 @@ async function guardPush(
   }
   const left = linesOf("IN");
   if (left.length === 0) {
-    return { kind: "go", shown: "", skip: [], take: [], partial: false };
+    return {
+      kind: "go",
+      shown: "",
+      skip: [],
+      take: [],
+      keep: [],
+      partial: false,
+    };
   }
   return {
     kind: "go",
@@ -444,6 +601,7 @@ async function guardPush(
       .filter(({ label }) => label === "IN")
       .map(({ path }) => path),
     take: [],
+    keep: [],
     partial: true,
   };
 }
@@ -478,6 +636,55 @@ async function declined(
   return failed === undefined
     ? { code: 0, stdout: NOTHING_SENT, stderr: "" }
     : { code: 1, stdout: KEPT_IN_REPO, stderr: failed };
+}
+
+/**
+ * Contract "No sync point, interactive", `p`: after the export, each kept file
+ * is written on this machine from its layers (`.bak` first), so it gains the
+ * shared settings it lacked. The import's lines follow the export's; a failed
+ * import stops the push with its code.
+ */
+async function importKept(
+  exported: Result,
+  keep: readonly string[],
+  deps: PushDeps,
+): Promise<Result> {
+  if (keep.length === 0) {
+    return exported;
+  }
+  const imported = await deps.runKeptImport(keep);
+  return {
+    ...exported,
+    code: imported.code,
+    stdout: exported.stdout + imported.stdout,
+    stderr: exported.stderr + imported.stderr,
+  };
+}
+
+/**
+ * Contract "Sync point": a push that ends with `Nothing to send.` left this
+ * machine and the repo in agreement, so it records the clone's `HEAD`, unless
+ * a file was skipped (`k`, or an `IN` file left alone), paths were picked, the
+ * fetch failed, or the clone is dirty or not at `origin/master`. A refused
+ * write stops with exit 1; a failed one adds its warning.
+ */
+async function nothingSent(
+  sent: Result,
+  agrees: boolean,
+  deps: PushDeps,
+): Promise<Result> {
+  if (!agrees) {
+    return sent;
+  }
+  const head = await deps.cleanHead();
+  if (head === undefined) {
+    return sent;
+  }
+  const written = deps.recordSyncPoint(head);
+  if (written.refused !== undefined) {
+    return { ...sent, code: 1, stderr: `${sent.stderr}${written.refused}\n` };
+  }
+  return { ...sent, stdout: sent.stdout + written.warning };
 }
 
 /**
@@ -542,22 +749,33 @@ export async function executePush(
     }
     deps.print(imported);
   }
+  // The picker lists its `r` files under `skip` too, since the export leaves
+  // them out; only the others were left as they differ.
+  const taken = new Set(guard.take);
+  const agrees =
+    only.length === 0 &&
+    origin.fetchOk &&
+    guard.skip.every((path) => taken.has(path));
   if (guard.nothingToSend === true) {
-    return { code: 0, stdout: NOTHING_TO_SEND_IN, stderr: "" };
+    return nothingSent(
+      { code: 0, stdout: NOTHING_TO_SEND_IN, stderr: "" },
+      agrees,
+      deps,
+    );
   }
 
   const stateBefore = deps.stateStamp();
   const cleanBefore = await deps.pathsClean();
-  const exported = await deps.runExport(only, input.yes, guard.skip);
+  const ran = await deps.runExport(only, input.yes, guard.skip, guard.keep);
+  if (ran.code !== 0) {
+    return ran;
+  }
+  if (ran.stopped) {
+    return { code: ran.code, stdout: ran.stdout, stderr: ran.stderr };
+  }
+  const exported = await importKept(ran, guard.keep, deps);
   if (exported.code !== 0) {
     return exported;
-  }
-  if (exported.stopped) {
-    return {
-      code: exported.code,
-      stdout: exported.stdout,
-      stderr: exported.stderr,
-    };
   }
 
   const status = await deps.statusShort();
@@ -569,13 +787,19 @@ export async function executePush(
     };
   }
   if (status.stdout.trim() === "") {
-    return {
-      code: 0,
-      stdout:
-        exported.stdout +
-        (guard.skip.length > 0 ? NOTHING_TO_SEND_IN : NOTHING_TO_SEND),
-      stderr: exported.stderr,
-    };
+    return nothingSent(
+      {
+        code: 0,
+        stdout:
+          exported.stdout +
+          (guard.skip.length > 0 || guard.keep.length > 0
+            ? NOTHING_TO_SEND_IN
+            : NOTHING_TO_SEND),
+        stderr: exported.stderr,
+      },
+      agrees,
+      deps,
+    );
   }
 
   deps.print({

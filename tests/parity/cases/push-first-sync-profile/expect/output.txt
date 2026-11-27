@@ -1,0 +1,2 @@
+ADDED profiles/work-1/parity/settings.json
+UPDATED profiles/work-1/parity/settings.json

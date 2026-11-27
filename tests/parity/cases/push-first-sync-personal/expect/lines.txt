@@ -1,0 +1,2 @@
+Send this machine's version (s), keep its differences in profile personal (p), take the repo's (r) or skip (k)? [s]
+! PROFILE

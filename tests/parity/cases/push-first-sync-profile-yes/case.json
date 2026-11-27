@@ -1,0 +1,51 @@
+{
+  "description": "Push --yes with a work record and no sync point takes each file's suggestion: the json file's differences stay in profile work-1 and the dir entry, which has no p, is sent through a PR, after the warning that names the profile, exit 0 (Front door, push; No sync point, --yes).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig",
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      },
+      {
+        "file": "parity/folder",
+        "module": "parity",
+        "merge": "dir",
+        "localPath": "~/.config/parity/folder",
+        "description": "Parity case folder"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "options": {
+        "yes": true
+      }
+    }
+  ]
+}

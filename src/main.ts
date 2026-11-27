@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import {
   changedFiles,
+  cleanHeadAtOrigin,
   pathsClean,
   readAheadBehind,
   readSyncPoint,
@@ -12,7 +13,7 @@ import {
   statusPorcelain,
 } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
-import { layerStateStamp } from "./adapters/store.ts";
+import { layerStateStamp, stateLocation } from "./adapters/store.ts";
 import { readAllStdin } from "./adapters/process.ts";
 import { readIdentity } from "./adapters/scan.ts";
 import {
@@ -29,7 +30,7 @@ import {
   STATUSLINE_UNAVAILABLE,
 } from "./adapters/statusline.ts";
 import { readVisibility } from "./adapters/visibility.ts";
-import { executeCommit } from "./app/commit.ts";
+import { executeCommit, recordSyncPoint } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
 import { executeDoctor } from "./app/doctor.ts";
 import { diffCommand, pullImportCommand } from "./app/guard.ts";
@@ -37,6 +38,8 @@ import { runImport } from "./app/import.ts";
 import { executePull } from "./app/pull.ts";
 import type { FetchResult } from "./app/pull.ts";
 import { executePush } from "./app/push.ts";
+import type { ConfigV2, Os } from "./core/config/types.ts";
+import { configuredLocal } from "./core/plan/pick.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
@@ -48,6 +51,7 @@ import {
 import {
   askPushValues,
   failure,
+  layerEntryFile,
   runExport,
   setupTerminal,
   writeLines,
@@ -88,11 +92,13 @@ const GIT_ENV: Readonly<Record<string, string>> = {
 };
 
 /** A push child's `export`: the picked paths, with `--yes` taking the new
- * settings' suggestions, as the design's "Push and pull" says. */
+ * settings' suggestions, as the design's "Push and pull" says; `keep` are the
+ * first sync's `p` files. */
 function pushExportCommand(
   only: readonly string[],
   yes: boolean,
   skip: readonly string[],
+  keep: readonly string[] = [],
 ): RunCommand {
   return {
     kind: "run",
@@ -103,6 +109,7 @@ function pushExportCommand(
     resetValues: false,
     yes,
     skip,
+    keep,
     only,
   };
 }
@@ -131,6 +138,27 @@ const PUSH_STATUS_PATHS = [
 
 /** The push paths whose files the diff guard can call `IN`. */
 const GUARDED_PATHS = ["dotfiles", "profiles", "machines"] as const;
+
+/** Contract "No sync point, interactive": the picker offers `p` for a file
+ * whose entry is `json` or `whole`. `path` is the diff's repo path. */
+function entryOffersKeep(config: ConfigV2, path: string): boolean {
+  const file = layerEntryFile(path);
+  return config.entries.some(
+    (entry) =>
+      entry.file === file &&
+      (entry.merge === "json" || entry.merge === "whole"),
+  );
+}
+
+/** The path push's import of a `p` file names it by: its entry's local path
+ * on this OS, which `--only` resolves to the entry's own copy whatever layer
+ * holds it; a path no entry owns stays as it is, so the import refuses it. */
+function keptImportPath(config: ConfigV2, os: Os, path: string): string {
+  const file = layerEntryFile(path);
+  const entry = config.entries.find((candidate) => candidate.file === file);
+  const local = entry === undefined ? "" : configuredLocal(entry, os);
+  return local === "" ? path : local;
+}
 
 /** The record check that stops a push, before its diff guard. */
 function pushRefusal(
@@ -286,6 +314,7 @@ async function statuslineOutput(): Promise<string> {
   }
 }
 
+
 /** The contract's no-record line, and exit 1. */
 const NO_RECORD = "ERROR: no machine record here; run mksync setup.";
 
@@ -338,6 +367,14 @@ async function execute(
         return await executePull(
           { yes: command.yes, force: command.force, paths: command.paths },
           {
+            askValues: async () => {
+              const asked = await execute(pushExportCommand([], false, []), {
+                askValues: true,
+                unansweredGoesOn: true,
+                terminal,
+              });
+              return asked.code === 0 ? undefined : asked;
+            },
             runCheck: (only) => execute(pullImportCommand(true, false, only)),
             runDiff: (only) => execute(diffCommand(only, true)),
             runImport: (only) =>
@@ -396,9 +433,14 @@ async function execute(
             },
             hasSyncPoint: async () =>
               (await readSyncPoint(repoRoot, state)) !== undefined,
+            recordProfile: () => {
+              const layers = loadLayers(state, repoRoot, config.value);
+              return layers.ok ? layers.value.record?.profile : undefined;
+            },
+            offersKeep: (path) => entryOffersKeep(config.value, path),
             runDiff: (only, conflicts) => execute(diffCommand(only, conflicts)),
-            runExport: (only, yes, skip) =>
-              execute(pushExportCommand(only, yes, skip), {
+            runExport: (only, yes, skip, keep) =>
+              execute(pushExportCommand(only, yes, skip, keep), {
                 moves: true,
                 terminal,
               }),
@@ -417,6 +459,17 @@ async function execute(
             },
             runImport: (take) =>
               execute(pullImportCommand(false, true, take), { terminal }),
+            runKeptImport: (keep) =>
+              execute(
+                pullImportCommand(
+                  false,
+                  true,
+                  keep.map((path) =>
+                    keptImportPath(config.value, os.value, path),
+                  ),
+                ),
+                { terminal },
+              ),
             print: (shown) => {
               process.stdout.write(shown.stdout);
               process.stderr.write(shown.stderr);
@@ -425,6 +478,26 @@ async function execute(
               execute(pushCommitCommand(partial, message)),
             cloneReady: () => cloneReady(repoRoot),
             originState: () => readUpstreamFacts(repoRoot),
+            cleanHead: () =>
+              cleanHeadAtOrigin(repoRoot, PUSH_STATUS_PATHS),
+            recordSyncPoint: (sha) => {
+              const layers = loadLayers(state, repoRoot, config.value);
+              return recordSyncPoint(
+                {
+                  repoRoot,
+                  os: os.value,
+                  stateFolder: state,
+                  location: layers.ok
+                    ? layers.value.location
+                    : stateLocation(state),
+                  // The same stamp as `src/app/run.ts`: one backup folder per run.
+                  now: () => new Date(performance.timeOrigin),
+                  pid: process.pid,
+                  env: process.env,
+                },
+                sha,
+              );
+            },
           },
         );
       } finally {
@@ -546,7 +619,12 @@ async function execute(
         options?.askValues === true &&
         options.terminal !== undefined
       ) {
-        return askPushValues(environment, command, options.terminal);
+        return askPushValues(
+          environment,
+          command,
+          options.terminal,
+          options.unansweredGoesOn === true,
+        );
       }
       return command.command === "export"
         ? runExport(environment, command)

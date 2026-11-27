@@ -1,5 +1,5 @@
 {
-  "description": "Pull with a sync point stops when the diff left out a file for a missing value, which could hold this machine's change: the could-not-tell line, exit 1, nothing written (Front door, pull guard).",
+  "description": "Pull --yes with a sync point asks no value, so it stops when the diff left out a file for a missing value, which could hold this machine's change: the could-not-tell line, exit 1, nothing written (Front door, pull guard).",
   "os": ["linux"],
   "git": "remote",
   "syncPoint": true,
@@ -41,7 +41,9 @@
   "commands": [
     {
       "command": "pull",
-      "stdin": "y\nAna Lopez\n",
+      "options": {
+        "yes": true
+      },
       "stderr": true
     }
   ]

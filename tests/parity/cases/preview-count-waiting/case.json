@@ -1,0 +1,39 @@
+{
+  "description": "A preview with one file waiting for a value and one changed file counts the waiting one after the files that would change, writes nothing and exits 1 (Export preview).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Sanitized parity file",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          }
+        ]
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file b"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ],
+  "git": "committed"
+}

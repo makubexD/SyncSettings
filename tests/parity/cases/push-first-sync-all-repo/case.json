@@ -1,0 +1,43 @@
+{
+  "description": "Push with no record and no sync point, both files answered r: the repo's versions are taken with a .bak, nothing is sent, no PR, and the sync point is recorded at the clone's HEAD; the diff after it agrees, exit 0 (Front door, push; No sync point, interactive; Sync point).",
+  "os": ["linux"],
+  "git": "remote",
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file a"
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file b"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "r\nr\n"
+    },
+    {
+      "command": "diff"
+    }
+  ]
+}

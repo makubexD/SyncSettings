@@ -1,0 +1,5 @@
+SKIPPED dotfiles/common/parity/settings.json needs <YOUR_GH_OWNER>: mksync push or pull asks for it
+1  M  parity  settings.json  repo: "owner/repo" -> "<YOUR_GH_OWNER>/repo"
+2  M  parity  settings.json  theme: "light" -> "dark"
+! mksync-needs-values
+! \u0000

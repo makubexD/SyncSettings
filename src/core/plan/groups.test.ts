@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  changeLineNumbers,
   groupBlock,
   groupedBlock,
   withoutNewSettings,
@@ -54,7 +55,12 @@ const GOES_TO = "goes to: profile work-1 (asked by mksync export)";
 
 describe("groupBlock", () => {
   test("prints the four groups of a push with a record", () => {
-    const block = groupBlock([BASE_LINE, OS_LINE, PROFILE_LINE], RECORD, "linux", "push");
+    const block = groupBlock(
+      [BASE_LINE, OS_LINE, PROFILE_LINE],
+      RECORD,
+      "linux",
+      "push",
+    );
 
     expect(block).toEqual([
       "Changes on wk1-laptop (profile work-1):",
@@ -92,7 +98,12 @@ describe("groupBlock", () => {
   });
 
   test("prints (none) for an empty group", () => {
-    const block = groupBlock([BASE_LINE, PROFILE_LINE], RECORD, "linux", "push");
+    const block = groupBlock(
+      [BASE_LINE, PROFILE_LINE],
+      RECORD,
+      "linux",
+      "push",
+    );
 
     expect(block).toEqual([
       "Changes on wk1-laptop (profile work-1):",
@@ -245,6 +256,104 @@ describe("groupBlock", () => {
       "  2  +  vscode  settings.json  chat.agent.enabled: true",
     ]);
     expect(block.indent).toBe("     ");
+  });
+});
+
+describe("kept numbers", () => {
+  const A_BASE: ChangeLine = { ...baseLine(1), what: "a: 1 -> 2" };
+  const B_BASE: ChangeLine = { ...baseLine(2), what: "b: 1 -> 2" };
+  const A_PROFILE: ChangeLine = {
+    ...A_BASE,
+    layer: "profile",
+    kind: "+",
+    what: "a: 2",
+  };
+  const B_PROFILE: ChangeLine = {
+    ...B_BASE,
+    layer: "profile",
+    kind: "+",
+    what: "b: 2",
+  };
+
+  test("a move to a later group keeps both numbers", () => {
+    const block = groupBlock(
+      [B_BASE, A_PROFILE],
+      RECORD,
+      "linux",
+      "push",
+      [],
+      [],
+      [2, 1],
+    );
+
+    expect(block).toEqual([
+      "Changes on wk1-laptop (profile work-1):",
+      "",
+      "All machines",
+      "  2  M  parity  settings.json  b: 1 -> 2",
+      "Linux machines",
+      "     (none)",
+      "Profile work-1",
+      "  1  +  parity  settings.json  a: 2",
+      "This machine only",
+      "     (none)",
+      "",
+    ]);
+  });
+
+  test("a group lists its lines in number order", () => {
+    const block = groupBlock(
+      [B_PROFILE, A_PROFILE],
+      RECORD,
+      "linux",
+      "push",
+      [],
+      [],
+      [2, 1],
+    );
+
+    expect(block.slice(6, 9)).toEqual([
+      "Profile work-1",
+      "  1  +  parity  settings.json  a: 2",
+      "  2  +  parity  settings.json  b: 2",
+    ]);
+    expect(
+      changeLineNumbers([B_PROFILE, A_PROFILE], RECORD, "linux", [2, 1]),
+    ).toEqual([2, 1]);
+  });
+
+  test("no kept numbers numbers as before", () => {
+    expect(changeLineNumbers([A_PROFILE, B_BASE], RECORD, "linux")).toEqual([
+      2, 1,
+    ]);
+    expect(changeLineNumbers([A_PROFILE, B_BASE], RECORD, "linux", [])).toEqual(
+      [2, 1],
+    );
+  });
+
+  test("a line without a kept number takes the smallest free one", () => {
+    expect(
+      changeLineNumbers([A_BASE, B_BASE, OS_LINE], RECORD, "linux", [
+        3,
+        undefined,
+        1,
+      ]),
+    ).toEqual([3, 2, 1]);
+  });
+
+  test("new settings number after the highest kept number", () => {
+    const grouped = groupedBlock(
+      [B_BASE, A_PROFILE],
+      RECORD,
+      "linux",
+      "push",
+      [NEW_ITEM],
+      [2, 1],
+    );
+
+    expect(grouped.settings).toEqual([
+      '  3  +  parity  settings.json  delta[]: "new item"',
+    ]);
   });
 });
 

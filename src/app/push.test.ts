@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Result } from "./export.ts";
 import type { MoveSession, PushDeps, PushInput } from "./push.ts";
-import { askMoves, executePush } from "./push.ts";
+import { askMoves, executePush, pickChoice } from "./push.ts";
 
 const MOVE_QUESTION =
   "Move a change? Type its number, or press Enter to go on: ";
@@ -127,7 +127,10 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     refusal: async () => undefined,
     askValues: async () => undefined,
     askChoice: async () => undefined,
+    recordProfile: () => undefined,
+    offersKeep: () => false,
     runImport: async () => ({ code: 0, stdout: "", stderr: "" }),
+    runKeptImport: async () => ({ code: 0, stdout: "", stderr: "" }),
     hasSyncPoint: async () => true,
     runDiff: async () => diffOf(),
     runExport: async () => EXPORTED,
@@ -142,6 +145,8 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     runCommit: async () => ({ code: 0, stdout: "committed\n", stderr: "" }),
     cloneReady: async () => true,
     originState: async () => UP_TO_DATE,
+    cleanHead: async () => undefined,
+    recordSyncPoint: () => ({ warning: "", refused: undefined }),
     ...overrides,
   };
 }
@@ -202,6 +207,7 @@ describe("askMoves", () => {
       "Pick 1 to 4.\n",
       `Move it to? ${TARGETS} [1] `,
       MOVE_QUESTION,
+      "\n",
     ]);
     expect(reader.questions).toEqual([
       MOVE_QUESTION,
@@ -218,7 +224,24 @@ describe("askMoves", () => {
     const result = await askMoves(fakeSession(), reader.read, out.write);
 
     expect(result).toEqual({ ok: true, value: undefined });
-    expect(out.texts).toEqual([MOVE_QUESTION, `Move it to? ${TARGETS} [1] `]);
+    expect(out.texts).toEqual([
+      MOVE_QUESTION,
+      `Move it to? ${TARGETS} [1] `,
+      "\n",
+    ]);
+  });
+
+  test("should end the question's line when the input ends at the first question", async () => {
+    // Arrange
+    const reader = scripted([undefined]);
+    const out = collector();
+
+    // Act
+    const result = await askMoves(fakeSession(), reader.read, out.write);
+
+    // Assert
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(out.texts).toEqual([MOVE_QUESTION, "\n"]);
   });
 
   test("a move error is returned and ends the loop", async () => {
@@ -741,12 +764,16 @@ async function runPicker(
   result: Result;
   imports: (readonly string[])[];
   skips: (readonly string[])[];
+  keeps: (readonly string[])[];
+  calls: string[];
   commits: boolean[];
   questions: string[];
   printed: string;
 }> {
   const imports: (readonly string[])[] = [];
   const skips: (readonly string[])[] = [];
+  const keeps: (readonly string[])[] = [];
+  const calls: string[] = [];
   const commits: boolean[] = [];
   const questions: string[] = [];
   let printed = "";
@@ -761,10 +788,18 @@ async function runPicker(
       },
       runImport: async (take) => {
         imports.push(take);
+        calls.push("import");
         return IMPORTED;
       },
-      runExport: async (_only, _yes, skip) => {
+      runKeptImport: async (keep) => {
+        imports.push(keep);
+        calls.push("kept import");
+        return IMPORTED;
+      },
+      runExport: async (_only, _yes, skip, keep) => {
         skips.push(skip);
+        keeps.push(keep);
+        calls.push("export");
         return EXPORTED;
       },
       ask: async () => true,
@@ -778,7 +813,16 @@ async function runPicker(
       ...overrides,
     }),
   );
-  return { result, imports, skips, commits, questions, printed };
+  return {
+    result,
+    imports,
+    skips,
+    keeps,
+    calls,
+    commits,
+    questions,
+    printed,
+  };
 }
 
 describe("executePush first-sync picker", () => {
@@ -892,5 +936,445 @@ describe("executePush first-sync picker", () => {
     expect(run.questions).toEqual([]);
     expect(run.printed).toContain("WARNING: no sync is recorded");
     expect(run.skips).toEqual([[]]);
+  });
+});
+
+const WORK_PROFILE = "work-1";
+const KEEP_QUESTION_WORK =
+  "  Send this machine's version (s), keep its differences in profile work-1 (p), take the repo's (r) or skip (k)? [p] ";
+const KEEP_QUESTION_PERSONAL =
+  "  Send this machine's version (s), keep its differences in profile personal (p), take the repo's (r) or skip (k)? [s] ";
+const PICK_CHOICE_KEEP = "  Pick s, p, r or k.\n";
+const KEPT_WARNING =
+  "  WARNING: no sync is recorded on this machine; the differences of 2 file(s) stay in profile work-1, the rest are sent.\n";
+const WORK_OFFER = {
+  keep: true,
+  profile: WORK_PROFILE,
+  suggestion: "p",
+} as const;
+const NO_OFFER = { keep: false } as const;
+
+/** A work record whose picker offers `p` for every file but `C`. */
+const WORK_RECORD: Partial<PushDeps> = {
+  recordProfile: () => WORK_PROFILE,
+  offersKeep: (path) => path !== C,
+};
+
+describe("pickChoice", () => {
+  test.each<[string, string]>([
+    ["s", "s"],
+    ["p", "p"],
+    ["r", "r"],
+    ["k", "k"],
+    [" P ", "p"],
+    ["", "p"],
+  ])("should read %p as %p when p is offered", (answer, choice) => {
+    expect(pickChoice(answer, WORK_OFFER) as string | undefined).toBe(choice);
+  });
+
+  test.each<[string]>([["p"], [""], ["x"]])(
+    "should read %p as no choice when p is not offered",
+    (answer) => {
+      expect(pickChoice(answer, NO_OFFER)).toBeUndefined();
+    },
+  );
+});
+
+describe("executePush first-sync picker with p", () => {
+  test("should offer p with the work suggestion and ask without it where not offered", async () => {
+    // Arrange
+    const answers = ["s", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.questions).toEqual([
+      KEEP_QUESTION_WORK,
+      KEEP_QUESTION_WORK,
+      CHOICE_QUESTION,
+    ]);
+  });
+
+  test("should suggest s on personal and take it on Enter", async () => {
+    // Arrange
+    const answers = ["", "", "s"];
+
+    // Act
+    const run = await runPicker(answers, {
+      ...WORK_RECORD,
+      recordProfile: () => "personal",
+    });
+
+    // Assert
+    expect(run.questions[0]).toBe(KEEP_QUESTION_PERSONAL);
+    expect(run.skips).toEqual([[]]);
+    expect(run.commits).toEqual([false]);
+  });
+
+  test("should keep a file on Enter on a work profile, not skip it", async () => {
+    // Arrange
+    const answers = ["", "p", "k"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.skips).toEqual([[C]]);
+    expect(run.keeps).toEqual([[A, B]]);
+    expect(run.commits).toEqual([true]);
+  });
+
+  test("should import the kept files after the export when p is answered", async () => {
+    // Arrange
+    const answers = ["p", "p", "k"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.calls).toEqual(["export", "kept import"]);
+    expect(run.imports).toEqual([[A, B]]);
+  });
+
+  test("should print the kept files' import after the export's lines", async () => {
+    // Arrange
+    const answers = ["p", "k", "k"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.printed).toContain(EXPORTED.stdout + IMPORTED.stdout);
+  });
+
+  test("should print the first-sync nothing-to-send line when only kept files changed", async () => {
+    // Arrange
+    const answers = ["p", "p", "s"];
+
+    // Act
+    const run = await runPicker(answers, {
+      ...WORK_RECORD,
+      statusShort: async () => ({ ok: true, stdout: "" }),
+    });
+
+    // Assert
+    expect(run.result.stdout).toBe(
+      EXPORTED.stdout + IMPORTED.stdout + FIRST_SYNC_NOTHING,
+    );
+  });
+
+  test("should run no import after the export when nothing is kept", async () => {
+    // Arrange
+    const answers = ["s", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.calls).toEqual(["export"]);
+  });
+
+  test("should stop the push with the import's code when the kept files' import fails", async () => {
+    // Arrange
+    const answers = ["p", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, {
+      ...WORK_RECORD,
+      runKeptImport: async () => IMPORT_FAILED,
+    });
+
+    // Assert
+    expect(run.result.code).toBe(IMPORT_FAILED.code);
+    expect(run.commits).toEqual([]);
+  });
+
+  test("should not offer p without a record", async () => {
+    // Arrange
+    const answers = ["s", "s", "s"];
+
+    // Act
+    const run = await runPicker(answers, { offersKeep: () => true });
+
+    // Assert
+    expect(run.questions).toEqual([
+      CHOICE_QUESTION,
+      CHOICE_QUESTION,
+      CHOICE_QUESTION,
+    ]);
+  });
+
+  test("should print the p pick line where p is offered and the old one where not", async () => {
+    // Arrange: A and B offer p, C doesn't; p on C is no answer there.
+    const answers = ["x", "s", "s", "p", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.printed.split(PICK_CHOICE_KEEP)).toHaveLength(2);
+    expect(run.printed.split(PICK_CHOICE)).toHaveLength(2);
+  });
+
+  test("should skip the rest at end of input even where p is suggested", async () => {
+    // Arrange
+    const answers = ["p", undefined];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.questions).toHaveLength(2);
+    expect(run.skips).toEqual([[B, C]]);
+  });
+
+  test("should run the export when every file is kept", async () => {
+    // Arrange
+    const answers = ["p", "p", "s"];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.result.stdout).not.toBe(FIRST_SYNC_NOTHING);
+    expect(run.skips).toEqual([[]]);
+  });
+
+  test("--yes on a work record keeps the p files after the warning that names the profile", async () => {
+    // Arrange
+    const answers: string[] = [];
+
+    // Act
+    const run = await runPicker(answers, WORK_RECORD, pushInput({ yes: true }));
+
+    // Assert
+    expect(run.questions).toEqual([]);
+    expect(run.printed).toStartWith(KEPT_WARNING);
+    expect(run.skips).toEqual([[]]);
+  });
+
+  test("should stop --yes on a work profile when the diff fails, sending nothing", async () => {
+    // Arrange
+    const input = pushInput({ yes: true });
+
+    // Act
+    const run = await runGuarded(DIFF_FAILED, input, {
+      ...WORK_RECORD,
+      hasSyncPoint: async () => false,
+    });
+
+    // Assert
+    expect(run.result).toEqual({ code: 1, stdout: "", stderr: COULD_NOT_TELL });
+    expect(run.exports).toEqual([]);
+  });
+
+  test("should send everything with --yes --force on a work profile when the diff fails", async () => {
+    // Arrange
+    const input = pushInput({ yes: true, force: true });
+
+    // Act
+    const run = await runGuarded(DIFF_FAILED, input, {
+      ...WORK_RECORD,
+      hasSyncPoint: async () => false,
+    });
+
+    // Assert
+    expect(run.exports).toEqual([{ only: [], skip: [] }]);
+  });
+
+  test("--yes on personal sends everything after the old warning", async () => {
+    // Arrange
+    const answers: string[] = [];
+
+    // Act
+    const run = await runPicker(
+      answers,
+      { ...WORK_RECORD, recordProfile: () => "personal" },
+      pushInput({ yes: true }),
+    );
+
+    // Assert
+    expect(run.printed).toContain(
+      "WARNING: no sync is recorded on this machine, so this sends every file that differs.",
+    );
+  });
+});
+
+const CLEAN_HEAD = "1a2b3c4d5e6f";
+const SYNC_POINT_WARNING =
+  "  WARNING: could not record the sync point in /state/last-sync.\n";
+const SYNC_POINT_REFUSED = "ERROR: refused to write the sync point.";
+
+/** Run the picker with a clean clone at `origin/master` unless overridden,
+ * recording each sync point written. */
+async function runRecorded(
+  answers: (string | undefined)[],
+  overrides: Partial<PushDeps> = {},
+  input: PushInput = pushInput(),
+): Promise<{ result: Result; recorded: string[] }> {
+  const recorded: string[] = [];
+  const run = await runPicker(
+    answers,
+    {
+      statusShort: async () => ({ ok: true, stdout: "" }),
+      cleanHead: async () => CLEAN_HEAD,
+      recordSyncPoint: (sha) => {
+        recorded.push(sha);
+        return { warning: "", refused: undefined };
+      },
+      ...overrides,
+    },
+    input,
+  );
+  return { result: run.result, recorded };
+}
+
+describe("executePush sync point when nothing is sent", () => {
+  test("should record HEAD when every file takes the repo's version", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers);
+
+    // Assert
+    expect(run.recorded).toEqual([CLEAN_HEAD]);
+    expect(run.result).toEqual({
+      code: 0,
+      stdout: FIRST_SYNC_NOTHING,
+      stderr: "",
+    });
+  });
+
+  test("should record HEAD when every file stays in the profile or is taken", async () => {
+    // Arrange
+    const answers = ["p", "p", "r"];
+
+    // Act
+    const run = await runRecorded(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.recorded).toEqual([CLEAN_HEAD]);
+    expect(run.result.code).toBe(0);
+  });
+
+  test("should record nothing when a file is skipped", async () => {
+    // Arrange
+    const answers = ["r", "k", "r"];
+
+    // Act
+    const run = await runRecorded(answers);
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+  });
+
+  test("should record nothing when paths were picked", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {}, pushInput({ paths: [A] }));
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+  });
+
+  test("should record nothing when the clone is dirty or not at origin/master", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      cleanHead: async () => undefined,
+    });
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+    expect(run.result.code).toBe(0);
+  });
+
+  test("should record nothing when the fetch failed", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      originState: async () => ({ fetchOk: false, behind: 0 }),
+    });
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+  });
+
+  test("should stop before recording when the clone is behind origin", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      originState: async () => BEHIND,
+    });
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+    expect(run.result.stderr).toBe(BEHIND_ORIGIN);
+  });
+
+  test("should record HEAD after an export that sent nothing with a sync point", async () => {
+    // Arrange
+    const recorded: string[] = [];
+
+    // Act
+    const run = await runGuarded(diffOf(), pushInput(), {
+      statusShort: async () => ({ ok: true, stdout: "" }),
+      cleanHead: async () => CLEAN_HEAD,
+      recordSyncPoint: (sha) => {
+        recorded.push(sha);
+        return { warning: "", refused: undefined };
+      },
+    });
+
+    // Assert
+    expect(recorded).toEqual([CLEAN_HEAD]);
+    expect(run.result.stdout).toBe(EXPORTED.stdout + NOTHING_TO_SEND);
+  });
+
+  test("should add the warning when the sync point can't be written", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      recordSyncPoint: () => ({
+        warning: SYNC_POINT_WARNING,
+        refused: undefined,
+      }),
+    });
+
+    // Assert
+    expect(run.result).toEqual({
+      code: 0,
+      stdout: FIRST_SYNC_NOTHING + SYNC_POINT_WARNING,
+      stderr: "",
+    });
+  });
+
+  test("should stop with exit 1 when the sync point write is refused", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      recordSyncPoint: () => ({ warning: "", refused: SYNC_POINT_REFUSED }),
+    });
+
+    // Assert
+    expect(run.result).toEqual({
+      code: 1,
+      stdout: FIRST_SYNC_NOTHING,
+      stderr: `${SYNC_POINT_REFUSED}\n`,
+    });
   });
 });

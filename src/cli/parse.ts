@@ -42,6 +42,9 @@ export interface RunCommand {
   readonly conflicts?: boolean;
   /** Repo paths a push leaves alone; set by the program, no flag sets it. */
   readonly skip?: readonly string[];
+  /** Repo paths a first-sync push keeps in the profile (`p`); set by the
+   * program, no flag sets it. */
+  readonly keep?: readonly string[];
   readonly only: readonly string[];
 }
 

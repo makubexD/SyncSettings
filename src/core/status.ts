@@ -22,8 +22,12 @@ export type StatusWord = (typeof STATUS_WORDS)[number];
  */
 export type DiffWord = "IN" | "OUT" | "BOTH" | "?";
 
+/** Push's first-sync `p` line (contract "No sync point, interactive"): a
+ * note before the export's status lines, not a status of its own. */
+export type NoteWord = "PROFILE";
+
 /** Any word `formatLine` prints. */
-export type LineWord = StatusWord | DiffWord;
+export type LineWord = StatusWord | DiffWord | NoteWord;
 
 const WORD_WIDTH = 10;
 

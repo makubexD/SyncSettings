@@ -1,0 +1,40 @@
+{
+  "description": "Push with a record, a sync point and two changed base json keys moves both to the profile layer, one at a time: each change keeps the number it first printed with, so the second move takes key b, and Profile work-1 lists 1 then 2; the PR question is answered n, which puts the repo folder back, exit 0 (Move a change (program only)).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/settings.json",
+        "module": "parity",
+        "merge": "json",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "Parity JSON settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "push",
+      "stdin": "1\n3\n2\n3\n\nn\n",
+      "output": "all"
+    }
+  ],
+  "syncPoint": true
+}
