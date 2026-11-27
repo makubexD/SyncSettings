@@ -273,6 +273,10 @@ private. Claude checks `gh repo view makubexD/SyncSettings --json visibility` an
 Test: the `gh repo view` above prints `PRIVATE`; `mksync status` on Linux still reads "Origin : up to date" through
 the signed-in `gh`.
 
+**Held 2026-11-27:** work #2's active `gh` account and its Git Credential Manager login are the employer's, which
+can't see the owner's private repos. `docs/plan-gh-account.md` (`v1.2.2`) makes the clone and `mksync` sign in as the
+owner; this step resumes after it, as that plan's "After the release" says.
+
 ## Step 14: Docs `[inline: user-facing docs]`
 
 Files: `docs/design-layers.md` (close each "Confirm on Windows" item with its answer, add the work machines to
