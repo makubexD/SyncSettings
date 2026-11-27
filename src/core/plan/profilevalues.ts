@@ -40,7 +40,7 @@ const JSON_SHORT_ESCAPES: Readonly<Record<string, string>> = {
 const CHANGE_ARROW = " -> ";
 
 /** A character that continues a token: a value next to one is not a hit. */
-const TOKEN_CHAR = /^[A-Za-z0-9_-]$/;
+const TOKEN_CHAR = /^[A-Za-z0-9]$/;
 
 function continuesToken(char: string | undefined): boolean {
   return char !== undefined && TOKEN_CHAR.test(char);
@@ -48,8 +48,8 @@ function continuesToken(char: string | undefined): boolean {
 
 /**
  * Whether `form` occurs in `text` as a whole token: the character just before
- * it and the one just after it, when there is one, are not ASCII letters,
- * digits, `-` or `_` (contract "Profile values"). Both are already folded.
+ * it and the one just after it, when there is one, are not ASCII letters or
+ * digits (contract "Profile values"). Both are already folded.
  */
 export function holdsToken(text: string, form: string): boolean {
   if (form === "") {

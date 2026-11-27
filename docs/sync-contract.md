@@ -1947,8 +1947,8 @@ A profile's values don't leave the profile. Before the push side writes anything
 or an OS layer is searched, after sanitize, for every non-empty value of the record's profile, ignoring case. The values searched are the profile's
 with those the run saves to it, so a value [inferred](#sanitize-and-hydrate) in this run is searched like a saved one.
 A value is a hit only as a whole token: the character just before it and the one just after it, when there is one,
-are not ASCII letters, digits, `-` or `_`. So a profile value `A4` is a hit in `"team": "A4"` but not in `#A4B3C2` or
-`pa4ge`. A hit stops the run with exit 1 before any write, two lines per hit, ordered by change number then
+are not ASCII letters or digits. So a profile value `A4` is a hit in `"team": "A4"` and `team-A4_tools` but not in
+`#A4B3C2` or `pa4ge`. A hit stops the run with exit 1 before any write, two lines per hit, ordered by change number then
 placeholder. The change number is the one the change block above prints for that change:
 
 ```text

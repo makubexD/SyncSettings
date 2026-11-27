@@ -15,8 +15,9 @@ Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine wit
   folder): `[s/r/k] [s]` on `personal`, `[s/r/k] [k]` on a work profile, and Enter takes it. Without a record the
   question is unchanged.
 - The public name push suggests is `<profile>-<os>` (`work2-windows`, `personal-linux`) instead of your login.
-- A profile value is refused only as a whole token: `A4` no longer refuses `#90a4ae`. The `refused:` line names the
-  change number the block above it prints for that change.
+- A profile value is refused only as a whole token, ended by any character but a letter or digit: `A4` no longer
+  refuses `#90a4ae`, but still refuses `team-A4_tools`. The `refused:` line names the change number the block above it
+  prints for that change.
 
 ## v1.1.10 (2026-11-27)
 

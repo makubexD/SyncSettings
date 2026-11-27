@@ -61,7 +61,7 @@ user`, no network), `passwd-name` (Linux: the full-name field of this user's pas
 5. **`<GH_CLI_PATH>`** takes `gh-path` when it answers and saves it as a machine value, so export sanitizes it (the
    path can hold the user name); the fixed default stays the fallback. It is never asked.
 6. **Profile-value search matches whole tokens** (a value is a hit only when the characters on both sides are not
-   letters, digits, `-` or `_`), and its refusal names the change's number as printed in the block above it.
+   letters or digits; `-` and `_` end a token, changed at review), and its refusal names the change's number as printed in the block above it.
 
 Needs the user's yes before its phase starts (breaking or naming):
 

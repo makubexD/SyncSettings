@@ -230,8 +230,8 @@ describe("holdsToken", () => {
   test.each<[string, string, boolean]>([
     ["#90a4ae", "inside a hex color", false],
     ["team a4 tools", "between spaces", true],
-    ["team-a4", "after a -", false],
-    ["a4_x", "before a _", false],
+    ["team-a4", "after a -", true],
+    ["a4_x", "before a _", true],
     ["a4 tools", "at the start of the text", true],
     ["team a4", "at the end of the text", true],
     ["a4", "as the whole text", true],

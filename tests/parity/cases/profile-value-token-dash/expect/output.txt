@@ -1,0 +1,14 @@
+Changes on wk1-laptop (profile work-1):
+
+All machines
+  1  M  parity  settings.json  color: "#000000" -> "#90a4ae"
+  2  M  parity  settings.json  team: "none" -> "team-A4_tools"
+Linux machines
+     (none)
+Profile work-1
+     (none)
+This machine only
+     (none)
+
+refused: change 2 (parity settings.json) holds a value of profile work-1 (<YOUR_TEAM>) and would reach all machines.
+Move it to "profile work-1", or put <YOUR_TEAM> in the file instead.
