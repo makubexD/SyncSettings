@@ -339,11 +339,42 @@ describe("parseV2", () => {
     expect(result.ok && result.value.entries[0]?.sanitize?.[0]?.suggest).toEqual(sources);
   });
 
-  const INVALID_SUGGESTS: readonly [unknown][] = [["x"], [1], [[]], [["gh-login", "gh-login"]], [["gh-login", "x"]]];
+  const UNKNOWN_SUGGESTS: readonly [unknown, string][] = [
+    ["x", "x"],
+    [["gh-login", "x"], "x"],
+    [["x", "y"], "x"],
+  ];
+
+  test.each(UNKNOWN_SUGGESTS)("a sanitize rule with suggest %p names source %s and mksync update, exit 2", (suggest, source) => {
+    // Arrange
+    const bad = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest }] });
+
+    // Act / Assert
+    expectError(
+      configWith([bad]),
+      `ERROR: ${CONFIG_FILE}: entry ${bad.file as string} has an unknown suggest source ${source}; if the config is newer, run mksync update.`,
+      2,
+    );
+  });
+
+  const INVALID_SUGGESTS: readonly [unknown][] = [[1], [[]], [["gh-login", "gh-login"]], [["gh-login", 1]], [["x", 1]], [["x", "x"]], [null]];
 
   test.each(INVALID_SUGGESTS)("a sanitize rule with suggest %p stops with exit 1", (suggest) => {
     // Arrange
     const bad = entry({ sanitize: [{ placeholder: "<YOUR_NAME>", prompt: "Full name", suggest }] });
+
+    // Act / Assert
+    expectError(configWith([bad]), suggestError(bad.file as string), 1);
+  });
+
+  test("an unknown name beside another rule's wrong shape keeps exit 1", () => {
+    // Arrange
+    const bad = entry({
+      sanitize: [
+        { placeholder: "<A>", prompt: "A", suggest: 1 },
+        { placeholder: "<B>", prompt: "B", suggest: "future" },
+      ],
+    });
 
     // Act / Assert
     expectError(configWith([bad]), suggestError(bad.file as string), 1);

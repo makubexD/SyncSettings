@@ -1,0 +1,35 @@
+{
+  "description": "A sanitize rule whose suggest names a source this program doesn't know stops check with exit 2 and names mksync update, as a newer config does (Configuration, suggest).",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "parity": {
+        "description": "Parity fixture"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/git.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/git.conf",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name",
+            "suggest": [
+              "git-user-name",
+              "future-source"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "check",
+      "stderr": true
+    }
+  ]
+}

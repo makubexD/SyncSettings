@@ -58,6 +58,7 @@ cases/<name>/
   origin/          repo files committed on top of master in a second clone, so origin is ahead (optional)
   unsent/          repo-relative files copied over the working tree after the commit, left uncommitted (optional)
   dconf/           the dumps the dconf stub answers, one .ini per path (optional)
+  tools/           what the packages stub prints, one <tool>.txt per manager tool (optional)
   expect/
     exit           one exit code per command, one per line
     output.txt     the status lines of every command, in order
@@ -85,8 +86,8 @@ cases/<name>/
 | `commands`         | The commands, run in order in the same folders. Each is `{ "command": …, "options": {…}, "stdin": …, "stderr": true }`, the last two optional                                                                                                                                                                                                                                                                                                        |
 | `git`              | Optional. `"none"` (default): the temp repo is a plain folder. `"committed"`: a git repo with everything committed on `master`. `"remote"`: that, plus a local bare `origin` it was pushed to, with `master` tracking it                                                                                                                                                                                                                             |
 | `syncPoint`        | Optional. `true` writes the repo's `HEAD` after the initial commit and push to the engine's `last-sync` file (`~/.local/state/sync-settings/last-sync`, `%LOCALAPPDATA%\SyncSettings\last-sync`), before `state/` is copied, so a case can override it there. Needs `"git": "remote"`; a non-boolean, or no `remote`, is a runner error                                                                                                              |
-| `originUrl`        | Optional. Needs `"git": "remote"`. After the setup, `git remote set-url origin` gives the clone this address (`https://github.com/parity-owner/SyncSettings.git`), so a source that reads `origin` sees it. The case runs with `GIT_ALLOW_PROTOCOL=file`, so a fetch or push to it fails at once, offline, and the up-to-date check prints its could-not-reach note |
-| `stubs`            | Optional. Any of `gh`, `dconf` and `getent`, as a list: each names a stub put first on `PATH`; see [The stubs](#the-stubs) below                                                                                                                                                                                                                                                                                                                     |
+| `originUrl`        | Optional. Needs `"git": "remote"`. After the setup, `git remote set-url origin` gives the clone this address (`https://github.com/parity-owner/SyncSettings.git`), so a source that reads `origin` sees it. The case runs with `GIT_ALLOW_PROTOCOL=file`, so a fetch or push to it fails at once, offline, and the up-to-date check prints its could-not-reach note                                                                                  |
+| `stubs`            | Optional. Any of `gh`, `dconf`, `getent`, `bootstrap` and `packages`, as a list: each names a stub put first on `PATH`; see [The stubs](#the-stubs) below                                                                                                                                                                                                                                                                                            |
 | `origin/` (folder) | Optional. A tree of repo-relative files committed on top of `master` in a second clone and pushed to the bare origin, then `git fetch origin` in the repo: `origin/master` is one commit ahead, while the repo's `master` and working tree stay unchanged. Needs `"git": "remote"`; without it, a runner error                                                                                                                                       |
 | `unsent/` (folder) | Optional. A tree of repo-relative files copied over the repo's working tree after the initial commit, the push and `origin/`, and left uncommitted, so `git status --porcelain` shows them. They are compared like any other repo file, so `expect/repo/` must hold them. Needs `"git": "committed"` or `"remote"`; without one, a runner error                                                                                                      |
 | `differences`      | Required when the case has an `expect.<os>/` folder, and only then: the names of the rows it records                                                                                                                                                                                                                                                                                                                                                 |
@@ -148,8 +149,18 @@ not be loaded. Any other `dconf` call prints a message on stderr and exits 1.
 With `"stubs": ["getent"]`, `getent passwd <key>` (the program asks by uid) answers with the case's temp home in the
 home field (`<key>:x:1000:1000::<home>:/bin/bash`) and exits 0; any other call exits 2, as getent does for an unknown
 key. `getent` needs `dconf` in the same list: `run.sh` refuses a case that stubs it alone, since the lookup only guards
-a dconf load. `dconf` and `getent` are Linux only: `run.ps1` skips a case whose `os` leaves out Windows before it looks
-at the stubs, and fails one that would run on Windows with them.
+a dconf load.
+
+With `"stubs": ["packages"]`, `dpkg-query`, `apt-mark`, `snap`, `pipx` and `code` first on `PATH` stand in for the
+package managers of the [drift report](../../docs/sync-contract.md#package-drift): each prints the case's
+`tools/<name>.txt` (`tools/dpkg-query.txt`), nothing when it's missing, and exits 0 whatever its arguments. `npm`,
+fonts and GNOME extensions are folders under the case's `home/`, so they need no stub. `DRIFT_ROOT` points at an empty
+folder in the case, so the apt-source and apt-key rows never read the machine's `/etc/apt`. Both runners refuse a case
+whose `repo/` holds `packages/` without this stub, since export and preview would ask the real managers; so does a
+`packages/` in `unsent/` or `origin/`, unless every command is a `commit`, which never reads them.
+
+`dconf`, `getent`, `bootstrap` and `packages` are Linux only: `run.ps1` skips a case whose `os` leaves out Windows
+before it looks at the stubs, and fails one that would run on Windows with them.
 
 ## How the runner checks it
 
@@ -199,8 +210,8 @@ Each file is taken from `expect.<os>/` when it's there for the OS the runner is 
 ## What fits
 
 A case fits when the behavior shows in exit code, status lines and files. A git remote (`git`), `gh`, `dconf` and
-`getent` (`stubs`), a prompt answer (`stdin`) and an empty folder in `home/` (`emptyDirs`) are covered. The package
-managers have no stub yet, so drift is covered by the program's unit tests, as is a dconf case that needs a real
+`getent` and the package managers (`stubs`), a prompt answer (`stdin`) and an empty folder in `home/` (`emptyDirs`)
+are covered. Each manager's parsing is covered by the program's unit tests, as is a dconf case that needs a real
 session bus rather than the stub. Text the status-line check drops (notes, `ERROR:` and `WARNING:` lines, summaries,
 the `Offline:` line) goes in `expect/lines.txt`, per command with `# <n>`; a line that must not appear (no `ORPHAN`
 under `--only`) is a `! <text>` line there. An unreachable origin is an `env` that rewrites every remote URL

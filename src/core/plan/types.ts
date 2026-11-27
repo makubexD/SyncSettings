@@ -111,6 +111,12 @@ export interface Snapshot {
    */
   readonly loginHome?: string;
   /**
+   * The package drift report's lines (contract "Package drift"), read on Linux
+   * for an export or a preview that picks no path, when `packages/linux/`
+   * exists. The plan prints them after the orphan report and counts none.
+   */
+  readonly drift?: readonly string[];
+  /**
    * Local folders that exist, keyed by absolute path. Without it an empty
    * directory entry and a missing one would look alike.
    */

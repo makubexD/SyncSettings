@@ -13,6 +13,7 @@ import {
   driftRoot,
   readDriftIgnore,
   readInstalled,
+  readDriftReport,
   readPackageLists,
   runCommand,
 } from "./packages.ts";
@@ -494,7 +495,9 @@ describe("readInstalled: apt sources and keys", () => {
 
 describe("driftRoot", () => {
   test("should read DRIFT_ROOT and default to the real root", () => {
-    expect(driftRoot({ DRIFT_ROOT: "/tmp/drift-root" })).toBe("/tmp/drift-root");
+    expect(driftRoot({ DRIFT_ROOT: "/tmp/drift-root" })).toBe(
+      "/tmp/drift-root",
+    );
     expect(driftRoot({})).toBe("/");
     expect(driftRoot({ DRIFT_ROOT: "" })).toBe("/");
   });
@@ -626,5 +629,60 @@ describe("drift end to end", () => {
     expect(lines).toEqual([
       "  DRIFT      apt-key/same.gpg  (differs from packages/linux/apt-sources)",
     ]);
+  });
+});
+
+describe("readDriftReport", () => {
+  afterEach(() => {
+    for (const folder of tempFolders.splice(0)) {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  /** A repo whose `packages/linux/pipx.txt` lists `listed`, and a home. */
+  function pipxRepo(): { readonly repo: string; readonly home: string } {
+    const repo = tempFolder();
+    writeText(join(repo, "packages", "linux", "pipx.txt"), "listed\n");
+    return { repo, home: tempFolder() };
+  }
+
+  const PIPX_EXTRA = respond({ pipx: ok("listed 1.0\nextra 2.0\n") });
+
+  test("should give the report's lines on Linux with a packages/linux/ folder", () => {
+    // Arrange
+    const { repo, home } = pipxRepo();
+
+    // Act
+    const lines = readDriftReport(repo, "linux", home, { DRIFT_ROOT: tempFolder() }, PIPX_EXTRA);
+
+    // Assert
+    expect(lines).toContain(
+      "  DRIFT      pipx/extra  (installed, not in packages/linux/pipx.txt)",
+    );
+  });
+
+  test.each<["windows" | "macos"]>([["windows"], ["macos"]])(
+    "should give no report on %p",
+    (os) => {
+      // Arrange
+      const { repo, home } = pipxRepo();
+
+      // Act
+      const lines = readDriftReport(repo, os, home, { DRIFT_ROOT: tempFolder() }, PIPX_EXTRA);
+
+      // Assert
+      expect(lines).toBeUndefined();
+    },
+  );
+
+  test("should give no report when the repo has no packages/linux/ folder", () => {
+    // Arrange
+    const repo = tempFolder();
+
+    // Act
+    const lines = readDriftReport(repo, "linux", tempFolder(), { DRIFT_ROOT: tempFolder() }, PIPX_EXTRA);
+
+    // Assert
+    expect(lines).toBeUndefined();
   });
 });

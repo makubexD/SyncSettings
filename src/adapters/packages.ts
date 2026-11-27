@@ -10,6 +10,8 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { Os } from "../core/config/types.ts";
+import { driftLines, parsePackageLists } from "../core/drift.ts";
 import type {
   AptResult,
   Installed,
@@ -85,14 +87,22 @@ const NVM_VERSIONS = [".nvm", "versions", "node"] as const;
 const encoder = new TextEncoder();
 
 /**
+ * How long one package manager may run: a wedged `snapd` or a `code` whose
+ * server is gone must not hang a preview or a push. A timeout is `failed`,
+ * so the manager's row becomes a `SKIPPED` line (contract "Package drift").
+ */
+const MANAGER_TIMEOUT_MS = 20_000;
+
+/**
  * The real runner: `cmd` with an argument array and no shell, like the dconf
- * adapter. A missing command is `missing`, a non-zero exit or any other spawn
- * error is `failed`.
+ * adapter. A missing command is `missing`, a non-zero exit, a timeout or any
+ * other spawn error is `failed`.
  */
 export function runCommand(cmd: string, args: readonly string[]): RunResult {
   const result = runSync([cmd, ...args], {
     stdout: "pipe",
     stderr: "ignore",
+    timeoutMs: MANAGER_TIMEOUT_MS,
   });
   if (result.missing === true) {
     return { kind: "missing" };
@@ -509,4 +519,45 @@ export function readDriftIgnore(folder: string): readonly string[] {
     return [];
   }
   return text.split("\n").filter((line) => line.trim() !== "");
+}
+
+/** The `packages/linux/` folder the report reads, under the repo root. */
+const PACKAGES_FOLDER = ["packages", "linux"] as const;
+
+/**
+ * The drift report's lines (contract "Package drift"), the one reader export,
+ * preview and `mksync doctor` share, so the doctor's count is what preview
+ * prints. `undefined` when there is no report: not Linux, no `packages/linux/`
+ * folder, or a read that threw.
+ */
+export function readDriftReport(
+  repoRoot: string,
+  os: Os,
+  home: string,
+  env: Readonly<Record<string, string | undefined>>,
+  run?: Run,
+): readonly string[] | undefined {
+  if (os !== "linux") {
+    return undefined;
+  }
+  const folder = join(repoRoot, ...PACKAGES_FOLDER);
+  if (!isDirectory(folder)) {
+    return undefined;
+  }
+  try {
+    const lists = parsePackageLists(readPackageLists(folder));
+    const installed = readInstalled({
+      home,
+      root: driftRoot(env),
+      ...(run !== undefined ? { run } : {}),
+    });
+    return driftLines(lists, installed, readDriftIgnore(folder));
+  } catch (error) {
+    // The report never changes a run's outcome (contract "Package drift"):
+    // a folder that cannot be read is no report, not a failed push.
+    if (error instanceof Error) {
+      return undefined;
+    }
+    throw error;
+  }
 }

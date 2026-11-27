@@ -21,6 +21,7 @@ import { dconfDump, loginHome } from "./dconf.ts";
 import { findRepoSymlink, readSnapshot } from "./fs.ts";
 import { ghBinary } from "./gh.ts";
 import { readHead, readHeadTree, readPorcelain } from "./git.ts";
+import { readDriftReport } from "./packages.ts";
 import { which } from "./process.ts";
 import { readStore, readText } from "./store.ts";
 import type { StoreLocation } from "./store.ts";
@@ -276,6 +277,15 @@ export async function buildSnapshot(
     const ghPath = which(ghBinary(env), env);
     if (ghPath !== null) {
       built = { ...built, ghPath };
+    }
+  }
+  // Contract "Package drift": an export or a preview of the whole repo reports
+  // drift; a picked path, a diff (`mksync diff`, push's and pull's guard) or
+  // another command never asks the managers, so a push reads them once.
+  if (command.command === "export" && command.only.length === 0 && command.diff !== true) {
+    const drift = readDriftReport(repoRoot, os, home, env);
+    if (drift !== undefined) {
+      built = { ...built, drift };
     }
   }
   if (command.command === "export" && !command.preview) {

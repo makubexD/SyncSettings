@@ -156,6 +156,9 @@ ERROR: <config file>: entry <file> needs a dconfPath like /org/gnome/shell/.
 - A `sanitize` rule's `suggest`, when present, is one source or a non-empty list of distinct sources, each
   `gh-login`, `gh-hosts-login`, `origin-owner`, `git-user-name`, `git-user-email`, `passwd-name` or `gh-path`
   ([Sanitize and hydrate](#sanitize-and-hydrate)). An empty list, a repeated source or any other value is invalid.
+  A name outside that list, alone or in a list of names, is the one exit-2 line here, since a newer config may name
+  a source a newer `mksync` has; it names the first such name:
+  `ERROR: <config file>: entry <file> has an unknown suggest source <name>; if the config is newer, run mksync update.`
 - A `dconf` entry has no `localPath`. Its `dconfPath` must start and end with `/`, hold at least one segment of
   letters, digits, `.`, `_` or `-`, and have no `..` segment. So `/` alone is refused, and nobody dumps the whole
   database by accident.
@@ -597,6 +600,11 @@ never deletes anything, and never changes the change count or the exit code.
 
 Linux only: on Windows and macOS the report prints nothing. Right after the orphan report, in an export and in a
 preview, `mksync` compares `packages/linux/` with the machine. With no such folder it prints nothing. An import never reports drift.
+The managers are read once per export or preview, and only when it covers the whole repo: an export or a preview with `--only`,
+and a `mksync push <path>…`, print no report, since a partial run doesn't see every package list
+([Picking files](#picking-files)). A diff (`mksync diff`, and the guard diff of a push or a pull) never reads the
+managers, so a push reads them once. `mksync doctor` reads the same report, so its count is the number of `DRIFT` lines a
+preview of the whole repo prints.
 
 The report never writes a file, never changes a count and never changes the exit code. It runs no install command. `DRIFT` isn't
 counted, and neither are its `SKIPPED` lines, so the "file(s) skipped" note keeps counting files only.

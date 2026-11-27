@@ -1,0 +1,4 @@
+SKIPPED packages/linux/npm.txt nvm not installed
+DRIFT pipx/missing in packages/linux/pipx.txt, not installed
+DRIFT pipx/extra installed, not in packages/linux/pipx.txt
+DRIFT extension/extra@parity installed, not in packages/linux/gnome-extensions.txt

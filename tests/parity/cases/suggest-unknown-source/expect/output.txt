@@ -1,0 +1,1 @@
+ERROR: sync-config.json: entry parity/git.conf has an unknown suggest source future-source; if the config is newer, run mksync update.

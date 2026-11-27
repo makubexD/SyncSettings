@@ -84,6 +84,45 @@ function suggestList(value: unknown): readonly SuggestSource[] | undefined {
   return value;
 }
 
+/**
+ * A rule's `suggest` names as strings when its shape is right (one string, or
+ * a non-empty list of distinct strings), whether or not this program knows
+ * them. Undefined for a wrong shape.
+ */
+function suggestNames(value: unknown): readonly string[] | undefined {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every((name) => typeof name === "string") ||
+    new Set(value).size !== value.length
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+/**
+ * The first source name the entry's rules hold that this program doesn't
+ * know: a newer config may name a source a newer mksync has. Undefined when
+ * every name is known, or when any rule's `suggest` has a wrong shape, which
+ * keeps the invalid-suggest line.
+ */
+function unknownSuggestSource(sanitize: unknown): string | undefined {
+  if (!Array.isArray(sanitize)) {
+    return undefined;
+  }
+  const lists: (readonly string[] | undefined)[] = sanitize
+    .filter((rule) => isRecord(rule) && Object.hasOwn(rule, "suggest"))
+    .map((rule) => suggestNames((rule as Record<string, unknown>).suggest));
+  if (lists.some((names) => names === undefined)) {
+    return undefined;
+  }
+  return lists.flatMap((names) => names ?? []).find((name) => !isSuggestSource(name));
+}
+
 function hasInvalidSuggest(sanitize: unknown): boolean {
   return (
     Array.isArray(sanitize) &&
@@ -155,6 +194,7 @@ interface ConfigMessages {
   readonly localPathsKey: (file: string, key: string) => string;
   readonly defaultEnv: (file: string) => string;
   readonly suggest: (file: string) => string;
+  readonly suggestSource: (file: string, source: string) => string;
 }
 
 /** Every error line names the config file the text came from. */
@@ -189,6 +229,8 @@ function configMessages(configFile: string): ConfigMessages {
     localPathsKey: (file, key) => `${prefix}: entry ${file} has an unknown localPaths key ${key}.`,
     defaultEnv: (file) => `${prefix}: entry ${file} has an invalid defaultEnv.`,
     suggest: (file) => `${prefix}: entry ${file} has an invalid suggest.`,
+    suggestSource: (file, source) =>
+      `${prefix}: entry ${file} has an unknown suggest source ${source}; if the config is newer, run mksync update.`,
   };
 }
 
@@ -332,6 +374,11 @@ export function parseV2(
 
     if (hasInvalidDefaultEnv(record.sanitize)) {
       return failure(messages.defaultEnv(file), 1);
+    }
+
+    const unknownSource = unknownSuggestSource(record.sanitize);
+    if (unknownSource !== undefined) {
+      return failure(messages.suggestSource(file, unknownSource), 2);
     }
 
     if (hasInvalidSuggest(record.sanitize)) {

@@ -1879,7 +1879,11 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     the stream nor the prompt, so the shared cases check only exit 1 and unchanged trees for it. Decide the stream
     (stderr, with the other stops) and whether a prompt shows without a terminal, then give the cases the line.
 - **Left by the case port (`docs/archive/plan-single-engine-8-port.md`, 2026-11-17).**
-  - **Drift in export and preview.** The contract ("Package drift", "Program") and "Drift stays in export and
+  - **Drift in export and preview.** Resolved in v1.2.1 (`docs/plan-preview-drift.md`, 2026-11-27): the program
+    adds the report after the orphan report of a whole-repo export or preview, `doctor` shares its reader, and the
+    runners' `packages` stub lets the shared cases `preview-drift` (after an `ORPHAN` line), `export-drift` and
+    `only-no-orphan-report` (`--only` prints none) cover it.
+    Was: the contract ("Package drift", "Program") and "Drift stays in export and
     preview" above say the program reports `DRIFT` after an export's or a preview's orphan report; the program
     reports drift only in `mksync doctor` (`src/app/doctor.ts` is the only caller of `core/drift.ts`). No shared case
     catches it, since the runners have no package-manager stub. Either the program adds the report (and skips it
@@ -1985,6 +1989,16 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - From the finish review: change numbers can now have gaps, and a number with no change would make the move
     question throw. No move rule today removes a line below the highest number; treat an unassigned number as
     `Pick 1 to <n>.` if one ever does.
+- **Left by the preview-drift finish review (`docs/plan-preview-drift.md`, 2026-11-27).** Now that preview and push
+  read `packages/linux/`, a few hardening items are open; none is reachable without a hostile clone or config:
+  - A symlink under `packages/linux/` (or the folder itself) is followed: a list linked to a private file prints its
+    first words as `DRIFT` lines on the local terminal (never in a PR). The repo symlink guard covers only
+    `dotfiles/`; decide whether it covers `packages/` too.
+  - Config errors and drift lines echo names as they are, so a control character in `sync-config.json` or a list
+    reaches the terminal. Decide one escaping rule for every echoed value.
+  - `DRIFT_ROOT` is test-only but honoured by the shipped program; it only moves the apt-source and apt-key reads.
+  - The runners apply a case's `env` after the stubs' `PATH` and `DRIFT_ROOT`, so a case could undo them; refuse
+    those keys in a case's `env` if one ever needs it.
 
 ### Confirm on Windows
 

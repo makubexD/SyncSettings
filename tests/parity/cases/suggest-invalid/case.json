@@ -1,5 +1,5 @@
 {
-  "description": "A sanitize rule whose suggest is not gh-login, git-user-name or git-user-email stops check with exit 1 when the config is read (Path safety; Configuration, suggest).",
+  "description": "A sanitize rule whose suggest is not a source name or a non-empty list of distinct names stops check with exit 1 when the config is read (Path safety; Configuration, suggest).",
   "configV2": {
     "schemaVersion": 2,
     "modules": {
@@ -17,7 +17,7 @@
           {
             "placeholder": "<YOUR_NAME>",
             "prompt": "Full name",
-            "suggest": "x"
+            "suggest": 1
           }
         ]
       }

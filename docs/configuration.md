@@ -161,8 +161,10 @@ value in the file, and import puts it back, so pick values specific enough not t
   source that fails, prints nothing, or prints more than one line or a control or Unicode format character doesn't answer, and the next
   one runs. `--yes` (push and pull), `preview` and `diff` never use one, with one exception: a rule with a `default`
   and `gh-path` in its `suggest` takes the found `gh` path in place of the default, without asking, and saves it with
-  the machine's values so export sanitizes it; without `gh` on `PATH` the default is used. An empty list, a repeated
-  source or any other value stops every command with
+  the machine's values so export sanitizes it; without `gh` on `PATH` the default is used. A name this program
+  doesn't know, alone or in a list of names, may come from a newer config, so it stops every command with
+  `ERROR: sync-config.json: entry <file> has an unknown suggest source <name>; if the config is newer, run mksync update.`,
+  exit 2, naming the first such name. An empty list, a repeated source or any other value stops every command with
   `ERROR: sync-config.json: entry <file> has an invalid suggest.`, exit 1, as an invalid `defaultEnv` does.
 
 - With a machine record, values are saved in the record or the profile ([below](#profiles-and-machines)). Without one,
