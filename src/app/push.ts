@@ -14,6 +14,7 @@ import { trimAnswer } from "../core/answer.ts";
 import type { Result as CoreResult } from "../core/config/types.ts";
 import { formatLine } from "../core/status.ts";
 import { writeLines } from "./export.ts";
+import type { SyncPointWrite } from "./commit.ts";
 import type { DiffReport, Result } from "./export.ts";
 
 /** What the parsed command asks a push to do. */
@@ -128,6 +129,12 @@ export interface PushDeps {
   readonly cloneReady: () => Promise<boolean>;
   /** `git fetch -q origin master` and the commits `HEAD` lacks. */
   readonly originState: () => Promise<OriginState>;
+  /** The clone's `HEAD` when the clone is clean and `HEAD` is
+   * `origin/master`; `undefined` otherwise. */
+  readonly cleanHead: () => Promise<string | undefined>;
+  /** Record `sha` as the sync point: the warning a failed write prints, or
+   * the line a refused one stops with. */
+  readonly recordSyncPoint: (sha: string) => SyncPointWrite;
 }
 
 /** `front_require_clone push`. */
@@ -644,6 +651,32 @@ async function importKept(
 }
 
 /**
+ * Contract "Sync point": a push that ends with `Nothing to send.` left this
+ * machine and the repo in agreement, so it records the clone's `HEAD`, unless
+ * a file was skipped (`k`, or an `IN` file left alone), paths were picked, the
+ * fetch failed, or the clone is dirty or not at `origin/master`. A refused
+ * write stops with exit 1; a failed one adds its warning.
+ */
+async function nothingSent(
+  sent: Result,
+  agrees: boolean,
+  deps: PushDeps,
+): Promise<Result> {
+  if (!agrees) {
+    return sent;
+  }
+  const head = await deps.cleanHead();
+  if (head === undefined) {
+    return sent;
+  }
+  const written = deps.recordSyncPoint(head);
+  if (written.refused !== undefined) {
+    return { ...sent, code: 1, stderr: `${sent.stderr}${written.refused}\n` };
+  }
+  return { ...sent, stdout: sent.stdout + written.warning };
+}
+
+/**
  * Run `mksync push` end to end, stopping at the export's first failure. The
  * export's output prints before the repo's changes, and the commit's output
  * follows.
@@ -705,8 +738,19 @@ export async function executePush(
     }
     deps.print(imported);
   }
+  // The picker lists its `r` files under `skip` too, since the export leaves
+  // them out; only the others were left as they differ.
+  const taken = new Set(guard.take);
+  const agrees =
+    only.length === 0 &&
+    origin.fetchOk &&
+    guard.skip.every((path) => taken.has(path));
   if (guard.nothingToSend === true) {
-    return { code: 0, stdout: NOTHING_TO_SEND_IN, stderr: "" };
+    return nothingSent(
+      { code: 0, stdout: NOTHING_TO_SEND_IN, stderr: "" },
+      agrees,
+      deps,
+    );
   }
 
   const stateBefore = deps.stateStamp();
@@ -732,15 +776,19 @@ export async function executePush(
     };
   }
   if (status.stdout.trim() === "") {
-    return {
-      code: 0,
-      stdout:
-        exported.stdout +
-        (guard.skip.length > 0 || guard.keep.length > 0
-          ? NOTHING_TO_SEND_IN
-          : NOTHING_TO_SEND),
-      stderr: exported.stderr,
-    };
+    return nothingSent(
+      {
+        code: 0,
+        stdout:
+          exported.stdout +
+          (guard.skip.length > 0 || guard.keep.length > 0
+            ? NOTHING_TO_SEND_IN
+            : NOTHING_TO_SEND),
+        stderr: exported.stderr,
+      },
+      agrees,
+      deps,
+    );
   }
 
   deps.print({

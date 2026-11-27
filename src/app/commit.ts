@@ -364,20 +364,21 @@ async function cleanupBranch(repoRoot: string, branch: string): Promise<void> {
 
 /** What writing the sync point printed: the contract's warning when it only
  * failed, or the line a refused symlink stopped the run with. */
-interface SyncPointWrite {
+export interface SyncPointWrite {
   readonly warning: string;
   readonly refused: string | undefined;
 }
 
-/** Record an opened PR's parent as the sync point, and warn when the write
- * fails, as `write_last_sync` does. A symlinked sync point is refused. */
-function writeSyncPoint(
+/** Record `sha` as the sync point in the context's state folder (an opened
+ * PR's parent, or the clone's `HEAD` after a push that sent nothing), and
+ * warn when the write fails, as `write_last_sync` does. A symlinked sync point
+ * is refused. */
+export function recordSyncPoint(
   context: RunContext,
-  state: string,
-  parent: string,
+  sha: string,
 ): SyncPointWrite {
-  const path = join(state, SYNC_POINT_FILE);
-  const text = `${parent}\n`;
+  const path = join(context.stateFolder, SYNC_POINT_FILE);
+  const text = `${sha}\n`;
   const plan: RunPlan = {
     steps: [],
     finish: [{ kind: "writeState", path, text }],
@@ -659,7 +660,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   // A fast-forward brought commits no diff compared with this machine, so the
   // parent isn't what the machine agrees with.
   if (!command.partial && counts.behind === 0) {
-    const syncPoint = writeSyncPoint(
+    const syncPoint = recordSyncPoint(
       {
         repoRoot,
         os,
@@ -670,7 +671,6 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
         pid: process.pid,
         env: process.env,
       },
-      state,
       parent.sha,
     );
     if (syncPoint.refused !== undefined) {

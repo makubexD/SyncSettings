@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
 import {
   changedFiles,
+  cleanHeadAtOrigin,
   pathsClean,
   readAheadBehind,
   readSyncPoint,
@@ -12,7 +13,7 @@ import {
   statusPorcelain,
 } from "./adapters/git.ts";
 import { homeFolder, stateFolder } from "./adapters/paths.ts";
-import { layerStateStamp } from "./adapters/store.ts";
+import { layerStateStamp, stateLocation } from "./adapters/store.ts";
 import { readAllStdin } from "./adapters/process.ts";
 import { readIdentity } from "./adapters/scan.ts";
 import {
@@ -29,7 +30,7 @@ import {
   STATUSLINE_UNAVAILABLE,
 } from "./adapters/statusline.ts";
 import { readVisibility } from "./adapters/visibility.ts";
-import { executeCommit } from "./app/commit.ts";
+import { executeCommit, recordSyncPoint } from "./app/commit.ts";
 import { diffExport } from "./app/diff.ts";
 import { executeDoctor } from "./app/doctor.ts";
 import { diffCommand, pullImportCommand } from "./app/guard.ts";
@@ -316,6 +317,10 @@ async function statuslineOutput(): Promise<string> {
   }
 }
 
+/** Contract "Sync point": what must be clean for a push that sent nothing to
+ * record one. */
+const SYNC_POINT_CLEAN_PATHS = ["dotfiles", "sync-config.json"] as const;
+
 /** The contract's no-record line, and exit 1. */
 const NO_RECORD = "ERROR: no machine record here; run mksync setup.";
 
@@ -471,6 +476,26 @@ async function execute(
               execute(pushCommitCommand(partial, message)),
             cloneReady: () => cloneReady(repoRoot),
             originState: () => readUpstreamFacts(repoRoot),
+            cleanHead: () =>
+              cleanHeadAtOrigin(repoRoot, SYNC_POINT_CLEAN_PATHS),
+            recordSyncPoint: (sha) => {
+              const layers = loadLayers(state, repoRoot, config.value);
+              return recordSyncPoint(
+                {
+                  repoRoot,
+                  os: os.value,
+                  stateFolder: state,
+                  location: layers.ok
+                    ? layers.value.location
+                    : stateLocation(state),
+                  // The same stamp as `src/app/run.ts`: one backup folder per run.
+                  now: () => new Date(performance.timeOrigin),
+                  pid: process.pid,
+                  env: process.env,
+                },
+                sha,
+              );
+            },
           },
         );
       } finally {

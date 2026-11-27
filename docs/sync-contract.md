@@ -733,8 +733,8 @@ brought with this machine.
 A push that sends nothing and leaves this machine in agreement with the repo records it too: when the push ends with
 `Nothing to send.` (every first-sync file answered `r` or `p`, or every change kept in a private layer), it writes
 `HEAD` when no file was answered `k`, no path was picked, `git status --porcelain -- dotfiles sync-config.json` is
-empty, and `HEAD` is `origin/master` after the push's fetch. With a `k` file, picked paths, a dirty clone or a clone
-behind `origin/master`, it writes nothing, as before.
+empty, and `HEAD` is `origin/master` after the push's fetch. With a `k` file, picked paths, a dirty clone, a clone
+behind `origin/master` or a failed fetch, it writes nothing, as before.
 
 A write that fails prints `WARNING: could not record the sync point in <file>.` and never changes the exit code.
 

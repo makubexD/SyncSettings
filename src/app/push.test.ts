@@ -145,6 +145,8 @@ function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
     runCommit: async () => ({ code: 0, stdout: "committed\n", stderr: "" }),
     cloneReady: async () => true,
     originState: async () => UP_TO_DATE,
+    cleanHead: async () => undefined,
+    recordSyncPoint: () => ({ warning: "", refused: undefined }),
     ...overrides,
   };
 }
@@ -1167,5 +1169,183 @@ describe("executePush first-sync picker with p", () => {
     expect(run.printed).toContain(
       "WARNING: no sync is recorded on this machine, so this sends every file that differs.",
     );
+  });
+});
+
+const CLEAN_HEAD = "1a2b3c4d5e6f";
+const SYNC_POINT_WARNING =
+  "  WARNING: could not record the sync point in /state/last-sync.\n";
+const SYNC_POINT_REFUSED = "ERROR: refused to write the sync point.";
+
+/** Run the picker with a clean clone at `origin/master` unless overridden,
+ * recording each sync point written. */
+async function runRecorded(
+  answers: (string | undefined)[],
+  overrides: Partial<PushDeps> = {},
+  input: PushInput = pushInput(),
+): Promise<{ result: Result; recorded: string[] }> {
+  const recorded: string[] = [];
+  const run = await runPicker(
+    answers,
+    {
+      statusShort: async () => ({ ok: true, stdout: "" }),
+      cleanHead: async () => CLEAN_HEAD,
+      recordSyncPoint: (sha) => {
+        recorded.push(sha);
+        return { warning: "", refused: undefined };
+      },
+      ...overrides,
+    },
+    input,
+  );
+  return { result: run.result, recorded };
+}
+
+describe("executePush sync point when nothing is sent", () => {
+  test("should record HEAD when every file takes the repo's version", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers);
+
+    // Assert
+    expect(run.recorded).toEqual([CLEAN_HEAD]);
+    expect(run.result).toEqual({
+      code: 0,
+      stdout: FIRST_SYNC_NOTHING,
+      stderr: "",
+    });
+  });
+
+  test("should record HEAD when every file stays in the profile or is taken", async () => {
+    // Arrange
+    const answers = ["p", "p", "r"];
+
+    // Act
+    const run = await runRecorded(answers, WORK_RECORD);
+
+    // Assert
+    expect(run.recorded).toEqual([CLEAN_HEAD]);
+    expect(run.result.code).toBe(0);
+  });
+
+  test("should record nothing when a file is skipped", async () => {
+    // Arrange
+    const answers = ["r", "k", "r"];
+
+    // Act
+    const run = await runRecorded(answers);
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+  });
+
+  test("should record nothing when paths were picked", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {}, pushInput({ paths: [A] }));
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+  });
+
+  test("should record nothing when the clone is dirty or not at origin/master", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      cleanHead: async () => undefined,
+    });
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+    expect(run.result.code).toBe(0);
+  });
+
+  test("should record nothing when the fetch failed", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      originState: async () => ({ fetchOk: false, behind: 0 }),
+    });
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+  });
+
+  test("should stop before recording when the clone is behind origin", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      originState: async () => BEHIND,
+    });
+
+    // Assert
+    expect(run.recorded).toEqual([]);
+    expect(run.result.stderr).toBe(BEHIND_ORIGIN);
+  });
+
+  test("should record HEAD after an export that sent nothing with a sync point", async () => {
+    // Arrange
+    const recorded: string[] = [];
+
+    // Act
+    const run = await runGuarded(diffOf(), pushInput(), {
+      statusShort: async () => ({ ok: true, stdout: "" }),
+      cleanHead: async () => CLEAN_HEAD,
+      recordSyncPoint: (sha) => {
+        recorded.push(sha);
+        return { warning: "", refused: undefined };
+      },
+    });
+
+    // Assert
+    expect(recorded).toEqual([CLEAN_HEAD]);
+    expect(run.result.stdout).toBe(EXPORTED.stdout + NOTHING_TO_SEND);
+  });
+
+  test("should add the warning when the sync point can't be written", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      recordSyncPoint: () => ({
+        warning: SYNC_POINT_WARNING,
+        refused: undefined,
+      }),
+    });
+
+    // Assert
+    expect(run.result).toEqual({
+      code: 0,
+      stdout: FIRST_SYNC_NOTHING + SYNC_POINT_WARNING,
+      stderr: "",
+    });
+  });
+
+  test("should stop with exit 1 when the sync point write is refused", async () => {
+    // Arrange
+    const answers = ["r", "r", "r"];
+
+    // Act
+    const run = await runRecorded(answers, {
+      recordSyncPoint: () => ({ warning: "", refused: SYNC_POINT_REFUSED }),
+    });
+
+    // Assert
+    expect(run.result).toEqual({
+      code: 1,
+      stdout: FIRST_SYNC_NOTHING,
+      stderr: `${SYNC_POINT_REFUSED}\n`,
+    });
   });
 });

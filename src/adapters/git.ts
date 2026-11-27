@@ -1170,3 +1170,30 @@ export async function restoreFiles(
   }
   return (await pathsClean(repoRoot, pathspecs)) ? undefined : STILL_CHANGED;
 }
+
+/**
+ * The clone's `HEAD` when it is where a push that sent nothing may record the
+ * sync point (contract "Sync point"): nothing under `pathspecs` differs from
+ * `HEAD` and `HEAD` is `origin/master`. `undefined` otherwise, or when git
+ * can't tell.
+ */
+export async function cleanHeadAtOrigin(
+  repoRoot: string,
+  pathspecs: readonly string[],
+): Promise<string | undefined> {
+  if (!(await pathsClean(repoRoot, pathspecs))) {
+    return undefined;
+  }
+  const heads = await runGitResult(repoRoot, [
+    "rev-parse",
+    "HEAD",
+    "origin/master",
+  ]);
+  if (!heads.ok) {
+    return undefined;
+  }
+  const [head, origin] = heads.stdout.trim().split("\n");
+  return head !== undefined && head !== "" && head === origin
+    ? head
+    : undefined;
+}
