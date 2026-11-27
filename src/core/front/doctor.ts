@@ -27,6 +27,37 @@ export interface GitFacts {
   readonly ghCliValue?: string;
 }
 
+/**
+ * What the app learned about the account git signs in as, when `gh` holds a
+ * token for the origin's owner. The tokens are compared in memory only and
+ * never reach a line.
+ */
+export interface GitLoginFact {
+  /** `gh auth token --user <owner>`: the owner's token. */
+  readonly ownerToken: string;
+  /** A `credential.https://github.com.helper` value in the clone names the owner. */
+  readonly helperNamesOwner: boolean;
+  /** `gh auth token`: the active account's token; undefined = gh failed. */
+  readonly activeToken?: string;
+}
+
+/**
+ * Whether one clone-local helper value runs `gh auth token --user <owner>`,
+ * with the owner as a whole name: the next character is not a name character
+ * (so `owner1` does not match `owner10`). Case-insensitive, as GitHub names are.
+ */
+export function helperNamesOwner(
+  helpers: readonly string[],
+  owner: string,
+): boolean {
+  const escaped = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `gh auth token --user ${escaped}(?![A-Za-z0-9-])`,
+    "i",
+  );
+  return helpers.some((value) => pattern.test(value));
+}
+
 /** Everything the doctor lines read. */
 export interface DoctorFacts {
   readonly os: Os;
@@ -43,6 +74,8 @@ export interface DoctorFacts {
   readonly drift: number | undefined;
   /** Git's own view; undefined = not read, so no git config line. */
   readonly gitFacts?: GitFacts;
+  /** The git login facts; undefined = no gh, no owner or no owner token, so no line. */
+  readonly gitLogin?: GitLoginFact;
 }
 
 /** The doctor output lines, without line endings, and its exit code. */
@@ -143,6 +176,25 @@ function ghLine(f: DoctorFacts): string {
           : "gh: needed for push; see https://cli.github.com",
       );
   }
+}
+
+/**
+ * Contract "Front door", git login: OK when a clone helper names the owner or
+ * the active gh account is the owner's; otherwise WARN. No facts, no line.
+ */
+function gitLoginLines(login: GitLoginFact | undefined): string[] {
+  if (login === undefined) {
+    return [];
+  }
+  if (login.helperNamesOwner || login.activeToken === login.ownerToken) {
+    return [checkLine("OK", "git login")];
+  }
+  return [
+    checkLine(
+      "WARN",
+      "git login: git signs in as another GitHub account; run the install line again",
+    ),
+  ];
 }
 
 /** Contract "Front door": the `bash` line, a WARN since only the leak scan needs it. */
@@ -251,6 +303,7 @@ export function doctorLines(f: DoctorFacts): DoctorReport {
   }
   lines.push(
     ghLine(f),
+    ...gitLoginLines(f.gitLogin),
     f.origin
       ? checkLine("OK", "repo clone with origin")
       : checkLine("WARN", "repo has no origin remote"),
