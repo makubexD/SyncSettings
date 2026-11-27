@@ -30,7 +30,8 @@
   },
   "commands": [
     {
-      "command": "preview"
+      "command": "preview",
+      "stderr": true
     }
   ]
 }

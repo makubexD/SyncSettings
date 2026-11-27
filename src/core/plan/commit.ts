@@ -71,7 +71,8 @@ function namesHostname(name: string, hostname: string): boolean {
   const folded = aliasForm(name);
   return (
     folded !== "" &&
-    (folded === aliasForm(hostname) || folded === aliasForm(shortHostname(hostname)))
+    (folded === aliasForm(hostname) ||
+      folded === aliasForm(shortHostname(hostname)))
   );
 }
 
@@ -432,4 +433,94 @@ export function cachedValueHits(
     }
   }
   return hits;
+}
+
+/** The characters a hostname is made of: one of them next to a match means it
+ * is part of a longer name (`parity-hostess` is not `parity-host`). */
+const HOSTNAME_CHAR = "[A-Za-z0-9_-]";
+
+/** Contract "Cached values": the hint line after a known-value error. */
+export const KNOWN_VALUE_HINT =
+  "  Keep that line in a file the repo doesn't sync (~/.gitconfig.machine, ~/.bashrc.local), or add the placeholder's rule to the file's entry.";
+
+/** A known value found in a changed file: a cached value, named by its
+ * placeholder, or the machine's hostname. Never the value itself. */
+export type KnownValueHit =
+  | {
+      readonly kind: "value";
+      readonly placeholder: string;
+      readonly file: string;
+    }
+  | { readonly kind: "hostname"; readonly file: string };
+
+/** A hostname's full and short forms, without repeats or empty ones. */
+function hostnameForms(hostname: string): readonly string[] {
+  const short = hostname.split(".")[0] ?? "";
+  return [...new Set([hostname, short])].filter((form) => form !== "");
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Contract "Cached values": the changed files that hold the machine's
+ * hostname, in its full or short form, as a whole word, ignoring case. Files
+ * are listed in `files` order. No hostname, no hits.
+ */
+export function hostnameHits(
+  files: ReadonlyMap<string, SyncFileContent>,
+  hostname: string | undefined,
+): readonly string[] {
+  if (hostname === undefined) {
+    return [];
+  }
+  const forms = hostnameForms(hostname.trim());
+  if (forms.length === 0) {
+    return [];
+  }
+  const pattern = new RegExp(
+    `(?<!${HOSTNAME_CHAR})(?:${forms.map(escapeRegExp).join("|")})(?!${HOSTNAME_CHAR})`,
+    "i",
+  );
+  return [...files]
+    .filter(([, content]) => pattern.test(textOf(content)))
+    .map(([file]) => file);
+}
+
+/**
+ * Contract "Cached values": the first known value in the changed files, the
+ * cached values first (as `cachedValueHits` orders them), then the hostname.
+ */
+export function firstKnownValueHit(
+  files: ReadonlyMap<string, SyncFileContent>,
+  values: Values,
+  hostname: string | undefined,
+): KnownValueHit | undefined {
+  const [value] = cachedValueHits(files, values);
+  if (value !== undefined) {
+    return { kind: "value", ...value };
+  }
+  const [file] = hostnameHits(files, hostname);
+  return file === undefined ? undefined : { kind: "hostname", file };
+}
+
+/** What a known-value stop says it didn't do: commit commits, preview writes. */
+export type KnownValueStop = "committed" | "written";
+
+/** Contract "Cached values": the error line for a hit, never the value. */
+export function knownValueLine(
+  hit: KnownValueHit,
+  stop: KnownValueStop,
+): string {
+  switch (hit.kind) {
+    case "value":
+      return `ERROR: a cached value for ${hit.placeholder} is in ${hit.file}; nothing was ${stop}.`;
+    case "hostname":
+      return `ERROR: this machine's hostname is in ${hit.file}; nothing was ${stop}.`;
+    default: {
+      const exhaustive: never = hit;
+      throw new Error(`Unhandled known-value hit: ${String(exhaustive)}`);
+    }
+  }
 }

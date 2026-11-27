@@ -37,6 +37,7 @@ import type {
   RepoBackup,
 } from "../core/machine/backup.ts";
 import { changeLines } from "../core/plan/changes.ts";
+import { KNOWN_VALUE_HINT, knownValueLine } from "../core/plan/commit.ts";
 import { exportMissingRules, planExport } from "../core/plan/export.ts";
 import {
   changeLineNumbers,
@@ -269,6 +270,16 @@ export async function previewTail(
         lines: withInserted(preview.lines, [...hits, LEAK_HIT_WARNING]),
         code: 1,
       });
+    }
+    // Contract "Export preview": after a clean scan, a known value in a file
+    // the preview would change stops it as a commit would, with no diff.
+    const known = preview.knownValueHit;
+    if (known !== undefined) {
+      return {
+        code: 1,
+        stdout: writeLines(withInserted(preview.lines, [LEAK_CLEAN])),
+        stderr: `${knownValueLine(known, "written")}\n${KNOWN_VALUE_HINT}\n`,
+      };
     }
     const diff = await deps.diff(repoRoot, tree);
     if (diff === undefined) {

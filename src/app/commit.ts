@@ -49,7 +49,9 @@ import type { MachineRecord } from "../core/machine/record.ts";
 import type { Profile } from "../core/config/profile.ts";
 import {
   branchName,
-  cachedValueHits,
+  firstKnownValueHit,
+  KNOWN_VALUE_HINT,
+  knownValueLine,
   checkAlias,
   commitMessage,
   MACHINE_ALIAS,
@@ -79,8 +81,7 @@ const STATUS_FAILED = "ERROR: git status failed.";
 
 const OUTSIDE_HEADING = "  Changes outside sync paths:";
 
-const OUTSIDE_ERROR =
-  "ERROR: commit or stash changes outside dotfiles/ first.";
+const OUTSIDE_ERROR = "ERROR: commit or stash changes outside dotfiles/ first.";
 
 const NOTHING_TO_COMMIT = "  Nothing to commit -- dotfiles/ is clean.";
 
@@ -218,9 +219,7 @@ function saveFailedError(file: string): string {
 
 /** Ask on stderr, as the git-config prompt does; no terminal or end of input
  * gives `undefined`. */
-async function askOnTerminal(
-  prompt: string,
-): Promise<string | undefined> {
+async function askOnTerminal(prompt: string): Promise<string | undefined> {
   if (process.stdin.isTTY !== true) {
     return undefined;
   }
@@ -254,7 +253,9 @@ async function resolveMachineAlias(
       // A stored alias is checked too: a record edited by hand, or carried to
       // a machine with that hostname, must not publish it (decision 2).
       const stored = checkAlias(record.alias, record);
-      return "error" in stored ? { error: stored.error } : { alias: stored.alias };
+      return "error" in stored
+        ? { error: stored.error }
+        : { alias: stored.alias };
     }
     const suggestion =
       login === undefined ? undefined : suggestAlias(login, record.hostname);
@@ -356,10 +357,7 @@ function readChangedFiles(
 /** Switch back to `master` and drop `branch`, after `git add` or `git commit`
  * failed, so no commit is lost. Both failures are ignored: the error that
  * stopped the run is the one to report. */
-async function cleanupBranch(
-  repoRoot: string,
-  branch: string,
-): Promise<void> {
+async function cleanupBranch(repoRoot: string, branch: string): Promise<void> {
   await switchToMaster(repoRoot);
   await deleteBranch(repoRoot, branch);
 }
@@ -523,15 +521,13 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
   if (!changed.ok) {
     return fail(CACHED_SEARCH_FAILED);
   }
-  const hits = cachedValueHits(
+  const hit = firstKnownValueHit(
     readChangedFiles(repoRoot, changed.paths),
     cachedValues(repoRoot, profile, record),
+    record?.hostname,
   );
-  const [hit] = hits;
   if (hit !== undefined) {
-    return fail(
-      `ERROR: a cached value for ${hit.placeholder} is in ${hit.file}; nothing was committed.`,
-    );
+    return fail(`${knownValueLine(hit, "committed")}\n${KNOWN_VALUE_HINT}`);
   }
 
   const machine = await resolveMachineAlias(
