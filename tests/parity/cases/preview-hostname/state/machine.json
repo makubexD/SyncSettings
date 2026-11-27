@@ -1,0 +1,16 @@
+{
+  "name": "parity-host",
+  "profile": "work-1",
+  "os": "linux",
+  "hostname": "parity-host",
+  "domain": null,
+  "claude": "claude-deepseek",
+  "pullOnly": false,
+  "modules": {
+    "add": [],
+    "remove": []
+  },
+  "values": {},
+  "replaced": [],
+  "retired": false
+}

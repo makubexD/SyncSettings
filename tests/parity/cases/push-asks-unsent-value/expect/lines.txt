@@ -1,0 +1,4 @@
+Enter values to fill the placeholders in the config files:
+GitHub organization (~/.config/parity/b.conf):
+MODIFIED dotfiles/common/parity/a.conf
+! Parity Org

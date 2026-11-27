@@ -1,0 +1,45 @@
+{
+  "description": "Preview searches every known value after a clean leak scan: a cached value of another entry's rule in a file the preview would change prints the line and the hint, no diff, exit 1 (Export preview).",
+  "git": "committed",
+  "values": {
+    "<YOUR_GH_ORG>": "parity-org"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      },
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Sanitized parity file, no local copy",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_GH_ORG>",
+            "prompt": "GitHub organization"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "preview"
+    }
+  ]
+}
