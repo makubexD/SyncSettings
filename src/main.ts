@@ -45,7 +45,13 @@ import {
   executeUpdate,
   OLD_PROGRAM_NAME,
 } from "./app/update.ts";
-import { failure, runExport, setupTerminal, writeLines } from "./app/export.ts";
+import {
+  askPushValues,
+  failure,
+  runExport,
+  setupTerminal,
+  writeLines,
+} from "./app/export.ts";
 import type { ExecuteOptions, Result } from "./app/export.ts";
 import type { RunEnvironment } from "./app/run.ts";
 import { parseArgs, USAGE } from "./cli/parse.ts";
@@ -381,6 +387,13 @@ async function execute(
                 ? undefined
                 : pushRefusal(record, readIdentity(process.env, os.value));
             },
+            askValues: async () => {
+              const asked = await execute(
+                pushExportCommand(command.paths, false, []),
+                { askValues: true, terminal },
+              );
+              return asked.code === 0 ? undefined : asked;
+            },
             hasSyncPoint: async () =>
               (await readSyncPoint(repoRoot, state)) !== undefined,
             runDiff: (only, conflicts) => execute(diffCommand(only, conflicts)),
@@ -521,6 +534,13 @@ async function execute(
           snapshot,
           command.conflicts === true,
         );
+      }
+      if (
+        command.command === "export" &&
+        options?.askValues === true &&
+        options.terminal !== undefined
+      ) {
+        return askPushValues(environment, command, options.terminal);
       }
       return command.command === "export"
         ? runExport(environment, command)

@@ -82,6 +82,7 @@ import {
   missingValueLine,
   valueQuestion,
 } from "../core/values/hydrate.ts";
+import { valuesPrepare } from "../core/plan/machine-values.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import type { SetupIo } from "../wizard/setup.ts";
 import { setupTerminal, writeLines } from "./terminal.ts";
@@ -308,6 +309,8 @@ export async function previewTail(
  * question aren't lost when the export's reader closes. */
 export interface ExecuteOptions {
   readonly moves?: boolean;
+  /** Push's value questions only, before its guard (`askPushValues`). */
+  readonly askValues?: boolean;
   readonly terminal?: SetupTerminal;
 }
 
@@ -1011,6 +1014,41 @@ export async function askExportValues(
   }
   io.write("\n");
   return { ok: true, snapshot: { ...snapshot, values, valuesAnswered: true } };
+}
+
+/**
+ * Contract "Push asks": push asks its value questions before its diff guard,
+ * so the guard and the export after it find the answers saved. Asks on the
+ * push's terminal and saves the answers where the export would. Exit 0 goes
+ * on; an empty answer, end of input or a refused write stops with its line.
+ */
+export async function askPushValues(
+  env: RunEnvironment,
+  command: RunCommand,
+  terminal: SetupTerminal,
+): Promise<Result> {
+  const { snapshot, context } = await buildRun(env, command);
+  const asked = await askExportValues(snapshot, terminal.io, command.yes);
+  if (!asked.ok) {
+    return failure(asked.line);
+  }
+  if (asked.snapshot === snapshot) {
+    return { code: 0, stdout: "", stderr: "" };
+  }
+  const outcome = runPlan(
+    {
+      prepare: valuesPrepare(asked.snapshot, true, asked.snapshot.values),
+      steps: [],
+      finish: [],
+      lines: [],
+      summary: { kind: "none" },
+      code: 0,
+    },
+    context,
+  );
+  return outcome.refused === undefined
+    ? { code: 0, stdout: "", stderr: "" }
+    : failure(outcome.refused);
 }
 
 /**

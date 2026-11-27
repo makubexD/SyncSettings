@@ -65,6 +65,9 @@ export interface PushedFiles {
 export interface PushDeps {
   /** The record's refusal (pull-only, retired, moved), before the guard. */
   readonly refusal: () => Promise<Result | undefined>;
+  /** Ask the values the push's files need and save the answers, before the
+   * guard (contract "Push asks"); a stop's result, or `undefined` to go on. */
+  readonly askValues: () => Promise<Result | undefined>;
   readonly hasSyncPoint: () => Promise<boolean>;
   /** `export --diff`, with the conflict blocks when asked for. */
   readonly runDiff: (
@@ -385,6 +388,15 @@ export async function executePush(
   const origin = await deps.originState();
   if (origin.fetchOk && origin.behind > 0) {
     return { code: 1, stdout: "", stderr: BEHIND_ORIGIN };
+  }
+
+  // Contract "Push asks": the guard's diff needs every value, so the
+  // questions come first. `--yes` asks nothing; the export stops instead.
+  if (!input.yes) {
+    const stopped = await deps.askValues();
+    if (stopped !== undefined) {
+      return stopped;
+    }
   }
 
   const guard = await guardPush(input, deps);

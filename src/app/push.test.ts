@@ -125,6 +125,7 @@ async function runGuarded(
 function baseDeps(overrides: Partial<PushDeps> = {}): PushDeps {
   return {
     refusal: async () => undefined,
+    askValues: async () => undefined,
     hasSyncPoint: async () => true,
     runDiff: async () => diffOf(),
     runExport: async () => EXPORTED,
@@ -467,6 +468,57 @@ describe("executePush guard", () => {
     expect(run.commits).toEqual([true]);
   });
 
+  test("the value questions come before the guard's diff", async () => {
+    // Arrange
+    const order: string[] = [];
+
+    // Act
+    await runGuarded(diffOf(["OUT", A]), pushInput(), {
+      askValues: async () => {
+        order.push("values");
+        return undefined;
+      },
+      runDiff: async () => {
+        order.push("diff");
+        return diffOf(["OUT", A]);
+      },
+    });
+
+    // Assert
+    expect(order).toEqual(["values", "diff"]);
+  });
+
+  test("a stopped value question ends the push before the guard", async () => {
+    // Arrange
+    const stopped = { code: 1, stdout: "", stderr: "missing value\n" };
+
+    // Act
+    const run = await runGuarded(diffOf(["OUT", A]), pushInput(), {
+      askValues: async () => stopped,
+    });
+
+    // Assert
+    expect(run.result).toEqual(stopped);
+    expect(run.diffs).toEqual([]);
+    expect(run.exports).toEqual([]);
+  });
+
+  test("--yes asks no value before the guard", async () => {
+    // Arrange
+    let asked = false;
+
+    // Act
+    await runGuarded(diffOf(["OUT", A]), pushInput({ yes: true }), {
+      askValues: async () => {
+        asked = true;
+        return undefined;
+      },
+    });
+
+    // Assert
+    expect(asked).toBe(false);
+  });
+
   test("a failed diff stops before the export", async () => {
     const run = await runGuarded(DIFF_FAILED, pushInput({ yes: true }));
 
@@ -516,10 +568,7 @@ describe("executePush guard", () => {
   });
 
   test("picked paths narrow the diff and make the commit partial", async () => {
-    const run = await runGuarded(
-      diffOf(["OUT", A]),
-      pushInput({ paths: [A] }),
-    );
+    const run = await runGuarded(diffOf(["OUT", A]), pushInput({ paths: [A] }));
 
     expect(run.diffs).toEqual([{ only: [A], conflicts: true }]);
     expect(run.exports).toEqual([{ only: [A], skip: [] }]);
@@ -627,7 +676,11 @@ describe("executePush declined", () => {
   test("a failed restore prints git's error and exits 1", async () => {
     const run = await decline({ restoreFiles: async () => "fatal: no\n" });
 
-    expect(run.result).toEqual({ code: 1, stdout: KEPT, stderr: "fatal: no\n" });
+    expect(run.result).toEqual({
+      code: 1,
+      stdout: KEPT,
+      stderr: "fatal: no\n",
+    });
   });
 
   test("a yes restores nothing", async () => {

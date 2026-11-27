@@ -1,0 +1,6 @@
+# 2
+Enter values to fill the placeholders in the config files:
+Full name (~/.config/parity/b.conf):
+BOTH dotfiles/common/parity/b.conf
+! MODIFIED
+! Ana Lopez

@@ -1,5 +1,5 @@
 {
-  "description": "Push with a sync point asks its value questions before its guard: the answer fills the placeholder, the guard labels the file OUT and the push opens a PR, exit 0, with the answer saved to .user-values.json (Front door, push; Checks before pushing; Push asks).",
+  "description": "Push with a sync point asks its value questions before its guard: the answer fills the placeholder, the guard finds the file OUT and the push opens a PR, exit 0, with the answer saved to .user-values.json (Front door, push; Checks before pushing; Push asks).",
   "os": ["linux"],
   "git": "remote",
   "syncPoint": true,
