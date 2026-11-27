@@ -294,8 +294,9 @@ stdin after a leading byte order mark (`U+FEFF`, which Windows PowerShell puts b
 **Push asks.** Export (push) without `--yes` asks for each value nothing above fills, on stdin, as import does:
 the same header and ` <prompt> (<file>, …):` lines, in rule order, before the change list. It asks for every
 placeholder of the entries this machine syncs (this OS's entries, with its profile's and machine's layers) that nothing
-fills, not only those of the files it sends: `--only`, skipped files and an entry whose local file is missing still
-count, since a later push or pull needs the value for them. Each question names the files that need it, a missing one
+fills, not only those of the files it sends: skipped files and an entry whose local file is missing still count,
+since a later push or pull needs the value for them. Picked paths (`--only`) narrow it to the picked entries, so a
+scripted `mksync push <path>` never stops on another entry's value. Each question names the files that need it, a missing one
 too. Push asks these before its [diff guard](#front-door) runs, so the guard and the export find them saved. An empty answer or end of input stops the run at once with the
 missing-value line, and so does an answer that holds placeholder text. The answers are saved as inferred values are:
 on the record and the profile by [Values on a machine](#values-on-a-machine), else in `.user-values.json`. `--yes`

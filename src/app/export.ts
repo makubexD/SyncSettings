@@ -999,7 +999,7 @@ export async function askExportValues(
     values[rule.placeholder] = answer;
   }
   io.write("\n");
-  return { ok: true, snapshot: { ...snapshot, values } };
+  return { ok: true, snapshot: { ...snapshot, values, valuesAnswered: true } };
 }
 
 /**
