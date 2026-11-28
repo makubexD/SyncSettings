@@ -296,6 +296,24 @@ git config --get syncsettings.machine
 git config syncsettings.machine desktop
 ```
 
+## Reconcile the layers
+
+A setting that one machine's profile or system sets often belongs to every machine, or the other way round. To sort
+them out:
+
+1. On each machine, `mksync setting list` shows what its OS, profile and machine layers set above the shared base,
+   side by side. While the repo is public it can't see other machines' profiles, so it says so.
+2. Pick one setting and try the move: `mksync setting move vscode/settings.json editor.fontSize --to base --dry-run`.
+   It prints the files it would write and runs every check (a profile value, a profile-only placeholder, this
+   machine's home folder, the leak scan) without writing.
+3. Run it again without `--dry-run` and answer `y` (or pass `--yes`).
+4. `mksync push` sends a base or OS move to the other machines through its usual PR. A profile or machine move needs
+   no push while the repo is public: it's in the state folder already.
+
+A move never changes this machine: it takes the setting from the narrowest layer that sets it, so this machine's
+merged file stays the same, and only where the setting is kept changes. The other machines see the difference after
+the PR is merged and they pull.
+
 ## Changing how `mksync` behaves
 
 A change to what export, import or commit do starts in [sync-contract.md](sync-contract.md):

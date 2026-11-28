@@ -78,7 +78,8 @@ Needs the user's yes before its phase starts (breaking or naming):
 ## Open (not in any phase)
 
 - `<YOUR_WORK_MARKETPLACE>` sits in the common VS Code settings (Linux and macOS only), so a fresh personal machine
-  is asked a value it has no answer for. Moving the line to a profile needs phase 3's `setting move`.
+  is asked a value it has no answer for. Phase 3's `setting move` can't do it (it keeps this machine's merged
+  result); see the design's "Open", "Left by smart first run phase 3".
 - A shared alias list rendered as native bash and PowerShell, if the list of aliases wanted on every OS grows.
 - Who else overrides a key is unknown while the repo is public (each machine keeps its profile in local state):
   phase 3 prints "unknown", never "none", until the private switch.

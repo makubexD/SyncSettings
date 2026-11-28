@@ -2,6 +2,19 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.4.0 (2026-11-27)
+
+### Added
+
+- `mksync setting list [--profile <p>]` shows every setting this machine's OS, profile and machine layers set above
+  the shared base, each layer's value side by side (values only as their placeholders). While the repo is public it
+  ends with `Other profiles: unknown while the repo is public.`
+- `mksync setting move <file> [<key>] --to base|os|profile|machine [--dry-run | --yes]` moves one JSON key, or one
+  whole file, from the narrowest layer that sets it to another, keeping this machine's merged result. Text bound for
+  the base or an OS layer is refused when it holds a profile value, a profile-only placeholder or this machine's home
+  folder, or when the leak scan finds something. It previews the writes and asks `[y/N]`; it commits nothing, and
+  `mksync push` sends a base or OS move through its PR.
+
 ## v1.3.0 (2026-11-27)
 
 ### Changed

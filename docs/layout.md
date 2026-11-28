@@ -87,6 +87,19 @@ A layer file has the entry's `file` path under its layer folder, as in `dotfiles
 are readable by the current user only. Once the repo is private, the first push moves them to the repo's `machines/`
 and `profiles/`, and `machine.json` keeps only a pointer, `{"name": "<name>", "home": "repo"}`.
 
+### Where `mksync setting move` writes
+
+| `--to`    | While the repo is public              | Once it's private                        |
+| --------- | ------------------------------------- | ---------------------------------------- |
+| `base`    | `dotfiles/common/<file>` in the clone | the same                                 |
+| `os`      | `dotfiles/<os>/<file>` in the clone   | the same                                 |
+| `profile` | `<state>/profiles/<profile>/<file>`   | `profiles/<profile>/<file>` in the clone |
+| `machine` | `<state>/machines/<machine>/<file>`   | `machines/<machine>/<file>` in the clone |
+
+A move to a wider layer also takes the key (or the file) out of the layer it came from, so the same folders can show a
+`MODIFIED` or `REMOVED` line there. Clone writes wait in the working tree for `mksync push`; state writes keep a `.bak`
+and take effect at once ([contract](sync-contract.md#mksync-setting-move)).
+
 ## Where a file goes
 
 | The file                                                                     | Where                                                                         | Example                 |

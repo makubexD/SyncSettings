@@ -1241,16 +1241,20 @@ A whole-file move leaves `<key>` out of the first line, and its second line is `
   Leave it in "profile <p>", or put <KEY> in the file instead.
   ```
 
-- A placeholder that the value table places in the profile (its value lives in `profiles/<p>.json`):
+- A placeholder whose value lives only in this profile: one the [value table](#values-on-a-machine) doesn't name,
+  held in `profiles/<p>.json`:
   `refused: <module> <file> <key> holds <KEY>, a value of profile <p>; machines outside it have no value for it.`
+  A placeholder the table names (`<YOUR_NAME>`, `<HOME>`) has a value on every machine and passes.
 - This machine's home folder as written in the text (as it is, with `\` doubled, and with `/` for `\` on Windows),
   ignoring case on Windows and macOS: `refused: <module> <file> <key> holds this machine's home folder.` The leak
   scan's `home-path` rule covers only Linux; this check covers every OS.
 - The [leak scan](#export-preview) on a temporary copy of the clone with the move applied, as the preview runs it. A
   hit prints the scan's lines, then `refused: the leak scan found the lines above.`
 
-`would reach` names the group in lower case, as the profile-value rule does. The leak scan runs only when the first
-three checks refuse nothing. Any refusal exits 1 and writes nothing.
+`would reach` names the group in lower case, as the profile-value rule does. A whole-file move names
+`<module> <file>`, with no key. The leak scan runs only when the first three checks refuse nothing, and only when the
+move writes the base or an OS layer; a scan that can't run prints `ERROR: leak scan could not run; nothing was
+committed.`, as the export preview's. Any refusal exits 1 and writes nothing.
 
 **Preview and question.**
 
@@ -1267,7 +1271,9 @@ Move it? [y/N]
   `Move git .gitconfig.local (whole file)`. The second line names the source and target groups. Under `--yes` the
   preview prints without the question.
 - The status lines are the writes, in the export's words and order (`ADDED`, `MODIFIED`, `REMOVED`), with the paths
-  the snapshot uses. State files are written with their `.bak`, as every state write is.
+  the snapshot uses. State files are written with their `.bak`, as every state write is. A removed file takes the
+  folders it empties with it, up to `dotfiles/` or the layer's `profiles/<p>` or `machines/<m>` folder, as the
+  export's removals do.
 - The question is `[y/N]`, as push's PR question, because a move changes what other machines receive. An empty
   answer, `n` or end of input prints `Nothing moved.`, exit 1, as `machine retire`'s decline. No terminal and no
   `--yes`: `ERROR: setting move needs a terminal or --yes`, exit 2.

@@ -2065,6 +2065,10 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - `--format json` for `mksync setting list`, for scripts.
   - A `dir` entry's files and an `import` side file: `setting list` prints them as `<file>/<name inside>` or by the
     side file's resolved name, but `setting move` finds an entry only by its `file`, so it can't name one yet.
+  - After a move to the base or an OS layer, `mksync push` prints `Repo is up to date. No changes detected.` (the
+    live file already equals the merge, so its export writes nothing) and then commits the move anyway. A line that
+    names the moved files waiting in the clone would read better; it changes push's output, so it needs a shared case
+    first.
 
 ### Confirm on Windows
 
