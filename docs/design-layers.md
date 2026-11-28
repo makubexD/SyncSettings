@@ -2056,13 +2056,15 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - Not taken from the roadmap: back navigation (`<` to go back a question), and moving push's public-name check
     before its export so a refused name stops before any file is written.
 - **Left by smart first run phase 3 (`docs/plan-smart-first-run-3.md`, 2026-11-27).** `mksync setting move` always
-  moves from the narrowest layer and keeps this machine's merged result, so three things stay open:
+  moves from the narrowest layer and keeps this machine's merged result, so these things stay open:
   - Removing a key from the base for every machine: the `<YOUR_WORK_MARKETPLACE>` item ("A profile without a value"
     above) needs the base to drop an array item that each work profile then adds. A move can't do that, since it
     would change the merged result on this machine.
   - `--from <layer>`, to move a layer that isn't the narrowest one (for example the OS layer's copy while the profile
     also sets the key).
   - `--format json` for `mksync setting list`, for scripts.
+  - A `dir` entry's files and an `import` side file: `setting list` prints them as `<file>/<name inside>` or by the
+    side file's resolved name, but `setting move` finds an entry only by its `file`, so it can't name one yet.
 
 ### Confirm on Windows
 

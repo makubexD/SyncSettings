@@ -70,8 +70,8 @@ export type SettingListTarget =
 /** While the repo is public, no other machine's profile is known here. */
 export type RepoVisibility = "public" | "private";
 
-/** A json key path a layer above the base sets, with how to find it. */
-interface ListedPath {
+/** A json key path a layer sets, with how to find it. */
+export interface ListedPath {
   /** The object keys that lead to the value. */
   readonly keyPath: readonly string[];
   /** The path names an array, whose items are counted. */
@@ -152,8 +152,15 @@ function valueAt(
   return current;
 }
 
+/** Every key path `value` sets, keyed as the listing prints it. */
+export function listedPaths(value: JsonValue): ReadonlyMap<string, ListedPath> {
+  const paths = new Map<string, ListedPath>();
+  collectPaths(value, "", [], paths);
+  return paths;
+}
+
 /** What one layer holds at `listed`, or nothing when it doesn't set it. */
-function jsonCellText(
+export function jsonCellText(
   value: JsonValue,
   listed: ListedPath,
 ): string | undefined {

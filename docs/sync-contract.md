@@ -1213,7 +1213,10 @@ same after it as before it:
 - A narrower move writes the target and leaves the source as it is.
 - A wider move writes the target and removes the key from the source, unless a layer between them sets it; then the
   source keeps it. A move that removes the last key of an object removes the emptied object too.
-- An array path moves every item the source holds that the target doesn't.
+- An array path moves every item the source holds that the target doesn't. A wider move also takes out of the
+  source the items the target already holds, which leaves the merged result the same. A narrower move with no item
+  to carry prints the "already" line below.
+- A `dir` entry's files and `import` side files can't be named yet (design "Open").
 - A whole file, or an `import` side file, moves as a whole, under the same rule.
 - Because the source is the narrowest layer, no narrower one can override the moved value, so Move a change's refusals
   (`moving <path> to <layer> would change the merged result`, `a layer narrower than <layer> has the file`) can't be

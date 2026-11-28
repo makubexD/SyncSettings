@@ -406,7 +406,10 @@ export function moveWholeFile(
 }
 
 /** The bytes the plan writes to `path`, or undefined when it writes none. */
-function plannedBytes(plan: RunPlan, path: string): Uint8Array | undefined {
+export function plannedBytes(
+  plan: RunPlan,
+  path: string,
+): Uint8Array | undefined {
   for (const step of plan.steps) {
     for (const item of step.actions) {
       if (item.action.kind === "writeRepo" && item.action.path === path) {
@@ -456,7 +459,7 @@ function parentFolderActions(path: string): readonly StepAction[] {
  * gains one with the export planner's status line, and a slot a whole-file
  * move emptied is removed from the repo or dropped from the plan.
  */
-function withMovedSlots(
+export function withMovedSlots(
   plan: RunPlan,
   snapshot: Snapshot,
   slots: readonly JsonLayer[],
