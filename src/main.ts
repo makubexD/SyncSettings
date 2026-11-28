@@ -59,7 +59,8 @@ import {
 } from "./app/export.ts";
 import type { ExecuteOptions, Result } from "./app/export.ts";
 import type { RunEnvironment } from "./app/run.ts";
-import { parseArgs, USAGE } from "./cli/parse.ts";
+import { helpText } from "./cli/help.ts";
+import { parseArgs } from "./cli/parse.ts";
 import type {
   CommitCommand,
   DiffCommand,
@@ -84,8 +85,6 @@ import type { MachineRecord } from "./core/machine/record.ts";
 import { machineScope } from "./core/machine/scope.ts";
 import { renderMachineShow } from "./core/machine/show.ts";
 import type { SetupIo } from "./wizard/setup.ts";
-
-export { USAGE };
 
 export type { Result } from "./app/export.ts";
 
@@ -665,7 +664,7 @@ async function execute(
 }
 
 /**
- * Resolve the arguments that need no repo: the version, the usage line or an
+ * Resolve the arguments that need no repo: the version, help or an
  * unknown option. A command comes back for `main` to execute.
  */
 export function run(argv: readonly string[]): Resolved {
@@ -700,8 +699,8 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };
-    case "usage":
-      return { code: 2, stdout: "", stderr: `${USAGE}\n` };
+    case "help":
+      return { code: 0, stdout: helpText(parsed.topic), stderr: "" };
     case "error":
       return { code: parsed.code, stdout: "", stderr: `${parsed.message}\n` };
     default: {

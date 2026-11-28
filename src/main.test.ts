@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pkg from "../package.json" with { type: "json" };
-import { removeOldProgram, run, USAGE } from "./main.ts";
+import { HELP_TEXT } from "./cli/help.ts";
+import { removeOldProgram, run } from "./main.ts";
 
 const OLD_PROGRAM_NAME = "mksync.old.exe";
 
@@ -16,15 +17,40 @@ describe("mksync front", () => {
     });
   });
 
-  test("no command prints the usage line and exits 2", () => {
-    expect(run([])).toEqual({ code: 2, stdout: "", stderr: `${USAGE}\n` });
+  test("no command returns the status command", () => {
+    expect(run([])).toEqual({ kind: "status" });
   });
 
-  test("an unknown command prints the usage line and exits 2", () => {
+  test("--help prints the top-level help on stdout and exits 0", () => {
+    expect(run(["--help"])).toEqual({
+      code: 0,
+      stdout: HELP_TEXT.top,
+      stderr: "",
+    });
+  });
+
+  test("setting move --help prints the verb's help and exits 0", () => {
+    expect(run(["setting", "move", "--help"])).toEqual({
+      code: 0,
+      stdout: HELP_TEXT["setting move"],
+      stderr: "",
+    });
+  });
+
+  test("push --yes --help returns help, not a push to execute", () => {
+    expect(run(["push", "--yes", "--help"])).toEqual({
+      code: 0,
+      stdout: HELP_TEXT.push,
+      stderr: "",
+    });
+  });
+
+  test("an unknown command names it and exits 2", () => {
     expect(run(["frobnicate"])).toEqual({
       code: 2,
       stdout: "",
-      stderr: `${USAGE}\n`,
+      stderr:
+        "ERROR: unknown command frobnicate\nRun mksync --help for the list of commands.\n",
     });
   });
 
