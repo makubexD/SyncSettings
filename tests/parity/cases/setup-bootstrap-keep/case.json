@@ -1,6 +1,8 @@
 {
-  "description": "Setup on Ubuntu with a sync point, --existing keep, the bootstrap chosen and --yes runs keep's export before the script, printing the export's lines and Pushed into the repo folder; the script gets MKSYNC_SETUP_EXISTING=keep and imports nothing, and setup runs no import of its own, exit 0 (plan-setup-hotfix decision 2; mksync setup, Bootstrap, Then).",
-  "os": ["linux"],
+  "description": "Setup on Ubuntu with a sync point, --existing keep, --bootstrap and --yes (which never asks the bootstrap question) runs keep's export before the script, printing the export's lines and Pushed into the repo folder; the script gets MKSYNC_SETUP_EXISTING=keep and imports nothing, and setup runs no import of its own, exit 0 (plan-setup-hotfix decision 2; mksync setup, Bootstrap, Then).",
+  "os": [
+    "linux"
+  ],
   "git": "remote",
   "syncPoint": true,
   "configV2": {
@@ -29,7 +31,10 @@
     "SYNC_TOOLS": "git,gh,claude",
     "SYNC_OS_RELEASE": "../home/os-release"
   },
-  "stubs": ["bootstrap", "gh"],
+  "stubs": [
+    "bootstrap",
+    "gh"
+  ],
   "commands": [
     {
       "command": "setup",
@@ -39,9 +44,9 @@
         "claude": "none",
         "mode": "push",
         "existing": "keep",
-        "yes": true
-      },
-      "stdin": "y\n"
+        "yes": true,
+        "bootstrap": true
+      }
     }
   ]
 }

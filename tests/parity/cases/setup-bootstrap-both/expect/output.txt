@@ -1,0 +1,1 @@
+ERROR: --bootstrap and --no-bootstrap can't be used together

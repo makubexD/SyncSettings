@@ -109,7 +109,7 @@ with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and
 `--only`, and `resetValues`, a boolean, is `--reset-values`, allowed on `import` and `check` only. `name`, `profile`,
 `replace`, `claude`, `mode`, `existing`, `alias` and `label` are strings spelled `--<key> <value>` and allowed on `setup` only;
 `yes: true` adds `--yes` on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`,
-`pull`, `push` and `front-diff`; `bootstrap: true` adds `--bootstrap` on `setup` only; and `target`, a string, is the
+`pull`, `push` and `front-diff`; `bootstrap: true` adds `--bootstrap` and `noBootstrap: true` adds `--no-bootstrap`, on `setup` only; and `target`, a string, is the
 name argument of `machine-retire` and `profile-retire`, required there and refused elsewhere. On `commit` only,
 `partial: true` adds `--partial`; `message`, a string, adds `-m <msg>` on `commit` and `push`. On the six front door
 commands (`status`, `doctor`, `pull`, `push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each

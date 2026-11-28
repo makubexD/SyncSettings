@@ -1,6 +1,8 @@
 {
-  "description": "On Ubuntu with an executable bootstrap/linux.sh, setup asks the bootstrap question before the summary, with --bootstrap in Same as:; --yes answers the confirm, y runs the script with MKSYNC_SETUP_EXISTING=backup, so the script imports as answer 4 says and setup imports nothing after it, exit 0 (mksync setup, Bootstrap, Then).",
-  "os": ["linux"],
+  "description": "On Ubuntu with an executable bootstrap/linux.sh, setup asks the bootstrap question before the summary; y chooses it, with --bootstrap in Same as:, and Enter at the confirm applies; the script runs with MKSYNC_SETUP_EXISTING=backup, so it imports as answer 4 says and setup imports nothing after it, exit 0 (mksync setup, Bootstrap, Then).",
+  "os": [
+    "linux"
+  ],
   "configV2": {
     "schemaVersion": 2,
     "modules": {
@@ -34,15 +36,21 @@
     "SYNC_TOOLS": "git,gh,claude",
     "SYNC_OS_RELEASE": "../home/os-release"
   },
-  "stubs": ["bootstrap", "gh"],
+  "stubs": [
+    "bootstrap",
+    "gh"
+  ],
   "commands": [
     {
       "command": "setup",
       "options": {
         "profile": "work-1",
-        "yes": true
+        "name": "wk1-laptop",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "backup"
       },
-      "stdin": "y\n"
+      "stdin": "y\n\n"
     }
   ]
 }
