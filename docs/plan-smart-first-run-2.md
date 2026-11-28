@@ -135,7 +135,7 @@ case for another OS is skipped on this machine); the non-Linux guesses are unit 
 - `setup-guess-work-domain`: `SYNC_DOMAIN=corp.example`, public, a local profile `work-3`. Expect
   `Guess: new profile work4 (Linux, joined to a domain); other machines' profiles can't be seen while the repo is
 public, so check the number`, the question ending `[work4] `, `expect/state/profiles/work4.json`, exit 0;
-  `corp.example` appears nowhere in `output.txt`.
+  `corp.example` appears only in the scan's `Domain` line.
 - `setup-yes-guess-personal`: `setup --yes --name <n>`, no `--profile`, no domain. Expect the guess line, then
   `ERROR: missing --profile`, exit 2, no `machine.json`. This is what `install.sh --yes` runs.
 - `setup-yes-guess-work`: `MKSYNC_VISIBILITY=private`, `SYNC_DOMAIN=corp.example`, the repo holding profiles
