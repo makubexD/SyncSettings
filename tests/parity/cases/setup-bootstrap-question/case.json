@@ -50,7 +50,7 @@
         "mode": "push",
         "existing": "backup"
       },
-      "stdin": "y\n\n"
+      "stdin": "\ny\n\n"
     }
   ]
 }

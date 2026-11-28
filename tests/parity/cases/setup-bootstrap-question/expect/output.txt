@@ -16,6 +16,7 @@ Scanning this machine...
 Profiles on this machine:
   1) personal
 
+ Label for work-1, to find it in lists (optional): 
   Also restore apps and packages from packages/linux (uses sudo)? [y/N] 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Public name: work-1-linux

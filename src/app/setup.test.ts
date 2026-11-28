@@ -410,7 +410,7 @@ describe("setupValues", () => {
       {
         kind: "replace",
         placeholder: "<HOME>",
-        text: "<HOME> [/home/old] ",
+        text: "  <HOME> [/home/old]: ",
         guess: { value: "/home/old", source: "old machine" },
       },
     ]);
@@ -482,7 +482,7 @@ describe("setupValues", () => {
       expect(values.questions[0]).toEqual({
         kind: "replace",
         placeholder: "<GH_CLI_PATH>",
-        text: `<GH_CLI_PATH> [${NEW_PATH}] `,
+        text: `  Path to gh (~/.config/parity/guess.conf) [${NEW_PATH}]: `,
         guess: { value: NEW_PATH, source: "gh-path" },
       });
     });
@@ -515,5 +515,30 @@ describe("setupValues", () => {
         { value: OLD_NAME, source: "old machine" },
       ]);
     });
+
+    test("should skip a defaultEnv guess holding a newline", async () => {
+      // Act
+      const values = await setupValues(
+        sources({ PARITY_TOKEN_DIR: "/new\ntokens" }),
+        choice({ action: "stop", record: oldMachine(), replaced: true }),
+      );
+
+      // Assert
+      expect(values.questions[1]?.guess).toEqual({
+        value: "/old/tokens",
+        source: "old machine",
+      });
+    });
+  });
+
+  test("should list the .user-values.json placeholders setup copies in", async () => {
+    // Act
+    const values = await setupValues(
+      valueSources({ "<YOUR_NAME>": "Jane" }),
+      choice(),
+    );
+
+    // Assert
+    expect(values.saved).toEqual(["<YOUR_NAME>"]);
   });
 });

@@ -725,6 +725,12 @@ describe("parseArgs", () => {
     );
   });
 
+  test("should refuse a --value holding a newline", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME=a\nb"])).toEqual(
+      usageError("ERROR: --value <YOUR_NAME>: value holds a control character"),
+    );
+  });
+
   test("should refuse a --value with no equals sign", () => {
     expect(parseArgs(["setup", "--value", "YOUR_NAME"])).toEqual(
       usageError("ERROR: --value needs KEY=VALUE."),

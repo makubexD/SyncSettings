@@ -6,7 +6,7 @@
 
 import type { ClaudeMode } from "../core/machine/record.ts";
 import { isValidLabel, LABEL_REFUSAL } from "../core/config/profile.ts";
-import { trimAnswer } from "../core/answer.ts";
+import { holdsControlCharacter, trimAnswer } from "../core/answer.ts";
 import { holdsPlaceholder } from "../core/values/hydrate.ts";
 import type {
   ExistingAction,
@@ -361,6 +361,9 @@ function parseValueFlag(text: string): ValueFlag | ParseError {
   }
   if (holdsPlaceholder(value)) {
     return setupError(`missing value for ${placeholder}`);
+  }
+  if (holdsControlCharacter(value)) {
+    return setupError(`--value ${placeholder}: value holds a control character`);
   }
   return { placeholder, value };
 }

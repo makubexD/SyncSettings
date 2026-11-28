@@ -50,7 +50,13 @@ import type { MachineRecord } from "../core/machine/record.ts";
 import { moveUserValues, placeValue } from "../core/machine/values.ts";
 import type { ValuePlace } from "../core/machine/values.ts";
 import { parseValuesFile } from "../core/values/file.ts";
-import { holdsPlaceholder } from "../core/values/hydrate.ts";
+import { configuredLocal } from "../core/plan/pick.ts";
+import { holdsControlCharacter } from "../core/answer.ts";
+import {
+  holdsPlaceholder,
+  placeholderFiles,
+  valueQuestion,
+} from "../core/values/hydrate.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { runSetup } from "../wizard/setup.ts";
 import type {
@@ -190,13 +196,27 @@ async function replaceQuestions(
     );
   const found = rules.length > 0 ? await sources.suggest(rules) : {};
   const env = sources.env ?? process.env;
+  const files = placeholderFiles(
+    sources.config.entries.map((entry) => ({
+      rules: entry.sanitize ?? [],
+      file: configuredLocal(entry, sources.os),
+    })),
+  );
   return held.map(([placeholder, old]) => {
     const fresh = freshGuess(placeholder, rules, found, env);
     const guess: ValueGuess = fresh ?? { value: old, source: "old machine" };
+    // A held value no config rule names has no prompt: its placeholder stands in.
+    const prompt =
+      rules.find((rule) => rule.placeholder === placeholder)?.prompt ??
+      placeholder;
     return {
       kind: "replace",
       placeholder,
-      text: `${placeholder} [${guess.value}] `,
+      text: valueQuestion(
+        prompt,
+        (files.get(placeholder) ?? []).filter((file) => file !== ""),
+        guess.value,
+      ),
       guess,
     };
   });
@@ -218,7 +238,12 @@ function freshGuess(
       rule.placeholder === placeholder && rule.defaultEnv !== undefined
         ? env[rule.defaultEnv]
         : undefined;
-    if (value !== undefined && value !== "" && !holdsPlaceholder(value)) {
+    if (
+      value !== undefined &&
+      value !== "" &&
+      !holdsPlaceholder(value) &&
+      !holdsControlCharacter(value)
+    ) {
       return { value, source: "defaultEnv" };
     }
   }
@@ -264,8 +289,10 @@ export async function setupValues(
 ): Promise<SetupValues> {
   const places = placesToAsk(sources.fileValues, choice.profile, choice.record);
   const replaced = await replaceQuestions(sources, choice);
+  const held = Object.keys(sources.fileValues);
+  const saved = held.length > 0 ? { saved: held } : {};
   if (choice.action === "stop") {
-    return { places, questions: replaced };
+    return { places, questions: replaced, ...saved };
   }
   const moved = moveUserValues(sources.fileValues, {});
   const profile: Profile = {
@@ -299,7 +326,7 @@ export async function setupValues(
     ...imported,
     ...exported.filter((ask) => !asked.has(ask.placeholder)),
   ].map(fillQuestion);
-  return { places, questions: [...replaced, ...fills] };
+  return { places, questions: [...replaced, ...fills], ...saved };
 }
 
 /** An import or export value question as setup asks it. */

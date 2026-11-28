@@ -17,7 +17,7 @@ Profiles in this repo:
   1) personal
   2) work-1      machine wk1-laptop
 
-<YOUR_NAME> [Jane Doe] <YOUR_EMAIL> [old@example.com] 
+  Full name (~/.config/parity/gitconfig) [Jane Doe]:   Email (~/.config/parity/gitconfig) [old@example.com]: 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Public name: work-1-linux
 Values:

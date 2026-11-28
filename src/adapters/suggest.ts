@@ -9,7 +9,7 @@
 
 import { userInfo } from "node:os";
 import type { SanitizeRule, SuggestSource } from "../core/config/types.ts";
-import { trimAnswer } from "../core/answer.ts";
+import { holdsControlCharacter, trimAnswer } from "../core/answer.ts";
 import { holdsPlaceholder } from "../core/values/hydrate.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { ghBinary } from "./gh.ts";
@@ -56,12 +56,6 @@ const NO_ANSWER_CODE = 1;
 
 /** The line end a source prints after its answer. */
 const TRAILING_LINE_END = /\r?\n$/;
-
-/** C0 and C1 control characters, and the Unicode format characters that
- * reorder or hide text (bidi overrides, zero-width marks, line separators,
- * the BOM), which a prompt must not echo to the terminal. */
-const CONTROL_CHARACTER =
-  /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
 
 /** The passwd field that holds the user's full name (GECOS), counted from 0. */
 const PASSWD_NAME_FIELD = 4;
@@ -133,7 +127,7 @@ function usable(value: string | undefined): string | undefined {
   if (
     value === undefined ||
     value === "" ||
-    CONTROL_CHARACTER.test(value) ||
+    holdsControlCharacter(value) ||
     holdsPlaceholder(value)
   ) {
     return undefined;

@@ -22,6 +22,14 @@ describe("quoteToken", () => {
     expect(quoteToken("it's", "windows")).toBe("'it''s'");
   });
 
+  test("doubles a typographic quote on windows, which PowerShell reads as '", () => {
+    expect(quoteToken("O\u2019Brien", "windows")).toBe("'O\u2019\u2019Brien'");
+  });
+
+  test("leaves a typographic quote alone on linux", () => {
+    expect(quoteToken("O\u2019Brien", "linux")).toBe("'O\u2019Brien'");
+  });
+
   test("quotes a token with a shell character", () => {
     expect(quoteToken("a&b", "linux")).toBe("'a&b'");
   });

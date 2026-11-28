@@ -124,6 +124,9 @@ export interface SetupValues {
   readonly places: readonly string[];
   /** The `replace` questions first, then the `fill` ones. */
   readonly questions: readonly SetupValueQuestion[];
+  /** `.user-values.json` placeholders setup copies in: a `--value` for one
+   * replaces a saved value. Absent when the file holds none. */
+  readonly saved?: readonly string[];
 }
 
 /** A value question's answer, saved with the record after the confirm. */
@@ -192,6 +195,10 @@ export type SetupOutcome =
   | { readonly ok: false; readonly message: string; readonly code: 1 | 2 }
   /** The confirm was answered no: nothing is written, exit 0. */
   | { readonly ok: false; readonly declined: true };
+
+/** Keep exports first, which a pull-only machine never does. */
+const KEEP_PULL_ONLY =
+  "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.";
 
 /** The summary's source for a `--value` answer. */
 const FROM_FLAG = "--value";
@@ -748,7 +755,6 @@ export async function runSetup(
   io.write(renderProfiles(input, names, match));
 
   let asked = false;
-  let askedProfile = false;
   let profileName = decidedProfile;
   if (profileName === undefined) {
     let suggestion: number | string | undefined;
@@ -766,7 +772,6 @@ export async function runSetup(
       profileName =
         typeof suggestion === "number" ? names[suggestion - 1] : suggestion;
     } else {
-      askedProfile = true;
       asked = true;
       profileName = await ask(
         io,
@@ -829,13 +834,19 @@ export async function runSetup(
     }
   }
   let label = flags.label;
+  // Two flags that can't go together stop before the label question asks
+  // anything; an answered conflict stops after question 4.
+  if (flags.mode === "pull-only" && flags.existing === "keep") {
+    return stop(KEEP_PULL_ONLY, 1);
+  }
   if (
-    askedProfile &&
+    flags.yes !== true &&
     flags.label === undefined &&
     replacing === undefined &&
     profileName !== PERSONAL &&
     profileNamed(input, profileName) === undefined
   ) {
+    asked = true;
     label = await askLabel(io, profileName);
   }
   let claude = replacing?.claude;
@@ -879,10 +890,7 @@ export async function runSetup(
     io.write("\n");
   }
   if (mode === "pull-only" && action === "keep") {
-    return stop(
-      "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.",
-      1,
-    );
+    return stop(KEEP_PULL_ONLY, 1);
   }
 
   // Contract "Bootstrap": asked after question 4 and before the summary, never
@@ -951,20 +959,23 @@ export async function runSetup(
       : {}),
   };
 
-  const valued = await askValues(
-    io,
-    flags,
-    new Set([
-      ...Object.keys(answeredProfile.values),
-      ...Object.keys(answeredRecord.values),
-    ]),
+  const toAsk =
     (await input.values?.({
       profile: answeredProfile,
       record: answeredRecord,
       action,
       mode,
       replaced: replacing !== undefined,
-    })) ?? NO_VALUES,
+    })) ?? NO_VALUES;
+  const valued = await askValues(
+    io,
+    flags,
+    new Set([
+      ...Object.keys(answeredProfile.values),
+      ...Object.keys(answeredRecord.values),
+      ...(toAsk.saved ?? []),
+    ]),
+    toAsk,
   );
   if (!valued.ok) {
     return valued.stop;
@@ -1274,8 +1285,9 @@ async function askLabel(
 
 /**
  * Contract "mksync setup", Public name: `--alias`, else a replaced record's
- * alias, else the `<profile>-<os>` guess push makes; none for a pull-only
- * machine (unless `--alias` names one) or a guess the check refuses.
+ * alias (pull-only included, so a later switch to push keeps its branch
+ * prefix), else the `<profile>-<os>` guess push makes; none for a new
+ * pull-only machine (unless `--alias` names one) or a guess the check refuses.
  */
 function publicName(
   input: SetupInput,
@@ -1286,13 +1298,13 @@ function publicName(
   if (input.flags.alias !== undefined) {
     return input.flags.alias;
   }
+  if (replacing?.alias !== undefined) {
+    return replacing.alias;
+  }
   if (mode === "pull-only") {
     return undefined;
   }
-  return (
-    replacing?.alias ??
-    suggestAlias(profile, input.scan.os, input.scan.hostname)
-  );
+  return suggestAlias(profile, input.scan.os, input.scan.hostname);
 }
 
 function buildRecord(

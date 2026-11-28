@@ -1656,7 +1656,8 @@ Profiles on this machine:
   personal machine it stops and asks for `--profile`.
 - **No suggestion.** End of input on a question with no suggestion, or `--yes` without its flag, stops with
   `ERROR: missing --<flag>`, exit 2, before anything is written.
-- **Label.** When setup creates a profile other than `personal`, it asks after question 1:
+- **Label.** When setup creates a profile other than `personal`, it asks after question 1, also when `--profile`
+  answers question 1 (`--mode pull-only` with `--existing keep` stops before it, exit 1):
   `Label for <profile>, to find it in lists (optional):`. An empty answer or end of input leaves none; `--yes`
   doesn't ask. `--label <text>` sets it without asking; with a profile that already exists it stops with
   `ERROR: --label names a new profile; <profile> already exists`, exit 2. A label is 1 to 30 letters, digits, spaces
@@ -1666,13 +1667,16 @@ Profiles on this machine:
   a commit message or a PR, and while public the profile stays in local state. Unlabelled profiles print as before.
 - **Public name.** Setup doesn't ask it: it guesses `<profile>-<os>` in alias form, as [the PR](#checks-before-pushing)
   does, and `--alias <name>` sets it, checked as a typed public name is, before any question (its refusal, exit 2). On
-  `--replace` the old record's alias is kept unless `--alias` is given. A pull-only machine gets none, and so does a
-  guess the check refuses (push asks later).
+  `--replace` the old record's alias is kept unless `--alias` is given, also for a pull-only record, so a later switch
+  to push keeps its branch prefix. A new pull-only machine gets none, and so does a guess the check refuses (push asks
+  later).
 - **`--value KEY=VALUE`**, repeatable, answers a value question without asking. `KEY` is the placeholder with or
   without its `<` `>` (`--value YOUR_NAME=Jane` and `--value '<YOUR_NAME>=Jane'` are the same), since a bare `<` is a
   shell redirect. It also replaces a saved value. Refused before any question, exit 2:
-  `ERROR: --value <KEY>: no rule uses this placeholder`, `ERROR: --value <KEY>: empty value`, and a value holding
-  placeholder text, with the typed value's refusal word for word.
+  `ERROR: --value <KEY>: no rule uses this placeholder`, `ERROR: --value <KEY>: empty value`,
+  `ERROR: --value <KEY>: value holds a control character` (a value is one line, as a typed answer is; a replace guess
+  from `defaultEnv` holding one is no guess), and a value holding placeholder text, with the typed value's refusal word
+  for word.
 - **Name.** `--name`, else the hostname up to its first dot (macOS reports `<name>.local`; the record keeps the
   whole hostname). A name that isn't valid stops with
   `ERROR: <value> isn't a valid machine name; use --name <machine>.`, exit 2; a profile name likewise with
@@ -1709,7 +1713,8 @@ Profiles on this machine:
   `--claude`, `--mode`, `--existing`, `--alias <alias>` when there is one, ` --bootstrap` or ` --no-bootstrap` when the
   bootstrap was offered, and ` --value KEY=VALUE` for every typed or `--value` answer (a guess reproduces itself). A
   token with a character outside `A-Za-z0-9._@/:+=-` is quoted whole in single quotes, `'` written `'\''` on Linux and
-  macOS and `''` on Windows (the Windows line targets PowerShell). On Windows a value holding `"` is left out, with
+  macOS and doubled on Windows, with the typographic quotes U+2018 to U+201B PowerShell also reads as `'` (the Windows
+  line targets PowerShell). On Windows a value holding `"` is left out, with
   one line after `Same as:`: `Same as: leaves out --value KEY (its value holds a ").`
 - **What differs.** Before question 4, setup runs the [import check](#import-check) and, when it finds changes and a
   [sync point](#sync-point) exists, the [diff](#diff). It prints one line above question 4 (also when a flag answers
@@ -1783,7 +1788,9 @@ A machine that already has a record stops without `--replace`:
 `pullOnly` and module overrides, so the second and third questions aren't asked. `hostname` and `domain` take the
 scan's, and the old pair goes to `replaced` with today's date. Each machine value is asked again, before the summary,
 with a fresh guess for this machine as the suggestion (its rule's `suggest` sources, then its `defaultEnv`), else the
-old machine's value (`old machine` in the summary): `<HOME> [<value>]`. The old record's alias is kept. A record not in the store, or retired, stops with
+old machine's value (`old machine` in the summary), in the import's words without its header:
+`  <prompt> (<files>) [<value>]: ` (a value no rule names shows its placeholder as the prompt). The old record's
+alias is kept, pull-only included. A record not in the store, or retired, stops with
 `ERROR: no machine <name> here; records are shared once the repo is private.`, exit 1 (while public the store holds
 only this machine's own record, so only a moved disk can take one over). Until the first private push (phase 7) the
 taken-over record and its profile are written to local state; the repo's `machines/` and `profiles/` are left as they

@@ -16,6 +16,7 @@ Scanning this machine...
 Profiles on this machine:
   1) personal
 
+ Label for work-1, to find it in lists (optional): 
 <OTHER>: kept on 1) this profile 2) this machine [1] 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Public name: work-1-linux

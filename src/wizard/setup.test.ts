@@ -123,6 +123,8 @@ const SCAN_BLOCK = [
 const Q1 = "1/4 What is this machine for? ";
 const GUESS_PERSONAL = "Guess: personal (Linux, no domain).";
 const Q1_PERSONAL = `${Q1}[1] `;
+/** Enter at the label question a new profile other than personal gets. */
+const NO_LABEL = "";
 const LABEL_QUESTION = (profileName: string): string =>
   ` Label for ${profileName}, to find it in lists (optional): `;
 const Q2 =
@@ -198,7 +200,7 @@ describe("runSetup", () => {
     const setup = input({}, ANSWER_FLAGS);
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y"]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -234,7 +236,7 @@ describe("runSetup", () => {
     const setup = input({}, ANSWER_FLAGS);
 
     // Act
-    const { outcome } = await run(setup, [""]);
+    const { outcome } = await run(setup, [NO_LABEL, ""]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -258,7 +260,7 @@ describe("runSetup", () => {
     const setup = input({}, { ...ANSWER_FLAGS, existing: "stop" });
 
     // Act
-    const { outcome, output } = await run(setup, [""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, ""]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -274,7 +276,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, [""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -287,7 +289,7 @@ describe("runSetup", () => {
     const setup = input({ bootstrapOffered: true }, { ...ANSWER_FLAGS });
 
     // Act
-    const { outcome, output } = await run(setup, ["y", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -349,7 +351,7 @@ describe("runSetup", () => {
   test("should print --no-bootstrap when the question was answered no", async () => {
     const setup = input({ bootstrapOffered: true }, { ...ANSWER_FLAGS });
 
-    const { outcome, output } = await run(setup, ["n", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "n", ""]);
 
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.bootstrap).toBe(false);
@@ -549,6 +551,7 @@ describe("runSetup", () => {
 
   test("should ask a numbered question again after a bad answer", async () => {
     const { outcome, output } = await run(input({}, { profile: "work-1" }), [
+      NO_LABEL,
       "9",
       "3",
       "",
@@ -562,6 +565,7 @@ describe("runSetup", () => {
 
   test("should ask a question again for a hex or decimal number answer", async () => {
     const { outcome, output } = await run(input({}, { profile: "work-1" }), [
+      NO_LABEL,
       "0x2",
       "2.0",
       "3",
@@ -757,7 +761,7 @@ describe("runSetup", () => {
   test("should refuse keep answered after pull-only", async () => {
     const { outcome, output } = await run(
       input({}, { profile: "work-1", claude: "claude" }),
-      ["2", "2"],
+      [NO_LABEL, "2", "2"],
     );
     expect(outcome).toEqual({
       ok: false,
@@ -766,7 +770,7 @@ describe("runSetup", () => {
       code: 1,
     });
     expect(output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q3}${Q4}\n`,
+      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${LABEL_QUESTION("work-1")}${Q3}${Q4}\n`,
     );
     expect(output).not.toContain("Machine ");
   });
@@ -867,7 +871,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y"]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -937,7 +941,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, ["", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -984,7 +988,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y"]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -1152,7 +1156,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome, output } = await run(setup, ["1", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "1", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1166,7 +1170,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome } = await run(setup, ["2", ""]);
+    const { outcome } = await run(setup, [NO_LABEL, "2", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1179,7 +1183,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome } = await run(setup, ["3", ""]);
+    const { outcome } = await run(setup, [NO_LABEL, "3", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1220,7 +1224,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome, output } = await run(setup, ["4", "1", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "4", "1", ""]);
 
     // Assert
     expect(output).toContain(
@@ -1239,7 +1243,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS, other]);
 
     // Act
-    const { outcome } = await run(setup, ["1", "1", ""]);
+    const { outcome } = await run(setup, [NO_LABEL, "1", "1", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1551,10 +1555,22 @@ describe("runSetup label", () => {
     expect(flagged.output).toContain("--profile work-1 --label acme --name");
   });
 
-  test("should not ask when --profile names the new profile", async () => {
+  test("should ask when --profile names a new profile", async () => {
+    // Act
+    const { outcome, output } = await run(
+      input({}, { profile: "work-1", existing: "stop" }),
+      ["acme", "", "", "y"],
+    );
+
+    // Assert
+    expect(output).toContain(LABEL_QUESTION("work-1"));
+    expect(outcome.ok && outcome.profile.label).toBe("acme");
+  });
+
+  test("should not ask under --yes when --profile names a new profile", async () => {
     // Act
     const { output } = await run(
-      input({}, { profile: "work-1", existing: "stop" }),
+      input({}, { profile: "work-1", existing: "stop", yes: true }),
     );
 
     // Assert
@@ -1649,7 +1665,7 @@ describe("runSetup value questions", () => {
     );
 
     // Act
-    const { output } = await run(setup, ["", TYPED_EMAIL, ""]);
+    const { output } = await run(setup, [NO_LABEL, "", TYPED_EMAIL, ""]);
 
     // Assert
     expect(output).toContain(
@@ -1665,7 +1681,7 @@ describe("runSetup value questions", () => {
     );
 
     // Act
-    const { output } = await run(setup, ["", TYPED_EMAIL, ""]);
+    const { output } = await run(setup, [NO_LABEL, "", TYPED_EMAIL, ""]);
 
     // Assert
     expect(output).toContain(
@@ -1687,7 +1703,12 @@ describe("runSetup value questions", () => {
     );
 
     // Act
-    const { output } = await run(setup, [TYPED_NAME, TYPED_EMAIL, ""]);
+    const { output } = await run(setup, [
+      NO_LABEL,
+      TYPED_NAME,
+      TYPED_EMAIL,
+      "",
+    ]);
 
     // Assert
     expect(output).toContain(
@@ -1703,7 +1724,7 @@ describe("runSetup value questions", () => {
     );
 
     // Act
-    const { outcome } = await run(setup, ["", TYPED_EMAIL, ""]);
+    const { outcome } = await run(setup, [NO_LABEL, "", TYPED_EMAIL, ""]);
 
     // Assert
     expect(outcome.ok && outcome.values).toEqual([
@@ -1730,7 +1751,13 @@ describe("runSetup value questions", () => {
     );
 
     // Act
-    const { output } = await run(setup, ["", TYPED_EMAIL, "", "left over"]);
+    const { output } = await run(setup, [
+      NO_LABEL,
+      "",
+      TYPED_EMAIL,
+      "",
+      "left over",
+    ]);
 
     // Assert
     expect(output.endsWith(CONFIRM_QUESTION)).toBe(true);
@@ -1801,7 +1828,7 @@ describe("runSetup value questions", () => {
     );
 
     // Act
-    const { outcome } = await run(setup, ["", "<YOUR_EMAIL>"]);
+    const { outcome } = await run(setup, [NO_LABEL, "", "<YOUR_EMAIL>"]);
 
     // Assert
     expect(outcome).toEqual({
@@ -1854,7 +1881,7 @@ describe("runSetup value questions", () => {
     const setup = input({ values: valuesReader(values).read }, ANSWER_FLAGS);
 
     // Act
-    const { outcome, output } = await run(setup, ["2", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "2", ""]);
 
     // Assert
     expect(output).toContain(
