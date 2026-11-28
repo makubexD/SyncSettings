@@ -1,0 +1,47 @@
+{
+  "description": "setup of a new work profile asks a label after question 1 (the guess work1), keeps the typed acme, and shows it in the summary and in Same as:; the profile file gets the label key after its others (Machines (program only), mksync setup, Label, A new profile, Summary, Same as:).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "corp.example",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "stdin": "\nacme\n\n\n3\ny\n"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "description": "setup --label 'Big Co' on a new profile sets the label without asking: it shows in the summary and quoted in Same as:; a label with a / is refused with exit 2 and writes no profile (Machines (program only), mksync setup, Label, Same as:).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "name": "wk1-laptop",
+        "profile": "work5",
+        "label": "Big Co",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "stop"
+      },
+      "stdin": "y\n"
+    },
+    {
+      "command": "setup",
+      "options": {
+        "name": "wk1-laptop",
+        "profile": "work6",
+        "label": "a/b",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "stop"
+      },
+      "stderr": true
+    }
+  ]
+}
