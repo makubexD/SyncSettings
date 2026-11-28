@@ -179,22 +179,27 @@ function savedProfile(plan: RunPlan): Profile | undefined {
   return undefined;
 }
 
+/** A repo write bound for the base or an OS layer: where it lands, the label
+ * the messages print, and the text it brings (with its decoded form for a
+ * JSON entry). */
+export interface SharedWrite {
+  readonly layer: "base" | "os";
+  readonly module: string;
+  readonly file: string;
+  readonly json: boolean;
+  readonly texts: readonly string[];
+}
+
 /**
- * Contract "Profile values (program only)": every non-empty value of the run's
- * profile, with the values the run saves to it, found, ignoring case, in a repo text bound for the base or an OS
- * layer, with the number the block gives its change. Profile and machine layer
- * writes are not searched, and neither are machine values.
+ * Every `writeRepo` action of `plan` bound for the base or an OS layer, in
+ * plan order. Profile and machine layer writes, and writes no entry matches,
+ * are left out.
  */
-export function profileValueHits(
+export function sharedWrites(
   plan: RunPlan,
   snapshot: Snapshot,
-  lines: readonly ChangeLine[],
   select: EntrySelector = selectEntries,
-): readonly ProfileValueHit[] {
-  const profile = savedProfile(plan) ?? snapshot.profile;
-  if (profile === undefined) {
-    return [];
-  }
+): readonly SharedWrite[] {
   const selected = select(
     snapshot.config,
     scopeFor(snapshot),
@@ -207,8 +212,7 @@ export function profileValueHits(
       `profile values: entries can't be selected: ${selected.error.message}`,
     );
   }
-  const numbers = changeLineNumbers(lines, snapshot.record, snapshot.os);
-  const hits: ProfileValueHit[] = [];
+  const writes: SharedWrite[] = [];
   for (const step of plan.steps) {
     for (const item of step.actions) {
       const action = item.action;
@@ -232,19 +236,65 @@ export function profileValueHits(
       const json = isJsonEntry(entry);
       const text = textOf(action.bytes);
       const texts = json ? [text, decodedJsonText(text)] : [text];
-      for (const [placeholder, value] of Object.entries(profile.values)) {
-        if (value === "" || !holdsValue(texts, value, json)) {
-          continue;
-        }
-        // A write the block numbers no line for still refuses: dropping the hit
-        // would let the value through. Change 0 marks it.
-        const change =
-          numberOf(lines, numbers, layer, module, file, value, json) ?? 0;
-        hits.push({ change, module, file, placeholder, layer });
-      }
+      writes.push({ layer, module, file, json, texts });
+    }
+  }
+  return writes;
+}
+
+/**
+ * The placeholders of `profile` whose non-empty value one of `texts` holds as
+ * a whole token, ignoring case, in the forms the file can hold it in
+ * (contract "Profile values"), in the profile's order.
+ */
+export function heldProfileValues(
+  texts: readonly string[],
+  profile: Profile,
+  json: boolean,
+): readonly string[] {
+  return Object.entries(profile.values)
+    .filter(([, value]) => value !== "" && holdsValue(texts, value, json))
+    .map(([placeholder]) => placeholder);
+}
+
+/**
+ * Contract "Profile values (program only)": every non-empty value of the run's
+ * profile, with the values the run saves to it, found, ignoring case, in a repo text bound for the base or an OS
+ * layer, with the number the block gives its change. Profile and machine layer
+ * writes are not searched, and neither are machine values.
+ */
+export function profileValueHits(
+  plan: RunPlan,
+  snapshot: Snapshot,
+  lines: readonly ChangeLine[],
+  select: EntrySelector = selectEntries,
+): readonly ProfileValueHit[] {
+  const profile = savedProfile(plan) ?? snapshot.profile;
+  if (profile === undefined) {
+    return [];
+  }
+  const writes = sharedWrites(plan, snapshot, select);
+  const numbers = changeLineNumbers(lines, snapshot.record, snapshot.os);
+  const hits: ProfileValueHit[] = [];
+  for (const { layer, module, file, json, texts } of writes) {
+    for (const placeholder of heldProfileValues(texts, profile, json)) {
+      const value = profile.values[placeholder] ?? "";
+      // A write the block numbers no line for still refuses: dropping the hit
+      // would let the value through. Change 0 marks it.
+      const change =
+        numberOf(lines, numbers, layer, module, file, value, json) ?? 0;
+      hits.push({ change, module, file, placeholder, layer });
     }
   }
   return hits.sort(compareHits);
+}
+
+/** The group a shared layer's write reaches, in lower case, as `would reach`
+ * names it: `all machines`, `linux machines`. */
+export function reachedGroup(layer: "base" | "os", os: Os): string {
+  return layer === "base"
+    ? "all machines"
+    : `${OS_TITLES[os].toLowerCase()} machines`;
 }
 
 /**
@@ -259,10 +309,7 @@ export function refusedLines(
 ): readonly string[] {
   const lines: string[] = [];
   for (const hit of hits) {
-    const group =
-      hit.layer === "base"
-        ? "all machines"
-        : `${OS_TITLES[os].toLowerCase()} machines`;
+    const group = reachedGroup(hit.layer, os);
     lines.push(
       `refused: change ${hit.change} (${hit.module} ${hit.file}) holds a value of profile ${profileName} (${hit.placeholder}) and would reach ${group}.`,
       `Move it to "profile ${profileName}", or put ${hit.placeholder} in the file instead.`,
