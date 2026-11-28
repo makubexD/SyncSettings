@@ -1156,8 +1156,11 @@ ERROR: <file> is a json entry; name a key
 ERROR: <file> is not a json entry; it moves as a whole file, with no key
 ```
 
-Unlike `machine` and `profile`, an unknown verb names the group (`unknown setting command <verb>`). A third positional
-argument, or any argument after `setting list` other than `--profile <p>`, is `Unknown option: <arg>`, exit 2, as
+So are `ERROR: setting move needs a file` (no `<file>`), `ERROR: --profile needs a value.` and
+`ERROR: --to needs a value.` (the flag last, or followed by another option), and `ERROR: <flag> is repeated.` (`--profile`,
+`--to`, `--dry-run` or `--yes` given twice). The flags go anywhere after the verb. Unlike `machine` and `profile`, an
+unknown verb names the group (`unknown setting command <verb>`). An option in the verb's place, a third positional
+argument, or any argument after `setting list` other than `--profile <p>` is `Unknown option: <arg>`, exit 2, as
 everywhere else.
 
 #### `mksync setting list`

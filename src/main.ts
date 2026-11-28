@@ -68,6 +68,8 @@ import type {
   PushCommand,
   RetireCommand,
   RunCommand,
+  SettingListCommand,
+  SettingMoveCommand,
   SetupCommand,
   StatusCommand,
   StatuslineCommand,
@@ -275,6 +277,8 @@ type Resolved =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | SettingListCommand
+  | SettingMoveCommand
   | CommitCommand
   | SetupCommand
   | StatuslineCommand
@@ -289,6 +293,8 @@ type ExecutableCommand =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | SettingListCommand
+  | SettingMoveCommand
   | CommitCommand
   | SetupCommand;
 
@@ -517,6 +523,13 @@ async function execute(
     case "machine-retire":
     case "profile-retire":
       return executeRetire(repoRoot, config.value, state, command);
+    case "setting-list":
+    case "setting-move":
+      // shortcut: parsed since plan smart-first-run-3 step 2; steps 5 and 10
+      // replace this with the commands themselves.
+      return failure(
+        `ERROR: mksync ${command.kind.replace("-", " ")} is not built yet.`,
+      );
     case "commit":
     case "status":
     case "doctor":
@@ -668,6 +681,8 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "machine-retire":
     case "profile-retire":
+    case "setting-list":
+    case "setting-move":
       return parsed;
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };
