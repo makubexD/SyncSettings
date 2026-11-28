@@ -1,17 +1,15 @@
 # Smart first run, phase 2: setup asks once, up front, with everything guessed (`v1.3.0`)
 
-Roadmap: `docs/plan-smart-first-run.md` (phase 2: WIZ-1, WIZ-2's question at setup, WIZ-7, WIZ-10, WIZ-11, and the
+Roadmap: `docs/plan-smart-first-run.md` (phase 2: WIZ-1, WIZ-2's question at setup, WIZ-7, WIZ-11, a profile label, and the
 wizard-standard gaps "Review", "`Same as:`" and "`--yes`" of the 2026-11-27 audit). Branch `engine/setup-asks-once`.
 Contract: `docs/sync-contract.md` ("Setup": scan, answers, profile suggestion, summary and `Same as:`, confirm,
-bootstrap, replace; "Sanitize and hydrate": when a suggestion may fill a value; "The PR": the public name; pull's
-confirm). Design: `docs/design-layers.md` ("First run", the suggested answers, item 1).
+bootstrap, replace; "Sanitize and hydrate": when a suggestion may fill a value; "The PR": the public name). Design: `docs/design-layers.md` ("First run", the suggested answers, item 1).
 
 The user said yes to this phase on 2026-11-27 ("choose the best option ... make it right and carefully"), after the
 private switch was put on hold so that development finishes while the repo is public. The plan was reviewed by the
 project's `wizard-auditor` the same day; its findings are folded into the decisions below.
 
-**Breaking.** Setup guesses the profile, its value questions move before the confirm, `setup --yes` takes guesses, and
-Enter at pull's `Apply these changes?` starts meaning yes. Every step's test runs on stubs in throwaway folders, as the
+**Breaking.** Setup guesses the profile, its value questions move before the confirm, and `setup --yes` takes guesses. Every step's test runs on stubs in throwaway folders, as the
 shared cases do.
 
 ## Decided (proposed, for review)
@@ -87,10 +85,18 @@ placeholder`), an empty value (`ERROR: --value <KEY>: empty value`), a value hol
    `ERROR: missing value for <KEY>; pass --value KEY=<value>`, exit 2 (a missing flag, as `missing --profile`).
    Interactive, end of input at a value never takes its guess: it stops with `ERROR: missing value for <KEY>`, exit 1,
    nothing written.
-8. **Pull's confirm (WIZ-10):** `Apply these changes? [Y/n] `. Without `--force` the guard has already refused every
-   `OUT` and `BOTH` file and every skipped one, so only `IN` changes are left. Enter and `y` are yes, `n` is no, end of
-   input is no. Under `--force` it stays `[y/N]`, and so does the no-sync-point question. **Push's `Open a PR with
-these changes?` stays `[y/N]`:** a PR is a remote action on a public repo, and the preview above it is the check.
+8. **A profile label** to find a profile quickly (asked 2026-11-27): an optional short note such as the employer's
+   short name. It's a new optional profile key `label`, written after the existing keys: 1 to 30 characters of
+   letters, digits, spaces and `.-_&`, no placeholder text (refused with exit 2 otherwise:
+   `ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&`). Setup asks it only when it creates a profile other
+   than `personal`, after question 1: ` Label for <profile>, to find it in lists (optional):`; Enter or end of input
+   leaves none, and `--yes` doesn't ask. `--label <text>` sets it without asking; with a profile that already exists it
+   is `ERROR: --label names a new profile; <profile> already exists`, exit 2. It shows in setup's profile list
+   (`  2) work1  (acme)`), in the summary (`profile work3 (acme)`), and in `Same as:` (` --label <text>`, quoted as
+   `--value` is). It is private: it lives in the profile file, which stays in local state while the repo is public,
+   and it never goes into a branch name, a commit message or a PR. Unlabelled profiles print as today. The user
+   also decided (2026-11-27) that pull's `Apply these changes?` defaults to yes and push's PR question stays `[y/N]`;
+   that change moves to phase 4 (help and messages) to keep this plan within 20 steps.
 9. **Version `v1.3.0`,** not `v2.0.0`: the owner is the only user of the interface, the changes take fewer answers,
    and scripts already pass `--yes`. `CHANGELOG.md` lists the changes under "Changed".
 
@@ -100,14 +106,13 @@ Files: `docs/sync-contract.md`, `docs/design-layers.md`.
 
 - Contract "Setup": the profile guess, its line and `--yes` (decision 1); `Public name:` and `--alias` (2); the
   bootstrap flags (3); the values before the summary, the summary's order and "after the confirm setup asks nothing"
-  (4); `--value` and its refusals (5); replace's fresh guess (6); `--yes` and end of input (7); the usage line with
-  `--alias`, `--value`, `--bootstrap`, `--no-bootstrap`. Rewrite "Values after the answers", "Answers" and "No
+  (4); `--value` and its refusals (5); replace's fresh guess (6); `--yes` and end of input (7); the profile label (8); the usage line with
+  `--alias`, `--label`, `--value`, `--bootstrap`, `--no-bootstrap`. Rewrite "Values after the answers", "Answers" and "No
   suggestion" (the lines that say value questions come after the confirm, that there is no profile suggestion before
   the switch, and that end of input takes a setup suggestion for a value). Examples use `work<n>`.
 - Contract "Sanitize and hydrate": the paragraph saying a suggestion is never used without its prompt names setup's
   `--yes` as the exception, with decision 7's reason.
-- Contract "The PR": `push --yes` takes the public-name guess (2). Pull's confirm (8) in the table and the text,
-  including the line that only an answer starting with `y` or `Y` counts; push's stays as it is.
+- Contract "The PR": `push --yes` takes the public-name guess (2).
 - Design "First run", item 1: the guess replaces "no suggestion and no scoring" for the no-match case; the hostname
   match still comes first; examples use `work<n>`. "Open": the Linux-work-laptop risk and the public-repo numbering
   (decision 1), and the roadmap's leftovers this phase doesn't take (back navigation `<`, the public-name check
@@ -193,7 +198,55 @@ Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/wizard/setup.ts`, `src/
 
 Test: `bun test src/cli/parse.test.ts src/wizard/setup.test.ts` passes; the `setup-alias` cases pass.
 
-## Step 6: `commit` learns `--yes` from push `[worker]`
+## Step 6: Shared cases for the profile label `[worker]`
+
+Files: `tests/parity/cases/setup-label-asked/`, `tests/parity/cases/setup-label-flag/`,
+`tests/parity/cases/setup-label-listed/`, `tests/parity/cases/setup-label-existing/`.
+
+All `os` linux, written from the contract (decision 8).
+
+- `setup-label-asked`: `SYNC_DOMAIN=corp.example`, public, no local profiles; stdin Enter at question 1 (the guess
+  `work1`), `acme` at the label question, then the other answers. Expect ` Label for work1, to find it in lists
+(optional):` right after question 1, `profile work1 (acme)` in the summary, ` --label acme` in `Same as:`,
+  `"label": "acme"` in `expect/state/profiles/work1.json` after its other keys, exit 0.
+- `setup-label-flag`: `--profile work5 --label "Big Co"`. Expect no label question, `profile work5 (Big Co)`,
+  `--label 'Big Co'` in `Same as:`. A second command with `--profile work6 --label "a/b"` expects
+  `ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&`, exit 2, no `work6.json`.
+- `setup-label-listed`: local profiles `work1` with label `acme` and `work2` with none. Expect the list lines
+  `  2) work1  (acme)` and `  3) work2`.
+- `setup-label-existing`: a local profile `work1`, `--profile work1 --label acme`. Expect
+  `ERROR: --label names a new profile; work1 already exists`, exit 2, nothing written.
+- No existing case changes: a profile without a label prints as today, and `personal` is never asked.
+
+Test: `bun run build && tests/parity/run.sh --engine dist/mksync "setup-label"` reports 4 failed and 0 skipped.
+
+## Step 7: The profile file and the parser learn the label `[worker]`
+
+Files: `src/core/config/profile.ts`, `src/core/config/profile.test.ts`, `src/cli/parse.ts`, `src/cli/parse.test.ts`.
+
+- `Profile` gets `label?: string`, read and written as the last key; a label that breaks decision 8's character rule
+  is refused when the profile is read (the error the other profile fields use) and by the parser.
+- `--label <text>` in setup's value flags and `SetupFlags`, checked with decision 8's line (exit 2).
+- Unit tests: a profile with and without a label round-trips byte for byte; a bad label is refused on read; the flag
+  parses; a 31-character, an empty and a `/` label exit 2.
+
+Test: `bun test src/core/config/profile.test.ts src/cli/parse.test.ts` passes.
+
+## Step 8: Setup asks, lists and shows the label `[worker]`
+
+Files: `src/wizard/setup.ts`, `src/wizard/setup.test.ts`.
+
+- `renderProfiles` adds `  (<label>)` after a labelled profile; the label question follows question 1 only when the
+  profile is new and not `personal`, and not under `--yes` or `--label`; `--label` with an existing profile stops with
+  decision 8's line before any question; the summary prints `profile <p> (<label>)`; `Same as:` adds ` --label <text>`
+  after `--profile <p>`, quoted as decision 5 says.
+- Unit tests: asked for a new work profile, not for `personal`, not for an existing one; Enter and end of input leave
+  none; `--yes` doesn't ask; `--label` with an existing profile exits 2 before any question; the list, summary and
+  `Same as:` with and without a label.
+
+Test: `bun test src/wizard/setup.test.ts` passes; step 6's cases pass.
+
+## Step 9: `commit` learns `--yes` from push `[worker]`
 
 Files: `src/cli/parse.ts`, `src/main.ts`, `src/app/push.ts`, `src/cli/parse.test.ts`.
 
@@ -203,7 +256,7 @@ Files: `src/cli/parse.ts`, `src/main.ts`, `src/app/push.ts`, `src/cli/parse.test
 
 Test: `bun test src/cli/parse.test.ts src/app/push.test.ts` passes; `bun run lint`.
 
-## Step 7: Push takes the public-name guess under `--yes` `[worker]`
+## Step 10: Push takes the public-name guess under `--yes` `[worker]`
 
 Files: `src/app/commit.ts`, `src/app/commit.test.ts`.
 
@@ -216,7 +269,7 @@ Files: `src/app/commit.ts`, `src/app/commit.test.ts`.
 Test: `bun test src/app/commit.test.ts` passes; `tests/parity/run.sh --engine dist/mksync push-yes-alias-guess`
 passes.
 
-## Step 8: Shared cases for the bootstrap flags `[worker]`
+## Step 11: Shared cases for the bootstrap flags `[worker]`
 
 Files: `tests/parity/cases/setup-no-bootstrap/`, `tests/parity/cases/setup-yes-no-bootstrap/`,
 `tests/parity/cases/setup-bootstrap-both/`, `tests/parity/cases/setup-bootstrap-question/`.
@@ -232,7 +285,7 @@ together`, exit 2, nothing written.
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync "setup-no-bootstrap|setup-yes-no-bootstrap|setup-bootstrap-both|setup-bootstrap-question"`
 reports 4 failed and 0 skipped.
 
-## Step 9: The bootstrap flags `[worker]`
+## Step 12: The bootstrap flags `[worker]`
 
 Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/wizard/setup.ts`, `src/wizard/setup.test.ts`.
 
@@ -242,9 +295,9 @@ Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/wizard/setup.ts`, `src/
 - Unit tests: `--yes` never reads stdin for bootstrap; `--no-bootstrap`; both flags; off Ubuntu; `Same as:` for yes,
   no, and not offered.
 
-Test: `bun test src/cli/parse.test.ts src/wizard/setup.test.ts` passes; step 8's cases pass.
+Test: `bun test src/cli/parse.test.ts src/wizard/setup.test.ts` passes; step 11's cases pass.
 
-## Step 10: Suggestions say which source answered `[worker]`
+## Step 13: Suggestions say which source answered `[worker]`
 
 Files: `src/adapters/suggest.ts`, `src/adapters/suggest.test.ts`.
 
@@ -255,7 +308,7 @@ Files: `src/adapters/suggest.ts`, `src/adapters/suggest.test.ts`.
 
 Test: `bun test src/adapters/suggest.test.ts` passes.
 
-## Step 11: Shared cases for values before the confirm `[worker]`
+## Step 14: Shared cases for values before the confirm `[worker]`
 
 Files: `tests/parity/cases/setup-values-before-confirm/`, `tests/parity/cases/setup-values-declined/`,
 `tests/parity/cases/setup-value-flag/`, `tests/parity/cases/setup-yes-missing-value/`.
@@ -282,7 +335,7 @@ All `os` linux. Value questions are in the import's words; copy the wording from
 Test: `bun run build && tests/parity/run.sh --engine dist/mksync "setup-values-before-confirm|setup-values-declined|setup-value-flag|setup-yes-missing-value"`
 reports 4 failed and 0 skipped.
 
-## Step 12: The import's value questions from layers in memory `[worker:high: reasoning: the questions come from a snapshot that buildRun reads from disk, and setup must get the same list from a record, profile and entries that exist only in memory, without changing what pull and import ask]`
+## Step 15: The import's value questions from layers in memory `[worker:high: reasoning: the questions come from a snapshot that buildRun reads from disk, and setup must get the same list from a record, profile and entries that exist only in memory, without changing what pull and import ask]`
 
 Files: `src/adapters/snapshot.ts`, `src/core/plan/import.ts`, `src/app/import.ts`, `src/core/plan/import.test.ts`.
 
@@ -295,14 +348,14 @@ Files: `src/adapters/snapshot.ts`, `src/core/plan/import.ts`, `src/app/import.ts
 
 Test: `bun test src/core/plan/import.test.ts src/app/import.test.ts` passes.
 
-## Step 13: Setup asks the values before the summary `[worker]`
+## Step 16: Setup asks the values before the summary `[worker]`
 
 Files: `src/wizard/setup.ts`, `src/wizard/setup.test.ts`, `src/app/setup.ts`, `src/app/export.ts`.
 
 - `runSetup` gets a dependency that, given the chosen profile, record, entries, mode and action, returns the value
-  questions this run would ask: step 12's list, plus for `keep` the export's missing values for the same layers
+  questions this run would ask: step 15's list, plus for `keep` the export's missing values for the same layers
   (from `src/app/export.ts`, the list `askExportValues` asks today), deduped by placeholder, each with its guess and
-  source from step 10, plus the "kept on" question for `.user-values.json` placeholders the value table leaves as
+  source from step 13, plus the "kept on" question for `.user-values.json` placeholders the value table leaves as
   `ask`.
 - `runSetup` asks them after the linked-folder questions (`--yes`: decision 7; end of input: decision 7), prints the
   summary in decision 4's order, and returns the answers with the record. `src/app/setup.ts` wires the dependency
@@ -312,19 +365,19 @@ Files: `src/wizard/setup.ts`, `src/wizard/setup.test.ts`, `src/app/setup.ts`, `s
 
 Test: `bun test src/wizard/setup.test.ts` passes.
 
-## Step 14: Setup writes the answers after the confirm `[worker]`
+## Step 17: Setup writes the answers after the confirm `[worker]`
 
 Files: `src/app/setup.ts`, `src/app/setup.test.ts`.
 
 - `executeSetup` saves the answers with the record and profile after the confirm, placed by the value table, before
   `exportKeep`, `importAfterSetup` and the bootstrap script run; the old `valueAnswers` and `replaceValues` calls
-  after the confirm go (their questions are in step 13's list). Nothing is saved on a decline or end of input.
+  after the confirm go (their questions are in step 16's list). Nothing is saved on a decline or end of input.
 - Unit tests: a decline saves nothing; the import, the keep export and the bootstrap path ask nothing after the
   confirm; a value placed on the machine goes to the record, one placed on the profile to the profile.
 
-Test: `bun test src/app/setup.test.ts` passes; step 11's cases and `setup-bootstrap-keep` pass.
+Test: `bun test src/app/setup.test.ts` passes; step 14's cases and `setup-bootstrap-keep` pass.
 
-## Step 15: `--value` `[worker]`
+## Step 18: `--value` `[worker]`
 
 Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/wizard/setup.ts`, `src/wizard/setup.test.ts`.
 
@@ -339,9 +392,12 @@ Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`, `src/wizard/setup.ts`, `src/
 Test: `bun test src/cli/parse.test.ts src/wizard/setup.test.ts` passes; `tests/parity/run.sh --engine dist/mksync
 setup-value-flag` passes.
 
-## Step 16: Shared cases for the replace guess `[worker]`
+## Step 19: The replace guess `[worker]`
 
-Files: `tests/parity/cases/setup-replace-fresh-guess/`, `tests/parity/cases/setup-replace-public/`.
+Files: `tests/parity/cases/setup-replace-fresh-guess/`, `tests/parity/cases/setup-replace-public/`,
+`src/app/setup.ts`, `src/app/setup.test.ts`.
+
+The cases first, their `expect/` from the contract, and run once to see them fail; then the code.
 
 - `setup-replace-fresh-guess` (`os` linux): an old record with `<GH_CLI_PATH>` = `/old/bin/gh` and a `gh` stub on
   this machine's `PATH`; `--replace <old>`, Enter at the value. Expect the question with this machine's `gh` path in
@@ -349,44 +405,12 @@ Files: `tests/parity/cases/setup-replace-fresh-guess/`, `tests/parity/cases/setu
 - `setup-replace-public` (existing): the re-ask moves before the summary; a value with no source still suggests the
   old one, `(old machine)`. Update its `expect/` from the contract.
 
-Test: `bun run build && tests/parity/run.sh --engine dist/mksync "setup-replace-fresh-guess|setup-replace-public"`
-reports 2 failed and 0 skipped.
-
-## Step 17: Replace suggests a fresh guess `[worker]`
-
-Files: `src/app/setup.ts`, `src/app/setup.test.ts`.
-
-- In step 13's dependency, a taken-over machine value's suggestion is this machine's guess (its rule's sources, then
+- In step 16's dependency, a taken-over machine value's suggestion is this machine's guess (its rule's sources, then
   `defaultEnv`), else the old value with the source `old machine`; `--yes` takes it.
 - Unit tests: a fresh guess wins; no source keeps the old value; `--yes` takes the fresh guess.
 
-Test: `bun test src/app/setup.test.ts` passes; step 16's cases pass.
-
-## Step 18: Shared cases for pull's confirm `[worker]`
-
-Files: `tests/parity/cases/pull-default-yes/`, `tests/parity/cases/pull-default-no/`,
-`tests/parity/cases/pull-force-default-no/`.
-
-- `pull-default-yes` (new): `IN` changes, stdin Enter. Expect `Apply these changes? [Y/n] `, the files applied,
-  exit 0.
-- `pull-default-no` (existing, stdin `\n` today): stdin empty (end of input). Expect the `[Y/n]` question, nothing
-  applied, its exit as today. `os` linux only, as `pull-suggest-eof`, since `run.ps1` pipes `''` as Enter.
-- `pull-force-default-no` (new): `pull --force` with an `OUT` file, stdin Enter. Expect `[y/N] ` and nothing applied.
-- Existing pull cases that show `Apply these changes? [y/N]`: update their `expect/` from the contract and name each
-  in the commit message.
-
-Test: `bun run build && tests/parity/run.sh --engine dist/mksync "pull-default|pull-force-default"` reports 3 failed
-and 0 skipped.
-
-## Step 19: Pull's confirm defaults to yes `[worker]`
-
-Files: `src/app/pull.ts`, `src/app/pull.test.ts`.
-
-- `APPLY_QUESTION` becomes `[Y/n]` with `defaultYes` true, except under `--force`, where it stays `[y/N]`; end of
-  input is no either way. The no-sync-point question doesn't change.
-- Unit tests: Enter, `y`, `n`, end of input, and `--force`.
-
-Test: `bun test src/app/pull.test.ts` passes; step 18's cases pass.
+Test: `bun test src/app/setup.test.ts` passes; `tests/parity/run.sh --engine dist/mksync "setup-replace-fresh-guess|setup-replace-public"`
+passes (and failed before the code change).
 
 ## Step 20: Docs, changelog and version `[inline: user-facing docs]`
 
@@ -395,7 +419,7 @@ Files: `README.md`, `docs/daily-workflow.md`, `docs/windows-cutover-run.md`, `do
 
 - README and daily workflow: a first run on a new machine takes Enter at each guess, an unattended one needs
   `--profile` and `--value`, and the `Same as:` line repeats it.
-- The runbooks' `missing --profile` and `[y/N]` lines, and `install.sh`'s help text for `--yes`.
+- The runbooks' `missing --profile` lines, and `install.sh`'s help text for `--yes`.
 - `CHANGELOG.md` `v1.3.0` under "Changed" (decisions 1 to 8), `package.json` `1.3.0`.
 - Roadmap: phase 2 **Done** with the date and PR; phase 3 next.
 
