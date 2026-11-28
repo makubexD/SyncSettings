@@ -1258,6 +1258,10 @@ MODIFIED profiles/work1/vscode/settings.json
 Move it? [y/N]
 ```
 
+- The first line is the module, the file as the listing prints it, the key and its sanitized compact value, cut as
+  the listing cuts it. A whole file prints `(whole file)` in place of the key and value:
+  `Move git .gitconfig.local (whole file)`. The second line names the source and target groups. Under `--yes` the
+  preview prints without the question.
 - The status lines are the writes, in the export's words and order (`ADDED`, `MODIFIED`, `REMOVED`), with the paths
   the snapshot uses. State files are written with their `.bak`, as every state write is.
 - The question is `[y/N]`, as push's PR question, because a move changes what other machines receive. An empty

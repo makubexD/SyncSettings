@@ -1,0 +1,3 @@
+ERROR: no layer sets editor.tabSize in vscode/settings.json
+vscode/settings.json editor.fontSize is already in profile work1; nothing to move.
+ERROR: vscode/settings.json is a json entry; name a key

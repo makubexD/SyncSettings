@@ -1,0 +1,67 @@
+{
+  "description": "setting move of a key no layer sets is refused, exit 1; a move to the layer that already sets the key prints nothing to move, exit 0; a json entry with no key is refused, exit 2; nothing is written by any of them (mksync setting move, Lines and codes; mksync setting).",
+  "os": ["linux"],
+  "git": "committed",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "vscode": {
+        "description": "VS Code"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "json",
+        "localPath": "~/.config/Code/User/settings.json",
+        "description": "VS Code settings"
+      },
+      {
+        "file": "git/.gitconfig.local",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig.local",
+        "description": "Local git settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "vscode/settings.json",
+        "key": "editor.tabSize",
+        "to": "base",
+        "yes": true
+      },
+      "stderr": true
+    },
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "vscode/settings.json",
+        "key": "editor.fontSize",
+        "to": "profile",
+        "yes": true
+      },
+      "stderr": true
+    },
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "vscode/settings.json",
+        "to": "base",
+        "yes": true
+      },
+      "stderr": true
+    }
+  ]
+}

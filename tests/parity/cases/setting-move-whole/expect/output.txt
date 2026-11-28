@@ -1,0 +1,5 @@
+Move git .gitconfig.local (whole file)
+  from Linux machines to all machines
+ADDED dotfiles/common/git/.gitconfig.local
+REMOVED dotfiles/linux/git/.gitconfig.local
+Moved. mksync push sends it to the other machines.

@@ -1,0 +1,4 @@
+Move vscode settings.json window.zoomLevel: 1
+  from all machines to profile work1
+MODIFIED profiles/work1/vscode/settings.json
+Moved.

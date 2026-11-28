@@ -1,0 +1,47 @@
+{
+  "description": "setting move of a json key to a narrower layer writes it into the profile file (with its .bak) and leaves the base as it is; only a profile file changed, so the last line is Moved., exit 0 (mksync setting move, Source and target).",
+  "os": ["linux"],
+  "git": "committed",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "vscode": {
+        "description": "VS Code"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "json",
+        "localPath": "~/.config/Code/User/settings.json",
+        "description": "VS Code settings"
+      },
+      {
+        "file": "git/.gitconfig.local",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig.local",
+        "description": "Local git settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "vscode/settings.json",
+        "key": "window.zoomLevel",
+        "to": "profile",
+        "yes": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "modules": ["vscode", "git"],
+  "values": {},
+  "destinations": {},
+  "retired": false
+}

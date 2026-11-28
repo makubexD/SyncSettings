@@ -1,0 +1,47 @@
+{
+  "description": "setting move of a json key to a wider layer writes it into the base and removes it from the profile file, whose .bak keeps the old copy; the preview prints without the question under --yes, then the push line, exit 0, nothing committed (mksync setting move, Preview and question).",
+  "os": ["linux"],
+  "git": "committed",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "vscode": {
+        "description": "VS Code"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "json",
+        "localPath": "~/.config/Code/User/settings.json",
+        "description": "VS Code settings"
+      },
+      {
+        "file": "git/.gitconfig.local",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig.local",
+        "description": "Local git settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "vscode/settings.json",
+        "key": "editor.fontSize",
+        "to": "base",
+        "yes": true
+      }
+    }
+  ]
+}
