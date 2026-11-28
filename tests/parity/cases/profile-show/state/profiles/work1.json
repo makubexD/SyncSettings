@@ -1,0 +1,10 @@
+{
+  "label": "job 1 laptop",
+  "modules": ["git", "vscode"],
+  "values": {
+    "<WORK_ORG>": "hidden-org-value",
+    "<WORK_EMAIL>": "hidden-email-value"
+  },
+  "destinations": {},
+  "retired": false
+}

@@ -1,0 +1,48 @@
+{
+  "description": "profile show with no name and no machine record stops with exit 1 and names setup (Machines (program only), mksync profile show).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "git": {
+        "description": "Git settings"
+      },
+      "vscode": {
+        "description": "VS Code settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      },
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "whole",
+        "localPath": "~/.config/parity/settings.json",
+        "description": "VS Code user settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "commands": [
+    {
+      "command": "args",
+      "argv": [
+        "profile",
+        "show"
+      ],
+      "stderr": true
+    }
+  ]
+}

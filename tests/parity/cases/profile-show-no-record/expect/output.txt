@@ -1,0 +1,1 @@
+ERROR: no machine record here; run mksync setup, or name a profile.
