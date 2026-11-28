@@ -1639,6 +1639,8 @@ install").
   of the base into each work profile's JSON layer, which "Merge and split" adds by item. The second needs no new rule
   and is the likely answer; it changes the worked example in "Catalog", so it waits for the user. It needs the work
   profiles' layers in the repo, so it waits for phase 10 (cut-over plan, decision 3).
+  `mksync setting move` doesn't do it: removing a key from the base for every machine is open under "Left by smart
+  first run phase 3".
 - **Linux-only or personal-only.** There is one Linux machine and it is personal, so every Linux row could be an OS
   layer or the `personal` profile. The table says OS for tools (they'd suit any Linux machine) and machine for the two
   disk launchers (`disco-datos.desktop`, `mis-discos.desktop`), which name this machine's disks.
@@ -2009,11 +2011,11 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     switch.
 
 - **Left out of the first-sync profile plan (v1.1.10).**
-  - Promote or demote a key: a command that moves an already-synced key between the profile and the base (for
-    example, make work #2's statusline the shared one), named through the `cli` skill.
+  - Promote or demote a key: settled by `mksync setting move` (smart first run phase 3, contract
+    [`mksync setting`](sync-contract.md#mksync-setting)). Its leftovers are under "Left by smart first run phase 3".
   - Removing a key in a later layer stays open. `p` doesn't need it, since it adds the shared key on this machine.
   - work #2's `statusLine`: `p` keeps its PowerShell statusline in profile work2, where it overrides the shared
-    `mksync statusline`, so a later shared statusline change won't reach work #2. The promote command settles it.
+    `mksync statusline`, so a later shared statusline change won't reach work #2. `mksync setting move` settles it.
   - From the finish review: pull's value questions save nothing when one of them gets end of input or an empty answer,
     even the ones answered before it, so the next pull asks them again (the guard stops as before, as the contract
     says). Saving the answered ones would need `askExportValues` to return them on a stop.
@@ -2053,6 +2055,14 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     `entries` add, so a placeholder only such an entry uses is refused.
   - Not taken from the roadmap: back navigation (`<` to go back a question), and moving push's public-name check
     before its export so a refused name stops before any file is written.
+- **Left by smart first run phase 3 (`docs/plan-smart-first-run-3.md`, 2026-11-27).** `mksync setting move` always
+  moves from the narrowest layer and keeps this machine's merged result, so three things stay open:
+  - Removing a key from the base for every machine: the `<YOUR_WORK_MARKETPLACE>` item ("A profile without a value"
+    above) needs the base to drop an array item that each work profile then adds. A move can't do that, since it
+    would change the merged result on this machine.
+  - `--from <layer>`, to move a layer that isn't the narrowest one (for example the OS layer's copy while the profile
+    also sets the key).
+  - `--format json` for `mksync setting list`, for scripts.
 
 ### Confirm on Windows
 
