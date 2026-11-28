@@ -9,8 +9,8 @@ apply question defaults to yes), CLI-1 (`--help` at every level), CLI-2 (an unkn
 lines that say exit 1 where the program exits 2) and CLI-4 (`mksync profile show`, which
 `docs/plan-work-machines.md` steps 3 and 4 already tell the user to run).
 
-**Breaking.** An empty answer to pull's question now applies; `--help`, `-h` and no command change output and exit
-code; an unknown command or group verb prints a new line. No command or flag is renamed; one verb is added
+**Breaking.** An empty answer to pull's question now applies; `--help` and `-h` change output and exit code, and
+`mksync` alone now runs the status (exit 0) instead of printing a usage line; an unknown command or group verb prints a new line. No command or flag is renamed; one verb is added
 (`profile show`). Every test runs on stubs in throwaway folders, as the shared cases do.
 
 ## Decided (proposed, for review)
@@ -99,10 +99,9 @@ code; an unknown command or group verb prints a new line. No command or flag is 
    `profile`, `setting`; `machine show`, `machine retire`, `profile show`, `profile retire`, `setting list`,
    `setting move`; `export`, `import`, `commit`. Step 1 writes every text in the contract.
 
-3. **No command** prints the top-level help on stderr and exits 2, in place of today's one-line usage, which goes. The
-   Front door table's first row, which says `mksync` alone prints the status, is corrected to `mksync status` (the
-   program has never run the status with no command; alternative: make `mksync` alone run `status`, exit 0, as that
-   row says and the `cli` skill allows; a behavior change the user should choose).
+3. **No command runs `mksync status`** (user decision, 2026-11-28): `mksync` alone prints and exits exactly as
+   `mksync status` does, as the Front door table's first row and the README already say. Today's one-line usage on
+   stderr, exit 2, goes; help is only on `--help` and `-h`.
 
 4. **An unknown command** (a first word that is no command and doesn't start with `-`) prints, on stderr, exit 2:
 
@@ -229,7 +228,8 @@ Each `os` linux, a plain clone with one `whole` entry, every command `args` with
 the contract's "Help" texts (step 1), not from the program.
 
 - `help-top`: `["--help"]` → the top-level text on stdout, nothing on stderr, exit 0; `["-h"]` → the same;
-  `["--version", "--help"]` → the same; `[]` → the same text on stderr, nothing on stdout, exit 2.
+  `["--version", "--help"]` → the same; `["status"]` and then `[]` → the same status lines on stdout, the same exit
+  (decision 3).
 - `help-command`: `["pull", "--help"]` → pull's text, exit 0; `["status", "-h"]` → status's text, exit 0;
   `["push", "--yes", "--help"]` → push's text, exit 0, and the clone's `HEAD`, branches and files unchanged (no
   `gh.log`); `["push", "-m", "--help"]` → push's text, exit 0; `["setting", "move", "vscode/settings.json",
@@ -280,16 +280,16 @@ Test: `bun test src/cli/help.test.ts`.
 
 Files: `src/cli/parse.ts`, `src/cli/parse.test.ts`.
 
-- A `ParsedCommand` kind `help` (`topic: HelpTopic`, `toStderr: boolean`). `parseArgs` first looks for an argument
+- A `ParsedCommand` kind `help` (`topic: HelpTopic`). `parseArgs` first looks for an argument
   that is exactly `--help` or `-h`; when there is one, it resolves the topic from the command words before the first
   argument that isn't one (decision 1) and returns `help`, unless the first word is no command (decision 4's error)
-  or the group's verb is unknown (decision 5's error). No command: `help` with topic `top`, `toStderr: true`.
+  or the group's verb is unknown (decision 5's error). No command: the `status` command, exactly as `["status"]` parses (decision 3).
 - Decision 4's error for an unknown first word; decision 5's two lines per group for `machine` and `profile`; the
   hint appended to both setting errors. Each message is the full two lines without a trailing newline. `profile show
 --help` is help (its topic exists); `profile show` alone stays an unknown verb here
   (`ERROR: unknown profile command show`) until step 12 adds it. `UsageCommand` and `USAGE` go; `main.ts`'s
   re-export of `USAGE` is left for step 7.
-- Unit tests, each with its exact result: `--help` → `help top`; `-h`; `[]` → `help top`, stderr; `pull --help`;
+- Unit tests, each with its exact result: `--help` → `help top`; `-h`; `[]` → the `status` command; `pull --help`;
   `pull --yes --force --help` → `help pull`; `pull dotfiles/x -h` → `help pull`; `push -m --help` → `help push`;
   `setup --name --help` → `help setup`; `setting --help` → `help setting`; `setting move a b --to base --help` →
   `help setting move`; `machine retire wk1 --help` → `help machine retire`; `export --help`; `commit -m x --help`;
@@ -304,10 +304,10 @@ Test: `bun test src/cli/parse.test.ts`.
 
 Files: `src/main.ts`, `src/main.test.ts`.
 
-- `run()`: the `help` kind returns `{ code: 0, stdout: helpText(topic), stderr: "" }`, or with `toStderr`
-  `{ code: 2, stdout: "", stderr: helpText("top") }`; the `usage` case and the `USAGE` re-export go (nothing else
+- `run()`: the `help` kind returns `{ code: 0, stdout: helpText(topic), stderr: "" }`; the `usage` case and the `USAGE` re-export go (nothing else
   imports it).
-- Unit tests: `run(["--help"])`, `run([])`, `run(["setting", "move", "--help"])` with their exact code and streams;
+- Unit tests: `run(["--help"])` and `run(["setting", "move", "--help"])` with their exact code and streams; `run([])`
+  returns the status command;
   `run(["push", "--yes", "--help"])` returns a result, not a command to execute.
 
 Test: `bun test src/main.test.ts` and `bun run build && tests/parity/run.sh --engine dist/mksync
