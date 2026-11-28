@@ -356,7 +356,7 @@ whole_output() {
 
 # Rewrite the placeholders in the whole-stdout lines of the collected output,
 # after every command ran (see the README's "How the runner checks it"): the
-# case's temp home becomes <HOME>, the one backup run folder becomes
+# case's temp clone becomes <REPO>, its temp home <HOME>, the one backup run folder becomes
 # backups/RUN, and a Sync point's sha that begins the repo's HEAD becomes
 # <HEAD>. The status lines, and every line outside a whole-stdout command, are
 # left alone. $1 is the case's temp folder, $2 the case's git mode.
@@ -398,6 +398,7 @@ rewrite_whole_output() {
         if [[ $in_whole == true ]]; then
             # The temp home as a literal string: quoting keeps a path's glob
             # characters out of the pattern.
+            line=${line//"$temp/repo"/<REPO>}
             line=${line//"$temp/home"/<HOME>}
             if [[ -n $run ]]; then
                 line=${line//"backups/$run"/backups/RUN}

@@ -1653,6 +1653,9 @@ function Run-Case {
         $rewriteHomes = @()
         $rewriteHomes += $homeDir
         $rewriteHomes += ($homeDir -replace '\\', '/')
+        $rewriteRepos = @()
+        $rewriteRepos += $repoDir
+        $rewriteRepos += ($repoDir -replace '\\', '/')
         $runName = ''
         $backupsDir = Join-Path (Join-Path $localDir 'SyncSettings') 'backups'
         if (Test-Path -LiteralPath $backupsDir -PathType Container) {
@@ -1672,6 +1675,9 @@ function Run-Case {
         foreach ($range in $wholeRanges) {
             for ($n = [int]$range[0]; $n -lt [int]$range[1]; $n++) {
                 $line = $statusOut[$n]
+                foreach ($repoForm in $rewriteRepos) {
+                    $line = $line -creplace [regex]::Escape($repoForm), '<REPO>'
+                }
                 foreach ($homeForm in $rewriteHomes) {
                     $line = $line -creplace [regex]::Escape($homeForm), '<HOME>'
                 }

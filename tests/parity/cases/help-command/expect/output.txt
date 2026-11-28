@@ -1,0 +1,78 @@
+usage: mksync pull [--yes] [--force] [<path>...]
+
+Takes the repo's changes: fast-forwards the clone, shows what would change,
+asks, then applies it (each changed file keeps a .bak).
+
+Arguments:
+  <path>...     only these repo paths; the pull then records no sync point
+
+Options:
+  --yes         apply without asking; refuses a pull with no sync point
+  --force       skip the check for files changed here; asks [y/N]
+
+Exits 0 when done or declined, 1 on an error, 2 on a usage error.
+usage: mksync status
+
+Shows the OS, the repo, origin, what isn't sent, this machine's state and the
+next command. mksync with no command runs it. Writes nothing.
+
+Exits 0, or 2 on a usage error.
+usage: mksync push [--yes] [--force] [-m <msg>] [<path>...]
+
+Sends this machine's changes: exports them into the clone, shows them, asks,
+then opens a pull request from a sync/ branch. Never pushes to master.
+
+Arguments:
+  <path>...     only these repo paths; the push then records no sync point
+
+Options:
+  --yes         answer every question with its suggestion
+  --force       also send files that changed on both sides
+  -m <msg>      the commit message (default: one made from the changes)
+
+Exits 0 when done or declined, 1 on an error, 2 on a usage error.
+usage: mksync push [--yes] [--force] [-m <msg>] [<path>...]
+
+Sends this machine's changes: exports them into the clone, shows them, asks,
+then opens a pull request from a sync/ branch. Never pushes to master.
+
+Arguments:
+  <path>...     only these repo paths; the push then records no sync point
+
+Options:
+  --yes         answer every question with its suggestion
+  --force       also send files that changed on both sides
+  -m <msg>      the commit message (default: one made from the changes)
+
+Exits 0 when done or declined, 1 on an error, 2 on a usage error.
+usage: mksync setting move <file> [<key>] --to base|os|profile|machine
+                           [--dry-run | --yes]
+
+Moves one setting, or one whole file, into another layer, keeping this
+machine's merged result. Shows the writes and asks first.
+
+Arguments:
+  <file>        the entry's file, as sync-config.json names it
+  <key>         the key path in a json entry (editor.fontSize); none for
+                other kinds
+
+Options:
+  --to <layer>  base (all machines), os (this OS), profile or machine
+  --dry-run     show the writes and write nothing
+  --yes         move without asking
+
+Exits 0 when moved, 1 when refused or declined, 2 on a usage error.
+usage: mksync export [--only <path>]... [--yes]
+       mksync export --preview
+       mksync export --diff [--only <path>]...
+
+Copies this machine's files into the clone, values turned into placeholders.
+mksync push runs it.
+
+Options:
+  --only <path>  only this repo path; repeat for more
+  --yes          answer the new-setting questions with their defaults
+  --preview      what an export would send; writes nothing (mksync preview)
+  --diff         which side changed each file; writes nothing (mksync diff)
+
+Exits 0, 1 on an error, 2 on a usage error, 3 when --diff finds changes.

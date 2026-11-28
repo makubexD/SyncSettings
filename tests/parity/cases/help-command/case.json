@@ -1,0 +1,56 @@
+{
+  "description": "A command's --help or -h prints its help and runs nothing, whatever else is on the line, exit 0 (The program, Help).",
+  "os": ["linux"],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "stubs": ["gh"],
+  "commands": [
+    {
+      "command": "args",
+      "argv": ["pull", "--help"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["status", "-h"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["push", "--yes", "--help"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["push", "-m", "--help"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["setting", "move", "vscode/settings.json", "--help"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["export", "--help"],
+      "stderr": true
+    }
+  ]
+}

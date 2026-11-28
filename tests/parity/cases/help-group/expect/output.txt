@@ -1,0 +1,21 @@
+usage: mksync setting <command>
+
+Commands:
+  list          the settings the layers above the base set
+  move          move one setting, or one whole file, into another layer
+
+Run mksync setting <command> --help for its options.
+usage: mksync machine <command>
+
+Commands:
+  show          print this machine's record
+  retire        retire a machine record, so it can't push
+
+Run mksync machine <command> --help for its options.
+usage: mksync profile <command>
+
+Commands:
+  show          print a profile: label, modules, value keys, layer files
+  retire        retire a profile, so a first run won't offer it
+
+Run mksync profile <command> --help for its options.

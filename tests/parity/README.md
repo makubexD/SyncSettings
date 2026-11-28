@@ -209,8 +209,8 @@ before it looks at the stubs, and fails one that would run on Windows with them.
      `backups/<run>/` is read as `backups/RUN/`, and there must be exactly one, so the time and pid don't matter. An
      expected state file may hold `<START_HEAD>`: the runner replaces it with the repo's `HEAD`, recorded right after
      setup (the commit the case starts from), before comparing; without a git repo it is a case error.
-   - **Placeholders** in a whole-stdout command's output (above), after every command ran: the case's temp home folder
-     becomes `<HOME>` (`/` separators on Windows too); `backups/<name>` (`backups\<name>` on Windows), where `<name>` is
+   - **Placeholders** in a whole-stdout command's output (above), after every command ran: the case's temp clone becomes
+     `<REPO>` and its temp home folder `<HOME>` (`/` separators on Windows too); `backups/<name>` (`backups\<name>` on Windows), where `<name>` is
      the one backup run folder in the state folder, becomes `backups/RUN`; and in a line `  Sync point : <sha>`, a
      `<sha>` that begins the repo's `HEAD` after the run becomes `<HEAD>`. Status-line output is left alone.
    - **Lines**, when `expect/lines.txt` exists: notes, `ERROR:` and `WARNING:` lines and summaries the status-line
