@@ -1,0 +1,5 @@
+ERROR: unknown command bogus
+Run mksync --help for the list of commands.
+ERROR: unknown command bogus
+Run mksync --help for the list of commands.
+Unknown option: -x

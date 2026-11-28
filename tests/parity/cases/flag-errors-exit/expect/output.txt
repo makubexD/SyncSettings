@@ -1,0 +1,7 @@
+ERROR: --only needs a path.
+ERROR: --diff cannot be combined with --preview or --yes.
+ERROR: --check cannot be combined with --reset-values.
+Missing value for -m
+ERROR: -m needs a value.
+ERROR: --preview and --yes can't be used together.
+Unknown option: --reset-values

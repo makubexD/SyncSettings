@@ -1,0 +1,50 @@
+{
+  "description": "A missing or unknown group verb names the group and points at its --help, exit 2 (The program).",
+  "os": ["linux"],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "args",
+      "argv": ["machine", "list"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["machine"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["profile", "list"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["profile"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["setting", "copy"],
+      "stderr": true
+    }
+  ]
+}

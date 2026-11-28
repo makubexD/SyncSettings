@@ -1,0 +1,10 @@
+ERROR: unknown machine command list
+Run mksync machine --help for its commands.
+ERROR: machine needs show or retire
+Run mksync machine --help for its commands.
+ERROR: unknown profile command list
+Run mksync profile --help for its commands.
+ERROR: profile needs show or retire
+Run mksync profile --help for its commands.
+ERROR: unknown setting command copy
+Run mksync setting --help for its commands.
