@@ -106,8 +106,12 @@ as it is: cases use it as a placeholder name). The PowerShell runner doesn't yet
 (`export --diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`, `front-check` and
 `front-preview`, plus `setup`, `statusline`, `machine-show` (`machine show`), `machine-retire`
 (`machine retire <target>`), `profile-retire` (`profile retire <target>`), `setting-list` (`setting list`) and
-`setting-move` (`setting move <target> [<key>] [--to <to>]`). Every command runs `./mksync <cmd>`,
-with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview`.
+`setting-move` (`setting move <target> [<key>] [--to <to>]`), and `args`, a raw command line. Every command runs
+`./mksync <cmd>`, with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview`.
+`args` takes a field `argv` next to `command`, an array of strings (required, may be empty, refused on every other
+command), and runs `./mksync` (`mksync.exe` in `run.ps1`) with exactly those arguments, no options added; an
+`options` key on it is a runner error. For example `{"command": "args", "argv": ["setting", "--help"],
+"stderr": true}` runs `./mksync setting --help`.
 `options` uses neutral names that the runner spells for the program: `force: true` is `--force`, `only: [paths]` is
 `--only`, and `resetValues`, a boolean, is `--reset-values`, allowed on `import` and `check` only. `name`, `profile`,
 `replace`, `claude`, `mode`, `existing`, `alias` and `label` are strings spelled `--<key> <value>` and allowed on `setup` only, except
@@ -123,8 +127,8 @@ path as a positional argument after the options. Every command runs with no term
 string sent as its stdin, such as `"n\n"` for a prompt answer. Its
 stderr is merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status
 lines in `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below)
-except for `setup`, `statusline`, `machine-show`, `machine-retire`, `profile-retire`, `setting-list` and
-`setting-move`, and any command with
+except for `setup`, `statusline`, `machine-show`, `machine-retire`, `profile-retire`, `setting-list`,
+`setting-move` and `args`, and any command with
 `"output": "all"`:
 those keep their whole stdout instead, so the `machine show` fields, the scan block and the `ERROR:`, `held` and
 `refused:` lines reach `output.txt`. `statusline` keeps its ANSI color codes in `output.txt`, as the contract writes
