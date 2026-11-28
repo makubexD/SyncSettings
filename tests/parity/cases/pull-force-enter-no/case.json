@@ -1,0 +1,37 @@
+{
+  "description": "With --force the question is [y/N]: an empty answer is no, nothing is applied, exit 0 (Front door, pull).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "stdin": "\n",
+      "options": {
+        "force": true
+      }
+    }
+  ],
+  "syncPoint": true
+}

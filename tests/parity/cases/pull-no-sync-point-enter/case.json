@@ -1,5 +1,5 @@
 {
-  "description": "An empty answer to pull's question is No, and the clone still fast-forwards: nothing is applied, exit 0 (Front door, pull).",
+  "description": "With no sync point the question is [y/N] after a warning: an empty answer is no, nothing is applied, exit 0 (Front door, pull guard without a sync point).",
   "os": [
     "linux"
   ],
@@ -29,6 +29,5 @@
       "command": "pull",
       "stdin": "\n"
     }
-  ],
-  "syncPoint": true
+  ]
 }
