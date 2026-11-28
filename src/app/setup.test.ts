@@ -35,6 +35,14 @@ describe("bootstrapRefusal", () => {
     });
     expect(refusal).toBeUndefined();
   });
+
+  test("off Ubuntu, --no-bootstrap is accepted and does nothing", () => {
+    for (const os of ["windows", "macos"] as const) {
+      expect(
+        bootstrapRefusal(os, { kind: "setup", noBootstrap: true }),
+      ).toBeUndefined();
+    }
+  });
 });
 
 describe("bootstrapEnv", () => {

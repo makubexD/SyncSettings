@@ -1,10 +1,7 @@
 import type { Scan } from "../adapters/scan.ts";
 import type { LinkedFolder } from "../adapters/store.ts";
 import { trimAnswer } from "../core/answer.ts";
-import {
-  isValidLabel,
-  type Profile,
-} from "../core/config/profile.ts";
+import { isValidLabel, type Profile } from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../core/layers/names.ts";
 import {
@@ -37,6 +34,7 @@ export interface SetupFlags {
   readonly label?: string;
   readonly yes?: boolean;
   readonly bootstrap?: boolean;
+  readonly noBootstrap?: boolean;
 }
 
 /** The diff's outcome when it ran: success with its counts and the `OUT` and
@@ -369,7 +367,9 @@ function renderProfiles(
       machines.length === 0
         ? ""
         : `${name.padEnd(NAME_COLUMN)}${machines.length === 1 ? "machine" : "machines"} ${machines.join(", ")}`;
-    const label = input.profiles.find((profile) => profile.name === name)?.label;
+    const label = input.profiles.find(
+      (profile) => profile.name === name,
+    )?.label;
     const labelled = label === undefined ? "" : `  (${label})`;
     lines.push(`  ${index + 1}) ${owned === "" ? name : owned}${labelled}`);
   });
@@ -786,16 +786,19 @@ export async function runSetup(
   }
 
   // Contract "Bootstrap": asked after question 4 and before the summary, never
-  // for the `stop` answer; `--bootstrap` chooses it without asking.
+  // for the `stop` answer; `--bootstrap` chooses it without asking, and
+  // `--no-bootstrap` or `--yes` alone skips it without asking.
+  const askBootstrap =
+    input.bootstrapOffered === true &&
+    action !== "stop" &&
+    flags.bootstrap !== true &&
+    flags.noBootstrap !== true &&
+    flags.yes !== true;
   let bootstrap =
     input.bootstrapOffered === true &&
     flags.bootstrap === true &&
     action !== "stop";
-  if (
-    input.bootstrapOffered === true &&
-    flags.bootstrap !== true &&
-    action !== "stop"
-  ) {
+  if (askBootstrap) {
     io.write(BOOTSTRAP_QUESTION);
     const answer = trimAnswer((await io.readLine()) ?? "");
     io.write("\n");
@@ -854,7 +857,12 @@ export async function runSetup(
       : `--replace ${record.name}`;
   const aliasLine = alias === undefined ? "" : `Public name: ${alias}\n`;
   const aliasFlag = alias === undefined ? "" : ` --alias ${alias}`;
-  const bootstrapFlag = bootstrap ? " --bootstrap" : "";
+  const bootstrapOffered = input.bootstrapOffered === true && action !== "stop";
+  const bootstrapFlag = !bootstrapOffered
+    ? ""
+    : bootstrap
+      ? " --bootstrap"
+      : " --no-bootstrap";
   const shownLabel = profile.label;
   const labelShown = shownLabel === undefined ? "" : ` (${shownLabel})`;
   const labelFlag =

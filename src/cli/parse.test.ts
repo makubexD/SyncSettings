@@ -605,6 +605,31 @@ describe("parseArgs", () => {
     );
   });
 
+  test("should parse setup --no-bootstrap", () => {
+    expect(parseArgs(["setup", "--no-bootstrap"])).toEqual({
+      kind: "setup",
+      noBootstrap: true,
+    });
+  });
+
+  test("should refuse --no-bootstrap given twice", () => {
+    expect(parseArgs(["setup", "--no-bootstrap", "--no-bootstrap"])).toEqual(
+      usageError("ERROR: --no-bootstrap is repeated."),
+    );
+  });
+
+  test("should refuse --bootstrap with --no-bootstrap in either order", () => {
+    const clash = usageError(
+      "ERROR: --bootstrap and --no-bootstrap can't be used together",
+    );
+    expect(parseArgs(["setup", "--bootstrap", "--no-bootstrap"])).toEqual(
+      clash,
+    );
+    expect(parseArgs(["setup", "--no-bootstrap", "--bootstrap"])).toEqual(
+      clash,
+    );
+  });
+
   test("should accept every --claude value", () => {
     for (const claude of ["none", "claude", "claude-deepseek"] as const) {
       expect(parseArgs(["setup", "--claude", claude])).toEqual({

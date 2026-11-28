@@ -280,13 +280,10 @@ describe("runSetup", () => {
 
   test("should ask the bootstrap question before the summary", async () => {
     // Arrange
-    const setup = input(
-      { bootstrapOffered: true },
-      { ...ANSWER_FLAGS, yes: true },
-    );
+    const setup = input({ bootstrapOffered: true }, { ...ANSWER_FLAGS });
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, ["y", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -315,6 +312,54 @@ describe("runSetup", () => {
     expect(output).toContain(
       "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux --bootstrap\n",
     );
+  });
+
+  test("should not ask the bootstrap question with --no-bootstrap", async () => {
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true, noBootstrap: true },
+    );
+
+    const { outcome, output } = await run(setup);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).toContain("--alias work-1-linux --no-bootstrap\n");
+  });
+
+  test("should skip the bootstrap under --yes alone without reading stdin", async () => {
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    const { outcome, output } = await run(setup, ["y"]);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).toContain("--alias work-1-linux --no-bootstrap\n");
+  });
+
+  test("should print --no-bootstrap when the question was answered no", async () => {
+    const setup = input({ bootstrapOffered: true }, { ...ANSWER_FLAGS });
+
+    const { outcome, output } = await run(setup, ["n", ""]);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).toContain("--alias work-1-linux --no-bootstrap\n");
+  });
+
+  test("should print no bootstrap flag when the bootstrap was not offered", async () => {
+    const setup = input({}, { ...ANSWER_FLAGS, yes: true, noBootstrap: true });
+
+    const { outcome, output } = await run(setup);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("bootstrap");
   });
 
   test("should not ask the bootstrap question for the stop answer", async () => {
@@ -1409,10 +1454,18 @@ describe("runSetup label", () => {
     const setup = input({}, { existing: "stop" });
 
     // Act
-    const { outcome, output } = await run(setup, ["work-1", "Big Co", "", "", "y"]);
+    const { outcome, output } = await run(setup, [
+      "work-1",
+      "Big Co",
+      "",
+      "",
+      "y",
+    ]);
 
     // Assert
-    expect(output).toContain(`${LABEL_QUESTION("work-1")}${QUESTIONS_AFTER_LABEL}`);
+    expect(output).toContain(
+      `${LABEL_QUESTION("work-1")}${QUESTIONS_AFTER_LABEL}`,
+    );
     expect(output).toContain("profile work-1 (Big Co), Claude only");
     expect(output).toContain("--profile work-1 --label 'Big Co' --name");
     expect(outcome.ok && outcome.profile.label).toBe("Big Co");
@@ -1483,10 +1536,9 @@ describe("runSetup label", () => {
     const yes = await run(
       input({}, { profile: "work-1", yes: true, existing: "stop" }),
     );
-    const flagged = await run(
-      input({}, { existing: "stop", label: "acme" }),
-      ["work-1"],
-    );
+    const flagged = await run(input({}, { existing: "stop", label: "acme" }), [
+      "work-1",
+    ]);
 
     // Assert
     expect(yes.output).not.toContain("Label for");

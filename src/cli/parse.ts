@@ -15,7 +15,7 @@ export const USAGE =
   "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
-  "[--existing backup|keep|stop] [--bootstrap] [--yes] | " +
+  "[--existing backup|keep|stop] [--bootstrap | --no-bootstrap] [--yes] | " +
   "mksync update | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
   "mksync profile retire <name> [--yes] | mksync statusline | " +
@@ -125,6 +125,8 @@ export interface SetupCommand extends SetupFlags {
   readonly kind: "setup";
   /** `--bootstrap`: run the Ubuntu bootstrap without asking. */
   readonly bootstrap?: boolean;
+  /** `--no-bootstrap`: skip the Ubuntu bootstrap without asking. */
+  readonly noBootstrap?: boolean;
 }
 
 /** `--version`: print the program's version, exit 0. */
@@ -224,6 +226,11 @@ const UPDATE_COMMAND = "update";
 const SETUP_YES = "--yes";
 
 const SETUP_BOOTSTRAP = "--bootstrap";
+
+const SETUP_NO_BOOTSTRAP = "--no-bootstrap";
+
+const BOOTSTRAP_CLASH =
+  "ERROR: --bootstrap and --no-bootstrap can't be used together";
 
 const ONLY_OPTION = "--only";
 
@@ -542,6 +549,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
   let label: string | undefined;
   let yes = false;
   let bootstrap = false;
+  let noBootstrap = false;
 
   let index = 1;
   while (index < argv.length) {
@@ -562,6 +570,14 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         return repeatedFlag(arg);
       }
       bootstrap = true;
+      index++;
+      continue;
+    }
+    if (arg === SETUP_NO_BOOTSTRAP) {
+      if (noBootstrap) {
+        return repeatedFlag(arg);
+      }
+      noBootstrap = true;
       index++;
       continue;
     }
@@ -637,6 +653,10 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     index += 2;
   }
 
+  if (bootstrap && noBootstrap) {
+    return error(BOOTSTRAP_CLASH);
+  }
+
   return {
     kind: "setup",
     ...(name === undefined ? {} : { name }),
@@ -649,6 +669,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     ...(label === undefined ? {} : { label }),
     ...(yes ? { yes: true } : {}),
     ...(bootstrap ? { bootstrap: true } : {}),
+    ...(noBootstrap ? { noBootstrap: true } : {}),
   };
 }
 
