@@ -103,6 +103,13 @@ export interface ProfileRetireCommand {
 /** Either retire command. */
 export type RetireCommand = MachineRetireCommand | ProfileRetireCommand;
 
+/** `profile show [<name>]`: print a profile, this machine's when `target` is
+ * absent, exit 0. */
+export interface ProfileShowCommand {
+  readonly kind: "profile-show";
+  readonly target?: string;
+}
+
 /** `setting list [--profile <p>]`: the settings above the base, for the
  * record's profile or the one `--profile` names (contract "mksync setting"). */
 export interface SettingListCommand {
@@ -185,6 +192,7 @@ export type ParsedCommand =
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
+  | ProfileShowCommand
   | SettingListCommand
   | SettingMoveCommand
   | CommitCommand
@@ -200,6 +208,8 @@ const VERSION_OPTION = "--version";
 const MACHINE_COMMAND = "machine";
 
 const MACHINE_SHOW_VERB = "show";
+
+const PROFILE_SHOW_VERB = "show";
 
 const PROFILE_COMMAND = "profile";
 
@@ -860,6 +870,26 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
 }
 
 /**
+ * Parse `profile show [<name>]`: one optional name that isn't an option; an
+ * option, or a second positional, is `Unknown option: <arg>`.
+ */
+function parseProfileShow(
+  argv: readonly string[],
+): ProfileShowCommand | ParseError {
+  const name = argv[2];
+  if (name === undefined) {
+    return { kind: "profile-show" };
+  }
+  if (isOption(name)) {
+    return error(`${UNKNOWN_OPTION_PREFIX}${name}`);
+  }
+  const extra = argv[3];
+  return extra === undefined
+    ? { kind: "profile-show", target: name }
+    : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+}
+
+/**
  * Parse `commit [-m <msg>] [--partial]` as `commit.sh` does: `-m` takes the
  * next argument as its message even when it starts with `-`, a later `-m`
  * replaces an earlier one, and `--partial` may repeat. Any other argument,
@@ -1108,13 +1138,15 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
     if (verb === undefined) {
       return groupNeedsVerb("profile");
     }
-    if (verb !== RETIRE_VERB) {
-      // `profile show` is a topic, but not yet a command (shortcut: plan step 12 adds it).
-      return isOption(verb)
-        ? error(`${UNKNOWN_OPTION_PREFIX}${verb}`)
-        : groupUnknownVerb("profile", verb);
+    if (verb === RETIRE_VERB) {
+      return parseRetire(argv, "profile-retire");
     }
-    return parseRetire(argv, "profile-retire");
+    if (verb === PROFILE_SHOW_VERB) {
+      return parseProfileShow(argv);
+    }
+    return isOption(verb)
+      ? error(`${UNKNOWN_OPTION_PREFIX}${verb}`)
+      : groupUnknownVerb("profile", verb);
   }
   if (command === SETTING_COMMAND) {
     return parseSetting(argv);

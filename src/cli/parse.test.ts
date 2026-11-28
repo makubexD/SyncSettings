@@ -585,12 +585,32 @@ describe("parseArgs", () => {
     );
   });
 
-  test("should name a profile verb that isn't retire", () => {
-    expect(parseArgs(["profile", "show"])).toEqual(
-      groupError("ERROR: unknown profile command show", "profile"),
-    );
+  test("should name a profile verb that isn't show or retire", () => {
     expect(parseArgs(["profile", "list"])).toEqual(
       groupError("ERROR: unknown profile command list", "profile"),
+    );
+  });
+
+  test("should parse profile show with no name", () => {
+    expect(parseArgs(["profile", "show"])).toEqual({ kind: "profile-show" });
+  });
+
+  test("should parse profile show with a name", () => {
+    expect(parseArgs(["profile", "show", "work1"])).toEqual({
+      kind: "profile-show",
+      target: "work1",
+    });
+  });
+
+  test("should refuse a second positional after profile show", () => {
+    expect(parseArgs(["profile", "show", "work1", "x"])).toEqual(
+      unknownOption("x"),
+    );
+  });
+
+  test("should refuse an option after profile show", () => {
+    expect(parseArgs(["profile", "show", "--yes"])).toEqual(
+      unknownOption("--yes"),
     );
   });
 

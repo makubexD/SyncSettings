@@ -42,7 +42,11 @@ import type { ConfigV2, Os } from "./core/config/types.ts";
 import { configuredLocal } from "./core/plan/pick.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
-import { runSettingList, runSettingMove } from "./app/setting.ts";
+import {
+  runProfileShow,
+  runSettingList,
+  runSettingMove,
+} from "./app/setting.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
 import {
   defaultUpdateDeps,
@@ -66,6 +70,7 @@ import type {
   DiffCommand,
   DoctorCommand,
   MachineShowCommand,
+  ProfileShowCommand,
   PullCommand,
   PushCommand,
   RetireCommand,
@@ -269,6 +274,7 @@ type Resolved =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | ProfileShowCommand
   | SettingListCommand
   | SettingMoveCommand
   | CommitCommand
@@ -285,6 +291,7 @@ type ExecutableCommand =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | ProfileShowCommand
   | SettingListCommand
   | SettingMoveCommand
   | CommitCommand
@@ -519,6 +526,7 @@ async function execute(
     case "status":
     case "doctor":
     case "machine-show":
+    case "profile-show":
     case "setting-list":
     case "setting-move":
     case "run":
@@ -560,6 +568,15 @@ async function execute(
       });
     case "status":
       return executeStatus({
+        repoRoot,
+        config: config.value,
+        os: os.value,
+        home,
+        state,
+        layers: layers.value,
+      });
+    case "profile-show":
+      return runProfileShow(command, {
         repoRoot,
         config: config.value,
         os: os.value,
@@ -686,6 +703,7 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "machine-retire":
     case "profile-retire":
+    case "profile-show":
     case "setting-list":
     case "setting-move":
       return parsed;

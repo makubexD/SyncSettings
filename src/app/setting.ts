@@ -17,16 +17,18 @@ import type { Layers } from "../adapters/snapshot.ts";
 import { readStore } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
 import type {
+  ProfileShowCommand,
   RunCommand,
   SettingListCommand,
   SettingMoveCommand,
 } from "../cli/parse.ts";
 import type { ConfigV2, Os } from "../core/config/types.ts";
-import { STATE_FOLDER_ROOTS } from "../core/guard.ts";
+import { PROFILES_FOLDER, STATE_FOLDER_ROOTS } from "../core/guard.ts";
+import { renderProfileShow } from "../core/machine/profile-show.ts";
 import { isYes } from "../core/machine/retire.ts";
 import { machineValues } from "../core/machine/scope.ts";
 import { selectEntries } from "../core/layers/select.ts";
-import type { LayerName } from "../core/layers/select.ts";
+import type { LayerName, SelectedEntry } from "../core/layers/select.ts";
 import { fileLabel } from "../core/plan/changes.ts";
 import { layerWords } from "../core/plan/newsettings.ts";
 import { scopeFor } from "../core/plan/pick.ts";
@@ -34,6 +36,7 @@ import { renderRun } from "../core/plan/run.ts";
 import { settingMoveRefusals } from "../core/plan/setting-checks.ts";
 import { planSettingMove } from "../core/plan/setting-move.ts";
 import {
+  profileLayerFiles,
   renderSettingList,
   settingListHeader,
   settingRows,
@@ -149,6 +152,42 @@ export async function runSettingList(
   if (!picked.ok) {
     return picked.result;
   }
+  const read = await readLayerSnapshot(input, picked.layers);
+  if (!read.ok) {
+    return read.result;
+  }
+  const { selected, snapshot } = read;
+  // The record's values, or `--profile`'s, on top of what the snapshot read.
+  const values = {
+    ...snapshot.values,
+    ...machineValues(picked.layers.profile, picked.layers.record),
+  };
+  const rows = settingRows(selected, snapshot.repoFiles, input.os, values);
+  const lines = renderSettingList(
+    settingListHeader(picked.target),
+    rows,
+    await repoVisibility(input.repoRoot),
+  );
+  return { code: 0, stdout: writeLines(lines), stderr: "" };
+}
+
+/** Contract "mksync profile show": no name and no record. */
+const NO_RECORD_TO_SHOW =
+  "ERROR: no machine record here; run mksync setup, or name a profile.";
+
+/** The selected entries and the files a snapshot read for `layers`, as
+ * `setting list` reads them. */
+async function readLayerSnapshot(
+  input: SettingListInput,
+  layers: Layers,
+): Promise<
+  | {
+      readonly ok: true;
+      readonly selected: readonly SelectedEntry[];
+      readonly snapshot: Snapshot;
+    }
+  | { readonly ok: false; readonly result: Result }
+> {
   const snapshot = await buildSnapshot(
     input.repoRoot,
     input.config,
@@ -157,7 +196,7 @@ export async function runSettingList(
     READ_COMMAND,
     process.cwd(),
     process.env,
-    picked.layers,
+    layers,
   );
   const selected = selectEntries(
     snapshot.config,
@@ -165,25 +204,50 @@ export async function runSettingList(
     new Set(snapshot.repoFiles.keys()),
   );
   if (!selected.ok) {
-    return failure(selected.error.message, selected.error.code);
+    return {
+      ok: false,
+      result: failure(selected.error.message, selected.error.code),
+    };
   }
-  // The record's values, or `--profile`'s, on top of what the snapshot read.
-  const values = {
-    ...snapshot.values,
-    ...machineValues(picked.layers.profile, picked.layers.record),
+  return { ok: true, selected: selected.value, snapshot };
+}
+
+/**
+ * `mksync profile show [<name>]` (contract "mksync profile show"): the
+ * profile from the store `profile retire` reads, this machine's record's by
+ * default, and the files its layer holds in the folder `setting list
+ * --profile` reads. Reads only.
+ */
+export async function runProfileShow(
+  command: ProfileShowCommand,
+  input: SettingListInput,
+): Promise<Result> {
+  const store = readStore(input.state, input.repoRoot, input.config);
+  if (!store.ok) {
+    return failure(store.error.message, store.error.code);
+  }
+  const name = command.target ?? store.value.record?.profile;
+  if (name === undefined) {
+    return failure(NO_RECORD_TO_SHOW);
+  }
+  const profile = store.value.profiles.find((held) => held.name === name);
+  if (profile === undefined) {
+    const path = join(input.state, PROFILES_FOLDER, `${name}.json`);
+    return failure(`ERROR: profile ${name} not found: ${path}`);
+  }
+  const read = await readLayerSnapshot(input, {
+    location: input.layers.location,
+    profile,
+  });
+  if (!read.ok) {
+    return read.result;
+  }
+  const layerFiles = profileLayerFiles(read.selected, read.snapshot.repoFiles);
+  return {
+    code: 0,
+    stdout: writeLines(renderProfileShow(profile, layerFiles)),
+    stderr: "",
   };
-  const rows = settingRows(
-    selected.value,
-    snapshot.repoFiles,
-    input.os,
-    values,
-  );
-  const lines = renderSettingList(
-    settingListHeader(picked.target),
-    rows,
-    await repoVisibility(input.repoRoot),
-  );
-  return { code: 0, stdout: writeLines(lines), stderr: "" };
 }
 
 /** The plan a move starts from: nothing written yet. */

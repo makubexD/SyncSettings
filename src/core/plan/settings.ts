@@ -308,6 +308,30 @@ function layerPaths(
 }
 
 /**
+ * The entry files the profile layer holds, as `profile show` prints them
+ * (contract "mksync profile show"): in the config's entry order, an entry's
+ * `file`, or a `dir` entry's `<file>/<name inside>` in path order.
+ */
+export function profileLayerFiles(
+  selected: readonly SelectedEntry[],
+  files: RepoFiles,
+): readonly string[] {
+  return selected.flatMap((entry) => {
+    const layer = entry.layers.find((held) => held.name === "profile");
+    if (layer === undefined) {
+      return [];
+    }
+    if (entry.entry.merge !== "dir") {
+      return [entry.entry.file];
+    }
+    const prefix = `${layer.repoPath}/`;
+    return layerPaths(entry, layer, files).map(
+      ([path]) => `${entry.entry.file}/${path.slice(prefix.length)}`,
+    );
+  });
+}
+
+/**
  * The listing's rows, in the config's entry order, then by key path or name in
  * code-unit order. `files` holds every layer's bytes, keyed by the repo path
  * the snapshot uses. A json value prints with every non-empty value of
