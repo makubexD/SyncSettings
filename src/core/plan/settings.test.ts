@@ -9,6 +9,7 @@ import {
   settingRows,
 } from "./settings.ts";
 import type { SettingRow } from "./settings.ts";
+import type { Values } from "../values/sanitize.ts";
 
 const PROFILE_NAME = "work1";
 
@@ -111,6 +112,18 @@ const CASE_LISTING = [
   "Other profiles: unknown while the repo is public.",
 ];
 
+const NO_VALUES: Values = {};
+
+/** A profile value and the machine record's, as `setting-list-hides-values`
+ * and its machine twin hold them. */
+const HIDDEN_VALUES: Values = {
+  "<YOUR_TEAM>": "A4",
+  "<WORK_HOST>": "gw.example.invalid",
+};
+
+/** A layer file a wider move emptied. */
+const EMPTIED_LAYER = "{}\n";
+
 const CASE_HEADER = settingListHeader({
   kind: "record",
   machine: MACHINE_NAME,
@@ -151,9 +164,10 @@ function selectedOf(
 function rowsOf(
   entries: readonly ConfigV2Entry[],
   texts: Readonly<Record<string, string>>,
+  values: Values = NO_VALUES,
 ): readonly SettingRow[] {
   const files = filesOf(texts);
-  return settingRows(selectedOf(entries, files), files, "linux");
+  return settingRows(selectedOf(entries, files), files, "linux", values);
 }
 
 /** A vscode entry whose profile layer sets `value` over a base of `{}`. */
@@ -221,6 +235,63 @@ describe("settingRows and renderSettingList", () => {
       { group: "Linux machines", text: "3 line(s)" },
       { group: "profile work1", text: "same as Linux machines" },
     ]);
+  });
+
+  test("should list nothing when the only layer above the base is emptied to {}", () => {
+    // Arrange
+    const rows = rowsOf([VSCODE], {
+      "dotfiles/common/vscode/settings.json": '{\n  "editor.fontSize": 14\n}\n',
+      "profiles/work1/vscode/settings.json": EMPTIED_LAYER,
+    });
+
+    // Act
+    const lines = renderSettingList(CASE_HEADER, rows, "public");
+
+    // Assert
+    expect(lines).toEqual([
+      CASE_HEADER,
+      "",
+      "(none)",
+      "",
+      "Other profiles: unknown while the repo is public.",
+    ]);
+  });
+
+  test("should print a profile value as its placeholder, never the value", () => {
+    // Arrange
+    const texts = {
+      "dotfiles/common/vscode/settings.json": EMPTIED_LAYER,
+      "profiles/work1/vscode/settings.json": '{"team": "A4"}\n',
+    };
+
+    // Act
+    const [team] = rowsOf([VSCODE], texts, HIDDEN_VALUES);
+
+    // Assert
+    expect(team?.cells).toEqual([
+      { group: "profile work1", text: '"<YOUR_TEAM>"' },
+    ]);
+  });
+
+  test("should hide a machine value before the value is cut", () => {
+    // Arrange
+    const proxy = `http://gw.example.invalid:8080/${"p".repeat(20)}`;
+
+    // Act
+    const [note] = rowsOf(
+      [VSCODE],
+      {
+        "dotfiles/common/vscode/settings.json": EMPTIED_LAYER,
+        "profiles/work1/vscode/settings.json": `{"note": ${JSON.stringify(proxy)}}\n`,
+      },
+      HIDDEN_VALUES,
+    );
+
+    // Assert
+    // The hidden text is 37 characters up to the cut: 25, then 12 of the p's.
+    expect(note?.cells[0]?.text).toBe(
+      `"http://<WORK_HOST>:8080/${"p".repeat(12)}...`,
+    );
   });
 
   test("should leave out an entry with only a base file", () => {

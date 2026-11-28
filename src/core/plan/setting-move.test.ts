@@ -7,6 +7,7 @@ import { formatLine } from "../status.ts";
 import { planSettingMove } from "./setting-move.ts";
 import type { SettingMove } from "./setting-move.ts";
 import type { RunPlan, Snapshot } from "./types.ts";
+import type { Values } from "../values/sanitize.ts";
 
 const PROFILE: Profile = {
   name: "work1",
@@ -84,7 +85,10 @@ interface Fixture {
   readonly selected: readonly SelectedEntry[];
 }
 
-function fixture(files: Readonly<Record<string, Layers>>): Fixture {
+function fixture(
+  files: Readonly<Record<string, Layers>>,
+  values: Values = {},
+): Fixture {
   const repoFiles = new Map<string, Uint8Array>();
   for (const [file, layers] of Object.entries(files)) {
     for (const [layer, text] of Object.entries(layers)) {
@@ -109,7 +113,7 @@ function fixture(files: Readonly<Record<string, Layers>>): Fixture {
     repoFiles,
     localFiles: new Map(),
     localDirs: new Set(),
-    values: {},
+    values,
     env: {},
     only: [],
   };
@@ -121,8 +125,9 @@ function move(
   target: string,
   key: string | undefined,
   to: LayerName,
+  values: Values = {},
 ): SettingMove {
-  const { snapshot, selected } = fixture(files);
+  const { snapshot, selected } = fixture(files, values);
   const result = planSettingMove(
     EMPTY_PLAN,
     snapshot,
@@ -166,6 +171,26 @@ function json(value: unknown): string {
 }
 
 describe("planSettingMove", () => {
+  test("should print the preview's value with this machine's values as placeholders", () => {
+    // Arrange
+    const files = {
+      [VS]: {
+        base: json({ "editor.fontSize": 14 }),
+        machine: json({ "http.proxy": "http://gw.example.invalid:8080" }),
+      },
+    };
+
+    // Act
+    const moved = move(files, VS, "http.proxy", "profile", {
+      "<WORK_HOST>": "gw.example.invalid",
+    });
+
+    // Assert
+    expect(moved.text).toBe(
+      'Move vscode settings.json http.proxy: "http://<WORK_HOST>:8080"',
+    );
+  });
+
   test("should write a wider key into the target and remove it from the source", () => {
     // Arrange
     const files = {

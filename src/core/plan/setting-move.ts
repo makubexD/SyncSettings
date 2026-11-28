@@ -325,7 +325,7 @@ export function planSettingMove(
   const shown =
     found === undefined
       ? WHOLE_FILE
-      : `${found.key}: ${jsonCellText(found.value, found.listed) ?? ""}`;
+      : `${found.key}: ${jsonCellText(found.value, found.listed, snapshot.values) ?? ""}`;
   return {
     ok: true,
     value: {

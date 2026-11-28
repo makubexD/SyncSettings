@@ -24,12 +24,12 @@ import type {
 import type { ConfigV2, Os } from "../core/config/types.ts";
 import { STATE_FOLDER_ROOTS } from "../core/guard.ts";
 import { isYes } from "../core/machine/retire.ts";
+import { machineValues } from "../core/machine/scope.ts";
 import { selectEntries } from "../core/layers/select.ts";
 import type { LayerName } from "../core/layers/select.ts";
 import { fileLabel } from "../core/plan/changes.ts";
 import { layerWords } from "../core/plan/newsettings.ts";
 import { scopeFor } from "../core/plan/pick.ts";
-import { sharedWrites } from "../core/plan/profilevalues.ts";
 import { renderRun } from "../core/plan/run.ts";
 import { settingMoveRefusals } from "../core/plan/setting-checks.ts";
 import { planSettingMove } from "../core/plan/setting-move.ts";
@@ -167,7 +167,17 @@ export async function runSettingList(
   if (!selected.ok) {
     return failure(selected.error.message, selected.error.code);
   }
-  const rows = settingRows(selected.value, snapshot.repoFiles, input.os);
+  // The record's values, or `--profile`'s, on top of what the snapshot read.
+  const values = {
+    ...snapshot.values,
+    ...machineValues(picked.layers.profile, picked.layers.record),
+  };
+  const rows = settingRows(
+    selected.value,
+    snapshot.repoFiles,
+    input.os,
+    values,
+  );
   const lines = renderSettingList(
     settingListHeader(picked.target),
     rows,
@@ -494,6 +504,7 @@ export async function runSettingMove(
     plan,
     snapshot,
     input.layers.profile,
+    record?.values ?? {},
     input.home,
     input.os,
     label,
@@ -501,7 +512,10 @@ export async function runSettingMove(
   if (refusals.length > 0) {
     return failure(refusals.join("\n"));
   }
-  if (sharedWrites(plan, snapshot).length > 0) {
+  const shared = writtenPaths(plan).some((path) =>
+    path.startsWith(DOTFILES_PREFIX),
+  );
+  if (shared) {
     const leaked = await leakScanRefusal(
       input.repoRoot,
       plan,
@@ -531,15 +545,17 @@ export async function runSettingMove(
     if (!isYes(answer)) {
       return { code: 1, stdout: `${NOTHING_MOVED}\n`, stderr: "" };
     }
+    // The clone may have changed while the question waited.
+    const dirtyNow = await dirtyRefusal(input.repoRoot, plan, deps.clean);
+    if (dirtyNow !== undefined) {
+      return dirtyNow;
+    }
     shown = "";
   }
   const failed = writeMove(plan, snapshot, input, deps.now);
   if (failed !== undefined) {
     return { ...failed, stdout: shown };
   }
-  const shared = writtenPaths(plan).some((path) =>
-    path.startsWith(DOTFILES_PREFIX),
-  );
   return {
     code: 0,
     stdout: `${shown}${shared ? MOVED_SHARED : MOVED}\n`,

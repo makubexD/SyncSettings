@@ -8,8 +8,10 @@
 import type { Profile } from "../config/profile.ts";
 import type { Os } from "../config/types.ts";
 import { placeValue } from "../machine/values.ts";
+import type { Values } from "../values/sanitize.ts";
 import {
   heldProfileValues,
+  heldValues,
   reachedGroup,
   sharedWrites,
 } from "./profilevalues.ts";
@@ -18,6 +20,13 @@ import type { RunPlan, Snapshot } from "./types.ts";
 
 /** Placeholder text as sanitize writes it: `<YOUR_NAME>`, `<WORK_X>`. */
 const PLACEHOLDER = /<[A-Z][A-Z0-9_]*>/g;
+
+/** A Windows home that starts with a drive: `C:\Users\jdoe`, `C:/Users/jdoe`. */
+const DRIVE_HOME = /^([A-Za-z]):[\\/](.*)$/s;
+
+/** A character that continues a path name: a home followed by one is a
+ * longer folder, not the home (`/home/ma` in `/home/mark`). */
+const PATH_NAME_CHAR = /^[A-Za-z0-9._-]$/;
 
 /** The systems whose file names ignore case. */
 const CASE_INSENSITIVE: ReadonlySet<Os> = new Set<Os>(["windows", "macos"]);
@@ -39,6 +48,28 @@ function profileValueLines(
       lines.push(
         `refused: ${label} holds a value of profile ${profile.name} (${placeholder}) and would reach ${reachedGroup(write.layer, os)}.`,
         `Leave it in "profile ${profile.name}", or put ${placeholder} in the file instead.`,
+      );
+    }
+  }
+  return lines;
+}
+
+/**
+ * Check 1, for the machine record: a value of this machine, named by its
+ * placeholder, never by the value.
+ */
+function machineValueLines(
+  writes: readonly SharedWrite[],
+  values: Values,
+  os: Os,
+  label: string,
+): string[] {
+  const lines: string[] = [];
+  for (const write of writes) {
+    for (const placeholder of heldValues(write.texts, values, write.json)) {
+      lines.push(
+        `refused: ${label} holds a value of this machine (${placeholder}) and would reach ${reachedGroup(write.layer, os)}.`,
+        `Leave it in "this machine", or put ${placeholder} in the file instead.`,
       );
     }
   }
@@ -78,13 +109,38 @@ function profilePlaceholderLines(
 }
 
 /** The ways a text can write `home`: as is, with `\` doubled, and on Windows
- * with `/` for `\`. */
-function homeForms(home: string, os: Os): readonly string[] {
+ * with `/` for `\` and in Git Bash's form, `/c/Users/jdoe`. */
+export function homeForms(home: string, os: Os): readonly string[] {
   const forms = [home, home.replaceAll("\\", "\\\\")];
-  if (os === "windows") {
-    forms.push(home.replaceAll("\\", "/"));
+  if (os !== "windows") {
+    return forms;
+  }
+  forms.push(home.replaceAll("\\", "/"));
+  const drive = DRIVE_HOME.exec(home);
+  if (drive !== null) {
+    const [, letter = "", rest = ""] = drive;
+    forms.push(`/${letter.toLowerCase()}/${rest.replaceAll("\\", "/")}`);
   }
   return forms;
+}
+
+/** Whether `form` occurs in `text` with no path-name character right after
+ * it: the home itself or a path under it, not a longer folder. */
+export function holdsHome(text: string, form: string): boolean {
+  if (form === "") {
+    return false;
+  }
+  for (
+    let at = text.indexOf(form);
+    at !== -1;
+    at = text.indexOf(form, at + 1)
+  ) {
+    const next = text[at + form.length];
+    if (next === undefined || !PATH_NAME_CHAR.test(next)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Check 3: this machine's home folder, on every OS. */
@@ -101,23 +157,27 @@ function homeLines(
     ? (text: string) => text.toLowerCase()
     : (text: string) => text;
   const forms = homeForms(home, os).map(fold);
-  const held = writes.some((write) => {
-    const text = fold(write.texts[0] ?? "");
-    return forms.some((form) => text.includes(form));
-  });
+  const held = writes.some((write) =>
+    write.texts.some((text) => {
+      const folded = fold(text);
+      return forms.some((form) => holdsHome(folded, form));
+    }),
+  );
   return held ? [`refused: ${label} holds this machine's home folder.`] : [];
 }
 
 /**
  * The `refused:` lines of the first three checks for every write of `plan`
  * bound for the base or an OS layer, in the contract's order: profile values,
- * profile placeholders, the home folder. `label` is `<module> <file> <key>`.
- * A move that writes no shared layer gets none.
+ * machine values (`machineValues`, the record's), profile placeholders, the
+ * home folder. `label` is `<module> <file> <key>`. A move that writes no
+ * shared layer gets none.
  */
 export function settingMoveRefusals(
   plan: RunPlan,
   snapshot: Snapshot,
   profile: Profile | undefined,
+  machineValues: Values,
   home: string,
   os: Os,
   label: string,
@@ -126,12 +186,15 @@ export function settingMoveRefusals(
   if (writes.length === 0) {
     return [];
   }
-  const lines =
-    profile === undefined
+  const lines = [
+    ...(profile === undefined
       ? []
-      : [
-          ...profileValueLines(writes, profile, os, label),
-          ...profilePlaceholderLines(writes, profile, label),
-        ];
-  return [...new Set([...lines, ...homeLines(writes, home, os, label)])];
+      : profileValueLines(writes, profile, os, label)),
+    ...machineValueLines(writes, machineValues, os, label),
+    ...(profile === undefined
+      ? []
+      : profilePlaceholderLines(writes, profile, label)),
+    ...homeLines(writes, home, os, label),
+  ];
+  return [...new Set(lines)];
 }

@@ -1,6 +1,7 @@
 import type { Os } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import { formsFor } from "../values/sanitize.ts";
+import type { Values } from "../values/sanitize.ts";
 import { exportFileLabel, matchExportEntry } from "./changes.ts";
 import { OS_TITLES, changeLineNumbers } from "./groups.ts";
 import { isJsonEntry, scopeFor } from "./pick.ts";
@@ -252,7 +253,19 @@ export function heldProfileValues(
   profile: Profile,
   json: boolean,
 ): readonly string[] {
-  return Object.entries(profile.values)
+  return heldValues(texts, profile.values, json);
+}
+
+/**
+ * The placeholders of `values` whose non-empty value one of `texts` holds,
+ * found as `heldProfileValues` finds a profile's, in the values' order.
+ */
+export function heldValues(
+  texts: readonly string[],
+  values: Values,
+  json: boolean,
+): readonly string[] {
+  return Object.entries(values)
     .filter(([, value]) => value !== "" && holdsValue(texts, value, json))
     .map(([placeholder]) => placeholder);
 }

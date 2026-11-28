@@ -1,0 +1,40 @@
+{
+  "description": "setting list prints a profile value as its placeholder, never the value, exit 0, nothing written (mksync setting list).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "vscode": {
+        "description": "VS Code"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "json",
+        "localPath": "~/.config/Code/User/settings.json",
+        "description": "VS Code settings"
+      },
+      {
+        "file": "git/.gitconfig.local",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig.local",
+        "description": "Local git settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "setting-list"
+    }
+  ]
+}

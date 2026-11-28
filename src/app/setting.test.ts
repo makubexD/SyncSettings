@@ -214,6 +214,31 @@ describe("runSettingMove", () => {
     expect(readRepo(fixture, BASE_FILE)).toBe(MOVED_BASE_TEXT);
   });
 
+  test("should refuse after a yes when the file changed while the question waited", async () => {
+    // Arrange
+    const asked: Asked = { texts: [] };
+    let answered = false;
+    const deps: SettingMoveDeps = {
+      ...makeDeps("y", true, asked),
+      ask: async (text) => {
+        asked.texts.push(text);
+        answered = true;
+        return "y";
+      },
+      clean: async () => !answered,
+    };
+
+    // Act
+    const result = await runSettingMove(MOVE, fixture.input, deps);
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe(
+      `refused: ${BASE_FILE} has changes that aren't sent; run mksync push first.\n`,
+    );
+    expect(readRepo(fixture, BASE_FILE)).toBe(BASE_TEXT);
+  });
+
   test("should print the preview and write nothing under --dry-run", async () => {
     // Arrange
     const asked: Asked = { texts: [] };

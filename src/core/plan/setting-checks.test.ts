@@ -87,6 +87,7 @@ function planOf(writes: Readonly<Record<string, string>>): RunPlan {
 interface CheckCase {
   readonly writes: Readonly<Record<string, string>>;
   readonly values?: Readonly<Record<string, string>>;
+  readonly machineValues?: Readonly<Record<string, string>>;
   readonly os?: Os;
   readonly home?: string;
 }
@@ -98,6 +99,7 @@ function refusalsFor(check: CheckCase): readonly string[] {
     planOf(check.writes),
     snapshotOf(os, home),
     profileOf(check.values ?? {}),
+    check.machineValues ?? {},
     home,
     os,
     LABEL,
@@ -108,6 +110,13 @@ const VALUE_LINES = [
   `refused: ${LABEL} holds a value of profile work1 (<WORK_TEAM>) and would reach all machines.`,
   `Leave it in "profile work1", or put <WORK_TEAM> in the file instead.`,
 ];
+
+const MACHINE_VALUE_LINES = [
+  `refused: ${LABEL} holds a value of this machine (<WORK_HOST>) and would reach all machines.`,
+  `Leave it in "this machine", or put <WORK_HOST> in the file instead.`,
+];
+
+const WORK_HOST_VALUE = "gw.example.invalid";
 
 const WORK_X_VALUE = "/opt/work";
 
@@ -249,6 +258,95 @@ describe("settingMoveRefusals: the home folder", () => {
   });
 });
 
+describe("settingMoveRefusals: machine values", () => {
+  test("a value of the machine record is refused with the machine's lines", () => {
+    // Arrange / Act
+    const lines = refusalsFor({
+      writes: {
+        [basePath()]: '{"http.proxy": "http://gw.example.invalid:8080"}',
+      },
+      machineValues: { "<WORK_HOST>": WORK_HOST_VALUE },
+    });
+
+    // Assert
+    expect(lines).toEqual(MACHINE_VALUE_LINES);
+  });
+
+  test("an empty machine value is never searched", () => {
+    // Arrange / Act
+    const lines = refusalsFor({
+      writes: { [basePath()]: '{"team": "A4"}' },
+      machineValues: { "<WORK_HOST>": "" },
+    });
+
+    // Assert
+    expect(lines).toEqual([]);
+  });
+
+  test("a machine value is found in the JSON-decoded text", () => {
+    // Arrange / Act
+    const lines = refusalsFor({
+      writes: { [basePath()]: String.raw`{"host": "gw.example.invalid"}` },
+      machineValues: { "<WORK_HOST>": WORK_HOST_VALUE },
+    });
+
+    // Assert
+    expect(lines).toEqual(MACHINE_VALUE_LINES);
+  });
+});
+
+describe("settingMoveRefusals: home forms and boundary", () => {
+  test("the home is found in the JSON-decoded text, not only the raw one", () => {
+    // Arrange / Act
+    const lines = refusalsFor({
+      writes: { [basePath()]: String.raw`{"bin": "\/home\/user\/bin"}` },
+    });
+
+    // Assert
+    expect(lines).toEqual([HOME_LINE]);
+  });
+
+  test("on windows the Git Bash form of the home is refused", () => {
+    // Arrange / Act
+    const lines = refusalsFor({
+      writes: { [basePath()]: '{"bin": "/c/Users/jdoe/bin"}' },
+      os: "windows",
+      home: WINDOWS_HOME,
+    });
+
+    // Assert
+    expect(lines).toEqual([HOME_LINE]);
+  });
+
+  test("on linux the Git Bash form is not a form", () => {
+    // Arrange / Act
+    const lines = refusalsFor({
+      writes: { [basePath()]: '{"bin": "/c/Users/jdoe/bin"}' },
+      os: "linux",
+      home: WINDOWS_HOME,
+    });
+
+    // Assert
+    expect(lines).toEqual([]);
+  });
+
+  test.each([
+    ["a longer folder name", '{"bin": "/home/username/bin"}', []],
+    ["a dot after it", '{"bin": "/home/user.old"}', []],
+    ["an underscore after it", '{"bin": "/home/user_2"}', []],
+    ["a dash after it", '{"bin": "/home/user-2"}', []],
+    ["a slash after it", '{"bin": "/home/user/bin"}', [HOME_LINE]],
+    ["a quote after it", '{"bin": "/home/user"}', [HOME_LINE]],
+    ["the end of the text", "/home/user", [HOME_LINE]],
+  ])("should count the home only with %s as it allows", (_name, text, want) => {
+    // Arrange / Act
+    const lines = refusalsFor({ writes: { [basePath()]: text } });
+
+    // Assert
+    expect(lines).toEqual(want);
+  });
+});
+
 describe("settingMoveRefusals: scope and order", () => {
   test("a move to the profile runs no check", () => {
     // Arrange / Act
@@ -268,14 +366,16 @@ describe("settingMoveRefusals: scope and order", () => {
     const lines = refusalsFor({
       writes: {
         [basePath()]:
-          '{"bin": "/home/user/bin", "x": "<WORK_X>", "team": "A4"}',
+          '{"bin": "/home/user/bin", "x": "<WORK_X>", "team": "A4", "host": "gw.example.invalid"}',
       },
       values: { "<WORK_TEAM>": "A4", "<WORK_X>": WORK_X_VALUE },
+      machineValues: { "<WORK_HOST>": WORK_HOST_VALUE },
     });
 
     // Assert
     expect(lines).toEqual([
       ...VALUE_LINES,
+      ...MACHINE_VALUE_LINES,
       `refused: ${LABEL} holds <WORK_X>, a value of profile work1; machines outside it have no value for it.`,
       HOME_LINE,
     ]);

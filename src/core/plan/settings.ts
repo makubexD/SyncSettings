@@ -9,6 +9,8 @@ import type { Os } from "../config/types.ts";
 import { parseJson } from "../json/value.ts";
 import type { JsonValue } from "../json/value.ts";
 import type { Layer, SelectedEntry } from "../layers/select.ts";
+import { encodeUtf8, sanitize } from "../values/sanitize.ts";
+import type { Values } from "../values/sanitize.ts";
 import {
   arrayKeyPath,
   childKeyPath,
@@ -116,7 +118,8 @@ function groupOf(layer: Layer, os: Os): string {
 /**
  * Every key path `value` sets, as the block prints it: an object's keys one by
  * one, an array as one `[]` path, any other value (an empty object included)
- * as its own path.
+ * as its own path. The root itself is no setting: a layer file that is `{}`,
+ * as a wider move can leave it, sets nothing.
  */
 function collectPaths(
   value: JsonValue,
@@ -128,6 +131,9 @@ function collectPaths(
     for (const [key, child] of value.entries) {
       collectPaths(child, childKeyPath(path, key), [...keyPath, key], paths);
     }
+    return;
+  }
+  if (keyPath.length === 0) {
     return;
   }
   const printed = value.kind === "array" ? arrayKeyPath(path) : path;
@@ -159,10 +165,27 @@ export function listedPaths(value: JsonValue): ReadonlyMap<string, ListedPath> {
   return paths;
 }
 
-/** What one layer holds at `listed`, or nothing when it doesn't set it. */
+/**
+ * `text` with every non-empty value of `values` replaced with its
+ * placeholder, longest value first, in the forms export's sanitize replaces
+ * (contract "mksync setting list": values are never printed).
+ */
+export function hideValues(text: string, values: Values): string {
+  const rules = Object.keys(values).map((placeholder) => ({
+    placeholder,
+    prompt: "",
+  }));
+  return textOf(sanitize(encodeUtf8(text), rules, values, { json: true }));
+}
+
+/**
+ * What one layer holds at `listed`, or nothing when it doesn't set it: the
+ * compact JSON with `values` hidden, then cut.
+ */
 export function jsonCellText(
   value: JsonValue,
   listed: ListedPath,
+  values: Values,
 ): string | undefined {
   const found = valueAt(value, listed.keyPath);
   if (found === undefined) {
@@ -174,7 +197,7 @@ export function jsonCellText(
   if (found.kind === "object" && found.entries.size > 0) {
     return undefined;
   }
-  return cutValue(compactJson(found));
+  return cutValue(hideValues(compactJson(found), values));
 }
 
 function parseLayer(bytes: Uint8Array): JsonValue | undefined {
@@ -187,6 +210,7 @@ function jsonRows(
   entry: SelectedEntry,
   files: readonly LayerFile[],
   os: Os,
+  values: Values,
 ): readonly SettingRow[] {
   // shortcut: a layer that isn't valid JSON adds no path and no cell; the
   // import check and the export name it.
@@ -208,7 +232,7 @@ function jsonRows(
       return [];
     }
     const cells = parsed.flatMap(({ layer, value }) => {
-      const text = jsonCellText(value, listed);
+      const text = jsonCellText(value, listed, values);
       return text === undefined ? [] : [{ group: groupOf(layer, os), text }];
     });
     return [{ module, file, key, cells }];
@@ -286,13 +310,14 @@ function layerPaths(
 /**
  * The listing's rows, in the config's entry order, then by key path or name in
  * code-unit order. `files` holds every layer's bytes, keyed by the repo path
- * the snapshot uses; they are the layers' own text, so a value prints as its
- * placeholder.
+ * the snapshot uses. A json value prints with every non-empty value of
+ * `values` (the profile's and the record's) as its placeholder.
  */
 export function settingRows(
   selected: readonly SelectedEntry[],
   files: RepoFiles,
   os: Os,
+  values: Values,
 ): readonly SettingRow[] {
   return selected.flatMap((entry) => {
     if (!entry.layers.some((layer) => layer.name !== "base")) {
@@ -305,7 +330,7 @@ export function settingRows(
       const bytes = files.get(layer.repoPath);
       return bytes === undefined ? [] : [{ layer, bytes }];
     });
-    return jsonRows(entry, held, os);
+    return jsonRows(entry, held, os, values);
   });
 }
 

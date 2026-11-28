@@ -1183,9 +1183,10 @@ Other profiles: unknown while the repo is public.
 
 - An entry is listed when its OS, profile or machine layer holds a file. A `json` line is a key path that one of
   those layers sets; its cells name each layer that sets it, base first, with the change block's group words
-  (`all machines`, `<OS> machines`, `profile <p>`, `this machine`). A value is the sanitized compact JSON: up to 40
-  characters as it is, longer ones cut to their first 37 and `...`. An array path counts the items each layer holds
-  (`<n> item(s)`).
+  (`all machines`, `<OS> machines`, `profile <p>`, `this machine`). A value is the sanitized compact JSON: every
+  non-empty value of the profile and of the machine record replaced with its placeholder, longest value first, as
+  export's sanitize replaces them, then up to 40 characters as it is, longer ones cut to their first 37 and `...`. An array path counts the items each layer holds
+  (`<n> item(s)`). A layer file that sets nothing (`{}`, as a wider move can leave it) adds no line.
 - Any other kind is one `(whole file)` line with a cell per layer that holds the file: `<n> line(s)`, or
   `same as <group>` when its bytes equal a wider layer's. An `import` side file prints under its resolved name.
 - Layout: an entry line is the module, two spaces, the entry's `file` without its first folder, as the change block
@@ -1218,9 +1219,11 @@ same after it as before it:
   to carry prints the "already" line below.
 - A `dir` entry's files and `import` side files can't be named yet (design "Open").
 - A whole file, or an `import` side file, moves as a whole, under the same rule.
-- Because the source is the narrowest layer, no narrower one can override the moved value, so Move a change's refusals
-  (`moving <path> to <layer> would change the merged result`, `a layer narrower than <layer> has the file`) can't be
-  reached from the command line. They stay in the program as guards, exit 1.
+- Because the source is the narrowest layer, no narrower one can override the moved value. Move a change's
+  `a layer narrower than <layer> has the file` can't be reached from the command line; it stays in the program as a
+  guard, exit 1. `moving <path> to <layer> would change the merged result`, exit 1, is reached for an array path
+  when a layer between the source and the target holds items of it: arrays merge in layer order, so the items would
+  land on the other side of that layer's.
 
 Lines and codes:
 
@@ -1241,19 +1244,30 @@ A whole-file move leaves `<key>` out of the first line, and its second line is `
   Leave it in "profile <p>", or put <KEY> in the file instead.
   ```
 
+  The same search runs over the machine record's non-empty values. A hit on one prints, in place of those two lines:
+
+  ```text
+  refused: <module> <file> <key> holds a value of this machine (<KEY>) and would reach <group>.
+  Leave it in "this machine", or put <KEY> in the file instead.
+  ```
+
+  The profile's lines come first, then the machine's.
+
 - A placeholder whose value lives only in this profile: one the [value table](#values-on-a-machine) doesn't name,
   held in `profiles/<p>.json`:
   `refused: <module> <file> <key> holds <KEY>, a value of profile <p>; machines outside it have no value for it.`
   A placeholder the table names (`<YOUR_NAME>`, `<HOME>`) has a value on every machine and passes.
-- This machine's home folder as written in the text (as it is, with `\` doubled, and with `/` for `\` on Windows),
-  ignoring case on Windows and macOS: `refused: <module> <file> <key> holds this machine's home folder.` The leak
+- This machine's home folder as written in the text, raw or JSON-decoded: as it is, with `\` doubled, and on Windows
+  also with `/` for `\` and in Git Bash's form (`C:\Users\jdoe` as `/c/Users/jdoe`), ignoring case on Windows and
+  macOS. A match counts only when the character after it is absent or not a letter, digit, `.`, `_` or `-`, so home
+  `/home/ma` doesn't match `/home/mark/x`: `refused: <module> <file> <key> holds this machine's home folder.` The leak
   scan's `home-path` rule covers only Linux; this check covers every OS.
 - The [leak scan](#export-preview) on a temporary copy of the clone with the move applied, as the preview runs it. A
   hit prints the scan's lines, then `refused: the leak scan found the lines above.`
 
 `would reach` names the group in lower case, as the profile-value rule does. A whole-file move names
 `<module> <file>`, with no key. The leak scan runs only when the first three checks refuse nothing, and only when the
-move writes the base or an OS layer; a scan that can't run prints `ERROR: leak scan could not run; nothing was
+move writes or removes a file under `dotfiles/`; a scan that can't run prints `ERROR: leak scan could not run; nothing was
 committed.`, as the export preview's. Any refusal exits 1 and writes nothing.
 
 **Preview and question.**
@@ -1275,7 +1289,8 @@ Move it? [y/N]
   folders it empties with it, up to `dotfiles/` or the layer's `profiles/<p>` or `machines/<m>` folder, as the
   export's removals do.
 - The question is `[y/N]`, as push's PR question, because a move changes what other machines receive. An empty
-  answer, `n` or end of input prints `Nothing moved.`, exit 1, as `machine retire`'s decline. No terminal and no
+  answer, `n` or end of input prints `Nothing moved.`, exit 1, as `machine retire`'s decline. After a `y` the
+  dirty check below runs again before the writes, since the clone may have changed while the question waited. No terminal and no
   `--yes`: `ERROR: setting move needs a terminal or --yes`, exit 2.
 - `--dry-run` runs the checks (a refusal still exits 1), prints the preview and `Nothing written (--dry-run).`, exit 0. `--yes` writes without asking.
 - After the writes: `Moved. mksync push sends it to the other machines.` when a base or OS file changed, else

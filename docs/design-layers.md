@@ -2069,6 +2069,16 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
     live file already equals the merge, so its export writes nothing) and then commits the move anyway. A line that
     names the moved files waiting in the clone would read better; it changes push's output, so it needs a shared case
     first.
+  - The checks read the whole file bound for the base or OS layer, not only the moved value, so text an earlier
+    export put there (a value, a placeholder, the home folder) refuses every move into that file, and the line blames
+    the moved key. Checking only the moved value, or naming the key that holds the hit, would read better.
+  - `writePreviewTree` joins config paths into the leak scan's temp folder with no containment check, and config load
+    doesn't reject `..` in an entry's `file`. The config is the user's own, but a check at load would close it.
+  - The dirty check's pathspecs (`git status --porcelain -- <path>`) aren't literal: a path holding `*`, `?` or `[`
+    is read as a pattern. `:(literal)` or `GIT_LITERAL_PATHSPECS=1` would fix it.
+  - A placeholder whose value lives only in the machine record, moved to the base, isn't refused: other machines have
+    no value for it, so their import stops at it. That's not a leak, but it could be refused like a profile-only
+    placeholder.
 
 ### Confirm on Windows
 
