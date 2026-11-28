@@ -1,0 +1,2 @@
+refused: vscode settings.json http.proxy holds a value of this machine (<WORK_HOST>) and would reach all machines.
+Leave it in "this machine", or put <WORK_HOST> in the file instead.

@@ -4,6 +4,7 @@
  * error out; nothing here touches the repo or the machine.
  */
 
+import type { LayerName } from "../core/layers/select.ts";
 import type { ClaudeMode } from "../core/machine/record.ts";
 import { isValidLabel, LABEL_REFUSAL } from "../core/config/profile.ts";
 import { holdsControlCharacter, trimAnswer } from "../core/answer.ts";
@@ -25,7 +26,10 @@ export const USAGE =
   "[--existing backup|keep|stop] [--bootstrap | --no-bootstrap] [--yes] | " +
   "mksync update | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
-  "mksync profile retire <name> [--yes] | mksync statusline | " +
+  "mksync profile retire <name> [--yes] | " +
+  "mksync setting list [--profile <p>] | " +
+  "mksync setting move <file> [<key>] --to base|os|profile|machine " +
+  "[--dry-run | --yes] | mksync statusline | " +
   "mksync --version";
 
 export type CommandName = "export" | "import";
@@ -114,6 +118,26 @@ export interface ProfileRetireCommand {
 /** Either retire command. */
 export type RetireCommand = MachineRetireCommand | ProfileRetireCommand;
 
+/** `setting list [--profile <p>]`: the settings above the base, for the
+ * record's profile or the one `--profile` names (contract "mksync setting"). */
+export interface SettingListCommand {
+  readonly kind: "setting-list";
+  readonly profile?: string;
+}
+
+/** `setting move <file> [<key>] --to <layer> [--dry-run | --yes]`: one
+ * setting, or one whole file, moved into `to`'s layer. Whether the entry is
+ * `json`, and so needs a key, is checked by the command, which holds the
+ * config. */
+export interface SettingMoveCommand {
+  readonly kind: "setting-move";
+  readonly file: string;
+  readonly key?: string;
+  readonly to: LayerName;
+  readonly dryRun: boolean;
+  readonly yes: boolean;
+}
+
 /**
  * `commit`: open a PR for the sync paths. `-m` replaces the message built from
  * the changed files; `--partial` records no sync point.
@@ -174,6 +198,8 @@ export type ParsedCommand =
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
+  | SettingListCommand
+  | SettingMoveCommand
   | CommitCommand
   | SetupCommand
   | VersionCommand
@@ -192,6 +218,40 @@ const PROFILE_COMMAND = "profile";
 
 /** The verb both retire commands share. */
 const RETIRE_VERB = "retire";
+
+const SETTING_COMMAND = "setting";
+
+const SETTING_LIST_VERB = "list";
+
+const SETTING_MOVE_VERB = "move";
+
+const SETTING_PROFILE = "--profile";
+
+const SETTING_TO = "--to";
+
+const SETTING_DRY_RUN = "--dry-run";
+
+const SETTING_YES = "--yes";
+
+const SETTING_LAYERS: readonly LayerName[] = [
+  "base",
+  "os",
+  "profile",
+  "machine",
+];
+
+const SETTING_NEEDS_VERB = "ERROR: setting needs list or move";
+
+const SETTING_UNKNOWN_VERB_PREFIX = "ERROR: unknown setting command ";
+
+const SETTING_NEEDS_TO = "ERROR: missing --to";
+
+const SETTING_BAD_TO = "ERROR: --to takes base, os, profile or machine";
+
+const SETTING_DRY_RUN_YES_CLASH =
+  "ERROR: --dry-run and --yes can't be used together";
+
+const SETTING_NEEDS_FILE = "ERROR: setting move needs a file";
 
 const SETUP_COMMAND = "setup";
 
@@ -363,7 +423,9 @@ function parseValueFlag(text: string): ValueFlag | ParseError {
     return setupError(`missing value for ${placeholder}`);
   }
   if (holdsControlCharacter(value)) {
-    return setupError(`--value ${placeholder}: value holds a control character`);
+    return setupError(
+      `--value ${placeholder}: value holds a control character`,
+    );
   }
   return { placeholder, value };
 }
@@ -768,6 +830,135 @@ function parseCommit(argv: readonly string[]): CommitCommand | ParseError {
 }
 
 /**
+ * `setting list [--profile <p>]` (contract "mksync setting"): `--profile`
+ * once, with a value; any other argument is `Unknown option: <arg>`.
+ */
+function parseSettingList(
+  argv: readonly string[],
+): SettingListCommand | ParseError {
+  let profile: string | undefined;
+  let index = 2;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg !== SETTING_PROFILE) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    if (profile !== undefined) {
+      return repeatedFlag(arg);
+    }
+    const value = argv[index + 1];
+    if (value === undefined || isOption(value)) {
+      return flagNeedsValue(arg);
+    }
+    profile = value;
+    index += 2;
+  }
+  return profile === undefined
+    ? { kind: "setting-list" }
+    : { kind: "setting-list", profile };
+}
+
+/**
+ * `setting move <file> [<key>] --to <layer> [--dry-run | --yes]` (contract
+ * "mksync setting"): at most two positionals, each flag at most once, in any
+ * order. A third positional or an unknown flag is `Unknown option: <arg>`.
+ */
+function parseSettingMove(
+  argv: readonly string[],
+): SettingMoveCommand | ParseError {
+  const positionals: string[] = [];
+  let to: string | undefined;
+  let dryRun = false;
+  let yes = false;
+
+  let index = 2;
+  while (index < argv.length) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === SETTING_TO) {
+      if (to !== undefined) {
+        return repeatedFlag(arg);
+      }
+      const value = argv[index + 1];
+      if (value === undefined || isOption(value)) {
+        return flagNeedsValue(arg);
+      }
+      to = value;
+      index += 2;
+      continue;
+    }
+    if (arg === SETTING_DRY_RUN) {
+      if (dryRun) {
+        return repeatedFlag(arg);
+      }
+      dryRun = true;
+      index++;
+      continue;
+    }
+    if (arg === SETTING_YES) {
+      if (yes) {
+        return repeatedFlag(arg);
+      }
+      yes = true;
+      index++;
+      continue;
+    }
+    if (isOption(arg) || positionals.length === 2) {
+      return error(`${UNKNOWN_OPTION_PREFIX}${arg}`);
+    }
+    positionals.push(arg);
+    index++;
+  }
+
+  const [file, key] = positionals;
+  if (file === undefined) {
+    return error(SETTING_NEEDS_FILE);
+  }
+  if (to === undefined) {
+    return error(SETTING_NEEDS_TO);
+  }
+  if (!isChoice(SETTING_LAYERS, to)) {
+    return error(SETTING_BAD_TO);
+  }
+  if (dryRun && yes) {
+    return error(SETTING_DRY_RUN_YES_CLASH);
+  }
+  return {
+    kind: "setting-move",
+    file,
+    ...(key === undefined ? {} : { key }),
+    to,
+    dryRun,
+    yes,
+  };
+}
+
+/** `setting list|move …`: the verb picks the parser. An option in the verb's
+ * place is an unknown option, as everywhere else. */
+function parseSetting(
+  argv: readonly string[],
+): SettingListCommand | SettingMoveCommand | ParseError {
+  const verb = argv[1];
+  if (verb === undefined) {
+    return error(SETTING_NEEDS_VERB);
+  }
+  if (verb === SETTING_LIST_VERB) {
+    return parseSettingList(argv);
+  }
+  if (verb === SETTING_MOVE_VERB) {
+    return parseSettingMove(argv);
+  }
+  return isOption(verb)
+    ? error(`${UNKNOWN_OPTION_PREFIX}${verb}`)
+    : error(`${SETTING_UNKNOWN_VERB_PREFIX}${verb}`);
+}
+
+/**
  * Parse argv into the program's command, the usage line, the version or an
  * option error. An argument that starts with `-` and isn't a valid flag for
  * the verb is `Unknown option: <arg>`, as the entry points print it; a stray
@@ -845,6 +1036,9 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
       return error(`${UNKNOWN_OPTION_PREFIX}${verb}`);
     }
     return parseRetire(argv, "profile-retire");
+  }
+  if (command === SETTING_COMMAND) {
+    return parseSetting(argv);
   }
   if (command === SETUP_COMMAND) {
     return parseSetup(argv);

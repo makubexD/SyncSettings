@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "allow": ["Bash(ls)", "Bash(cat)", "Bash(git status)", "Bash(git diff)"]
+  }
+}

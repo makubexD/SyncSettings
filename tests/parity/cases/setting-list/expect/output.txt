@@ -1,0 +1,13 @@
+Settings above the base on wk1-laptop (profile work1):
+
+vscode  settings.json
+  editor.fontSize      all machines: 14  profile work1: 15
+  window.zoomLevel     Linux machines: 1
+claude  settings.json
+  permissions.allow[]  all machines: 4 item(s)  profile work1: 2 item(s)
+git     .gitconfig.local
+  (whole file)         Linux machines: 12 line(s)
+shell   .aliases
+  (whole file)         Linux machines: 3 line(s)  profile work1: same as Linux machines
+
+Other profiles: unknown while the repo is public.

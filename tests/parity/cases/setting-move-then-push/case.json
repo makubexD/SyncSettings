@@ -1,0 +1,48 @@
+{
+  "description": "setting move of a json key to the base, then push --yes with a sync point: the move leaves the base write in the clone's working tree, push's export finds the live file equal to the merge and changes nothing more, then commits the base file on its sync/linux-… branch and opens one PR, master unchanged, exit 0 (mksync setting move, Never a write to master; Front door, push).",
+  "os": ["linux"],
+  "git": "remote",
+  "syncPoint": true,
+  "stubs": ["gh"],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig",
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "vscode": {
+        "description": "VS Code"
+      }
+    },
+    "entries": [
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "json",
+        "localPath": "~/.config/Code/User/settings.json",
+        "description": "VS Code settings"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "vscode/settings.json",
+        "key": "editor.fontSize",
+        "to": "base",
+        "yes": true
+      }
+    },
+    {
+      "command": "push",
+      "options": {
+        "yes": true
+      }
+    }
+  ]
+}

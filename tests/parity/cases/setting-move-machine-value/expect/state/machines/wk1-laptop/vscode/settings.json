@@ -1,0 +1,3 @@
+{
+  "http.proxy": "http://gw.example.invalid:8080"
+}

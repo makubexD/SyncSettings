@@ -1,0 +1,2 @@
+refused: vscode settings.json team holds a value of profile work1 (<YOUR_TEAM>) and would reach all machines.
+Leave it in "profile work1", or put <YOUR_TEAM> in the file instead.

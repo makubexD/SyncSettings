@@ -1,0 +1,6 @@
+{
+  "modules": ["vscode", "claude", "git", "shell", "tools"],
+  "values": {},
+  "destinations": {},
+  "retired": false
+}

@@ -1,0 +1,48 @@
+{
+  "description": "setting move --dry-run runs the checks, prints the preview and Nothing written (--dry-run)., exit 0, and changes no file (mksync setting move, Preview and question).",
+  "os": ["linux"],
+  "git": "committed",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "vscode": {
+        "description": "VS Code"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "json",
+        "localPath": "~/.config/Code/User/settings.json",
+        "description": "VS Code settings"
+      },
+      {
+        "file": "git/.gitconfig.local",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig.local",
+        "description": "Local git settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "vscode/settings.json",
+        "key": "editor.fontSize",
+        "to": "base",
+        "dryRun": true
+      },
+      "stderr": true
+    }
+  ]
+}

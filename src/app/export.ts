@@ -220,7 +220,7 @@ function beforeInsertion(lines: readonly string[]): readonly string[] {
  * scans. Gives back the scan's paths, each only when something was written
  * there, so the scan never reads the real repo.
  */
-async function writePreviewTree(
+export async function writePreviewTree(
   tmp: string,
   tree: RepoFiles,
 ): Promise<readonly string[]> {

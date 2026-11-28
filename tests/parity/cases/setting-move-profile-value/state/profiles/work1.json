@@ -1,0 +1,8 @@
+{
+  "modules": ["vscode", "git"],
+  "values": {
+    "<YOUR_TEAM>": "A4"
+  },
+  "destinations": {},
+  "retired": false
+}

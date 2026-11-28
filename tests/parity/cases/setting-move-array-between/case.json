@@ -1,0 +1,38 @@
+{
+  "description": "setting move of an array path to the base past an OS layer that holds items of it is refused with the merged-result line, since arrays merge in layer order, exit 1, nothing written (mksync setting move, Source and target).",
+  "os": ["linux"],
+  "git": "committed",
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "claude": {
+        "description": "Claude Code"
+      }
+    },
+    "entries": [
+      {
+        "file": "claude/settings.json",
+        "module": "claude",
+        "merge": "json",
+        "localPath": "~/.claude/settings.json",
+        "description": "Claude Code settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "setting-move",
+      "options": {
+        "target": "claude/settings.json",
+        "key": "permissions.allow[]",
+        "to": "base",
+        "yes": true
+      },
+      "stderr": true
+    }
+  ]
+}

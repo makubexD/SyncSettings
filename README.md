@@ -68,15 +68,16 @@ for a fork; the [install section](docs/sync-contract.md#install) lists them all.
 
 ## Every day
 
-| Command                                    | Does                                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `mksync`                                   | Shows where this machine stands: updates waiting, changes not sent, files that differ, and what to run next |
-| `mksync pull`                              | Gets the latest repo, shows what changes here, and applies it after you say yes                             |
-| `mksync push`                              | Copies this machine's changes into the repo, shows them, and opens a pull request after you say yes         |
-| `mksync setup`                             | First run on a machine. On Ubuntu it also offers to restore your apps and packages                          |
-| `mksync doctor`                            | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing                      |
-| `mksync update`                            | Replaces the `mksync` program with the latest release, if it's newer                                        |
-| `mksync pull <path>`, `mksync push <path>` | Takes or sends only the files you name, such as `mksync pull ~/.bashrc`                                     |
+| Command                                      | Does                                                                                                        |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `mksync`                                     | Shows where this machine stands: updates waiting, changes not sent, files that differ, and what to run next |
+| `mksync pull`                                | Gets the latest repo, shows what changes here, and applies it after you say yes                             |
+| `mksync push`                                | Copies this machine's changes into the repo, shows them, and opens a pull request after you say yes         |
+| `mksync setup`                               | First run on a machine. On Ubuntu it also offers to restore your apps and packages                          |
+| `mksync doctor`                              | Checks the tools, the GitHub sign-in and the setup, and says how to fix what's missing                      |
+| `mksync update`                              | Replaces the `mksync` program with the latest release, if it's newer                                        |
+| `mksync pull <path>`, `mksync push <path>`   | Takes or sends only the files you name, such as `mksync pull ~/.bashrc`                                     |
+| `mksync setting list`, `mksync setting move` | Shows what a profile or system sets above the shared settings, and moves one setting to another layer       |
 
 The commands, their wording and their exit codes are the same on every system. `--yes` answers the questions for you,
 and `mksync push` needs `gh auth login` once.

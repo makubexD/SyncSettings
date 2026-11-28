@@ -1,0 +1,6 @@
+Settings above the base on wk1-laptop (profile work1):
+
+vscode  settings.json
+  team  profile work1: "<YOUR_TEAM>"
+
+Other profiles: unknown while the repo is public.

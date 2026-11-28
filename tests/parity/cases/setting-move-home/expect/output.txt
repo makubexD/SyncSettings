@@ -1,0 +1,1 @@
+refused: vscode settings.json terminal.cwd holds this machine's home folder.

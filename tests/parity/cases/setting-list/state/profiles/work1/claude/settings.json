@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "allow": ["Bash(work-tool-1 status)", "Bash(work-tool-1 logs)"]
+  }
+}

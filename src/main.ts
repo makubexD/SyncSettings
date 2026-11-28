@@ -42,6 +42,7 @@ import type { ConfigV2, Os } from "./core/config/types.ts";
 import { configuredLocal } from "./core/plan/pick.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
+import { runSettingList, runSettingMove } from "./app/setting.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
 import {
   defaultUpdateDeps,
@@ -68,6 +69,8 @@ import type {
   PushCommand,
   RetireCommand,
   RunCommand,
+  SettingListCommand,
+  SettingMoveCommand,
   SetupCommand,
   StatusCommand,
   StatuslineCommand,
@@ -275,6 +278,8 @@ type Resolved =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | SettingListCommand
+  | SettingMoveCommand
   | CommitCommand
   | SetupCommand
   | StatuslineCommand
@@ -289,6 +294,8 @@ type ExecutableCommand =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | SettingListCommand
+  | SettingMoveCommand
   | CommitCommand
   | SetupCommand;
 
@@ -521,6 +528,8 @@ async function execute(
     case "status":
     case "doctor":
     case "machine-show":
+    case "setting-list":
+    case "setting-move":
     case "run":
       break;
     default: {
@@ -560,6 +569,24 @@ async function execute(
       });
     case "status":
       return executeStatus({
+        repoRoot,
+        config: config.value,
+        os: os.value,
+        home,
+        state,
+        layers: layers.value,
+      });
+    case "setting-list":
+      return runSettingList(command, {
+        repoRoot,
+        config: config.value,
+        os: os.value,
+        home,
+        state,
+        layers: layers.value,
+      });
+    case "setting-move":
+      return runSettingMove(command, {
         repoRoot,
         config: config.value,
         os: os.value,
@@ -668,6 +695,8 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "machine-retire":
     case "profile-retire":
+    case "setting-list":
+    case "setting-move":
       return parsed;
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };

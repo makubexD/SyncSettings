@@ -98,26 +98,33 @@ cases/<name>/
 the engine's state folder (`~/.local/state/sync-settings` on Linux and macOS, `%LOCALAPPDATA%\SyncSettings` on
 Windows), so a case can start from a recorded sync point; its files are compared like any the engine wrote. The
 record (`machine.json`) and profiles (`profiles/*.json`) go in with mode 600, as the program writes them, and the
-bash runner wants 600 for them in `expect/state/`, since git can't store that mode.
+bash runner wants 600 for them in `expect/state/`, since git can't store that mode. In a seeded `state/` file the bash runner
+replaces `<CASE_HOME>` with the case's temp home, so a layer can hold this machine's home folder (`<HOME>` stays
+as it is: cases use it as a placeholder name). The PowerShell runner doesn't yet; such a case is `os` linux only.
 
 `command` is one of `export`, `import`, `check` (`import --check`), `preview` (`export --preview`), `diff`
 (`export --diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`, `front-check` and
 `front-preview`, plus `setup`, `statusline`, `machine-show` (`machine show`), `machine-retire`
-(`machine retire <target>`) and `profile-retire` (`profile retire <target>`). Every command runs `./mksync <cmd>`,
+(`machine retire <target>`), `profile-retire` (`profile retire <target>`), `setting-list` (`setting list`) and
+`setting-move` (`setting move <target> [<key>] [--to <to>]`). Every command runs `./mksync <cmd>`,
 with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview`.
 `options` uses neutral names that the runner spells for the program: `force: true` is `--force`, `only: [paths]` is
 `--only`, and `resetValues`, a boolean, is `--reset-values`, allowed on `import` and `check` only. `name`, `profile`,
-`replace`, `claude`, `mode`, `existing`, `alias` and `label` are strings spelled `--<key> <value>` and allowed on `setup` only; `value`, an array of strings, is one `--value <string>` each (`["YOUR_NAME=Jane Doe"]`), on `setup` only;
+`replace`, `claude`, `mode`, `existing`, `alias` and `label` are strings spelled `--<key> <value>` and allowed on `setup` only, except
+`profile`, also allowed on `setting-list`; `value`, an array of strings, is one `--value <string>` each (`["YOUR_NAME=Jane Doe"]`), on `setup` only;
 `yes: true` adds `--yes` on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`,
-`pull`, `push` and `front-diff`; `bootstrap: true` adds `--bootstrap` and `noBootstrap: true` adds `--no-bootstrap`, on `setup` only; and `target`, a string, is the
-name argument of `machine-retire` and `profile-retire`, required there and refused elsewhere. On `commit` only,
+`pull`, `push`, `front-diff` and `setting-move`; `bootstrap: true` adds `--bootstrap` and `noBootstrap: true` adds `--no-bootstrap`, on `setup` only; and `target`, a string, is the
+name argument of `machine-retire` and `profile-retire` and the file argument of `setting-move`, required there and
+refused elsewhere. On `setting-move` only, `key`, a string, is the key argument after the file; `to`, a string, adds
+`--to <to>`; and `dryRun: true` adds `--dry-run`. On `commit` only,
 `partial: true` adds `--partial`; `message`, a string, adds `-m <msg>` on `commit` and `push`. On the six front door
 commands (`status`, `doctor`, `pull`, `push`, `front-diff` and `front-check`), `paths`, a list of strings, appends each
 path as a positional argument after the options. Every command runs with no terminal, as CI does, and with stdin empty unless the command has `stdin`: a
 string sent as its stdin, such as `"n\n"` for a prompt answer. Its
 stderr is merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status
 lines in `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below)
-except for `setup`, `statusline`, `machine-show`, `machine-retire` and `profile-retire`, and any command with
+except for `setup`, `statusline`, `machine-show`, `machine-retire`, `profile-retire`, `setting-list` and
+`setting-move`, and any command with
 `"output": "all"`:
 those keep their whole stdout instead, so the `machine show` fields, the scan block and the `ERROR:`, `held` and
 `refused:` lines reach `output.txt`. `statusline` keeps its ANSI color codes in `output.txt`, as the contract writes

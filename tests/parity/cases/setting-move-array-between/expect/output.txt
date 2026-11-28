@@ -1,0 +1,1 @@
+moving permissions.allow[] to base would change the merged result

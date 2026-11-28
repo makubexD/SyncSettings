@@ -916,6 +916,7 @@ system, except where this section says otherwise.
 | `mksync setup [--yes] [--bootstrap] …`             | Doctor first: a `MISSING` line stops setup with exit 1, before the import check or any question. Then the scan, the profiles, the machine record's questions with the import check's and diff's summary above question 4, and on Ubuntu with an executable `bootstrap/linux.sh` `Also restore apps and packages … [y/N]` (`--bootstrap` chooses it). Then the summary, the guard block and `Write the record and apply?` ([`mksync setup`](#mksync-setup)); only a yes writes anything. The bootstrap runs question 4's choice as its import step; without it, setup acts on question 4. macOS and Windows never ask, and `--bootstrap` there is `ERROR: --bootstrap is Ubuntu only.`, exit 1, before the doctor                                                                                                                                                                                                                                                                                                                                  | 0, or 1 on an error                                             |
 | `mksync update`                                    | Replaces the installed program with a newer release, checked as the installers check ([Update](#update))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 0, 1 on a failed download or check, 2 run from the clone        |
 | `mksync machine …`, `mksync profile …`             | The machine record and retiring a machine or profile ([Machines](#machines))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | as there                                                        |
+| `mksync setting list`, `mksync setting move …`     | Lists the settings the layers above the base set, and moves one setting into another layer ([`mksync setting`](#mksync-setting))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | as there                                                        |
 
 `mksync pull` protects this machine's own changes: when the import check finds changes, `--force` isn't given and a
 sync point exists, it runs the diff ([Diff](#diff)) first. Any `OUT` or `BOTH` line prints, then a
@@ -1129,6 +1130,178 @@ origin remote.`, `ERROR: the repo has changes not sent yet; run mksync push firs
 - **`diff`** stops on a clone with no commit with `ERROR: --diff needs a git repo with a commit.`, and on a tree git
   can't read with `ERROR: cannot read <ref> from git.`, exit 1.
 
+### mksync setting
+
+A work machine's first sync keeps its differences in its profile ([`p`](#front-door)). `mksync setting` shows what
+the layers above the base set and moves one setting at a time into another [layer](#layers).
+
+```text
+mksync setting list [--profile <p>]
+mksync setting move <file> [<key>] --to base|os|profile|machine [--dry-run | --yes]
+```
+
+`<file>` is the entry's `file` as `sync-config.json` writes it (`vscode/settings.json`), or for a `dir` entry
+`<file>/<name inside>`. `<key>` is a `json` key path exactly as the change block prints it (`editor.fontSize`,
+`permissions.allow[]`): required for a `json` entry, refused for every other kind. Usage errors, on stderr, exit 2,
+before anything is read or written:
+
+```text
+ERROR: setting needs list or move
+ERROR: unknown setting command <verb>
+ERROR: missing --to
+ERROR: --to takes base, os, profile or machine
+ERROR: --dry-run and --yes can't be used together
+ERROR: no entry <file> in sync-config.json
+ERROR: <file> is a json entry; name a key
+ERROR: <file> is not a json entry; it moves as a whole file, with no key
+```
+
+So are `ERROR: setting move needs a file` (no `<file>`), `ERROR: --profile needs a value.` and
+`ERROR: --to needs a value.` (the flag last, or followed by another option), and `ERROR: <flag> is repeated.` (`--profile`,
+`--to`, `--dry-run` or `--yes` given twice). The flags go anywhere after the verb. Unlike `machine` and `profile`, an
+unknown verb names the group (`unknown setting command <verb>`). An option in the verb's place, a third positional
+argument, or any argument after `setting list` other than `--profile <p>` is `Unknown option: <arg>`, exit 2, as
+everywhere else.
+
+#### `mksync setting list`
+
+For this machine's record, every setting a layer above the base sets, from the base up:
+
+```text
+Settings above the base on wk1-laptop (profile work1):
+
+vscode  settings.json
+  editor.fontSize      all machines: 14  profile work1: 15
+  window.zoomLevel     Linux machines: 1
+claude  settings.json
+  permissions.allow[]  all machines: 4 item(s)  profile work1: 2 item(s)
+git     .gitconfig.local
+  (whole file)         Windows machines: 12 line(s)
+
+Other profiles: unknown while the repo is public.
+```
+
+- An entry is listed when its OS, profile or machine layer holds a file. A `json` line is a key path that one of
+  those layers sets; its cells name each layer that sets it, base first, with the change block's group words
+  (`all machines`, `<OS> machines`, `profile <p>`, `this machine`). A value is the sanitized compact JSON: every
+  non-empty value of the profile and of the machine record replaced with its placeholder, longest value first, as
+  export's sanitize replaces them, then up to 40 characters as it is, longer ones cut to their first 37 and `...`. An array path counts the items each layer holds
+  (`<n> item(s)`). A layer file that sets nothing (`{}`, as a wider move can leave it) adds no line.
+- Any other kind is one `(whole file)` line with a cell per layer that holds the file: `<n> line(s)`, or
+  `same as <group>` when its bytes equal a wider layer's. An `import` side file prints under its resolved name.
+- Layout: an entry line is the module, two spaces, the entry's `file` without its first folder, as the change block
+  prints it. A setting line is two spaces, the key path (or `(whole file)`), two spaces, then its cells, two spaces
+  apart, each `<group>: <value>`. Module and key are padded to the widest in the listing. A blank line follows the
+  header and comes before the last line.
+- Order: the config's entry order, then key path in code-unit order. Nothing above the base: one line `(none)` in
+  place of the entries, between the two blank lines.
+- No record: header `Settings above the base on this machine:`, the OS layer only.
+- `--profile <p>` lists that profile's layer and this machine's OS layer instead of the record's, under the header
+  `Settings above the base in profile <p>:`, with no machine layer. A profile this machine doesn't hold is
+  `ERROR: unknown profile <p>`, exit 2.
+- While the repo is public the last line is `Other profiles: unknown while the repo is public.`, never "none": this
+  machine holds only its own profile ([Public-repo guard](#public-repo-guard)). Once private, `--profile` can name
+  every profile in the repo and the line goes.
+- Values are never printed, only their placeholders. `list` reads; it never writes or asks. Exit 0.
+
+#### `mksync setting move`
+
+**Source and target.** The source is the narrowest layer that sets the key (or holds the file) on this machine; the
+target is `--to`'s layer (`base` is all machines, `os` this OS's machines, `profile` the record's profile, `machine`
+this machine). The move follows [Move a change](#move-a-change) word for word, so this machine's merged result is the
+same after it as before it:
+
+- A narrower move writes the target and leaves the source as it is.
+- A wider move writes the target and removes the key from the source, unless a layer between them sets it; then the
+  source keeps it. A move that removes the last key of an object removes the emptied object too.
+- An array path moves every item the source holds that the target doesn't. A wider move also takes out of the
+  source the items the target already holds, which leaves the merged result the same. A narrower move with no item
+  to carry prints the "already" line below.
+- A `dir` entry's files and `import` side files can't be named yet (design "Open").
+- A whole file, or an `import` side file, moves as a whole, under the same rule.
+- Because the source is the narrowest layer, no narrower one can override the moved value. Move a change's
+  `a layer narrower than <layer> has the file` can't be reached from the command line; it stays in the program as a
+  guard, exit 1. `moving <path> to <layer> would change the merged result`, exit 1, is reached for an array path
+  when a layer between the source and the target holds items of it: arrays merge in layer order, so the items would
+  land on the other side of that layer's.
+
+Lines and codes:
+
+| Case                                           | Prints                                                         | Exit |
+| ---------------------------------------------- | -------------------------------------------------------------- | ---- |
+| The target is already the source               | `<file> <key> is already in <group>; nothing to move.`         | 0    |
+| No layer sets the key or holds the file        | `ERROR: no layer sets <key> in <file>`                         | 1    |
+| `--to profile` or `--to machine` and no record | `ERROR: --to <layer> needs a machine record; run mksync setup` | 2    |
+
+A whole-file move leaves `<key>` out of the first line, and its second line is `ERROR: no layer holds <file>`.
+
+**Checks.** Text bound for the base or an OS layer is checked after sanitize, before anything is written or asked:
+
+- The [profile-value search](#profile-values), with its two lines naming the setting instead of a change number:
+
+  ```text
+  refused: <module> <file> <key> holds a value of profile <p> (<KEY>) and would reach <group>.
+  Leave it in "profile <p>", or put <KEY> in the file instead.
+  ```
+
+  The same search runs over the machine record's non-empty values. A hit on one prints, in place of those two lines:
+
+  ```text
+  refused: <module> <file> <key> holds a value of this machine (<KEY>) and would reach <group>.
+  Leave it in "this machine", or put <KEY> in the file instead.
+  ```
+
+  The profile's lines come first, then the machine's.
+
+- A placeholder whose value lives only in this profile: one the [value table](#values-on-a-machine) doesn't name,
+  held in `profiles/<p>.json`:
+  `refused: <module> <file> <key> holds <KEY>, a value of profile <p>; machines outside it have no value for it.`
+  A placeholder the table names (`<YOUR_NAME>`, `<HOME>`) has a value on every machine and passes.
+- This machine's home folder as written in the text, raw or JSON-decoded: as it is, with `\` doubled, and on Windows
+  also with `/` for `\` and in Git Bash's form (`C:\Users\jdoe` as `/c/Users/jdoe`), ignoring case on Windows and
+  macOS. A match counts only when the character after it is absent or not a letter, digit, `.`, `_` or `-`, so home
+  `/home/ma` doesn't match `/home/mark/x`: `refused: <module> <file> <key> holds this machine's home folder.` The leak
+  scan's `home-path` rule covers only Linux; this check covers every OS.
+- The [leak scan](#export-preview) on a temporary copy of the clone with the move applied, as the preview runs it. A
+  hit prints the scan's lines, then `refused: the leak scan found the lines above.`
+
+`would reach` names the group in lower case, as the profile-value rule does. A whole-file move names
+`<module> <file>`, with no key. The leak scan runs only when the first three checks refuse nothing, and only when the
+move writes or removes a file under `dotfiles/`; a scan that can't run prints `ERROR: leak scan could not run; nothing was
+committed.`, as the export preview's. Any refusal exits 1 and writes nothing.
+
+**Preview and question.**
+
+```text
+Move vscode settings.json editor.fontSize: 15
+  from profile work1 to all machines
+MODIFIED dotfiles/common/vscode/settings.json
+MODIFIED profiles/work1/vscode/settings.json
+Move it? [y/N]
+```
+
+- The first line is the module, the file as the listing prints it, the key and its sanitized compact value, cut as
+  the listing cuts it. A whole file prints `(whole file)` in place of the key and value:
+  `Move git .gitconfig.local (whole file)`. The second line names the source and target groups. Under `--yes` the
+  preview prints without the question.
+- The status lines are the writes, in the export's words and order (`ADDED`, `MODIFIED`, `REMOVED`), with the paths
+  the snapshot uses. State files are written with their `.bak`, as every state write is. A removed file takes the
+  folders it empties with it, up to `dotfiles/` or the layer's `profiles/<p>` or `machines/<m>` folder, as the
+  export's removals do.
+- The question is `[y/N]`, as push's PR question, because a move changes what other machines receive. An empty
+  answer, `n` or end of input prints `Nothing moved.`, exit 1, as `machine retire`'s decline. After a `y` the
+  dirty check below runs again before the writes, since the clone may have changed while the question waited. No terminal and no
+  `--yes`: `ERROR: setting move needs a terminal or --yes`, exit 2.
+- `--dry-run` runs the checks (a refusal still exits 1), prints the preview and `Nothing written (--dry-run).`, exit 0. `--yes` writes without asking.
+- After the writes: `Moved. mksync push sends it to the other machines.` when a base or OS file changed, else
+  `Moved.`: profile and machine layers take effect at once while the repo is public. Exit 0.
+
+**Never a write to `master`.** `setting move` commits nothing and runs no git command beyond reading status. Base
+and OS writes stay in the clone's working tree; the next `mksync push` exports (the live file already equals the
+merge, so nothing else changes), commits them on its `sync/<os>-…` branch and opens its PR. A file the move would
+write in `dotfiles/` that already differs from the clone's `HEAD` stops it before anything is written:
+`refused: <path> has changes that aren't sent; run mksync push first.`, exit 1.
+
 ### Install
 
 The installers clone the repo, since the program reads its config there, then install the program from the latest
@@ -1322,7 +1495,7 @@ directly; they run but stay off the usage line
   decision 7). Run with no command, it prints this usage line on stderr and exits 2:
 
   ```text
-  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [--force] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--bootstrap | --no-bootstrap] [--yes] | mksync update | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync statusline | mksync --version
+  usage: mksync status | mksync doctor | mksync pull [--yes] [--force] [<path>...] | mksync push [--yes] [--force] [-m <msg>] [<path>...] | mksync diff [<path>...] | mksync check [<path>...] | mksync preview | mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop] [--bootstrap | --no-bootstrap] [--yes] | mksync update | mksync machine show | mksync machine retire <name> [--yes] | mksync profile retire <name> [--yes] | mksync setting list [--profile <p>] | mksync setting move <file> [<key>] --to base|os|profile|machine [--dry-run | --yes] | mksync statusline | mksync --version
   ```
 
 - It reads the config as [Config](#config) says, `.user-values.json` next to it, and the state folder
@@ -1789,7 +1962,7 @@ A machine that already has a record stops without `--replace`:
 scan's, and the old pair goes to `replaced` with today's date. Each machine value is asked again, before the summary,
 with a fresh guess for this machine as the suggestion (its rule's `suggest` sources, then its `defaultEnv`), else the
 old machine's value (`old machine` in the summary), in the import's words without its header:
-`  <prompt> (<files>) [<value>]: ` (a value no rule names shows its placeholder as the prompt). The old record's
+` <prompt> (<files>) [<value>]:` (a value no rule names shows its placeholder as the prompt). The old record's
 alias is kept, pull-only included. A record not in the store, or retired, stops with
 `ERROR: no machine <name> here; records are shared once the repo is private.`, exit 1 (while public the store holds
 only this machine's own record, so only a moved disk can take one over). Until the first private push (phase 7) the

@@ -190,6 +190,17 @@ function sanitizedValueText(
   );
 }
 
+/** A child key's path as the block prints it: the key alone at the top, else
+ * the parent's path, `.` and the key, so a key holding a `.` prints as is. */
+export function childKeyPath(path: string, key: string): string {
+  return path === "" ? key : `${path}.${key}`;
+}
+
+/** An array's path as the block prints it: its own path and `[]`. */
+export function arrayKeyPath(path: string): string {
+  return `${path}[]`;
+}
+
 function emptyObject(): JsonValue {
   return { kind: "object", entries: new Map() };
 }
@@ -224,7 +235,7 @@ function diffValues(
       const before = oldValue.entries.get(key);
       const after = newValue.entries.get(key);
       const childPath = [...keyPath, key];
-      const printed = path === "" ? key : `${path}.${key}`;
+      const printed = childKeyPath(path, key);
       if (before === undefined && after !== undefined) {
         lines.push({
           path: printed,
@@ -255,7 +266,7 @@ function diffValues(
     return;
   }
   if (oldValue.kind === "array" && newValue.kind === "array") {
-    const printed = `${path}[]`;
+    const printed = arrayKeyPath(path);
     const matched = new Array<boolean>(newValue.items.length).fill(false);
     for (const item of oldValue.items) {
       const at = newValue.items.findIndex(
@@ -346,7 +357,8 @@ function commonLines(
   return previous[columns] ?? 0;
 }
 
-function countLines(bytes: Uint8Array): number {
+/** A text's line count, a trailing newline ending the last line. */
+export function countLines(bytes: Uint8Array): number {
   return splitLines(textOf(bytes)).length;
 }
 

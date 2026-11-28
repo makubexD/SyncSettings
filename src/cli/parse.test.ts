@@ -556,6 +556,232 @@ describe("parseArgs", () => {
     );
   });
 
+  test("should parse setting list", () => {
+    expect(parseArgs(["setting", "list"])).toEqual({ kind: "setting-list" });
+  });
+
+  test("should parse setting list --profile", () => {
+    expect(parseArgs(["setting", "list", "--profile", "work1"])).toEqual({
+      kind: "setting-list",
+      profile: "work1",
+    });
+  });
+
+  test("should refuse a stray argument after setting list", () => {
+    expect(parseArgs(["setting", "list", "x"])).toEqual(unknownOption("x"));
+  });
+
+  test("should refuse setting list --profile with no value", () => {
+    expect(parseArgs(["setting", "list", "--profile"])).toEqual(
+      usageError("ERROR: --profile needs a value."),
+    );
+  });
+
+  test("should refuse setting list --profile given twice", () => {
+    expect(
+      parseArgs(["setting", "list", "--profile", "a", "--profile", "b"]),
+    ).toEqual(usageError("ERROR: --profile is repeated."));
+  });
+
+  test("should parse setting move with a key", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "vscode/settings.json",
+        "editor.fontSize",
+        "--to",
+        "base",
+      ]),
+    ).toEqual({
+      kind: "setting-move",
+      file: "vscode/settings.json",
+      key: "editor.fontSize",
+      to: "base",
+      dryRun: false,
+      yes: false,
+    });
+  });
+
+  test("should parse setting move --dry-run", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "vscode/settings.json",
+        "editor.fontSize",
+        "--to",
+        "base",
+        "--dry-run",
+      ]),
+    ).toEqual({
+      kind: "setting-move",
+      file: "vscode/settings.json",
+      key: "editor.fontSize",
+      to: "base",
+      dryRun: true,
+      yes: false,
+    });
+  });
+
+  test("should parse setting move --yes before the positionals", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "--yes",
+        "vscode/settings.json",
+        "editor.fontSize",
+        "--to",
+        "base",
+      ]),
+    ).toEqual({
+      kind: "setting-move",
+      file: "vscode/settings.json",
+      key: "editor.fontSize",
+      to: "base",
+      dryRun: false,
+      yes: true,
+    });
+  });
+
+  test("should parse setting move of a whole file with no key", () => {
+    expect(
+      parseArgs(["setting", "move", "git/.gitconfig.local", "--to", "os"]),
+    ).toEqual({
+      kind: "setting-move",
+      file: "git/.gitconfig.local",
+      to: "os",
+      dryRun: false,
+      yes: false,
+    });
+  });
+
+  test("should ask for list or move when setting has no verb", () => {
+    expect(parseArgs(["setting"])).toEqual(
+      usageError("ERROR: setting needs list or move"),
+    );
+  });
+
+  test("should name an unknown setting verb", () => {
+    expect(parseArgs(["setting", "copy"])).toEqual(
+      usageError("ERROR: unknown setting command copy"),
+    );
+  });
+
+  test("should refuse an option in the setting verb's place", () => {
+    expect(parseArgs(["setting", "--yes"])).toEqual(unknownOption("--yes"));
+  });
+
+  test("should ask for --to when setting move has none", () => {
+    expect(
+      parseArgs(["setting", "move", "vscode/settings.json", "editor.fontSize"]),
+    ).toEqual(usageError("ERROR: missing --to"));
+  });
+
+  test("should refuse a --to that isn't a layer", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "vscode/settings.json",
+        "a",
+        "--to",
+        "all",
+      ]),
+    ).toEqual(usageError("ERROR: --to takes base, os, profile or machine"));
+  });
+
+  test("should refuse --to with no value", () => {
+    expect(
+      parseArgs(["setting", "move", "vscode/settings.json", "a", "--to"]),
+    ).toEqual(usageError("ERROR: --to needs a value."));
+  });
+
+  test("should refuse --to given twice", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "vscode/settings.json",
+        "a",
+        "--to",
+        "base",
+        "--to",
+        "os",
+      ]),
+    ).toEqual(usageError("ERROR: --to is repeated."));
+  });
+
+  test("should refuse --dry-run with --yes", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "vscode/settings.json",
+        "a",
+        "--to",
+        "base",
+        "--dry-run",
+        "--yes",
+      ]),
+    ).toEqual(usageError("ERROR: --dry-run and --yes can't be used together"));
+  });
+
+  test("should refuse a third positional after setting move", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "vscode/settings.json",
+        "a",
+        "b",
+        "--to",
+        "base",
+      ]),
+    ).toEqual(unknownOption("b"));
+  });
+
+  test("should refuse setting list --profile followed by an option", () => {
+    expect(parseArgs(["setting", "list", "--profile", "--yes"])).toEqual(
+      usageError("ERROR: --profile needs a value."),
+    );
+  });
+
+  test("should refuse --to followed by an option", () => {
+    expect(
+      parseArgs([
+        "setting",
+        "move",
+        "vscode/settings.json",
+        "a",
+        "--to",
+        "--yes",
+      ]),
+    ).toEqual(usageError("ERROR: --to needs a value."));
+  });
+
+  test.each(["--dry-run", "--yes"])(
+    "should refuse %s given twice after setting move",
+    (flag) => {
+      expect(
+        parseArgs(["setting", "move", "f", "--to", "base", flag, flag]),
+      ).toEqual(usageError(`ERROR: ${flag} is repeated.`));
+    },
+  );
+
+  test("should refuse an unknown option after setting move", () => {
+    expect(
+      parseArgs(["setting", "move", "f", "--to", "base", "--force"]),
+    ).toEqual(unknownOption("--force"));
+  });
+
+  test("should ask for a file when setting move has none", () => {
+    expect(parseArgs(["setting", "move", "--to", "base"])).toEqual(
+      usageError("ERROR: setting move needs a file"),
+    );
+  });
+
   test("should parse a bare setup", () => {
     expect(parseArgs(["setup"])).toEqual(SETUP);
   });
@@ -913,6 +1139,17 @@ describe("parseArgs", () => {
 
   test("should name setup in the usage line", () => {
     expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
+  });
+
+  test("should name both setting commands in the usage line", () => {
+    expect(USAGE_TEXT.includes("mksync setting list [--profile <p>]")).toBe(
+      true,
+    );
+    expect(
+      USAGE_TEXT.includes(
+        "mksync setting move <file> [<key>] --to base|os|profile|machine [--dry-run | --yes]",
+      ),
+    ).toBe(true);
   });
 
   test("should name update in the usage line", () => {

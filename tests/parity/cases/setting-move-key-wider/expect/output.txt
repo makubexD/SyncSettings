@@ -1,0 +1,5 @@
+Move vscode settings.json editor.fontSize: 15
+  from profile work1 to all machines
+MODIFIED dotfiles/common/vscode/settings.json
+MODIFIED profiles/work1/vscode/settings.json
+Moved. mksync push sends it to the other machines.
