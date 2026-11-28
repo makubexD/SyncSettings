@@ -307,7 +307,9 @@ A rule with a `default` and `suggest` including `gh-path` is the one case where 
 a default is, so it runs under `--yes` too: a cached value still wins, and otherwise, when `gh` is found, its path
 takes the `default`'s place and is saved as an inferred value is ([Values on a machine](#values-on-a-machine), or
 `.user-values.json` without a record), so export sanitizes it (the path can hold the user name). When `gh` isn't
-found, the `default` is used and nothing is saved. Neither is asked. Otherwise a
+found, the `default` is used and nothing is saved. Neither is asked. The other exception is `setup --yes`
+([`mksync setup`](#mksync-setup)): it runs the sources and takes each value's suggestion, because its summary's
+`Values:` block prints every one before anything is written and the values stay on this machine. Otherwise a
 suggestion is never used without its prompt: `--yes` (push and pull), `preview`, `diff`, `check` and `status` run no
 source, and end of input never takes a suggestion, so a suggestion can't fill a value unseen. With no input the source
 still runs before the first prompt, and the run stops there as below. Each prompt is printed before its answer is read. An empty answer or end of input leaves the value
@@ -580,8 +582,10 @@ pick another public name.`, any other invalid answer with `ERROR: invalid machin
   and a usable answer is saved in the record and followed by `Saved public name: <alias>` on stderr. A save that fails
   (a read-only state folder) stops with `ERROR: could not save the public name in <file>; nothing was committed.`,
   exit 1. A stored `alias` is checked the same way on every push, so one edited by hand or carried to a machine with
-  that hostname stops with the same errors. Without a
-  terminal, push stops before any commit with
+  that hostname stops with the same errors. `push --yes` with a record that has no alias takes the suggestion without
+  asking and prints `Saved public name: <alias>` as above; a suggestion the check refuses stops as without a
+  terminal. Setup saves the guess at the first run ([`mksync setup`](#mksync-setup)), so most records have one.
+  Without a terminal and without `--yes`, push stops before any commit with
   `ERROR: machine <name> has no public name yet; run mksync push in a terminal to set one.`, exit 1.
   Without a record, the `git config syncsettings.machine` alias is asked once and saved as before. The PR body adds
   `Profile: <p>` when there is a record.
@@ -1562,21 +1566,24 @@ A missing domain or git email shows `none`; with every tool found the `(not foun
 #### `mksync setup`
 
 ```text
-mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--claude none|claude|claude-deepseek]
-             [--mode push|pull-only] [--existing backup|keep|stop] [--yes]
+mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] [--label <text>] [--alias <name>]
+             [--claude none|claude|claude-deepseek] [--mode push|pull-only] [--existing backup|keep|stop]
+             [--bootstrap | --no-bootstrap] [--value KEY=VALUE]... [--yes]
 ```
 
-It runs the doctor first: a `MISSING` line stops it with exit 1, before any question. Then it scans, lists the
-profiles, asks four questions and, on Ubuntu, the bootstrap question, prints the summary and `Same as:`, then the guard
-block when one applies, then asks to confirm. Nothing is written before a yes. After it, setup writes the record and
-the profile, runs the bootstrap if it was chosen, then acts on the fourth answer. The profiles listed are `personal` and every profile in the store that isn't retired, each with its non-retired
+It runs the doctor first: a `MISSING` line stops it with exit 1, before any question. Then it scans, prints the
+profile guess when it makes one, lists the profiles, asks four questions (and the label after the first, for a new
+profile), the linked-folder questions and, on Ubuntu, the bootstrap question, then the value questions, prints the
+summary and `Same as:`, then the guard block when one applies, then asks to confirm. Nothing is written before a yes,
+and after it setup asks nothing. After it, setup writes the record and the profile with the values, runs the bootstrap
+if it was chosen, then acts on the fourth answer. The profiles listed are `personal` and every profile in the store that isn't retired, each with its non-retired
 machines;
 while public the heading is `Profiles on this machine:`, after the switch `Profiles in this repo:`:
 
 ```text
 Profiles on this machine:
   1) personal
-  2) work-1      machine wk1-laptop
+  2) work1       machine wk1-laptop
   This looks like wk1-laptop (same hostname): choosing 2 replaces it.
 
 1/4 What is this machine for? [2]
@@ -1585,31 +1592,84 @@ Profiles on this machine:
   3 file(s) differ: 3 in, 0 out, 0 both.
 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1]
   Also restore apps and packages from packages/linux (uses sudo)? [y/N]
+ Home folder (~/.claude/settings.json) [/home/jane]:
 
-Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup
+Machine wk1-laptop: profile work1 (acme), Claude only, push with a preview.
+Public name: work1-linux
+Values:
+  <HOME> = /home/jane (old machine)
+Same as: mksync setup --profile work1 --replace wk1-laptop --claude claude --mode push --existing backup --alias work1-linux --no-bootstrap
 Write the record and apply? [Y/n]
+```
+
+With no hostname match, on a fresh work machine while the repo is public:
+
+```text
+Guess: new profile work1 (Windows); other machines' profiles can't be seen while the repo is public, so check the number
+
+Profiles on this machine:
+  1) personal
+
+1/4 What is this machine for? [work1]
+ Label for work1, to find it in lists (optional):
 ```
 
 - **Layout.** The scan block, the profile list, the questions and the summary are separated by one blank line; each
   question is printed with one space after it and no newline, so answers piped on stdin leave the questions on one
   line. A question a flag answers isn't printed.
-- **Values after the answers.** The import setup runs reads from the same input as setup's questions, so answers
-  piped after the four (and any value or bootstrap answers) reach the import's value questions
-  ([Sanitize and hydrate](#sanitize-and-hydrate)). `mksync pull` shares its input with its import the same way.
-- **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer or end of input takes
-  the suggestion in brackets, except at the confirm, where end of input is no (see below). `--yes` takes every
-  suggestion without asking. A choice is digits only (`0x2` or `2.0`
+- **Values before the summary.** After the linked-folder and bootstrap questions, setup asks every value this run's
+  writes would ask ([Sanitize and hydrate](#sanitize-and-hydrate)): the import's, built from the chosen profile,
+  record and entries, and, with `keep`, the export's. Each is asked once, in the import's words, with its guess in
+  brackets; the `<KEY>: kept on …` question ([Values on a machine](#values-on-a-machine)) and the replace re-ask come
+  here too. A value the profile or record already has, or a `--value` gives, isn't asked. The values are saved with
+  the record after the confirm (placed by the value table), before the import, the keep export and the bootstrap
+  script run, so none of them asks again: after the confirm setup asks nothing. `mksync pull` still shares its input
+  with its import.
+- **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer takes the suggestion
+  in brackets. End of input takes it too, except at the confirm, where end of input is no (see below), and at a value
+  question, which stops with `ERROR: missing value for <KEY>`, exit 1, nothing written. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints
   `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below). Answers are trimmed of
   spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (phase 9 decision 8). A
   byte order mark before the first line of input is dropped too: Windows PowerShell pipes one when `$OutputEncoding` is
   UTF-8 with a BOM.
 - **Suggestions.** The profile: the one whose non-retired record has exactly this hostname, with the `This looks like`
-  line; two or more such records, or none, give no suggestion and no line (always none while public). Claude: `2` when
+  line (always none while public); with two or more such records, or none, the profile guess below. Claude: `2` when
   the scan found `claude`, else `1`. Mode: `1`. Existing files: `1`, or `2` as "What differs" says.
+- **The profile guess.** When no `--profile`, `--replace` or hostname match decides the profile, setup guesses from
+  the scan, never from the domain's name: on Linux with no domain, `personal`; with a domain, or on any OS but Linux, a
+  new profile `work<n>`. `<n>` is one more than the largest number of any profile named `work<n>` or `work-<n>` that
+  this machine knows (the store's, retired ones included, and local state's), else 1; `workbench` or `work-x` don't
+  count. A line before the profile list names it and why:
+  `Guess: personal (Linux, no domain).`, `Guess: new profile work<n> (Windows).`, `(macOS)` or
+  `(Linux, joined to a domain)`. While the repo is public a `work<n>` line ends
+  `; other machines' profiles can't be seen while the repo is public, so check the number` in place of the full stop.
+  The guess is question 1's suggestion: `[<n>]` for a listed profile, `[<name>]` for a new one.
+- **`--yes`** asks nothing and takes every suggestion, with two limits. It takes the profile guess only when the guess
+  is `work<n>` and the repo is private; otherwise, after the guess line, it stops with `ERROR: missing --profile`,
+  exit 2 (a wrong `personal` would put a work machine's settings in the shared layers; a wrong `work<n>` only keeps
+  them out). It takes every value guess; a value with no guess and no `--value` stops before anything is written with
+  `ERROR: missing value for <KEY>; pass --value KEY=<value>`, exit 2. `install.sh --yes` runs `setup --yes`, so on a
+  personal machine it stops and asks for `--profile`.
 - **No suggestion.** End of input on a question with no suggestion, or `--yes` without its flag, stops with
   `ERROR: missing --<flag>`, exit 2, before anything is written.
+- **Label.** When setup creates a profile other than `personal`, it asks after question 1:
+  `Label for <profile>, to find it in lists (optional):`. An empty answer or end of input leaves none; `--yes`
+  doesn't ask. `--label <text>` sets it without asking; with a profile that already exists it stops with
+  `ERROR: --label names a new profile; <profile> already exists`, exit 2. A label is 1 to 30 letters, digits, spaces
+  and `.-_&` with no placeholder text, else `ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&`, exit 2 (a
+  typed answer is asked again). It is saved as the profile's `label` key, after the others, and shows in the profile
+  list (`  2) work1  (acme)`) and the summary (`profile work1 (acme)`). It is private: it never goes into a branch name,
+  a commit message or a PR, and while public the profile stays in local state. Unlabelled profiles print as before.
+- **Public name.** Setup doesn't ask it: it guesses `<profile>-<os>` in alias form, as [the PR](#checks-before-pushing)
+  does, and `--alias <name>` sets it, checked as a typed public name is, before any question (its refusal, exit 2). On
+  `--replace` the old record's alias is kept unless `--alias` is given. A pull-only machine gets none, and so does a
+  guess the check refuses (push asks later).
+- **`--value KEY=VALUE`**, repeatable, answers a value question without asking. `KEY` is the placeholder with or
+  without its `<` `>` (`--value YOUR_NAME=Jane` and `--value '<YOUR_NAME>=Jane'` are the same), since a bare `<` is a
+  shell redirect. It also replaces a saved value. Refused before any question, exit 2:
+  `ERROR: --value <KEY>: no rule uses this placeholder`, `ERROR: --value <KEY>: empty value`, and a value holding
+  placeholder text, with the typed value's refusal word for word.
 - **Name.** `--name`, else the hostname up to its first dot (macOS reports `<name>.local`; the record keeps the
   whole hostname). A name that isn't valid stops with
   `ERROR: <value> isn't a valid machine name; use --name <machine>.`, exit 2; a profile name likewise with
@@ -1620,14 +1680,33 @@ Write the record and apply? [Y/n]
 - **A new profile** gets `shell`, `git`, then each module whose tool the scan found (`gh`, `code` for `vscode`, `claude`
   for `claude` and, with Claude plus DeepSeek, `claude-worker`, `tmux`, `starship`, `wezterm`, `htop`, `rtk`), then
   `gnome` on Linux and `windows-terminal` on Windows, in the config's module order; `destinations` empty, `retired`
-  false.
+  false, then `label` when one was given (the only optional profile key).
 - **Values.** `.user-values.json`, if there is one, is copied once by the table in
-  [Values on a machine](#values-on-a-machine), asking about any other placeholder as there; a key the profile or record
-  already has keeps its value, and the value question is skipped for it. The file is left as it is.
-- **Summary.** `Machine <name>: profile <profile>, <Claude>, <mode>.` and the `Same as:` line, which always names
-  `--profile`, then `--replace <name>` or `--name <name>`, `--claude`, `--mode` and `--existing`. `<Claude>` is
-  `none`, `Claude only` or `Claude plus DeepSeek`; `<mode>` is `push with a preview` or `pull only`. `Same as:` adds
-  `--bootstrap` when the bootstrap will run.
+  [Values on a machine](#values-on-a-machine), asking about any other placeholder as there (before the summary); a key
+  the profile or record already has keeps its value, and the value question is skipped for it. The file is left as it
+  is.
+- **Summary.** In this order:
+
+  ```text
+  Machine <name>: profile <profile>, <Claude>, <mode>.
+  Public name: <alias>
+  Values:
+    <YOUR_NAME> = Jane Doe (git-user-name)
+    <YOUR_EMAIL> = jane@example.com (typed)
+  Same as: mksync setup ...
+  ```
+
+  then the guard block, when there is one. `<profile>` adds ` (<label>)` when it has one. `<Claude>` is `none`,
+  `Claude only` or `Claude plus DeepSeek`; `<mode>` is `push with a preview` or `pull only`. `Public name:` is left out
+  when there is none, `Values:` when no value was asked. The source in brackets is the `suggest` source that answered,
+  `typed`, `--value`, `--value, replaces the saved value` or `old machine`.
+
+- **`Same as:`** always names `--profile`, then `--replace <name>` or `--name <name>`, `--label <text>` for a new label,
+  `--claude`, `--mode`, `--existing`, `--alias <alias>` when there is one, ` --bootstrap` or ` --no-bootstrap` when the
+  bootstrap was offered, and ` --value KEY=VALUE` for every typed or `--value` answer (a guess reproduces itself). A
+  token with a character outside `A-Za-z0-9._@/:+=-` is quoted whole in single quotes, `'` written `'\''` on Linux and
+  macOS and `''` on Windows (the Windows line targets PowerShell). On Windows a value holding `"` is left out, with
+  one line after `Same as:`: `Same as: leaves out --value KEY (its value holds a ").`
 - **What differs.** Before question 4, setup runs the [import check](#import-check) and, when it finds changes and a
   [sync point](#sync-point) exists, the [diff](#diff). It prints one line above question 4 (also when a flag answers
   it): with a sync point, `  <n> file(s) differ: <i> in, <o> out, <b> both.`; without one,
@@ -1652,11 +1731,12 @@ Write the record and apply? [Y/n]
   `ERROR: <n> file(s) changed on this machine since the last sync, and setup would overwrite them.` and
   `Run mksync setup --existing keep to push them first, or run it without --yes to confirm.`, exit 1; after a failed
   diff, `ERROR: could not tell which side is newer; run mksync diff to see why, or run setup without --yes to confirm.`,
-  exit 1. With `--mode pull-only`, which can't keep, the second line is `Run it without --yes to confirm.` Value questions (`<KEY>: kept on …`) come after the confirm: they choose where a value is stored and
-  overwrite nothing.
+  exit 1. With `--mode pull-only`, which can't keep, the second line is `Run it without --yes to confirm.` A declined
+  or unanswered confirm writes nothing, values included.
 - **Bootstrap.** On Ubuntu with an executable `bootstrap/linux.sh`, after question 4 and before the summary:
   `Also restore apps and packages from packages/linux (uses sudo)? [y/N] `; `y` chooses it, while an empty answer or
-  end of input skips it. `--bootstrap` chooses it without asking. The `stop` answer to question 4 never asks it. After
+  end of input skips it. `--bootstrap` chooses it without asking, and `--no-bootstrap` or `--yes` alone skips it
+  without asking; both flags together stop with `ERROR: --bootstrap and --no-bootstrap can't be used together`, exit 2. Off Ubuntu `--no-bootstrap` is accepted and does nothing. The `stop` answer to question 4 never asks it. After
   the confirm and the record and profile are written, with `keep` setup runs keep's export as "Then" describes (and
   prints `Pushed into the repo folder; commit it with mksync push.`) before the script, while setup's terminal is still
   open; a failed export stops setup before the script with the export's code, the record and profile staying written.
@@ -1697,8 +1777,9 @@ A machine that already has a record stops without `--replace`:
 
 **Replace.** `--replace <machine>`, or taking the record the hostname suggests, takes over a record from the store: it keeps the name, profile, Claude mode,
 `pullOnly` and module overrides, so the second and third questions aren't asked. `hostname` and `domain` take the
-scan's, and the old pair goes to `replaced` with today's date. Each machine value is asked again with the old one as
-the suggestion: `<HOME> [<old value>]`. A record not in the store, or retired, stops with
+scan's, and the old pair goes to `replaced` with today's date. Each machine value is asked again, before the summary,
+with a fresh guess for this machine as the suggestion (its rule's `suggest` sources, then its `defaultEnv`), else the
+old machine's value (`old machine` in the summary): `<HOME> [<value>]`. The old record's alias is kept. A record not in the store, or retired, stops with
 `ERROR: no machine <name> here; records are shared once the repo is private.`, exit 1 (while public the store holds
 only this machine's own record, so only a moved disk can take one over). Until the first private push (phase 7) the
 taken-over record and its profile are written to local state; the repo's `machines/` and `profiles/` are left as they

@@ -221,12 +221,14 @@ machine").
 - `destinations`: the answers to "where does this new setting go?" from push, so every machine with this profile
   knows them. Only arrays, folders and linked-folder answers are kept here ("New settings").
 - `retired`: `true` once the job ends. The profile stays as the last backup, and the first run no longer suggests it.
+- `label` (optional, after the other keys): a short private note to find the profile in lists, such as the employer's
+  short name. It never goes into a branch name, a commit message or a PR.
 
 Until the repo is private, profile files live in the machine's local state, never in the repo. The first push after
 the switch commits them.
 
 Example: job #2 ends. Its profile gets `"retired": true` on the next push from work #2. A new work laptop's first run
-lists `personal`, `work-1` and `work-3`, not `work-2`.
+lists `personal`, `work1` and `work3`, not `work2`, and guesses `work4`, not `work2`.
 
 ## Values
 
@@ -462,24 +464,34 @@ Scanning this machine...
 
 Profiles in this repo:
   1) personal
-  2) work-1      machine wk1-laptop
-  3) work-3      machine wk3-desktop
+  2) work1       machine wk1-laptop
+  3) work3       machine wk3-desktop
   This looks like wk1-laptop (same hostname): choosing 2 replaces it.
 
 1/4 What is this machine for? [2]
 2/4 Claude here? 1) none  2) Claude only  3) Claude plus DeepSeek [2]
 3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1]
 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1]
+ Home folder (~/.claude/settings.json) [C:\Users\jane]:
 
-Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup
+Machine wk1-laptop: profile work1, Claude only, push with a preview.
+Public name: work1-windows
+Values:
+  <HOME> = C:\Users\jane (old machine)
+Same as: mksync setup --profile work1 --replace wk1-laptop --claude claude --mode push --existing backup --alias work1-windows
 ```
 
 The suggested answers, in brackets:
 
 1. **The profile.** The profile of the one non-retired record whose hostname is exactly this one, with "replaces
-   `<machine>`". With no exact match, or two or more (a reinstalled machine's hostname coming back), there is no
-   suggestion and no scoring: the user picks a number or types a new profile name. Retired profiles aren't listed.
+   `<machine>`"; this match comes first. With no exact match, or two or more (a reinstalled machine's hostname coming
+   back), setup guesses from the scan alone, never from the domain's name: `personal` on Linux with no domain, else a
+   new profile `work<n>`, `<n>` one past the largest `work<n>` or `work-<n>` this machine knows (retired ones
+   included, so a new profile never reuses a retired one's file), else 1. A line before question 1 names the guess and
+   why (`Guess: new profile work4 (Windows).`), and Enter takes it; the user can still pick a number or type a name.
+   `--yes` takes the guess only when it is `work<n>` and the repo is private: a wrong `personal` would put a work
+   machine's settings in the shared layers, a wrong `work<n>` only keeps them out. Retired profiles aren't listed. A
+   new profile other than `personal` may get a short private `label` (the employer's short name) to find it in lists.
 2. **Claude.** "Claude only" when the scan found `claude`, else "none". DeepSeek is never suggested; it's chosen.
 3. **Push or pull only.** "Push with a preview".
 4. **Existing files.** "Back up and replace": each file is backed up as `<file>.bak` before the pull writes it, as
@@ -488,16 +500,21 @@ The suggested answers, in brackets:
 repo folder; commit it with mksync push.`
 
 **Before the repo is private** the repo holds no profiles or records, so the first run lists only `personal` and the
-profiles kept in this machine's local state (none, on a new machine), and makes no "replaces" suggestion. The user
-types a profile name, and the new profile starts with an empty module list filled from the scan's suggestions. Each
+profiles kept in this machine's local state (none, on a new machine), and makes no "replaces" suggestion. The guess
+can only count the profiles this machine knows, so a fresh work machine guesses `work1`, and the guess line says to
+check the number. The new profile starts with an empty module list filled from the scan's suggestions. Each
 machine then has its own copy of its profile: values and `destinations` aren't shared between two machines of one job
 until the switch. The example above is the first run after the switch.
 
 A question takes its flag; without one, it's asked, and an empty answer or end of input takes the suggestion in
-brackets. `--yes` takes every suggestion without asking. A question with no suggestion (the profile, unless a record has
-this hostname) that gets end of input, or `--yes` and no flag, stops with `ERROR: missing --profile` (exit 2) before
-anything is written. `--name` with `--replace` stops with `ERROR: --name and --replace can't be used together.` (exit
-1).
+brackets. `--yes` takes every suggestion without asking, the profile guess only as item 1 allows; otherwise it stops
+with `ERROR: missing --profile` (exit 2) before anything is written. `--name` with `--replace` stops with
+`ERROR: --name and --replace can't be used together.` (exit 1).
+
+Setup asks everything before its confirm: the four questions, the values this run's import (and, for "keep mine", its
+export) would ask, each with its guess, and the profile label. The public name is guessed (`<profile>-<os>`) and shown,
+not asked. The summary lists the values and where each came from, so after the confirm setup asks nothing, and
+`setup --yes` can take every value guess: they are printed before anything is written and stay on this machine.
 
 **Tests** replace the scan with `SYNC_HOSTNAME`, `SYNC_DOMAIN` (empty means none) and `SYNC_TOOLS` (a comma list of the
 tools found), as `SYNC_OS` replaces the OS, so a shared case prints the same scan on every runner.
@@ -2021,6 +2038,15 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - `DRIFT_ROOT` is test-only but honoured by the shipped program; it only moves the apt-source and apt-key reads.
   - The runners apply a case's `env` after the stubs' `PATH` and `DRIFT_ROOT`, so a case could undo them; refuse
     those keys in a case's `env` if one ever needs it.
+- **Left by smart first run phase 2 (`docs/plan-smart-first-run-2.md`, 2026-11-27).**
+  - A work laptop running Linux with no domain is guessed `personal` interactively. The guess line before question 1,
+    the summary's profile and push's preview, leak scan and `[y/N]` are what catch it; `--yes` never takes a
+    `personal` guess.
+  - While the repo is public a fresh machine knows no other machine's profiles, so it guesses `work1` even when
+    `work1` is taken elsewhere. The guess line says so; after the private switch the store lists every profile and the
+    number is right.
+  - Not taken from the roadmap: back navigation (`<` to go back a question), and moving push's public-name check
+    before its export so a refused name stops before any file is written.
 
 ### Confirm on Windows
 
