@@ -2049,6 +2049,8 @@ move.` and the push stops with exit 1. Phase 8's docs step wrote this into the c
   - While the repo is public a fresh machine knows no other machine's profiles, so it guesses `work1` even when
     `work1` is taken elsewhere. The guess line says so; after the private switch the store lists every profile and the
     number is right.
+  - `--value`'s unknown-key check reads only `sync-config.json`'s `sanitize` rules, not rules a profile's or record's
+    `entries` add, so a placeholder only such an entry uses is refused.
   - Not taken from the roadmap: back navigation (`<` to go back a question), and moving push's public-name check
     before its export so a refused name stops before any file is written.
 

@@ -12,6 +12,7 @@ import type {
   SetupValueChoice,
   SetupValueQuestion,
   SetupValues,
+  ValueFlag,
 } from "./setup.ts";
 import { guessProfile, runSetup } from "./setup.ts";
 
@@ -1896,5 +1897,230 @@ describe("runSetup value questions", () => {
     expect(output).toContain(
       "<HOME> [/home/old] \nMachine wk1-laptop: profile work-1, Claude only, push with a preview.\nPublic name: work-1-linux\nValues:\n  <HOME> = /home/old (old machine)\n",
     );
+  });
+  describe("--value", () => {
+    const FLAG_NAME = { placeholder: "<YOUR_NAME>", value: "Ana Lopez" };
+    const FLAG_EMAIL = { placeholder: "<YOUR_EMAIL>", value: TYPED_EMAIL };
+    const WITH_RULES: ConfigV2 = {
+      ...CONFIG,
+      entries: [
+        {
+          file: "git/gitconfig",
+          module: "git",
+          merge: "whole",
+          localPath: "~/.gitconfig",
+          sanitize: [
+            { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+            { placeholder: "<YOUR_EMAIL>", prompt: "Email" },
+          ],
+        },
+      ],
+    };
+
+    function flagged(
+      value: readonly ValueFlag[],
+      values: SetupValues = TWO_VALUES,
+      extra: SetupFlags = {},
+    ): SetupInput {
+      return input(
+        { config: WITH_RULES, values: valuesReader(values).read },
+        { ...ANSWER_FLAGS, value, ...extra },
+      );
+    }
+
+    test("should answer a question without asking it and mark the source", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).not.toContain(NAME_QUESTION.text);
+      expect(output).toContain(
+        `Values:\n  <YOUR_NAME> = Ana Lopez (--value)\n  <YOUR_EMAIL> = ${TYPED_EMAIL} (--value)\n`,
+      );
+    });
+
+    test("should ask only the questions no --value answers", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME]);
+
+      // Act
+      const { output } = await run(setup, [TYPED_EMAIL, ""]);
+
+      // Assert
+      expect(output).toContain(`${VALUE_HEADER}${EMAIL_QUESTION.text}\n`);
+    });
+
+    test("should repeat each --value in Same as, quoted when needed", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        `--alias work-1-linux --value 'YOUR_NAME=Ana Lopez' --value YOUR_EMAIL=${TYPED_EMAIL}\n`,
+      );
+    });
+
+    test("should stop on a placeholder no rule uses before any question", async () => {
+      // Arrange
+      const setup = flagged([{ placeholder: "<NOPE>", value: "x" }]);
+
+      // Act
+      const { outcome, output } = await run(setup);
+
+      // Assert
+      expect(outcome).toEqual({
+        ok: false,
+        message: "ERROR: --value <NOPE>: no rule uses this placeholder",
+        code: 2,
+      });
+      expect(output).toBe("");
+    });
+
+    test("should mark a --value that replaces a saved value", async () => {
+      // Arrange
+      const saved = { ...record(), values: { "<YOUR_NAME>": "Old" } };
+      const setup = input(
+        {
+          config: WITH_RULES,
+          records: [saved],
+          isPrivate: true,
+          values: valuesReader({ places: [], questions: [] }).read,
+        },
+        { ...ANSWER_FLAGS, replace: "wk1-laptop", value: [FLAG_NAME] },
+      );
+
+      // Act
+      const { output, outcome } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        "  <YOUR_NAME> = Ana Lopez (--value, replaces the saved value)\n",
+      );
+      expect(outcome.ok && outcome.values[0]?.source).toBe(
+        "--value, replaces the saved value",
+      );
+    });
+
+    test("should mark a replace question answered by --value", async () => {
+      // Arrange
+      const values: SetupValues = {
+        places: [],
+        questions: [
+          {
+            kind: "replace",
+            placeholder: "<YOUR_NAME>",
+            text: "<YOUR_NAME> [Old] ",
+            guess: { value: "Old", source: "old machine" },
+          },
+        ],
+      };
+      const setup = flagged([FLAG_NAME], values);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        "  <YOUR_NAME> = Ana Lopez (--value, replaces the saved value)\n",
+      );
+    });
+
+    test("should take a --value under --yes before a guess", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME, FLAG_EMAIL], TWO_VALUES, {
+        yes: true,
+      });
+
+      // Act
+      const { outcome } = await run(setup);
+
+      // Assert
+      expect(
+        outcome.ok && outcome.values.map((answer) => answer.value),
+      ).toEqual(["Ana Lopez", TYPED_EMAIL]);
+    });
+
+    test("should quote a value holding a quote with doubled quotes on Windows", async () => {
+      // Arrange
+      const setup = input(
+        {
+          scan: scan({ os: "windows" }),
+          config: WITH_RULES,
+          values: valuesReader(TWO_VALUES).read,
+        },
+        {
+          ...ANSWER_FLAGS,
+          value: [{ ...FLAG_NAME, value: "O'Neil" }, FLAG_EMAIL],
+        },
+      );
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain("--value 'YOUR_NAME=O''Neil'");
+    });
+
+    test("should quote a value holding a quote with '\\'' on Linux", async () => {
+      // Arrange
+      const setup = flagged([{ ...FLAG_NAME, value: "O'Neil" }, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain("--value 'YOUR_NAME=O'\\''Neil'");
+    });
+
+    test("should leave out a value holding a double quote on Windows", async () => {
+      // Arrange
+      const setup = input(
+        {
+          scan: scan({ os: "windows" }),
+          config: WITH_RULES,
+          values: valuesReader(TWO_VALUES).read,
+        },
+        {
+          ...ANSWER_FLAGS,
+          value: [{ ...FLAG_NAME, value: 'Ana "A" Lopez' }, FLAG_EMAIL],
+        },
+      );
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        `--value YOUR_EMAIL=${TYPED_EMAIL}\nSame as: leaves out --value YOUR_NAME (its value holds a ").\n`,
+      );
+    });
+
+    test("should keep a double quote on Linux in Same as", async () => {
+      // Arrange
+      const setup = flagged([{ ...FLAG_NAME, value: 'Ana "A"' }, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(`--value 'YOUR_NAME=Ana "A"'`);
+    });
+
+    test("should leave a guessed value out of Same as", async () => {
+      // Arrange
+      const setup = flagged([FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).not.toContain("YOUR_NAME=");
+    });
   });
 });

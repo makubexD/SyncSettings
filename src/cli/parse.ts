@@ -6,7 +6,14 @@
 
 import type { ClaudeMode } from "../core/machine/record.ts";
 import { isValidLabel, LABEL_REFUSAL } from "../core/config/profile.ts";
-import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
+import { trimAnswer } from "../core/answer.ts";
+import { holdsPlaceholder } from "../core/values/hydrate.ts";
+import type {
+  ExistingAction,
+  SetupFlags,
+  SetupMode,
+  ValueFlag,
+} from "../wizard/setup.ts";
 
 export const USAGE =
   "usage: mksync status | mksync doctor | " +
@@ -255,6 +262,7 @@ const SETUP_VALUE_FLAGS = [
   "--existing",
   "--alias",
   "--label",
+  "--value",
 ] as const;
 
 type SetupValueFlag = (typeof SETUP_VALUE_FLAGS)[number];
@@ -331,6 +339,30 @@ function setupError(message: string): ParseError {
 /** A setup flag given twice. */
 function repeatedFlag(flag: string): ParseError {
   return setupError(`${flag} is repeated.`);
+}
+
+/**
+ * Contract "mksync setup", `--value`: `KEY=VALUE`, the key with or without its
+ * `<` `>`, the value trimmed as a typed answer is. Refused here, exit 2: no
+ * `=`, an empty value, and a value holding placeholder text (the typed
+ * value's refusal, word for word). Whether a rule uses the key is checked by
+ * the flow, which holds the config.
+ */
+function parseValueFlag(text: string): ValueFlag | ParseError {
+  const equals = text.indexOf("=");
+  if (equals === -1) {
+    return setupError("--value needs KEY=VALUE.");
+  }
+  const key = text.slice(0, equals);
+  const placeholder = /^<.*>$/.test(key) ? key : `<${key}>`;
+  const value = trimAnswer(text.slice(equals + 1));
+  if (value === "") {
+    return setupError(`--value ${placeholder}: empty value`);
+  }
+  if (holdsPlaceholder(value)) {
+    return setupError(`missing value for ${placeholder}`);
+  }
+  return { placeholder, value };
 }
 
 function flagNeedsValue(flag: string): ParseError {
@@ -547,6 +579,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
   let existing: ExistingAction | undefined;
   let alias: string | undefined;
   let label: string | undefined;
+  const values: ValueFlag[] = [];
   let yes = false;
   let bootstrap = false;
   let noBootstrap = false;
@@ -649,6 +682,22 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         }
         label = value;
         break;
+      case "--value": {
+        const parsed = parseValueFlag(value);
+        if ("kind" in parsed) {
+          return parsed;
+        }
+        // A key given twice: the later answer wins, in the first one's place.
+        const earlier = values.findIndex(
+          (given) => given.placeholder === parsed.placeholder,
+        );
+        if (earlier === -1) {
+          values.push(parsed);
+        } else {
+          values[earlier] = parsed;
+        }
+        break;
+      }
     }
     index += 2;
   }
@@ -667,6 +716,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     ...(existing === undefined ? {} : { existing }),
     ...(alias === undefined ? {} : { alias }),
     ...(label === undefined ? {} : { label }),
+    ...(values.length === 0 ? {} : { value: values }),
     ...(yes ? { yes: true } : {}),
     ...(bootstrap ? { bootstrap: true } : {}),
     ...(noBootstrap ? { noBootstrap: true } : {}),

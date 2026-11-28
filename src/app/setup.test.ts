@@ -415,4 +415,105 @@ describe("setupValues", () => {
       },
     ]);
   });
+  describe("replace's fresh guess", () => {
+    const OLD_PATH = "/old/bin/gh";
+    const NEW_PATH = "/usr/bin/gh";
+    const OLD_NAME = "Old Name";
+
+    /** A config whose `<GH_CLI_PATH>` rule has a source and `<TOKEN>` an env var. */
+    function guessConfig(): ConfigV2 {
+      return {
+        ...VALUES_CONFIG,
+        entries: [
+          {
+            file: "parity/guess.conf",
+            module: "parity",
+            merge: "whole",
+            localPath: "~/.config/parity/guess.conf",
+            sanitize: [
+              {
+                placeholder: "<GH_CLI_PATH>",
+                prompt: "Path to gh",
+                suggest: ["gh-path"],
+              },
+              {
+                placeholder: "<TOKEN_DIR>",
+                prompt: "Token folder",
+                defaultEnv: "PARITY_TOKEN_DIR",
+              },
+              { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+            ],
+          },
+        ],
+      };
+    }
+
+    function oldMachine(): MachineRecord {
+      return {
+        ...RECORD,
+        values: {
+          "<GH_CLI_PATH>": OLD_PATH,
+          "<TOKEN_DIR>": "/old/tokens",
+          "<YOUR_NAME>": OLD_NAME,
+        },
+      };
+    }
+
+    function sources(env: Record<string, string>): SetupValueSources {
+      return {
+        ...valueSources(),
+        config: guessConfig(),
+        env,
+        suggest: () =>
+          Promise.resolve({
+            "<GH_CLI_PATH>": { value: NEW_PATH, source: "gh-path" },
+          }),
+      };
+    }
+
+    test("should suggest this machine's guess over the old value", async () => {
+      // Act
+      const values = await setupValues(
+        sources({}),
+        choice({ action: "stop", record: oldMachine(), replaced: true }),
+      );
+
+      // Assert
+      expect(values.questions[0]).toEqual({
+        kind: "replace",
+        placeholder: "<GH_CLI_PATH>",
+        text: `<GH_CLI_PATH> [${NEW_PATH}] `,
+        guess: { value: NEW_PATH, source: "gh-path" },
+      });
+    });
+
+    test("should fall back to defaultEnv when no source answers", async () => {
+      // Act
+      const values = await setupValues(
+        sources({ PARITY_TOKEN_DIR: "/new/tokens" }),
+        choice({ action: "stop", record: oldMachine(), replaced: true }),
+      );
+
+      // Assert
+      expect(values.questions[1]?.guess).toEqual({
+        value: "/new/tokens",
+        source: "defaultEnv",
+      });
+    });
+
+    test("should keep the old value, source old machine, when nothing answers", async () => {
+      // Act
+      const values = await setupValues(
+        sources({}),
+        choice({ action: "stop", record: oldMachine(), replaced: true }),
+      );
+
+      // Assert
+      expect(values.questions.map((question) => question.guess)).toEqual([
+        { value: NEW_PATH, source: "gh-path" },
+        { value: "/old/tokens", source: "old machine" },
+        { value: OLD_NAME, source: "old machine" },
+      ]);
+    });
+  });
 });

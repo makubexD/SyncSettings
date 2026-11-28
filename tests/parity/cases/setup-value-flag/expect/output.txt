@@ -5,7 +5,7 @@
   WARN     2 value(s) not set; mksync setup asks for them
   OK       bash
   Ready.
-ERROR: --value NOT_A_KEY: no rule uses this placeholder
+ERROR: --value <NOT_A_KEY>: no rule uses this placeholder
   OK       git
   OK       gh (signed in)
   WARN     repo has no origin remote

@@ -1702,7 +1702,8 @@ Profiles on this machine:
   then the guard block, when there is one. `<profile>` adds ` (<label>)` when it has one. `<Claude>` is `none`,
   `Claude only` or `Claude plus DeepSeek`; `<mode>` is `push with a preview` or `pull only`. `Public name:` is left out
   when there is none, `Values:` when no value was asked. The source in brackets is the `suggest` source that answered,
-  `typed`, `--value`, `--value, replaces the saved value` or `old machine`.
+  `typed`, `--value`, `--value, replaces the saved value`, `defaultEnv` (a replace guess from the rule's `defaultEnv`)
+  or `old machine`. A repeated `--value` key takes the last value.
 
 - **`Same as:`** always names `--profile`, then `--replace <name>` or `--name <name>`, `--label <text>` for a new label,
   `--claude`, `--mode`, `--existing`, `--alias <alias>` when there is one, ` --bootstrap` or ` --no-bootstrap` when the

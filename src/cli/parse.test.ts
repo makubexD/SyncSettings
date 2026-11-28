@@ -678,6 +678,66 @@ describe("parseArgs", () => {
     }
   });
 
+  test("should parse --value with or without the angle brackets", () => {
+    // Act
+    const bare = parseArgs(["setup", "--value", "YOUR_NAME=Jane"]);
+    const bracketed = parseArgs(["setup", "--value", "<YOUR_NAME>=Jane"]);
+
+    // Assert
+    expect(bare).toEqual({
+      kind: "setup",
+      value: [{ placeholder: "<YOUR_NAME>", value: "Jane" }],
+    });
+    expect(bracketed).toEqual(bare);
+  });
+
+  test("should repeat --value in the order given, the later of one key winning", () => {
+    // Act
+    const parsed = parseArgs([
+      "setup",
+      "--value",
+      "A=1",
+      "--value",
+      "B=2",
+      "--value",
+      "A=3",
+    ]);
+
+    // Assert
+    expect(parsed).toEqual({
+      kind: "setup",
+      value: [
+        { placeholder: "<A>", value: "3" },
+        { placeholder: "<B>", value: "2" },
+      ],
+    });
+  });
+
+  test("should refuse an empty --value", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME="])).toEqual(
+      usageError("ERROR: --value <YOUR_NAME>: empty value"),
+    );
+  });
+
+  test("should refuse a --value holding placeholder text", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME=<HOME>"])).toEqual(
+      usageError("ERROR: missing value for <YOUR_NAME>"),
+    );
+  });
+
+  test("should refuse a --value with no equals sign", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME"])).toEqual(
+      usageError("ERROR: --value needs KEY=VALUE."),
+    );
+  });
+
+  test("should keep an equals sign inside a --value", () => {
+    expect(parseArgs(["setup", "--value", "URL=a=b"])).toEqual({
+      kind: "setup",
+      value: [{ placeholder: "<URL>", value: "a=b" }],
+    });
+  });
+
   test("should parse --alias as a value flag", () => {
     expect(parseArgs(["setup", "--alias", "desk-a"])).toEqual({
       kind: "setup",

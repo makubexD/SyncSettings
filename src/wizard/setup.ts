@@ -27,6 +27,12 @@ export type ExistingAction = "backup" | "keep" | "stop";
 /** `--mode`'s values. */
 export type SetupMode = "push" | "pull-only";
 
+/** One `--value KEY=VALUE`: the placeholder with its `<` `>`, and its value. */
+export interface ValueFlag {
+  readonly placeholder: string;
+  readonly value: string;
+}
+
 /** The setup flags, as `mksync setup` parses them. */
 export interface SetupFlags {
   readonly name?: string;
@@ -39,6 +45,9 @@ export interface SetupFlags {
   readonly alias?: string;
   /** The label for a new profile (decision 8); checked by the parser. */
   readonly label?: string;
+  /** `--value`, in the order given, each placeholder once (the parser checks
+   * the value; the flow checks that a rule uses the placeholder). */
+  readonly value?: readonly ValueFlag[];
   readonly yes?: boolean;
   readonly bootstrap?: boolean;
   readonly noBootstrap?: boolean;
@@ -80,9 +89,16 @@ export interface SetupValueChoice {
 }
 
 /** Where a value in the summary's `Values:` block came from (contract
- * "Summary"): the `suggest` source that answered, a typed answer, or a
+ * "Summary"): the `suggest` source that answered, a rule's `defaultEnv`
+ * (a taken-over record's fresh guess), a typed answer, `--value`, or a
  * taken-over record's value. */
-export type ValueSource = SuggestSource | "typed" | "old machine";
+export type ValueSource =
+  | SuggestSource
+  | "defaultEnv"
+  | "typed"
+  | typeof FROM_FLAG
+  | typeof FROM_FLAG_REPLACING
+  | "old machine";
 
 /** A value's guess and the source that gave it. */
 export interface ValueGuess {
@@ -176,6 +192,12 @@ export type SetupOutcome =
   | { readonly ok: false; readonly message: string; readonly code: 1 | 2 }
   /** The confirm was answered no: nothing is written, exit 0. */
   | { readonly ok: false; readonly declined: true };
+
+/** The summary's source for a `--value` answer. */
+const FROM_FLAG = "--value";
+
+/** The source for a `--value` that replaces a value already saved. */
+const FROM_FLAG_REPLACING = "--value, replaces the saved value";
 
 const PERSONAL = "personal";
 
@@ -683,6 +705,19 @@ export async function runSetup(
     }
   }
 
+  // Contract "mksync setup", `--value`: a placeholder no rule uses is refused
+  // before any question. shortcut: only the config's own rules count, not a
+  // rule a profile's or record's `entries` add.
+  const known = new Set(rulePlaceholders(input.config));
+  for (const given of flags.value ?? []) {
+    if (!known.has(given.placeholder)) {
+      return stop(
+        `ERROR: --value ${given.placeholder}: no rule uses this placeholder`,
+        2,
+      );
+    }
+  }
+
   const names = listedProfiles(input.profiles);
   const decidedProfile = replacing?.profile ?? flags.profile;
   // Contract "Label": `--label` names a new profile, so an existing one stops
@@ -919,6 +954,10 @@ export async function runSetup(
   const valued = await askValues(
     io,
     flags,
+    new Set([
+      ...Object.keys(answeredProfile.values),
+      ...Object.keys(answeredRecord.values),
+    ]),
     (await input.values?.({
       profile: answeredProfile,
       record: answeredRecord,
@@ -954,7 +993,8 @@ export async function runSetup(
     `Machine ${record.name}: profile ${profileName}${labelShown}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
       aliasLine +
       valuesBlock(valueAnswers) +
-      `Same as: mksync setup --profile ${profileName}${labelFlag} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}${valueFlags(valueAnswers, scan.os)}\n`,
+      `Same as: mksync setup --profile ${profileName}${labelFlag} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}${valueFlags(valueAnswers, scan.os)}\n` +
+      valueLeftOut(valueAnswers, scan.os),
   );
   // Contract "Guard block": after `Same as:`, the diff lines and the count when
   // answer 4 is `backup` with a sync point and an `OUT` or `BOTH` file (or a
@@ -1022,23 +1062,63 @@ type AskedValues =
   | { readonly ok: false; readonly stop: SetupOutcome };
 
 /**
- * Contract "mksync setup", Values before the summary, Answers, `--yes`: the
- * `kept on` questions, then each value question, the import's header before
- * the first `fill` one. An empty answer takes the guess in brackets and a
- * typed answer wins. End of input, an empty answer with no guess, or an answer
- * holding placeholder text stops with `ERROR: missing value for <KEY>`, exit 1:
- * end of input never takes a guess. `--yes` asks nothing, takes every guess
- * and each place's `1`, and stops on a value with no guess, exit 2.
+ * Contract "mksync setup", Values before the summary, Answers, `--value`,
+ * `--yes`: a question whose placeholder `--value` names isn't asked. The
+ * `kept on` questions come first, then each value question, the import's
+ * header before the first `fill` one asked. An empty answer takes the guess in
+ * brackets and a typed answer wins. End of input, an empty answer with no
+ * guess, or an answer holding placeholder text stops with
+ * `ERROR: missing value for <KEY>`, exit 1: end of input never takes a guess.
+ * `--yes` asks nothing, takes every guess and each place's `1`, and stops on a
+ * value with no guess, exit 2. A `--value` no question asks is saved too, and
+ * its source says when it replaces a value already saved (`saved`).
  */
 async function askValues(
   io: SetupIo,
   flags: SetupFlags,
+  saved: ReadonlySet<string>,
   values: SetupValues,
 ): Promise<AskedValues> {
   const places: Record<string, ValuePlace> = {};
   const answers: SetupValueAnswer[] = [];
+  const given = new Map(
+    (flags.value ?? []).map((flag) => [flag.placeholder, flag.value]),
+  );
+  const fromFlag = (
+    question: SetupValueQuestion,
+  ): SetupValueAnswer | undefined => {
+    const value = given.get(question.placeholder);
+    return value === undefined
+      ? undefined
+      : {
+          kind: question.kind,
+          placeholder: question.placeholder,
+          value,
+          source: question.kind === "replace" ? FROM_FLAG_REPLACING : FROM_FLAG,
+        };
+  };
+  // A `--value` no question asks: saved too, marked when it replaces one.
+  const unasked = (): SetupValueAnswer[] =>
+    [...given]
+      .filter(
+        ([placeholder]) =>
+          !values.questions.some(
+            (question) => question.placeholder === placeholder,
+          ),
+      )
+      .map(([placeholder, value]) => ({
+        kind: "fill",
+        placeholder,
+        value,
+        source: saved.has(placeholder) ? FROM_FLAG_REPLACING : FROM_FLAG,
+      }));
   if (flags.yes === true) {
     for (const question of values.questions) {
+      const flagged = fromFlag(question);
+      if (flagged !== undefined) {
+        answers.push(flagged);
+        continue;
+      }
       if (question.guess === undefined) {
         const key = bareKey(question.placeholder);
         return {
@@ -1055,9 +1135,11 @@ async function askValues(
         ...question.guess,
       });
     }
-    return { ok: true, answers, places };
+    return { ok: true, answers: [...answers, ...unasked()], places };
   }
+  let anyAsked = false;
   for (const placeholder of values.places) {
+    anyAsked = true;
     io.write(placeQuestion(placeholder));
     const line = await io.readLine();
     places[placeholder] =
@@ -1065,6 +1147,12 @@ async function askValues(
   }
   let headed = false;
   for (const question of values.questions) {
+    const flagged = fromFlag(question);
+    if (flagged !== undefined) {
+      answers.push(flagged);
+      continue;
+    }
+    anyAsked = true;
     if (question.kind === "fill" && !headed) {
       io.write(ASK_HEADER);
       headed = true;
@@ -1091,10 +1179,10 @@ async function askValues(
       ...answer,
     });
   }
-  if (values.places.length > 0 || values.questions.length > 0) {
+  if (anyAsked) {
     io.write("\n");
   }
-  return { ok: true, answers, places };
+  return { ok: true, answers: [...answers, ...unasked()], places };
 }
 
 /** Contract "Summary": the `Values:` block, one line per value asked, with
@@ -1109,16 +1197,45 @@ function valuesBlock(answers: readonly SetupValueAnswer[]): string {
   return `Values:\n${lines.join("\n")}\n`;
 }
 
-/** Contract "`Same as:`": ` --value KEY=VALUE` for every typed answer, the
- * token quoted whole when it needs it; a guess reproduces itself. */
+/** Whether `Same as:` repeats this answer: a typed or `--value` one (a guess
+ * reproduces itself). */
+function isGiven(answer: SetupValueAnswer): boolean {
+  return answer.source === "typed" || answer.source.startsWith(FROM_FLAG);
+}
+
+/** Windows quoting can't carry a `"`, so such a value is left out. */
+function isLeftOut(answer: SetupValueAnswer, os: Os): boolean {
+  return os === "windows" && answer.value.includes('"');
+}
+
+/** Contract "`Same as:`": ` --value KEY=VALUE` for every typed or `--value`
+ * answer, the token quoted whole when it needs it. */
 function valueFlags(answers: readonly SetupValueAnswer[], os: Os): string {
   return answers
-    .filter((answer) => answer.source === "typed")
+    .filter((answer) => isGiven(answer) && !isLeftOut(answer, os))
     .map(
       (answer) =>
         ` --value ${quoteToken(`${bareKey(answer.placeholder)}=${answer.value}`, os)}`,
     )
     .join("");
+}
+
+/** Contract "`Same as:`": one line after it for each value left out on Windows. */
+function valueLeftOut(answers: readonly SetupValueAnswer[], os: Os): string {
+  return answers
+    .filter((answer) => isGiven(answer) && isLeftOut(answer, os))
+    .map(
+      (answer) =>
+        `Same as: leaves out --value ${bareKey(answer.placeholder)} (its value holds a ").\n`,
+    )
+    .join("");
+}
+
+/** The placeholders the config's sanitize rules name. */
+function rulePlaceholders(config: ConfigV2): readonly string[] {
+  return config.entries.flatMap((entry) =>
+    (entry.sanitize ?? []).map((rule) => rule.placeholder),
+  );
 }
 
 /** Contract "Label": `--label` with a profile that already exists is refused. */

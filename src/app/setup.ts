@@ -16,6 +16,7 @@ import { readOsId } from "../adapters/osname.ts";
 import { run } from "../adapters/process.ts";
 import { readScan } from "../adapters/scan.ts";
 import { suggestionSources } from "../adapters/suggest.ts";
+import type { SuggestionSource } from "../adapters/suggest.ts";
 import { layersOf, loadLayers } from "../adapters/snapshot.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import {
@@ -43,12 +44,13 @@ import { isInstalledProgram } from "./update.ts";
 import type { ExecuteOptions, Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
 import type { Profile } from "../core/config/profile.ts";
-import type { ConfigV2, Os } from "../core/config/types.ts";
+import type { ConfigV2, Os, SanitizeRule } from "../core/config/types.ts";
 import { RECORD_ERROR_PREFIX } from "../core/machine/record.ts";
 import type { MachineRecord } from "../core/machine/record.ts";
 import { moveUserValues, placeValue } from "../core/machine/values.ts";
 import type { ValuePlace } from "../core/machine/values.ts";
 import { parseValuesFile } from "../core/values/file.ts";
+import { holdsPlaceholder } from "../core/values/hydrate.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { runSetup } from "../wizard/setup.ts";
 import type {
@@ -58,6 +60,7 @@ import type {
   SetupValueChoice,
   SetupValueQuestion,
   SetupValues,
+  ValueGuess,
 } from "../wizard/setup.ts";
 
 const VALUES_FILE = ".user-values.json";
@@ -165,21 +168,61 @@ function placesToAsk(
 }
 
 /**
- * Contract "Replace": each machine value of a taken-over record is asked
- * again, its old value the guess (`old machine`). shortcut: the fresh guess
- * for this machine (its rule's sources, then `defaultEnv`) is the plan's step
- * 19.
+ * Contract "Replace": each machine value of a taken-over record is asked again
+ * with a fresh guess for this machine as the suggestion: its rule's `suggest`
+ * sources, then the environment variable its `defaultEnv` names. A value no
+ * rule can guess keeps the old machine's value as the suggestion
+ * (`old machine`). shortcut: only the config's own rules are read, not a rule
+ * a profile's or record's `entries` add.
  */
-function replaceQuestions(choice: SetupValueChoice): SetupValueQuestion[] {
+async function replaceQuestions(
+  sources: SetupValueSources,
+  choice: SetupValueChoice,
+): Promise<SetupValueQuestion[]> {
   if (!choice.replaced) {
     return [];
   }
-  return Object.entries(choice.record.values).map(([placeholder, old]) => ({
-    kind: "replace",
-    placeholder,
-    text: `${placeholder} [${old}] `,
-    guess: { value: old, source: "old machine" },
-  }));
+  const held = Object.entries(choice.record.values);
+  const rules = sources.config.entries
+    .flatMap((entry) => entry.sanitize ?? [])
+    .filter((rule) =>
+      held.some(([placeholder]) => placeholder === rule.placeholder),
+    );
+  const found = rules.length > 0 ? await sources.suggest(rules) : {};
+  const env = sources.env ?? process.env;
+  return held.map(([placeholder, old]) => {
+    const fresh = freshGuess(placeholder, rules, found, env);
+    const guess: ValueGuess = fresh ?? { value: old, source: "old machine" };
+    return {
+      kind: "replace",
+      placeholder,
+      text: `${placeholder} [${guess.value}] `,
+      guess,
+    };
+  });
+}
+
+/** This machine's guess for a placeholder: the first rule's answered source,
+ * else a usable `defaultEnv` variable; `undefined` when neither answers. */
+function freshGuess(
+  placeholder: string,
+  rules: readonly SanitizeRule[],
+  found: Readonly<Record<string, SuggestionSource>>,
+  env: Readonly<Record<string, string | undefined>>,
+): ValueGuess | undefined {
+  if (Object.hasOwn(found, placeholder)) {
+    return found[placeholder];
+  }
+  for (const rule of rules) {
+    const value =
+      rule.placeholder === placeholder && rule.defaultEnv !== undefined
+        ? env[rule.defaultEnv]
+        : undefined;
+    if (value !== undefined && value !== "" && !holdsPlaceholder(value)) {
+      return { value, source: "defaultEnv" };
+    }
+  }
+  return undefined;
 }
 
 /** Whether keep's export runs after the confirm (`exportKeep`): not after a
@@ -203,6 +246,8 @@ export interface SetupValueSources {
   readonly fileValues: Values;
   readonly differ: SetupDiffer;
   readonly suggest: SuggestSources;
+  /** The environment a rule's `defaultEnv` reads; `process.env` when absent. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 /**
@@ -218,7 +263,7 @@ export async function setupValues(
   choice: SetupValueChoice,
 ): Promise<SetupValues> {
   const places = placesToAsk(sources.fileValues, choice.profile, choice.record);
-  const replaced = replaceQuestions(choice);
+  const replaced = await replaceQuestions(sources, choice);
   if (choice.action === "stop") {
     return { places, questions: replaced };
   }
