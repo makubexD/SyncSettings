@@ -11,6 +11,7 @@ import {
 } from "../core/machine/linked.ts";
 import type { ClaudeMode, MachineRecord } from "../core/machine/record.ts";
 import { replaceRecord } from "../core/machine/replace.ts";
+import { checkAlias, suggestAlias } from "../core/plan/commit.ts";
 
 /** The fourth answer: what setup does with files already on the machine. */
 export type ExistingAction = "backup" | "keep" | "stop";
@@ -26,6 +27,8 @@ export interface SetupFlags {
   readonly claude?: ClaudeMode;
   readonly mode?: SetupMode;
   readonly existing?: ExistingAction;
+  /** The public name for push branches; checked before any question. */
+  readonly alias?: string;
   readonly yes?: boolean;
   readonly bootstrap?: boolean;
 }
@@ -598,6 +601,14 @@ export async function runSetup(
       2,
     );
   }
+  // Contract "mksync setup", Public name: a typed name is checked as push
+  // checks one, before the scan and any question.
+  if (flags.alias !== undefined) {
+    const checked = checkAlias(flags.alias, { hostname: scan.hostname });
+    if ("error" in checked) {
+      return stop(checked.error, 2);
+    }
+  }
 
   const names = listedProfiles(input.profiles);
   const decidedProfile = replacing?.profile ?? flags.profile;
@@ -776,7 +787,11 @@ export async function runSetup(
     destinations: {},
     retired: false,
   };
-  const record = buildRecord(input, replacing, name, profileName, claude, mode);
+  const built = buildRecord(input, replacing, name, profileName, claude, mode);
+  const alias = publicName(input, replacing, profileName, mode);
+  const { alias: _kept, ...unnamed } = built;
+  const record: MachineRecord =
+    alias === undefined ? unnamed : { ...unnamed, alias };
 
   const profileEntries = [...(profile.entries ?? [])];
   const recordEntries = [...(record.entries ?? [])];
@@ -813,10 +828,13 @@ export async function runSetup(
     replacing === undefined
       ? `--name ${record.name}`
       : `--replace ${record.name}`;
+  const aliasLine = alias === undefined ? "" : `Public name: ${alias}\n`;
+  const aliasFlag = alias === undefined ? "" : ` --alias ${alias}`;
   const bootstrapFlag = bootstrap ? " --bootstrap" : "";
   io.write(
     `Machine ${record.name}: profile ${profileName}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
-      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${bootstrapFlag}\n`,
+      aliasLine +
+      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}\n`,
   );
   // Contract "Guard block": after `Same as:`, the diff lines and the count when
   // answer 4 is `backup` with a sync point and an `OUT` or `BOTH` file (or a
@@ -856,6 +874,29 @@ export async function runSetup(
     replaced: replacing !== undefined,
     bootstrap,
   };
+}
+
+/**
+ * Contract "mksync setup", Public name: `--alias`, else a replaced record's
+ * alias, else the `<profile>-<os>` guess push makes; none for a pull-only
+ * machine (unless `--alias` names one) or a guess the check refuses.
+ */
+function publicName(
+  input: SetupInput,
+  replacing: MachineRecord | undefined,
+  profile: string,
+  mode: SetupMode,
+): string | undefined {
+  if (input.flags.alias !== undefined) {
+    return input.flags.alias;
+  }
+  if (mode === "pull-only") {
+    return undefined;
+  }
+  return (
+    replacing?.alias ??
+    suggestAlias(profile, input.scan.os, input.scan.hostname)
+  );
 }
 
 function buildRecord(

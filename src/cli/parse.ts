@@ -114,6 +114,9 @@ export interface CommitCommand {
   readonly kind: "commit";
   readonly message?: string;
   readonly partial: boolean;
+  /** A push's `--yes`: a record with no public name takes the suggestion
+   * without asking. */
+  readonly yes?: boolean;
 }
 
 /** `setup`: the first-run flow's flags, parsed but not validated. */
@@ -242,6 +245,7 @@ const SETUP_VALUE_FLAGS = [
   "--claude",
   "--mode",
   "--existing",
+  "--alias",
 ] as const;
 
 type SetupValueFlag = (typeof SETUP_VALUE_FLAGS)[number];
@@ -532,6 +536,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
   let claude: ClaudeMode | undefined;
   let mode: SetupMode | undefined;
   let existing: ExistingAction | undefined;
+  let alias: string | undefined;
   let yes = false;
   let bootstrap = false;
 
@@ -610,6 +615,12 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         }
         existing = value;
         break;
+      case "--alias":
+        if (alias !== undefined) {
+          return repeatedFlag(arg);
+        }
+        alias = value;
+        break;
     }
     index += 2;
   }
@@ -622,6 +633,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     ...(claude === undefined ? {} : { claude }),
     ...(mode === undefined ? {} : { mode }),
     ...(existing === undefined ? {} : { existing }),
+    ...(alias === undefined ? {} : { alias }),
     ...(yes ? { yes: true } : {}),
     ...(bootstrap ? { bootstrap: true } : {}),
   };

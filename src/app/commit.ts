@@ -237,6 +237,7 @@ async function resolveMachineAlias(
   location: StoreLocation,
   askAlias: (prompt: string) => Promise<string | undefined>,
   os: Os,
+  yes: boolean,
 ): Promise<{ readonly alias?: string; readonly error?: string }> {
   if (record !== undefined) {
     if (record.alias !== undefined) {
@@ -248,7 +249,11 @@ async function resolveMachineAlias(
         : { alias: stored.alias };
     }
     const suggestion = suggestAlias(record.profile, os, record.hostname);
-    const answer = await askAlias(aliasPrompt(suggestion));
+    // `push --yes` takes the suggestion without asking; one the check refuses
+    // stops as without a terminal.
+    const answer = yes
+      ? (suggestion ?? undefined)
+      : await askAlias(aliasPrompt(suggestion));
     if (answer === undefined) {
       return { error: noPublicNameError(record.name) };
     }
@@ -523,6 +528,7 @@ export async function executeCommit(input: CommitInput): Promise<Result> {
     location,
     askAlias,
     input.os,
+    command.yes === true,
   );
   if (machine.alias === undefined) {
     return fail(machine.error ?? NO_ALIAS);

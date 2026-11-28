@@ -632,6 +632,19 @@ describe("parseArgs", () => {
     }
   });
 
+  test("should parse --alias as a value flag", () => {
+    expect(parseArgs(["setup", "--alias", "desk-a"])).toEqual({
+      kind: "setup",
+      alias: "desk-a",
+    });
+    expect(parseArgs(["setup", "--alias"])).toEqual(
+      usageError("ERROR: --alias needs a value."),
+    );
+    expect(parseArgs(["setup", "--alias", "a-b", "--alias", "c-d"])).toEqual(
+      usageError("ERROR: --alias is repeated."),
+    );
+  });
+
   test("should refuse a --claude value outside its list", () => {
     expect(parseArgs(["setup", "--claude", "opus"])).toEqual(
       usageError(
@@ -752,7 +765,9 @@ describe("parseArgs", () => {
 
   test("should name push in the usage line", () => {
     expect(
-      USAGE_TEXT.includes("mksync push [--yes] [--force] [-m <msg>] [<path>...]"),
+      USAGE_TEXT.includes(
+        "mksync push [--yes] [--force] [-m <msg>] [<path>...]",
+      ),
     ).toBe(true);
   });
 

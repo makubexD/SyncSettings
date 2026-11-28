@@ -173,7 +173,8 @@ describe("runSetup", () => {
         "",
         `${Q1_PERSONAL}${LABEL_QUESTION("work-1")}${Q2}${Q3}${Q4}`,
         "Machine wk1-laptop: profile work-1, Claude only, push with a preview.",
-        "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup",
+        "Public name: work-1-linux",
+        "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux",
         "Write the record and apply? [Y/n] ",
       ].join("\n"),
     );
@@ -185,7 +186,7 @@ describe("runSetup", () => {
     expect(outcome.profile).toEqual(
       profile("work-1", ["shell", "git", "gh", "claude", "gnome"]),
     );
-    expect(outcome.record).toEqual(record());
+    expect(outcome.record).toEqual(record({ alias: "work-1-linux" }));
   });
 
   test("should go on when the confirm is answered yes", async () => {
@@ -294,7 +295,7 @@ describe("runSetup", () => {
     expect(output.indexOf(BOOTSTRAP_QUESTION)).toBeLessThan(
       output.indexOf("Machine "),
     );
-    expect(output).toContain("--existing backup --bootstrap\n");
+    expect(output).toContain("--alias work-1-linux --bootstrap\n");
   });
 
   test("should not ask the bootstrap question with --bootstrap", async () => {
@@ -312,7 +313,7 @@ describe("runSetup", () => {
     expect(outcome.bootstrap).toBe(true);
     expect(output).not.toContain("Also restore apps and packages");
     expect(output).toContain(
-      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --bootstrap\n",
+      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux --bootstrap\n",
     );
   });
 
@@ -364,10 +365,10 @@ describe("runSetup", () => {
     );
     expect(output).not.toContain("1/4");
     expect(output).toContain(
-      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude-deepseek --mode push --existing keep\n",
+      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude-deepseek --mode push --existing keep --alias work-1-linux\n",
     );
     expect(output).toContain(
-      "Machine wk1-laptop: profile work-1, Claude plus DeepSeek, push with a preview.\n",
+      "Machine wk1-laptop: profile work-1, Claude plus DeepSeek, push with a preview.\nPublic name: work-1-linux\n",
     );
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.action).toBe("keep");
@@ -638,10 +639,10 @@ describe("runSetup", () => {
         `1/4 What is this machine for? [2] ${Q4}\n`,
     );
     expect(output).toContain(
-      "Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup\n",
+      "Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux\n",
     );
     if (!outcome.ok) throw new Error("expected ok");
-    expect(outcome.record).toEqual(record());
+    expect(outcome.record).toEqual(record({ alias: "work-1-linux" }));
     expect(outcome.replaced).toBe(true);
   });
 
@@ -1277,5 +1278,125 @@ describe("runSetup profile guess and the hostname match", () => {
     });
     const { output } = await run(setup, ["", "", ""]);
     expect(output).not.toContain("Guess:");
+  });
+});
+
+describe("runSetup public name", () => {
+  const ALL_FLAGS: SetupFlags = {
+    name: "wk1-laptop",
+    profile: "work-1",
+    claude: "claude",
+    mode: "push",
+    existing: "stop",
+    yes: true,
+  };
+
+  test("should guess <profile>-<os> and save it", async () => {
+    const { outcome, output } = await run(input({}, ALL_FLAGS));
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("work-1-linux");
+    expect(output).toContain(
+      "push with a preview.\nPublic name: work-1-linux\nSame as: ",
+    );
+    expect(output).toContain("--existing stop --alias work-1-linux\n");
+  });
+
+  test("should take --alias over the guess", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, alias: "desk-a" }),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("desk-a");
+    expect(output).toContain("Public name: desk-a\n");
+    expect(output).toContain("--existing stop --alias desk-a\n");
+  });
+
+  test("should refuse a bad --alias with exit 2 before any question", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, yes: false, alias: "WK1-Laptop" }),
+    );
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: 'WK1-Laptop' is this machine's hostname; pick another public name.",
+      code: 2,
+    });
+    expect(output).toBe("");
+  });
+
+  test("should refuse an --alias that isn't alias form", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, alias: "Desk A" }),
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok || "declined" in outcome) throw new Error("expected error");
+    expect(outcome.code).toBe(2);
+    expect(outcome.message).toContain("invalid machine alias 'Desk A'");
+    expect(output).toBe("");
+  });
+
+  test("should keep a replaced record's alias", async () => {
+    const { outcome, output } = await run(
+      input(
+        {
+          profiles: [profile("work-1")],
+          records: [record({ alias: "old-desk" })],
+        },
+        {
+          replace: "wk1-laptop",
+          claude: "claude",
+          mode: "push",
+          existing: "stop",
+          yes: true,
+        },
+      ),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("old-desk");
+    expect(output).toContain("Public name: old-desk\n");
+    expect(output).toContain("--existing stop --alias old-desk\n");
+  });
+
+  test("should let --alias replace a kept alias", async () => {
+    const { outcome } = await run(
+      input(
+        {
+          profiles: [profile("work-1")],
+          records: [record({ alias: "old-desk" })],
+        },
+        {
+          replace: "wk1-laptop",
+          claude: "claude",
+          mode: "push",
+          existing: "stop",
+          alias: "new-desk",
+          yes: true,
+        },
+      ),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("new-desk");
+  });
+
+  test("should give a pull-only machine no public name", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, mode: "pull-only" }),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBeUndefined();
+    expect(output).not.toContain("Public name:");
+    expect(output).not.toContain("--alias");
+  });
+
+  test("should leave the alias out when the guess is refused", async () => {
+    const { outcome, output } = await run(
+      input(
+        { scan: scan({ hostname: "work-1-linux" }) },
+        { ...ALL_FLAGS, name: "box1" },
+      ),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBeUndefined();
+    expect(output).not.toContain("Public name:");
   });
 });

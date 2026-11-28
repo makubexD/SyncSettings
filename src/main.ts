@@ -118,10 +118,12 @@ function pushExportCommand(
 function pushCommitCommand(
   partial: boolean,
   message: string | undefined,
+  yes: boolean,
 ): CommitCommand {
   return {
     kind: "commit",
     partial,
+    ...(yes ? { yes: true } : {}),
     ...(message === undefined ? {} : { message }),
   };
 }
@@ -314,7 +316,6 @@ async function statuslineOutput(): Promise<string> {
   }
 }
 
-
 /** The contract's no-record line, and exit 1. */
 const NO_RECORD = "ERROR: no machine record here; run mksync setup.";
 
@@ -475,11 +476,10 @@ async function execute(
               process.stderr.write(shown.stderr);
             },
             runCommit: (partial, message) =>
-              execute(pushCommitCommand(partial, message)),
+              execute(pushCommitCommand(partial, message, command.yes)),
             cloneReady: () => cloneReady(repoRoot),
             originState: () => readUpstreamFacts(repoRoot),
-            cleanHead: () =>
-              cleanHeadAtOrigin(repoRoot, PUSH_STATUS_PATHS),
+            cleanHead: () => cleanHeadAtOrigin(repoRoot, PUSH_STATUS_PATHS),
             recordSyncPoint: (sha) => {
               const layers = loadLayers(state, repoRoot, config.value);
               return recordSyncPoint(
