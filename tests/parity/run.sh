@@ -3,6 +3,7 @@
 # compiled program in a throwaway HOME and repo, then compare exit codes, status
 # lines and both trees with expect/. The case format is tests/parity/README.md.
 # Usage: tests/parity/run.sh [--engine <path>] [case-name-filter]
+# The filter is a substring of the case name, or several joined by | (any one matches).
 # PARITY_JOBS: how many cases run at once, default one per processor.
 
 set -euo pipefail
@@ -1246,8 +1247,14 @@ for dir in "$CASES"/*/; do
     dir=${dir%/}
     case_name=${dir##*/}
 
-    if [[ -n $filter && $case_name != *"$filter"* ]]; then
-        continue
+    if [[ -n $filter ]]; then
+        # The filter is one or more substrings joined by |; a case runs when its name holds any of them.
+        IFS='|' read -r -a filter_parts <<<"$filter"
+        keep=0
+        for part in "${filter_parts[@]}"; do
+            [[ -n $part && $case_name == *"$part"* ]] && keep=1 && break
+        done
+        ((keep)) || continue
     fi
     names+=("$case_name")
     report_case "$dir" > "$work/$matched" < /dev/null &

@@ -1793,7 +1793,7 @@ foreach ($caseDir in $caseDirs) {
     $dir = $caseDir.FullName
     $caseName = $caseDir.Name
 
-    if ($Filter -ne '' -and $caseName.IndexOf($Filter, [StringComparison]::Ordinal) -lt 0) {
+    if ($Filter -ne '' -and -not ($Filter.Split('|') | Where-Object { $_ -ne '' -and $caseName.IndexOf($_, [StringComparison]::Ordinal) -ge 0 })) {
         continue
     }
     $matched++

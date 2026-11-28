@@ -1,5 +1,5 @@
 {
-  "description": "setup --yes with no --profile stops on the profile question, which has no suggestion while public, with the contract's missing-flag error and exit 2, after the scan and the profile list and before anything is written (Machines (program only), mksync setup).",
+  "description": "setup --yes with no --profile stops on the profile question, which has no suggestion while public (the guess is personal, which --yes never takes), with the contract's missing-flag error and exit 2, after the scan and the profile list and before anything is written (Machines (program only), mksync setup).",
   "os": ["linux"],
   "configV2": {
     "schemaVersion": 2,

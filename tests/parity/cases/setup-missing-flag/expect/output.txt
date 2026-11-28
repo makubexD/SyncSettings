@@ -13,6 +13,8 @@ Scanning this machine...
   Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
   Files      0 of 2 linux entries already exist here
 
+Guess: personal (Linux, no domain).
+
 Profiles on this machine:
   1) personal
 

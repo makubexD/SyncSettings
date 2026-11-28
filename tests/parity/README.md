@@ -253,7 +253,8 @@ The part after the case name says which check failed:
 | `dconf.log:`, `dconf: want a load`, `dconf: want no load`                                                                                 | the dconf log against `expect/dconf.log`                                         |
 | anything else                                                                                                                             | the case itself is malformed: `case.json`, `differences`, an `expect.<os>/` name |
 
-Only the first difference prints. Fix it and run the case again with its name as the filter.
+Only the first difference prints. Fix it and run the case again with its name as the filter. The filter is a
+substring of the case name, or several joined by `|` (`setup-guess|setup-yes-guess`); a case runs when any one matches.
 
 ## Troubleshooting
 
