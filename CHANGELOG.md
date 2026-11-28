@@ -2,6 +2,29 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.5.0 (2026-11-28)
+
+### Changed
+
+- `mksync pull` asks `Apply these changes? [Y/n]` once the diff check has passed: nothing here is newer than the repo,
+  so Enter applies. Any other typed answer, and end of input, applies nothing. `mksync pull --force` (which skips the
+  check) and a first pull with no sync point still ask `[y/N]`, where Enter is no.
+- `mksync` with no command runs `mksync status`, as the docs always said, instead of printing the usage line with
+  exit 2.
+- A first word that is no command prints `ERROR: unknown command <word>` and `Run mksync --help for the list of
+commands.`, exit 2, instead of the usage line.
+- A missing or unknown verb names its group: `ERROR: machine needs show or retire`, `ERROR: unknown profile command
+<verb>` and the like, then `Run mksync <group> --help for its commands.`, exit 2. `mksync machine list` was
+  `Unknown option: list`.
+- The contract's flag errors now say exit 2, as the program always did; nothing in the program changed.
+
+### Added
+
+- `--help` and `-h` at every level: `mksync --help` lists the commands, and `mksync <command> --help` or
+  `mksync <group> <verb> --help` explains one, exit 0, without running it.
+- `mksync profile show [<name>]` prints a profile (this machine's by default): its label, modules, the names of its
+  values (never the values) and the files its layer holds.
+
 ## v1.4.0 (2026-11-27)
 
 ### Added
@@ -11,7 +34,7 @@ Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine wit
   ends with `Other profiles: unknown while the repo is public.`
 - `mksync setting move <file> [<key>] --to base|os|profile|machine [--dry-run | --yes]` moves one JSON key, or one
   whole file, from the narrowest layer that sets it to another, keeping this machine's merged result. Text bound for
-  the base or an OS layer is refused when it holds a profile value, a profile-only placeholder or this machine's home
+  the base or an OS layer is refused when it holds a profile value or a machine value, a profile-only placeholder or this machine's home
   folder, or when the leak scan finds something. It previews the writes and asks `[y/N]`; it commits nothing, and
   `mksync push` sends a base or OS move through its PR.
 

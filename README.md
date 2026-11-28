@@ -78,9 +78,11 @@ for a fork; the [install section](docs/sync-contract.md#install) lists them all.
 | `mksync update`                              | Replaces the `mksync` program with the latest release, if it's newer                                        |
 | `mksync pull <path>`, `mksync push <path>`   | Takes or sends only the files you name, such as `mksync pull ~/.bashrc`                                     |
 | `mksync setting list`, `mksync setting move` | Shows what a profile or system sets above the shared settings, and moves one setting to another layer       |
+| `mksync machine show`, `mksync profile show` | Shows this machine's record, or a profile: its modules, the names of its values and its layer files         |
 
 The commands, their wording and their exit codes are the same on every system. `--yes` answers the questions for you,
-and `mksync push` needs `gh auth login` once.
+and `mksync push` needs `gh auth login` once. `mksync --help` lists every command, and `--help` after any command or
+verb (`mksync setting move --help`) explains it.
 
 `mksync setup` guesses every answer before it asks: the profile (`personal` on a Linux machine with no domain, a new
 `work<n>` otherwise), the public name, and each value it needs. A first run is mostly Enter at each guess, and nothing
