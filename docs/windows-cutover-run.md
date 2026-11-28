@@ -150,8 +150,10 @@ in the answer block, with names replaced as in step 6.
    Test-Path "$env:USERPROFILE\SyncSettings\.user-values.json"
    ```
 
-   Paste: the last lines of each and the `Test-Path` answer (`ERROR: missing --profile`, exit 2; then
-   `Stopped: nothing was written.`, exit 0; `False`).
+   Paste: the last lines of each and the `Test-Path` answer. From `v1.3.0` the first takes the guess
+   (`Guess: new profile work<n> (Windows)…`) and stops at the first value with no saved answer
+   (`ERROR: missing value for <KEY>`, exit 1), or with `Stopped: nothing was written.`, exit 0, when none is asked
+   (before `v1.3.0`: `ERROR: missing --profile`, exit 2); then `Stopped: nothing was written.`, exit 0; `False`.
 
 ## Answer
 

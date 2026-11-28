@@ -38,7 +38,9 @@ intended. The gaps are in the first run itself:
    personal Linux machine, a new `work-<n>` on a domain-joined or non-Linux one, never from the domain's name), the
    public name asked at setup with `--alias`, `--value KEY=...` and `--no-bootstrap` so `Same as:` reproduces a run,
    the review showing every guessed value and its source before anything is written, WIZ-7, WIZ-11, and an optional
-   profile label (asked 2026-11-27). Plan: `docs/plan-smart-first-run-2.md` (`v1.3.0`).
+   profile label (asked 2026-11-27). Plan: `docs/plan-smart-first-run-2.md` (`v1.3.0`). **Done 2026-11-27.**
+   Breaking: the profile is guessed (`work<n>`, no dash), values are asked before the confirm, and `setup --yes`
+   takes guesses within decision 7's limits.
 3. **Reconcile the layers.** `mksync setting list` (what a profile or OS layer sets above the base, side by side) and
    `mksync setting move <path> [<key>] --to base|os|profile|machine` (preview, question, `--dry-run`, `--yes`), with
    the profile-value search, the leak scan and the `$HOME` check on the base-bound text, and never a write to
