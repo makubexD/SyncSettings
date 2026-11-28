@@ -1,0 +1,60 @@
+{
+  "description": "setting list shows, for the record's profile, each setting a layer above the base sets, base first, with whole files counted by line and a profile copy equal to the OS copy named as such; an entry with only a base file is left out, and the public last line ends it, exit 0, nothing written (mksync setting, mksync setting list).",
+  "os": ["linux"],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "vscode": { "description": "VS Code" },
+      "claude": { "description": "Claude Code" },
+      "git": { "description": "Git settings" },
+      "shell": { "description": "Shell start-up files" },
+      "tools": { "description": "Tool settings" }
+    },
+    "entries": [
+      {
+        "file": "vscode/settings.json",
+        "module": "vscode",
+        "merge": "json",
+        "localPath": "~/.config/Code/User/settings.json",
+        "description": "VS Code settings"
+      },
+      {
+        "file": "claude/settings.json",
+        "module": "claude",
+        "merge": "json",
+        "localPath": "~/.claude/settings.json",
+        "description": "Claude Code settings"
+      },
+      {
+        "file": "git/.gitconfig.local",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.gitconfig.local",
+        "description": "Local git settings"
+      },
+      {
+        "file": "shell/.aliases",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.aliases",
+        "description": "Shell aliases"
+      },
+      {
+        "file": "tools/.toolrc",
+        "module": "tools",
+        "merge": "whole",
+        "localPath": "~/.toolrc",
+        "description": "Tool settings"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": ""
+  },
+  "commands": [
+    {
+      "command": "setting-list"
+    }
+  ]
+}

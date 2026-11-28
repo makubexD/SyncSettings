@@ -1171,12 +1171,12 @@ For this machine's record, every setting a layer above the base sets, from the b
 Settings above the base on wk1-laptop (profile work1):
 
 vscode  settings.json
-  editor.fontSize       all machines: 14  profile work1: 15
-  window.zoomLevel      Linux machines: 1
+  editor.fontSize      all machines: 14  profile work1: 15
+  window.zoomLevel     Linux machines: 1
 claude  settings.json
-  permissions.allow[]   all machines: 4 item(s)  profile work1: 2 item(s)
+  permissions.allow[]  all machines: 4 item(s)  profile work1: 2 item(s)
 git     .gitconfig.local
-  (whole file)          Windows machines: 12 line(s)
+  (whole file)         Windows machines: 12 line(s)
 
 Other profiles: unknown while the repo is public.
 ```
@@ -1188,8 +1188,12 @@ Other profiles: unknown while the repo is public.
   (`<n> item(s)`).
 - Any other kind is one `(whole file)` line with a cell per layer that holds the file: `<n> line(s)`, or
   `same as <group>` when its bytes equal a wider layer's. An `import` side file prints under its resolved name.
-- Order: the config's entry order, then key path in code-unit order. Module and key are padded to the widest in the
-  listing. Nothing above the base: one line `(none)` after the header.
+- Layout: an entry line is the module, two spaces, the entry's `file` without its first folder, as the change block
+  prints it. A setting line is two spaces, the key path (or `(whole file)`), two spaces, then its cells, two spaces
+  apart, each `<group>: <value>`. Module and key are padded to the widest in the listing. A blank line follows the
+  header and comes before the last line.
+- Order: the config's entry order, then key path in code-unit order. Nothing above the base: one line `(none)` in
+  place of the entries, between the two blank lines.
 - No record: header `Settings above the base on this machine:`, the OS layer only.
 - `--profile <p>` lists that profile's layer and this machine's OS layer instead of the record's, under the header
   `Settings above the base in profile <p>:`, with no machine layer. A profile this machine doesn't hold is

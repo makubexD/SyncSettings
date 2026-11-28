@@ -120,9 +120,13 @@ validate_case() {
         || die 'options.paths must be an array of strings'
     jq -e 'all(.commands[]; (.options // {}) as $o
         | all($o | to_entries[] | select(.key == "name" or .key == "profile" or .key == "replace"
-            or .key == "claude" or .key == "mode" or .key == "existing" or .key == "alias" or .key == "label" or .key == "target");
+            or .key == "claude" or .key == "mode" or .key == "existing" or .key == "alias" or .key == "label" or .key == "target"
+            or .key == "key" or .key == "to");
             .value | type == "string"))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode, existing, alias, label and target must be strings'
+        || die 'options name, profile, replace, claude, mode, existing, alias, label, target, key and to must be strings'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("dryRun")) then ($o.dryRun | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.dryRun must be a boolean'
     jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("yes")) then ($o.yes | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.yes must be a boolean'
@@ -145,7 +149,7 @@ validate_case() {
         .command as $cmd
         | (.options // {}) as $o
         | (if ($o | has("name")) then $cmd == "setup" else true end)
-          and (if ($o | has("profile")) then $cmd == "setup" else true end)
+          and (if ($o | has("profile")) then $cmd == "setup" or $cmd == "setting-list" else true end)
           and (if ($o | has("replace")) then $cmd == "setup" else true end)
           and (if ($o | has("claude")) then $cmd == "setup" else true end)
           and (if ($o | has("mode")) then $cmd == "setup" else true end)
@@ -157,7 +161,7 @@ validate_case() {
                   $cmd == "setup" or $cmd == "export" or $cmd == "preview"
                   or $cmd == "machine-retire" or $cmd == "profile-retire"
                   or $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
-                  or $cmd == "push" or $cmd == "front-diff"
+                  or $cmd == "push" or $cmd == "front-diff" or $cmd == "setting-move"
                else true end)
           and (if ($o | has("bootstrap")) then $cmd == "setup" else true end)
           and (if ($o | has("noBootstrap")) then $cmd == "setup" else true end)
@@ -167,14 +171,17 @@ validate_case() {
                   $cmd == "status" or $cmd == "doctor" or $cmd == "pull"
                   or $cmd == "push" or $cmd == "front-diff" or $cmd == "front-check"
                else true end)
+          and (if ($o | has("key")) then $cmd == "setting-move" else true end)
+          and (if ($o | has("to")) then $cmd == "setting-move" else true end)
+          and (if ($o | has("dryRun")) then $cmd == "setting-move" else true end)
           and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        || die 'options name, replace, claude, mode, existing, alias, label and value need setup; profile needs setup or setting-list; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push, front-diff or setting-move; key, to and dryRun need setting-move; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
-        | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
+        | if ($cmd == "machine-retire" or $cmd == "profile-retire" or $cmd == "setting-move") then
               ($o | has("target"))
           else (($o | has("target")) | not) end)' "$json" > /dev/null 2>&1 \
-        || die 'options.target is required for machine-retire and profile-retire, and nowhere else'
+        || die 'options.target is required for machine-retire, profile-retire and setting-move, and nowhere else'
     jq -e 'if has("os") then
             if (.os | type) == "array" then
                 all(.os[]; . == "linux" or . == "macos" or . == "windows")
@@ -933,11 +940,25 @@ run_case() {
                 target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
                 args=(./mksync profile retire "$target")
                 ;;
+            setting-list) args=(./mksync setting list) ;;
+            setting-move)
+                target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
+                args=(./mksync setting move "$target")
+                if [[ $(jq -r ".commands[$i].options | has(\"key\")" "$dir/case.json") == true ]]; then
+                    args+=("$(jq -r ".commands[$i].options.key" "$dir/case.json")")
+                fi
+                if [[ $(jq -r ".commands[$i].options | has(\"to\")" "$dir/case.json") == true ]]; then
+                    args+=(--to "$(jq -r ".commands[$i].options.to" "$dir/case.json")")
+                fi
+                if [[ $(jq -r ".commands[$i].options.dryRun // false" "$dir/case.json") == true ]]; then
+                    args+=(--dry-run)
+                fi
+                ;;
             *) die "unknown command '$cmd' in command $((i + 1))" ;;
         esac
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|alias|label|value|yes|bootstrap|noBootstrap|target|partial|message|paths|resetValues) ;;
+                force|only|name|profile|replace|claude|mode|existing|alias|label|value|yes|bootstrap|noBootstrap|target|key|to|dryRun|partial|message|paths|resetValues) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -993,7 +1014,7 @@ run_case() {
         all_output=$(jq -r ".commands[$i] | has(\"output\")" "$dir/case.json")
         keep_ansi=false
         case $cmd in
-            setup|machine-show|machine-retire|profile-retire) all_output=true ;;
+            setup|machine-show|machine-retire|profile-retire|setting-list|setting-move) all_output=true ;;
             statusline) all_output=true; keep_ansi=true ;;
         esac
         rc=0
