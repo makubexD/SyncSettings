@@ -47,7 +47,7 @@
         "mode": "push",
         "existing": "stop"
       },
-      "stdin": "\n2\n"
+      "stdin": "\n2\n\n"
     }
   ]
 }

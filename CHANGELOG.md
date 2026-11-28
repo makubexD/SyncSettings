@@ -2,6 +2,26 @@
 
 Newest first. Each release is a `v<x.y.z>` tag on `master`; update a machine with `mksync update`.
 
+## v1.3.0 (2026-11-27)
+
+### Changed
+
+- `mksync setup` guesses the profile from the scan, never from the domain's name: `personal` on Linux with no domain,
+  else a new `work<n>` one past the largest `work<n>` or `work-<n>` this machine knows. A `Guess:` line names it
+  before question 1, and Enter takes it. `--yes` takes only a `work<n>` guess, and only once the repo is private;
+  otherwise it still stops with `ERROR: missing --profile`.
+- Setup guesses the public name push branches use (`<profile>-<os>`), shows it as `Public name:` and saves it;
+  `--alias <name>` sets it. `push --yes` takes the same guess for a record that has none.
+- `--no-bootstrap` skips the Ubuntu bootstrap question, and `--yes` alone now means no instead of asking;
+  `--bootstrap` with `--no-bootstrap` stops with exit 2. `Same as:` names the choice.
+- Setup asks every value before the summary, with its guess, and nothing after the confirm. The summary's `Values:`
+  block shows each value and where it came from; a declined confirm writes nothing. `setup --yes` takes every value
+  guess and stops on a value without one: `ERROR: missing value for <KEY>; pass --value KEY=<value>`, exit 2.
+- `--value KEY=VALUE` (repeatable) answers a value without asking, and `Same as:` repeats typed answers, quoted.
+- Replacing a machine asks each machine value with a fresh guess for this machine, else the old value.
+- A new work profile can have a short private `label` (`--label`, or asked after question 1), shown in the profile
+  list and the summary; it never goes into a branch, commit or PR.
+
 ## v1.2.2 (2026-11-27)
 
 - A machine with two GitHub accounts in `gh` (a work one active, the repo owner's beside it) now reaches the owner's

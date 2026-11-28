@@ -1,5 +1,5 @@
 {
-  "description": "setup reads its four answers from stdin, then the import it runs asks for <YOUR_NAME>, which nothing else fills, from the same input; the answer is hydrated and saved on the profile (Sanitize and hydrate; docs/archive/plan-single-engine-9-values.md).",
+  "description": "setup reads its four answers from stdin, then asks before the summary for <YOUR_NAME>, which its import would ask since nothing else fills it, in the import's words; the typed answer shows in Values and Same as, is saved on the profile and hydrated, and nothing is asked after the confirm (mksync setup, Values before the summary; Sanitize and hydrate; docs/archive/plan-single-engine-9-values.md).",
   "os": ["linux"],
   "configV2": {
     "schemaVersion": 2,
@@ -43,7 +43,7 @@
   "commands": [
     {
       "command": "setup",
-      "stdin": "work-1\n2\n1\n1\n\nJane Doe\n"
+      "stdin": "work-1\n\n2\n1\n1\nJane Doe\n\n"
     }
   ]
 }

@@ -1,0 +1,8 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+ERROR: --label names a new profile; work1 already exists

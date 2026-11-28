@@ -9,7 +9,7 @@
 
 import { userInfo } from "node:os";
 import type { SanitizeRule, SuggestSource } from "../core/config/types.ts";
-import { trimAnswer } from "../core/answer.ts";
+import { holdsControlCharacter, trimAnswer } from "../core/answer.ts";
 import { holdsPlaceholder } from "../core/values/hydrate.ts";
 import type { Values } from "../core/values/sanitize.ts";
 import { ghBinary } from "./gh.ts";
@@ -56,12 +56,6 @@ const NO_ANSWER_CODE = 1;
 
 /** The line end a source prints after its answer. */
 const TRAILING_LINE_END = /\r?\n$/;
-
-/** C0 and C1 control characters, and the Unicode format characters that
- * reorder or hide text (bidi overrides, zero-width marks, line separators,
- * the BOM), which a prompt must not echo to the terminal. */
-const CONTROL_CHARACTER =
-  /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
 
 /** The passwd field that holds the user's full name (GECOS), counted from 0. */
 const PASSWD_NAME_FIELD = 4;
@@ -133,7 +127,7 @@ function usable(value: string | undefined): string | undefined {
   if (
     value === undefined ||
     value === "" ||
-    CONTROL_CHARACTER.test(value) ||
+    holdsControlCharacter(value) ||
     holdsPlaceholder(value)
   ) {
     return undefined;
@@ -192,15 +186,21 @@ function currentUserName(): string | undefined {
   }
 }
 
+/** A suggestion and the source that answered it. */
+export interface SuggestionSource {
+  readonly value: string;
+  readonly source: SuggestSource;
+}
+
 /**
  * The suggestion for each placeholder whose rule names sources: the first of
- * its sources, in order, that answers. Each source runs at most once however
- * many rules name it, and only when a rule reaches it.
+ * its sources, in order, that answers, with that source. Each source runs at
+ * most once however many rules name it, and only when a rule reaches it.
  */
-export async function suggestions(
+export async function suggestionSources(
   rules: readonly SanitizeRule[],
   context: SuggestContext = {},
-): Promise<Values> {
+): Promise<Readonly<Record<string, SuggestionSource>>> {
   const runner = context.runner ?? runSource;
   const env = context.env ?? process.env;
   const platform = context.platform ?? process.platform;
@@ -237,12 +237,12 @@ export async function suggestions(
 
   async function firstAnswer(
     sources: readonly SuggestSource[],
-  ): Promise<string | undefined> {
+  ): Promise<SuggestionSource | undefined> {
     for (const source of sources) {
       // Sequential on purpose: a later source runs only when this one fails.
       const value = await answer(source);
       if (value !== undefined) {
-        return value;
+        return { value, source };
       }
     }
     return undefined;
@@ -251,14 +251,28 @@ export async function suggestions(
   const answers = await Promise.all(
     rules.map(async (rule) => ({
       placeholder: rule.placeholder,
-      value: await firstAnswer(rule.suggest ?? []),
+      answered: await firstAnswer(rule.suggest ?? []),
     })),
   );
-  const found: Record<string, string> = {};
-  for (const { placeholder, value } of answers) {
-    if (value !== undefined && found[placeholder] === undefined) {
-      found[placeholder] = value;
+  const found: Record<string, SuggestionSource> = {};
+  for (const { placeholder, answered } of answers) {
+    if (answered !== undefined && found[placeholder] === undefined) {
+      found[placeholder] = answered;
     }
   }
   return found;
+}
+
+/** The suggestion for each placeholder, without its source. */
+export async function suggestions(
+  rules: readonly SanitizeRule[],
+  context: SuggestContext = {},
+): Promise<Values> {
+  const found = await suggestionSources(rules, context);
+  return Object.fromEntries(
+    Object.entries(found).map(([placeholder, { value }]) => [
+      placeholder,
+      value,
+    ]),
+  );
 }

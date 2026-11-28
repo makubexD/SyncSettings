@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConfigV2 } from "./types.ts";
-import { parseProfile } from "./profile.ts";
+import { isValidLabel, parseProfile } from "./profile.ts";
 import type { Profile } from "./profile.ts";
 
 const NAME = "work-1";
@@ -348,5 +348,38 @@ describe("parseProfile", () => {
         ["__proto__", "plain"],
       ]);
     }
+  });
+});
+
+describe("profile label", () => {
+  test("reads a label and leaves it absent when not given", () => {
+    // Act
+    const labelled = parseProfile(NAME, JSON.stringify({ label: "Big Co" }), CONFIG);
+    const plain = parseProfile(NAME, "{}", CONFIG);
+
+    // Assert
+    expect(labelled.ok && labelled.value.label).toBe("Big Co");
+    expect(plain.ok && Object.hasOwn(plain.value, "label")).toBe(false);
+  });
+
+  test("refuses a label that breaks the character rule", () => {
+    expectFailureText(
+      JSON.stringify({ label: "a/b" }),
+      `ERROR: profile ${NAME}: label is not 1 to 30 letters, digits, spaces or .-_&.`,
+    );
+    expectFailureText(
+      JSON.stringify({ label: 3 }),
+      `ERROR: profile ${NAME}: label has the wrong type.`,
+    );
+  });
+
+  test("isValidLabel allows 1 to 30 letters, digits, spaces and .-_&", () => {
+    expect(isValidLabel("a")).toBe(true);
+    expect(isValidLabel("A-b_c.d & 9")).toBe(true);
+    expect(isValidLabel("x".repeat(30))).toBe(true);
+    expect(isValidLabel("x".repeat(31))).toBe(false);
+    expect(isValidLabel("")).toBe(false);
+    expect(isValidLabel("a/b")).toBe(false);
+    expect(isValidLabel("<NAME>")).toBe(false);
   });
 });

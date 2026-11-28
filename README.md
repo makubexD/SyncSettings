@@ -81,6 +81,11 @@ for a fork; the [install section](docs/sync-contract.md#install) lists them all.
 The commands, their wording and their exit codes are the same on every system. `--yes` answers the questions for you,
 and `mksync push` needs `gh auth login` once.
 
+`mksync setup` guesses every answer before it asks: the profile (`personal` on a Linux machine with no domain, a new
+`work<n>` otherwise), the public name, and each value it needs. A first run is mostly Enter at each guess, and nothing
+is asked after `Write the record and apply?`. The summary prints its choices as one `Same as: mksync setup …` command;
+an unattended run needs `--profile` and a `--value KEY=VALUE` for each value with no guess.
+
 What good looks like on Linux (`mksync`, then `mksync doctor`):
 
 ```text

@@ -1,0 +1,47 @@
+{
+  "description": "setup on a Linux machine joined to a domain, while the repo is public, guesses a new profile numbered past the local profile work-3 and says the other machines' profiles can't be seen; question 1 suggests [work4], the new profile is asked for a label (empty), and the guess line never names the domain (Machines (program only), mksync setup, the profile guess). The scan block's Domain line does print the domain, as the scan contract says.",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "corp.example",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "stdin": "\n\n\n\n3\ny\n"
+    }
+  ]
+}

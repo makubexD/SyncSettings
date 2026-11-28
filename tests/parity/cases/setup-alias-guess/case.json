@@ -1,0 +1,54 @@
+{
+  "description": "interactive setup of a push machine with --profile work1 guesses the public name work1-linux, shows it after the Machine line and in Same as:, and saves it in the record; no question asks for it (Machines (program only), mksync setup, Public name).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "name": "wk1-laptop",
+        "profile": "work1",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "stop"
+      },
+      "stdin": "y\n"
+    }
+  ]
+}

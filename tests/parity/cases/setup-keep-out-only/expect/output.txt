@@ -18,7 +18,8 @@ Profiles on this machine:
 
   2 file(s) differ: 1 in, 1 out, 0 both.
 Machine box1: profile personal, none, push with a preview.
-Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing keep
+Public name: personal-linux
+Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing keep --alias personal-linux
   WARNING: repo is 1 commit(s) behind origin/master; run git pull --ff-only.
 Changes on box1 (profile personal):
 

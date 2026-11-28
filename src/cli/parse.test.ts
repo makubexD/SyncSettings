@@ -67,7 +67,7 @@ const PUSH = { kind: "push", yes: false, force: false, paths: [] } as const;
 
 const SETUP = { kind: "setup" } as const;
 
-const COMMIT = { kind: "commit", partial: false } as const;
+const COMMIT = { kind: "commit", partial: false, yes: false } as const;
 
 function unknownOption(arg: string): {
   kind: "error";
@@ -605,6 +605,31 @@ describe("parseArgs", () => {
     );
   });
 
+  test("should parse setup --no-bootstrap", () => {
+    expect(parseArgs(["setup", "--no-bootstrap"])).toEqual({
+      kind: "setup",
+      noBootstrap: true,
+    });
+  });
+
+  test("should refuse --no-bootstrap given twice", () => {
+    expect(parseArgs(["setup", "--no-bootstrap", "--no-bootstrap"])).toEqual(
+      usageError("ERROR: --no-bootstrap is repeated."),
+    );
+  });
+
+  test("should refuse --bootstrap with --no-bootstrap in either order", () => {
+    const clash = usageError(
+      "ERROR: --bootstrap and --no-bootstrap can't be used together",
+    );
+    expect(parseArgs(["setup", "--bootstrap", "--no-bootstrap"])).toEqual(
+      clash,
+    );
+    expect(parseArgs(["setup", "--no-bootstrap", "--bootstrap"])).toEqual(
+      clash,
+    );
+  });
+
   test("should accept every --claude value", () => {
     for (const claude of ["none", "claude", "claude-deepseek"] as const) {
       expect(parseArgs(["setup", "--claude", claude])).toEqual({
@@ -630,6 +655,106 @@ describe("parseArgs", () => {
         existing,
       });
     }
+  });
+
+  test("should parse --label as a value flag", () => {
+    expect(parseArgs(["setup", "--label", "Big Co"])).toEqual({
+      kind: "setup",
+      label: "Big Co",
+    });
+    expect(parseArgs(["setup", "--label"])).toEqual(
+      usageError("ERROR: --label needs a value."),
+    );
+    expect(parseArgs(["setup", "--label", "a", "--label", "b"])).toEqual(
+      usageError("ERROR: --label is repeated."),
+    );
+  });
+
+  test("should refuse a 31-character, empty and slashed --label", () => {
+    const refusal =
+      "ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&";
+    for (const bad of ["x".repeat(31), "", "a/b"]) {
+      expect(parseArgs(["setup", "--label", bad])).toEqual(usageError(refusal));
+    }
+  });
+
+  test("should parse --value with or without the angle brackets", () => {
+    // Act
+    const bare = parseArgs(["setup", "--value", "YOUR_NAME=Jane"]);
+    const bracketed = parseArgs(["setup", "--value", "<YOUR_NAME>=Jane"]);
+
+    // Assert
+    expect(bare).toEqual({
+      kind: "setup",
+      value: [{ placeholder: "<YOUR_NAME>", value: "Jane" }],
+    });
+    expect(bracketed).toEqual(bare);
+  });
+
+  test("should repeat --value in the order given, the later of one key winning", () => {
+    // Act
+    const parsed = parseArgs([
+      "setup",
+      "--value",
+      "A=1",
+      "--value",
+      "B=2",
+      "--value",
+      "A=3",
+    ]);
+
+    // Assert
+    expect(parsed).toEqual({
+      kind: "setup",
+      value: [
+        { placeholder: "<A>", value: "3" },
+        { placeholder: "<B>", value: "2" },
+      ],
+    });
+  });
+
+  test("should refuse an empty --value", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME="])).toEqual(
+      usageError("ERROR: --value <YOUR_NAME>: empty value"),
+    );
+  });
+
+  test("should refuse a --value holding placeholder text", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME=<HOME>"])).toEqual(
+      usageError("ERROR: missing value for <YOUR_NAME>"),
+    );
+  });
+
+  test("should refuse a --value holding a newline", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME=a\nb"])).toEqual(
+      usageError("ERROR: --value <YOUR_NAME>: value holds a control character"),
+    );
+  });
+
+  test("should refuse a --value with no equals sign", () => {
+    expect(parseArgs(["setup", "--value", "YOUR_NAME"])).toEqual(
+      usageError("ERROR: --value needs KEY=VALUE."),
+    );
+  });
+
+  test("should keep an equals sign inside a --value", () => {
+    expect(parseArgs(["setup", "--value", "URL=a=b"])).toEqual({
+      kind: "setup",
+      value: [{ placeholder: "<URL>", value: "a=b" }],
+    });
+  });
+
+  test("should parse --alias as a value flag", () => {
+    expect(parseArgs(["setup", "--alias", "desk-a"])).toEqual({
+      kind: "setup",
+      alias: "desk-a",
+    });
+    expect(parseArgs(["setup", "--alias"])).toEqual(
+      usageError("ERROR: --alias needs a value."),
+    );
+    expect(parseArgs(["setup", "--alias", "a-b", "--alias", "c-d"])).toEqual(
+      usageError("ERROR: --alias is repeated."),
+    );
   });
 
   test("should refuse a --claude value outside its list", () => {
@@ -752,7 +877,9 @@ describe("parseArgs", () => {
 
   test("should name push in the usage line", () => {
     expect(
-      USAGE_TEXT.includes("mksync push [--yes] [--force] [-m <msg>] [<path>...]"),
+      USAGE_TEXT.includes(
+        "mksync push [--yes] [--force] [-m <msg>] [<path>...]",
+      ),
     ).toBe(true);
   });
 

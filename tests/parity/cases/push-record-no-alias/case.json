@@ -1,5 +1,5 @@
 {
-  "description": "Push with a sync point, without a terminal and with no alias in the record stops after the export with the contract's error, exit 1, before any commit or gh call, and writes nothing (The PR; plan-windows-hotfix decisions 1 and 3, the alias is asked once on the first push from a terminal).",
+  "description": "commit without a terminal and with no alias in the record stops with the contract's error, exit 1, before any branch, commit or gh call, and writes nothing (The PR: a record without a public name asks on a terminal; push --yes takes the suggestion, so the bare commit is what has no one to ask).",
   "os": [
     "linux"
   ],
@@ -35,10 +35,13 @@
   },
   "commands": [
     {
-      "command": "push",
+      "command": "export",
       "options": {
         "yes": true
-      },
+      }
+    },
+    {
+      "command": "commit",
       "stderr": true
     }
   ],

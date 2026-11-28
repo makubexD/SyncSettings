@@ -16,6 +16,22 @@ export interface Profile {
   /** Linked folders answered "this profile" (contract "Linked folders"),
    * absent when the file hasn't an `entries` list. */
   readonly entries?: readonly ConfigV2Entry[];
+  /** A short note to find the profile in lists (contract "mksync setup",
+   * Label); written as the last key, absent when none. */
+  readonly label?: string;
+}
+
+/** A label: 1 to 30 ASCII letters, digits, spaces or `.-_&`. The set holds no
+ * `<` or `>`, so a label can never hold placeholder text. */
+const LABEL_PATTERN = /^[A-Za-z0-9 .\-_&]{1,30}$/;
+
+/** The refusal for a label that breaks the rule (exit 2). */
+export const LABEL_REFUSAL =
+  "ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&";
+
+/** Whether `value` is a label the contract allows. */
+export function isValidLabel(value: string): boolean {
+  return LABEL_PATTERN.test(value);
 }
 
 const FIELDS: readonly string[] = [
@@ -24,6 +40,7 @@ const FIELDS: readonly string[] = [
   "destinations",
   "retired",
   "entries",
+  "label",
 ];
 
 const NOT_VALID_JSON = "not valid JSON";
@@ -206,7 +223,7 @@ function destinationRecord(
 
 /**
  * Parses a profile file. All errors are exit code 2: the text isn't JSON or
- * isn't an object (`not valid JSON`), a top-level key other than the five
+ * isn't an object (`not valid JSON`), a top-level key other than the six
  * (`unknown field <f>`), a known field of the wrong type (`<f> has the wrong
  * type`), a module name config v2 doesn't know (`unknown module <m>`), a
  * destination that isn't `base`, `os`, `profile`, `machine` or
@@ -270,6 +287,15 @@ export function parseProfile(
     return failure(name, entries.error);
   }
 
+  if (parsed.label !== undefined) {
+    if (typeof parsed.label !== "string") {
+      return failure(name, "label has the wrong type");
+    }
+    if (!isValidLabel(parsed.label)) {
+      return failure(name, "label is not 1 to 30 letters, digits, spaces or .-_&");
+    }
+  }
+
   for (const module of modules) {
     if (!Object.hasOwn(config.modules, module)) {
       return failure(name, `unknown module ${module}`);
@@ -283,9 +309,13 @@ export function parseProfile(
     destinations: destinations.value,
     retired,
   };
+  const withEntries =
+    entries === undefined ? profile : { ...profile, entries: entries.value };
   return {
     ok: true,
     value:
-      entries === undefined ? profile : { ...profile, entries: entries.value },
+      parsed.label === undefined
+        ? withEntries
+        : { ...withEntries, label: parsed.label as string },
   };
 }

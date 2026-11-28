@@ -853,6 +853,9 @@ function profileValue(profile: Profile): JsonValue {
       { kind: "array", items: profile.entries.map(entryValue) },
     ]);
   }
+  if (profile.label !== undefined) {
+    fields.push(["label", { kind: "string", value: profile.label }]);
+  }
   return { kind: "object", entries: new Map(fields) };
 }
 

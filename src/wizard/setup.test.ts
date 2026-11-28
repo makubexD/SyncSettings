@@ -9,8 +9,12 @@ import type {
   SetupFlags,
   SetupInput,
   SetupOutcome,
+  SetupValueChoice,
+  SetupValueQuestion,
+  SetupValues,
+  ValueFlag,
 } from "./setup.ts";
-import { runSetup } from "./setup.ts";
+import { guessProfile, runSetup } from "./setup.ts";
 
 const TODAY = "2026-11-13";
 
@@ -117,6 +121,12 @@ const SCAN_BLOCK = [
 ].join("\n");
 
 const Q1 = "1/4 What is this machine for? ";
+const GUESS_PERSONAL = "Guess: personal (Linux, no domain).";
+const Q1_PERSONAL = `${Q1}[1] `;
+/** Enter at the label question a new profile other than personal gets. */
+const NO_LABEL = "";
+const LABEL_QUESTION = (profileName: string): string =>
+  ` Label for ${profileName}, to find it in lists (optional): `;
 const Q2 =
   "2/4 Claude here? 1) none  2) Claude only  3) Claude plus DeepSeek [2] ";
 const Q3 =
@@ -153,6 +163,7 @@ describe("runSetup", () => {
   test("should print the contract's layout for answers on stdin", async () => {
     const { outcome, output } = await run(input(), [
       "work-1",
+      "",
       "2",
       "1",
       "1",
@@ -161,12 +172,15 @@ describe("runSetup", () => {
     expect(output).toBe(
       [
         SCAN_BLOCK,
+        GUESS_PERSONAL,
+        "",
         "Profiles on this machine:",
         "  1) personal",
         "",
-        `${Q1}${Q2}${Q3}${Q4}`,
+        `${Q1_PERSONAL}${LABEL_QUESTION("work-1")}${Q2}${Q3}${Q4}`,
         "Machine wk1-laptop: profile work-1, Claude only, push with a preview.",
-        "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup",
+        "Public name: work-1-linux",
+        "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux",
         "Write the record and apply? [Y/n] ",
       ].join("\n"),
     );
@@ -178,7 +192,7 @@ describe("runSetup", () => {
     expect(outcome.profile).toEqual(
       profile("work-1", ["shell", "git", "gh", "claude", "gnome"]),
     );
-    expect(outcome.record).toEqual(record());
+    expect(outcome.record).toEqual(record({ alias: "work-1-linux" }));
   });
 
   test("should go on when the confirm is answered yes", async () => {
@@ -186,7 +200,7 @@ describe("runSetup", () => {
     const setup = input({}, ANSWER_FLAGS);
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y"]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -222,7 +236,7 @@ describe("runSetup", () => {
     const setup = input({}, ANSWER_FLAGS);
 
     // Act
-    const { outcome } = await run(setup, [""]);
+    const { outcome } = await run(setup, [NO_LABEL, ""]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -246,7 +260,7 @@ describe("runSetup", () => {
     const setup = input({}, { ...ANSWER_FLAGS, existing: "stop" });
 
     // Act
-    const { outcome, output } = await run(setup, [""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, ""]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -262,7 +276,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, [""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -272,13 +286,10 @@ describe("runSetup", () => {
 
   test("should ask the bootstrap question before the summary", async () => {
     // Arrange
-    const setup = input(
-      { bootstrapOffered: true },
-      { ...ANSWER_FLAGS, yes: true },
-    );
+    const setup = input({ bootstrapOffered: true }, { ...ANSWER_FLAGS });
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -287,7 +298,7 @@ describe("runSetup", () => {
     expect(output.indexOf(BOOTSTRAP_QUESTION)).toBeLessThan(
       output.indexOf("Machine "),
     );
-    expect(output).toContain("--existing backup --bootstrap\n");
+    expect(output).toContain("--alias work-1-linux --bootstrap\n");
   });
 
   test("should not ask the bootstrap question with --bootstrap", async () => {
@@ -305,8 +316,56 @@ describe("runSetup", () => {
     expect(outcome.bootstrap).toBe(true);
     expect(output).not.toContain("Also restore apps and packages");
     expect(output).toContain(
-      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --bootstrap\n",
+      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux --bootstrap\n",
     );
+  });
+
+  test("should not ask the bootstrap question with --no-bootstrap", async () => {
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true, noBootstrap: true },
+    );
+
+    const { outcome, output } = await run(setup);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).toContain("--alias work-1-linux --no-bootstrap\n");
+  });
+
+  test("should skip the bootstrap under --yes alone without reading stdin", async () => {
+    const setup = input(
+      { bootstrapOffered: true },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    const { outcome, output } = await run(setup, ["y"]);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("Also restore apps and packages");
+    expect(output).toContain("--alias work-1-linux --no-bootstrap\n");
+  });
+
+  test("should print --no-bootstrap when the question was answered no", async () => {
+    const setup = input({ bootstrapOffered: true }, { ...ANSWER_FLAGS });
+
+    const { outcome, output } = await run(setup, [NO_LABEL, "n", ""]);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).toContain("--alias work-1-linux --no-bootstrap\n");
+  });
+
+  test("should print no bootstrap flag when the bootstrap was not offered", async () => {
+    const setup = input({}, { ...ANSWER_FLAGS, yes: true, noBootstrap: true });
+
+    const { outcome, output } = await run(setup);
+
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.bootstrap).toBe(false);
+    expect(output).not.toContain("bootstrap");
   });
 
   test("should not ask the bootstrap question for the stop answer", async () => {
@@ -357,10 +416,10 @@ describe("runSetup", () => {
     );
     expect(output).not.toContain("1/4");
     expect(output).toContain(
-      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude-deepseek --mode push --existing keep\n",
+      "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude-deepseek --mode push --existing keep --alias work-1-linux\n",
     );
     expect(output).toContain(
-      "Machine wk1-laptop: profile work-1, Claude plus DeepSeek, push with a preview.\n",
+      "Machine wk1-laptop: profile work-1, Claude plus DeepSeek, push with a preview.\nPublic name: work-1-linux\n",
     );
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.action).toBe("keep");
@@ -397,7 +456,7 @@ describe("runSetup", () => {
   });
 
   test("should take the suggestion on an empty answer and at end of input", async () => {
-    const { outcome } = await run(input(), ["work-1", "", "", "", ""]);
+    const { outcome } = await run(input(), ["work-1", "", "", "", "", ""]);
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.record.claude).toBe("claude");
     expect(outcome.action).toBe("backup");
@@ -411,14 +470,66 @@ describe("runSetup", () => {
       code: 2,
     });
     expect(yes.output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n`,
+      `${SCAN_BLOCK}\n${GUESS_PERSONAL}\n\nProfiles on this machine:\n  1) personal\n\n`,
     );
-    const eof = await run(input());
-    expect(eof.outcome).toEqual({
+  });
+
+  test("should take the guess at end of input on question 1", async () => {
+    const { outcome } = await run(input(), ["", "", "", "", "y"]);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.name).toBe("personal");
+  });
+
+  test("should suggest a new work profile by name and ask its label", async () => {
+    const setup = input({
+      scan: scan({ domain: "corp.example" }),
+      profiles: [profile("work-3")],
+    });
+    const { outcome, output } = await run(setup, ["", "", "", "", "", "y"]);
+    expect(output).toContain(
+      "Guess: new profile work4 (Linux, joined to a domain); other machines' profiles can't be seen while the repo is public, so check the number\n\n",
+    );
+    expect(output).toContain(`${Q1}[work4] ${LABEL_QUESTION("work4")}${Q2}`);
+    expect(output).not.toContain("corp.example\n\nProfiles");
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.name).toBe("work4");
+    expect(outcome.newProfile).toBe(true);
+  });
+
+  test("should take a private work guess under --yes", async () => {
+    const setup = input(
+      {
+        scan: scan({ domain: "corp.example" }),
+        profiles: [profile("work1"), { ...profile("work2"), retired: true }],
+        isPrivate: true,
+      },
+      { yes: true },
+    );
+    const { outcome, output } = await run(setup);
+    expect(output).toContain(
+      "Guess: new profile work3 (Linux, joined to a domain).\n\n",
+    );
+    expect(output).not.toContain(Q1);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.name).toBe("work3");
+  });
+
+  test("should stop under --yes when the work guess is public", async () => {
+    const setup = input(
+      { scan: scan({ domain: "corp.example" }) },
+      { yes: true },
+    );
+    const { outcome } = await run(setup);
+    expect(outcome).toEqual({
       ok: false,
       message: "ERROR: missing --profile",
       code: 2,
     });
+  });
+
+  test("should print no guess when --profile decides", async () => {
+    const { output } = await run(input({}, { profile: "work-1" }), []);
+    expect(output).not.toContain("Guess:");
   });
 
   test("should ask the first question again after a bad answer", async () => {
@@ -432,7 +543,7 @@ describe("runSetup", () => {
       "",
     ]);
     expect(output).toContain(
-      `${Q1}Pick 1 to 1 or type a new profile name.\n${Q1}Pick 1 to 1 or type a new profile name.\n${Q1}`,
+      `${Q1_PERSONAL}Pick 1 to 1 or type a new profile name.\n${Q1_PERSONAL}Pick 1 to 1 or type a new profile name.\n${Q1_PERSONAL}`,
     );
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.profile.name).toBe("personal");
@@ -440,6 +551,7 @@ describe("runSetup", () => {
 
   test("should ask a numbered question again after a bad answer", async () => {
     const { outcome, output } = await run(input({}, { profile: "work-1" }), [
+      NO_LABEL,
       "9",
       "3",
       "",
@@ -453,6 +565,7 @@ describe("runSetup", () => {
 
   test("should ask a question again for a hex or decimal number answer", async () => {
     const { outcome, output } = await run(input({}, { profile: "work-1" }), [
+      NO_LABEL,
       "0x2",
       "2.0",
       "3",
@@ -491,7 +604,7 @@ describe("runSetup", () => {
       code: 2,
     });
     expect(output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q1}\n`,
+      `${SCAN_BLOCK}\n${GUESS_PERSONAL}\n\nProfiles on this machine:\n  1) personal\n\n${Q1_PERSONAL}\n`,
     );
     expect(output).not.toContain("2/4");
   });
@@ -561,7 +674,7 @@ describe("runSetup", () => {
       code: 1,
     });
     expect(output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q1}\n`,
+      `${SCAN_BLOCK}\n${GUESS_PERSONAL}\n\nProfiles on this machine:\n  1) personal\n\n${Q1_PERSONAL}\n`,
     );
     expect(output).not.toContain("2/4");
   });
@@ -579,10 +692,10 @@ describe("runSetup", () => {
         `1/4 What is this machine for? [2] ${Q4}\n`,
     );
     expect(output).toContain(
-      "Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup\n",
+      "Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux\n",
     );
     if (!outcome.ok) throw new Error("expected ok");
-    expect(outcome.record).toEqual(record());
+    expect(outcome.record).toEqual(record({ alias: "work-1-linux" }));
     expect(outcome.replaced).toBe(true);
   });
 
@@ -590,7 +703,7 @@ describe("runSetup", () => {
     const setup = input({ profiles: [profile("work-1")], records: [record()] });
     const { output } = await run(setup, ["2"]);
     expect(output).not.toContain("This looks like");
-    expect(output).toContain(`${Q1}${Q2}`);
+    expect(output).toContain(`${Q1_PERSONAL}${Q2}`);
   });
 
   test("should replace a record from --replace, keeping its answers", async () => {
@@ -648,7 +761,7 @@ describe("runSetup", () => {
   test("should refuse keep answered after pull-only", async () => {
     const { outcome, output } = await run(
       input({}, { profile: "work-1", claude: "claude" }),
-      ["2", "2"],
+      [NO_LABEL, "2", "2"],
     );
     expect(outcome).toEqual({
       ok: false,
@@ -657,7 +770,7 @@ describe("runSetup", () => {
       code: 1,
     });
     expect(output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q3}${Q4}\n`,
+      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${LABEL_QUESTION("work-1")}${Q3}${Q4}\n`,
     );
     expect(output).not.toContain("Machine ");
   });
@@ -758,7 +871,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y"]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -828,7 +941,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, ["", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -875,7 +988,7 @@ describe("runSetup", () => {
     );
 
     // Act
-    const { outcome, output } = await run(setup, ["y"]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "y"]);
 
     // Assert
     expect(outcome.ok).toBe(true);
@@ -1043,7 +1156,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome, output } = await run(setup, ["1", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "1", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1057,7 +1170,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome } = await run(setup, ["2", ""]);
+    const { outcome } = await run(setup, [NO_LABEL, "2", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1070,7 +1183,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome } = await run(setup, ["3", ""]);
+    const { outcome } = await run(setup, [NO_LABEL, "3", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1111,7 +1224,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS]);
 
     // Act
-    const { outcome, output } = await run(setup, ["4", "1", ""]);
+    const { outcome, output } = await run(setup, [NO_LABEL, "4", "1", ""]);
 
     // Assert
     expect(output).toContain(
@@ -1130,7 +1243,7 @@ describe("runSetup linked folders", () => {
     const setup = linkedInput([LINKED_SCRIPTS, other]);
 
     // Act
-    const { outcome } = await run(setup, ["1", "1", ""]);
+    const { outcome } = await run(setup, [NO_LABEL, "1", "1", ""]);
 
     // Assert
     if (!outcome.ok) throw new Error("expected ok");
@@ -1146,5 +1259,895 @@ describe("runSetup linked folders", () => {
 
     // Assert
     expect(output).not.toContain("Sync it as a folder?");
+  });
+});
+
+describe("guessProfile", () => {
+  const PUBLIC = "public";
+  const PRIVATE = "private";
+  const DOMAIN = "corp.example";
+
+  test("should guess personal on Linux without a domain", () => {
+    expect(guessProfile(scan(), [], PUBLIC)).toEqual({
+      name: "personal",
+      reason: "personal (Linux, no domain).",
+      takenByYes: false,
+    });
+  });
+
+  test("should guess work1 on Linux with a domain", () => {
+    const guess = guessProfile(scan({ domain: DOMAIN }), [], PRIVATE);
+    expect(guess.name).toBe("work1");
+    expect(guess.reason).toBe("new profile work1 (Linux, joined to a domain).");
+    expect(guess.reason).not.toContain(DOMAIN);
+  });
+
+  test("should guess work1 on Windows and on macOS without a domain", () => {
+    expect(guessProfile(scan({ os: "windows" }), [], PRIVATE).reason).toBe(
+      "new profile work1 (Windows).",
+    );
+    expect(guessProfile(scan({ os: "macos" }), [], PRIVATE).reason).toBe(
+      "new profile work1 (macOS).",
+    );
+  });
+
+  test("should number past work1, work-3 and a retired work4", () => {
+    const known = ["personal", "work1", "work-3", "work4"];
+    expect(guessProfile(scan({ os: "windows" }), known, PRIVATE).name).toBe(
+      "work5",
+    );
+  });
+
+  test("should not count workbench or work-x", () => {
+    const known = ["workbench", "work-x", "work"];
+    expect(guessProfile(scan({ os: "windows" }), known, PRIVATE).name).toBe(
+      "work1",
+    );
+  });
+
+  test("should add the public note only while public", () => {
+    const winScan = scan({ os: "windows" });
+    expect(guessProfile(winScan, [], PUBLIC).reason).toBe(
+      "new profile work1 (Windows); other machines' profiles can't be seen while the repo is public, so check the number",
+    );
+    expect(guessProfile(winScan, [], PRIVATE).reason).not.toContain("public");
+    expect(guessProfile(scan(), [], PUBLIC).reason).not.toContain("public");
+  });
+
+  test("should let --yes take only a private work guess", () => {
+    const winScan = scan({ os: "windows" });
+    expect(guessProfile(winScan, [], PRIVATE).takenByYes).toBe(true);
+    expect(guessProfile(winScan, [], PUBLIC).takenByYes).toBe(false);
+    expect(guessProfile(scan(), [], PRIVATE).takenByYes).toBe(false);
+  });
+});
+
+describe("runSetup profile guess and the hostname match", () => {
+  test("should print no guess when the hostname match decides", async () => {
+    const setup = input({
+      profiles: [profile("work-1")],
+      records: [record()],
+      isPrivate: true,
+    });
+    const { output } = await run(setup, ["", "", ""]);
+    expect(output).not.toContain("Guess:");
+  });
+});
+
+describe("runSetup public name", () => {
+  const ALL_FLAGS: SetupFlags = {
+    name: "wk1-laptop",
+    profile: "work-1",
+    claude: "claude",
+    mode: "push",
+    existing: "stop",
+    yes: true,
+  };
+
+  test("should guess <profile>-<os> and save it", async () => {
+    const { outcome, output } = await run(input({}, ALL_FLAGS));
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("work-1-linux");
+    expect(output).toContain(
+      "push with a preview.\nPublic name: work-1-linux\nSame as: ",
+    );
+    expect(output).toContain("--existing stop --alias work-1-linux\n");
+  });
+
+  test("should take --alias over the guess", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, alias: "desk-a" }),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("desk-a");
+    expect(output).toContain("Public name: desk-a\n");
+    expect(output).toContain("--existing stop --alias desk-a\n");
+  });
+
+  test("should refuse a bad --alias with exit 2 before any question", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, yes: false, alias: "WK1-Laptop" }),
+    );
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: 'WK1-Laptop' is this machine's hostname; pick another public name.",
+      code: 2,
+    });
+    expect(output).toBe("");
+  });
+
+  test("should refuse an --alias that isn't alias form", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, alias: "Desk A" }),
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok || "declined" in outcome) throw new Error("expected error");
+    expect(outcome.code).toBe(2);
+    expect(outcome.message).toContain("invalid machine alias 'Desk A'");
+    expect(output).toBe("");
+  });
+
+  test("should keep a replaced record's alias", async () => {
+    const { outcome, output } = await run(
+      input(
+        {
+          profiles: [profile("work-1")],
+          records: [record({ alias: "old-desk" })],
+        },
+        {
+          replace: "wk1-laptop",
+          claude: "claude",
+          mode: "push",
+          existing: "stop",
+          yes: true,
+        },
+      ),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("old-desk");
+    expect(output).toContain("Public name: old-desk\n");
+    expect(output).toContain("--existing stop --alias old-desk\n");
+  });
+
+  test("should let --alias replace a kept alias", async () => {
+    const { outcome } = await run(
+      input(
+        {
+          profiles: [profile("work-1")],
+          records: [record({ alias: "old-desk" })],
+        },
+        {
+          replace: "wk1-laptop",
+          claude: "claude",
+          mode: "push",
+          existing: "stop",
+          alias: "new-desk",
+          yes: true,
+        },
+      ),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBe("new-desk");
+  });
+
+  test("should give a pull-only machine no public name", async () => {
+    const { outcome, output } = await run(
+      input({}, { ...ALL_FLAGS, mode: "pull-only" }),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBeUndefined();
+    expect(output).not.toContain("Public name:");
+    expect(output).not.toContain("--alias");
+  });
+
+  test("should leave the alias out when the guess is refused", async () => {
+    const { outcome, output } = await run(
+      input(
+        { scan: scan({ hostname: "work-1-linux" }) },
+        { ...ALL_FLAGS, name: "box1" },
+      ),
+    );
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.record.alias).toBeUndefined();
+    expect(output).not.toContain("Public name:");
+  });
+});
+
+describe("runSetup label", () => {
+  const QUESTIONS_AFTER_LABEL = [Q2, Q3].join("");
+
+  test("should ask a label for a new work profile and keep it", async () => {
+    // Arrange
+    const setup = input({}, { existing: "stop" });
+
+    // Act
+    const { outcome, output } = await run(setup, [
+      "work-1",
+      "Big Co",
+      "",
+      "",
+      "y",
+    ]);
+
+    // Assert
+    expect(output).toContain(
+      `${LABEL_QUESTION("work-1")}${QUESTIONS_AFTER_LABEL}`,
+    );
+    expect(output).toContain("profile work-1 (Big Co), Claude only");
+    expect(output).toContain("--profile work-1 --label 'Big Co' --name");
+    expect(outcome.ok && outcome.profile.label).toBe("Big Co");
+  });
+
+  test("should leave no label for an empty answer", async () => {
+    // Act
+    const { outcome, output } = await run(input({}, { existing: "stop" }), [
+      "work-1",
+      "",
+      "",
+      "",
+      "y",
+    ]);
+
+    // Assert
+    expect(output).toContain("profile work-1, Claude only");
+    expect(output).not.toContain("--label");
+    expect(outcome.ok && Object.hasOwn(outcome.profile, "label")).toBe(false);
+  });
+
+  test("should leave no label at end of input", async () => {
+    // Act
+    const { output } = await run(input({}, { existing: "stop" }), ["work-1"]);
+
+    // Assert
+    expect(output).toContain("profile work-1, Claude only");
+    expect(output).not.toContain("--label");
+  });
+
+  test("should ask again for a bad typed label", async () => {
+    // Act
+    const { outcome, output } = await run(input({}, { existing: "stop" }), [
+      "work-1",
+      "a/b",
+      "acme",
+      "",
+      "",
+      "y",
+    ]);
+
+    // Assert
+    expect(output).toContain("Use 1 to 30 letters, digits, spaces or .-_&.\n");
+    expect(outcome.ok && outcome.profile.label).toBe("acme");
+  });
+
+  test("should not ask for personal", async () => {
+    // Act
+    const { output } = await run(input({}, { existing: "stop" }), ["personal"]);
+
+    // Assert
+    expect(output).not.toContain("Label for");
+  });
+
+  test("should not ask for an existing profile", async () => {
+    // Act
+    const { output } = await run(
+      input({ profiles: [profile("work-1")] }, { existing: "stop" }),
+      ["work-1"],
+    );
+
+    // Assert
+    expect(output).not.toContain("Label for");
+  });
+
+  test("should not ask under --yes or --label", async () => {
+    // Act
+    const yes = await run(
+      input({}, { profile: "work-1", yes: true, existing: "stop" }),
+    );
+    const flagged = await run(input({}, { existing: "stop", label: "acme" }), [
+      "work-1",
+    ]);
+
+    // Assert
+    expect(yes.output).not.toContain("Label for");
+    expect(flagged.output).not.toContain("Label for");
+    expect(flagged.output).toContain("profile work-1 (acme)");
+    expect(flagged.output).toContain("--profile work-1 --label acme --name");
+  });
+
+  test("should ask when --profile names a new profile", async () => {
+    // Act
+    const { outcome, output } = await run(
+      input({}, { profile: "work-1", existing: "stop" }),
+      ["acme", "", "", "y"],
+    );
+
+    // Assert
+    expect(output).toContain(LABEL_QUESTION("work-1"));
+    expect(outcome.ok && outcome.profile.label).toBe("acme");
+  });
+
+  test("should not ask under --yes when --profile names a new profile", async () => {
+    // Act
+    const { output } = await run(
+      input({}, { profile: "work-1", existing: "stop", yes: true }),
+    );
+
+    // Assert
+    expect(output).not.toContain("Label for");
+  });
+
+  test("should stop with exit 2 before any question for --label on an existing profile", async () => {
+    // Arrange
+    const setup = input(
+      { profiles: [profile("work-1")] },
+      { profile: "work-1", label: "acme" },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(output).toBe("");
+    expect(outcome).toMatchObject({
+      ok: false,
+      message: "ERROR: --label names a new profile; work-1 already exists",
+      code: 2,
+    });
+  });
+
+  test("should list, summarise and repeat a stored label", async () => {
+    // Arrange
+    const labelled = { ...profile("work-1"), label: "acme" };
+    const setup = input(
+      { profiles: [labelled, profile("work-2")] },
+      { profile: "work-1", existing: "stop" },
+    );
+
+    // Act
+    const { output } = await run(setup);
+
+    // Assert
+    expect(output).toContain("  2) work-1  (acme)\n  3) work-2\n");
+    expect(output).toContain("profile work-1 (acme), Claude only");
+    expect(output).not.toContain("--label");
+  });
+});
+
+/** The import's header, printed once before the first `fill` question. */
+const VALUE_HEADER =
+  "\n  Enter values to fill the placeholders in the config files:\n\n";
+
+const NAME_QUESTION: SetupValueQuestion = {
+  kind: "fill",
+  placeholder: "<YOUR_NAME>",
+  text: "  Full name (~/.gitconfig) [Jane Doe]: ",
+  guess: { value: "Jane Doe", source: "git-user-name" },
+};
+
+const EMAIL_QUESTION: SetupValueQuestion = {
+  kind: "fill",
+  placeholder: "<YOUR_EMAIL>",
+  text: "  Email (~/.gitconfig): ",
+};
+
+const TYPED_EMAIL = "jane@example.com";
+
+/** A typed value holding a space, which `Same as:` quotes whole. */
+const TYPED_NAME = "Ana Lopez";
+
+/** A values reader that returns `values` and records each choice it got. */
+function valuesReader(values: SetupValues): {
+  readonly read: (choice: SetupValueChoice) => Promise<SetupValues>;
+  readonly choices: SetupValueChoice[];
+} {
+  const choices: SetupValueChoice[] = [];
+  return {
+    choices,
+    read: (choice) => {
+      choices.push(choice);
+      return Promise.resolve(values);
+    },
+  };
+}
+
+const TWO_VALUES: SetupValues = {
+  places: [],
+  questions: [NAME_QUESTION, EMAIL_QUESTION],
+};
+
+describe("runSetup value questions", () => {
+  test("should ask the values after question 4 and before the summary", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, [NO_LABEL, "", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(output).toContain(
+      `${VALUE_HEADER}${NAME_QUESTION.text}${EMAIL_QUESTION.text}\nMachine wk1-laptop:`,
+    );
+  });
+
+  test("should list each value with its source in the summary's Values block", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, [NO_LABEL, "", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(output).toContain(
+      [
+        "Public name: work-1-linux",
+        "Values:",
+        "  <YOUR_NAME> = Jane Doe (git-user-name)",
+        `  <YOUR_EMAIL> = ${TYPED_EMAIL} (typed)`,
+        "Same as: ",
+      ].join("\n"),
+    );
+  });
+
+  test("should put only typed answers in Same as, quoted when needed", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, [
+      NO_LABEL,
+      TYPED_NAME,
+      TYPED_EMAIL,
+      "",
+    ]);
+
+    // Assert
+    expect(output).toContain(
+      `--alias work-1-linux --value 'YOUR_NAME=${TYPED_NAME}' --value YOUR_EMAIL=${TYPED_EMAIL}\n`,
+    );
+  });
+
+  test("should return the answers with the record after a yes", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome } = await run(setup, [NO_LABEL, "", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(outcome.ok && outcome.values).toEqual([
+      {
+        kind: "fill",
+        placeholder: "<YOUR_NAME>",
+        value: "Jane Doe",
+        source: "git-user-name",
+      },
+      {
+        kind: "fill",
+        placeholder: "<YOUR_EMAIL>",
+        value: TYPED_EMAIL,
+        source: "typed",
+      },
+    ]);
+  });
+
+  test("should ask nothing after the confirm", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, [
+      NO_LABEL,
+      "",
+      TYPED_EMAIL,
+      "",
+      "left over",
+    ]);
+
+    // Assert
+    expect(output.endsWith(CONFIRM_QUESTION)).toBe(true);
+  });
+
+  test("should give the reader the chosen profile, record, action and mode", async () => {
+    // Arrange
+    const reader = valuesReader(TWO_VALUES);
+    const setup = input({ values: reader.read }, ANSWER_FLAGS);
+
+    // Act
+    await run(setup, ["", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(reader.choices).toEqual([
+      {
+        profile: profile("work-1", ["shell", "git", "gh", "claude", "gnome"]),
+        record: record({ alias: "work-1-linux" }),
+        action: "backup",
+        mode: "push",
+        replaced: false,
+      },
+    ]);
+  });
+
+  test("should stop without taking the guess at end of input", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, []);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: missing value for <YOUR_NAME>",
+      code: 1,
+    });
+    expect(output).not.toContain("Machine wk1-laptop:");
+  });
+
+  test("should stop on an empty answer to a question with no guess", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome } = await run(setup, ["", ""]);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: missing value for <YOUR_EMAIL>",
+      code: 1,
+    });
+  });
+
+  test("should stop on an answer holding placeholder text", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome } = await run(setup, [NO_LABEL, "", "<YOUR_EMAIL>"]);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: missing value for <YOUR_EMAIL>",
+      code: 1,
+    });
+  });
+
+  test("should take every guess under --yes without asking", async () => {
+    // Arrange
+    const values: SetupValues = { places: [], questions: [NAME_QUESTION] };
+    const setup = input(
+      { values: valuesReader(values).read },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, []);
+
+    // Assert
+    expect(output).not.toContain(NAME_QUESTION.text);
+    expect(output).toContain("  <YOUR_NAME> = Jane Doe (git-user-name)\n");
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("should stop under --yes on a value with no guess before the summary", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, []);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: missing value for <YOUR_EMAIL>; pass --value YOUR_EMAIL=<value>",
+      code: 2,
+    });
+    expect(output).not.toContain("Machine wk1-laptop:");
+  });
+
+  test("should ask the kept-on question before the summary and return its place", async () => {
+    // Arrange
+    const values: SetupValues = { places: ["<OTHER>"], questions: [] };
+    const setup = input({ values: valuesReader(values).read }, ANSWER_FLAGS);
+
+    // Act
+    const { outcome, output } = await run(setup, [NO_LABEL, "2", ""]);
+
+    // Assert
+    expect(output).toContain(
+      "<OTHER>: kept on 1) this profile 2) this machine [1] \nMachine wk1-laptop:",
+    );
+    expect(outcome.ok && outcome.places).toEqual({ "<OTHER>": "machine" });
+  });
+
+  test("should print no Values block when nothing is asked", async () => {
+    // Arrange
+    const values: SetupValues = { places: ["<OTHER>"], questions: [] };
+    const setup = input({ values: valuesReader(values).read }, ANSWER_FLAGS);
+
+    // Act
+    const { output } = await run(setup, ["", ""]);
+
+    // Assert
+    expect(output).not.toContain("Values:");
+  });
+
+  test("should show a replace answer taken from the old machine", async () => {
+    // Arrange
+    const values: SetupValues = {
+      places: [],
+      questions: [
+        {
+          kind: "replace",
+          placeholder: "<HOME>",
+          text: "<HOME> [/home/old] ",
+          guess: { value: "/home/old", source: "old machine" },
+        },
+      ],
+    };
+    const setup = input({ values: valuesReader(values).read }, ANSWER_FLAGS);
+
+    // Act
+    const { output } = await run(setup, ["", ""]);
+
+    // Assert
+    expect(output).toContain(
+      "<HOME> [/home/old] \nMachine wk1-laptop: profile work-1, Claude only, push with a preview.\nPublic name: work-1-linux\nValues:\n  <HOME> = /home/old (old machine)\n",
+    );
+  });
+  describe("--value", () => {
+    const FLAG_NAME = { placeholder: "<YOUR_NAME>", value: "Ana Lopez" };
+    const FLAG_EMAIL = { placeholder: "<YOUR_EMAIL>", value: TYPED_EMAIL };
+    const WITH_RULES: ConfigV2 = {
+      ...CONFIG,
+      entries: [
+        {
+          file: "git/gitconfig",
+          module: "git",
+          merge: "whole",
+          localPath: "~/.gitconfig",
+          sanitize: [
+            { placeholder: "<YOUR_NAME>", prompt: "Full name" },
+            { placeholder: "<YOUR_EMAIL>", prompt: "Email" },
+          ],
+        },
+      ],
+    };
+
+    function flagged(
+      value: readonly ValueFlag[],
+      values: SetupValues = TWO_VALUES,
+      extra: SetupFlags = {},
+    ): SetupInput {
+      return input(
+        { config: WITH_RULES, values: valuesReader(values).read },
+        { ...ANSWER_FLAGS, value, ...extra },
+      );
+    }
+
+    test("should answer a question without asking it and mark the source", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).not.toContain(NAME_QUESTION.text);
+      expect(output).toContain(
+        `Values:\n  <YOUR_NAME> = Ana Lopez (--value)\n  <YOUR_EMAIL> = ${TYPED_EMAIL} (--value)\n`,
+      );
+    });
+
+    test("should ask only the questions no --value answers", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME]);
+
+      // Act
+      const { output } = await run(setup, [TYPED_EMAIL, ""]);
+
+      // Assert
+      expect(output).toContain(`${VALUE_HEADER}${EMAIL_QUESTION.text}\n`);
+    });
+
+    test("should repeat each --value in Same as, quoted when needed", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        `--alias work-1-linux --value 'YOUR_NAME=Ana Lopez' --value YOUR_EMAIL=${TYPED_EMAIL}\n`,
+      );
+    });
+
+    test("should stop on a placeholder no rule uses before any question", async () => {
+      // Arrange
+      const setup = flagged([{ placeholder: "<NOPE>", value: "x" }]);
+
+      // Act
+      const { outcome, output } = await run(setup);
+
+      // Assert
+      expect(outcome).toEqual({
+        ok: false,
+        message: "ERROR: --value <NOPE>: no rule uses this placeholder",
+        code: 2,
+      });
+      expect(output).toBe("");
+    });
+
+    test("should mark a --value that replaces a saved value", async () => {
+      // Arrange
+      const saved = { ...record(), values: { "<YOUR_NAME>": "Old" } };
+      const setup = input(
+        {
+          config: WITH_RULES,
+          records: [saved],
+          isPrivate: true,
+          values: valuesReader({ places: [], questions: [] }).read,
+        },
+        { ...ANSWER_FLAGS, replace: "wk1-laptop", value: [FLAG_NAME] },
+      );
+
+      // Act
+      const { output, outcome } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        "  <YOUR_NAME> = Ana Lopez (--value, replaces the saved value)\n",
+      );
+      expect(outcome.ok && outcome.values[0]?.source).toBe(
+        "--value, replaces the saved value",
+      );
+    });
+
+    test("should mark a replace question answered by --value", async () => {
+      // Arrange
+      const values: SetupValues = {
+        places: [],
+        questions: [
+          {
+            kind: "replace",
+            placeholder: "<YOUR_NAME>",
+            text: "<YOUR_NAME> [Old] ",
+            guess: { value: "Old", source: "old machine" },
+          },
+        ],
+      };
+      const setup = flagged([FLAG_NAME], values);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        "  <YOUR_NAME> = Ana Lopez (--value, replaces the saved value)\n",
+      );
+    });
+
+    test("should take a --value under --yes before a guess", async () => {
+      // Arrange
+      const setup = flagged([FLAG_NAME, FLAG_EMAIL], TWO_VALUES, {
+        yes: true,
+      });
+
+      // Act
+      const { outcome } = await run(setup);
+
+      // Assert
+      expect(
+        outcome.ok && outcome.values.map((answer) => answer.value),
+      ).toEqual(["Ana Lopez", TYPED_EMAIL]);
+    });
+
+    test("should quote a value holding a quote with doubled quotes on Windows", async () => {
+      // Arrange
+      const setup = input(
+        {
+          scan: scan({ os: "windows" }),
+          config: WITH_RULES,
+          values: valuesReader(TWO_VALUES).read,
+        },
+        {
+          ...ANSWER_FLAGS,
+          value: [{ ...FLAG_NAME, value: "O'Neil" }, FLAG_EMAIL],
+        },
+      );
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain("--value 'YOUR_NAME=O''Neil'");
+    });
+
+    test("should quote a value holding a quote with '\\'' on Linux", async () => {
+      // Arrange
+      const setup = flagged([{ ...FLAG_NAME, value: "O'Neil" }, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain("--value 'YOUR_NAME=O'\\''Neil'");
+    });
+
+    test("should leave out a value holding a double quote on Windows", async () => {
+      // Arrange
+      const setup = input(
+        {
+          scan: scan({ os: "windows" }),
+          config: WITH_RULES,
+          values: valuesReader(TWO_VALUES).read,
+        },
+        {
+          ...ANSWER_FLAGS,
+          value: [{ ...FLAG_NAME, value: 'Ana "A" Lopez' }, FLAG_EMAIL],
+        },
+      );
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(
+        `--value YOUR_EMAIL=${TYPED_EMAIL}\nSame as: leaves out --value YOUR_NAME (its value holds a ").\n`,
+      );
+    });
+
+    test("should keep a double quote on Linux in Same as", async () => {
+      // Arrange
+      const setup = flagged([{ ...FLAG_NAME, value: 'Ana "A"' }, FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).toContain(`--value 'YOUR_NAME=Ana "A"'`);
+    });
+
+    test("should leave a guessed value out of Same as", async () => {
+      // Arrange
+      const setup = flagged([FLAG_EMAIL]);
+
+      // Act
+      const { output } = await run(setup, [""]);
+
+      // Assert
+      expect(output).not.toContain("YOUR_NAME=");
+    });
   });
 });

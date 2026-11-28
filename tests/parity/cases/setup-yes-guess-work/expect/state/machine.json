@@ -1,0 +1,17 @@
+{
+  "name": "wk3-laptop",
+  "alias": "work3-linux",
+  "profile": "work3",
+  "os": "linux",
+  "hostname": "wk3-laptop",
+  "domain": "corp.example",
+  "claude": "claude",
+  "pullOnly": false,
+  "modules": {
+    "add": [],
+    "remove": []
+  },
+  "values": {},
+  "replaced": [],
+  "retired": false
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SanitizeRule, SuggestSource } from "../core/config/types.ts";
-import { sourceCommand, suggestions } from "./suggest.ts";
+import { sourceCommand, suggestionSources, suggestions } from "./suggest.ts";
 import type {
   SourceContext,
   SuggestContext,
@@ -319,5 +319,50 @@ describe("suggestions", () => {
     // Assert
     expect(found).toEqual({ [GH_PATH_PLACEHOLDER]: FOUND_GH });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("suggestionSources", () => {
+  const FALLBACK_RULE: SanitizeRule = {
+    placeholder: NAME_PLACEHOLDER,
+    prompt: "Full name",
+    suggest: ["git-user-name", "passwd-name"],
+  };
+
+  test("should name the first source that answered", async () => {
+    const { runner } = byProgram({ git: { code: 0, stdout: "Jane Doe\n" } });
+
+    const found = await suggestionSources([FALLBACK_RULE], linux(runner));
+
+    expect(found).toEqual({
+      [NAME_PLACEHOLDER]: { value: "Jane Doe", source: "git-user-name" },
+    });
+  });
+
+  test("should name the fallback source when the first fails", async () => {
+    const { runner } = byProgram({
+      git: { code: 1, stdout: "" },
+      getent: { code: 0, stdout: "parity:x:1:1:Jane Doe,,,:/home/p:/bin/sh\n" },
+    });
+
+    const found = await suggestionSources([FALLBACK_RULE], linux(runner));
+
+    expect(found).toEqual({
+      [NAME_PLACEHOLDER]: { value: "Jane Doe", source: "passwd-name" },
+    });
+  });
+
+  test("should give nothing when no source answers", async () => {
+    const { runner } = answering({ code: 1, stdout: "" });
+
+    expect(await suggestionSources([FALLBACK_RULE], linux(runner))).toEqual({});
+  });
+
+  test("should give suggestions() the same values", async () => {
+    const { runner } = byProgram({ git: { code: 0, stdout: "Jane Doe\n" } });
+
+    expect(await suggestions([FALLBACK_RULE], linux(runner))).toEqual({
+      [NAME_PLACEHOLDER]: "Jane Doe",
+    });
   });
 });

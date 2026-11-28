@@ -3,6 +3,7 @@
 # compiled program in a throwaway HOME and repo, then compare exit codes, status
 # lines and both trees with expect/. The case format is tests/parity/README.md.
 # Usage: tests/parity/run.sh [--engine <path>] [case-name-filter]
+# The filter is a substring of the case name, or several joined by | (any one matches).
 # PARITY_JOBS: how many cases run at once, default one per processor.
 
 set -euo pipefail
@@ -108,21 +109,29 @@ validate_case() {
           else true end)' "$json" > /dev/null 2>&1 \
         || die 'options.only must be an array of strings'
     jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("value")) then
+            if ($o.value | type) == "array" then all($o.value[]; type == "string") else false end
+          else true end)' "$json" > /dev/null 2>&1 \
+        || die 'options.value must be an array of strings'
+    jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("paths")) then
             if ($o.paths | type) == "array" then all($o.paths[]; type == "string") else false end
           else true end)' "$json" > /dev/null 2>&1 \
         || die 'options.paths must be an array of strings'
     jq -e 'all(.commands[]; (.options // {}) as $o
         | all($o | to_entries[] | select(.key == "name" or .key == "profile" or .key == "replace"
-            or .key == "claude" or .key == "mode" or .key == "existing" or .key == "target");
+            or .key == "claude" or .key == "mode" or .key == "existing" or .key == "alias" or .key == "label" or .key == "target");
             .value | type == "string"))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode, existing and target must be strings'
+        || die 'options name, profile, replace, claude, mode, existing, alias, label and target must be strings'
     jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("yes")) then ($o.yes | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.yes must be a boolean'
     jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("bootstrap")) then ($o.bootstrap | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.bootstrap must be a boolean'
+    jq -e 'all(.commands[]; (.options // {}) as $o
+        | if ($o | has("noBootstrap")) then ($o.noBootstrap | type) == "boolean" else true end)' "$json" \
+        > /dev/null 2>&1 || die 'options.noBootstrap must be a boolean'
     jq -e 'all(.commands[]; (.options // {}) as $o
         | if ($o | has("partial")) then ($o.partial | type) == "boolean" else true end)' "$json" \
         > /dev/null 2>&1 || die 'options.partial must be a boolean'
@@ -141,6 +150,9 @@ validate_case() {
           and (if ($o | has("claude")) then $cmd == "setup" else true end)
           and (if ($o | has("mode")) then $cmd == "setup" else true end)
           and (if ($o | has("existing")) then $cmd == "setup" else true end)
+          and (if ($o | has("alias")) then $cmd == "setup" else true end)
+          and (if ($o | has("label")) then $cmd == "setup" else true end)
+          and (if ($o | has("value")) then $cmd == "setup" else true end)
           and (if ($o | has("yes")) then
                   $cmd == "setup" or $cmd == "export" or $cmd == "preview"
                   or $cmd == "machine-retire" or $cmd == "profile-retire"
@@ -148,6 +160,7 @@ validate_case() {
                   or $cmd == "push" or $cmd == "front-diff"
                else true end)
           and (if ($o | has("bootstrap")) then $cmd == "setup" else true end)
+          and (if ($o | has("noBootstrap")) then $cmd == "setup" else true end)
           and (if ($o | has("partial")) then $cmd == "commit" else true end)
           and (if ($o | has("message")) then $cmd == "commit" or $cmd == "push" else true end)
           and (if ($o | has("paths")) then
@@ -155,7 +168,7 @@ validate_case() {
                   or $cmd == "push" or $cmd == "front-diff" or $cmd == "front-check"
                else true end)
           and (if ($o | has("resetValues")) then $cmd == "import" or $cmd == "check" else true end))' "$json" > /dev/null 2>&1 \
-        || die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        || die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
     jq -e 'all(.commands[];
         .command as $cmd | (.options // {}) as $o
         | if ($cmd == "machine-retire" or $cmd == "profile-retire") then
@@ -924,7 +937,7 @@ run_case() {
         esac
         while IFS= read -r key; do
             case $key in
-                force|only|name|profile|replace|claude|mode|existing|yes|bootstrap|target|partial|message|paths|resetValues) ;;
+                force|only|name|profile|replace|claude|mode|existing|alias|label|value|yes|bootstrap|noBootstrap|target|partial|message|paths|resetValues) ;;
                 *) die "unknown option '$key' in command $((i + 1))" ;;
             esac
         done < <(jq -r ".commands[$i].options // {} | keys[]" "$dir/case.json")
@@ -934,7 +947,10 @@ run_case() {
         while IFS= read -r -d '' only_path; do
             args+=(--only "$only_path")
         done < <(jq -j ".commands[$i].options.only // [] | .[] | . , \"\\u0000\"" "$dir/case.json")
-        for key in name profile replace claude mode existing; do
+        while IFS= read -r -d '' value_arg; do
+            args+=(--value "$value_arg")
+        done < <(jq -j ".commands[$i].options.value // [] | .[] | . , \"\\u0000\"" "$dir/case.json")
+        for key in name profile replace claude mode existing alias label; do
             if [[ $(jq -r --arg key "$key" ".commands[$i].options // {} | has(\$key)" "$dir/case.json") == true ]]; then
                 args+=("--$key" "$(jq -r --arg key "$key" ".commands[$i].options[\$key]" "$dir/case.json")")
             fi
@@ -944,6 +960,9 @@ run_case() {
         fi
         if [[ $(jq -r ".commands[$i].options.bootstrap // false" "$dir/case.json") == true ]]; then
             args+=(--bootstrap)
+        fi
+        if [[ $(jq -r ".commands[$i].options.noBootstrap // false" "$dir/case.json") == true ]]; then
+            args+=(--no-bootstrap)
         fi
         if [[ $(jq -r ".commands[$i].options.partial // false" "$dir/case.json") == true ]]; then
             args+=(--partial)
@@ -1246,8 +1265,14 @@ for dir in "$CASES"/*/; do
     dir=${dir%/}
     case_name=${dir##*/}
 
-    if [[ -n $filter && $case_name != *"$filter"* ]]; then
-        continue
+    if [[ -n $filter ]]; then
+        # The filter is one or more substrings joined by |; a case runs when its name holds any of them.
+        IFS='|' read -r -a filter_parts <<<"$filter"
+        keep=0
+        for part in "${filter_parts[@]}"; do
+            [[ -n $part && $case_name == *"$part"* ]] && keep=1 && break
+        done
+        ((keep)) || continue
     fi
     names+=("$case_name")
     report_case "$dir" > "$work/$matched" < /dev/null &

@@ -10,3 +10,18 @@ const ANSWER_PADDING = /^[ \t\r]+|[ \t\r]+$/g;
 export function trimAnswer(raw: string): string {
   return raw.replace(ANSWER_PADDING, "");
 }
+
+/** C0 and C1 control characters, and the Unicode format characters that
+ * reorder or hide text (bidi overrides, zero-width marks, line separators,
+ * the BOM), which a prompt must not echo to the terminal. */
+const CONTROL_CHARACTER =
+  /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
+
+/**
+ * Whether a value holds a character a typed answer can't: a value is one
+ * line, as a typed answer is, so a newline or an escape character in a guess
+ * or a `--value` is refused rather than saved and hydrated.
+ */
+export function holdsControlCharacter(value: string): boolean {
+  return CONTROL_CHARACTER.test(value);
+}

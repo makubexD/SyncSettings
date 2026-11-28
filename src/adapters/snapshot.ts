@@ -151,13 +151,24 @@ export function loadLayers(
     return store;
   }
   const { profile, record, location } = store.value;
+  return { ok: true, value: layersOf(location, profile, record) };
+}
+
+/**
+ * A run's layers from a profile and record held in memory, the way
+ * `loadLayers` builds them from the store: `setup` reads the questions its
+ * import will ask before it writes either file, and the import then reads the
+ * same layers back from `location`.
+ */
+export function layersOf(
+  location: StoreLocation,
+  profile: Profile | undefined,
+  record: MachineRecord | undefined,
+): Layers {
   return {
-    ok: true,
-    value: {
-      location,
-      ...(profile !== undefined ? { profile } : {}),
-      ...(record !== undefined ? { machine: record.name, record } : {}),
-    },
+    location,
+    ...(profile !== undefined ? { profile } : {}),
+    ...(record !== undefined ? { machine: record.name, record } : {}),
   };
 }
 

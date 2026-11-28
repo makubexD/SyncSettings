@@ -963,6 +963,17 @@ describe("import value questions", () => {
     localPath: OTHER_FILE,
   };
 
+  /** A local copy whose line gives `<YOUR_NAME>` by import inference. */
+  const INFERRED_LOCAL_TEXT = "name = Jane Doe\n";
+  const NAME_ENV = "PARITY_NAME";
+  const NAME_FROM_ENV = "Jane Doe";
+  const DEFAULT_ENV_ENTRY: ConfigV2Entry = {
+    ...VALUE_ENTRY,
+    sanitize: [
+      { placeholder: "<YOUR_NAME>", prompt: "Full name", defaultEnv: NAME_ENV },
+    ],
+  };
+
   function twoEntrySnapshot(): Snapshot {
     return layeredSnapshot("linux", {
       entries: [OTHER_ENTRY, VALUE_ENTRY],
@@ -980,10 +991,76 @@ describe("import value questions", () => {
     // Assert
     expect(questions).toEqual([
       {
+        placeholder: "<YOUR_NAME>",
         text: `${ASK_HEADER}  Full name (${OTHER_FILE}, ${VALUE_FILE}): `,
         hasDefault: false,
       },
     ]);
+  });
+
+  test("should leave the header off when options.header is false", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [VALUE_ENTRY],
+      repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+    });
+
+    // Act
+    const questions = importValueQuestions(snapshot, { header: false });
+
+    // Assert
+    expect(questions).toEqual([
+      {
+        placeholder: "<YOUR_NAME>",
+        text: `  Full name (${VALUE_FILE}): `,
+        hasDefault: false,
+      },
+    ]);
+  });
+
+  test("should not list a value inferred from the local file", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [VALUE_ENTRY],
+      repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+      local: { ".config/parity/a.conf": INFERRED_LOCAL_TEXT },
+    });
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([]);
+  });
+
+  test("should not list a value its defaultEnv fills", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [DEFAULT_ENV_ENTRY],
+      repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+      env: { [NAME_ENV]: NAME_FROM_ENV },
+    });
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([]);
+  });
+
+  test("should not list a value the snapshot already holds", () => {
+    // Arrange
+    const snapshot = layeredSnapshot("linux", {
+      entries: [VALUE_ENTRY],
+      repo: { [VALUE_REPO]: VALUE_REPO_TEXT },
+      values: { "<YOUR_NAME>": NAME_FROM_ENV },
+    });
+
+    // Act
+    const questions = importValueQuestions(snapshot);
+
+    // Assert
+    expect(questions).toEqual([]);
   });
 
   test("should leave out a file --only leaves out", () => {
@@ -995,7 +1072,11 @@ describe("import value questions", () => {
 
     // Assert
     expect(questions).toEqual([
-      { text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `, hasDefault: false },
+      {
+        placeholder: "<YOUR_NAME>",
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `,
+        hasDefault: false,
+      },
     ]);
   });
 
@@ -1016,7 +1097,11 @@ describe("import value questions", () => {
 
     // Assert
     expect(questions).toEqual([
-      { text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `, hasDefault: false },
+      {
+        placeholder: "<YOUR_NAME>",
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `,
+        hasDefault: false,
+      },
     ]);
     expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
     expect(
@@ -1062,7 +1147,11 @@ describe("import value questions", () => {
 
     // Assert
     expect(questions).toEqual([
-      { text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `, hasDefault: false },
+      {
+        placeholder: "<YOUR_NAME>",
+        text: `${ASK_HEADER}  Full name (${VALUE_FILE}): `,
+        hasDefault: false,
+      },
     ]);
     expect(plan.prepare).toEqual([{ kind: "writeValues", text: NAME_VALUES }]);
   });
@@ -1091,10 +1180,15 @@ describe("import value questions", () => {
     // Assert
     expect(questions).toEqual([
       {
+        placeholder: "<YOUR_NAME>",
         text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Old Name]: `,
         hasDefault: true,
       },
-      { text: `  Home folder (${VALUE_FILE}): `, hasDefault: false },
+      {
+        placeholder: "<HOME>",
+        text: `  Home folder (${VALUE_FILE}): `,
+        hasDefault: false,
+      },
     ]);
   });
 
@@ -1118,6 +1212,7 @@ describe("import value questions", () => {
     // Assert
     expect(questions).toEqual([
       {
+        placeholder: "<YOUR_NAME>",
         text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Ana Lopez]: `,
         hasDefault: false,
         suggestion: "Ana Lopez",
@@ -1150,10 +1245,12 @@ describe("import value questions", () => {
     // Assert
     expect(questions).toEqual([
       {
+        placeholder: "<YOUR_NAME>",
         text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Old Name]: `,
         hasDefault: true,
       },
       {
+        placeholder: "<HOME>",
         text: `  Home folder (${VALUE_FILE}) [/home/ana]: `,
         hasDefault: false,
         suggestion: "/home/ana",
@@ -1188,6 +1285,7 @@ describe("import value questions", () => {
     // Assert
     expect(questions).toEqual([
       {
+        placeholder: "<YOUR_NAME>",
         text: `${ASK_HEADER}  Full name (${VALUE_FILE}) [Ana Lopez]: `,
         hasDefault: false,
         suggestion: "Ana Lopez",

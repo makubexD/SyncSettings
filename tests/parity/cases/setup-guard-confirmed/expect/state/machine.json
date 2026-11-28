@@ -1,5 +1,6 @@
 {
   "name": "box1",
+  "alias": "personal-linux",
   "profile": "personal",
   "os": "linux",
   "hostname": "wk1-laptop",

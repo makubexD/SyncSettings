@@ -37,12 +37,16 @@ intended. The gaps are in the first run itself:
 2. **Setup asks once, up front, with everything guessed.** WIZ-1 (profile from OS and domain: `personal` on a
    personal Linux machine, a new `work-<n>` on a domain-joined or non-Linux one, never from the domain's name), the
    public name asked at setup with `--alias`, `--value KEY=...` and `--no-bootstrap` so `Same as:` reproduces a run,
-   the review showing every guessed value and its source before anything is written, WIZ-7, WIZ-10, WIZ-11.
+   the review showing every guessed value and its source before anything is written, WIZ-7, WIZ-11, and an optional
+   profile label (asked 2026-11-27). Plan: `docs/plan-smart-first-run-2.md` (`v1.3.0`). **Done 2026-11-27.**
+   Breaking: the profile is guessed (`work<n>`, no dash), values are asked before the confirm, and `setup --yes`
+   takes guesses within decision 7's limits.
 3. **Reconcile the layers.** `mksync setting list` (what a profile or OS layer sets above the base, side by side) and
    `mksync setting move <path> [<key>] --to base|os|profile|machine` (preview, question, `--dry-run`, `--yes`), with
    the profile-value search, the leak scan and the `$HOME` check on the base-bound text, and never a write to
    `master`: the change waits for `mksync push`.
-4. **Help and messages.** CLI-1 (`--help` at every level, exit 0), CLI-2 (`ERROR: unknown command ...`), CLI-3 (four
+4. **Help and messages.** WIZ-10 (decided 2026-11-27: pull's `Apply these changes?` defaults to yes except under
+   `--force`; push's PR question stays `[y/N]`; end of input is no), CLI-1 (`--help` at every level, exit 0), CLI-2 (`ERROR: unknown command ...`), CLI-3 (four
    contract lines that say exit 1 where the code exits 2), CLI-4 (`mksync profile show` in
    `docs/plan-work-machines.md`).
 

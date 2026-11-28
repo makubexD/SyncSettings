@@ -1,8 +1,13 @@
 import type { Scan } from "../adapters/scan.ts";
 import type { LinkedFolder } from "../adapters/store.ts";
 import { trimAnswer } from "../core/answer.ts";
-import type { Profile } from "../core/config/profile.ts";
-import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import { isValidLabel, type Profile } from "../core/config/profile.ts";
+import type {
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+  SuggestSource,
+} from "../core/config/types.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../core/layers/names.ts";
 import {
   LINKED_DESTINATION_PREFIX,
@@ -11,12 +16,22 @@ import {
 } from "../core/machine/linked.ts";
 import type { ClaudeMode, MachineRecord } from "../core/machine/record.ts";
 import { replaceRecord } from "../core/machine/replace.ts";
+import type { ValuePlace } from "../core/machine/values.ts";
+import { checkAlias, suggestAlias } from "../core/plan/commit.ts";
+import { ASK_HEADER, holdsPlaceholder } from "../core/values/hydrate.ts";
+import { quoteToken } from "./quote.ts";
 
 /** The fourth answer: what setup does with files already on the machine. */
 export type ExistingAction = "backup" | "keep" | "stop";
 
 /** `--mode`'s values. */
 export type SetupMode = "push" | "pull-only";
+
+/** One `--value KEY=VALUE`: the placeholder with its `<` `>`, and its value. */
+export interface ValueFlag {
+  readonly placeholder: string;
+  readonly value: string;
+}
 
 /** The setup flags, as `mksync setup` parses them. */
 export interface SetupFlags {
@@ -26,8 +41,16 @@ export interface SetupFlags {
   readonly claude?: ClaudeMode;
   readonly mode?: SetupMode;
   readonly existing?: ExistingAction;
+  /** The public name for push branches; checked before any question. */
+  readonly alias?: string;
+  /** The label for a new profile (decision 8); checked by the parser. */
+  readonly label?: string;
+  /** `--value`, in the order given, each placeholder once (the parser checks
+   * the value; the flow checks that a rule uses the placeholder). */
+  readonly value?: readonly ValueFlag[];
   readonly yes?: boolean;
   readonly bootstrap?: boolean;
+  readonly noBootstrap?: boolean;
 }
 
 /** The diff's outcome when it ran: success with its counts and the `OUT` and
@@ -52,6 +75,66 @@ export interface SetupDiffer {
   /** Present when the diff ran (the check found changes and a sync point
    * exists); absent when nothing told it to run. */
   readonly diff?: SetupDiff;
+}
+
+/** What the value questions are built from: the answers so far, held in
+ * memory, since nothing is written before the confirm. */
+export interface SetupValueChoice {
+  readonly profile: Profile;
+  readonly record: MachineRecord;
+  readonly action: ExistingAction;
+  readonly mode: SetupMode;
+  /** An existing record is taken over: its machine values are asked again. */
+  readonly replaced: boolean;
+}
+
+/** Where a value in the summary's `Values:` block came from (contract
+ * "Summary"): the `suggest` source that answered, a rule's `defaultEnv`
+ * (a taken-over record's fresh guess), a typed answer, `--value`, or a
+ * taken-over record's value. */
+export type ValueSource =
+  | SuggestSource
+  | "defaultEnv"
+  | "typed"
+  | typeof FROM_FLAG
+  | typeof FROM_FLAG_REPLACING
+  | "old machine";
+
+/** A value's guess and the source that gave it. */
+export interface ValueGuess {
+  readonly value: string;
+  readonly source: ValueSource;
+}
+
+/** One value question setup asks before the summary. */
+export interface SetupValueQuestion {
+  /** `fill`: a value the import (or keep's export) would ask, printed after
+   * the import's header; `replace`: a taken-over machine value asked again. */
+  readonly kind: "fill" | "replace";
+  readonly placeholder: string;
+  /** The question as printed, its guess in brackets. */
+  readonly text: string;
+  readonly guess?: ValueGuess;
+}
+
+/** The value questions this run's writes would ask, in order. */
+export interface SetupValues {
+  /** `.user-values.json` placeholders the value table leaves as `ask`, which
+   * the `kept on` question places (contract "Values on a machine"). */
+  readonly places: readonly string[];
+  /** The `replace` questions first, then the `fill` ones. */
+  readonly questions: readonly SetupValueQuestion[];
+  /** `.user-values.json` placeholders setup copies in: a `--value` for one
+   * replaces a saved value. Absent when the file holds none. */
+  readonly saved?: readonly string[];
+}
+
+/** A value question's answer, saved with the record after the confirm. */
+export interface SetupValueAnswer {
+  readonly kind: SetupValueQuestion["kind"];
+  readonly placeholder: string;
+  readonly value: string;
+  readonly source: ValueSource;
 }
 
 /** Everything the flow reads; it reads nothing else and writes nothing. */
@@ -80,6 +163,9 @@ export interface SetupInput {
     profile: Profile,
     record: MachineRecord,
   ) => readonly LinkedFolder[];
+  /** The value questions this run's writes would ask, for the answers so far
+   * (contract "Values before the summary"); none when absent. */
+  readonly values?: (choice: SetupValueChoice) => Promise<SetupValues>;
 }
 
 /** The terminal: text out, one answer line in, `undefined` at end of input. */
@@ -101,10 +187,24 @@ export type SetupOutcome =
       readonly replaced: boolean;
       /** The bootstrap question was answered `y`, or `--bootstrap` was given. */
       readonly bootstrap: boolean;
+      /** The value questions' answers, in question order. */
+      readonly values: readonly SetupValueAnswer[];
+      /** Where each `.user-values.json` placeholder outside the table goes. */
+      readonly places: Readonly<Record<string, ValuePlace>>;
     }
   | { readonly ok: false; readonly message: string; readonly code: 1 | 2 }
   /** The confirm was answered no: nothing is written, exit 0. */
   | { readonly ok: false; readonly declined: true };
+
+/** Keep exports first, which a pull-only machine never does. */
+const KEEP_PULL_ONLY =
+  "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.";
+
+/** The summary's source for a `--value` answer. */
+const FROM_FLAG = "--value";
+
+/** The source for a `--value` that replaces a value already saved. */
+const FROM_FLAG_REPLACING = "--value, replaces the saved value";
 
 const PERSONAL = "personal";
 
@@ -360,7 +460,11 @@ function renderProfiles(
       machines.length === 0
         ? ""
         : `${name.padEnd(NAME_COLUMN)}${machines.length === 1 ? "machine" : "machines"} ${machines.join(", ")}`;
-    lines.push(`  ${index + 1}) ${owned === "" ? name : owned}`);
+    const label = input.profiles.find(
+      (profile) => profile.name === name,
+    )?.label;
+    const labelled = label === undefined ? "" : `  (${label})`;
+    lines.push(`  ${index + 1}) ${owned === "" ? name : owned}${labelled}`);
   });
   if (match !== undefined) {
     const choice = names.indexOf(match.profile) + 1;
@@ -391,12 +495,69 @@ function newProfileModules(
   );
 }
 
+/** The profile guess: its name, the line's reason and whether `--yes` may take it. */
+export interface ProfileGuess {
+  readonly name: string;
+  /** What follows `Guess: ` on the printed line, final period included. */
+  readonly reason: string;
+  readonly takenByYes: boolean;
+}
+
+const WORK_NAME = /^work-?(\d+)$/;
+
+const OS_LABELS: Readonly<Record<Os, string>> = {
+  linux: "Linux",
+  windows: "Windows",
+  macos: "macOS",
+};
+
+/**
+ * Decision 1 of the smart-first-run plan, contract "The profile guess": from
+ * the scan only (never the domain's name). Linux with no domain is `personal`;
+ * anything else is a new `work<n>`, one past the largest `work<n>` or
+ * `work-<n>` among `knownProfiles` (retired and local ones included).
+ */
+export function guessProfile(
+  scan: Scan,
+  knownProfiles: readonly string[],
+  visibility: "public" | "private",
+): ProfileGuess {
+  const hasDomain = scan.domain !== null && scan.domain !== "";
+  if (scan.os === "linux" && !hasDomain) {
+    return {
+      name: PERSONAL,
+      reason: "personal (Linux, no domain).",
+      takenByYes: false,
+    };
+  }
+  let highest = 0;
+  for (const known of knownProfiles) {
+    const found = WORK_NAME.exec(known);
+    if (found !== null) {
+      highest = Math.max(highest, Number(found[1]));
+    }
+  }
+  const name = `work${highest + 1}`;
+  const where =
+    scan.os === "linux" ? "Linux, joined to a domain" : OS_LABELS[scan.os];
+  const isPublic = visibility === "public";
+  const note = isPublic
+    ? "; other machines' profiles can't be seen while the repo is public, so check the number"
+    : ".";
+  return {
+    name,
+    reason: `new profile ${name} (${where})${note}`,
+    takenByYes: !isPublic,
+  };
+}
+
 /** Asks one question until it gets a usable answer, or returns `undefined` at
- * end of input when there is no suggestion. */
+ * end of input when there is no suggestion. A suggestion is a list number or
+ * a new profile's name. */
 async function ask<T>(
   io: SetupIo,
   question: string,
-  suggestion: number | undefined,
+  suggestion: number | string | undefined,
   read: (answer: string) => T | undefined,
   retry: string,
 ): Promise<T | undefined> {
@@ -499,8 +660,9 @@ async function linkedAnswer(
 /**
  * The first-run flow of `mksync setup`, per the contract's "mksync setup": the
  * scan block, the profile list, the four questions, the bootstrap question,
- * the summary and the confirm. It returns the record and profile to write and
- * what to do with existing files; it writes nothing.
+ * the value questions, the summary and the confirm. It returns the record and
+ * profile to write, the values asked and what to do with existing files; it
+ * writes nothing, and asks nothing after the confirm.
  */
 export async function runSetup(
   input: SetupInput,
@@ -541,25 +703,74 @@ export async function runSetup(
       2,
     );
   }
+  // Contract "mksync setup", Public name: a typed name is checked as push
+  // checks one, before the scan and any question.
+  if (flags.alias !== undefined) {
+    const checked = checkAlias(flags.alias, { hostname: scan.hostname });
+    if ("error" in checked) {
+      return stop(checked.error, 2);
+    }
+  }
+
+  // Contract "mksync setup", `--value`: a placeholder no rule uses is refused
+  // before any question. shortcut: only the config's own rules count, not a
+  // rule a profile's or record's `entries` add.
+  const known = new Set(rulePlaceholders(input.config));
+  for (const given of flags.value ?? []) {
+    if (!known.has(given.placeholder)) {
+      return stop(
+        `ERROR: --value ${given.placeholder}: no rule uses this placeholder`,
+        2,
+      );
+    }
+  }
 
   const names = listedProfiles(input.profiles);
+  const decidedProfile = replacing?.profile ?? flags.profile;
+  // Contract "Label": `--label` names a new profile, so an existing one stops
+  // before any question (`personal` always exists).
+  if (decidedProfile !== undefined && flags.label !== undefined) {
+    const refused = labelOnExisting(input, decidedProfile);
+    if (refused !== undefined) {
+      return refused;
+    }
+  }
   const match =
     replacing === undefined && flags.name === undefined
       ? hostnameMatch(input)
       : undefined;
   io.write(renderScan(scan));
+  // Contract "The profile guess": printed only when nothing else decides it.
+  const guess =
+    decidedProfile === undefined && match === undefined
+      ? guessProfile(
+          scan,
+          input.profiles.map((profile) => profile.name),
+          input.isPrivate ? "private" : "public",
+        )
+      : undefined;
+  if (guess !== undefined) {
+    io.write(`Guess: ${guess.reason}\n\n`);
+  }
   io.write(renderProfiles(input, names, match));
 
   let asked = false;
-  let profileName = replacing?.profile ?? flags.profile;
+  let profileName = decidedProfile;
   if (profileName === undefined) {
-    const suggestion =
-      match === undefined ? undefined : names.indexOf(match.profile) + 1;
-    if (flags.yes === true && suggestion === undefined) {
+    let suggestion: number | string | undefined;
+    if (match !== undefined) {
+      suggestion = names.indexOf(match.profile) + 1;
+    } else if (guess !== undefined) {
+      const listed = names.indexOf(guess.name);
+      suggestion = listed === -1 ? guess.name : listed + 1;
+    }
+    const yesTakes = match !== undefined || (guess?.takenByYes ?? false);
+    if (flags.yes === true && !yesTakes) {
       return stop("ERROR: missing --profile", 2);
     }
     if (flags.yes === true) {
-      profileName = names[(suggestion as number) - 1];
+      profileName =
+        typeof suggestion === "number" ? names[suggestion - 1] : suggestion;
     } else {
       asked = true;
       profileName = await ask(
@@ -613,6 +824,31 @@ export async function runSetup(
     );
   }
 
+  if (flags.label !== undefined && decidedProfile === undefined) {
+    const refused = labelOnExisting(input, profileName);
+    if (refused !== undefined) {
+      if (asked) {
+        io.write("\n");
+      }
+      return refused;
+    }
+  }
+  let label = flags.label;
+  // Two flags that can't go together stop before the label question asks
+  // anything; an answered conflict stops after question 4.
+  if (flags.mode === "pull-only" && flags.existing === "keep") {
+    return stop(KEEP_PULL_ONLY, 1);
+  }
+  if (
+    flags.yes !== true &&
+    flags.label === undefined &&
+    replacing === undefined &&
+    profileName !== PERSONAL &&
+    profileNamed(input, profileName) === undefined
+  ) {
+    asked = true;
+    label = await askLabel(io, profileName);
+  }
   let claude = replacing?.claude;
   let mode: SetupMode | undefined =
     replacing === undefined
@@ -654,23 +890,23 @@ export async function runSetup(
     io.write("\n");
   }
   if (mode === "pull-only" && action === "keep") {
-    return stop(
-      "ERROR: --existing keep pushes first, so it can't be used with --mode pull-only.",
-      1,
-    );
+    return stop(KEEP_PULL_ONLY, 1);
   }
 
   // Contract "Bootstrap": asked after question 4 and before the summary, never
-  // for the `stop` answer; `--bootstrap` chooses it without asking.
+  // for the `stop` answer; `--bootstrap` chooses it without asking, and
+  // `--no-bootstrap` or `--yes` alone skips it without asking.
+  const askBootstrap =
+    input.bootstrapOffered === true &&
+    action !== "stop" &&
+    flags.bootstrap !== true &&
+    flags.noBootstrap !== true &&
+    flags.yes !== true;
   let bootstrap =
     input.bootstrapOffered === true &&
     flags.bootstrap === true &&
     action !== "stop";
-  if (
-    input.bootstrapOffered === true &&
-    flags.bootstrap !== true &&
-    action !== "stop"
-  ) {
+  if (askBootstrap) {
     io.write(BOOTSTRAP_QUESTION);
     const answer = trimAnswer((await io.readLine()) ?? "");
     io.write("\n");
@@ -684,8 +920,13 @@ export async function runSetup(
     values: {},
     destinations: {},
     retired: false,
+    ...(label === undefined ? {} : { label }),
   };
-  const record = buildRecord(input, replacing, name, profileName, claude, mode);
+  const built = buildRecord(input, replacing, name, profileName, claude, mode);
+  const alias = publicName(input, replacing, profileName, mode);
+  const { alias: _kept, ...unnamed } = built;
+  const record: MachineRecord =
+    alias === undefined ? unnamed : { ...unnamed, alias };
 
   const profileEntries = [...(profile.entries ?? [])];
   const recordEntries = [...(record.entries ?? [])];
@@ -718,14 +959,53 @@ export async function runSetup(
       : {}),
   };
 
+  const toAsk =
+    (await input.values?.({
+      profile: answeredProfile,
+      record: answeredRecord,
+      action,
+      mode,
+      replaced: replacing !== undefined,
+    })) ?? NO_VALUES;
+  const valued = await askValues(
+    io,
+    flags,
+    new Set([
+      ...Object.keys(answeredProfile.values),
+      ...Object.keys(answeredRecord.values),
+      ...(toAsk.saved ?? []),
+    ]),
+    toAsk,
+  );
+  if (!valued.ok) {
+    return valued.stop;
+  }
+  const { answers: valueAnswers, places } = valued;
+
   const nameFlag =
     replacing === undefined
       ? `--name ${record.name}`
       : `--replace ${record.name}`;
-  const bootstrapFlag = bootstrap ? " --bootstrap" : "";
+  const aliasLine = alias === undefined ? "" : `Public name: ${alias}\n`;
+  const aliasFlag = alias === undefined ? "" : ` --alias ${alias}`;
+  const bootstrapOffered = input.bootstrapOffered === true && action !== "stop";
+  const bootstrapFlag = !bootstrapOffered
+    ? ""
+    : bootstrap
+      ? " --bootstrap"
+      : " --no-bootstrap";
+  const shownLabel = profile.label;
+  const labelShown = shownLabel === undefined ? "" : ` (${shownLabel})`;
+  const labelFlag =
+    existing === undefined && label !== undefined
+      ? ` --label ${quoteToken(label, scan.os)}`
+      : "";
   io.write(
-    `Machine ${record.name}: profile ${profileName}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
-      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${bootstrapFlag}\n`,
+    `Machine ${record.name}: profile ${profileName}${labelShown}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
+      aliasLine +
+      valuesBlock(valueAnswers) +
+      `Same as: mksync setup --profile ${profileName}${labelFlag} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}${valueFlags(valueAnswers, scan.os)}\n` +
+      valueLeftOut(valueAnswers, scan.os),
   );
   // Contract "Guard block": after `Same as:`, the diff lines and the count when
   // answer 4 is `backup` with a sync point and an `OUT` or `BOTH` file (or a
@@ -764,7 +1044,267 @@ export async function runSetup(
     action,
     replaced: replacing !== undefined,
     bootstrap,
+    values: valueAnswers,
+    places,
   };
+}
+
+/** No value question: a flow given no `values` reader asks none. */
+const NO_VALUES: SetupValues = { places: [], questions: [] };
+
+/** Contract "Values on a machine": the question that places a
+ * `.user-values.json` placeholder the value table doesn't name. */
+function placeQuestion(placeholder: string): string {
+  return `${placeholder}: kept on 1) this profile 2) this machine [1] `;
+}
+
+/** A placeholder without its `<` `>`, as `--value KEY=VALUE` names it. */
+function bareKey(placeholder: string): string {
+  return placeholder.replace(/^<(.*)>$/, "$1");
+}
+
+/** What the value questions gave: the answers and places, or the stop. */
+type AskedValues =
+  | {
+      readonly ok: true;
+      readonly answers: readonly SetupValueAnswer[];
+      readonly places: Readonly<Record<string, ValuePlace>>;
+    }
+  | { readonly ok: false; readonly stop: SetupOutcome };
+
+/**
+ * Contract "mksync setup", Values before the summary, Answers, `--value`,
+ * `--yes`: a question whose placeholder `--value` names isn't asked. The
+ * `kept on` questions come first, then each value question, the import's
+ * header before the first `fill` one asked. An empty answer takes the guess in
+ * brackets and a typed answer wins. End of input, an empty answer with no
+ * guess, or an answer holding placeholder text stops with
+ * `ERROR: missing value for <KEY>`, exit 1: end of input never takes a guess.
+ * `--yes` asks nothing, takes every guess and each place's `1`, and stops on a
+ * value with no guess, exit 2. A `--value` no question asks is saved too, and
+ * its source says when it replaces a value already saved (`saved`).
+ */
+async function askValues(
+  io: SetupIo,
+  flags: SetupFlags,
+  saved: ReadonlySet<string>,
+  values: SetupValues,
+): Promise<AskedValues> {
+  const places: Record<string, ValuePlace> = {};
+  const answers: SetupValueAnswer[] = [];
+  const given = new Map(
+    (flags.value ?? []).map((flag) => [flag.placeholder, flag.value]),
+  );
+  const fromFlag = (
+    question: SetupValueQuestion,
+  ): SetupValueAnswer | undefined => {
+    const value = given.get(question.placeholder);
+    return value === undefined
+      ? undefined
+      : {
+          kind: question.kind,
+          placeholder: question.placeholder,
+          value,
+          source: question.kind === "replace" ? FROM_FLAG_REPLACING : FROM_FLAG,
+        };
+  };
+  // A `--value` no question asks: saved too, marked when it replaces one.
+  const unasked = (): SetupValueAnswer[] =>
+    [...given]
+      .filter(
+        ([placeholder]) =>
+          !values.questions.some(
+            (question) => question.placeholder === placeholder,
+          ),
+      )
+      .map(([placeholder, value]) => ({
+        kind: "fill",
+        placeholder,
+        value,
+        source: saved.has(placeholder) ? FROM_FLAG_REPLACING : FROM_FLAG,
+      }));
+  if (flags.yes === true) {
+    for (const question of values.questions) {
+      const flagged = fromFlag(question);
+      if (flagged !== undefined) {
+        answers.push(flagged);
+        continue;
+      }
+      if (question.guess === undefined) {
+        const key = bareKey(question.placeholder);
+        return {
+          ok: false,
+          stop: stop(
+            `ERROR: missing value for ${question.placeholder}; pass --value ${key}=<value>`,
+            2,
+          ),
+        };
+      }
+      answers.push({
+        kind: question.kind,
+        placeholder: question.placeholder,
+        ...question.guess,
+      });
+    }
+    return { ok: true, answers: [...answers, ...unasked()], places };
+  }
+  let anyAsked = false;
+  for (const placeholder of values.places) {
+    anyAsked = true;
+    io.write(placeQuestion(placeholder));
+    const line = await io.readLine();
+    places[placeholder] =
+      trimAnswer(line ?? "") === "2" ? "machine" : "profile";
+  }
+  let headed = false;
+  for (const question of values.questions) {
+    const flagged = fromFlag(question);
+    if (flagged !== undefined) {
+      answers.push(flagged);
+      continue;
+    }
+    anyAsked = true;
+    if (question.kind === "fill" && !headed) {
+      io.write(ASK_HEADER);
+      headed = true;
+    }
+    io.write(question.text);
+    const line = await io.readLine();
+    const typed = line === undefined ? "" : trimAnswer(line);
+    const answer: ValueGuess | undefined =
+      line === undefined
+        ? undefined
+        : typed !== ""
+          ? { value: typed, source: "typed" }
+          : question.guess;
+    if (answer === undefined || holdsPlaceholder(answer.value)) {
+      io.write("\n");
+      return {
+        ok: false,
+        stop: stop(`ERROR: missing value for ${question.placeholder}`, 1),
+      };
+    }
+    answers.push({
+      kind: question.kind,
+      placeholder: question.placeholder,
+      ...answer,
+    });
+  }
+  if (anyAsked) {
+    io.write("\n");
+  }
+  return { ok: true, answers: [...answers, ...unasked()], places };
+}
+
+/** Contract "Summary": the `Values:` block, one line per value asked, with
+ * its source; empty when no value was asked. */
+function valuesBlock(answers: readonly SetupValueAnswer[]): string {
+  if (answers.length === 0) {
+    return "";
+  }
+  const lines = answers.map(
+    (answer) => `  ${answer.placeholder} = ${answer.value} (${answer.source})`,
+  );
+  return `Values:\n${lines.join("\n")}\n`;
+}
+
+/** Whether `Same as:` repeats this answer: a typed or `--value` one (a guess
+ * reproduces itself). */
+function isGiven(answer: SetupValueAnswer): boolean {
+  return answer.source === "typed" || answer.source.startsWith(FROM_FLAG);
+}
+
+/** Windows quoting can't carry a `"`, so such a value is left out. */
+function isLeftOut(answer: SetupValueAnswer, os: Os): boolean {
+  return os === "windows" && answer.value.includes('"');
+}
+
+/** Contract "`Same as:`": ` --value KEY=VALUE` for every typed or `--value`
+ * answer, the token quoted whole when it needs it. */
+function valueFlags(answers: readonly SetupValueAnswer[], os: Os): string {
+  return answers
+    .filter((answer) => isGiven(answer) && !isLeftOut(answer, os))
+    .map(
+      (answer) =>
+        ` --value ${quoteToken(`${bareKey(answer.placeholder)}=${answer.value}`, os)}`,
+    )
+    .join("");
+}
+
+/** Contract "`Same as:`": one line after it for each value left out on Windows. */
+function valueLeftOut(answers: readonly SetupValueAnswer[], os: Os): string {
+  return answers
+    .filter((answer) => isGiven(answer) && isLeftOut(answer, os))
+    .map(
+      (answer) =>
+        `Same as: leaves out --value ${bareKey(answer.placeholder)} (its value holds a ").\n`,
+    )
+    .join("");
+}
+
+/** The placeholders the config's sanitize rules name. */
+function rulePlaceholders(config: ConfigV2): readonly string[] {
+  return config.entries.flatMap((entry) =>
+    (entry.sanitize ?? []).map((rule) => rule.placeholder),
+  );
+}
+
+/** Contract "Label": `--label` with a profile that already exists is refused. */
+function labelOnExisting(
+  input: SetupInput,
+  profile: string,
+): SetupOutcome | undefined {
+  if (profile !== PERSONAL && profileNamed(input, profile) === undefined) {
+    return undefined;
+  }
+  return stop(
+    `ERROR: --label names a new profile; ${profile} already exists`,
+    2,
+  );
+}
+
+/** Contract "Label": asked after question 1 for a new profile; an empty
+ * answer or end of input leaves none, a bad answer is asked again. */
+async function askLabel(
+  io: SetupIo,
+  profile: string,
+): Promise<string | undefined> {
+  for (;;) {
+    io.write(` Label for ${profile}, to find it in lists (optional): `);
+    const line = await io.readLine();
+    const text = line === undefined ? "" : trimAnswer(line);
+    if (text === "") {
+      return undefined;
+    }
+    if (isValidLabel(text)) {
+      return text;
+    }
+    io.write("Use 1 to 30 letters, digits, spaces or .-_&.\n");
+  }
+}
+
+/**
+ * Contract "mksync setup", Public name: `--alias`, else a replaced record's
+ * alias (pull-only included, so a later switch to push keeps its branch
+ * prefix), else the `<profile>-<os>` guess push makes; none for a new
+ * pull-only machine (unless `--alias` names one) or a guess the check refuses.
+ */
+function publicName(
+  input: SetupInput,
+  replacing: MachineRecord | undefined,
+  profile: string,
+  mode: SetupMode,
+): string | undefined {
+  if (input.flags.alias !== undefined) {
+    return input.flags.alias;
+  }
+  if (replacing?.alias !== undefined) {
+    return replacing.alias;
+  }
+  if (mode === "pull-only") {
+    return undefined;
+  }
+  return suggestAlias(profile, input.scan.os, input.scan.hostname);
 }
 
 function buildRecord(

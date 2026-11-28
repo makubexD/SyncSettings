@@ -1,0 +1,46 @@
+{
+  "description": "push --yes with a record that has no public name takes the suggestion work1-linux without asking, prints Saved public name: work1-linux, saves it in the record, and opens the PR, exit 0 (Checks before pushing, The PR). The branch name sync/linux-work1-linux-<stamp> isn't visible to the runner (gh.log keeps two words per call).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "stubs": [
+    "gh"
+  ],
+  "env": {
+    "GIT_CONFIG_GLOBAL": "../home/gitconfig",
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "MKSYNC_VISIBILITY": "public"
+  },
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "push",
+      "options": {
+        "yes": true
+      },
+      "stderr": true
+    }
+  ],
+  "syncPoint": true
+}

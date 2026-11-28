@@ -16,7 +16,8 @@ gh_release=0
 
 usage() {
     printf 'usage: install.sh [--yes] [--no-setup] [--runtime bun|node]\n'
-    printf '  --yes                answer yes to the questions\n'
+    printf '  --yes                answer yes to the questions; setup still needs --profile on a\n'
+    printf '                       personal machine or while the repo is public\n'
     printf '  --no-setup           clone and install mksync, but do not run setup\n'
     printf '  --runtime bun|node   link the clone launcher instead of downloading the program\n'
 }

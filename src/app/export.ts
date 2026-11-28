@@ -100,6 +100,7 @@ import { askMoves } from "./push.ts";
 import type { MoveSession } from "./push.ts";
 import { buildRun, endRun, startRun } from "./run.ts";
 import type { RunEnvironment } from "./run.ts";
+import type { ImportValueAsk, SuggestSources } from "./import.ts";
 
 /** What a diff found, so pull and push don't parse it from the text. */
 export interface DiffReport {
@@ -1121,6 +1122,51 @@ export async function askExportValues(
   }
   io.write("\n");
   return { ok: true, snapshot: { ...snapshot, values, valuesAnswered: true } };
+}
+
+/** The whole export keep's value list is read for. `diff: true` only keeps
+ * the snapshot from asking the package managers for the drift report, which a
+ * value list never reads (contract "Package drift"). */
+const SETUP_EXPORT: RunCommand = {
+  kind: "run",
+  command: "export",
+  force: false,
+  preview: false,
+  check: false,
+  resetValues: false,
+  yes: false,
+  only: [],
+  diff: true,
+};
+
+/**
+ * Contract "mksync setup", Values before the summary: the value questions
+ * keep's export would ask on `env.layers` (the profile and record setup holds
+ * in memory), in rule order, in the words `askExportValues` prints, each with
+ * its suggestion and the source that answered. The whole export is read, not
+ * only keep's paths: a path `--only` refuses falls back to the whole export,
+ * and after the confirm setup asks nothing.
+ */
+export async function exportValueAsks(
+  env: RunEnvironment,
+  suggest: SuggestSources,
+): Promise<readonly ImportValueAsk[]> {
+  const { snapshot } = await buildRun(env, SETUP_EXPORT);
+  const missing = exportMissingRules(snapshot);
+  if (missing.length === 0) {
+    return [];
+  }
+  const found = await suggest(missing.map(({ rule }) => rule));
+  return missing.map(({ rule, files }) => {
+    const suggestion = Object.hasOwn(found, rule.placeholder)
+      ? found[rule.placeholder]
+      : undefined;
+    return {
+      placeholder: rule.placeholder,
+      text: valueQuestion(rule.prompt ?? "", files, suggestion?.value),
+      ...(suggestion !== undefined ? { suggestion } : {}),
+    };
+  });
 }
 
 /**

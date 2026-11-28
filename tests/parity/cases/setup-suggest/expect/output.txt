@@ -20,5 +20,6 @@ Profiles in this repo:
 
 1/4 What is this machine for? [2] 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1] 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing stop
+Public name: work-1-linux
+Same as: mksync setup --profile work-1 --replace wk1-laptop --claude claude --mode push --existing stop --alias work-1-linux
 Write the record? [Y/n] Stopped: the record is written, no file was changed.

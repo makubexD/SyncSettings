@@ -17,5 +17,6 @@ Profiles on this machine:
   1) personal
 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --bootstrap
+Public name: work-1-linux
+Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux --bootstrap
 BOOTSTRAP RAN

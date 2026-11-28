@@ -1,0 +1,33 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  WARN     1 value(s) not set; mksync setup asks for them
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      0 of 2 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+
+Machine wk1-laptop: profile personal, Claude only, push with a preview.
+Public name: personal-linux
+Values:
+  <YOUR_EMAIL> = jane@example.com (--value)
+  <YOUR_NAME> = Jane Doe (--value, replaces the saved value)
+Same as: mksync setup --profile personal --name wk1-laptop --claude claude --mode push --existing backup --alias personal-linux --value YOUR_EMAIL=jane@example.com --value 'YOUR_NAME=Jane Doe'
+  CREATED    dotfiles/common/shell/bashrc
+  CREATED    dotfiles/common/git/gitconfig
+
+  --------------------------------------------------
+
+  2 file(s) applied.
+
+  --------------------------------------------------
+

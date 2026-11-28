@@ -1,0 +1,54 @@
+{
+  "description": "the profile list prints a labelled profile with two spaces and the label in parentheses and an unlabelled one as before; choosing the labelled profile shows the label in the summary but Same as: has no --label, since the profile isn't new (Machines (program only), mksync setup, Label, Summary, Same as:).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "name": "wk1-laptop",
+        "profile": "work1",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "stop"
+      },
+      "stdin": "y\n"
+    }
+  ]
+}

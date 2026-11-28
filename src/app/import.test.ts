@@ -8,11 +8,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { layersOf, loadLayers } from "../adapters/snapshot.ts";
+import { writeProfile, writeRecord } from "../adapters/store.ts";
 import type { StoreLocation } from "../adapters/store.ts";
+import type { SuggestionSource } from "../adapters/suggest.ts";
 import type { RunCommand } from "../cli/parse.ts";
+import type { Profile } from "../core/config/profile.ts";
 import type { ConfigV2 } from "../core/config/types.ts";
-import { runImport } from "./import.ts";
-import type { ImportIo } from "./import.ts";
+import type { MachineRecord } from "../core/machine/record.ts";
+import { importValueAsks, runImport } from "./import.ts";
+import type { ImportIo, SuggestSources } from "./import.ts";
 import type { RunEnvironment } from "./run.ts";
 
 /** The prefix of each test's temp folder, removed after the test. */
@@ -551,5 +556,147 @@ describe("runImport value questions", () => {
     ]);
     expect(result.code).toBe(1);
     expect(result.stderr).toBe(NAME_MISSING);
+  });
+});
+
+/** The in-memory profile `importValueAsks` reads, holding no value yet. */
+const ASK_PROFILE: Profile = {
+  name: "work1",
+  modules: ["parity"],
+  values: {},
+  destinations: {},
+  retired: false,
+};
+
+/** The in-memory record on `ASK_PROFILE`, holding no value yet. */
+const ASK_RECORD: MachineRecord = {
+  name: "box1",
+  profile: "work1",
+  os: "linux",
+  hostname: "box1",
+  domain: null,
+  claude: "none",
+  pullOnly: false,
+  modules: { add: [], remove: [] },
+  values: {},
+  replaced: [],
+  retired: false,
+};
+
+/** What `TWO_VALUE_CONFIG` asks when nothing holds a value. */
+const ASKED_PLACEHOLDERS = ["<YOUR_NAME>", "<HOME>"];
+
+const NAME_SUGGESTION: SuggestionSource = {
+  value: "Jane Doe",
+  source: "git-user-name",
+};
+
+/** A suggest that answers `<YOUR_NAME>` and records the rules it was asked. */
+function fakeSuggest(): {
+  readonly suggest: SuggestSources;
+  readonly asked: string[][];
+} {
+  const asked: string[][] = [];
+  return {
+    asked,
+    suggest: (rules) => {
+      asked.push(rules.map((rule) => rule.placeholder));
+      return Promise.resolve(
+        rules.some((rule) => rule.placeholder === "<YOUR_NAME>")
+          ? { "<YOUR_NAME>": NAME_SUGGESTION }
+          : {},
+      );
+    },
+  };
+}
+
+/** An environment whose layers are the given profile and record, in memory. */
+function memoryEnvironment(
+  setup: Fixture,
+  state: string,
+  profile: Profile,
+  record: MachineRecord,
+): RunEnvironment {
+  return {
+    ...runEnvironment(setup, state, TWO_VALUE_CONFIG),
+    layers: layersOf(stateStore(state), profile, record),
+  };
+}
+
+describe("importValueAsks", () => {
+  test("should list the same questions from memory as from the written store", async () => {
+    // Arrange
+    const setup = valueFixture(undefined, TWO_VALUE_REPO_TEXT);
+    const state = join(setup.root, "state");
+    writeProfile(state, ASK_PROFILE);
+    writeRecord(state, ASK_RECORD);
+    const loaded = loadLayers(state, setup.repo, TWO_VALUE_CONFIG);
+    if (!loaded.ok) {
+      throw new Error(loaded.error.message);
+    }
+    const disk: RunEnvironment = {
+      ...runEnvironment(setup, state, TWO_VALUE_CONFIG),
+      layers: loaded.value,
+    };
+    const memory = memoryEnvironment(setup, state, ASK_PROFILE, ASK_RECORD);
+
+    // Act
+    const fromDisk = await importValueAsks(
+      disk,
+      COMMAND,
+      fakeSuggest().suggest,
+    );
+    const fromMemory = await importValueAsks(
+      memory,
+      COMMAND,
+      fakeSuggest().suggest,
+    );
+
+    // Assert
+    expect(fromDisk.map((ask) => ask.placeholder)).toEqual(ASKED_PLACEHOLDERS);
+    expect(fromMemory).toEqual(fromDisk);
+  });
+
+  test("should give each question the import's words and its suggestion's source", async () => {
+    // Arrange
+    const setup = valueFixture(undefined, TWO_VALUE_REPO_TEXT);
+    const state = join(setup.root, "state");
+    const env = memoryEnvironment(setup, state, ASK_PROFILE, ASK_RECORD);
+
+    // Act
+    const asks = await importValueAsks(env, COMMAND, fakeSuggest().suggest);
+
+    // Assert
+    expect(asks).toEqual([
+      {
+        placeholder: "<YOUR_NAME>",
+        text: "  Full name (~/.config/parity/values.conf) [Jane Doe]: ",
+        suggestion: NAME_SUGGESTION,
+      },
+      {
+        placeholder: "<HOME>",
+        text: "  Home folder (~/.config/parity/values.conf): ",
+      },
+    ]);
+  });
+
+  test("should not list a value the profile or the record already holds", async () => {
+    // Arrange
+    const setup = valueFixture(undefined, TWO_VALUE_REPO_TEXT);
+    const state = join(setup.root, "state");
+    const env = memoryEnvironment(
+      setup,
+      state,
+      { ...ASK_PROFILE, values: { "<YOUR_NAME>": "Jane Doe" } },
+      { ...ASK_RECORD, values: { "<HOME>": "/home/jane" } },
+    );
+    const { suggest, asked } = fakeSuggest();
+
+    // Act
+    const asks = await importValueAsks(env, COMMAND, suggest);
+
+    // Assert
+    expect(asks).toEqual([]);
+    expect(asked).toEqual([]);
   });
 });

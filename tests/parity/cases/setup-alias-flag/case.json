@@ -1,0 +1,55 @@
+{
+  "description": "setup --alias desk-a takes that public name instead of the guess: it shows after the Machine line and in Same as:, and the record keeps it (Machines (program only), mksync setup, Public name).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "name": "wk1-laptop",
+        "profile": "work1",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "stop",
+        "alias": "desk-a"
+      },
+      "stdin": "y\n"
+    }
+  ]
+}

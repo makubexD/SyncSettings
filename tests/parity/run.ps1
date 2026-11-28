@@ -172,6 +172,18 @@ function Validate-Case {
                     }
                 }
             }
+            $valueProp = $opts.PSObject.Properties['value']
+            if ($null -ne $valueProp) {
+                $valueList = $valueProp.Value
+                if ($valueList -isnot [System.Array]) {
+                    Die 'options.value must be an array of strings'
+                }
+                foreach ($p in $valueList) {
+                    if ($p -isnot [string]) {
+                        Die 'options.value must be an array of strings'
+                    }
+                }
+            }
             $pathsProp = $opts.PSObject.Properties['paths']
             if ($null -ne $pathsProp) {
                 $paths = $pathsProp.Value
@@ -184,10 +196,10 @@ function Validate-Case {
                     }
                 }
             }
-            foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing', 'target')) {
+            foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing', 'alias', 'label', 'target')) {
                 $p = $opts.PSObject.Properties[$key]
                 if ($null -ne $p -and $p.Value -isnot [string]) {
-                    Die 'options name, profile, replace, claude, mode, existing and target must be strings'
+                    Die 'options name, profile, replace, claude, mode, existing, alias, label and target must be strings'
                 }
             }
             $yesProp = $opts.PSObject.Properties['yes']
@@ -197,6 +209,10 @@ function Validate-Case {
             $bootstrapProp = $opts.PSObject.Properties['bootstrap']
             if ($null -ne $bootstrapProp -and $bootstrapProp.Value -isnot [bool]) {
                 Die 'options.bootstrap must be a boolean'
+            }
+            $noBootstrapProp = $opts.PSObject.Properties['noBootstrap']
+            if ($null -ne $noBootstrapProp -and $noBootstrapProp.Value -isnot [bool]) {
+                Die 'options.noBootstrap must be a boolean'
             }
             $partialProp = $opts.PSObject.Properties['partial']
             if ($null -ne $partialProp -and $partialProp.Value -isnot [bool]) {
@@ -216,9 +232,9 @@ function Validate-Case {
         if ($null -ne $opts) {
             $optNames = @($opts.PSObject.Properties.Name)
         }
-        foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing')) {
+        foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing', 'alias', 'label', 'value')) {
             if ($optNames -ccontains $key -and $cmd.command -cne 'setup') {
-                Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire or profile-retire'
+                Die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire or profile-retire'
             }
         }
         $frontDoor = $cmd.command -ceq 'status' -or $cmd.command -ceq 'doctor' -or
@@ -226,22 +242,22 @@ function Validate-Case {
         if ($optNames -ccontains 'yes' -and $cmd.command -cne 'setup' -and $cmd.command -cne 'export' -and
             $cmd.command -cne 'preview' -and $cmd.command -cne 'machine-retire' -and
             $cmd.command -cne 'profile-retire' -and -not $frontDoor) {
-            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
-        if ($optNames -ccontains 'bootstrap' -and $cmd.command -cne 'setup') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+        if (($optNames -ccontains 'bootstrap' -or $optNames -ccontains 'noBootstrap') -and $cmd.command -cne 'setup') {
+            Die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'partial' -and $cmd.command -cne 'commit') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'message' -and $cmd.command -cne 'commit' -and $cmd.command -cne 'push') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'paths' -and -not $frontDoor -and $cmd.command -cne 'front-check') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         if ($optNames -ccontains 'resetValues' -and $cmd.command -cne 'import' -and $cmd.command -cne 'check') {
-            Die 'options name, profile, replace, claude, mode and existing need setup; bootstrap needs setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
+            Die 'options name, profile, replace, claude, mode, existing, alias, label and value need setup; bootstrap and noBootstrap need setup; yes needs setup, export, preview, machine-retire, profile-retire, status, doctor, pull, push or front-diff; partial needs commit; message needs commit or push; paths needs status, doctor, pull, push, front-diff or front-check; resetValues needs import or check'
         }
         $isRetire = $cmd.command -ceq 'machine-retire' -or $cmd.command -ceq 'profile-retire'
         if ($isRetire -ne ($optNames -ccontains 'target')) {
@@ -1327,8 +1343,8 @@ function Run-Case {
                 foreach ($key in $opts.PSObject.Properties.Name) {
                     if ($key -cne 'force' -and $key -cne 'only' -and $key -cne 'name' -and
                         $key -cne 'profile' -and $key -cne 'replace' -and $key -cne 'claude' -and
-                        $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'yes' -and
-                        $key -cne 'bootstrap' -and
+                        $key -cne 'mode' -and $key -cne 'existing' -and $key -cne 'alias' -and $key -cne 'label' -and $key -cne 'value' -and $key -cne 'yes' -and
+                        $key -cne 'bootstrap' -and $key -cne 'noBootstrap' -and
                         $key -cne 'target' -and $key -cne 'partial' -and $key -cne 'message' -and
                         $key -cne 'paths' -and $key -cne 'resetValues') {
                         Die "unknown option '$key' in command $($i + 1)"
@@ -1348,7 +1364,14 @@ function Run-Case {
                         }
                     }
                 }
-                foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing')) {
+                $valueProp = $opts.PSObject.Properties['value']
+                if ($null -ne $valueProp) {
+                    foreach ($v in @($valueProp.Value)) {
+                        $extraArgs += '--value'
+                        $extraArgs += [string]$v
+                    }
+                }
+                foreach ($key in @('name', 'profile', 'replace', 'claude', 'mode', 'existing', 'alias', 'label')) {
                     $p = $opts.PSObject.Properties[$key]
                     if ($null -ne $p) {
                         $extraArgs += ("--" + $key)
@@ -1362,6 +1385,10 @@ function Run-Case {
                 $bootstrapProp = $opts.PSObject.Properties['bootstrap']
                 if ($null -ne $bootstrapProp -and $bootstrapProp.Value -eq $true) {
                     $extraArgs += '--bootstrap'
+                }
+                $noBootstrapProp = $opts.PSObject.Properties['noBootstrap']
+                if ($null -ne $noBootstrapProp -and $noBootstrapProp.Value -eq $true) {
+                    $extraArgs += '--no-bootstrap'
                 }
                 $partialProp = $opts.PSObject.Properties['partial']
                 if ($null -ne $partialProp -and $partialProp.Value -eq $true) {
@@ -1793,7 +1820,7 @@ foreach ($caseDir in $caseDirs) {
     $dir = $caseDir.FullName
     $caseName = $caseDir.Name
 
-    if ($Filter -ne '' -and $caseName.IndexOf($Filter, [StringComparison]::Ordinal) -lt 0) {
+    if ($Filter -ne '' -and -not ($Filter.Split('|') | Where-Object { $_ -ne '' -and $caseName.IndexOf($_, [StringComparison]::Ordinal) -ge 0 })) {
         continue
     }
     $matched++

@@ -1,5 +1,6 @@
 {
   "name": "wk1-laptop",
+  "alias": "work-1-linux",
   "profile": "work-1",
   "os": "linux",
   "hostname": "wk1-laptop",

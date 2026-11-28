@@ -5,7 +5,15 @@
  */
 
 import type { ClaudeMode } from "../core/machine/record.ts";
-import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
+import { isValidLabel, LABEL_REFUSAL } from "../core/config/profile.ts";
+import { holdsControlCharacter, trimAnswer } from "../core/answer.ts";
+import { holdsPlaceholder } from "../core/values/hydrate.ts";
+import type {
+  ExistingAction,
+  SetupFlags,
+  SetupMode,
+  ValueFlag,
+} from "../wizard/setup.ts";
 
 export const USAGE =
   "usage: mksync status | mksync doctor | " +
@@ -14,7 +22,7 @@ export const USAGE =
   "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
   "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
   "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
-  "[--existing backup|keep|stop] [--bootstrap] [--yes] | " +
+  "[--existing backup|keep|stop] [--bootstrap | --no-bootstrap] [--yes] | " +
   "mksync update | " +
   "mksync machine show | mksync machine retire <name> [--yes] | " +
   "mksync profile retire <name> [--yes] | mksync statusline | " +
@@ -114,6 +122,9 @@ export interface CommitCommand {
   readonly kind: "commit";
   readonly message?: string;
   readonly partial: boolean;
+  /** A push's `--yes`: a record with no public name takes the suggestion
+   * without asking. A `commit` parsed on its own is always `false`. */
+  readonly yes: boolean;
 }
 
 /** `setup`: the first-run flow's flags, parsed but not validated. */
@@ -121,6 +132,8 @@ export interface SetupCommand extends SetupFlags {
   readonly kind: "setup";
   /** `--bootstrap`: run the Ubuntu bootstrap without asking. */
   readonly bootstrap?: boolean;
+  /** `--no-bootstrap`: skip the Ubuntu bootstrap without asking. */
+  readonly noBootstrap?: boolean;
 }
 
 /** `--version`: print the program's version, exit 0. */
@@ -221,6 +234,11 @@ const SETUP_YES = "--yes";
 
 const SETUP_BOOTSTRAP = "--bootstrap";
 
+const SETUP_NO_BOOTSTRAP = "--no-bootstrap";
+
+const BOOTSTRAP_CLASH =
+  "ERROR: --bootstrap and --no-bootstrap can't be used together";
+
 const ONLY_OPTION = "--only";
 
 const ONLY_NEEDS_PATH = "ERROR: --only needs a path.";
@@ -242,6 +260,9 @@ const SETUP_VALUE_FLAGS = [
   "--claude",
   "--mode",
   "--existing",
+  "--alias",
+  "--label",
+  "--value",
 ] as const;
 
 type SetupValueFlag = (typeof SETUP_VALUE_FLAGS)[number];
@@ -318,6 +339,33 @@ function setupError(message: string): ParseError {
 /** A setup flag given twice. */
 function repeatedFlag(flag: string): ParseError {
   return setupError(`${flag} is repeated.`);
+}
+
+/**
+ * Contract "mksync setup", `--value`: `KEY=VALUE`, the key with or without its
+ * `<` `>`, the value trimmed as a typed answer is. Refused here, exit 2: no
+ * `=`, an empty value, and a value holding placeholder text (the typed
+ * value's refusal, word for word). Whether a rule uses the key is checked by
+ * the flow, which holds the config.
+ */
+function parseValueFlag(text: string): ValueFlag | ParseError {
+  const equals = text.indexOf("=");
+  if (equals === -1) {
+    return setupError("--value needs KEY=VALUE.");
+  }
+  const key = text.slice(0, equals);
+  const placeholder = /^<.*>$/.test(key) ? key : `<${key}>`;
+  const value = trimAnswer(text.slice(equals + 1));
+  if (value === "") {
+    return setupError(`--value ${placeholder}: empty value`);
+  }
+  if (holdsPlaceholder(value)) {
+    return setupError(`missing value for ${placeholder}`);
+  }
+  if (holdsControlCharacter(value)) {
+    return setupError(`--value ${placeholder}: value holds a control character`);
+  }
+  return { placeholder, value };
 }
 
 function flagNeedsValue(flag: string): ParseError {
@@ -532,8 +580,12 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
   let claude: ClaudeMode | undefined;
   let mode: SetupMode | undefined;
   let existing: ExistingAction | undefined;
+  let alias: string | undefined;
+  let label: string | undefined;
+  const values: ValueFlag[] = [];
   let yes = false;
   let bootstrap = false;
+  let noBootstrap = false;
 
   let index = 1;
   while (index < argv.length) {
@@ -554,6 +606,14 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         return repeatedFlag(arg);
       }
       bootstrap = true;
+      index++;
+      continue;
+    }
+    if (arg === SETUP_NO_BOOTSTRAP) {
+      if (noBootstrap) {
+        return repeatedFlag(arg);
+      }
+      noBootstrap = true;
       index++;
       continue;
     }
@@ -610,8 +670,43 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         }
         existing = value;
         break;
+      case "--alias":
+        if (alias !== undefined) {
+          return repeatedFlag(arg);
+        }
+        alias = value;
+        break;
+      case "--label":
+        if (label !== undefined) {
+          return repeatedFlag(arg);
+        }
+        if (!isValidLabel(value)) {
+          return error(LABEL_REFUSAL);
+        }
+        label = value;
+        break;
+      case "--value": {
+        const parsed = parseValueFlag(value);
+        if ("kind" in parsed) {
+          return parsed;
+        }
+        // A key given twice: the later answer wins, in the first one's place.
+        const earlier = values.findIndex(
+          (given) => given.placeholder === parsed.placeholder,
+        );
+        if (earlier === -1) {
+          values.push(parsed);
+        } else {
+          values[earlier] = parsed;
+        }
+        break;
+      }
     }
     index += 2;
+  }
+
+  if (bootstrap && noBootstrap) {
+    return error(BOOTSTRAP_CLASH);
   }
 
   return {
@@ -622,8 +717,12 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     ...(claude === undefined ? {} : { claude }),
     ...(mode === undefined ? {} : { mode }),
     ...(existing === undefined ? {} : { existing }),
+    ...(alias === undefined ? {} : { alias }),
+    ...(label === undefined ? {} : { label }),
+    ...(values.length === 0 ? {} : { value: values }),
     ...(yes ? { yes: true } : {}),
     ...(bootstrap ? { bootstrap: true } : {}),
+    ...(noBootstrap ? { noBootstrap: true } : {}),
   };
 }
 
@@ -664,6 +763,7 @@ function parseCommit(argv: readonly string[]): CommitCommand | ParseError {
     kind: "commit",
     ...(message === undefined ? {} : { message }),
     partial,
+    yes: false,
   };
 }
 

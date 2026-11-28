@@ -1,0 +1,17 @@
+{
+  "name": "wk1-laptop",
+  "alias": "work1-linux",
+  "profile": "work1",
+  "os": "linux",
+  "hostname": "wk1-laptop",
+  "domain": null,
+  "claude": "claude",
+  "pullOnly": false,
+  "modules": {
+    "add": [],
+    "remove": []
+  },
+  "values": {},
+  "replaced": [],
+  "retired": false
+}

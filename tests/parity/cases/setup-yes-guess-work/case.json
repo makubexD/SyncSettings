@@ -1,0 +1,54 @@
+{
+  "description": "setup --yes in a private repo on a domain-joined Linux machine takes the guess work3 (one past work1 and the retired work2) without asking question 1 or the label, and writes the profile and the record with the guessed public name (Machines (program only), mksync setup, --yes).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "git": "committed",
+  "env": {
+    "SYNC_HOSTNAME": "wk3-laptop",
+    "SYNC_DOMAIN": "corp.example",
+    "SYNC_TOOLS": "git,gh,claude",
+    "MKSYNC_VISIBILITY": "private"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "name": "wk3-laptop",
+        "existing": "stop",
+        "yes": true
+      },
+      "stderr": true
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "description": "setup --alias equal to the machine's hostname stops before any question with the hostname refusal, exit 2, and writes no record (Machines (program only), mksync setup, Public name; Checks before pushing, The PR).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config"
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "name": "wk1-laptop",
+        "profile": "work1",
+        "claude": "claude",
+        "mode": "push",
+        "existing": "stop",
+        "alias": "wk1-laptop"
+      },
+      "stdin": "y\n",
+      "stderr": true
+    }
+  ]
+}

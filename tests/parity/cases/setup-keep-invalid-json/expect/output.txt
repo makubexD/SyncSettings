@@ -18,4 +18,5 @@ Profiles on this machine:
 
   1 file(s) differ; could not tell which side is newer.
 Machine wk1-laptop: profile personal, none, push with a preview.
-Same as: mksync setup --profile personal --replace wk1-laptop --claude none --mode push --existing keep
+Public name: personal-linux
+Same as: mksync setup --profile personal --replace wk1-laptop --claude none --mode push --existing keep --alias personal-linux

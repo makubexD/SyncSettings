@@ -1,0 +1,14 @@
+{
+  "name": "wk1-laptop",
+  "alias": "work-1-old",
+  "profile": "work-1",
+  "os": "linux",
+  "hostname": "wk1-laptop",
+  "domain": null,
+  "claude": "claude",
+  "pullOnly": true,
+  "modules": { "add": [], "remove": [] },
+  "values": { "<YOUR_NAME>": "Old Name", "<YOUR_EMAIL>": "old@example.com" },
+  "replaced": [],
+  "retired": false
+}

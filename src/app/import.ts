@@ -8,6 +8,7 @@ import { runPlan } from "../adapters/fs.ts";
 import type { RunContext } from "../adapters/fs.ts";
 import { stdinLines } from "../adapters/process.ts";
 import { suggestions } from "../adapters/suggest.ts";
+import type { SuggestionSource } from "../adapters/suggest.ts";
 import type { RunCommand } from "../cli/parse.ts";
 import { trimAnswer } from "../core/answer.ts";
 import { planCheck } from "../core/plan/check.ts";
@@ -21,6 +22,7 @@ import {
 } from "../core/plan/import.ts";
 import { renderRun } from "../core/plan/run.ts";
 import type { Action, RunPlan, Snapshot } from "../core/plan/types.ts";
+import type { SanitizeRule } from "../core/config/types.ts";
 import { renderStatic, writeLines } from "./export.ts";
 import type { AppliedPlan, Result, SuggestValues } from "./export.ts";
 import { buildRun, endRun, startRun } from "./run.ts";
@@ -202,4 +204,64 @@ export async function runImport(
         context,
       );
   return endRun(result, started.check, started.finish);
+}
+
+/** The suggestion sources a run asks for, each answer with the source that
+ * gave it (`suggestionSources`), injected so the tests run none. */
+export type SuggestSources = (
+  rules: readonly SanitizeRule[],
+) => Promise<Readonly<Record<string, SuggestionSource>>>;
+
+/** One value question an import would ask, as `setup` asks it ahead. */
+export interface ImportValueAsk {
+  readonly placeholder: string;
+  /** The question as the import prints it, without the header. */
+  readonly text: string;
+  /** The suggestion in the question's brackets and the source that gave it. */
+  readonly suggestion?: SuggestionSource;
+}
+
+/**
+ * Contract "mksync setup", Values before the summary: the value questions
+ * `command` (an import) would ask on `env.layers`, each with its suggestion
+ * and the source that answered. `setup` passes the profile and record it holds
+ * in memory, and the snapshot is built by the same code that pull and import
+ * read from disk with, so the list is the one the import would ask once both
+ * are written. The sources run only for the questions asked. A config or
+ * `--only` the import can't read gives no question: the import stops with its
+ * own error when it runs.
+ */
+export async function importValueAsks(
+  env: RunEnvironment,
+  command: RunCommand,
+  suggest: SuggestSources,
+): Promise<readonly ImportValueAsk[]> {
+  const { snapshot } = await buildRun(env, command);
+  const asked = importAskedRules(snapshot);
+  const found = asked.length > 0 ? await suggest(asked) : {};
+  const suggested = Object.fromEntries(
+    Object.entries(found).map(([placeholder, { value }]) => [
+      placeholder,
+      value,
+    ]),
+  );
+  const questions = importValueQuestions(
+    { ...snapshot, suggested },
+    { header: false },
+  );
+  if (!isQuestionList(questions)) {
+    return [];
+  }
+  return questions.map((question) => {
+    const source = Object.hasOwn(found, question.placeholder)
+      ? found[question.placeholder]
+      : undefined;
+    return {
+      placeholder: question.placeholder,
+      text: question.text,
+      ...(question.suggestion !== undefined && source !== undefined
+        ? { suggestion: source }
+        : {}),
+    };
+  });
 }

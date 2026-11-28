@@ -382,13 +382,23 @@ cached-value check only when a credential is a cached value, so don't rely on it
 mksync setup --existing stop
 ```
 
-It shows what it read (OS, hostname, tools, how many config entries already exist), lists the profiles (`personal` and
-any made on this machine), and asks what the machine is for, Claude, and push or pull only; Enter takes the suggestion
-in brackets. Above the last question it says how many files differ and, after a first sync, on which side. It prints
-the same choices as one command (`Same as: mksync setup …`) and asks `Write the record and apply? [Y/n]`: a no prints
-`Stopped: nothing was written.` A yes writes `~/.local/state/sync-settings/machine.json` and the profile next to it,
-and stops: `Stopped: the record is written, no file was changed.` If `.user-values.json` has a value it doesn't know where to keep,
-it asks once: `<KEY>: kept on 1) this profile 2) this machine [1]`.
+It shows what it read (OS, hostname, tools, how many config entries already exist), guesses the profile
+(`Guess: personal (Linux, no domain).`, or a new `work<n>` on a domain-joined or non-Linux machine), lists the profiles
+(`personal` and any made on this machine), and asks what the machine is for, Claude, and push or pull only; Enter takes
+the suggestion in brackets. A new work profile can get a short private label (`acme`) to find it in lists. Above the
+last question it says how many files differ and, after a first sync, on which side. Then it asks each value the first
+pull would ask, with its guess. The summary shows the profile, the public name push branches will use
+(`Public name: work1-linux`), each value and where it came from, and the same choices as one command
+(`Same as: mksync setup …`); then it asks `Write the record and apply? [Y/n]`: a no prints
+`Stopped: nothing was written.` and nothing after that question is asked. A yes writes
+`~/.local/state/sync-settings/machine.json` and the profile next to it, with the values, and stops:
+`Stopped: the record is written, no file was changed.` If `.user-values.json` has a value it doesn't know where to keep,
+it asks once, before the summary: `<KEY>: kept on 1) this profile 2) this machine [1]`.
+
+Unattended, `--yes` takes every guess but two: it never takes a `personal` guess, and a `work<n>` guess only once the
+repo is private, so pass `--profile`. A value with no guess stops it with
+`ERROR: missing value for <KEY>; pass --value KEY=<value>`. `--alias`, `--label`, `--value` and `--no-bootstrap` set
+the rest without asking, and the `Same as:` line already lists them.
 
 ```bash
 mksync machine show      # the record, six lines

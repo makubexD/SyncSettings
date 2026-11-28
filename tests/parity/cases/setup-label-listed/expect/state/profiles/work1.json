@@ -1,0 +1,10 @@
+{
+  "modules": [
+    "shell",
+    "git"
+  ],
+  "values": {},
+  "destinations": {},
+  "retired": false,
+  "label": "acme"
+}
