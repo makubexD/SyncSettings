@@ -77,7 +77,8 @@ import type {
   StatuslineCommand,
   UpdateCommand,
 } from "./cli/parse.ts";
-import { trimAnswer } from "./core/answer.ts";
+import { yesNoAnswer } from "./core/answer.ts";
+import type { AnswerDefaults } from "./core/answer.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { MachineIdentity } from "./core/machine/check.ts";
@@ -247,24 +248,15 @@ async function fetchOriginForDiff(
   return fetchOrigin(repoRoot, process.env);
 }
 
-/** Bash's `read` trims; an empty answer or end of input takes the default. */
-function pullAnswer(answer: string | undefined, defaultYes: boolean): boolean {
-  const given = answer === undefined ? "" : trimAnswer(answer);
-  if (given === "") {
-    return defaultYes;
-  }
-  return /^[Yy]/.test(given);
-}
-
 /** A question on a terminal already in use: the prompt goes out before its
  * answer is read. */
 async function askTerminalQuestion(
   io: SetupIo,
   question: string,
-  defaultYes: boolean,
+  answers: AnswerDefaults,
 ): Promise<boolean> {
   io.write(question);
-  return pullAnswer(await io.readLine(), defaultYes);
+  return yesNoAnswer(await io.readLine(), answers);
 }
 
 type Resolved =
@@ -392,8 +384,8 @@ async function execute(
             fetchAndFastForward: () => fetchAndFastForward(repoRoot),
             hasSyncPoint: async () =>
               (await readSyncPoint(repoRoot, state)) !== undefined,
-            ask: (question, defaultYes) =>
-              askTerminalQuestion(terminal.io, question, defaultYes),
+            ask: (question, answers) =>
+              askTerminalQuestion(terminal.io, question, answers),
             print: (shown) => {
               process.stdout.write(shown.stdout);
               process.stderr.write(shown.stderr);
@@ -458,8 +450,8 @@ async function execute(
             restoreFiles: (files) =>
               restoreFiles(repoRoot, files, PUSH_STATUS_PATHS),
             statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
-            ask: (question, defaultYes) =>
-              askTerminalQuestion(terminal.io, question, defaultYes),
+            ask: (question, answers) =>
+              askTerminalQuestion(terminal.io, question, answers),
             askChoice: async (question) => {
               terminal.io.write(question);
               return terminal.io.readLine();

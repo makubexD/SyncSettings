@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_NO, yesNoAnswer } from "../core/answer.ts";
+import type { AnswerDefaults } from "../core/answer.ts";
 import type { Result } from "./export.ts";
 import { executePull } from "./pull.ts";
 import type { FetchResult, PullDeps, PullInput } from "./pull.ts";
@@ -21,7 +23,17 @@ const NO_SYNC_QUESTION =
   "  No sync is recorded on this machine: if you changed these files here, a pull overwrites them (each keeps a .bak).\n" +
   "  Apply these changes? [y/N] ";
 
-const APPLY_QUESTION = "  Apply these changes? [y/N] ";
+const APPLY_QUESTION = "  Apply these changes? [Y/n] ";
+
+const FORCE_QUESTION = "  Apply these changes? [y/N] ";
+
+/** After the guard passed an empty answer applies; end of input doesn't. */
+const APPLY_ANSWERS: AnswerDefaults = { empty: true, end: false };
+
+/** Typed answers, as the terminal hands them over. */
+const YES = "y";
+const NO = "n";
+const EMPTY = "";
 
 const CONFLICT_LINES = [
   "  --- repo           dotfiles/common/parity/a.conf",
@@ -53,7 +65,7 @@ interface Calls {
   fetch: number;
   readonly questions: {
     readonly question: string;
-    readonly defaultYes: boolean;
+    readonly answers: AnswerDefaults;
   }[];
   /** Everything flushed before a question, in order. */
   readonly printed: Result[];
@@ -70,7 +82,8 @@ interface Scenario {
   readonly diff?: Result;
   readonly importResult?: Result;
   readonly hasSyncPoint?: boolean;
-  readonly answers?: readonly boolean[];
+  /** Typed answers; once they run out, every question meets end of input. */
+  readonly answers?: readonly string[];
   readonly valuesStop?: Result;
 }
 
@@ -84,7 +97,7 @@ function deps(given: Scenario = {}): {
     diffs: (readonly string[])[];
     imports: (readonly string[])[];
     fetch: number;
-    questions: { question: string; defaultYes: boolean }[];
+    questions: { question: string; answers: AnswerDefaults }[];
     printed: Result[];
     steps: string[];
   } = {
@@ -121,9 +134,9 @@ function deps(given: Scenario = {}): {
       return given.fetch ?? { ok: true };
     },
     hasSyncPoint: async () => given.hasSyncPoint ?? true,
-    ask: async (question, defaultYes) => {
-      calls.questions.push({ question, defaultYes });
-      return answers.shift() ?? defaultYes;
+    ask: async (question, means) => {
+      calls.questions.push({ question, answers: means });
+      return yesNoAnswer(answers.shift(), means);
     },
     print: (shown) => {
       calls.printed.push(shown);
@@ -301,7 +314,7 @@ describe("executePull", () => {
     const { deps: fake, calls } = deps({
       check: CHANGED,
       hasSyncPoint: false,
-      answers: [false],
+      answers: [NO],
     });
 
     // Act
@@ -314,8 +327,24 @@ describe("executePull", () => {
       stderr: "",
     });
     expect(calls.questions).toEqual([
-      { question: NO_SYNC_QUESTION, defaultYes: false },
+      { question: NO_SYNC_QUESTION, answers: DEFAULT_NO },
     ]);
+    expect(calls.imports).toEqual([]);
+  });
+
+  test("should apply nothing on an empty answer to a first interactive pull", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      hasSyncPoint: false,
+      answers: [EMPTY],
+    });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
     expect(calls.imports).toEqual([]);
   });
 
@@ -324,7 +353,7 @@ describe("executePull", () => {
     const { deps: fake, calls } = deps({
       check: CHANGED,
       hasSyncPoint: false,
-      answers: [true],
+      answers: [YES],
       importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
     });
 
@@ -564,7 +593,7 @@ describe("executePull", () => {
 
   test("should print the check output before it asks the apply question", async () => {
     // Arrange
-    const { deps: fake, calls } = deps({ check: CHANGED, answers: [false] });
+    const { deps: fake, calls } = deps({ check: CHANGED, answers: [NO] });
 
     // Act
     await executePull(pullInput(), fake);
@@ -573,73 +602,12 @@ describe("executePull", () => {
     expect(calls.printed).toEqual([CHANGED]);
   });
 
-  test("should ask the apply question with a no default and import on yes", async () => {
+  test("should ask the apply question with a yes default and import on y", async () => {
     // Arrange
     const { deps: fake, calls } = deps({
       check: CHANGED,
       importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
-      answers: [true],
-    });
-
-    // Act
-    const result = await executePull(pullInput(), fake);
-
-    // Assert
-    expect(result).toEqual({
-      code: 0,
-      stdout: IMPORT_OUTPUT,
-      stderr: "",
-    });
-    expect(calls.questions).toEqual([
-      { question: APPLY_QUESTION, defaultYes: false },
-    ]);
-    expect(calls.imports).toEqual([[]]);
-  });
-
-  test("should treat an empty answer to the apply question as no", async () => {
-    // Arrange: the ask stub's empty answer list returns the question's default.
-    const { deps: fake, calls } = deps({
-      check: CHANGED,
-      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
-    });
-
-    // Act
-    const result = await executePull(pullInput(), fake);
-
-    // Assert
-    expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
-    expect(calls.questions).toEqual([
-      { question: APPLY_QUESTION, defaultYes: false },
-    ]);
-    expect(calls.imports).toEqual([]);
-  });
-
-  test("should apply nothing when the apply question gets n", async () => {
-    // Arrange
-    const { deps: fake, calls } = deps({
-      check: CHANGED,
-      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
-      answers: [false],
-    });
-
-    // Act
-    const result = await executePull(pullInput(), fake);
-
-    // Assert
-    expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
-    expect(calls.questions).toEqual([
-      { question: APPLY_QUESTION, defaultYes: false },
-    ]);
-    expect(calls.imports).toEqual([]);
-  });
-
-  test("should import when the apply question gets y or Y", async () => {
-    // Arrange: the stub's true stands for either an `y` or a `Y` answer.
-    const { deps: fake, calls } = deps({
-      check: CHANGED,
-      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
-      importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
-      answers: [true],
+      answers: [YES],
     });
 
     // Act
@@ -648,8 +616,96 @@ describe("executePull", () => {
     // Assert
     expect(result).toEqual({ code: 0, stdout: IMPORT_OUTPUT, stderr: "" });
     expect(calls.questions).toEqual([
-      { question: APPLY_QUESTION, defaultYes: false },
+      { question: APPLY_QUESTION, answers: APPLY_ANSWERS },
     ]);
+    expect(calls.imports).toEqual([[]]);
+  });
+
+  test("should import when the apply question gets an empty answer", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
+      importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
+      answers: [EMPTY],
+    });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: IMPORT_OUTPUT, stderr: "" });
+    expect(calls.imports).toEqual([[]]);
+  });
+
+  test.each([
+    ["n", NO],
+    ["x", "x"],
+  ])(
+    "should apply nothing when the apply question gets %s",
+    async (_label, typed) => {
+      // Arrange
+      const { deps: fake, calls } = deps({
+        check: CHANGED,
+        diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
+        answers: [typed],
+      });
+
+      // Act
+      const result = await executePull(pullInput(), fake);
+
+      // Assert
+      expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
+      expect(calls.imports).toEqual([]);
+    },
+  );
+
+  test("should apply nothing when the apply question meets end of input", async () => {
+    // Arrange: no typed answers, so the question meets end of input.
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      diff: { code: 3, stdout: `${IN_LINE}\n`, stderr: "" },
+    });
+
+    // Act
+    const result = await executePull(pullInput(), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
+    expect(calls.imports).toEqual([]);
+  });
+
+  test("should ask [y/N] under --force and apply nothing on an empty answer", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      answers: [EMPTY],
+    });
+
+    // Act
+    const result = await executePull(pullInput({ force: true }), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: NOTHING_APPLIED, stderr: "" });
+    expect(calls.questions).toEqual([
+      { question: FORCE_QUESTION, answers: DEFAULT_NO },
+    ]);
+    expect(calls.imports).toEqual([]);
+  });
+
+  test("should import under --force when the question gets Y", async () => {
+    // Arrange
+    const { deps: fake, calls } = deps({
+      check: CHANGED,
+      importResult: { code: 0, stdout: IMPORT_OUTPUT, stderr: "" },
+      answers: ["Y"],
+    });
+
+    // Act
+    const result = await executePull(pullInput({ force: true }), fake);
+
+    // Assert
+    expect(result).toEqual({ code: 0, stdout: IMPORT_OUTPUT, stderr: "" });
     expect(calls.imports).toEqual([[]]);
   });
 
@@ -657,7 +713,7 @@ describe("executePull", () => {
     // Arrange
     const { deps: fake, calls } = deps({
       check: CHANGED,
-      answers: [false],
+      answers: [NO],
     });
 
     // Act
@@ -709,7 +765,7 @@ const VALUES_REFUSED: Result = {
 describe("executePull value questions", () => {
   test("should ask the values before the check when interactive", async () => {
     // Arrange
-    const { deps: fake, calls } = deps({ check: CHANGED, answers: [true] });
+    const { deps: fake, calls } = deps({ check: CHANGED, answers: [YES] });
 
     // Act
     await executePull(pullInput(), fake);
@@ -734,7 +790,7 @@ describe("executePull value questions", () => {
     const { deps: fake, calls } = deps({
       fetch: { ok: true, pulled: 2 },
       check: CHANGED,
-      answers: [true],
+      answers: [YES],
     });
 
     // Act
@@ -747,7 +803,7 @@ describe("executePull value questions", () => {
 
   test("should go on to the check when the questions go on unanswered", async () => {
     // Arrange
-    const { deps: fake, calls } = deps({ check: CHANGED, answers: [true] });
+    const { deps: fake, calls } = deps({ check: CHANGED, answers: [YES] });
 
     // Act
     const result = await executePull(pullInput(), fake);

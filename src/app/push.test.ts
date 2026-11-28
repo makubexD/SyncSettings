@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_NO } from "../core/answer.ts";
+import type { AnswerDefaults } from "../core/answer.ts";
 
 import type { Result } from "./export.ts";
 import type { MoveSession, PushDeps, PushInput } from "./push.ts";
@@ -91,7 +93,7 @@ async function runGuarded(
   const exports: { only: readonly string[]; skip: readonly string[] }[] = [];
   const commits: boolean[] = [];
   const diffs: { only: readonly string[]; conflicts: boolean }[] = [];
-  const questions: { question: string; defaultYes: boolean }[] = [];
+  const questions: { question: string; answers: AnswerDefaults }[] = [];
   let printed = "";
   const result = await executePush(
     input,
@@ -105,8 +107,8 @@ async function runGuarded(
         exports.push({ only, skip });
         return EXPORTED;
       },
-      ask: async (question, defaultYes) => {
-        questions.push({ question, defaultYes });
+      ask: async (question, answers) => {
+        questions.push({ question, answers });
         return true;
       },
       print: (shown) => {
@@ -402,7 +404,10 @@ describe("executePush guard", () => {
     expect(run.commits).toEqual([false]);
     expect(run.diffs).toEqual([{ only: [], conflicts: true }]);
     expect(run.questions).toEqual([
-      { question: "  Open a PR with these changes? [y/N] ", defaultYes: false },
+      {
+        question: "  Open a PR with these changes? [y/N] ",
+        answers: DEFAULT_NO,
+      },
     ]);
   });
 
