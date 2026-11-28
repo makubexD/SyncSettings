@@ -192,15 +192,21 @@ function currentUserName(): string | undefined {
   }
 }
 
+/** A suggestion and the source that answered it. */
+export interface SuggestionSource {
+  readonly value: string;
+  readonly source: SuggestSource;
+}
+
 /**
  * The suggestion for each placeholder whose rule names sources: the first of
- * its sources, in order, that answers. Each source runs at most once however
- * many rules name it, and only when a rule reaches it.
+ * its sources, in order, that answers, with that source. Each source runs at
+ * most once however many rules name it, and only when a rule reaches it.
  */
-export async function suggestions(
+export async function suggestionSources(
   rules: readonly SanitizeRule[],
   context: SuggestContext = {},
-): Promise<Values> {
+): Promise<Readonly<Record<string, SuggestionSource>>> {
   const runner = context.runner ?? runSource;
   const env = context.env ?? process.env;
   const platform = context.platform ?? process.platform;
@@ -237,12 +243,12 @@ export async function suggestions(
 
   async function firstAnswer(
     sources: readonly SuggestSource[],
-  ): Promise<string | undefined> {
+  ): Promise<SuggestionSource | undefined> {
     for (const source of sources) {
       // Sequential on purpose: a later source runs only when this one fails.
       const value = await answer(source);
       if (value !== undefined) {
-        return value;
+        return { value, source };
       }
     }
     return undefined;
@@ -251,14 +257,28 @@ export async function suggestions(
   const answers = await Promise.all(
     rules.map(async (rule) => ({
       placeholder: rule.placeholder,
-      value: await firstAnswer(rule.suggest ?? []),
+      answered: await firstAnswer(rule.suggest ?? []),
     })),
   );
-  const found: Record<string, string> = {};
-  for (const { placeholder, value } of answers) {
-    if (value !== undefined && found[placeholder] === undefined) {
-      found[placeholder] = value;
+  const found: Record<string, SuggestionSource> = {};
+  for (const { placeholder, answered } of answers) {
+    if (answered !== undefined && found[placeholder] === undefined) {
+      found[placeholder] = answered;
     }
   }
   return found;
+}
+
+/** The suggestion for each placeholder, without its source. */
+export async function suggestions(
+  rules: readonly SanitizeRule[],
+  context: SuggestContext = {},
+): Promise<Values> {
+  const found = await suggestionSources(rules, context);
+  return Object.fromEntries(
+    Object.entries(found).map(([placeholder, { value }]) => [
+      placeholder,
+      value,
+    ]),
+  );
 }
