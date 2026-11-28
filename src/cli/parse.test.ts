@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parseArgs, USAGE as USAGE_TEXT } from "./parse.ts";
+import type { HelpTopic } from "./help.ts";
+import { parseArgs } from "./parse.ts";
 
 const EXPORT = {
   kind: "run",
@@ -24,8 +23,6 @@ const IMPORT = {
   yes: false,
   only: [],
 } as const;
-
-const USAGE = { kind: "usage" } as const;
 
 const VERSION = { kind: "version" } as const;
 
@@ -86,13 +83,69 @@ function usageError(message: string): {
   return { kind: "error", message, code: 2 };
 }
 
-describe("parseArgs", () => {
-  test("should ask for the usage line when given no argument", () => {
-    expect(parseArgs([])).toEqual(USAGE);
+/** Decision 4's two lines. */
+function unknownCommand(word: string): ReturnType<typeof usageError> {
+  return usageError(
+    `ERROR: unknown command ${word}\nRun mksync --help for the list of commands.`,
+  );
+}
+
+/** Decision 5's two lines: the group's error, then its hint. */
+function groupError(
+  line: string,
+  group: string,
+): ReturnType<typeof usageError> {
+  return usageError(`${line}\nRun mksync ${group} --help for its commands.`);
+}
+
+function help(topic: HelpTopic): { kind: "help"; topic: HelpTopic } {
+  return { kind: "help", topic };
+}
+
+describe("parseArgs help", () => {
+  test.each([
+    [["--help"], "top"],
+    [["-h"], "top"],
+    [["--version", "--help"], "top"],
+    [["pull", "--help"], "pull"],
+    [["pull", "--yes", "--force", "--help"], "pull"],
+    [["pull", "dotfiles/x", "-h"], "pull"],
+    [["push", "-m", "--help"], "push"],
+    [["setup", "--name", "--help"], "setup"],
+    [["setting", "--help"], "setting"],
+    [["setting", "move", "a", "b", "--to", "base", "--help"], "setting move"],
+    [["machine", "retire", "wk1", "--help"], "machine retire"],
+    [["profile", "show", "--help"], "profile show"],
+    [["export", "--help"], "export"],
+    [["commit", "-m", "x", "--help"], "commit"],
+  ] as const)("should print help for %j", (argv, topic) => {
+    expect(parseArgs(argv)).toEqual(help(topic));
   });
 
-  test("should ask for the usage line when the verb is unknown", () => {
-    expect(parseArgs(["frobnicate"])).toEqual(USAGE);
+  test("should still name an unknown command given --help", () => {
+    expect(parseArgs(["bogus"])).toEqual(unknownCommand("bogus"));
+    expect(parseArgs(["bogus", "--help"])).toEqual(unknownCommand("bogus"));
+  });
+
+  test("should still name an unknown group verb given --help", () => {
+    expect(parseArgs(["machine", "list", "--help"])).toEqual(
+      groupError("ERROR: unknown machine command list", "machine"),
+    );
+  });
+
+  test("should keep an unknown first option as Unknown option", () => {
+    expect(parseArgs(["-x"])).toEqual(unknownOption("-x"));
+  });
+});
+
+describe("parseArgs", () => {
+  test("should run the status when given no argument", () => {
+    expect(parseArgs([])).toEqual(STATUS);
+    expect(parseArgs([])).toEqual(parseArgs(["status"]));
+  });
+
+  test("should name an unknown command", () => {
+    expect(parseArgs(["frobnicate"])).toEqual(unknownCommand("frobnicate"));
   });
 
   test("should print the version for --version", () => {
@@ -450,8 +503,10 @@ describe("parseArgs", () => {
     expect(parseArgs(["machine", "show"])).toEqual(MACHINE_SHOW);
   });
 
-  test("should ask for the usage line when machine has no verb", () => {
-    expect(parseArgs(["machine"])).toEqual(USAGE);
+  test("should ask for show or retire when machine has no verb", () => {
+    expect(parseArgs(["machine"])).toEqual(
+      groupError("ERROR: machine needs show or retire", "machine"),
+    );
   });
 
   test("should ask for a name when machine retire has none", () => {
@@ -460,10 +515,14 @@ describe("parseArgs", () => {
     );
   });
 
-  test("should refuse a machine noun that isn't show or retire", () => {
+  test("should name a machine verb that isn't show or retire", () => {
     expect(parseArgs(["machine", "frobnicate"])).toEqual(
-      unknownOption("frobnicate"),
+      groupError("ERROR: unknown machine command frobnicate", "machine"),
     );
+  });
+
+  test("should refuse an option in the machine verb's place", () => {
+    expect(parseArgs(["machine", "--bogus"])).toEqual(unknownOption("--bogus"));
   });
 
   test("should refuse an option after machine show", () => {
@@ -520,12 +579,39 @@ describe("parseArgs", () => {
     );
   });
 
-  test("should ask for the usage line when profile has no verb", () => {
-    expect(parseArgs(["profile"])).toEqual(USAGE);
+  test("should ask for show or retire when profile has no verb", () => {
+    expect(parseArgs(["profile"])).toEqual(
+      groupError("ERROR: profile needs show or retire", "profile"),
+    );
   });
 
-  test("should refuse a profile noun that isn't retire", () => {
-    expect(parseArgs(["profile", "show"])).toEqual(unknownOption("show"));
+  test("should name a profile verb that isn't show or retire", () => {
+    expect(parseArgs(["profile", "list"])).toEqual(
+      groupError("ERROR: unknown profile command list", "profile"),
+    );
+  });
+
+  test("should parse profile show with no name", () => {
+    expect(parseArgs(["profile", "show"])).toEqual({ kind: "profile-show" });
+  });
+
+  test("should parse profile show with a name", () => {
+    expect(parseArgs(["profile", "show", "work1"])).toEqual({
+      kind: "profile-show",
+      target: "work1",
+    });
+  });
+
+  test("should refuse a second positional after profile show", () => {
+    expect(parseArgs(["profile", "show", "work1", "x"])).toEqual(
+      unknownOption("x"),
+    );
+  });
+
+  test("should refuse an option after profile show", () => {
+    expect(parseArgs(["profile", "show", "--yes"])).toEqual(
+      unknownOption("--yes"),
+    );
   });
 
   test("should ask for a name when profile retire has none", () => {
@@ -659,13 +745,13 @@ describe("parseArgs", () => {
 
   test("should ask for list or move when setting has no verb", () => {
     expect(parseArgs(["setting"])).toEqual(
-      usageError("ERROR: setting needs list or move"),
+      groupError("ERROR: setting needs list or move", "setting"),
     );
   });
 
   test("should name an unknown setting verb", () => {
     expect(parseArgs(["setting", "copy"])).toEqual(
-      usageError("ERROR: unknown setting command copy"),
+      groupError("ERROR: unknown setting command copy", "setting"),
     );
   });
 
@@ -1075,85 +1161,8 @@ describe("parseArgs", () => {
     expect(parseArgs(["commit", "work-1"])).toEqual(unknownOption("work-1"));
   });
 
-  test("should keep export, import and commit out of the usage line", () => {
-    for (const hidden of ["export", "import", "commit"]) {
-      expect(USAGE_TEXT.includes(`mksync ${hidden}`)).toBe(false);
-    }
-  });
-
   test("should treat shadow as an unknown command", () => {
-    expect(parseArgs(["shadow"])).toEqual(parseArgs(["frobnicate"]));
-  });
-
-  test("should name status in the usage line", () => {
-    expect(USAGE_TEXT.startsWith("usage: mksync status |")).toBe(true);
-  });
-
-  test("should name doctor in the usage line", () => {
-    expect(
-      USAGE_TEXT.startsWith("usage: mksync status | mksync doctor |"),
-    ).toBe(true);
-  });
-
-  test("should name pull in the usage line", () => {
-    expect(
-      USAGE_TEXT.includes("mksync pull [--yes] [--force] [<path>...]"),
-    ).toBe(true);
-  });
-
-  test("should name push in the usage line", () => {
-    expect(
-      USAGE_TEXT.includes(
-        "mksync push [--yes] [--force] [-m <msg>] [<path>...]",
-      ),
-    ).toBe(true);
-  });
-
-  test("should name diff in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync diff [<path>...]")).toBe(true);
-  });
-
-  test("should name check in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync check [<path>...]")).toBe(true);
-  });
-
-  test("should name preview in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync preview")).toBe(true);
-  });
-
-  test("should name machine show in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync machine show")).toBe(true);
-  });
-
-  test("should name machine retire in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync machine retire <name> [--yes]")).toBe(
-      true,
-    );
-  });
-
-  test("should name profile retire in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync profile retire <name> [--yes]")).toBe(
-      true,
-    );
-  });
-
-  test("should name setup in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync setup")).toBe(true);
-  });
-
-  test("should name both setting commands in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync setting list [--profile <p>]")).toBe(
-      true,
-    );
-    expect(
-      USAGE_TEXT.includes(
-        "mksync setting move <file> [<key>] --to base|os|profile|machine [--dry-run | --yes]",
-      ),
-    ).toBe(true);
-  });
-
-  test("should name update in the usage line", () => {
-    expect(USAGE_TEXT.includes("mksync update")).toBe(true);
+    expect(parseArgs(["shadow"])).toEqual(unknownCommand("shadow"));
   });
 });
 
@@ -1181,21 +1190,8 @@ describe("usage errors exit 2", () => {
   });
 
   test("should exit 2 on an unknown verb in a group", () => {
-    expect(parseArgs(["machine", "list"])).toEqual(unknownOption("list"));
-  });
-});
-
-describe("USAGE", () => {
-  test("should match the usage line in the contract", () => {
-    const contract = readFileSync(
-      join(import.meta.dir, "../../docs/sync-contract.md"),
-      "utf8",
+    expect(parseArgs(["machine", "list"])).toEqual(
+      groupError("ERROR: unknown machine command list", "machine"),
     );
-    const usageLine = contract
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.startsWith("usage: mksync "));
-
-    expect(usageLine).toBe(USAGE_TEXT);
   });
 });

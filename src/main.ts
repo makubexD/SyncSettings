@@ -42,7 +42,11 @@ import type { ConfigV2, Os } from "./core/config/types.ts";
 import { configuredLocal } from "./core/plan/pick.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
-import { runSettingList, runSettingMove } from "./app/setting.ts";
+import {
+  runProfileShow,
+  runSettingList,
+  runSettingMove,
+} from "./app/setting.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
 import {
   defaultUpdateDeps,
@@ -59,12 +63,14 @@ import {
 } from "./app/export.ts";
 import type { ExecuteOptions, Result } from "./app/export.ts";
 import type { RunEnvironment } from "./app/run.ts";
-import { parseArgs, USAGE } from "./cli/parse.ts";
+import { helpText } from "./cli/help.ts";
+import { parseArgs } from "./cli/parse.ts";
 import type {
   CommitCommand,
   DiffCommand,
   DoctorCommand,
   MachineShowCommand,
+  ProfileShowCommand,
   PullCommand,
   PushCommand,
   RetireCommand,
@@ -76,7 +82,8 @@ import type {
   StatuslineCommand,
   UpdateCommand,
 } from "./cli/parse.ts";
-import { trimAnswer } from "./core/answer.ts";
+import { yesNoAnswer } from "./core/answer.ts";
+import type { AnswerDefaults } from "./core/answer.ts";
 import { pickOs } from "./core/layers/select.ts";
 import { checkRecord } from "./core/machine/check.ts";
 import type { MachineIdentity } from "./core/machine/check.ts";
@@ -84,8 +91,6 @@ import type { MachineRecord } from "./core/machine/record.ts";
 import { machineScope } from "./core/machine/scope.ts";
 import { renderMachineShow } from "./core/machine/show.ts";
 import type { SetupIo } from "./wizard/setup.ts";
-
-export { USAGE };
 
 export type { Result } from "./app/export.ts";
 
@@ -248,24 +253,15 @@ async function fetchOriginForDiff(
   return fetchOrigin(repoRoot, process.env);
 }
 
-/** Bash's `read` trims; an empty answer or end of input takes the default. */
-function pullAnswer(answer: string | undefined, defaultYes: boolean): boolean {
-  const given = answer === undefined ? "" : trimAnswer(answer);
-  if (given === "") {
-    return defaultYes;
-  }
-  return /^[Yy]/.test(given);
-}
-
 /** A question on a terminal already in use: the prompt goes out before its
  * answer is read. */
 async function askTerminalQuestion(
   io: SetupIo,
   question: string,
-  defaultYes: boolean,
+  answers: AnswerDefaults,
 ): Promise<boolean> {
   io.write(question);
-  return pullAnswer(await io.readLine(), defaultYes);
+  return yesNoAnswer(await io.readLine(), answers);
 }
 
 type Resolved =
@@ -278,6 +274,7 @@ type Resolved =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | ProfileShowCommand
   | SettingListCommand
   | SettingMoveCommand
   | CommitCommand
@@ -294,6 +291,7 @@ type ExecutableCommand =
   | PushCommand
   | MachineShowCommand
   | RetireCommand
+  | ProfileShowCommand
   | SettingListCommand
   | SettingMoveCommand
   | CommitCommand
@@ -393,8 +391,8 @@ async function execute(
             fetchAndFastForward: () => fetchAndFastForward(repoRoot),
             hasSyncPoint: async () =>
               (await readSyncPoint(repoRoot, state)) !== undefined,
-            ask: (question, defaultYes) =>
-              askTerminalQuestion(terminal.io, question, defaultYes),
+            ask: (question, answers) =>
+              askTerminalQuestion(terminal.io, question, answers),
             print: (shown) => {
               process.stdout.write(shown.stdout);
               process.stderr.write(shown.stderr);
@@ -459,8 +457,8 @@ async function execute(
             restoreFiles: (files) =>
               restoreFiles(repoRoot, files, PUSH_STATUS_PATHS),
             statusShort: () => statusPorcelain(repoRoot, PUSH_STATUS_PATHS),
-            ask: (question, defaultYes) =>
-              askTerminalQuestion(terminal.io, question, defaultYes),
+            ask: (question, answers) =>
+              askTerminalQuestion(terminal.io, question, answers),
             askChoice: async (question) => {
               terminal.io.write(question);
               return terminal.io.readLine();
@@ -528,6 +526,7 @@ async function execute(
     case "status":
     case "doctor":
     case "machine-show":
+    case "profile-show":
     case "setting-list":
     case "setting-move":
     case "run":
@@ -569,6 +568,15 @@ async function execute(
       });
     case "status":
       return executeStatus({
+        repoRoot,
+        config: config.value,
+        os: os.value,
+        home,
+        state,
+        layers: layers.value,
+      });
+    case "profile-show":
+      return runProfileShow(command, {
         repoRoot,
         config: config.value,
         os: os.value,
@@ -665,7 +673,7 @@ async function execute(
 }
 
 /**
- * Resolve the arguments that need no repo: the version, the usage line or an
+ * Resolve the arguments that need no repo: the version, help or an
  * unknown option. A command comes back for `main` to execute.
  */
 export function run(argv: readonly string[]): Resolved {
@@ -695,13 +703,14 @@ export function run(argv: readonly string[]): Resolved {
       return parsed;
     case "machine-retire":
     case "profile-retire":
+    case "profile-show":
     case "setting-list":
     case "setting-move":
       return parsed;
     case "version":
       return { code: 0, stdout: `mksync ${pkg.version}\n`, stderr: "" };
-    case "usage":
-      return { code: 2, stdout: "", stderr: `${USAGE}\n` };
+    case "help":
+      return { code: 0, stdout: helpText(parsed.topic), stderr: "" };
     case "error":
       return { code: parsed.code, stdout: "", stderr: `${parsed.message}\n` };
     default: {

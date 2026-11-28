@@ -1,0 +1,97 @@
+usage: mksync <command> [<args>]
+
+Keeps this machine's settings in step with the repo.
+
+Every day:
+  status        where this machine stands, and the next command
+  pull          take the repo's changes onto this machine
+  push          send this machine's changes as a pull request
+  diff          which side changed each file since the last sync
+  check         what a pull would change; writes nothing
+  preview       what a push would send; writes nothing
+
+Set up and look after:
+  setup         first run: the machine record, its values, the first sync
+  doctor        check what mksync needs
+  update        replace mksync with the newest release
+  machine       show or retire a machine record
+  profile       show or retire a profile
+  setting       list the settings above the base, or move one
+  statusline    print Claude Code's status line
+
+Options:
+  -h, --help    show this help; mksync <command> --help shows a command's
+  --version     print mksync's version
+
+Exit codes: 0 done, 1 failed or declined, 2 usage error, 3 changes found
+(check, diff).
+usage: mksync <command> [<args>]
+
+Keeps this machine's settings in step with the repo.
+
+Every day:
+  status        where this machine stands, and the next command
+  pull          take the repo's changes onto this machine
+  push          send this machine's changes as a pull request
+  diff          which side changed each file since the last sync
+  check         what a pull would change; writes nothing
+  preview       what a push would send; writes nothing
+
+Set up and look after:
+  setup         first run: the machine record, its values, the first sync
+  doctor        check what mksync needs
+  update        replace mksync with the newest release
+  machine       show or retire a machine record
+  profile       show or retire a profile
+  setting       list the settings above the base, or move one
+  statusline    print Claude Code's status line
+
+Options:
+  -h, --help    show this help; mksync <command> --help shows a command's
+  --version     print mksync's version
+
+Exit codes: 0 done, 1 failed or declined, 2 usage error, 3 changes found
+(check, diff).
+usage: mksync <command> [<args>]
+
+Keeps this machine's settings in step with the repo.
+
+Every day:
+  status        where this machine stands, and the next command
+  pull          take the repo's changes onto this machine
+  push          send this machine's changes as a pull request
+  diff          which side changed each file since the last sync
+  check         what a pull would change; writes nothing
+  preview       what a push would send; writes nothing
+
+Set up and look after:
+  setup         first run: the machine record, its values, the first sync
+  doctor        check what mksync needs
+  update        replace mksync with the newest release
+  machine       show or retire a machine record
+  profile       show or retire a profile
+  setting       list the settings above the base, or move one
+  statusline    print Claude Code's status line
+
+Options:
+  -h, --help    show this help; mksync <command> --help shows a command's
+  --version     print mksync's version
+
+Exit codes: 0 done, 1 failed or declined, 2 usage error, 3 changes found
+(check, diff).
+
+  SyncSettings  linux (Parity Linux)
+  Repo      : <REPO>
+  Origin    : up to date
+  Unsent    : none
+  Machine   : matches the repo
+
+  Next: nothing to do.
+
+  SyncSettings  linux (Parity Linux)
+  Repo      : <REPO>
+  Origin    : up to date
+  Unsent    : none
+  Machine   : matches the repo
+
+  Next: nothing to do.

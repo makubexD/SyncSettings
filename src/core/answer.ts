@@ -25,3 +25,31 @@ const CONTROL_CHARACTER =
 export function holdsControlCharacter(value: string): boolean {
   return CONTROL_CHARACTER.test(value);
 }
+
+/** What an empty answer and end of input mean for a yes/no question. */
+export interface AnswerDefaults {
+  readonly empty: boolean;
+  readonly end: boolean;
+}
+
+/** A `[y/N]` question: an empty answer and end of input are both no. */
+export const DEFAULT_NO: AnswerDefaults = { empty: false, end: false };
+
+/**
+ * A yes/no answer as typed, `undefined` at end of input. An answer starting
+ * with `y` or `Y` is yes; an empty one (after {@link trimAnswer}) takes
+ * `defaults.empty`, end of input `defaults.end`; anything else is no.
+ */
+export function yesNoAnswer(
+  answer: string | undefined,
+  defaults: AnswerDefaults,
+): boolean {
+  if (answer === undefined) {
+    return defaults.end;
+  }
+  const given = trimAnswer(answer);
+  if (given === "") {
+    return defaults.empty;
+  }
+  return /^[Yy]/.test(given);
+}

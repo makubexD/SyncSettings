@@ -9,7 +9,8 @@ conflict. The steps of a normal day are in [daily-workflow.md](daily-workflow.md
 - **Pull** takes the repo's changes. One file with an edit you haven't sent stops the whole pull.
 - **Push** sends this machine's changes through a pull request. It leaves files the repo changed alone, and a file both
   sides changed stops it.
-- Both show what they will do and ask. Enter is **No**.
+- Both show what they will do and ask. At pull's question Enter is **Yes** once the check found nothing newer here;
+  everywhere else (push, `pull --force`, a first pull) Enter is **No**.
 - `mksync diff` says which side changed each file, and changes nothing.
 
 ## The four labels
@@ -58,7 +59,10 @@ the next push gets past that line.
   in a file the repo holds in one layer only. Without `--yes` the push asks; with it, and in `mksync preview`, the
   suggestion is taken: the profile, or all machines on `personal`. While the repo is public a profile's keys stay on
   this machine.
-- Only an answer starting with `y` or `Y` is yes. Enter, or no input at all, is No.
+- An answer starting with `y` or `Y` is yes, and any other typed answer is no. Enter is yes at `mksync pull`'s
+  `[Y/n]` question, and no at the `[y/N]` ones: push, `pull --force` and a first pull with no sync point. No input at
+  all is always no.
+- `mksync pull --help` and `mksync push --help` print these options in short.
 - When the diff fails, the newer side is unknown. `mksync push --force` then exports every file, `IN` ones included, so
   read its PR with care.
 

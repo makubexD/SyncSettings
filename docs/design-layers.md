@@ -858,7 +858,9 @@ full text and the steps that build it.
 6. **A newer `schemaVersion`** stops with `ERROR: sync-config.v2.json: this config needs a newer mksync: run mksync
 update.`, exit 2, before anything else; also after a pull that fast-forwards to one.
 7. **Usage errors exit 2** in the program: unknown option, clashing flags, a repeated flag, an unknown verb in a
-   group. The old engines keep 1 until they are deleted.
+   group. The old engines keep 1 until they are deleted. Since smart first run phase 4 (`v1.5.0`) a missing or
+   unknown group verb names its group (`ERROR: unknown machine command <verb>`) and an unknown command says so; the
+   lines are in the contract's [The program](sync-contract.md#the-program).
 8. **Typed answers** are trimmed of spaces, tabs and `\r` at both ends; only spaces is empty.
 9. **The overwrite prompt** is asked per file as import reaches it, one line read at a time.
 10. **Links and atomic writes.** State and repo writes go through a temp file and a rename (0600 for state); a state
@@ -1480,6 +1482,25 @@ install").
 
 ### Design
 
+- **Help leftovers (smart first run phase 4, 2026-11-28).** Not added with `--help`: a `mksync help <command>` verb
+  (the `cli` skill's second spelling; a new command name) and "did you mean" suggestions for an unknown command or
+  verb.
+- **A hint after `Unknown option:` (smart first run phase 4).** `Unknown option: <arg>` keeps its wording and gets no
+  hint line. Open: add `Run mksync <command> --help for its options.`; the line appears in about ten contract places
+  and no shared case, so it can follow in a later phase.
+- **The not-found path with a repo store (smart first run phase 4 review, 2026-11-28).** `profile show` and
+  `profile retire` print `ERROR: profile <name> not found: <state>/profiles/<name>.json`, as the contract says, but a
+  pointer record reads profiles from the clone's `profiles/`, where `readStore`'s own error says
+  `profiles/<name>.json`. Open: print the folder the store was read from, and add a pointer-record shared case for
+  `profile show` (a missing name and a layer read from the repo store). Settle before the private switch.
+- **Enter at pull's `[Y/n]` without a terminal (smart first run phase 4 security review).** Decision 6 makes an empty
+  line consent, so a piped blank line (`yes '' | mksync pull`) or an Enter typed ahead while the fetch and check run
+  applies the repo's files. The guard has passed by then and each file keeps its `.bak`. Open: take an empty answer as
+  yes only when stdin is a terminal, and drain typed-ahead input before the question.
+- **Echoed arguments keep control characters (smart first run phase 4 security review).** `Unknown option: <arg>`,
+  `ERROR: unknown command <word>`, `ERROR: unknown <group> command <verb>` and the profile not-found lines print the
+  argument as typed, escape sequences included. Open: one escaper (the `CONTROL_CHARACTER` class in
+  `src/core/answer.ts`) for every echoed argument, and a `<KEY>` shape check on profile value keys.
 - **The `kept on` answer has no flag (smart first run phase 2, 2026-11-27).** Setup's `<KEY>: kept on …` question
   (a `.user-values.json` placeholder the value table doesn't name) now comes before the summary, but no flag answers
   it, so `Same as:` can't reproduce answer `2` (this machine), and `--yes` always takes `1`. Open: a flag such as
@@ -1812,9 +1833,11 @@ parents.` and `ERROR: cannot read <file>.` have no contract text: the entry poin
   - A piped `setup --replace` prints the old machine values as suggestions on stdout.
   - A `__proto__` placeholder in `.user-values.json` is dropped without a message.
   - Profile names read from file names, and retire names, aren't checked against the layer-name rule.
-  - An unknown verb in a group (`mksync machine list`) exits 1 as an unknown option; an unknown command prints the
-    usage line, exit 2.
-  - No `--help` at any level and no `--name=value` form (a migration, per the `cli` skill).
+  - Settled by smart first run phase 4 (`v1.5.0`): an unknown verb in a group (`mksync machine list`) was
+    `Unknown option: list`, and an unknown command printed the usage line. Both now print their own `ERROR:` line and
+    a `--help` hint, exit 2 ([The program](sync-contract.md#the-program)).
+  - Settled by smart first run phase 4: `--help` and `-h` at every level ([Help](sync-contract.md#help)). Still no
+    `--name=value` form (a migration, per the `cli` skill).
   - `--profile`, `--claude` and `--mode` given with `--replace` are ignored without a message.
   - The `wizard` skill's rules (prompts on stderr, a terminal required, `--no-input`) differ from the contract,
     which reads answers piped on stdin and prints the questions on stdout. The contract stands; adopting the skill's

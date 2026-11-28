@@ -188,6 +188,10 @@ validate_case() {
             else false end
           else true end' "$json" > /dev/null 2>&1 \
         || die 'os must be a list of linux, macos or windows'
+    jq -e 'all(.commands[]; if .command == "args" then
+            (.argv | type) == "array" and all(.argv[]; type == "string")
+          else (has("argv") | not) end)' "$json" > /dev/null 2>&1 \
+        || die 'argv is required for args, a list of strings, and nowhere else'
     jq -e 'all(.commands[]; if has("stdin") then (.stdin | type) == "string" else true end)' "$json" > /dev/null 2>&1 \
         || die 'stdin must be a string'
     jq -e 'all(.commands[]; if has("stderr") then (.stderr | type) == "boolean" else true end)' "$json" > /dev/null 2>&1 \
@@ -352,7 +356,7 @@ whole_output() {
 
 # Rewrite the placeholders in the whole-stdout lines of the collected output,
 # after every command ran (see the README's "How the runner checks it"): the
-# case's temp home becomes <HOME>, the one backup run folder becomes
+# case's temp clone becomes <REPO>, its temp home <HOME>, the one backup run folder becomes
 # backups/RUN, and a Sync point's sha that begins the repo's HEAD becomes
 # <HEAD>. The status lines, and every line outside a whole-stdout command, are
 # left alone. $1 is the case's temp folder, $2 the case's git mode.
@@ -394,6 +398,7 @@ rewrite_whole_output() {
         if [[ $in_whole == true ]]; then
             # The temp home as a literal string: quoting keeps a path's glob
             # characters out of the pattern.
+            line=${line//"$temp/repo"/<REPO>}
             line=${line//"$temp/home"/<HOME>}
             if [[ -n $run ]]; then
                 line=${line//"backups/$run"/backups/RUN}
@@ -941,6 +946,16 @@ run_case() {
             front-check) args=(./mksync check) ;;
             front-preview) args=(./mksync preview) ;;
             machine-show) args=(./mksync machine show) ;;
+            args)
+                # A raw command line: exactly these arguments, no options added.
+                args=(./mksync)
+                while IFS= read -r -d '' value; do
+                    args+=("$value")
+                done < <(jq -j ".commands[$i].argv[] | . , \"\\u0000\"" "$dir/case.json")
+                if [[ $(jq -r ".commands[$i] | has(\"options\")" "$dir/case.json") == true ]]; then
+                    die "unknown option 'options' in command $((i + 1)): args takes none"
+                fi
+                ;;
             machine-retire)
                 target=$(jq -r ".commands[$i].options.target" "$dir/case.json")
                 args=(./mksync machine retire "$target")
@@ -1023,7 +1038,7 @@ run_case() {
         all_output=$(jq -r ".commands[$i] | has(\"output\")" "$dir/case.json")
         keep_ansi=false
         case $cmd in
-            setup|machine-show|machine-retire|profile-retire|setting-list|setting-move) all_output=true ;;
+            setup|machine-show|machine-retire|profile-retire|setting-list|setting-move|args) all_output=true ;;
             statusline) all_output=true; keep_ansi=true ;;
         esac
         rc=0

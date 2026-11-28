@@ -106,8 +106,12 @@ as it is: cases use it as a placeholder name). The PowerShell runner doesn't yet
 (`export --diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`, `front-check` and
 `front-preview`, plus `setup`, `statusline`, `machine-show` (`machine show`), `machine-retire`
 (`machine retire <target>`), `profile-retire` (`profile retire <target>`), `setting-list` (`setting list`) and
-`setting-move` (`setting move <target> [<key>] [--to <to>]`). Every command runs `./mksync <cmd>`,
-with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview`.
+`setting-move` (`setting move <target> [<key>] [--to <to>]`), and `args`, a raw command line. Every command runs
+`./mksync <cmd>`, with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview`.
+`args` takes a field `argv` next to `command`, an array of strings (required, may be empty, refused on every other
+command), and runs `./mksync` (`mksync.exe` in `run.ps1`) with exactly those arguments, no options added; an
+`options` key on it is a runner error. For example `{"command": "args", "argv": ["setting", "--help"],
+"stderr": true}` runs `./mksync setting --help`.
 `options` uses neutral names that the runner spells for the program: `force: true` is `--force`, `only: [paths]` is
 `--only`, and `resetValues`, a boolean, is `--reset-values`, allowed on `import` and `check` only. `name`, `profile`,
 `replace`, `claude`, `mode`, `existing`, `alias` and `label` are strings spelled `--<key> <value>` and allowed on `setup` only, except
@@ -123,8 +127,8 @@ path as a positional argument after the options. Every command runs with no term
 string sent as its stdin, such as `"n\n"` for a prompt answer. Its
 stderr is merged into its output unless the command has `stderr: true`: then its stderr lines follow its stdout status
 lines in `output.txt`, for the warnings the program prints there. A command's output is read as status lines (below)
-except for `setup`, `statusline`, `machine-show`, `machine-retire`, `profile-retire`, `setting-list` and
-`setting-move`, and any command with
+except for `setup`, `statusline`, `machine-show`, `machine-retire`, `profile-retire`, `setting-list`,
+`setting-move` and `args`, and any command with
 `"output": "all"`:
 those keep their whole stdout instead, so the `machine show` fields, the scan block and the `ERROR:`, `held` and
 `refused:` lines reach `output.txt`. `statusline` keeps its ANSI color codes in `output.txt`, as the contract writes
@@ -205,8 +209,8 @@ before it looks at the stubs, and fails one that would run on Windows with them.
      `backups/<run>/` is read as `backups/RUN/`, and there must be exactly one, so the time and pid don't matter. An
      expected state file may hold `<START_HEAD>`: the runner replaces it with the repo's `HEAD`, recorded right after
      setup (the commit the case starts from), before comparing; without a git repo it is a case error.
-   - **Placeholders** in a whole-stdout command's output (above), after every command ran: the case's temp home folder
-     becomes `<HOME>` (`/` separators on Windows too); `backups/<name>` (`backups\<name>` on Windows), where `<name>` is
+   - **Placeholders** in a whole-stdout command's output (above), after every command ran: the case's temp clone becomes
+     `<REPO>` and its temp home folder `<HOME>` (`/` separators on Windows too); `backups/<name>` (`backups\<name>` on Windows), where `<name>` is
      the one backup run folder in the state folder, becomes `backups/RUN`; and in a line `  Sync point : <sha>`, a
      `<sha>` that begins the repo's `HEAD` after the run becomes `<HEAD>`. Status-line output is left alone.
    - **Lines**, when `expect/lines.txt` exists: notes, `ERROR:` and `WARNING:` lines and summaries the status-line

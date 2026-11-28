@@ -10,7 +10,8 @@
  * is a dependency, so the flow is testable without git, a terminal or a repo.
  */
 
-import { trimAnswer } from "../core/answer.ts";
+import { DEFAULT_NO, trimAnswer } from "../core/answer.ts";
+import type { AnswerDefaults } from "../core/answer.ts";
 import type { Result as CoreResult } from "../core/config/types.ts";
 import { formatLine } from "../core/status.ts";
 import { writeLines } from "./export.ts";
@@ -105,9 +106,9 @@ export interface PushDeps {
   readonly changedFiles: () => Promise<PushedFiles | undefined>;
   /** Put those files back; the error to print when it failed. */
   readonly restoreFiles: (files: PushedFiles) => Promise<string | undefined>;
-  /** Print `question` and read one answer; an empty answer or end of input
-   * takes `defaultYes`. */
-  readonly ask: (question: string, defaultYes: boolean) => Promise<boolean>;
+  /** Print `question` and read one yes/no answer; `answers` says what an
+   * empty answer and end of input mean. */
+  readonly ask: (question: string, answers: AnswerDefaults) => Promise<boolean>;
   /** Print `question` and read one answer, as it was typed; `undefined` at
    * end of input. */
   readonly askChoice: (question: string) => Promise<string | undefined>;
@@ -835,7 +836,7 @@ export async function executePush(
   const listed = restorable ? await deps.changedFiles() : undefined;
   const changed =
     listed === undefined ? undefined : exportedOnly(listed, exported.repoPaths);
-  if (!(await deps.ask(PR_QUESTION, false))) {
+  if (!(await deps.ask(PR_QUESTION, DEFAULT_NO))) {
     return declined(changed, deps);
   }
   return deps.runCommit(only.length > 0 || guard.partial, input.message);

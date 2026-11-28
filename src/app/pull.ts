@@ -10,6 +10,8 @@
  * terminal or a repo.
  */
 
+import { DEFAULT_NO } from "../core/answer.ts";
+import type { AnswerDefaults } from "../core/answer.ts";
 import { writeLines } from "./export.ts";
 import type { Result } from "./export.ts";
 import { blockedLines } from "./guard.ts";
@@ -38,9 +40,9 @@ export interface PullDeps {
   /** `git fetch -q origin master`, then the fast-forward. */
   readonly fetchAndFastForward: () => Promise<FetchResult>;
   readonly hasSyncPoint: () => Promise<boolean>;
-  /** Print `question` and read one answer; an empty answer or end of input
-   * takes `defaultYes`. */
-  readonly ask: (question: string, defaultYes: boolean) => Promise<boolean>;
+  /** Print `question` and read one yes/no answer; `answers` says what an
+   * empty answer and end of input mean. */
+  readonly ask: (question: string, answers: AnswerDefaults) => Promise<boolean>;
   /** Write a result's stdout and stderr now, so a question follows them. */
   readonly print: (shown: Result) => void;
   /** The clone is on `master` with an `origin` remote. */
@@ -86,8 +88,14 @@ const NO_SYNC_ERROR =
   "  ERROR: no sync is recorded on this machine, so a pull can't tell which side changed these files.\n" +
   "  Run mksync diff, then mksync push, mksync pull <path> without --yes, or mksync pull --force (each keeps a .bak).\n";
 
-/** The apply question, after the guard passed. */
-const APPLY_QUESTION = "  Apply these changes? [y/N] ";
+/** The apply question, after the guard passed: nothing here is newer, so an
+ * empty answer applies. End of input is still no: nobody is there to answer. */
+const APPLY_QUESTION = "  Apply these changes? [Y/n] ";
+const APPLY_ANSWERS: AnswerDefaults = { empty: true, end: false };
+
+/** The apply question under `--force`, which skips the guard: only a typed
+ * yes applies. */
+const FORCE_QUESTION = "  Apply these changes? [y/N] ";
 
 /** What a declined question prints, exit 0. */
 const NOTHING_APPLIED = "  Nothing applied.\n";
@@ -108,10 +116,10 @@ function askAfter(
   deps: PullDeps,
   shown: Result,
   question: string,
-  defaultYes: boolean,
+  answers: AnswerDefaults,
 ): Promise<boolean> {
   deps.print(shown);
-  return deps.ask(question, defaultYes);
+  return deps.ask(question, answers);
 }
 
 /** A failure the flow stops on before any child runs. */
@@ -196,7 +204,7 @@ export async function executePull(
   // and the first pull is guarded instead.
   if (!input.force && !hasSyncPoint) {
     if (!input.yes) {
-      if (!(await askAfter(deps, check, NO_SYNC_QUESTION, false))) {
+      if (!(await askAfter(deps, check, NO_SYNC_QUESTION, DEFAULT_NO))) {
         return { code: 0, stdout: NOTHING_APPLIED, stderr: "" };
       }
       return append(NOTHING_LEFT, await deps.runImport(only));
@@ -236,7 +244,10 @@ export async function executePull(
   }
 
   if (!input.yes) {
-    if (!(await askAfter(deps, check, APPLY_QUESTION, false))) {
+    const asked = input.force
+      ? askAfter(deps, check, FORCE_QUESTION, DEFAULT_NO)
+      : askAfter(deps, check, APPLY_QUESTION, APPLY_ANSWERS);
+    if (!(await asked)) {
       return { code: 0, stdout: NOTHING_APPLIED, stderr: "" };
     }
     return append(NOTHING_LEFT, await deps.runImport(only));

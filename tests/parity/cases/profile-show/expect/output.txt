@@ -1,0 +1,12 @@
+profile   work1
+label     job 1 laptop
+modules   git, vscode
+values    <WORK_EMAIL>, <WORK_ORG>
+layer     3 file(s): vscode/settings.json, vscode/snippets/a.json, vscode/snippets/sub/b.json
+profile   work2
+modules   git
+values    none
+layer     0 file(s)
+retired   yes
+ERROR: profile work9 not found: <HOME>/.local/state/sync-settings/profiles/work9.json
+Unknown option: x

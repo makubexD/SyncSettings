@@ -15,22 +15,7 @@ import type {
   SetupMode,
   ValueFlag,
 } from "../wizard/setup.ts";
-
-export const USAGE =
-  "usage: mksync status | mksync doctor | " +
-  "mksync pull [--yes] [--force] [<path>...] | " +
-  "mksync push [--yes] [--force] [-m <msg>] [<path>...] | " +
-  "mksync diff [<path>...] | mksync check [<path>...] | mksync preview | " +
-  "mksync setup [--name <machine>] [--profile <name>] [--replace <machine>] " +
-  "[--claude none|claude|claude-deepseek] [--mode push|pull-only] " +
-  "[--existing backup|keep|stop] [--bootstrap | --no-bootstrap] [--yes] | " +
-  "mksync update | " +
-  "mksync machine show | mksync machine retire <name> [--yes] | " +
-  "mksync profile retire <name> [--yes] | " +
-  "mksync setting list [--profile <p>] | " +
-  "mksync setting move <file> [<key>] --to base|os|profile|machine " +
-  "[--dry-run | --yes] | mksync statusline | " +
-  "mksync --version";
+import type { HelpTopic } from "./help.ts";
 
 export type CommandName = "export" | "import";
 
@@ -118,6 +103,13 @@ export interface ProfileRetireCommand {
 /** Either retire command. */
 export type RetireCommand = MachineRetireCommand | ProfileRetireCommand;
 
+/** `profile show [<name>]`: print a profile, this machine's when `target` is
+ * absent, exit 0. */
+export interface ProfileShowCommand {
+  readonly kind: "profile-show";
+  readonly target?: string;
+}
+
 /** `setting list [--profile <p>]`: the settings above the base, for the
  * record's profile or the one `--profile` names (contract "mksync setting"). */
 export interface SettingListCommand {
@@ -175,9 +167,11 @@ export interface UpdateCommand {
   readonly kind: "update";
 }
 
-/** No command, or one that isn't a verb: print the usage line, exit 2. */
-export interface UsageCommand {
-  readonly kind: "usage";
+/** `--help` or `-h` anywhere on the line: print that topic's help, exit 0
+ * (contract "Help"). */
+export interface HelpCommand {
+  readonly kind: "help";
+  readonly topic: HelpTopic;
 }
 
 /** A usage error: an unknown option or a bad `--only`, a clash or a repeated
@@ -198,6 +192,7 @@ export type ParsedCommand =
   | MachineShowCommand
   | MachineRetireCommand
   | ProfileRetireCommand
+  | ProfileShowCommand
   | SettingListCommand
   | SettingMoveCommand
   | CommitCommand
@@ -205,7 +200,7 @@ export type ParsedCommand =
   | VersionCommand
   | StatuslineCommand
   | UpdateCommand
-  | UsageCommand
+  | HelpCommand
   | ParseError;
 
 const VERSION_OPTION = "--version";
@@ -213,6 +208,8 @@ const VERSION_OPTION = "--version";
 const MACHINE_COMMAND = "machine";
 
 const MACHINE_SHOW_VERB = "show";
+
+const PROFILE_SHOW_VERB = "show";
 
 const PROFILE_COMMAND = "profile";
 
@@ -240,9 +237,40 @@ const SETTING_LAYERS: readonly LayerName[] = [
   "machine",
 ];
 
-const SETTING_NEEDS_VERB = "ERROR: setting needs list or move";
+/** The arguments that ask for help, anywhere on the line (decision 1). */
+const HELP_OPTIONS: readonly string[] = ["--help", "-h"];
 
-const SETTING_UNKNOWN_VERB_PREFIX = "ERROR: unknown setting command ";
+/** Each group's verbs, in the order its errors name them (decision 5). */
+const GROUP_VERBS = {
+  machine: ["show", "retire"],
+  profile: ["show", "retire"],
+  setting: ["list", "move"],
+} as const;
+
+type GroupName = keyof typeof GROUP_VERBS;
+
+/** `<group> <verb>` for every verb in GROUP_VERBS. Each must be a HelpTopic,
+ * so a verb added without its help text fails the type check. */
+type GroupVerbTopic = {
+  [G in GroupName]: `${G} ${(typeof GROUP_VERBS)[G][number]}`;
+}[GroupName];
+
+/** The commands that are one word, each its own help topic. */
+const COMMAND_TOPICS: readonly HelpTopic[] = [
+  "status",
+  "doctor",
+  "pull",
+  "push",
+  "diff",
+  "check",
+  "preview",
+  "setup",
+  "update",
+  "statusline",
+  "export",
+  "import",
+  "commit",
+];
 
 const SETTING_NEEDS_TO = "ERROR: missing --to";
 
@@ -349,6 +377,67 @@ const FLAGS: Readonly<Record<CommandName, readonly string[]>> = {
 
 function isCommandName(value: string): value is CommandName {
   return value === "export" || value === "import";
+}
+
+/** A first word that is no command and no option (decision 4). */
+function unknownCommand(word: string): ParseError {
+  return error(
+    `ERROR: unknown command ${word}\nRun mksync --help for the list of commands.`,
+  );
+}
+
+function groupHint(group: GroupName): string {
+  return `Run mksync ${group} --help for its commands.`;
+}
+
+/** A group with no verb after it (decision 5). */
+function groupNeedsVerb(group: GroupName): ParseError {
+  const [first, second] = GROUP_VERBS[group];
+  return error(
+    `ERROR: ${group} needs ${first} or ${second}\n${groupHint(group)}`,
+  );
+}
+
+/** A group verb that isn't one of the group's (decision 5). */
+function groupUnknownVerb(group: GroupName, verb: string): ParseError {
+  return error(`ERROR: unknown ${group} command ${verb}\n${groupHint(group)}`);
+}
+
+function isGroupName(value: string): value is GroupName {
+  return Object.hasOwn(GROUP_VERBS, value);
+}
+
+function isCommandTopic(value: string): value is HelpTopic {
+  return COMMAND_TOPICS.includes(value as HelpTopic);
+}
+
+/**
+ * The help a line with `--help` or `-h` asks for (decision 1): the topic is
+ * the command words before the first argument that isn't one. A first word
+ * that is no command, or a group verb the group lacks, is still its error.
+ */
+function parseHelp(argv: readonly string[]): HelpCommand | ParseError {
+  const first = argv[0];
+  if (first === undefined || isOption(first)) {
+    return { kind: "help", topic: "top" };
+  }
+  if (isCommandTopic(first)) {
+    return { kind: "help", topic: first };
+  }
+  if (!isGroupName(first)) {
+    return unknownCommand(first);
+  }
+  const verb = argv[1];
+  if (verb === undefined || isOption(verb)) {
+    return { kind: "help", topic: first };
+  }
+  const verbs: readonly string[] = GROUP_VERBS[first];
+  if (!verbs.includes(verb)) {
+    return groupUnknownVerb(first, verb);
+  }
+  // `verb` is one of `first`'s verbs, checked above.
+  const topic: GroupVerbTopic = `${first} ${verb}` as GroupVerbTopic;
+  return { kind: "help", topic };
 }
 
 /** Every parse error is a usage error, so it exits 2 (decision 7). */
@@ -789,6 +878,26 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
 }
 
 /**
+ * Parse `profile show [<name>]`: one optional name that isn't an option; an
+ * option, or a second positional, is `Unknown option: <arg>`.
+ */
+function parseProfileShow(
+  argv: readonly string[],
+): ProfileShowCommand | ParseError {
+  const name = argv[2];
+  if (name === undefined) {
+    return { kind: "profile-show" };
+  }
+  if (isOption(name)) {
+    return error(`${UNKNOWN_OPTION_PREFIX}${name}`);
+  }
+  const extra = argv[3];
+  return extra === undefined
+    ? { kind: "profile-show", target: name }
+    : error(`${UNKNOWN_OPTION_PREFIX}${extra}`);
+}
+
+/**
  * Parse `commit [-m <msg>] [--partial]` as `commit.sh` does: `-m` takes the
  * next argument as its message even when it starts with `-`, a later `-m`
  * replaces an earlier one, and `--partial` may repeat. Any other argument,
@@ -945,7 +1054,7 @@ function parseSetting(
 ): SettingListCommand | SettingMoveCommand | ParseError {
   const verb = argv[1];
   if (verb === undefined) {
-    return error(SETTING_NEEDS_VERB);
+    return groupNeedsVerb("setting");
   }
   if (verb === SETTING_LIST_VERB) {
     return parseSettingList(argv);
@@ -955,19 +1064,22 @@ function parseSetting(
   }
   return isOption(verb)
     ? error(`${UNKNOWN_OPTION_PREFIX}${verb}`)
-    : error(`${SETTING_UNKNOWN_VERB_PREFIX}${verb}`);
+    : groupUnknownVerb("setting", verb);
 }
 
 /**
- * Parse argv into the program's command, the usage line, the version or an
+ * Parse argv into the program's command, its help, the version or an
  * option error. An argument that starts with `-` and isn't a valid flag for
  * the verb is `Unknown option: <arg>`, as the entry points print it; a stray
  * positional argument gets the same message, as the bash entry points do.
  */
 export function parseArgs(argv: readonly string[]): ParsedCommand {
+  if (argv.some((arg) => HELP_OPTIONS.includes(arg))) {
+    return parseHelp(argv);
+  }
   const command = argv[0];
   if (command === undefined) {
-    return { kind: "usage" };
+    return { kind: "status" };
   }
   if (command === VERSION_OPTION) {
     return { kind: "version" };
@@ -1014,13 +1126,15 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   if (command === MACHINE_COMMAND) {
     const verb = argv[1];
     if (verb === undefined) {
-      return { kind: "usage" };
+      return groupNeedsVerb("machine");
     }
     if (verb === RETIRE_VERB) {
       return parseRetire(argv, "machine-retire");
     }
     if (verb !== MACHINE_SHOW_VERB) {
-      return error(`${UNKNOWN_OPTION_PREFIX}${verb}`);
+      return isOption(verb)
+        ? error(`${UNKNOWN_OPTION_PREFIX}${verb}`)
+        : groupUnknownVerb("machine", verb);
     }
     const extra = argv[2];
     return extra === undefined
@@ -1030,12 +1144,17 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   if (command === PROFILE_COMMAND) {
     const verb = argv[1];
     if (verb === undefined) {
-      return { kind: "usage" };
+      return groupNeedsVerb("profile");
     }
-    if (verb !== RETIRE_VERB) {
-      return error(`${UNKNOWN_OPTION_PREFIX}${verb}`);
+    if (verb === RETIRE_VERB) {
+      return parseRetire(argv, "profile-retire");
     }
-    return parseRetire(argv, "profile-retire");
+    if (verb === PROFILE_SHOW_VERB) {
+      return parseProfileShow(argv);
+    }
+    return isOption(verb)
+      ? error(`${UNKNOWN_OPTION_PREFIX}${verb}`)
+      : groupUnknownVerb("profile", verb);
   }
   if (command === SETTING_COMMAND) {
     return parseSetting(argv);
@@ -1049,7 +1168,7 @@ export function parseArgs(argv: readonly string[]): ParsedCommand {
   if (isOption(command) || !isCommandName(command)) {
     return isOption(command)
       ? error(`${UNKNOWN_OPTION_PREFIX}${command}`)
-      : { kind: "usage" };
+      : unknownCommand(command);
   }
 
   const flags = FLAGS[command];

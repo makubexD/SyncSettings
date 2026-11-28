@@ -275,6 +275,20 @@ function Validate-Case {
             Die 'options.target is required for machine-retire, profile-retire and setting-move, and nowhere else'
         }
 
+        $argvProp = $cmd.PSObject.Properties['argv']
+        if ([string]$cmd.command -ceq 'args') {
+            if ($null -eq $argvProp -or $null -eq $argvProp.Value -or $argvProp.Value -isnot [array]) {
+                Die 'argv is required for args, a list of strings, and nowhere else'
+            }
+            foreach ($a in $argvProp.Value) {
+                if ($a -isnot [string]) {
+                    Die 'argv is required for args, a list of strings, and nowhere else'
+                }
+            }
+        } elseif ($null -ne $argvProp) {
+            Die 'argv is required for args, a list of strings, and nowhere else'
+        }
+
         $stdinProp = $cmd.PSObject.Properties['stdin']
         if ($null -ne $stdinProp -and $stdinProp.Value -isnot [string]) {
             Die 'stdin must be a string'
@@ -1335,6 +1349,15 @@ function Run-Case {
                 'front-check' { $extraArgs += 'check' }
                 'front-preview' { $extraArgs += 'preview' }
                 'machine-show' { $extraArgs += 'machine'; $extraArgs += 'show' }
+                'args' {
+                    # A raw command line: exactly these arguments, no options added.
+                    if ($null -ne $cmdOptsProp) {
+                        Die "unknown option 'options' in command $($i + 1): args takes none"
+                    }
+                    foreach ($a in @($cmdObj.argv)) {
+                        $extraArgs += [string]$a
+                    }
+                }
                 'machine-retire' {
                     $extraArgs += 'machine'
                     $extraArgs += 'retire'
@@ -1460,7 +1483,7 @@ function Run-Case {
             $allOutput = ($cmd -ceq 'setup' -or $cmd -ceq 'machine-show' -or
                 $cmd -ceq 'machine-retire' -or $cmd -ceq 'profile-retire' -or
                 $cmd -ceq 'setting-list' -or $cmd -ceq 'setting-move' -or
-                $cmd -ceq 'statusline')
+                $cmd -ceq 'args' -or $cmd -ceq 'statusline')
             $keepAnsi = ($cmd -ceq 'statusline')
             if ($null -ne $cmdObj.PSObject.Properties['output']) {
                 $allOutput = $true
@@ -1630,6 +1653,9 @@ function Run-Case {
         $rewriteHomes = @()
         $rewriteHomes += $homeDir
         $rewriteHomes += ($homeDir -replace '\\', '/')
+        $rewriteRepos = @()
+        $rewriteRepos += $repoDir
+        $rewriteRepos += ($repoDir -replace '\\', '/')
         $runName = ''
         $backupsDir = Join-Path (Join-Path $localDir 'SyncSettings') 'backups'
         if (Test-Path -LiteralPath $backupsDir -PathType Container) {
@@ -1649,6 +1675,9 @@ function Run-Case {
         foreach ($range in $wholeRanges) {
             for ($n = [int]$range[0]; $n -lt [int]$range[1]; $n++) {
                 $line = $statusOut[$n]
+                foreach ($repoForm in $rewriteRepos) {
+                    $line = $line -creplace [regex]::Escape($repoForm), '<REPO>'
+                }
                 foreach ($homeForm in $rewriteHomes) {
                     $line = $line -creplace [regex]::Escape($homeForm), '<HOME>'
                 }

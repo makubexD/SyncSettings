@@ -4,6 +4,7 @@ import type { ConfigV2, ConfigV2Entry } from "../config/types.ts";
 import { selectEntries } from "../layers/select.ts";
 import type { SelectedEntry } from "../layers/select.ts";
 import {
+  profileLayerFiles,
   renderSettingList,
   settingListHeader,
   settingRows,
@@ -418,5 +419,51 @@ describe("settingRows and renderSettingList", () => {
     expect(rows.map((row) => row.key)).toEqual([
       "[python].editor.formatOnSave",
     ]);
+  });
+});
+
+describe("profileLayerFiles", () => {
+  test("should list the files the profile layer holds, in config order", () => {
+    // Arrange
+    const files = filesOf(CASE_FILES);
+
+    // Act
+    const listed = profileLayerFiles(
+      selectedOf([VSCODE, CLAUDE, GIT, SHELL, TOOLS], files),
+      files,
+    );
+
+    // Assert
+    expect(listed).toEqual([
+      "vscode/settings.json",
+      "claude/settings.json",
+      "shell/.aliases",
+    ]);
+  });
+
+  test("should name each file inside a dir entry's profile folder", () => {
+    // Arrange
+    const files = filesOf({
+      "dotfiles/common/docs/notes/a.md": "base\n",
+      "profiles/work1/docs/notes/z.md": "z\n",
+      "profiles/work1/docs/notes/sub/b.md": "b\n",
+    });
+
+    // Act
+    const listed = profileLayerFiles(selectedOf([DOCS], files), files);
+
+    // Assert
+    expect(listed).toEqual(["docs/notes/sub/b.md", "docs/notes/z.md"]);
+  });
+
+  test("should list nothing when the profile layer holds no file", () => {
+    // Arrange
+    const files = filesOf({ "dotfiles/common/tools/.toolrc": "color=auto\n" });
+
+    // Act
+    const listed = profileLayerFiles(selectedOf([TOOLS], files), files);
+
+    // Assert
+    expect(listed).toEqual([]);
   });
 });

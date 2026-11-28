@@ -90,12 +90,13 @@ edit you haven't sent. Run `mksync push` first, or `mksync pull --force` to over
 shown from both sides.
 
 `mksync push` runs the same diff before it exports: it sends the `OUT` files, leaves the `IN` ones alone and stops on
-`BOTH`. Pull and push both ask before acting, and Enter is No. [Pull and push modes](pull-push-modes.md) has every
-label, option and case.
+`BOTH`. Pull and push both ask before acting. Once the check passed, Enter at pull's question applies the repo's
+files; push's question, `mksync pull --force` and the first pull take Enter as No.
+[Pull and push modes](pull-push-modes.md) has every label, option and case.
 
 The first pull on a machine has no sync recorded, so it can't tell which side changed a file. It warns, and asks
-`Apply these changes? [y/N]`: Enter keeps your files, `y` applies the repo's. `mksync pull --yes` refuses outright,
-so a script never overwrites a machine it knows nothing about, even with paths. Take files one at a time without
+`Apply these changes? [y/N]`: on the first pull Enter is No and keeps your files, `y` applies the repo's.
+`mksync pull --yes` refuses outright, so a script never overwrites a machine it knows nothing about, even with paths. Take files one at a time without
 `--yes` instead (below), or
 `mksync pull --force`. A pull that finds nothing to change records the sync anyway, so the next diff has labels.
 `mksync setup` guards the same way: once a machine has a sync point, its "back up and replace" lists the files changed
@@ -167,7 +168,7 @@ When it looks right, copy your settings into the repo and open the PR (add `-m "
 mksync push
 ```
 
-It exports, shows what changed, and asks `Open a PR with these changes? [y/N]`: Enter is No, and puts the repo folder
+It exports, shows what changed, and asks `Open a PR with these changes? [y/N]`: only `y` opens it. Anything else puts the repo folder
 back as it was. On a yes it creates the branch
 `sync/<os>-<alias>-<yyyymmdd-hhmm>` (`linux`, `macos` or `windows`), commits `dotfiles/`, `packages/` and
 `sync-config.json`, pushes the branch, opens the PR and switches back to `master`. It prints the PR link.
@@ -348,7 +349,9 @@ mksync pull
 ```
 
 It switches nothing for you: the clone must be on `master`. It fetches, fast-forwards, and shows what will change before
-asking `Apply these changes? [y/N]`, where Enter is No. `mksync check` shows the same list without applying it.
+asking `Apply these changes? [Y/n]`. The diff check has already found nothing here newer than the repo, so Enter
+applies; `n`, or no input at all, applies nothing. With `mksync pull --force` the question is `[y/N]` (Enter is No), since
+`--force` skips that check. `mksync check` shows the same list without applying it.
 
 Import asks before overwriting each file, and it always saves the old file as `<file>.bak` first, even with
 `--force`. If you import a newer change over the same file later, that `.bak` is replaced. Import never deletes a local
@@ -476,6 +479,12 @@ into use.
 | `push failed; you are on <branch>.`                                                  | Fix the cause (network, auth), run the `git push -u origin <branch>` it prints, then `git switch master`                                                                                  |
 | `PR creation failed; branch <branch> is pushed.`                                     | Run the `gh pr create --base master --head <branch>` it prints, then `git switch master`                                                                                                  |
 | `gh is not found in PATH.`                                                           | Install the [GitHub CLI](https://cli.github.com/), then run `gh auth login`                                                                                                               |
+
+## Getting help
+
+`mksync --help` (or `-h`) lists every command. Put `--help` after a command or a verb to read about it:
+`mksync pull --help`, `mksync setting --help`, `mksync setting move --help`. Help prints and exits 0; it never runs
+the command. A word that is no command says `ERROR: unknown command <word>` and points at `mksync --help`.
 
 ## Troubleshooting `mksync`
 

@@ -1,0 +1,34 @@
+{
+  "description": "An empty answer to pull's question is yes (the default changed from No: after the diff guard passed, nothing here is newer, so applying is the safe choice): the file is applied with a .bak, exit 0 (Front door, pull).",
+  "os": [
+    "linux"
+  ],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": [
+      "*.bak"
+    ],
+    "modules": {
+      "parity": {
+        "description": "Parity case files"
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/b.conf",
+        "module": "parity",
+        "merge": "whole",
+        "localPath": "~/.config/parity/b.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "pull",
+      "stdin": "\n"
+    }
+  ],
+  "syncPoint": true
+}

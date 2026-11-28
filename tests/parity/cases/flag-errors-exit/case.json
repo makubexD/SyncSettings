@@ -1,0 +1,60 @@
+{
+  "description": "Flag errors are usage errors, exit 2, before anything runs (The program, decision 7).",
+  "os": ["linux"],
+  "git": "remote",
+  "configV2": {
+    "schemaVersion": 2,
+    "excludePatterns": ["*.bak"],
+    "modules": {
+      "unsorted": {
+        "description": "Entries converted from v1, not sorted yet."
+      }
+    },
+    "entries": [
+      {
+        "file": "parity/a.conf",
+        "module": "unsorted",
+        "merge": "whole",
+        "localPath": "~/.config/parity/a.conf",
+        "description": "Parity case file"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "args",
+      "argv": ["export", "--only"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["export", "--diff", "--yes"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["import", "--check", "--reset-values"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["push", "-m"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["commit", "-m"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["export", "--preview", "--yes"],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": ["export", "--preview", "--reset-values"],
+      "stderr": true
+    }
+  ]
+}
