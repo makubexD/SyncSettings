@@ -1,0 +1,23 @@
+  OK       git
+  OK       gh (signed in)
+  WARN     repo has no origin remote
+  WARN     no machine record; run mksync setup
+  OK       values
+  OK       bash
+  Ready.
+Scanning this machine...
+  OS         linux
+  Hostname   wk1-laptop
+  Domain     none
+  Git email  none
+  Tools      git, gh, claude (not found: jq, code, tmux, starship, wezterm, htop, rtk)
+  Files      0 of 2 linux entries already exist here
+
+Profiles on this machine:
+  1) personal
+  2) work1
+
+Machine wk1-laptop: profile work1, Claude only, push with a preview.
+Public name: work1-linux
+Same as: mksync setup --profile work1 --name wk1-laptop --claude claude --mode push --existing stop --alias work1-linux
+Write the record? [Y/n] Stopped: the record is written, no file was changed.

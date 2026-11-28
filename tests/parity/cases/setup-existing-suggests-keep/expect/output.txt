@@ -19,7 +19,8 @@ Profiles on this machine:
   1 file(s) differ: 0 in, 1 out, 0 both.
 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [2] 
 Machine box1: profile personal, none, push with a preview.
-Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing keep
+Public name: personal-linux
+Same as: mksync setup --profile personal --name box1 --claude none --mode push --existing keep --alias personal-linux
 Write the record and apply? [Y/n] Changes on box1 (profile personal):
 
 All machines

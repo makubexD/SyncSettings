@@ -20,7 +20,8 @@ Profiles on this machine:
 
 1/4 What is this machine for? [1]  Label for work-1, to find it in lists (optional): 2/4 Claude here? 1) none  2) Claude only  3) Claude plus DeepSeek [2] 3/4 Push with a preview, or pull only? 1) push with a preview  2) pull only [1] 4/4 Files that are already here? 1) back up and replace  2) keep mine, push them first  3) stop [1] 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
-Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup
+Public name: work-1-linux
+Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup --alias work-1-linux
 Write the record and apply? [Y/n] 
   Enter values to fill the placeholders in the config files:
 
