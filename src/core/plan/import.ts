@@ -847,6 +847,8 @@ function resetShown(
  * `suggestion` is the bracket's value when it came from the rule's `suggest`:
  * the app answers an empty line with it, never end of input. */
 export interface ImportValueQuestion {
+  /** The placeholder the answer fills. */
+  readonly placeholder: string;
   readonly text: string;
   readonly hasDefault: boolean;
   readonly suggestion?: string;
@@ -876,6 +878,7 @@ function resetValueQuestions(
     );
     const prompt = rule.prompt ?? "";
     questions.push({
+      placeholder,
       text: valueQuestion(prompt, files.get(placeholder) ?? [], shown),
       // End of input still takes the cached value, default or defaultEnv, but
       // never a suggestion: a bracket that shows one stops there, so the run
@@ -898,16 +901,25 @@ export type ImportValuesResult =
     }
   | { readonly ok: false; readonly plan: RunPlan };
 
+/** How `importValueQuestions` words its list. */
+export interface ImportValueQuestionOptions {
+  /** The first question carries the import's header (the default). `setup`
+   * leaves it off: it prints the header once before its own value block. */
+  readonly header?: boolean;
+}
+
 /**
  * The questions an import asks, each with the text printed before its answer:
  * under `--reset-values` one per placeholder as `askValues` prints it, with
  * its default in brackets and `hasDefault` set; otherwise one per
  * `missingPlaceholders` rule, which is what nothing else fills. The first
- * question carries the header. The check path never asks. An early-error plan
- * comes back when the config or `--only` cannot be read.
+ * question carries the header unless `options.header` is false. The check
+ * path never asks. An early-error plan comes back when the config or `--only`
+ * cannot be read.
  */
 export function importValueQuestions(
   snapshot: Snapshot,
+  options: ImportValueQuestionOptions = {},
 ): readonly ImportValueQuestion[] | RunPlan {
   const prepared = prepareImport(snapshot);
   if (!isPrepared(prepared)) {
@@ -925,6 +937,7 @@ export function importValueQuestions(
         ).map((rule) => {
           const suggestion = suggestionFor(rule, snapshot.suggested);
           return {
+            placeholder: rule.placeholder,
             text: valueQuestion(
               rule.prompt ?? "",
               prepared.gathered.files.get(rule.placeholder) ?? [],
@@ -935,7 +948,7 @@ export function importValueQuestions(
           };
         });
   const first = questions[0];
-  if (first !== undefined) {
+  if (first !== undefined && options.header !== false) {
     questions[0] = { ...first, text: `${ASK_HEADER}${first.text}` };
   }
   return questions;
