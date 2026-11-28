@@ -1,7 +1,10 @@
 import type { Scan } from "../adapters/scan.ts";
 import type { LinkedFolder } from "../adapters/store.ts";
 import { trimAnswer } from "../core/answer.ts";
-import type { Profile } from "../core/config/profile.ts";
+import {
+  isValidLabel,
+  type Profile,
+} from "../core/config/profile.ts";
 import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../core/layers/names.ts";
 import {
@@ -12,6 +15,7 @@ import {
 import type { ClaudeMode, MachineRecord } from "../core/machine/record.ts";
 import { replaceRecord } from "../core/machine/replace.ts";
 import { checkAlias, suggestAlias } from "../core/plan/commit.ts";
+import { quoteToken } from "./quote.ts";
 
 /** The fourth answer: what setup does with files already on the machine. */
 export type ExistingAction = "backup" | "keep" | "stop";
@@ -29,6 +33,8 @@ export interface SetupFlags {
   readonly existing?: ExistingAction;
   /** The public name for push branches; checked before any question. */
   readonly alias?: string;
+  /** The label for a new profile (decision 8); checked by the parser. */
+  readonly label?: string;
   readonly yes?: boolean;
   readonly bootstrap?: boolean;
 }
@@ -363,7 +369,9 @@ function renderProfiles(
       machines.length === 0
         ? ""
         : `${name.padEnd(NAME_COLUMN)}${machines.length === 1 ? "machine" : "machines"} ${machines.join(", ")}`;
-    lines.push(`  ${index + 1}) ${owned === "" ? name : owned}`);
+    const label = input.profiles.find((profile) => profile.name === name)?.label;
+    const labelled = label === undefined ? "" : `  (${label})`;
+    lines.push(`  ${index + 1}) ${owned === "" ? name : owned}${labelled}`);
   });
   if (match !== undefined) {
     const choice = names.indexOf(match.profile) + 1;
@@ -612,6 +620,14 @@ export async function runSetup(
 
   const names = listedProfiles(input.profiles);
   const decidedProfile = replacing?.profile ?? flags.profile;
+  // Contract "Label": `--label` names a new profile, so an existing one stops
+  // before any question (`personal` always exists).
+  if (decidedProfile !== undefined && flags.label !== undefined) {
+    const refused = labelOnExisting(input, decidedProfile);
+    if (refused !== undefined) {
+      return refused;
+    }
+  }
   const match =
     replacing === undefined && flags.name === undefined
       ? hostnameMatch(input)
@@ -703,17 +719,24 @@ export async function runSetup(
     );
   }
 
+  if (flags.label !== undefined && decidedProfile === undefined) {
+    const refused = labelOnExisting(input, profileName);
+    if (refused !== undefined) {
+      if (asked) {
+        io.write("\n");
+      }
+      return refused;
+    }
+  }
+  let label = flags.label;
   if (
     askedProfile &&
+    flags.label === undefined &&
     replacing === undefined &&
     profileName !== PERSONAL &&
     profileNamed(input, profileName) === undefined
   ) {
-    // Contract "Label": the question only; saving and validating `--label`
-    // is the plan's profile-label step, so the answer is discarded here.
-    // TODO(plan-smart-first-run-2, profile label): keep and validate the answer.
-    io.write(` Label for ${profileName}, to find it in lists (optional): `);
-    await io.readLine();
+    label = await askLabel(io, profileName);
   }
   let claude = replacing?.claude;
   let mode: SetupMode | undefined =
@@ -786,6 +809,7 @@ export async function runSetup(
     values: {},
     destinations: {},
     retired: false,
+    ...(label === undefined ? {} : { label }),
   };
   const built = buildRecord(input, replacing, name, profileName, claude, mode);
   const alias = publicName(input, replacing, profileName, mode);
@@ -831,10 +855,16 @@ export async function runSetup(
   const aliasLine = alias === undefined ? "" : `Public name: ${alias}\n`;
   const aliasFlag = alias === undefined ? "" : ` --alias ${alias}`;
   const bootstrapFlag = bootstrap ? " --bootstrap" : "";
+  const shownLabel = profile.label;
+  const labelShown = shownLabel === undefined ? "" : ` (${shownLabel})`;
+  const labelFlag =
+    existing === undefined && label !== undefined
+      ? ` --label ${quoteToken(label, scan.os)}`
+      : "";
   io.write(
-    `Machine ${record.name}: profile ${profileName}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
+    `Machine ${record.name}: profile ${profileName}${labelShown}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
       aliasLine +
-      `Same as: mksync setup --profile ${profileName} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}\n`,
+      `Same as: mksync setup --profile ${profileName}${labelFlag} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}\n`,
   );
   // Contract "Guard block": after `Same as:`, the diff lines and the count when
   // answer 4 is `backup` with a sync point and an `OUT` or `BOTH` file (or a
@@ -874,6 +904,40 @@ export async function runSetup(
     replaced: replacing !== undefined,
     bootstrap,
   };
+}
+
+/** Contract "Label": `--label` with a profile that already exists is refused. */
+function labelOnExisting(
+  input: SetupInput,
+  profile: string,
+): SetupOutcome | undefined {
+  if (profile !== PERSONAL && profileNamed(input, profile) === undefined) {
+    return undefined;
+  }
+  return stop(
+    `ERROR: --label names a new profile; ${profile} already exists`,
+    2,
+  );
+}
+
+/** Contract "Label": asked after question 1 for a new profile; an empty
+ * answer or end of input leaves none, a bad answer is asked again. */
+async function askLabel(
+  io: SetupIo,
+  profile: string,
+): Promise<string | undefined> {
+  for (;;) {
+    io.write(` Label for ${profile}, to find it in lists (optional): `);
+    const line = await io.readLine();
+    const text = line === undefined ? "" : trimAnswer(line);
+    if (text === "") {
+      return undefined;
+    }
+    if (isValidLabel(text)) {
+      return text;
+    }
+    io.write("Use 1 to 30 letters, digits, spaces or .-_&.\n");
+  }
 }
 
 /**

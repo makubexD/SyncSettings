@@ -5,6 +5,7 @@
  */
 
 import type { ClaudeMode } from "../core/machine/record.ts";
+import { isValidLabel, LABEL_REFUSAL } from "../core/config/profile.ts";
 import type { ExistingAction, SetupFlags, SetupMode } from "../wizard/setup.ts";
 
 export const USAGE =
@@ -246,6 +247,7 @@ const SETUP_VALUE_FLAGS = [
   "--mode",
   "--existing",
   "--alias",
+  "--label",
 ] as const;
 
 type SetupValueFlag = (typeof SETUP_VALUE_FLAGS)[number];
@@ -537,6 +539,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
   let mode: SetupMode | undefined;
   let existing: ExistingAction | undefined;
   let alias: string | undefined;
+  let label: string | undefined;
   let yes = false;
   let bootstrap = false;
 
@@ -621,6 +624,15 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
         }
         alias = value;
         break;
+      case "--label":
+        if (label !== undefined) {
+          return repeatedFlag(arg);
+        }
+        if (!isValidLabel(value)) {
+          return error(LABEL_REFUSAL);
+        }
+        label = value;
+        break;
     }
     index += 2;
   }
@@ -634,6 +646,7 @@ function parseSetup(argv: readonly string[]): SetupCommand | ParseError {
     ...(mode === undefined ? {} : { mode }),
     ...(existing === undefined ? {} : { existing }),
     ...(alias === undefined ? {} : { alias }),
+    ...(label === undefined ? {} : { label }),
     ...(yes ? { yes: true } : {}),
     ...(bootstrap ? { bootstrap: true } : {}),
   };

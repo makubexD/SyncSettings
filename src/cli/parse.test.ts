@@ -632,6 +632,26 @@ describe("parseArgs", () => {
     }
   });
 
+  test("should parse --label as a value flag", () => {
+    expect(parseArgs(["setup", "--label", "Big Co"])).toEqual({
+      kind: "setup",
+      label: "Big Co",
+    });
+    expect(parseArgs(["setup", "--label"])).toEqual(
+      usageError("ERROR: --label needs a value."),
+    );
+    expect(parseArgs(["setup", "--label", "a", "--label", "b"])).toEqual(
+      usageError("ERROR: --label is repeated."),
+    );
+  });
+
+  test("should refuse a 31-character, empty and slashed --label", () => {
+    const refusal = "ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&";
+    for (const bad of ["x".repeat(31), "", "a/b"]) {
+      expect(parseArgs(["setup", "--label", bad])).toEqual(usageError(refusal));
+    }
+  });
+
   test("should parse --alias as a value flag", () => {
     expect(parseArgs(["setup", "--alias", "desk-a"])).toEqual({
       kind: "setup",

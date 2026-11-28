@@ -573,6 +573,25 @@ describe("writeRecord and writeProfile", () => {
     ).toMatchObject({ entries: [linkedDirEntry("~/scripts")] });
   });
 
+  test("should write a profile's label as the last key and read it back", () => {
+    // Arrange
+    const fixture = storeFixture();
+    const labelled = { ...linkedProfile({}, [linkedDirEntry("~/scripts")]), label: "acme" };
+
+    // Act
+    writeProfile(fixture.state, labelled);
+    const store = expectOk(storeOf(fixture));
+    const text = readFileSync(
+      join(fixture.state, "profiles", `${PROFILE_NAME}.json`),
+      "utf8",
+    );
+
+    // Assert
+    expect(store.profiles).toEqual([labelled]);
+    expect(Object.keys(JSON.parse(text)).at(-1)).toBe("label");
+    expect(text.endsWith('"label": "acme"\n}\n')).toBe(true);
+  });
+
   test("should write both files for the current user only", () => {
     // Arrange
     const fixture = storeFixture();

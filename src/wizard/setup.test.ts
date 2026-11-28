@@ -1400,3 +1400,144 @@ describe("runSetup public name", () => {
     expect(output).not.toContain("Public name:");
   });
 });
+
+describe("runSetup label", () => {
+  const QUESTIONS_AFTER_LABEL = [Q2, Q3].join("");
+
+  test("should ask a label for a new work profile and keep it", async () => {
+    // Arrange
+    const setup = input({}, { existing: "stop" });
+
+    // Act
+    const { outcome, output } = await run(setup, ["work-1", "Big Co", "", "", "y"]);
+
+    // Assert
+    expect(output).toContain(`${LABEL_QUESTION("work-1")}${QUESTIONS_AFTER_LABEL}`);
+    expect(output).toContain("profile work-1 (Big Co), Claude only");
+    expect(output).toContain("--profile work-1 --label 'Big Co' --name");
+    expect(outcome.ok && outcome.profile.label).toBe("Big Co");
+  });
+
+  test("should leave no label for an empty answer", async () => {
+    // Act
+    const { outcome, output } = await run(input({}, { existing: "stop" }), [
+      "work-1",
+      "",
+      "",
+      "",
+      "y",
+    ]);
+
+    // Assert
+    expect(output).toContain("profile work-1, Claude only");
+    expect(output).not.toContain("--label");
+    expect(outcome.ok && Object.hasOwn(outcome.profile, "label")).toBe(false);
+  });
+
+  test("should leave no label at end of input", async () => {
+    // Act
+    const { output } = await run(input({}, { existing: "stop" }), ["work-1"]);
+
+    // Assert
+    expect(output).toContain("profile work-1, Claude only");
+    expect(output).not.toContain("--label");
+  });
+
+  test("should ask again for a bad typed label", async () => {
+    // Act
+    const { outcome, output } = await run(input({}, { existing: "stop" }), [
+      "work-1",
+      "a/b",
+      "acme",
+      "",
+      "",
+      "y",
+    ]);
+
+    // Assert
+    expect(output).toContain("Use 1 to 30 letters, digits, spaces or .-_&.\n");
+    expect(outcome.ok && outcome.profile.label).toBe("acme");
+  });
+
+  test("should not ask for personal", async () => {
+    // Act
+    const { output } = await run(input({}, { existing: "stop" }), ["personal"]);
+
+    // Assert
+    expect(output).not.toContain("Label for");
+  });
+
+  test("should not ask for an existing profile", async () => {
+    // Act
+    const { output } = await run(
+      input({ profiles: [profile("work-1")] }, { existing: "stop" }),
+      ["work-1"],
+    );
+
+    // Assert
+    expect(output).not.toContain("Label for");
+  });
+
+  test("should not ask under --yes or --label", async () => {
+    // Act
+    const yes = await run(
+      input({}, { profile: "work-1", yes: true, existing: "stop" }),
+    );
+    const flagged = await run(
+      input({}, { existing: "stop", label: "acme" }),
+      ["work-1"],
+    );
+
+    // Assert
+    expect(yes.output).not.toContain("Label for");
+    expect(flagged.output).not.toContain("Label for");
+    expect(flagged.output).toContain("profile work-1 (acme)");
+    expect(flagged.output).toContain("--profile work-1 --label acme --name");
+  });
+
+  test("should not ask when --profile names the new profile", async () => {
+    // Act
+    const { output } = await run(
+      input({}, { profile: "work-1", existing: "stop" }),
+    );
+
+    // Assert
+    expect(output).not.toContain("Label for");
+  });
+
+  test("should stop with exit 2 before any question for --label on an existing profile", async () => {
+    // Arrange
+    const setup = input(
+      { profiles: [profile("work-1")] },
+      { profile: "work-1", label: "acme" },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup);
+
+    // Assert
+    expect(output).toBe("");
+    expect(outcome).toMatchObject({
+      ok: false,
+      message: "ERROR: --label names a new profile; work-1 already exists",
+      code: 2,
+    });
+  });
+
+  test("should list, summarise and repeat a stored label", async () => {
+    // Arrange
+    const labelled = { ...profile("work-1"), label: "acme" };
+    const setup = input(
+      { profiles: [labelled, profile("work-2")] },
+      { profile: "work-1", existing: "stop" },
+    );
+
+    // Act
+    const { output } = await run(setup);
+
+    // Assert
+    expect(output).toContain("  2) work-1  (acme)\n  3) work-2\n");
+    expect(output).toContain("profile work-1 (acme), Claude only");
+    expect(output).not.toContain("--label");
+  });
+});

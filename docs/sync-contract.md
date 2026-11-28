@@ -1680,7 +1680,7 @@ Profiles on this machine:
 - **A new profile** gets `shell`, `git`, then each module whose tool the scan found (`gh`, `code` for `vscode`, `claude`
   for `claude` and, with Claude plus DeepSeek, `claude-worker`, `tmux`, `starship`, `wezterm`, `htop`, `rtk`), then
   `gnome` on Linux and `windows-terminal` on Windows, in the config's module order; `destinations` empty, `retired`
-  false, then `label` when one was given (the only optional profile key).
+  false, then `label`, written last, when one was given.
 - **Values.** `.user-values.json`, if there is one, is copied once by the table in
   [Values on a machine](#values-on-a-machine), asking about any other placeholder as there (before the summary); a key
   the profile or record already has keeps its value, and the value question is skipped for it. The file is left as it
