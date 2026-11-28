@@ -42,7 +42,7 @@ const CONFIG_FILE = "sync-config.json";
 const CONFIG: ConfigV2 = { schemaVersion: 2, modules: {}, entries: [] };
 
 /** `mksync commit` with neither a message nor `--partial`. */
-const COMMAND: CommitCommand = { kind: "commit", partial: false };
+const COMMAND: CommitCommand = { kind: "commit", partial: false, yes: false };
 
 /** A changed file under `dotfiles/`, so commit has something to push. */
 const DOTFILE = "dotfiles/linux/plain.txt";

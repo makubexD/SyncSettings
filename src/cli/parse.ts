@@ -116,8 +116,8 @@ export interface CommitCommand {
   readonly message?: string;
   readonly partial: boolean;
   /** A push's `--yes`: a record with no public name takes the suggestion
-   * without asking. */
-  readonly yes?: boolean;
+   * without asking. A `commit` parsed on its own is always `false`. */
+  readonly yes: boolean;
 }
 
 /** `setup`: the first-run flow's flags, parsed but not validated. */
@@ -689,6 +689,7 @@ function parseCommit(argv: readonly string[]): CommitCommand | ParseError {
     kind: "commit",
     ...(message === undefined ? {} : { message }),
     partial,
+    yes: false,
   };
 }
 

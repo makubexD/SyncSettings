@@ -67,7 +67,7 @@ const PUSH = { kind: "push", yes: false, force: false, paths: [] } as const;
 
 const SETUP = { kind: "setup" } as const;
 
-const COMMIT = { kind: "commit", partial: false } as const;
+const COMMIT = { kind: "commit", partial: false, yes: false } as const;
 
 function unknownOption(arg: string): {
   kind: "error";
@@ -646,7 +646,8 @@ describe("parseArgs", () => {
   });
 
   test("should refuse a 31-character, empty and slashed --label", () => {
-    const refusal = "ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&";
+    const refusal =
+      "ERROR: --label: use 1 to 30 letters, digits, spaces or .-_&";
     for (const bad of ["x".repeat(31), "", "a/b"]) {
       expect(parseArgs(["setup", "--label", bad])).toEqual(usageError(refusal));
     }

@@ -123,7 +123,7 @@ function pushCommitCommand(
   return {
     kind: "commit",
     partial,
-    ...(yes ? { yes: true } : {}),
+    yes,
     ...(message === undefined ? {} : { message }),
   };
 }
