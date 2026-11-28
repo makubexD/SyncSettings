@@ -44,7 +44,7 @@ intended. The gaps are in the first run itself:
 3. **Reconcile the layers.** `mksync setting list` (what a profile or OS layer sets above the base, side by side) and
    `mksync setting move <path> [<key>] --to base|os|profile|machine` (preview, question, `--dry-run`, `--yes`), with
    the profile-value search, the leak scan and the `$HOME` check on the base-bound text, and never a write to
-   `master`: the change waits for `mksync push`. Plan: `docs/plan-smart-first-run-3.md` (`v1.4.0`).
+   `master`: the change waits for `mksync push`. Plan: `docs/plan-smart-first-run-3.md` (`v1.4.0`). **Done 2026-11-27.**
 4. **Help and messages.** WIZ-10 (decided 2026-11-27: pull's `Apply these changes?` defaults to yes except under
    `--force`; push's PR question stays `[y/N]`; end of input is no), CLI-1 (`--help` at every level, exit 0), CLI-2 (`ERROR: unknown command ...`), CLI-3 (four
    contract lines that say exit 1 where the code exits 2), CLI-4 (`mksync profile show` in
