@@ -23,6 +23,25 @@ export interface NewSettingQuestion {
   readonly suggestion: NewSettingChoice;
 }
 
+/** A layer's group words, as the questions and `mksync setting list` print
+ * them: `all machines`, `<OS> machines`, `profile <p>`, `this machine`. */
+export function layerWords(layer: LayerName, os: Os, profile: string): string {
+  switch (layer) {
+    case "base":
+      return "all machines";
+    case "os":
+      return `${OS_TITLES[os]} machines`;
+    case "profile":
+      return `profile ${profile}`;
+    case "machine":
+      return "this machine";
+    default: {
+      const unhandled: never = layer;
+      throw new Error(`Unhandled layer: ${String(unhandled)}`);
+    }
+  }
+}
+
 /**
  * The question a new setting asks with a record: the four layers in order and
  * the suggestion of decision 4. Without a record there is no profile or
@@ -38,22 +57,22 @@ export function newSettingChoices(
   const allMachines: NewSettingChoice = {
     number: 1,
     layer: "base",
-    words: "all machines",
+    words: layerWords("base", os, record.profile),
   };
   const osMachines: NewSettingChoice = {
     number: 2,
     layer: "os",
-    words: `${OS_TITLES[os]} machines`,
+    words: layerWords("os", os, record.profile),
   };
   const profileLayer: NewSettingChoice = {
     number: 3,
     layer: "profile",
-    words: `profile ${record.profile}`,
+    words: layerWords("profile", os, record.profile),
   };
   const thisMachine: NewSettingChoice = {
     number: 4,
     layer: "machine",
-    words: "this machine",
+    words: layerWords("machine", os, record.profile),
   };
   return {
     choices: [allMachines, osMachines, profileLayer, thisMachine],
