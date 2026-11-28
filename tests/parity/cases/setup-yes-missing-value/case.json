@@ -1,0 +1,69 @@
+{
+  "description": "setup --yes takes a value's guess but stops before anything is written when a value has neither a guess nor --value: ERROR missing value for <KEY>; pass --value KEY=<value>, exit 2, no record (mksync setup, --yes).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name",
+            "suggest": [
+              "git-user-name"
+            ]
+          },
+          {
+            "placeholder": "<YOUR_EMAIL>",
+            "prompt": "Email"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "wk1-laptop",
+        "yes": true
+      },
+      "stderr": true
+    },
+    {
+      "command": "machine-show",
+      "stderr": true
+    }
+  ]
+}

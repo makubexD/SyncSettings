@@ -1,0 +1,60 @@
+{
+  "description": "setup asks every value its import would ask after the linked-folder questions and before the summary, with the guess in brackets; the summary lists them with their sources, Same as holds the typed one, and nothing is asked after the confirm (mksync setup, Values before the summary, Summary, Same as).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name",
+            "suggest": [
+              "git-user-name"
+            ]
+          },
+          {
+            "placeholder": "<YOUR_EMAIL>",
+            "prompt": "Email"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "stdin": "work-1\n\n2\n1\n1\n\njane@example.com\n\n"
+    }
+  ]
+}

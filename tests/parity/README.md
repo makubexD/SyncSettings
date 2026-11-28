@@ -107,7 +107,7 @@ bash runner wants 600 for them in `expect/state/`, since git can't store that mo
 with `front-diff`, `front-check` and `front-preview` spelled `diff`, `check` and `preview`.
 `options` uses neutral names that the runner spells for the program: `force: true` is `--force`, `only: [paths]` is
 `--only`, and `resetValues`, a boolean, is `--reset-values`, allowed on `import` and `check` only. `name`, `profile`,
-`replace`, `claude`, `mode`, `existing`, `alias` and `label` are strings spelled `--<key> <value>` and allowed on `setup` only;
+`replace`, `claude`, `mode`, `existing`, `alias` and `label` are strings spelled `--<key> <value>` and allowed on `setup` only; `value`, an array of strings, is one `--value <string>` each (`["YOUR_NAME=Jane Doe"]`), on `setup` only;
 `yes: true` adds `--yes` on `setup`, `export`, `preview`, `machine-retire`, `profile-retire`, `status`, `doctor`,
 `pull`, `push` and `front-diff`; `bootstrap: true` adds `--bootstrap` and `noBootstrap: true` adds `--no-bootstrap`, on `setup` only; and `target`, a string, is the
 name argument of `machine-retire` and `profile-retire`, required there and refused elsewhere. On `commit` only,

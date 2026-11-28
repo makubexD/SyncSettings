@@ -1,0 +1,77 @@
+{
+  "description": "setup --yes with --value answers both value questions without asking, the summary names (--value) for each and Same as holds them, quoted when needed; a --value for a placeholder no rule uses stops first with exit 2 (mksync setup, --value, Summary, Same as).",
+  "os": [
+    "linux"
+  ],
+  "configV2": {
+    "schemaVersion": 2,
+    "modules": {
+      "shell": {
+        "description": "Shell start-up files"
+      },
+      "git": {
+        "description": "Git settings"
+      }
+    },
+    "entries": [
+      {
+        "file": "shell/bashrc",
+        "module": "shell",
+        "merge": "whole",
+        "localPath": "~/.config/parity/bashrc",
+        "description": "Shell start-up file"
+      },
+      {
+        "file": "git/gitconfig",
+        "module": "git",
+        "merge": "whole",
+        "localPath": "~/.config/parity/gitconfig",
+        "description": "Git global config",
+        "sanitize": [
+          {
+            "placeholder": "<YOUR_NAME>",
+            "prompt": "Full name"
+          },
+          {
+            "placeholder": "<YOUR_EMAIL>",
+            "prompt": "Email"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "SYNC_HOSTNAME": "wk1-laptop",
+    "SYNC_DOMAIN": "",
+    "SYNC_TOOLS": "git,gh,claude"
+  },
+  "stubs": [
+    "gh"
+  ],
+  "commands": [
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "wk1-laptop",
+        "yes": true,
+        "value": [
+          "NOT_A_KEY=x"
+        ]
+      },
+      "stderr": true
+    },
+    {
+      "command": "setup",
+      "options": {
+        "profile": "personal",
+        "name": "wk1-laptop",
+        "yes": true,
+        "value": [
+          "YOUR_EMAIL=jane@example.com",
+          "YOUR_NAME=Jane Doe"
+        ]
+      }
+    }
+  ]
+}
