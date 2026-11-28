@@ -92,13 +92,14 @@ jobs:
         run: brew uninstall --ignore-dependencies bash jq || true
       # The installer reopens the file for each yes/no question, so it always
       # reads line 1 (y); setup then reads the file from the top: line 1 is a
-      # new profile named y, then Claude none, push with a preview, the
+      # new profile named y, an empty line for no label (a new profile's
+      # label question), then Claude none, push with a preview, the
       # suggested backup for existing files, and y for every value the
       # program asks for (each placeholder nothing else fills) and any later
       # question.
       - name: Answer the installer and setup
         run: |
-          { printf 'y\n1\n1\n\n'; for i in $(seq 50); do echo y; done; } > "$RUNNER_TEMP/answers.txt"
+          { printf 'y\n\n1\n1\n\n'; for i in $(seq 50); do echo y; done; } > "$RUNNER_TEMP/answers.txt"
       - name: Run the macOS checks under the stock bash 3.2
         run: |
           export SYNCSETTINGS_DIR="$RUNNER_TEMP/SyncSettings" SYNCSETTINGS_TTY="$RUNNER_TEMP/answers.txt"

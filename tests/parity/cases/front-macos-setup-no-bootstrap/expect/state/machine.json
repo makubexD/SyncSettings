@@ -1,5 +1,6 @@
 {
   "name": "wk1-laptop",
+  "alias": "work-1-macos",
   "profile": "work-1",
   "os": "macos",
   "hostname": "wk1-laptop",
