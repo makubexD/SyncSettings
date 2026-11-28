@@ -1480,6 +1480,10 @@ install").
 
 ### Design
 
+- **The `kept on` answer has no flag (smart first run phase 2, 2026-11-27).** Setup's `<KEY>: kept on …` question
+  (a `.user-values.json` placeholder the value table doesn't name) now comes before the summary, but no flag answers
+  it, so `Same as:` can't reproduce answer `2` (this machine), and `--yes` always takes `1`. Open: a flag such as
+  `--keep-on-machine KEY`, or leaving it to `mksync machine` once values can be moved there.
 - **Installing on a machine whose active `gh` account can't see the private repo (2026-11-27, `v1.2.2`).** The
   install line itself (`gh api … contents/install.ps1`) runs as `gh`'s active account, so on a new machine where that
   is an employer's account it fails once the repo is private. For now the docs say to run

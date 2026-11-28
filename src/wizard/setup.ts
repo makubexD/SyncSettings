@@ -2,7 +2,12 @@ import type { Scan } from "../adapters/scan.ts";
 import type { LinkedFolder } from "../adapters/store.ts";
 import { trimAnswer } from "../core/answer.ts";
 import { isValidLabel, type Profile } from "../core/config/profile.ts";
-import type { ConfigV2, ConfigV2Entry, Os } from "../core/config/types.ts";
+import type {
+  ConfigV2,
+  ConfigV2Entry,
+  Os,
+  SuggestSource,
+} from "../core/config/types.ts";
 import { LAYER_NAME, RESERVED_LAYER_NAMES } from "../core/layers/names.ts";
 import {
   LINKED_DESTINATION_PREFIX,
@@ -11,7 +16,9 @@ import {
 } from "../core/machine/linked.ts";
 import type { ClaudeMode, MachineRecord } from "../core/machine/record.ts";
 import { replaceRecord } from "../core/machine/replace.ts";
+import type { ValuePlace } from "../core/machine/values.ts";
 import { checkAlias, suggestAlias } from "../core/plan/commit.ts";
+import { ASK_HEADER, holdsPlaceholder } from "../core/values/hydrate.ts";
 import { quoteToken } from "./quote.ts";
 
 /** The fourth answer: what setup does with files already on the machine. */
@@ -61,6 +68,56 @@ export interface SetupDiffer {
   readonly diff?: SetupDiff;
 }
 
+/** What the value questions are built from: the answers so far, held in
+ * memory, since nothing is written before the confirm. */
+export interface SetupValueChoice {
+  readonly profile: Profile;
+  readonly record: MachineRecord;
+  readonly action: ExistingAction;
+  readonly mode: SetupMode;
+  /** An existing record is taken over: its machine values are asked again. */
+  readonly replaced: boolean;
+}
+
+/** Where a value in the summary's `Values:` block came from (contract
+ * "Summary"): the `suggest` source that answered, a typed answer, or a
+ * taken-over record's value. */
+export type ValueSource = SuggestSource | "typed" | "old machine";
+
+/** A value's guess and the source that gave it. */
+export interface ValueGuess {
+  readonly value: string;
+  readonly source: ValueSource;
+}
+
+/** One value question setup asks before the summary. */
+export interface SetupValueQuestion {
+  /** `fill`: a value the import (or keep's export) would ask, printed after
+   * the import's header; `replace`: a taken-over machine value asked again. */
+  readonly kind: "fill" | "replace";
+  readonly placeholder: string;
+  /** The question as printed, its guess in brackets. */
+  readonly text: string;
+  readonly guess?: ValueGuess;
+}
+
+/** The value questions this run's writes would ask, in order. */
+export interface SetupValues {
+  /** `.user-values.json` placeholders the value table leaves as `ask`, which
+   * the `kept on` question places (contract "Values on a machine"). */
+  readonly places: readonly string[];
+  /** The `replace` questions first, then the `fill` ones. */
+  readonly questions: readonly SetupValueQuestion[];
+}
+
+/** A value question's answer, saved with the record after the confirm. */
+export interface SetupValueAnswer {
+  readonly kind: SetupValueQuestion["kind"];
+  readonly placeholder: string;
+  readonly value: string;
+  readonly source: ValueSource;
+}
+
 /** Everything the flow reads; it reads nothing else and writes nothing. */
 export interface SetupInput {
   readonly scan: Scan;
@@ -87,6 +144,9 @@ export interface SetupInput {
     profile: Profile,
     record: MachineRecord,
   ) => readonly LinkedFolder[];
+  /** The value questions this run's writes would ask, for the answers so far
+   * (contract "Values before the summary"); none when absent. */
+  readonly values?: (choice: SetupValueChoice) => Promise<SetupValues>;
 }
 
 /** The terminal: text out, one answer line in, `undefined` at end of input. */
@@ -108,6 +168,10 @@ export type SetupOutcome =
       readonly replaced: boolean;
       /** The bootstrap question was answered `y`, or `--bootstrap` was given. */
       readonly bootstrap: boolean;
+      /** The value questions' answers, in question order. */
+      readonly values: readonly SetupValueAnswer[];
+      /** Where each `.user-values.json` placeholder outside the table goes. */
+      readonly places: Readonly<Record<string, ValuePlace>>;
     }
   | { readonly ok: false; readonly message: string; readonly code: 1 | 2 }
   /** The confirm was answered no: nothing is written, exit 0. */
@@ -567,8 +631,9 @@ async function linkedAnswer(
 /**
  * The first-run flow of `mksync setup`, per the contract's "mksync setup": the
  * scan block, the profile list, the four questions, the bootstrap question,
- * the summary and the confirm. It returns the record and profile to write and
- * what to do with existing files; it writes nothing.
+ * the value questions, the summary and the confirm. It returns the record and
+ * profile to write, the values asked and what to do with existing files; it
+ * writes nothing, and asks nothing after the confirm.
  */
 export async function runSetup(
   input: SetupInput,
@@ -851,6 +916,22 @@ export async function runSetup(
       : {}),
   };
 
+  const valued = await askValues(
+    io,
+    flags,
+    (await input.values?.({
+      profile: answeredProfile,
+      record: answeredRecord,
+      action,
+      mode,
+      replaced: replacing !== undefined,
+    })) ?? NO_VALUES,
+  );
+  if (!valued.ok) {
+    return valued.stop;
+  }
+  const { answers: valueAnswers, places } = valued;
+
   const nameFlag =
     replacing === undefined
       ? `--name ${record.name}`
@@ -872,7 +953,8 @@ export async function runSetup(
   io.write(
     `Machine ${record.name}: profile ${profileName}${labelShown}, ${CLAUDE_LABELS[claude]}, ${MODE_LABELS[mode]}.\n` +
       aliasLine +
-      `Same as: mksync setup --profile ${profileName}${labelFlag} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}\n`,
+      valuesBlock(valueAnswers) +
+      `Same as: mksync setup --profile ${profileName}${labelFlag} ${nameFlag} --claude ${claude} --mode ${mode} --existing ${action}${aliasFlag}${bootstrapFlag}${valueFlags(valueAnswers, scan.os)}\n`,
   );
   // Contract "Guard block": after `Same as:`, the diff lines and the count when
   // answer 4 is `backup` with a sync point and an `OUT` or `BOTH` file (or a
@@ -911,7 +993,132 @@ export async function runSetup(
     action,
     replaced: replacing !== undefined,
     bootstrap,
+    values: valueAnswers,
+    places,
   };
+}
+
+/** No value question: a flow given no `values` reader asks none. */
+const NO_VALUES: SetupValues = { places: [], questions: [] };
+
+/** Contract "Values on a machine": the question that places a
+ * `.user-values.json` placeholder the value table doesn't name. */
+function placeQuestion(placeholder: string): string {
+  return `${placeholder}: kept on 1) this profile 2) this machine [1] `;
+}
+
+/** A placeholder without its `<` `>`, as `--value KEY=VALUE` names it. */
+function bareKey(placeholder: string): string {
+  return placeholder.replace(/^<(.*)>$/, "$1");
+}
+
+/** What the value questions gave: the answers and places, or the stop. */
+type AskedValues =
+  | {
+      readonly ok: true;
+      readonly answers: readonly SetupValueAnswer[];
+      readonly places: Readonly<Record<string, ValuePlace>>;
+    }
+  | { readonly ok: false; readonly stop: SetupOutcome };
+
+/**
+ * Contract "mksync setup", Values before the summary, Answers, `--yes`: the
+ * `kept on` questions, then each value question, the import's header before
+ * the first `fill` one. An empty answer takes the guess in brackets and a
+ * typed answer wins. End of input, an empty answer with no guess, or an answer
+ * holding placeholder text stops with `ERROR: missing value for <KEY>`, exit 1:
+ * end of input never takes a guess. `--yes` asks nothing, takes every guess
+ * and each place's `1`, and stops on a value with no guess, exit 2.
+ */
+async function askValues(
+  io: SetupIo,
+  flags: SetupFlags,
+  values: SetupValues,
+): Promise<AskedValues> {
+  const places: Record<string, ValuePlace> = {};
+  const answers: SetupValueAnswer[] = [];
+  if (flags.yes === true) {
+    for (const question of values.questions) {
+      if (question.guess === undefined) {
+        const key = bareKey(question.placeholder);
+        return {
+          ok: false,
+          stop: stop(
+            `ERROR: missing value for ${question.placeholder}; pass --value ${key}=<value>`,
+            2,
+          ),
+        };
+      }
+      answers.push({
+        kind: question.kind,
+        placeholder: question.placeholder,
+        ...question.guess,
+      });
+    }
+    return { ok: true, answers, places };
+  }
+  for (const placeholder of values.places) {
+    io.write(placeQuestion(placeholder));
+    const line = await io.readLine();
+    places[placeholder] =
+      trimAnswer(line ?? "") === "2" ? "machine" : "profile";
+  }
+  let headed = false;
+  for (const question of values.questions) {
+    if (question.kind === "fill" && !headed) {
+      io.write(ASK_HEADER);
+      headed = true;
+    }
+    io.write(question.text);
+    const line = await io.readLine();
+    const typed = line === undefined ? "" : trimAnswer(line);
+    const answer: ValueGuess | undefined =
+      line === undefined
+        ? undefined
+        : typed !== ""
+          ? { value: typed, source: "typed" }
+          : question.guess;
+    if (answer === undefined || holdsPlaceholder(answer.value)) {
+      io.write("\n");
+      return {
+        ok: false,
+        stop: stop(`ERROR: missing value for ${question.placeholder}`, 1),
+      };
+    }
+    answers.push({
+      kind: question.kind,
+      placeholder: question.placeholder,
+      ...answer,
+    });
+  }
+  if (values.places.length > 0 || values.questions.length > 0) {
+    io.write("\n");
+  }
+  return { ok: true, answers, places };
+}
+
+/** Contract "Summary": the `Values:` block, one line per value asked, with
+ * its source; empty when no value was asked. */
+function valuesBlock(answers: readonly SetupValueAnswer[]): string {
+  if (answers.length === 0) {
+    return "";
+  }
+  const lines = answers.map(
+    (answer) => `  ${answer.placeholder} = ${answer.value} (${answer.source})`,
+  );
+  return `Values:\n${lines.join("\n")}\n`;
+}
+
+/** Contract "`Same as:`": ` --value KEY=VALUE` for every typed answer, the
+ * token quoted whole when it needs it; a guess reproduces itself. */
+function valueFlags(answers: readonly SetupValueAnswer[], os: Os): string {
+  return answers
+    .filter((answer) => answer.source === "typed")
+    .map(
+      (answer) =>
+        ` --value ${quoteToken(`${bareKey(answer.placeholder)}=${answer.value}`, os)}`,
+    )
+    .join("");
 }
 
 /** Contract "Label": `--label` with a profile that already exists is refused. */

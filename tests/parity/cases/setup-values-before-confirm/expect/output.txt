@@ -22,8 +22,7 @@ Profiles on this machine:
 
   Enter values to fill the placeholders in the config files:
 
-  Full name (~/.config/parity/gitconfig) [Jane Doe]: 
-  Email (~/.config/parity/gitconfig): 
+  Full name (~/.config/parity/gitconfig) [Jane Doe]:   Email (~/.config/parity/gitconfig): 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Public name: work-1-linux
 Values:

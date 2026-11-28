@@ -9,6 +9,9 @@ import type {
   SetupFlags,
   SetupInput,
   SetupOutcome,
+  SetupValueChoice,
+  SetupValueQuestion,
+  SetupValues,
 } from "./setup.ts";
 import { guessProfile, runSetup } from "./setup.ts";
 
@@ -1591,5 +1594,307 @@ describe("runSetup label", () => {
     expect(output).toContain("  2) work-1  (acme)\n  3) work-2\n");
     expect(output).toContain("profile work-1 (acme), Claude only");
     expect(output).not.toContain("--label");
+  });
+});
+
+/** The import's header, printed once before the first `fill` question. */
+const VALUE_HEADER =
+  "\n  Enter values to fill the placeholders in the config files:\n\n";
+
+const NAME_QUESTION: SetupValueQuestion = {
+  kind: "fill",
+  placeholder: "<YOUR_NAME>",
+  text: "  Full name (~/.gitconfig) [Jane Doe]: ",
+  guess: { value: "Jane Doe", source: "git-user-name" },
+};
+
+const EMAIL_QUESTION: SetupValueQuestion = {
+  kind: "fill",
+  placeholder: "<YOUR_EMAIL>",
+  text: "  Email (~/.gitconfig): ",
+};
+
+const TYPED_EMAIL = "jane@example.com";
+
+/** A typed value holding a space, which `Same as:` quotes whole. */
+const TYPED_NAME = "Ana Lopez";
+
+/** A values reader that returns `values` and records each choice it got. */
+function valuesReader(values: SetupValues): {
+  readonly read: (choice: SetupValueChoice) => Promise<SetupValues>;
+  readonly choices: SetupValueChoice[];
+} {
+  const choices: SetupValueChoice[] = [];
+  return {
+    choices,
+    read: (choice) => {
+      choices.push(choice);
+      return Promise.resolve(values);
+    },
+  };
+}
+
+const TWO_VALUES: SetupValues = {
+  places: [],
+  questions: [NAME_QUESTION, EMAIL_QUESTION],
+};
+
+describe("runSetup value questions", () => {
+  test("should ask the values after question 4 and before the summary", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, ["", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(output).toContain(
+      `${VALUE_HEADER}${NAME_QUESTION.text}${EMAIL_QUESTION.text}\nMachine wk1-laptop:`,
+    );
+  });
+
+  test("should list each value with its source in the summary's Values block", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, ["", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(output).toContain(
+      [
+        "Public name: work-1-linux",
+        "Values:",
+        "  <YOUR_NAME> = Jane Doe (git-user-name)",
+        `  <YOUR_EMAIL> = ${TYPED_EMAIL} (typed)`,
+        "Same as: ",
+      ].join("\n"),
+    );
+  });
+
+  test("should put only typed answers in Same as, quoted when needed", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, [TYPED_NAME, TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(output).toContain(
+      `--alias work-1-linux --value 'YOUR_NAME=${TYPED_NAME}' --value YOUR_EMAIL=${TYPED_EMAIL}\n`,
+    );
+  });
+
+  test("should return the answers with the record after a yes", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome } = await run(setup, ["", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(outcome.ok && outcome.values).toEqual([
+      {
+        kind: "fill",
+        placeholder: "<YOUR_NAME>",
+        value: "Jane Doe",
+        source: "git-user-name",
+      },
+      {
+        kind: "fill",
+        placeholder: "<YOUR_EMAIL>",
+        value: TYPED_EMAIL,
+        source: "typed",
+      },
+    ]);
+  });
+
+  test("should ask nothing after the confirm", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { output } = await run(setup, ["", TYPED_EMAIL, "", "left over"]);
+
+    // Assert
+    expect(output.endsWith(CONFIRM_QUESTION)).toBe(true);
+  });
+
+  test("should give the reader the chosen profile, record, action and mode", async () => {
+    // Arrange
+    const reader = valuesReader(TWO_VALUES);
+    const setup = input({ values: reader.read }, ANSWER_FLAGS);
+
+    // Act
+    await run(setup, ["", TYPED_EMAIL, ""]);
+
+    // Assert
+    expect(reader.choices).toEqual([
+      {
+        profile: profile("work-1", ["shell", "git", "gh", "claude", "gnome"]),
+        record: record({ alias: "work-1-linux" }),
+        action: "backup",
+        mode: "push",
+        replaced: false,
+      },
+    ]);
+  });
+
+  test("should stop without taking the guess at end of input", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, []);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: missing value for <YOUR_NAME>",
+      code: 1,
+    });
+    expect(output).not.toContain("Machine wk1-laptop:");
+  });
+
+  test("should stop on an empty answer to a question with no guess", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome } = await run(setup, ["", ""]);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: missing value for <YOUR_EMAIL>",
+      code: 1,
+    });
+  });
+
+  test("should stop on an answer holding placeholder text", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      ANSWER_FLAGS,
+    );
+
+    // Act
+    const { outcome } = await run(setup, ["", "<YOUR_EMAIL>"]);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message: "ERROR: missing value for <YOUR_EMAIL>",
+      code: 1,
+    });
+  });
+
+  test("should take every guess under --yes without asking", async () => {
+    // Arrange
+    const values: SetupValues = { places: [], questions: [NAME_QUESTION] };
+    const setup = input(
+      { values: valuesReader(values).read },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, []);
+
+    // Assert
+    expect(output).not.toContain(NAME_QUESTION.text);
+    expect(output).toContain("  <YOUR_NAME> = Jane Doe (git-user-name)\n");
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("should stop under --yes on a value with no guess before the summary", async () => {
+    // Arrange
+    const setup = input(
+      { values: valuesReader(TWO_VALUES).read },
+      { ...ANSWER_FLAGS, yes: true },
+    );
+
+    // Act
+    const { outcome, output } = await run(setup, []);
+
+    // Assert
+    expect(outcome).toEqual({
+      ok: false,
+      message:
+        "ERROR: missing value for <YOUR_EMAIL>; pass --value YOUR_EMAIL=<value>",
+      code: 2,
+    });
+    expect(output).not.toContain("Machine wk1-laptop:");
+  });
+
+  test("should ask the kept-on question before the summary and return its place", async () => {
+    // Arrange
+    const values: SetupValues = { places: ["<OTHER>"], questions: [] };
+    const setup = input({ values: valuesReader(values).read }, ANSWER_FLAGS);
+
+    // Act
+    const { outcome, output } = await run(setup, ["2", ""]);
+
+    // Assert
+    expect(output).toContain(
+      "<OTHER>: kept on 1) this profile 2) this machine [1] \nMachine wk1-laptop:",
+    );
+    expect(outcome.ok && outcome.places).toEqual({ "<OTHER>": "machine" });
+  });
+
+  test("should print no Values block when nothing is asked", async () => {
+    // Arrange
+    const values: SetupValues = { places: ["<OTHER>"], questions: [] };
+    const setup = input({ values: valuesReader(values).read }, ANSWER_FLAGS);
+
+    // Act
+    const { output } = await run(setup, ["", ""]);
+
+    // Assert
+    expect(output).not.toContain("Values:");
+  });
+
+  test("should show a replace answer taken from the old machine", async () => {
+    // Arrange
+    const values: SetupValues = {
+      places: [],
+      questions: [
+        {
+          kind: "replace",
+          placeholder: "<HOME>",
+          text: "<HOME> [/home/old] ",
+          guess: { value: "/home/old", source: "old machine" },
+        },
+      ],
+    };
+    const setup = input({ values: valuesReader(values).read }, ANSWER_FLAGS);
+
+    // Act
+    const { output } = await run(setup, ["", ""]);
+
+    // Assert
+    expect(output).toContain(
+      "<HOME> [/home/old] \nMachine wk1-laptop: profile work-1, Claude only, push with a preview.\nPublic name: work-1-linux\nValues:\n  <HOME> = /home/old (old machine)\n",
+    );
   });
 });

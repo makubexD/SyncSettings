@@ -1619,15 +1619,18 @@ Profiles on this machine:
   line. A question a flag answers isn't printed.
 - **Values before the summary.** After the linked-folder and bootstrap questions, setup asks every value this run's
   writes would ask ([Sanitize and hydrate](#sanitize-and-hydrate)): the import's, built from the chosen profile,
-  record and entries, and, with `keep`, the export's. Each is asked once, in the import's words, with its guess in
-  brackets; the `<KEY>: kept on …` question ([Values on a machine](#values-on-a-machine)) and the replace re-ask come
-  here too. A value the profile or record already has, or a `--value` gives, isn't asked. The values are saved with
+  record and entries, and, with `keep`, the whole export's (not only keep's paths, since a path `--only` refuses
+  falls back to the whole export). `stop` writes only the record, so it asks only the `kept on` and replace
+  questions. Each is asked once, in the import's words, with its guess in brackets; the `<KEY>: kept on …` question
+  ([Values on a machine](#values-on-a-machine)) and the replace re-ask come here too, in that order and before the
+  import's header, which is printed once before the first of the others. A value the profile or record already has, or a `--value` gives, isn't asked. The values are saved with
   the record after the confirm (placed by the value table), before the import, the keep export and the bootstrap
   script run, so none of them asks again: after the confirm setup asks nothing. `mksync pull` still shares its input
   with its import.
 - **Answers.** A question takes its flag; without one, it's asked on stdin, and an empty answer takes the suggestion
   in brackets. End of input takes it too, except at the confirm, where end of input is no (see below), and at a value
-  question, which stops with `ERROR: missing value for <KEY>`, exit 1, nothing written. A choice is digits only (`0x2` or `2.0`
+  question, which stops with `ERROR: missing value for <KEY>`, exit 1, nothing written; so do an empty answer to a
+  value question with no guess and an answer that holds placeholder text. A choice is digits only (`0x2` or `2.0`
   is a bad answer). The first question takes a number or a new profile name; a bad answer prints
   `Pick 1 to <n> or type a new profile name.` and asks again (end of input stops as below). Answers are trimmed of
   spaces, tabs and `\r` at both ends, so an answer that is only spaces counts as empty (phase 9 decision 8). A

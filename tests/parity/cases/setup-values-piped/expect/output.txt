@@ -16,7 +16,8 @@ Scanning this machine...
 Profiles on this machine:
   1) personal
 
+<OTHER>: kept on 1) this profile 2) this machine [1] 
 Machine wk1-laptop: profile work-1, Claude only, push with a preview.
 Public name: work-1-linux
 Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing stop --alias work-1-linux
-Write the record? [Y/n] <OTHER>: kept on 1) this profile 2) this machine [1] Stopped: the record is written, no file was changed.
+Write the record? [Y/n] Stopped: the record is written, no file was changed.

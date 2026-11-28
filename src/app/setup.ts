@@ -1,7 +1,8 @@
 /**
  * `mksync setup` (contract "First run"): run the doctor, read the store and the
- * scan, run the flow (the bootstrap question and the confirm included), move
- * `.user-values.json`, write the record and profile, run the Ubuntu bootstrap
+ * scan, run the flow (the bootstrap and value questions and the confirm
+ * included), write the record and profile with `.user-values.json` and the
+ * values asked, run the Ubuntu bootstrap
  * when chosen, then act on the fourth answer (decision 9). The export and
  * import the flow ends with run through the caller's `execute`, so this module
  * never imports `main.ts`.
@@ -14,7 +15,8 @@ import { readOrigin, readSyncPoint } from "../adapters/git.ts";
 import { readOsId } from "../adapters/osname.ts";
 import { run } from "../adapters/process.ts";
 import { readScan } from "../adapters/scan.ts";
-import { loadLayers } from "../adapters/snapshot.ts";
+import { suggestionSources } from "../adapters/suggest.ts";
+import { layersOf, loadLayers } from "../adapters/snapshot.ts";
 import type { Layers } from "../adapters/snapshot.ts";
 import {
   readLinkedFolders,
@@ -27,7 +29,7 @@ import {
 } from "../adapters/store.ts";
 import { readVisibility } from "../adapters/visibility.ts";
 import { executeDoctor } from "./doctor.ts";
-import { failure, setupTerminal } from "./export.ts";
+import { exportValueAsks, failure, setupTerminal } from "./export.ts";
 import {
   blockedLines,
   blockedPaths,
@@ -35,6 +37,8 @@ import {
   diffCounts,
   pullImportCommand,
 } from "./guard.ts";
+import { importValueAsks } from "./import.ts";
+import type { ImportValueAsk, SuggestSources } from "./import.ts";
 import { isInstalledProgram } from "./update.ts";
 import type { ExecuteOptions, Result, SetupTerminal } from "./export.ts";
 import type { RunCommand, SetupCommand } from "../cli/parse.ts";
@@ -50,8 +54,10 @@ import { runSetup } from "../wizard/setup.ts";
 import type {
   ExistingAction,
   SetupDiffer,
-  SetupFlags,
-  SetupIo,
+  SetupValueAnswer,
+  SetupValueChoice,
+  SetupValueQuestion,
+  SetupValues,
 } from "../wizard/setup.ts";
 
 const VALUES_FILE = ".user-values.json";
@@ -75,6 +81,19 @@ const PUSHED_LINE =
 
 /** `import --check`, as pull's check runs it, for question 4's differ line. */
 const IMPORT_CHECK: RunCommand = pullImportCommand(true, false, []);
+
+/** `import --force`, the import setup runs after the confirm (and the
+ * bootstrap's import step runs), whose value questions setup asks first. */
+const IMPORT: RunCommand = {
+  kind: "run",
+  command: "import",
+  force: true,
+  preview: false,
+  check: false,
+  resetValues: false,
+  yes: false,
+  only: [],
+};
 
 /** `export --diff`, as pull's diff runs it, for the guard block. */
 const DIFF: RunCommand = diffCommand([]);
@@ -129,63 +148,154 @@ function localDate(now: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Decision 4: where a placeholder `.user-values.json` holds outside the table
- * goes. Only `--yes` skips the questions — a piped stdin asks them too, taking
- * the suggestion, the profile, at end of input; otherwise each is asked once.
- */
-async function valueAnswers(
+/** The `.user-values.json` placeholders the value table leaves as `ask` and
+ * neither the profile nor the record holds: each gets the `kept on` question
+ * (contract "Values on a machine"). */
+function placesToAsk(
   values: Values,
   profile: Profile,
   record: MachineRecord,
-  flags: SetupFlags,
-  io: SetupIo,
-): Promise<Readonly<Record<string, ValuePlace>>> {
-  const answers: Record<string, ValuePlace> = {};
-  if (flags.yes === true) {
-    return answers;
-  }
-  for (const placeholder of Object.keys(values)) {
-    if (placeValue(placeholder) !== "ask") {
-      continue;
-    }
-    if (
-      Object.hasOwn(profile.values, placeholder) ||
-      Object.hasOwn(record.values, placeholder)
-    ) {
-      continue;
-    }
-    io.write(`${placeholder}: kept on 1) this profile 2) this machine [1] `);
-    const line = await io.readLine();
-    answers[placeholder] = line?.trim() === "2" ? "machine" : "profile";
-  }
-  return answers;
+): readonly string[] {
+  return Object.keys(values).filter(
+    (placeholder) =>
+      placeValue(placeholder) === "ask" &&
+      !Object.hasOwn(profile.values, placeholder) &&
+      !Object.hasOwn(record.values, placeholder),
+  );
 }
 
 /**
- * Contract "Replace": each machine value is asked again with the old one as
- * the suggestion whenever the flow took over a record (`replaced`). An empty
- * answer, end of input or `--yes` keeps the old value; any other answer
- * replaces it. Nothing is asked when no record was taken over.
+ * Contract "Replace": each machine value of a taken-over record is asked
+ * again, its old value the guess (`old machine`). shortcut: the fresh guess
+ * for this machine (its rule's sources, then `defaultEnv`) is the plan's step
+ * 19.
  */
-async function replaceValues(
-  record: MachineRecord,
-  replaced: boolean,
-  command: SetupCommand,
-  io: SetupIo,
-): Promise<Readonly<Record<string, string>>> {
-  const values: Record<string, string> = { ...record.values };
-  if (!replaced || command.yes === true) {
-    return values;
+function replaceQuestions(choice: SetupValueChoice): SetupValueQuestion[] {
+  if (!choice.replaced) {
+    return [];
   }
-  for (const [key, old] of Object.entries(record.values)) {
-    io.write(`${key} [${old}] `);
-    const answer = (await io.readLine())?.trim();
-    if (answer !== undefined && answer !== "") {
-      values[key] = answer;
+  return Object.entries(choice.record.values).map(([placeholder, old]) => ({
+    kind: "replace",
+    placeholder,
+    text: `${placeholder} [${old}] `,
+    guess: { value: old, source: "old machine" },
+  }));
+}
+
+/** Whether keep's export runs after the confirm (`exportKeep`): not after a
+ * failed diff, which stops keep, nor when the diff named no path to push. */
+function keepExports(differ: SetupDiffer): boolean {
+  if (differ.diff?.ok === false) {
+    return false;
+  }
+  const paths = keepPaths(differ);
+  return paths === undefined || paths.length > 0;
+}
+
+/** What `setupValues` reads besides the flow's answers. */
+export interface SetupValueSources {
+  readonly repoRoot: string;
+  readonly state: string;
+  readonly home: string;
+  readonly os: Os;
+  readonly config: ConfigV2;
+  /** `.user-values.json`, which setup copies into the profile and record. */
+  readonly fileValues: Values;
+  readonly differ: SetupDiffer;
+  readonly suggest: SuggestSources;
+}
+
+/**
+ * Contract "mksync setup", Values before the summary: every value this run's
+ * writes would ask, for the profile and record the flow holds in memory. They
+ * are read as they will be written (`.user-values.json` copied in, the store
+ * setup writes to), so the import after the confirm, keep's export and the
+ * bootstrap's import ask none of them again. `stop` writes the record only, so
+ * it asks only the `kept on` and replace questions.
+ */
+export async function setupValues(
+  sources: SetupValueSources,
+  choice: SetupValueChoice,
+): Promise<SetupValues> {
+  const places = placesToAsk(sources.fileValues, choice.profile, choice.record);
+  const replaced = replaceQuestions(choice);
+  if (choice.action === "stop") {
+    return { places, questions: replaced };
+  }
+  const moved = moveUserValues(sources.fileValues, {});
+  const profile: Profile = {
+    ...choice.profile,
+    values: { ...moved.profile, ...choice.profile.values },
+  };
+  const record: MachineRecord = {
+    ...choice.record,
+    values: { ...moved.machine, ...choice.record.values },
+  };
+  const env = {
+    repoRoot: sources.repoRoot,
+    state: sources.state,
+    home: sources.home,
+    os: sources.os,
+    config: sources.config,
+    layers: layersOf(stateLocation(sources.state), profile, record),
+    options: undefined,
+  };
+  const imported = await importValueAsks(env, IMPORT, sources.suggest);
+  const asked = new Set(imported.map((ask) => ask.placeholder));
+  // The export's sources run only for placeholders the import doesn't ask.
+  // shortcut: a source both lists name runs once per list.
+  const exported =
+    choice.action === "keep" && keepExports(sources.differ)
+      ? await exportValueAsks(env, (rules) =>
+          sources.suggest(rules.filter((rule) => !asked.has(rule.placeholder))),
+        )
+      : [];
+  const fills = [
+    ...imported,
+    ...exported.filter((ask) => !asked.has(ask.placeholder)),
+  ].map(fillQuestion);
+  return { places, questions: [...replaced, ...fills] };
+}
+
+/** An import or export value question as setup asks it. */
+function fillQuestion(ask: ImportValueAsk): SetupValueQuestion {
+  return {
+    kind: "fill",
+    placeholder: ask.placeholder,
+    text: ask.text,
+    ...(ask.suggestion !== undefined ? { guess: ask.suggestion } : {}),
+  };
+}
+
+/**
+ * Contract "mksync setup", Values: the answers saved with the record and the
+ * profile. A replace answer stays on the machine; any other goes where the
+ * placeholder already lives, else where the value table puts it (an unnamed
+ * one on the profile), as an import saves a value it asked.
+ */
+export function placeAnswers(
+  answers: readonly SetupValueAnswer[],
+  profile: Profile,
+  record: MachineRecord,
+): { readonly profile: Profile; readonly record: MachineRecord } {
+  const machine: Record<string, string> = { ...record.values };
+  const shared: Record<string, string> = { ...profile.values };
+  for (const answer of answers) {
+    const onMachine =
+      answer.kind === "replace" ||
+      Object.hasOwn(record.values, answer.placeholder) ||
+      (!Object.hasOwn(profile.values, answer.placeholder) &&
+        placeValue(answer.placeholder) === "machine");
+    if (onMachine) {
+      machine[answer.placeholder] = answer.value;
+    } else {
+      shared[answer.placeholder] = answer.value;
     }
   }
-  return values;
+  return {
+    profile: { ...profile, values: shared },
+    record: { ...record, values: machine },
+  };
 }
 
 /** True for the contract's bad-record line, the one `setup --replace` reads past. */
@@ -313,9 +423,9 @@ export function bootstrapRefusal(
 
 /**
  * Run `mksync setup` end to end: run the doctor, read the store and the scan,
- * run the flow, move `.user-values.json`, write the record and profile, run
- * the Ubuntu bootstrap when the flow chose it, then act on the fourth answer
- * (decision 9).
+ * run the flow, write the record and profile with `.user-values.json` and the
+ * values the flow asked, run the Ubuntu bootstrap when the flow chose it, then
+ * act on the fourth answer (decision 9). After the confirm nothing is asked.
  */
 export async function executeSetup(
   repoRoot: string,
@@ -390,6 +500,19 @@ export async function executeSetup(
 
   const scan = await readScan(process.env, os, home, config);
   const differ = await readDiffer(repoRoot, state, execute);
+  const fileValues = parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
+  const valueSources: SetupValueSources = {
+    repoRoot,
+    state,
+    home,
+    os,
+    config,
+    fileValues,
+    differ,
+    // Contract "Suggested answers": `setup --yes` runs the sources too, since
+    // its `Values:` block shows every guess before anything is written.
+    suggest: (rules) => suggestionSources(rules, { repoRoot }),
+  };
   const terminal = setupTerminal();
   const outcome = await runSetup(
     {
@@ -405,6 +528,7 @@ export async function executeSetup(
       bootstrapOffered: bootstrapScript(repoRoot, os) !== undefined,
       linkedFolders: (profile, record) =>
         readLinkedFolders(home, os, config, profile, record),
+      values: (choice) => setupValues(valueSources, choice),
     },
     terminal.io,
   );
@@ -416,34 +540,24 @@ export async function executeSetup(
     return failure(outcome.message, outcome.code);
   }
 
-  const values = parseValuesFile(readText(join(repoRoot, VALUES_FILE)));
-  const answers = await valueAnswers(
-    values,
-    outcome.profile,
-    outcome.record,
-    command,
-    terminal.io,
-  );
-  const machineValues = await replaceValues(
-    outcome.record,
-    outcome.replaced,
-    command,
-    terminal.io,
-  );
   // The confirm was answered yes, so the record and the profile are written
-  // after the value questions, which use the same reader as the flow: a piped
-  // answer left after the confirm reaches them, and `runBootstrap` closes the
-  // reader before the script gets the terminal.
+  // with every value the flow asked before the summary, placed by the value
+  // table, before keep's export, the import and the bootstrap run: none of
+  // them asks again. `runBootstrap` closes the reader before the script gets
+  // the terminal.
   try {
-    const moved = moveUserValues(values, answers);
-    const record: MachineRecord = {
-      ...outcome.record,
-      values: { ...moved.machine, ...machineValues },
-    };
-    const profile: Profile = {
-      ...outcome.profile,
-      values: { ...moved.profile, ...outcome.profile.values },
-    };
+    const moved = moveUserValues(fileValues, outcome.places);
+    const { profile, record } = placeAnswers(
+      outcome.values,
+      {
+        ...outcome.profile,
+        values: { ...moved.profile, ...outcome.profile.values },
+      },
+      {
+        ...outcome.record,
+        values: { ...moved.machine, ...outcome.record.values },
+      },
+    );
     try {
       writeProfile(state, profile);
     } catch (error) {
@@ -470,8 +584,8 @@ export async function executeSetup(
     // ends setup with its exit code; otherwise setup acts on it.
     if (outcome.bootstrap) {
       // Hotfix decision 2: the script's keep case only imports, so setup runs
-      // keep's export here, while its terminal is still open for the export's
-      // value questions. The script inherits stdout, so the export's output and
+      // keep's export here; its values were asked before the summary and are
+      // saved. The script inherits stdout, so the export's output and
       // the Pushed line go out first; a failed export returns its result and
       // the script never runs, the record and profile staying written.
       if (outcome.action === "keep") {
@@ -584,9 +698,9 @@ export async function exportKeep(
  * machine's own changes into the repo folder first, then imports. With a diff
  * that ran, `keep` exports only its `OUT` and `BOTH` paths, and with no such
  * path it runs only the import, printing no `Pushed into` line (hotfix decision 1).
- * The import reads its value answers from setup's own reader
- * (`options.terminal`), so piped answers left after the four questions still
- * reach it.
+ * Their value questions were asked before the summary and saved with the
+ * record, so neither asks one; they keep setup's reader (`options.terminal`)
+ * for anything else they read.
  */
 async function importAfterSetup(
   action: Exclude<ExistingAction, "stop">,
@@ -594,16 +708,7 @@ async function importAfterSetup(
   options: ExecuteOptions,
   differ: SetupDiffer,
 ): Promise<Result> {
-  const importCommand: RunCommand = {
-    kind: "run",
-    command: "import",
-    force: true,
-    preview: false,
-    check: false,
-    resetValues: false,
-    yes: false,
-    only: [],
-  };
+  const importCommand = IMPORT;
   if (action === "backup") {
     return execute(importCommand, options);
   }
