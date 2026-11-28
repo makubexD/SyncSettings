@@ -1,7 +1,8 @@
 import type { ClaudeMode, MachineRecord } from "./record.ts";
 import type { MachineScope } from "./scope.ts";
 
-/** The column every label's value starts in, per the contract's six lines. */
+/** The column every label's value starts in, per the contract's six lines;
+ * `profile show` uses it too. */
 const LABEL_WIDTH = 10;
 
 /** The contract's second setup question as `machine show` prints it. */
@@ -19,7 +20,8 @@ const NONE = "none";
 
 const RETIRED = "retired";
 
-function line(label: string, value: string): string {
+/** One `show` line: the label padded to the value column, then the value. */
+export function showLine(label: string, value: string): string {
   return `${label.padEnd(LABEL_WIDTH)}${value}`;
 }
 
@@ -44,15 +46,15 @@ export function renderMachineShow(
   scope: MachineScope,
 ): readonly string[] {
   const lines = [
-    line("machine", record.name),
-    line("profile", record.profile),
-    line("os", record.os),
-    line("claude", CLAUDE_LABELS[record.claude]),
-    line("mode", record.pullOnly ? PULL_ONLY_MODE : PUSH_MODE),
-    line("modules", modulesLine(scope)),
+    showLine("machine", record.name),
+    showLine("profile", record.profile),
+    showLine("os", record.os),
+    showLine("claude", CLAUDE_LABELS[record.claude]),
+    showLine("mode", record.pullOnly ? PULL_ONLY_MODE : PUSH_MODE),
+    showLine("modules", modulesLine(scope)),
   ];
   if (record.retired) {
-    lines.push(line(RETIRED, "yes"));
+    lines.push(showLine(RETIRED, "yes"));
   }
   return lines;
 }
