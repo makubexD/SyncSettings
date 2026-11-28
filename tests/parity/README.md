@@ -98,7 +98,9 @@ cases/<name>/
 the engine's state folder (`~/.local/state/sync-settings` on Linux and macOS, `%LOCALAPPDATA%\SyncSettings` on
 Windows), so a case can start from a recorded sync point; its files are compared like any the engine wrote. The
 record (`machine.json`) and profiles (`profiles/*.json`) go in with mode 600, as the program writes them, and the
-bash runner wants 600 for them in `expect/state/`, since git can't store that mode.
+bash runner wants 600 for them in `expect/state/`, since git can't store that mode. In a seeded `state/` file the bash runner
+replaces `<CASE_HOME>` with the case's temp home, so a layer can hold this machine's home folder (`<HOME>` stays
+as it is: cases use it as a placeholder name). The PowerShell runner doesn't yet; such a case is `os` linux only.
 
 `command` is one of `export`, `import`, `check` (`import --check`), `preview` (`export --preview`), `diff`
 (`export --diff`) and `commit`, the front door's `status`, `doctor`, `pull`, `push`, `front-diff`, `front-check` and

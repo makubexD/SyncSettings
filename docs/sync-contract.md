@@ -1249,7 +1249,8 @@ A whole-file move leaves `<key>` out of the first line, and its second line is `
 - The [leak scan](#export-preview) on a temporary copy of the clone with the move applied, as the preview runs it. A
   hit prints the scan's lines, then `refused: the leak scan found the lines above.`
 
-`would reach` names the group in lower case, as the profile-value rule does. Any refusal exits 1 and writes nothing.
+`would reach` names the group in lower case, as the profile-value rule does. The leak scan runs only when the first
+three checks refuse nothing. Any refusal exits 1 and writes nothing.
 
 **Preview and question.**
 

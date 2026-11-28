@@ -862,6 +862,15 @@ run_case() {
             || die 'setting the state record modes failed'
     fi
 
+    # <CASE_HOME> in a seeded state file stands for the case's temp home, so a
+    # case can hold this machine's home folder in a layer (not <HOME>, which
+    # is a placeholder name cases use).
+    if [[ -d $t/home/.local/state/sync-settings ]]; then
+        while IFS= read -r -d '' file; do
+            sed -i "s|<CASE_HOME>|$t/home|g" "$file" || die 'substituting <CASE_HOME> failed'
+        done < <(grep -rlFZ '<CASE_HOME>' "$t/home/.local/state/sync-settings")
+    fi
+
     stubs=$(jq -r '(.stubs // []) | join(" ")' "$dir/case.json") || die 'reading stubs failed'
     if [[ -n $stubs ]]; then
         path_env=(PATH="$t/bin:$PATH")
