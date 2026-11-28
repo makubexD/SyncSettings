@@ -10,7 +10,7 @@ import type {
   SetupInput,
   SetupOutcome,
 } from "./setup.ts";
-import { runSetup } from "./setup.ts";
+import { guessProfile, runSetup } from "./setup.ts";
 
 const TODAY = "2026-11-13";
 
@@ -117,6 +117,10 @@ const SCAN_BLOCK = [
 ].join("\n");
 
 const Q1 = "1/4 What is this machine for? ";
+const GUESS_PERSONAL = "Guess: personal (Linux, no domain).";
+const Q1_PERSONAL = `${Q1}[1] `;
+const LABEL_QUESTION = (profileName: string): string =>
+  ` Label for ${profileName}, to find it in lists (optional): `;
 const Q2 =
   "2/4 Claude here? 1) none  2) Claude only  3) Claude plus DeepSeek [2] ";
 const Q3 =
@@ -153,6 +157,7 @@ describe("runSetup", () => {
   test("should print the contract's layout for answers on stdin", async () => {
     const { outcome, output } = await run(input(), [
       "work-1",
+      "",
       "2",
       "1",
       "1",
@@ -161,10 +166,12 @@ describe("runSetup", () => {
     expect(output).toBe(
       [
         SCAN_BLOCK,
+        GUESS_PERSONAL,
+        "",
         "Profiles on this machine:",
         "  1) personal",
         "",
-        `${Q1}${Q2}${Q3}${Q4}`,
+        `${Q1_PERSONAL}${LABEL_QUESTION("work-1")}${Q2}${Q3}${Q4}`,
         "Machine wk1-laptop: profile work-1, Claude only, push with a preview.",
         "Same as: mksync setup --profile work-1 --name wk1-laptop --claude claude --mode push --existing backup",
         "Write the record and apply? [Y/n] ",
@@ -397,7 +404,7 @@ describe("runSetup", () => {
   });
 
   test("should take the suggestion on an empty answer and at end of input", async () => {
-    const { outcome } = await run(input(), ["work-1", "", "", "", ""]);
+    const { outcome } = await run(input(), ["work-1", "", "", "", "", ""]);
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.record.claude).toBe("claude");
     expect(outcome.action).toBe("backup");
@@ -411,14 +418,66 @@ describe("runSetup", () => {
       code: 2,
     });
     expect(yes.output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n`,
+      `${SCAN_BLOCK}\n${GUESS_PERSONAL}\n\nProfiles on this machine:\n  1) personal\n\n`,
     );
-    const eof = await run(input());
-    expect(eof.outcome).toEqual({
+  });
+
+  test("should take the guess at end of input on question 1", async () => {
+    const { outcome } = await run(input(), ["", "", "", "", "y"]);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.name).toBe("personal");
+  });
+
+  test("should suggest a new work profile by name and ask its label", async () => {
+    const setup = input({
+      scan: scan({ domain: "corp.example" }),
+      profiles: [profile("work-3")],
+    });
+    const { outcome, output } = await run(setup, ["", "", "", "", "", "y"]);
+    expect(output).toContain(
+      "Guess: new profile work4 (Linux, joined to a domain); other machines' profiles can't be seen while the repo is public, so check the number\n\n",
+    );
+    expect(output).toContain(`${Q1}[work4] ${LABEL_QUESTION("work4")}${Q2}`);
+    expect(output).not.toContain("corp.example\n\nProfiles");
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.name).toBe("work4");
+    expect(outcome.newProfile).toBe(true);
+  });
+
+  test("should take a private work guess under --yes", async () => {
+    const setup = input(
+      {
+        scan: scan({ domain: "corp.example" }),
+        profiles: [profile("work1"), { ...profile("work2"), retired: true }],
+        isPrivate: true,
+      },
+      { yes: true },
+    );
+    const { outcome, output } = await run(setup);
+    expect(output).toContain(
+      "Guess: new profile work3 (Linux, joined to a domain).\n\n",
+    );
+    expect(output).not.toContain(Q1);
+    if (!outcome.ok) throw new Error("expected ok");
+    expect(outcome.profile.name).toBe("work3");
+  });
+
+  test("should stop under --yes when the work guess is public", async () => {
+    const setup = input(
+      { scan: scan({ domain: "corp.example" }) },
+      { yes: true },
+    );
+    const { outcome } = await run(setup);
+    expect(outcome).toEqual({
       ok: false,
       message: "ERROR: missing --profile",
       code: 2,
     });
+  });
+
+  test("should print no guess when --profile decides", async () => {
+    const { output } = await run(input({}, { profile: "work-1" }), []);
+    expect(output).not.toContain("Guess:");
   });
 
   test("should ask the first question again after a bad answer", async () => {
@@ -432,7 +491,7 @@ describe("runSetup", () => {
       "",
     ]);
     expect(output).toContain(
-      `${Q1}Pick 1 to 1 or type a new profile name.\n${Q1}Pick 1 to 1 or type a new profile name.\n${Q1}`,
+      `${Q1_PERSONAL}Pick 1 to 1 or type a new profile name.\n${Q1_PERSONAL}Pick 1 to 1 or type a new profile name.\n${Q1_PERSONAL}`,
     );
     if (!outcome.ok) throw new Error("expected ok");
     expect(outcome.profile.name).toBe("personal");
@@ -491,7 +550,7 @@ describe("runSetup", () => {
       code: 2,
     });
     expect(output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q1}\n`,
+      `${SCAN_BLOCK}\n${GUESS_PERSONAL}\n\nProfiles on this machine:\n  1) personal\n\n${Q1_PERSONAL}\n`,
     );
     expect(output).not.toContain("2/4");
   });
@@ -561,7 +620,7 @@ describe("runSetup", () => {
       code: 1,
     });
     expect(output).toBe(
-      `${SCAN_BLOCK}\nProfiles on this machine:\n  1) personal\n\n${Q1}\n`,
+      `${SCAN_BLOCK}\n${GUESS_PERSONAL}\n\nProfiles on this machine:\n  1) personal\n\n${Q1_PERSONAL}\n`,
     );
     expect(output).not.toContain("2/4");
   });
@@ -590,7 +649,7 @@ describe("runSetup", () => {
     const setup = input({ profiles: [profile("work-1")], records: [record()] });
     const { output } = await run(setup, ["2"]);
     expect(output).not.toContain("This looks like");
-    expect(output).toContain(`${Q1}${Q2}`);
+    expect(output).toContain(`${Q1_PERSONAL}${Q2}`);
   });
 
   test("should replace a record from --replace, keeping its answers", async () => {
@@ -1146,5 +1205,77 @@ describe("runSetup linked folders", () => {
 
     // Assert
     expect(output).not.toContain("Sync it as a folder?");
+  });
+});
+
+describe("guessProfile", () => {
+  const PUBLIC = "public";
+  const PRIVATE = "private";
+  const DOMAIN = "corp.example";
+
+  test("should guess personal on Linux without a domain", () => {
+    expect(guessProfile(scan(), [], PUBLIC)).toEqual({
+      name: "personal",
+      reason: "personal (Linux, no domain).",
+      takenByYes: false,
+    });
+  });
+
+  test("should guess work1 on Linux with a domain", () => {
+    const guess = guessProfile(scan({ domain: DOMAIN }), [], PRIVATE);
+    expect(guess.name).toBe("work1");
+    expect(guess.reason).toBe("new profile work1 (Linux, joined to a domain).");
+    expect(guess.reason).not.toContain(DOMAIN);
+  });
+
+  test("should guess work1 on Windows and on macOS without a domain", () => {
+    expect(guessProfile(scan({ os: "windows" }), [], PRIVATE).reason).toBe(
+      "new profile work1 (Windows).",
+    );
+    expect(guessProfile(scan({ os: "macos" }), [], PRIVATE).reason).toBe(
+      "new profile work1 (macOS).",
+    );
+  });
+
+  test("should number past work1, work-3 and a retired work4", () => {
+    const known = ["personal", "work1", "work-3", "work4"];
+    expect(guessProfile(scan({ os: "windows" }), known, PRIVATE).name).toBe(
+      "work5",
+    );
+  });
+
+  test("should not count workbench or work-x", () => {
+    const known = ["workbench", "work-x", "work"];
+    expect(guessProfile(scan({ os: "windows" }), known, PRIVATE).name).toBe(
+      "work1",
+    );
+  });
+
+  test("should add the public note only while public", () => {
+    const winScan = scan({ os: "windows" });
+    expect(guessProfile(winScan, [], PUBLIC).reason).toBe(
+      "new profile work1 (Windows); other machines' profiles can't be seen while the repo is public, so check the number",
+    );
+    expect(guessProfile(winScan, [], PRIVATE).reason).not.toContain("public");
+    expect(guessProfile(scan(), [], PUBLIC).reason).not.toContain("public");
+  });
+
+  test("should let --yes take only a private work guess", () => {
+    const winScan = scan({ os: "windows" });
+    expect(guessProfile(winScan, [], PRIVATE).takenByYes).toBe(true);
+    expect(guessProfile(winScan, [], PUBLIC).takenByYes).toBe(false);
+    expect(guessProfile(scan(), [], PRIVATE).takenByYes).toBe(false);
+  });
+});
+
+describe("runSetup profile guess and the hostname match", () => {
+  test("should print no guess when the hostname match decides", async () => {
+    const setup = input({
+      profiles: [profile("work-1")],
+      records: [record()],
+      isPrivate: true,
+    });
+    const { output } = await run(setup, ["", "", ""]);
+    expect(output).not.toContain("Guess:");
   });
 });

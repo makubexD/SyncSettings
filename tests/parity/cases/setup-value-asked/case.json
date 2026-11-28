@@ -43,7 +43,7 @@
   "commands": [
     {
       "command": "setup",
-      "stdin": "work-1\n2\n1\n1\n\nJane Doe\n"
+      "stdin": "work-1\n\n2\n1\n1\n\nJane Doe\n"
     }
   ]
 }

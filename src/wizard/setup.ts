@@ -391,12 +391,69 @@ function newProfileModules(
   );
 }
 
+/** The profile guess: its name, the line's reason and whether `--yes` may take it. */
+export interface ProfileGuess {
+  readonly name: string;
+  /** What follows `Guess: ` on the printed line, final period included. */
+  readonly reason: string;
+  readonly takenByYes: boolean;
+}
+
+const WORK_NAME = /^work-?(\d+)$/;
+
+const OS_LABELS: Readonly<Record<Os, string>> = {
+  linux: "Linux",
+  windows: "Windows",
+  macos: "macOS",
+};
+
+/**
+ * Decision 1 of the smart-first-run plan, contract "The profile guess": from
+ * the scan only (never the domain's name). Linux with no domain is `personal`;
+ * anything else is a new `work<n>`, one past the largest `work<n>` or
+ * `work-<n>` among `knownProfiles` (retired and local ones included).
+ */
+export function guessProfile(
+  scan: Scan,
+  knownProfiles: readonly string[],
+  visibility: "public" | "private",
+): ProfileGuess {
+  const hasDomain = scan.domain !== null && scan.domain !== "";
+  if (scan.os === "linux" && !hasDomain) {
+    return {
+      name: PERSONAL,
+      reason: "personal (Linux, no domain).",
+      takenByYes: false,
+    };
+  }
+  let highest = 0;
+  for (const known of knownProfiles) {
+    const found = WORK_NAME.exec(known);
+    if (found !== null) {
+      highest = Math.max(highest, Number(found[1]));
+    }
+  }
+  const name = `work${highest + 1}`;
+  const where =
+    scan.os === "linux" ? "Linux, joined to a domain" : OS_LABELS[scan.os];
+  const isPublic = visibility === "public";
+  const note = isPublic
+    ? "; other machines' profiles can't be seen while the repo is public, so check the number"
+    : ".";
+  return {
+    name,
+    reason: `new profile ${name} (${where})${note}`,
+    takenByYes: !isPublic,
+  };
+}
+
 /** Asks one question until it gets a usable answer, or returns `undefined` at
- * end of input when there is no suggestion. */
+ * end of input when there is no suggestion. A suggestion is a list number or
+ * a new profile's name. */
 async function ask<T>(
   io: SetupIo,
   question: string,
-  suggestion: number | undefined,
+  suggestion: number | string | undefined,
   read: (answer: string) => T | undefined,
   retry: string,
 ): Promise<T | undefined> {
@@ -543,24 +600,46 @@ export async function runSetup(
   }
 
   const names = listedProfiles(input.profiles);
+  const decidedProfile = replacing?.profile ?? flags.profile;
   const match =
     replacing === undefined && flags.name === undefined
       ? hostnameMatch(input)
       : undefined;
   io.write(renderScan(scan));
+  // Contract "The profile guess": printed only when nothing else decides it.
+  const guess =
+    decidedProfile === undefined && match === undefined
+      ? guessProfile(
+          scan,
+          input.profiles.map((profile) => profile.name),
+          input.isPrivate ? "private" : "public",
+        )
+      : undefined;
+  if (guess !== undefined) {
+    io.write(`Guess: ${guess.reason}\n\n`);
+  }
   io.write(renderProfiles(input, names, match));
 
   let asked = false;
-  let profileName = replacing?.profile ?? flags.profile;
+  let askedProfile = false;
+  let profileName = decidedProfile;
   if (profileName === undefined) {
-    const suggestion =
-      match === undefined ? undefined : names.indexOf(match.profile) + 1;
-    if (flags.yes === true && suggestion === undefined) {
+    let suggestion: number | string | undefined;
+    if (match !== undefined) {
+      suggestion = names.indexOf(match.profile) + 1;
+    } else if (guess !== undefined) {
+      const listed = names.indexOf(guess.name);
+      suggestion = listed === -1 ? guess.name : listed + 1;
+    }
+    const yesTakes = match !== undefined || (guess?.takenByYes ?? false);
+    if (flags.yes === true && !yesTakes) {
       return stop("ERROR: missing --profile", 2);
     }
     if (flags.yes === true) {
-      profileName = names[(suggestion as number) - 1];
+      profileName =
+        typeof suggestion === "number" ? names[suggestion - 1] : suggestion;
     } else {
+      askedProfile = true;
       asked = true;
       profileName = await ask(
         io,
@@ -613,6 +692,18 @@ export async function runSetup(
     );
   }
 
+  if (
+    askedProfile &&
+    replacing === undefined &&
+    profileName !== PERSONAL &&
+    profileNamed(input, profileName) === undefined
+  ) {
+    // Contract "Label": the question only; saving and validating `--label`
+    // is the plan's profile-label step, so the answer is discarded here.
+    // TODO(plan-smart-first-run-2, profile label): keep and validate the answer.
+    io.write(` Label for ${profileName}, to find it in lists (optional): `);
+    await io.readLine();
+  }
   let claude = replacing?.claude;
   let mode: SetupMode | undefined =
     replacing === undefined
