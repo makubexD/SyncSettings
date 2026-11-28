@@ -429,6 +429,71 @@ describe("executeCommit", () => {
     );
   });
 
+  test("should take the suggestion without asking when push runs with --yes", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture({ remote: true });
+    const location = stateLocation(state);
+    const record = machineRecord();
+    writeStoreRecord(location, record);
+    const prompts: string[] = [];
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: { ...COMMAND, yes: true },
+      record,
+      askAlias: async (prompt) => {
+        prompts.push(prompt);
+        return undefined;
+      },
+    });
+
+    // Assert
+    expect(result.code).toBe(0);
+    expect(prompts).toEqual([]);
+    const saved = JSON.parse(readFileSync(location.recordFile, "utf8")) as {
+      alias?: string;
+    };
+    expect(saved.alias).toBe(PROFILE_ALIAS);
+  });
+
+  test("should stop with the no-public-name error under --yes when the suggestion is refused", async () => {
+    // Arrange
+    const { repoRoot, state } = fixture();
+    const location = stateLocation(state);
+    const record = machineRecord({ hostname: PROFILE_ALIAS });
+    writeStoreRecord(location, record);
+    const before = readFileSync(location.recordFile, "utf8");
+    const prompts: string[] = [];
+
+    // Act
+    const result = await executeCommit({
+      repoRoot,
+      config: CONFIG,
+      state,
+      os: "linux",
+      location,
+      command: { ...COMMAND, yes: true },
+      record,
+      askAlias: async (prompt) => {
+        prompts.push(prompt);
+        return "";
+      },
+    });
+
+    // Assert
+    expect(result.code).toBe(1);
+    expect(prompts).toEqual([]);
+    expect(result.stderr).toBe(
+      `ERROR: machine ${RECORD_NAME} has no public name yet; run mksync push in a terminal to set one.\n`,
+    );
+    expect(readFileSync(location.recordFile, "utf8")).toBe(before);
+  });
+
   test("should refuse an empty answer and write nothing when there is no suggestion", async () => {
     // Arrange
     const { repoRoot, state } = fixture();
