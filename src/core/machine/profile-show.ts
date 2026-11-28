@@ -1,7 +1,5 @@
 import type { Profile } from "../config/profile.ts";
-import { showLine } from "./show.ts";
-
-const NONE = "none";
+import { NONE, showLine } from "./show.ts";
 
 /** A list joined with `, `, or `none` when it is empty. */
 function listOrNone(items: readonly string[]): string {

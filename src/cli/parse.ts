@@ -249,6 +249,12 @@ const GROUP_VERBS = {
 
 type GroupName = keyof typeof GROUP_VERBS;
 
+/** `<group> <verb>` for every verb in GROUP_VERBS. Each must be a HelpTopic,
+ * so a verb added without its help text fails the type check. */
+type GroupVerbTopic = {
+  [G in GroupName]: `${G} ${(typeof GROUP_VERBS)[G][number]}`;
+}[GroupName];
+
 /** The commands that are one word, each its own help topic. */
 const COMMAND_TOPICS: readonly HelpTopic[] = [
   "status",
@@ -429,7 +435,9 @@ function parseHelp(argv: readonly string[]): HelpCommand | ParseError {
   if (!verbs.includes(verb)) {
     return groupUnknownVerb(first, verb);
   }
-  return { kind: "help", topic: `${first} ${verb}` as HelpTopic };
+  // `verb` is one of `first`'s verbs, checked above.
+  const topic: GroupVerbTopic = `${first} ${verb}` as GroupVerbTopic;
+  return { kind: "help", topic };
 }
 
 /** Every parse error is a usage error, so it exits 2 (decision 7). */

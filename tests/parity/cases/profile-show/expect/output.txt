@@ -2,7 +2,7 @@ profile   work1
 label     job 1 laptop
 modules   git, vscode
 values    <WORK_EMAIL>, <WORK_ORG>
-layer     1 file(s): vscode/settings.json
+layer     3 file(s): vscode/settings.json, vscode/snippets/a.json, vscode/snippets/sub/b.json
 profile   work2
 modules   git
 values    none

@@ -1,11 +1,17 @@
 {
-  "description": "profile show prints a profile's name, label, modules, value keys (never the values) and layer files, this machine's profile by default; a retired profile adds retired yes; a missing profile is exit 1, a second positional exit 2; nothing is written (Machines (program only), mksync profile show).",
-  "os": ["linux"],
+  "description": "profile show prints a profile's name, label, modules, value keys (never the values) and layer files (a dir entry's as <file>/<name inside>), this machine's profile by default; a retired profile adds retired yes; a missing profile is exit 1, a second positional exit 2; nothing is written (Machines (program only), mksync profile show).",
+  "os": [
+    "linux"
+  ],
   "configV2": {
     "schemaVersion": 2,
     "modules": {
-      "git": { "description": "Git settings" },
-      "vscode": { "description": "VS Code settings" }
+      "git": {
+        "description": "Git settings"
+      },
+      "vscode": {
+        "description": "VS Code settings"
+      }
     },
     "entries": [
       {
@@ -21,6 +27,13 @@
         "merge": "whole",
         "localPath": "~/.config/parity/settings.json",
         "description": "VS Code user settings"
+      },
+      {
+        "file": "vscode/snippets",
+        "module": "vscode",
+        "merge": "dir",
+        "localPath": "~/.config/parity/snippets",
+        "description": "VS Code snippets"
       }
     ]
   },
@@ -30,9 +43,41 @@
     "SYNC_TOOLS": "git,gh,claude"
   },
   "commands": [
-    { "command": "args", "argv": ["profile", "show"], "stderr": true },
-    { "command": "args", "argv": ["profile", "show", "work2"], "stderr": true },
-    { "command": "args", "argv": ["profile", "show", "work9"], "stderr": true },
-    { "command": "args", "argv": ["profile", "show", "work1", "x"], "stderr": true }
+    {
+      "command": "args",
+      "argv": [
+        "profile",
+        "show"
+      ],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": [
+        "profile",
+        "show",
+        "work2"
+      ],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": [
+        "profile",
+        "show",
+        "work9"
+      ],
+      "stderr": true
+    },
+    {
+      "command": "args",
+      "argv": [
+        "profile",
+        "show",
+        "work1",
+        "x"
+      ],
+      "stderr": true
+    }
   ]
 }

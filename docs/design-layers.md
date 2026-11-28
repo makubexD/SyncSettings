@@ -1488,6 +1488,19 @@ install").
 - **A hint after `Unknown option:` (smart first run phase 4).** `Unknown option: <arg>` keeps its wording and gets no
   hint line. Open: add `Run mksync <command> --help for its options.`; the line appears in about ten contract places
   and no shared case, so it can follow in a later phase.
+- **The not-found path with a repo store (smart first run phase 4 review, 2026-11-28).** `profile show` and
+  `profile retire` print `ERROR: profile <name> not found: <state>/profiles/<name>.json`, as the contract says, but a
+  pointer record reads profiles from the clone's `profiles/`, where `readStore`'s own error says
+  `profiles/<name>.json`. Open: print the folder the store was read from, and add a pointer-record shared case for
+  `profile show` (a missing name and a layer read from the repo store). Settle before the private switch.
+- **Enter at pull's `[Y/n]` without a terminal (smart first run phase 4 security review).** Decision 6 makes an empty
+  line consent, so a piped blank line (`yes '' | mksync pull`) or an Enter typed ahead while the fetch and check run
+  applies the repo's files. The guard has passed by then and each file keeps its `.bak`. Open: take an empty answer as
+  yes only when stdin is a terminal, and drain typed-ahead input before the question.
+- **Echoed arguments keep control characters (smart first run phase 4 security review).** `Unknown option: <arg>`,
+  `ERROR: unknown command <word>`, `ERROR: unknown <group> command <verb>` and the profile not-found lines print the
+  argument as typed, escape sequences included. Open: one escaper (the `CONTROL_CHARACTER` class in
+  `src/core/answer.ts`) for every echoed argument, and a `<KEY>` shape check on profile value keys.
 - **The `kept on` answer has no flag (smart first run phase 2, 2026-11-27).** Setup's `<KEY>: kept on …` question
   (a `.user-values.json` placeholder the value table doesn't name) now comes before the summary, but no flag answers
   it, so `Same as:` can't reproduce answer `2` (this machine), and `--yes` always takes `1`. Open: a flag such as

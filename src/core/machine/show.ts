@@ -16,7 +16,8 @@ const PUSH_MODE = "push with a preview";
 
 const PULL_ONLY_MODE = "pull only";
 
-const NONE = "none";
+/** What a `show` line prints for an empty list. */
+export const NONE = "none";
 
 const RETIRED = "retired";
 
