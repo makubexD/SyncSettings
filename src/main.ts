@@ -42,6 +42,7 @@ import type { ConfigV2, Os } from "./core/config/types.ts";
 import { configuredLocal } from "./core/plan/pick.ts";
 import { executeRetire } from "./app/retire.ts";
 import { executeSetup } from "./app/setup.ts";
+import { runSettingList } from "./app/setting.ts";
 import { executeStatus, fetchOrigin, unsentCount } from "./app/status.ts";
 import {
   defaultUpdateDeps,
@@ -523,10 +524,9 @@ async function execute(
     case "machine-retire":
     case "profile-retire":
       return executeRetire(repoRoot, config.value, state, command);
-    case "setting-list":
     case "setting-move":
-      // shortcut: parsed since plan smart-first-run-3 step 2; steps 5 and 10
-      // replace this with the commands themselves.
+      // shortcut: parsed since plan smart-first-run-3 step 2; step 10
+      // replaces this with the command itself.
       return failure(
         `ERROR: mksync ${command.kind.replace("-", " ")} is not built yet.`,
       );
@@ -534,6 +534,7 @@ async function execute(
     case "status":
     case "doctor":
     case "machine-show":
+    case "setting-list":
     case "run":
       break;
     default: {
@@ -573,6 +574,15 @@ async function execute(
       });
     case "status":
       return executeStatus({
+        repoRoot,
+        config: config.value,
+        os: os.value,
+        home,
+        state,
+        layers: layers.value,
+      });
+    case "setting-list":
+      return runSettingList(command, {
         repoRoot,
         config: config.value,
         os: os.value,
